@@ -1126,21 +1126,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         db_options_.wal_recovery_mode, !continue_replay_log);
 
     // Determine if we should tolerate incomplete records at the tail end of the
-    // log
-    bool report_eof_inconsistency;
-    if (db_options_.wal_recovery_mode ==
-        WALRecoveryMode::kAbsoluteConsistency) {
-      // in clean shutdown we don't expect any error in the log files
-      report_eof_inconsistency = true;
-    } else {
-      // for other modes ignore only incomplete records in the last log file
-      // which is presumably due to write in progress during restart
-      report_eof_inconsistency = false;
-
-      // TODO krad: Evaluate if we need to move to a more strict mode where we
-      // restrict the inconsistency to only the last log
-    }
-
     // Read all the records and add to a memtable
     std::string scratch;
     Slice record;
@@ -1155,9 +1140,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
     }
 
-    while (continue_replay_log &&
-           reader.ReadRecord(&record, &scratch, report_eof_inconsistency) &&
-           status.ok()) {
+    while (
+        continue_replay_log &&
+        reader.ReadRecord(&record, &scratch, db_options_.wal_recovery_mode) &&
+        status.ok()) {
       if (record.size() < 12) {
         reporter.Corruption(record.size(),
                             Status::Corruption("log record too small"));

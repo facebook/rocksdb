@@ -14,6 +14,7 @@
 #include "db/log_format.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
@@ -65,7 +66,8 @@ class Reader {
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
   bool ReadRecord(Slice* record, std::string* scratch,
-                  bool report_eof_inconsistency = false);
+                  WALRecoveryMode wal_recovery_mode =
+                      WALRecoveryMode::kTolerateCorruptedTailRecords);
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -128,8 +130,9 @@ class Reader {
   bool SkipToInitialBlock();
 
   // Return type, or one of the preceding special values
-  unsigned int ReadPhysicalRecord(Slice* result,
-                                  bool report_eof_inconsistency = false);
+  unsigned int ReadPhysicalRecord(
+      Slice* result, WALRecoveryMode wal_recovery_mode =
+                         WALRecoveryMode::kTolerateCorruptedTailRecords);
 
   // Reports dropped bytes to the reporter.
   // buffer_ must be updated to remove the dropped bytes prior to invocation.

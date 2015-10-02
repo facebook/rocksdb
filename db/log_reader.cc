@@ -66,8 +66,15 @@ bool Reader::SkipToInitialBlock() {
   return true;
 }
 
+// For kAbsoluteConsistency, on clean shutdown we don't expect any error
+// in the log files.  For other modes, we can ignore only incomplete records
+// in the last log file, which are presumably due to a write in progress
+// during restart (or from log recycling).
+//
+// TODO krad: Evaluate if we need to move to a more strict mode where we
+// restrict the inconsistency to only the last log
 bool Reader::ReadRecord(Slice* record, std::string* scratch,
-                        const bool report_eof_inconsistency) {
+                        WALRecoveryMode wal_recovery_mode) {
   if (last_record_offset_ < initial_offset_) {
     if (!SkipToInitialBlock()) {
       return false;
@@ -85,7 +92,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   while (true) {
     uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
     const unsigned int record_type =
-        ReadPhysicalRecord(&fragment, report_eof_inconsistency);
+        ReadPhysicalRecord(&fragment, wal_recovery_mode);
     switch (record_type) {
       case kFullType:
         if (in_fragmented_record && !scratch->empty()) {
@@ -137,7 +144,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
 
       case kEof:
         if (in_fragmented_record) {
-          if (report_eof_inconsistency) {
+          if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
+            // in clean shutdown we don't expect any error in the log files
             ReportCorruption(scratch->size(), "error reading trailing data");
           }
           // This can be caused by the writer dying immediately after
@@ -249,7 +257,7 @@ void Reader::ReportDrop(size_t bytes, const Status& reason) {
 }
 
 unsigned int Reader::ReadPhysicalRecord(Slice* result,
-                                        const bool report_eof_inconsistency) {
+                                        WALRecoveryMode wal_recovery_mode) {
   while (true) {
     if (buffer_.size() < (size_t)kHeaderSize) {
       if (!eof_ && !read_error_) {
@@ -272,7 +280,9 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result,
         //  end of the file, which can be caused by the writer crashing in the
         //  middle of writing the header. Unless explicitly requested we don't
         //  considering this an error, just report EOF.
-        if (buffer_.size() && report_eof_inconsistency) {
+        if (buffer_.size() &&
+            wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
+          // in clean shutdown we don't expect any error in the log files
           ReportCorruption(buffer_.size(), "truncated header");
         }
         buffer_.clear();
@@ -296,7 +306,9 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result,
       // If the end of the file has been reached without reading |length| bytes
       // of payload, assume the writer died in the middle of writing the record.
       // Don't report a corruption unless requested.
-      if (drop_size && report_eof_inconsistency) {
+      if (drop_size &&
+          wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
+        // in clean shutdown we don't expect any error in the log files
         ReportCorruption(drop_size, "truncated header");
       }
       return kEof;
