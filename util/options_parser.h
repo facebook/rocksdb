@@ -45,8 +45,15 @@ class RocksDBOptionsParser {
                                           const bool trim_only = false);
 
   const DBOptions* db_opt() const { return &db_opt_; }
+  const std::unordered_map<std::string, std::string>* db_opt_map() const {
+    return &db_opt_map_;
+  }
   const std::vector<ColumnFamilyOptions>* cf_opts() const { return &cf_opts_; }
   const std::vector<std::string>* cf_names() const { return &cf_names_; }
+  const std::vector<std::unordered_map<std::string, std::string>>* cf_opt_maps()
+      const {
+    return &cf_opt_maps_;
+  }
 
   const ColumnFamilyOptions* GetCFOptions(const std::string& name) const {
     assert(cf_names_.size() == cf_opts_.size());
@@ -64,11 +71,15 @@ class RocksDBOptionsParser {
       const std::vector<ColumnFamilyOptions>& cf_opts,
       const std::string& file_name, Env* env);
 
-  static Status VerifyDBOptions(const DBOptions& base_opt,
-                                const DBOptions& new_opt);
+  static Status VerifyDBOptions(
+      const DBOptions& base_opt, const DBOptions& new_opt,
+      const std::unordered_map<std::string, std::string>* new_opt_map =
+          nullptr);
 
-  static Status VerifyCFOptions(const ColumnFamilyOptions& base_opt,
-                                const ColumnFamilyOptions& new_opt);
+  static Status VerifyCFOptions(
+      const ColumnFamilyOptions& base_opt, const ColumnFamilyOptions& new_opt,
+      const std::unordered_map<std::string, std::string>* new_opt_map =
+          nullptr);
 
   static Status ExtraParserCheck(const RocksDBOptionsParser& input_parser);
 
@@ -97,8 +108,10 @@ class RocksDBOptionsParser {
 
  private:
   DBOptions db_opt_;
+  std::unordered_map<std::string, std::string> db_opt_map_;
   std::vector<std::string> cf_names_;
   std::vector<ColumnFamilyOptions> cf_opts_;
+  std::vector<std::unordered_map<std::string, std::string>> cf_opt_maps_;
   bool has_version_section_;
   bool has_db_options_;
   bool has_default_cf_options_;

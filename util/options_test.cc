@@ -16,7 +16,9 @@
 #include <inttypes.h>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/leveldb_options.h"
@@ -748,7 +750,132 @@ TEST_F(OptionsTest, DBOptionsSerialization) {
 }
 
 namespace {
+CompressionType RandomCompressionType(Random* rnd) {
+  return static_cast<CompressionType>(rnd->Uniform(6));
+}
 
+void RandomCompressionTypeVector(const size_t count,
+                                 std::vector<CompressionType>* types,
+                                 Random* rnd) {
+  types->clear();
+  for (size_t i = 0; i < count; ++i) {
+    types->emplace_back(RandomCompressionType(rnd));
+  }
+}
+
+const SliceTransform* RandomSliceTransform(Random* rnd, int pre_defined = -1) {
+  int random_num = pre_defined >= 0 ? pre_defined : rnd->Uniform(4);
+  switch (random_num) {
+    case 0:
+      return NewFixedPrefixTransform(rnd->Uniform(20) + 1);
+    case 1:
+      return NewCappedPrefixTransform(rnd->Uniform(20) + 1);
+    case 2:
+      return NewNoopTransform();
+    default:
+      return nullptr;
+  }
+}
+
+TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1) {
+  int random_num = pre_defined >= 0 ? pre_defined : rnd->Uniform(3);
+  switch (random_num) {
+    case 0:
+      return NewPlainTableFactory();
+    case 1:
+      return NewCuckooTableFactory();
+    default:
+      return NewBlockBasedTableFactory();
+  }
+}
+
+std::string RandomString(Random* rnd, const size_t len) {
+  std::stringstream ss;
+  for (size_t i = 0; i < len; ++i) {
+    ss << static_cast<char>(rnd->Uniform(26) + 'a');
+  }
+  return ss.str();
+}
+
+class ChanglingMergeOperator : public MergeOperator {
+ public:
+  explicit ChanglingMergeOperator(const std::string& name)
+      : name_(name + "MergeOperator") {}
+  ~ChanglingMergeOperator() {}
+
+  void SetName(const std::string& name) { name_ = name; }
+
+  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
+                         const std::deque<std::string>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const override {
+    return false;
+  }
+  virtual bool PartialMergeMulti(const Slice& key,
+                                 const std::deque<Slice>& operand_list,
+                                 std::string* new_value,
+                                 Logger* logger) const override {
+    return false;
+  }
+  virtual const char* Name() const override { return name_.c_str(); }
+
+ protected:
+  std::string name_;
+};
+
+MergeOperator* RandomMergeOperator(Random* rnd) {
+  return new ChanglingMergeOperator(RandomString(rnd, 10));
+}
+
+class ChanglingCompactionFilter : public CompactionFilter {
+ public:
+  explicit ChanglingCompactionFilter(const std::string& name)
+      : name_(name + "CompactionFilter") {}
+  ~ChanglingCompactionFilter() {}
+
+  void SetName(const std::string& name) { name_ = name; }
+
+  bool Filter(int level, const Slice& key, const Slice& existing_value,
+              std::string* new_value, bool* value_changed) const override {
+    return false;
+  }
+
+  const char* Name() const override { return name_.c_str(); }
+
+ private:
+  std::string name_;
+};
+
+CompactionFilter* RandomCompactionFilter(Random* rnd) {
+  return new ChanglingCompactionFilter(RandomString(rnd, 10));
+}
+
+class ChanglingCompactionFilterFactory : public CompactionFilterFactory {
+ public:
+  explicit ChanglingCompactionFilterFactory(const std::string& name)
+      : name_(name + "CompactionFilterFactory") {}
+  ~ChanglingCompactionFilterFactory() {}
+
+  void SetName(const std::string& name) { name_ = name; }
+
+  std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) override {
+    return std::unique_ptr<CompactionFilter>();
+  }
+
+  // Returns a name that identifies this compaction filter factory.
+  const char* Name() const override { return name_.c_str(); }
+
+ protected:
+  std::string name_;
+};
+
+CompactionFilterFactory* RandomCompactionFilterFactory(Random* rnd) {
+  return new ChanglingCompactionFilterFactory(RandomString(rnd, 10));
+}
+
+// Note that the caller is responsible for releasing non-null
+// cf_opt->compaction_filter.
 void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->compaction_style = (CompactionStyle)(rnd->Uniform(4));
 
@@ -803,6 +930,21 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
+
+  // pointer typed options
+  cf_opt->prefix_extractor.reset(RandomSliceTransform(rnd));
+  cf_opt->table_factory.reset(RandomTableFactory(rnd));
+  cf_opt->merge_operator.reset(RandomMergeOperator(rnd));
+  if (cf_opt->compaction_filter) {
+    delete cf_opt->compaction_filter;
+  }
+  cf_opt->compaction_filter = RandomCompactionFilter(rnd);
+  cf_opt->compaction_filter_factory.reset(RandomCompactionFilterFactory(rnd));
+
+  // custom typed options
+  cf_opt->compression = RandomCompressionType(rnd);
+  RandomCompressionTypeVector(cf_opt->num_levels,
+                              &cf_opt->compression_per_level, rnd);
 }
 
 }  // namespace
@@ -824,6 +966,9 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       ColumnFamilyOptions(), base_options_file_content, &new_opt));
   ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_opt, new_opt));
+  if (base_opt.compaction_filter) {
+    delete base_opt.compaction_filter;
+  }
 }
 
 #endif  // !ROCKSDB_LITE
@@ -1268,12 +1413,101 @@ TEST_F(OptionsParserTest, ParseVersion) {
   }
 }
 
+void VerifyCFPointerTypedOptions(
+    ColumnFamilyOptions* base_cf_opt, const ColumnFamilyOptions* new_cf_opt,
+    const std::unordered_map<std::string, std::string>* new_cf_opt_map) {
+  std::string name_buffer;
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
+                                                  new_cf_opt_map));
+
+  // change the name of merge operator back-and-forth
+  {
+    auto* merge_operator = dynamic_cast<ChanglingMergeOperator*>(
+        base_cf_opt->merge_operator.get());
+    if (merge_operator != nullptr) {
+      name_buffer = merge_operator->Name();
+      // change the name  and expect non-ok status
+      merge_operator->SetName("some-other-name");
+      ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
+          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+      // change the name back and expect ok status
+      merge_operator->SetName(name_buffer);
+      ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
+                                                      new_cf_opt_map));
+    }
+  }
+
+  // change the name of the compaction filter factory back-and-forth
+  {
+    auto* compaction_filter_factory =
+        dynamic_cast<ChanglingCompactionFilterFactory*>(
+            base_cf_opt->compaction_filter_factory.get());
+    if (compaction_filter_factory != nullptr) {
+      name_buffer = compaction_filter_factory->Name();
+      // change the name and expect non-ok status
+      compaction_filter_factory->SetName("some-other-name");
+      ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
+          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+      // change the name back and expect ok status
+      compaction_filter_factory->SetName(name_buffer);
+      ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
+                                                      new_cf_opt_map));
+    }
+  }
+
+  // test by setting compaction_filter to nullptr
+  {
+    auto* tmp_compaction_filter = base_cf_opt->compaction_filter;
+    if (tmp_compaction_filter != nullptr) {
+      base_cf_opt->compaction_filter = nullptr;
+      // set compaction_filter to nullptr and expect non-ok status
+      ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
+          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+      // set the value back and expect ok status
+      base_cf_opt->compaction_filter = tmp_compaction_filter;
+      ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
+                                                      new_cf_opt_map));
+    }
+  }
+
+  // test by setting table_factory to nullptr
+  {
+    auto tmp_table_factory = base_cf_opt->table_factory;
+    if (tmp_table_factory != nullptr) {
+      base_cf_opt->table_factory.reset();
+      // set table_factory to nullptr and expect non-ok status
+      ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
+          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+      // set the value back and expect ok status
+      base_cf_opt->table_factory = tmp_table_factory;
+      ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
+                                                      new_cf_opt_map));
+    }
+  }
+
+  // test by setting memtable_factory to nullptr
+  {
+    auto tmp_memtable_factory = base_cf_opt->memtable_factory;
+    if (tmp_memtable_factory != nullptr) {
+      base_cf_opt->memtable_factory.reset();
+      // set memtable_factory to nullptr and expect non-ok status
+      ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
+          *base_cf_opt, *new_cf_opt, new_cf_opt_map));
+      // set the value back and expect ok status
+      base_cf_opt->memtable_factory = tmp_memtable_factory;
+      ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*base_cf_opt, *new_cf_opt,
+                                                      new_cf_opt_map));
+    }
+  }
+}
+
 TEST_F(OptionsParserTest, DumpAndParse) {
   DBOptions base_db_opt;
   std::vector<ColumnFamilyOptions> base_cf_opts;
-  std::vector<std::string> cf_names = {
-      // special characters are also included.
-      "default", "p\\i\\k\\a\\chu\\\\\\", "###rocksdb#1-testcf#2###"};
+  std::vector<std::string> cf_names = {"default", "cf1", "cf2", "cf3",
+                                       "c:f:4:4:4"
+                                       "p\\i\\k\\a\\chu\\\\\\",
+                                       "###rocksdb#1-testcf#2###"};
   const int num_cf = static_cast<int>(cf_names.size());
   Random rnd(302);
   RandomInitDBOptions(&base_db_opt, &rnd);
@@ -1282,6 +1516,12 @@ TEST_F(OptionsParserTest, DumpAndParse) {
     ColumnFamilyOptions cf_opt;
     Random cf_rnd(0xFB + c);
     RandomInitCFOptions(&cf_opt, &cf_rnd);
+    if (c < 4) {
+      cf_opt.prefix_extractor.reset(RandomSliceTransform(&rnd, c));
+    }
+    if (c < 3) {
+      cf_opt.table_factory.reset(RandomTableFactory(&rnd, c));
+    }
     base_cf_opts.emplace_back(cf_opt);
   }
 
@@ -1300,13 +1540,29 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   for (int c = 0; c < num_cf; ++c) {
     const auto* cf_opt = parser.GetCFOptions(cf_names[c]);
     ASSERT_NE(cf_opt, nullptr);
-    ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*cf_opt, base_cf_opts[c]));
+    ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
+        base_cf_opts[c], *cf_opt, &(parser.cf_opt_maps()->at(c))));
   }
+
+  // Further verify pointer-typed options
+  for (int c = 0; c < num_cf; ++c) {
+    const auto* cf_opt = parser.GetCFOptions(cf_names[c]);
+    ASSERT_NE(cf_opt, nullptr);
+    VerifyCFPointerTypedOptions(&base_cf_opts[c], cf_opt,
+                                &(parser.cf_opt_maps()->at(c)));
+  }
+
   ASSERT_EQ(parser.GetCFOptions("does not exist"), nullptr);
 
   base_db_opt.max_open_files++;
   ASSERT_NOK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
       base_db_opt, cf_names, base_cf_opts, kOptionsFileName, env_.get()));
+
+  for (int c = 0; c < num_cf; ++c) {
+    if (base_cf_opts[c].compaction_filter) {
+      delete base_cf_opts[c].compaction_filter;
+    }
+  }
 }
 
 namespace {

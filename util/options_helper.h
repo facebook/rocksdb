@@ -65,11 +65,22 @@ enum class OptionType {
   kString,
   kDouble,
   kCompactionStyle,
+  kSliceTransform,
+  kCompressionType,
+  kVectorCompressionType,
+  kTableFactory,
+  kComparator,
+  kCompactionFilter,
+  kCompactionFilterFactory,
+  kMergeOperator,
+  kMemTableRepFactory,
   kUnknown
 };
 
 enum class OptionVerificationType {
   kNormal,
+  kByName,     // The option is pointer typed so we can only verify
+               // based on it's name.
   kDeprecated  // The option is no longer used in rocksdb. The RocksDB
                // OptionsParser will still accept this option if it
                // happen to exists in some Options file.  However, the
@@ -84,6 +95,11 @@ struct OptionTypeInfo {
   OptionType type;
   OptionVerificationType verification;
 };
+
+// A helper function that converts "opt_address" to a std::string
+// based on the specified OptionType.
+bool SerializeSingleOptionHelper(const char* opt_address,
+                                 const OptionType opt_type, std::string* value);
 
 static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     /*
@@ -226,7 +242,6 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     CompactionOptionsFIFO compaction_options_fifo;
     CompactionOptionsUniversal compaction_options_universal;
     CompressionOptions compression_opts;
-    CompressionType compression;
     TablePropertiesCollectorFactories table_properties_collector_factories;
     typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
         TablePropertiesCollectorFactories;
@@ -234,14 +249,6 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
                                      uint34_t* existing_value_size,
                                      Slice delta_value,
                                      std::string* merged_value);
-    const CompactionFilter* compaction_filter;
-    const Comparator* comparator;
-    std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
-    std::shared_ptr<MemTableRepFactory> memtable_factory;
-    std::shared_ptr<MergeOperator> merge_operator;
-    std::shared_ptr<TableFactory> table_factory;
-    std::shared_ptr<const SliceTransform> prefix_extractor;
-    std::vector<CompressionType> compression_per_level;
     std::vector<int> max_bytes_for_level_multiplier_additional;
      */
     {"compaction_measure_io_stats",
@@ -360,6 +367,33 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     {"rate_limit_delay_max_milliseconds",
      {offsetof(struct ColumnFamilyOptions, rate_limit_delay_max_milliseconds),
       OptionType::kUInt, OptionVerificationType::kDeprecated}},
+    {"compression",
+     {offsetof(struct ColumnFamilyOptions, compression),
+      OptionType::kCompressionType, OptionVerificationType::kNormal}},
+    {"compression_per_level",
+     {offsetof(struct ColumnFamilyOptions, compression_per_level),
+      OptionType::kVectorCompressionType, OptionVerificationType::kNormal}},
+    {"comparator",
+     {offsetof(struct ColumnFamilyOptions, comparator), OptionType::kComparator,
+      OptionVerificationType::kByName}},
+    {"prefix_extractor",
+     {offsetof(struct ColumnFamilyOptions, prefix_extractor),
+      OptionType::kSliceTransform, OptionVerificationType::kByName}},
+    {"memtable_factory",
+     {offsetof(struct ColumnFamilyOptions, memtable_factory),
+      OptionType::kMemTableRepFactory, OptionVerificationType::kByName}},
+    {"table_factory",
+     {offsetof(struct ColumnFamilyOptions, table_factory),
+      OptionType::kTableFactory, OptionVerificationType::kByName}},
+    {"compaction_filter",
+     {offsetof(struct ColumnFamilyOptions, compaction_filter),
+      OptionType::kCompactionFilter, OptionVerificationType::kByName}},
+    {"compaction_filter_factory",
+     {offsetof(struct ColumnFamilyOptions, compaction_filter_factory),
+      OptionType::kCompactionFilterFactory, OptionVerificationType::kByName}},
+    {"merge_operator",
+     {offsetof(struct ColumnFamilyOptions, merge_operator),
+      OptionType::kMergeOperator, OptionVerificationType::kByName}},
     {"compaction_style",
      {offsetof(struct ColumnFamilyOptions, compaction_style),
       OptionType::kCompactionStyle, OptionVerificationType::kNormal}}};

@@ -88,8 +88,10 @@ RocksDBOptionsParser::RocksDBOptionsParser() { Reset(); }
 
 void RocksDBOptionsParser::Reset() {
   db_opt_ = DBOptions();
+  db_opt_map_.clear();
   cf_names_.clear();
   cf_opts_.clear();
+  cf_opt_maps_.clear();
   has_version_section_ = false;
   has_db_options_ = false;
   has_default_cf_options_ = false;
@@ -356,6 +358,7 @@ Status RocksDBOptionsParser::EndSection(
     if (!s.ok()) {
       return s;
     }
+    db_opt_map_ = opt_map;
   } else if (section == kOptionSectionCFOptions) {
     // This condition should be ensured earlier in ParseSection
     // so we make an assertion here.
@@ -367,6 +370,8 @@ Status RocksDBOptionsParser::EndSection(
     if (!s.ok()) {
       return s;
     }
+    // keep the parsed string.
+    cf_opt_maps_.emplace_back(opt_map);
   } else if (section == kOptionSectionVersion) {
     for (const auto pair : opt_map) {
       if (pair.first == "rocksdb_version") {
@@ -444,8 +449,10 @@ bool AreEqualDoubles(const double a, const double b) {
   return (fabs(a - b) < 0.00001);
 }
 
-bool AreEqualOptions(const char* opt1, const char* opt2,
-                     const OptionTypeInfo& type_info) {
+bool AreEqualOptions(
+    const char* opt1, const char* opt2, const OptionTypeInfo& type_info,
+    const std::string& opt_name,
+    const std::unordered_map<std::string, std::string>* opt_map) {
   const char* offset1 = opt1 + type_info.offset;
   const char* offset2 = opt2 + type_info.offset;
   switch (type_info.type) {
@@ -476,7 +483,34 @@ bool AreEqualOptions(const char* opt1, const char* opt2,
     case OptionType::kCompactionStyle:
       return (*reinterpret_cast<const CompactionStyle*>(offset1) ==
               *reinterpret_cast<const CompactionStyle*>(offset2));
+    case OptionType::kCompressionType:
+      return (*reinterpret_cast<const CompressionType*>(offset1) ==
+              *reinterpret_cast<const CompressionType*>(offset2));
+    case OptionType::kVectorCompressionType: {
+      const auto* vec1 =
+          reinterpret_cast<const std::vector<CompressionType>*>(offset1);
+      const auto* vec2 =
+          reinterpret_cast<const std::vector<CompressionType>*>(offset2);
+      return (*vec1 == *vec2);
+    }
     default:
+      if (type_info.verification == OptionVerificationType::kByName) {
+        std::string value1;
+        bool result =
+            SerializeSingleOptionHelper(offset1, type_info.type, &value1);
+        if (result == false) {
+          return false;
+        }
+        if (opt_map == nullptr) {
+          return true;
+        }
+        auto iter = opt_map->find(opt_name);
+        if (iter == opt_map->end()) {
+          return true;
+        } else {
+          return (value1 == iter->second);
+        }
+      }
       return false;
   }
 }
@@ -495,7 +529,7 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
   }
 
   // Verify DBOptions
-  s = VerifyDBOptions(db_opt, *parser.db_opt());
+  s = VerifyDBOptions(db_opt, *parser.db_opt(), parser.db_opt_map());
   if (!s.ok()) {
     return s;
   }
@@ -522,7 +556,8 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
         "the same number of column families as the db instance.");
   }
   for (size_t i = 0; i < cf_opts.size(); ++i) {
-    s = VerifyCFOptions(cf_opts[i], parser.cf_opts()->at(i));
+    s = VerifyCFOptions(cf_opts[i], parser.cf_opts()->at(i),
+                        &(parser.cf_opt_maps()->at(i)));
     if (!s.ok()) {
       return s;
     }
@@ -531,8 +566,9 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
   return Status::OK();
 }
 
-Status RocksDBOptionsParser::VerifyDBOptions(const DBOptions& base_opt,
-                                             const DBOptions& new_opt) {
+Status RocksDBOptionsParser::VerifyDBOptions(
+    const DBOptions& base_opt, const DBOptions& new_opt,
+    const std::unordered_map<std::string, std::string>* opt_map) {
   for (auto pair : db_options_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {
       // We skip checking deprecated variables as they might
@@ -540,8 +576,8 @@ Status RocksDBOptionsParser::VerifyDBOptions(const DBOptions& base_opt,
       continue;
     }
     if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                         reinterpret_cast<const char*>(&new_opt),
-                         pair.second)) {
+                         reinterpret_cast<const char*>(&new_opt), pair.second,
+                         pair.first, nullptr)) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
           "failed the verification on DBOptions::",
@@ -552,7 +588,8 @@ Status RocksDBOptionsParser::VerifyDBOptions(const DBOptions& base_opt,
 }
 
 Status RocksDBOptionsParser::VerifyCFOptions(
-    const ColumnFamilyOptions& base_opt, const ColumnFamilyOptions& new_opt) {
+    const ColumnFamilyOptions& base_opt, const ColumnFamilyOptions& new_opt,
+    const std::unordered_map<std::string, std::string>* new_opt_map) {
   for (auto& pair : cf_options_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {
       // We skip checking deprecated variables as they might
@@ -560,8 +597,8 @@ Status RocksDBOptionsParser::VerifyCFOptions(
       continue;
     }
     if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                         reinterpret_cast<const char*>(&new_opt),
-                         pair.second)) {
+                         reinterpret_cast<const char*>(&new_opt), pair.second,
+                         pair.first, new_opt_map)) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
           "failed the verification on ColumnFamilyOptions::",

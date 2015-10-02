@@ -8,9 +8,13 @@
 #include <cctype>
 #include <cstdlib>
 #include <unordered_set>
+#include <vector>
 #include "rocksdb/cache.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/memtablerep.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
@@ -85,25 +89,89 @@ std::string UnescapeOptionString(const std::string& escaped_string) {
 }
 
 namespace {
-CompressionType ParseCompressionType(const std::string& type) {
-  if (type == "kNoCompression") {
-    return kNoCompression;
-  } else if (type == "kSnappyCompression") {
-    return kSnappyCompression;
-  } else if (type == "kZlibCompression") {
-    return kZlibCompression;
-  } else if (type == "kBZip2Compression") {
-    return kBZip2Compression;
-  } else if (type == "kLZ4Compression") {
-    return kLZ4Compression;
-  } else if (type == "kLZ4HCCompression") {
-    return kLZ4HCCompression;
-  } else if (type == "kZSTDNotFinalCompression") {
-    return kZSTDNotFinalCompression;
-  } else {
-    throw std::invalid_argument("Unknown compression type: " + type);
+std::string trim(const std::string& str) {
+  if (str.empty()) return std::string();
+  size_t start = 0;
+  size_t end = str.size() - 1;
+  while (isspace(str[start]) != 0 && start <= end) {
+    ++start;
   }
-  return kNoCompression;
+  while (isspace(str[end]) != 0 && start <= end) {
+    --end;
+  }
+  if (start <= end) {
+    return str.substr(start, end - start + 1);
+  }
+  return std::string();
+}
+
+bool SerializeCompressionType(const CompressionType& type, std::string* value) {
+  switch (type) {
+    case kNoCompression:
+      *value = "kNoCompression";
+      return true;
+    case kSnappyCompression:
+      *value = "kSnappyCompression";
+      return true;
+    case kZlibCompression:
+      *value = "kZlibCompression";
+      return true;
+    case kBZip2Compression:
+      *value = "kBZip2Compression";
+      return true;
+    case kLZ4Compression:
+      *value = "kLZ4Compression";
+      return true;
+    case kLZ4HCCompression:
+      *value = "kLZ4HCCompression";
+      return true;
+    case kZSTDNotFinalCompression:
+      *value = "kZSTDNotFinalCompression";
+      return true;
+    default:
+      return false;
+  }
+}
+
+bool SerializeVectorCompressionType(const std::vector<CompressionType>& types,
+                                    std::string* value) {
+  std::stringstream ss;
+  bool result;
+  for (size_t i = 0; i < types.size(); ++i) {
+    if (i > 0) {
+      ss << ':';
+    }
+    std::string string_type;
+    result = SerializeCompressionType(types[i], &string_type);
+    if (result == false) {
+      return result;
+    }
+    ss << string_type;
+  }
+  *value = ss.str();
+  return true;
+}
+
+bool ParseCompressionType(const std::string& string_value,
+                          CompressionType* type) {
+  if (string_value == "kNoCompression") {
+    *type = kNoCompression;
+  } else if (string_value == "kSnappyCompression") {
+    *type = kSnappyCompression;
+  } else if (string_value == "kZlibCompression") {
+    *type = kZlibCompression;
+  } else if (string_value == "kBZip2Compression") {
+    *type = kBZip2Compression;
+  } else if (string_value == "kLZ4Compression") {
+    *type = kLZ4Compression;
+  } else if (string_value == "kLZ4HCCompression") {
+    *type = kLZ4HCCompression;
+  } else if (string_value == "kZSTDNotFinalCompression") {
+    *type = kZSTDNotFinalCompression;
+  } else {
+    return false;
+  }
+  return true;
 }
 
 BlockBasedTableOptions::IndexType ParseBlockBasedTableIndexType(
@@ -205,7 +273,6 @@ double ParseDouble(const std::string& value) {
   return std::strtod(value.c_str(), 0);
 #endif
 }
-
 static const std::unordered_map<char, std::string>
     compaction_style_to_string_map = {
         {kCompactionStyleLevel, "kCompactionStyleLevel"},
@@ -227,6 +294,83 @@ std::string CompactionStyleToString(const CompactionStyle style) {
   auto iter = compaction_style_to_string_map.find(style);
   assert(iter != compaction_style_to_string_map.end());
   return iter->second;
+}
+
+bool ParseVectorCompressionType(
+    const std::string& value,
+    std::vector<CompressionType>* compression_per_level) {
+  compression_per_level->clear();
+  size_t start = 0;
+  while (start < value.size()) {
+    size_t end = value.find(':', start);
+    bool is_ok;
+    CompressionType type;
+    if (end == std::string::npos) {
+      is_ok = ParseCompressionType(value.substr(start), &type);
+      if (!is_ok) {
+        return false;
+      }
+      compression_per_level->emplace_back(type);
+      break;
+    } else {
+      is_ok = ParseCompressionType(value.substr(start, end - start), &type);
+      if (!is_ok) {
+        return false;
+      }
+      compression_per_level->emplace_back(type);
+      start = end + 1;
+    }
+  }
+  return true;
+}
+
+bool ParseSliceTransformHelper(
+    const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
+    const std::string& value,
+    std::shared_ptr<const SliceTransform>* slice_transform) {
+  auto& pe_value = value;
+  if (pe_value.size() > kFixedPrefixName.size() &&
+      pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) == 0) {
+    int prefix_length = ParseInt(trim(value.substr(kFixedPrefixName.size())));
+    slice_transform->reset(NewFixedPrefixTransform(prefix_length));
+  } else if (pe_value.size() > kCappedPrefixName.size() &&
+             pe_value.compare(0, kCappedPrefixName.size(), kCappedPrefixName) ==
+                 0) {
+    int prefix_length =
+        ParseInt(trim(pe_value.substr(kCappedPrefixName.size())));
+    slice_transform->reset(NewCappedPrefixTransform(prefix_length));
+  } else if (value == "nullptr") {
+    slice_transform->reset();
+  } else {
+    return false;
+  }
+
+  return true;
+}
+
+bool ParseSliceTransform(
+    const std::string& value,
+    std::shared_ptr<const SliceTransform>* slice_transform) {
+  // While we normally don't convert the string representation of a
+  // pointer-typed option into its instance, here we do so for backward
+  // compatibility as we allow this action in SetOption().
+
+  // TODO(yhchiang): A possible better place for these serialization /
+  // deserialization is inside the class definition of pointer-typed
+  // option itself, but this requires a bigger change of public API.
+  bool result =
+      ParseSliceTransformHelper("fixed:", "capped:", value, slice_transform);
+  if (result) {
+    return result;
+  }
+  result = ParseSliceTransformHelper(
+      "rocksdb.FixedPrefix.", "rocksdb.CappedPrefix.", value, slice_transform);
+  if (result) {
+    return result;
+  }
+  // TODO(yhchiang): we can further support other default
+  //                 SliceTransforms here.
+  return false;
 }
 
 bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
@@ -260,11 +404,23 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       *reinterpret_cast<CompactionStyle*>(opt_address) =
           ParseCompactionStyle(value);
       break;
+    case OptionType::kCompressionType:
+      return ParseCompressionType(
+          value, reinterpret_cast<CompressionType*>(opt_address));
+    case OptionType::kVectorCompressionType:
+      return ParseVectorCompressionType(
+          value, reinterpret_cast<std::vector<CompressionType>*>(opt_address));
+    case OptionType::kSliceTransform:
+      return ParseSliceTransform(
+          value, reinterpret_cast<std::shared_ptr<const SliceTransform>*>(
+                     opt_address));
     default:
       return false;
   }
   return true;
 }
+
+}  // anonymouse namespace
 
 bool SerializeSingleOptionHelper(const char* opt_address,
                                  const OptionType opt_type,
@@ -300,13 +456,69 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       *value = CompactionStyleToString(
           *(reinterpret_cast<const CompactionStyle*>(opt_address)));
       break;
+    case OptionType::kCompressionType:
+      return SerializeCompressionType(
+          *(reinterpret_cast<const CompressionType*>(opt_address)), value);
+    case OptionType::kVectorCompressionType:
+      return SerializeVectorCompressionType(
+          *(reinterpret_cast<const std::vector<CompressionType>*>(opt_address)),
+          value);
+      break;
+    case OptionType::kSliceTransform: {
+      const auto* slice_transform_ptr =
+          reinterpret_cast<const std::shared_ptr<const SliceTransform>*>(
+              opt_address);
+      *value = slice_transform_ptr->get() ? slice_transform_ptr->get()->Name()
+                                          : "nullptr";
+      break;
+    }
+    case OptionType::kTableFactory: {
+      const auto* table_factory_ptr =
+          reinterpret_cast<const std::shared_ptr<const TableFactory>*>(
+              opt_address);
+      *value = table_factory_ptr->get() ? table_factory_ptr->get()->Name()
+                                        : "nullptr";
+      break;
+    }
+    case OptionType::kComparator: {
+      // it's a const pointer of const Comparator*
+      const auto* ptr = reinterpret_cast<const Comparator* const*>(opt_address);
+      *value = *ptr ? (*ptr)->Name() : "nullptr";
+      break;
+    }
+    case OptionType::kCompactionFilter: {
+      // it's a const pointer of const CompactionFilter*
+      const auto* ptr =
+          reinterpret_cast<const CompactionFilter* const*>(opt_address);
+      *value = *ptr ? (*ptr)->Name() : "nullptr";
+      break;
+    }
+    case OptionType::kCompactionFilterFactory: {
+      const auto* ptr =
+          reinterpret_cast<const std::shared_ptr<CompactionFilterFactory>*>(
+              opt_address);
+      *value = ptr->get() ? ptr->get()->Name() : "nullptr";
+      break;
+    }
+    case OptionType::kMemTableRepFactory: {
+      const auto* ptr =
+          reinterpret_cast<const std::shared_ptr<MemTableRepFactory>*>(
+              opt_address);
+      *value = ptr->get() ? ptr->get()->Name() : "nullptr";
+      break;
+    }
+    case OptionType::kMergeOperator: {
+      const auto* ptr =
+          reinterpret_cast<const std::shared_ptr<MergeOperator>*>(opt_address);
+      *value = ptr->get() ? ptr->get()->Name() : "nullptr";
+      break;
+    }
     default:
       return false;
   }
   return true;
 }
 
-}  // anonymouse namespace
 
 template<typename OptionsType>
 bool ParseMemtableOptions(const std::string& name, const std::string& value,
@@ -427,26 +639,6 @@ Status GetMutableOptionsFromStrings(
   return Status::OK();
 }
 
-namespace {
-
-std::string trim(const std::string& str) {
-  if (str.empty()) return std::string();
-  size_t start = 0;
-  size_t end = str.size() - 1;
-  while (isspace(str[start]) != 0 && start <= end) {
-    ++start;
-  }
-  while (isspace(str[end]) != 0 && start <= end) {
-    --end;
-  }
-  if (start <= end) {
-    return str.substr(start, end - start + 1);
-  }
-  return std::string();
-}
-
-}  // anonymous namespace
-
 Status StringToMap(const std::string& opts_str,
                    std::unordered_map<std::string, std::string>* opts_map) {
   assert(opts_map);
@@ -559,23 +751,6 @@ bool ParseColumnFamilyOption(const std::string& name,
         return false;
       }
       new_options->table_factory.reset(NewBlockBasedTableFactory(table_opt));
-    } else if (name == "compression") {
-      new_options->compression = ParseCompressionType(value);
-    } else if (name == "compression_per_level") {
-      new_options->compression_per_level.clear();
-      size_t start = 0;
-      while (true) {
-        size_t end = value.find(':', start);
-        if (end == std::string::npos) {
-          new_options->compression_per_level.push_back(
-              ParseCompressionType(value.substr(start)));
-          break;
-        } else {
-          new_options->compression_per_level.push_back(
-              ParseCompressionType(value.substr(start, end - start)));
-          start = end + 1;
-        }
-      }
     } else if (name == "compression_opts") {
       size_t start = 0;
       size_t end = value.find(':');
@@ -603,26 +778,6 @@ bool ParseColumnFamilyOption(const std::string& name,
     } else if (name == "compaction_options_fifo") {
       new_options->compaction_options_fifo.max_table_files_size =
           ParseUint64(value);
-    } else if (name == "prefix_extractor") {
-      const std::string kFixedPrefixName = "fixed:";
-      const std::string kCappedPrefixName = "capped:";
-      auto& pe_value = value;
-      if (pe_value.size() > kFixedPrefixName.size() &&
-          pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) == 0) {
-        int prefix_length =
-            ParseInt(trim(value.substr(kFixedPrefixName.size())));
-        new_options->prefix_extractor.reset(
-            NewFixedPrefixTransform(prefix_length));
-      } else if (pe_value.size() > kCappedPrefixName.size() &&
-                 pe_value.compare(0, kCappedPrefixName.size(),
-                                  kCappedPrefixName) == 0) {
-        int prefix_length =
-            ParseInt(trim(pe_value.substr(kCappedPrefixName.size())));
-        new_options->prefix_extractor.reset(
-            NewCappedPrefixTransform(prefix_length));
-      } else {
-        return false;
-      }
     } else {
       auto iter = cf_options_type_info.find(name);
       if (iter == cf_options_type_info.end()) {
@@ -740,9 +895,12 @@ bool ParseDBOption(const std::string& name, const std::string& org_value,
         return false;
       }
       const auto& opt_info = iter->second;
-      return ParseOptionHelper(
-          reinterpret_cast<char*>(new_options) + opt_info.offset, opt_info.type,
-          value);
+      if (opt_info.verification != OptionVerificationType::kByName &&
+          opt_info.verification != OptionVerificationType::kDeprecated) {
+        return ParseOptionHelper(
+            reinterpret_cast<char*>(new_options) + opt_info.offset,
+            opt_info.type, value);
+      }
     }
   } catch (const std::exception& e) {
     return false;
@@ -881,7 +1039,12 @@ Status GetColumnFamilyOptionsFromMap(
   for (const auto& o : opts_map) {
     if (!ParseColumnFamilyOption(o.first, o.second, new_options,
                                  input_strings_escaped)) {
-      return Status::InvalidArgument("Can't parse option " + o.first);
+      auto iter = cf_options_type_info.find(o.first);
+      if (iter == cf_options_type_info.end() ||
+          (iter->second.verification != OptionVerificationType::kByName &&
+           iter->second.verification != OptionVerificationType::kDeprecated)) {
+        return Status::InvalidArgument("Can't parse option " + o.first);
+      }
     }
   }
   return Status::OK();
@@ -907,6 +1070,8 @@ Status GetDBOptionsFromMap(
   *new_options = base_options;
   for (const auto& o : opts_map) {
     if (!ParseDBOption(o.first, o.second, new_options, input_strings_escaped)) {
+      // Note that options with kDeprecated validation will pass ParseDBOption
+      // and will not hit the below statement.
       return Status::InvalidArgument("Can't parse option " + o.first);
     }
   }
