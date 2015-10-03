@@ -8306,8 +8306,8 @@ TEST_F(DBTest, TablePropertiesNeedCompactTest) {
   options.soft_rate_limit = 1.1;
   options.num_levels = 8;
 
-  std::shared_ptr<TablePropertiesCollectorFactory> collector_factory(
-      new CountingDeleteTabPropCollectorFactory);
+  std::shared_ptr<TablePropertiesCollectorFactory> collector_factory =
+      std::make_shared<CountingDeleteTabPropCollectorFactory>();
   options.table_properties_collector_factories.resize(1);
   options.table_properties_collector_factories[0] = collector_factory;
 
@@ -8362,6 +8362,61 @@ TEST_F(DBTest, TablePropertiesNeedCompactTest) {
     ASSERT_EQ(c, 0);
     ASSERT_LT(perf_context.internal_delete_skipped_count, 30u);
     ASSERT_LT(perf_context.internal_key_skipped_count, 30u);
+    SetPerfLevel(kDisable);
+  }
+}
+
+TEST_F(DBTest, NeedCompactHintPersistentTest) {
+  Random rnd(301);
+
+  Options options;
+  options.create_if_missing = true;
+  options.max_write_buffer_number = 8;
+  options.level0_file_num_compaction_trigger = 10;
+  options.level0_slowdown_writes_trigger = 10;
+  options.level0_stop_writes_trigger = 10;
+  options.disable_auto_compactions = true;
+
+  std::shared_ptr<TablePropertiesCollectorFactory> collector_factory =
+      std::make_shared<CountingDeleteTabPropCollectorFactory>();
+  options.table_properties_collector_factories.resize(1);
+  options.table_properties_collector_factories[0] = collector_factory;
+
+  DestroyAndReopen(options);
+
+  const int kMaxKey = 100;
+  for (int i = 0; i < kMaxKey; i++) {
+    ASSERT_OK(Put(Key(i), ""));
+  }
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  for (int i = 1; i < kMaxKey - 1; i++) {
+    Delete(Key(i));
+  }
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+
+  // Restart the DB. Although number of files didn't reach
+  // options.level0_file_num_compaction_trigger, compaction should
+  // still be triggered because of the need-compaction hint.
+  options.disable_auto_compactions = false;
+  Reopen(options);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  {
+    SetPerfLevel(kEnableCount);
+    perf_context.Reset();
+    int c = 0;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    for (iter->Seek(Key(0)); iter->Valid(); iter->Next()) {
+      c++;
+    }
+    ASSERT_EQ(c, 2);
+    ASSERT_EQ(perf_context.internal_delete_skipped_count, 0);
+    // We iterate every key twice. Is it a bug?
+    ASSERT_LE(perf_context.internal_key_skipped_count, 2);
     SetPerfLevel(kDisable);
   }
 }
