@@ -87,10 +87,14 @@ class CorruptionTest : public testing::Test {
     ASSERT_OK(::rocksdb::RepairDB(dbname_, options_));
   }
 
-  void Build(int n) {
+  void Build(int n, int flush_every = 0) {
     std::string key_space, value_space;
     WriteBatch batch;
     for (int i = 0; i < n; i++) {
+      if (flush_every != 0 && i != 0 && i % flush_every == 0) {
+        DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
+        dbi->TEST_FlushMemTable();
+      }
       //if ((i % 100) == 0) fprintf(stderr, "@ %d of %d\n", i, n);
       Slice key = Key(i, &key_space);
       batch.Clear();
@@ -297,13 +301,21 @@ TEST_F(CorruptionTest, TableFile) {
 }
 
 TEST_F(CorruptionTest, TableFileIndexData) {
-  Build(10000);  // Enough to build multiple Tables
+  Options options;
+  // very big, we'll trigger flushes manually
+  options.write_buffer_size = 100 * 1024 * 1024;
+  Reopen(&options);
+  // build 2 tables, flush at 5000
+  Build(10000, 5000);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
 
+  // corrupt an index block of an entire file
   Corrupt(kTableFile, -2000, 500);
   Reopen();
-  Check(5000, 9999);
+  // one full file should be readable, since only one was corrupted
+  // the other file should be fully non-readable, since index was corrupted
+  Check(5000, 5000);
 }
 
 TEST_F(CorruptionTest, MissingDescriptor) {
