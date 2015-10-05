@@ -9649,7 +9649,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   Reopen(options);
 
   std::vector<std::thread> threads;
-  std::atomic<bool> done;
+  std::atomic<bool> done(false);
   db_->PauseBackgroundWork();
   threads.emplace_back([&]() {
     Random rnd(301);
