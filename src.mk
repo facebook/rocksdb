@@ -76,6 +76,7 @@ LIB_SOURCES =                                                   \
   table/plain_table_reader.cc                                   \
   table/table_properties.cc                                     \
   table/two_level_iterator.cc                                   \
+  tools/dump/db_dump_tool.cc                                    \
   util/arena.cc                                                 \
   util/auto_roll_logger.cc                                      \
   util/bloom.cc                                                 \
