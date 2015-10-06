@@ -36,7 +36,6 @@ if [ ! -z $ONCALL ]; then
   {
       'type':'task',
       'triggers':[ 'fail' ],
-      'assignee':'$ONCALL',
       'priority':0,
       'subscribers':[ '$SUBSCRIBER' ],
       'tags':[ 'rocksdb', 'ci' ],
