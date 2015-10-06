@@ -233,13 +233,14 @@ class WinMmapReadableFile : public RandomAccessFile {
                       char* scratch) const override {
     Status s;
 
-    if (offset + n > length_) {
+    if (offset > length_) {
       *result = Slice();
-      s = IOError(fileName_, EINVAL);
-    } else {
-      *result =
-          Slice(reinterpret_cast<const char*>(mapped_region_) + offset, n);
+      return IOError(fileName_, EINVAL);
+    } else if (offset + n > length_) {
+      n = length_ - offset;
     }
+    *result =
+        Slice(reinterpret_cast<const char*>(mapped_region_) + offset, n);
     return s;
   }
 
