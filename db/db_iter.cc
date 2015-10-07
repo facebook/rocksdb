@@ -186,9 +186,17 @@ void DBIter::Next() {
     if (!iter_->Valid()) {
       iter_->SeekToFirst();
     }
+  } else if (iter_->Valid() && !current_entry_is_merged_) {
+    // If the current value is not a merge, the iter position is the
+    // current key, which is already returned. We can safely issue a
+    // Next() without checking the current key.
+    // If the current key is a merge, very likely iter already points
+    // to the next internal position.
+    iter_->Next();
   }
 
-  // If the current value is merged, we might already hit end of iter_
+  // Now we point to the next internal position, for both of merge and
+  // not merge cases.
   if (!iter_->Valid()) {
     valid_ = false;
     return;

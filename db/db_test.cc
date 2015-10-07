@@ -1910,9 +1910,10 @@ TEST_F(DBTest, IterReseek) {
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  // insert two keys with same userkey and verify that
+  // insert three keys with same userkey and verify that
   // reseek is not invoked. For each of these test cases,
   // verify that we can find the next key "b".
+  ASSERT_OK(Put(1, "a", "zero"));
   ASSERT_OK(Put(1, "a", "one"));
   ASSERT_OK(Put(1, "a", "two"));
   ASSERT_OK(Put(1, "b", "bone"));
