@@ -104,6 +104,9 @@ class Cache {
   // returns the memory size for the entries residing in the cache.
   virtual size_t GetUsage() const = 0;
 
+  // returns the memory size for a specific entry in the cache.
+  virtual size_t GetUsage(Handle* handle) const = 0;
+
   // returns the memory size for the entries in use by the system
   virtual size_t GetPinnedUsage() const = 0;
 

@@ -117,6 +117,9 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
     PERF_COUNTER_ADD(block_cache_hit_count, 1);
     // overall cache hit
     RecordTick(statistics, BLOCK_CACHE_HIT);
+    // total bytes read from cache
+    RecordTick(statistics, BLOCK_CACHE_BYTES_READ,
+               block_cache->GetUsage(cache_handle));
     // block-type specific cache hit
     RecordTick(statistics, block_cache_hit_ticker);
   } else {
@@ -795,6 +798,8 @@ Status BlockBasedTable::PutDataBlockToCache(
                                               block->value->usable_size(),
                                               &DeleteCachedEntry<Block>);
     RecordTick(statistics, BLOCK_CACHE_ADD);
+    RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
+               block->value->usable_size());
     assert(reinterpret_cast<Block*>(block_cache->Value(block->cache_handle)) ==
            block->value);
   }
@@ -886,6 +891,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
       cache_handle = block_cache->Insert(key, filter, filter_size,
                                          &DeleteCachedEntry<FilterBlockReader>);
       RecordTick(statistics, BLOCK_CACHE_ADD);
+      RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter_size);
     }
   }
 
@@ -944,6 +950,8 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
         block_cache->Insert(key, index_reader, index_reader->usable_size(),
                             &DeleteCachedEntry<IndexReader>);
     RecordTick(statistics, BLOCK_CACHE_ADD);
+    RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
+               index_reader->usable_size());
   }
 
   assert(cache_handle);
