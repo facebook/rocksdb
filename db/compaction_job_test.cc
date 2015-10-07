@@ -523,7 +523,9 @@ TEST_F(CompactionJobTest, FilterAllMergeOperands) {
 
   SetLastSequence(11U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, {});
+
+  stl_wrappers::KVMap empty_map;
+  RunCompaction({files}, empty_map);
 }
 
 TEST_F(CompactionJobTest, SimpleSingleDelete) {
