@@ -618,6 +618,8 @@ class DBTestBase : public testing::Test {
 
   std::string DumpSSTableList();
 
+  void GetSstFiles(std::string path, std::vector<std::string>* files);
+
   int GetSstFileCount(std::string path);
 
   // this will generate non-overlapping files since it keeps increasing key_idx

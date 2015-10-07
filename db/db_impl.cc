@@ -4481,6 +4481,10 @@ Status DBImpl::CheckConsistency() {
 
     uint64_t fsize = 0;
     Status s = env_->GetFileSize(file_path, &fsize);
+    if (!s.ok() &&
+        env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
+      s = Status::OK();
+    }
     if (!s.ok()) {
       corruption_messages +=
           "Can't access " + md.name + ": " + s.ToString() + "\n";

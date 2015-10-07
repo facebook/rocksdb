@@ -55,6 +55,10 @@ extern std::string ArchivedLogFileName(const std::string& dbname,
 
 extern std::string MakeTableFileName(const std::string& name, uint64_t number);
 
+// Return the name of sstable with LevelDB suffix
+// created from RocksDB sstable suffixed name
+extern std::string Rocks2LevelTableFileName(const std::string& fullname);
+
 // the reverse function of MakeTableFileName
 // TODO(yhchiang): could merge this function with ParseFileName()
 extern uint64_t TableFileNameToNumber(const std::string& name);

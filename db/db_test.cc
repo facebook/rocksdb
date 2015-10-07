@@ -26,7 +26,6 @@
 #include "db/filename.h"
 #include "db/dbformat.h"
 #include "db/db_impl.h"
-#include "db/filename.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -9637,6 +9636,47 @@ TEST_F(DBTest, AddExternalSstFileMultiThreaded) {
     fprintf(stderr, "Verified %d values\n", num_files * keys_per_file);
   } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
                          kSkipFIFOCompaction));
+}
+
+// 1 Create some SST files by inserting K-V pairs into DB
+// 2 Close DB and change suffix from ".sst" to ".ldb" for every other SST file
+// 3 Open DB and check if all key can be read
+TEST_F(DBTest, SSTsWithLdbSuffixHandling) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 110 << 10;  // 110KB
+  options.num_levels = 4;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int key_id = 0;
+  for (int i = 0; i < 10; ++i) {
+    GenerateNewFile(&rnd, &key_id, false);
+  }
+  Flush();
+  Close();
+  int const num_files = GetSstFileCount(dbname_);
+  ASSERT_GT(num_files, 0);
+
+  std::vector<std::string> filenames;
+  GetSstFiles(dbname_, &filenames);
+  int num_ldb_files = 0;
+  for (unsigned int i = 0; i < filenames.size(); ++i) {
+    if (i & 1) {
+      continue;
+    }
+    std::string const rdb_name = dbname_ + "/" + filenames[i];
+    std::string const ldb_name = Rocks2LevelTableFileName(rdb_name);
+    ASSERT_TRUE(env_->RenameFile(rdb_name, ldb_name).ok());
+    ++num_ldb_files;
+  }
+  ASSERT_GT(num_ldb_files, 0);
+  ASSERT_EQ(num_files, GetSstFileCount(dbname_));
+
+  Reopen(options);
+  for (int k = 0; k < key_id; ++k) {
+    ASSERT_NE("NOT_FOUND", Get(Key(k)));
+  }
+  Destroy(options);
 }
 
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
