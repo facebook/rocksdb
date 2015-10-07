@@ -219,15 +219,13 @@ UNITY_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build, test unity test',
-                'shell':'$SHM $DEBUG V=1 make J=1 unity',
+                'shell':'$SHM $DEBUG V=1 make J=1 unity_test',
                 'user':'root'
             },
         ],
         $REPORT
     }
 ]"
-
-UNITY_COMMANDS=$DISABLE_COMMANDS
 
 #
 # Build RocksDB lite
