@@ -239,6 +239,7 @@ DBOptions::DBOptions()
       allow_os_buffer(true),
       allow_mmap_reads(false),
       allow_mmap_writes(false),
+      allow_fallocate(true),
       is_fd_close_on_exec(true),
       skip_log_error_on_recovery(false),
       stats_dump_period_sec(600),
@@ -292,6 +293,7 @@ DBOptions::DBOptions(const Options& options)
       allow_os_buffer(options.allow_os_buffer),
       allow_mmap_reads(options.allow_mmap_reads),
       allow_mmap_writes(options.allow_mmap_writes),
+      allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       skip_log_error_on_recovery(options.skip_log_error_on_recovery),
       stats_dump_period_sec(options.stats_dump_period_sec),
@@ -338,6 +340,7 @@ void DBOptions::Dump(Logger* log) const {
          keep_log_file_num);
     Header(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
     Header(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
+    Header(log, "      Options.allow_fallocate: %d", allow_fallocate);
     Header(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
     Header(log, "         Options.create_missing_column_families: %d",
         create_missing_column_families);

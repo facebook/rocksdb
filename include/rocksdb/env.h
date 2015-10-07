@@ -68,6 +68,9 @@ struct EnvOptions {
    // If true, then use mmap to write data
   bool use_mmap_writes = true;
 
+  // If false, fallocate() calls are bypassed
+  bool allow_fallocate = true;
+
   // If true, set the FD_CLOEXEC on open fd.
   bool set_fd_cloexec = true;
 
