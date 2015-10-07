@@ -51,9 +51,23 @@ class CompactionFilter {
   // output of the compaction.  The application can inspect
   // the existing value of the key and make decision based on it.
   //
+  // Key-Values that are results of merge operation during compaction are not
+  // passed into this function. Currently, when you have a mix of Put()s and
+  // Merge()s on a same key, we only guarantee to process the merge operands
+  // through the compaction filters. Put()s might be processed, or might not.
+  //
   // When the value is to be preserved, the application has the option
   // to modify the existing_value and pass it back through new_value.
   // value_changed needs to be set to true in this case.
+  //
+  // If you use snapshot feature of RocksDB (i.e. call GetSnapshot() API on a
+  // DB* object), CompactionFilter might not be very useful for you. Due to
+  // guarantees we need to maintain, compaction process will not call Filter()
+  // on any keys that were written before the latest snapshot. In other words,
+  // compaction will only call Filter() on keys written after your most recent
+  // call to GetSnapshot(). In most cases, Filter() will not be called very
+  // often. This is something we're fixing. See the discussion at:
+  // https://www.facebook.com/groups/mysqlonrocksdb/permalink/999723240091865/
   //
   // If multithreaded compaction is being used *and* a single CompactionFilter
   // instance was supplied via Options::compaction_filter, this method may be
@@ -69,6 +83,14 @@ class CompactionFilter {
                       const Slice& existing_value,
                       std::string* new_value,
                       bool* value_changed) const = 0;
+
+  // The compaction process invokes this method on every merge operand. If this
+  // method returns true, the merge operand will be ignored and not written out
+  // in the compaction output
+  virtual bool FilterMergeOperand(int level, const Slice& key,
+                                  const Slice& operand) const {
+    return false;
+  }
 
   // Returns a name that identifies this compaction filter.
   // The name will be printed to LOG file on start up for diagnosis.

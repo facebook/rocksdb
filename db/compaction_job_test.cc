@@ -182,7 +182,7 @@ class CompactionJobTest : public testing::Test {
     return expected_results;
   }
 
-  void NewDB(std::shared_ptr<MergeOperator> merge_operator = nullptr) {
+  void NewDB() {
     VersionEdit new_db;
     new_db.SetLogNumber(0);
     new_db.SetNextFile(2);
@@ -207,7 +207,8 @@ class CompactionJobTest : public testing::Test {
 
     std::vector<ColumnFamilyDescriptor> column_families;
     cf_options_.table_factory = mock_table_factory_;
-    cf_options_.merge_operator = merge_operator;
+    cf_options_.merge_operator = merge_op_;
+    cf_options_.compaction_filter = compaction_filter_.get();
     column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
 
     EXPECT_OK(versions_->Recover(column_families, false));
@@ -258,10 +259,16 @@ class CompactionJobTest : public testing::Test {
                                      &mutex_));
     mutex_.Unlock();
 
-    ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
-    ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
-    ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
-    mock_table_factory_->AssertLatestFile(expected_results);
+    if (expected_results.size() == 0) {
+      ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
+      ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
+      ASSERT_EQ(compaction_job_stats_.num_output_files, 0U);
+    } else {
+      ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
+      ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
+      ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
+      mock_table_factory_->AssertLatestFile(expected_results);
+    }
   }
 
   Env* env_;
@@ -279,6 +286,8 @@ class CompactionJobTest : public testing::Test {
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
   CompactionJobStats compaction_job_stats_;
   ColumnFamilyData* cfd_;
+  std::unique_ptr<CompactionFilter> compaction_filter_;
+  std::shared_ptr<MergeOperator> merge_op_;
 };
 
 TEST_F(CompactionJobTest, Simple) {
@@ -297,7 +306,7 @@ TEST_F(CompactionJobTest, SimpleCorrupted) {
   auto expected_results = CreateTwoFiles(true);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto files = cfd->current()->storage_info()->LevelFiles(0);
-  RunCompaction({ files }, expected_results);
+  RunCompaction({files}, expected_results);
   ASSERT_EQ(compaction_job_stats_.num_corrupt_keys, 400U);
 }
 
@@ -317,7 +326,7 @@ TEST_F(CompactionJobTest, SimpleDeletion) {
 
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({ files }, expected_results);
+  RunCompaction({files}, expected_results);
 }
 
 TEST_F(CompactionJobTest, SimpleOverwrite) {
@@ -339,7 +348,7 @@ TEST_F(CompactionJobTest, SimpleOverwrite) {
 
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({ files }, expected_results);
+  RunCompaction({files}, expected_results);
 }
 
 TEST_F(CompactionJobTest, SimpleNonLastLevel) {
@@ -368,12 +377,12 @@ TEST_F(CompactionJobTest, SimpleNonLastLevel) {
   SetLastSequence(6U);
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
-  RunCompaction({ lvl0_files, lvl1_files }, expected_results);
+  RunCompaction({lvl0_files, lvl1_files}, expected_results);
 }
 
 TEST_F(CompactionJobTest, SimpleMerge) {
-  auto merge_op = MergeOperators::CreateStringAppendOperator();
-  NewDB(merge_op);
+  merge_op_ = MergeOperators::CreateStringAppendOperator();
+  NewDB();
 
   auto file1 = mock::MakeMockFile({
       {KeyStr("a", 5U, kTypeMerge), "5"},
@@ -392,12 +401,12 @@ TEST_F(CompactionJobTest, SimpleMerge) {
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({ files }, expected_results);
+  RunCompaction({files}, expected_results);
 }
 
 TEST_F(CompactionJobTest, NonAssocMerge) {
-  auto merge_op = MergeOperators::CreateStringAppendTESTOperator();
-  NewDB(merge_op);
+  merge_op_ = MergeOperators::CreateStringAppendTESTOperator();
+  NewDB();
 
   auto file1 = mock::MakeMockFile({
       {KeyStr("a", 5U, kTypeMerge), "5"},
@@ -417,7 +426,104 @@ TEST_F(CompactionJobTest, NonAssocMerge) {
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({ files }, expected_results);
+  RunCompaction({files}, expected_results);
+}
+
+// Filters merge operands with value 10.
+TEST_F(CompactionJobTest, MergeOperandFilter) {
+  merge_op_ = MergeOperators::CreateUInt64AddOperator();
+  compaction_filter_.reset(new test::FilterNumber(10U));
+  NewDB();
+
+  auto file1 = mock::MakeMockFile(
+      {{KeyStr("a", 5U, kTypeMerge), test::EncodeInt(5U)},
+       {KeyStr("a", 4U, kTypeMerge), test::EncodeInt(10U)},  // Filtered
+       {KeyStr("a", 3U, kTypeMerge), test::EncodeInt(3U)}});
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({
+      {KeyStr("b", 2U, kTypeMerge), test::EncodeInt(2U)},
+      {KeyStr("b", 1U, kTypeMerge), test::EncodeInt(10U)}  // Filtered
+  });
+  AddMockFile(file2);
+
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), test::EncodeInt(8U)},
+                          {KeyStr("b", 2U, kTypeMerge), test::EncodeInt(2U)}});
+
+  SetLastSequence(5U);
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected_results);
+}
+
+TEST_F(CompactionJobTest, FilterSomeMergeOperands) {
+  merge_op_ = MergeOperators::CreateUInt64AddOperator();
+  compaction_filter_.reset(new test::FilterNumber(10U));
+  NewDB();
+
+  auto file1 = mock::MakeMockFile(
+      {{KeyStr("a", 5U, kTypeMerge), test::EncodeInt(5U)},
+       {KeyStr("a", 4U, kTypeMerge), test::EncodeInt(10U)},  // Filtered
+       {KeyStr("a", 3U, kTypeValue), test::EncodeInt(5U)},
+       {KeyStr("d", 8U, kTypeMerge), test::EncodeInt(10U)}});
+  AddMockFile(file1);
+
+  auto file2 =
+      mock::MakeMockFile({{KeyStr("b", 2U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("b", 1U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("c", 2U, kTypeMerge), test::EncodeInt(3U)},
+                          {KeyStr("c", 1U, kTypeValue), test::EncodeInt(7U)},
+                          {KeyStr("d", 1U, kTypeValue), test::EncodeInt(6U)}});
+  AddMockFile(file2);
+
+  auto file3 =
+      mock::MakeMockFile({{KeyStr("a", 1U, kTypeMerge), test::EncodeInt(3U)}});
+  AddMockFile(file3, 2);
+
+  auto expected_results = mock::MakeMockFile({
+      {KeyStr("a", 5U, kTypeValue), test::EncodeInt(10U)},
+      {KeyStr("c", 2U, kTypeValue), test::EncodeInt(10U)},
+      {KeyStr("d", 1U, kTypeValue), test::EncodeInt(6U)}
+      // b does not appear because the operands are filtered
+  });
+
+  SetLastSequence(5U);
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected_results);
+}
+
+// Test where all operands/merge results are filtered out.
+TEST_F(CompactionJobTest, FilterAllMergeOperands) {
+  merge_op_ = MergeOperators::CreateUInt64AddOperator();
+  compaction_filter_.reset(new test::FilterNumber(10U));
+  NewDB();
+
+  auto file1 =
+      mock::MakeMockFile({{KeyStr("a", 11U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("a", 10U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("a", 9U, kTypeMerge), test::EncodeInt(10U)}});
+  AddMockFile(file1);
+
+  auto file2 =
+      mock::MakeMockFile({{KeyStr("b", 8U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("b", 7U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("b", 6U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("b", 5U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("b", 4U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("b", 3U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("b", 2U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("c", 2U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("c", 1U, kTypeMerge), test::EncodeInt(10U)}});
+  AddMockFile(file2);
+
+  auto file3 =
+      mock::MakeMockFile({{KeyStr("a", 2U, kTypeMerge), test::EncodeInt(10U)},
+                          {KeyStr("b", 1U, kTypeMerge), test::EncodeInt(10U)}});
+  AddMockFile(file3, 2);
+
+  SetLastSequence(11U);
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, {});
 }
 
 TEST_F(CompactionJobTest, SimpleSingleDelete) {

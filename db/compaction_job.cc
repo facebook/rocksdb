@@ -597,10 +597,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-  MergeHelper merge(cfd->user_comparator(), cfd->ioptions()->merge_operator,
-                    db_options_.info_log.get(),
-                    cfd->ioptions()->min_partial_merge_operands,
-                    false /* internal key corruption is expected */);
   auto compaction_filter = cfd->ioptions()->compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (compaction_filter == nullptr) {
@@ -608,6 +604,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         sub_compact->compaction->CreateCompactionFilter();
     compaction_filter = compaction_filter_from_factory.get();
   }
+  MergeHelper merge(
+      env_, cfd->user_comparator(), cfd->ioptions()->merge_operator,
+      compaction_filter, db_options_.info_log.get(),
+      cfd->ioptions()->min_partial_merge_operands,
+      false /* internal key corruption is expected */,
+      existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
+      compact_->compaction->level(), db_options_.statistics.get());
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
 
@@ -624,8 +627,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
-      &existing_snapshots_, env_, false, db_options_.statistics.get(),
-      sub_compact->compaction, compaction_filter));
+      &existing_snapshots_, env_, false, sub_compact->compaction,
+      compaction_filter));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   const auto& c_iter_stats = c_iter->iter_stats();

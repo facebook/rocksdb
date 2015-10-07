@@ -85,10 +85,11 @@ Status BuildTable(
           file_writer.get(), compression, compression_opts);
     }
 
-    MergeHelper merge(internal_comparator.user_comparator(),
-                      ioptions.merge_operator, ioptions.info_log,
+    MergeHelper merge(env, internal_comparator.user_comparator(),
+                      ioptions.merge_operator, nullptr, ioptions.info_log,
                       ioptions.min_partial_merge_operands,
-                      true /* internal key corruption is not ok */);
+                      true /* internal key corruption is not ok */,
+                      snapshots.empty() ? 0 : snapshots.back());
 
     CompactionIterator c_iter(iter, internal_comparator.user_comparator(),
                               &merge, kMaxSequenceNumber, &snapshots, env,

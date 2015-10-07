@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "db/dbformat.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
@@ -336,6 +337,43 @@ class SleepingBackgroundTask {
   bool done_with_sleep_;
   bool sleeping_;
 };
+
+// Filters merge operands and values that are equal to `num`.
+class FilterNumber : public CompactionFilter {
+ public:
+  explicit FilterNumber(uint64_t num) : num_(num) {}
+
+  std::string last_merge_operand_key() { return last_merge_operand_key_; }
+
+  bool Filter(int level, const rocksdb::Slice& key, const rocksdb::Slice& value,
+              std::string* new_value, bool* value_changed) const override {
+    if (value.size() == sizeof(uint64_t)) {
+      return num_ == DecodeFixed64(value.data());
+    }
+    return true;
+  }
+
+  bool FilterMergeOperand(int level, const rocksdb::Slice& key,
+                          const rocksdb::Slice& value) const override {
+    last_merge_operand_key_ = key.ToString();
+    if (value.size() == sizeof(uint64_t)) {
+      return num_ == DecodeFixed64(value.data());
+    }
+    return true;
+  }
+
+  const char* Name() const override { return "FilterBadMergeOperand"; }
+
+ private:
+  mutable std::string last_merge_operand_key_;
+  uint64_t num_;
+};
+
+inline std::string EncodeInt(uint64_t x) {
+  std::string result;
+  PutFixed64(&result, x);
+  return result;
+}
 
 }  // namespace test
 }  // namespace rocksdb

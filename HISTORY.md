@@ -5,16 +5,18 @@
 * Added single delete operation as a more efficient way to delete keys that have not been overwritten.
 * Added experimental AddFile() to DB interface that allow users to add files created by SstFileWriter into an empty Database, see include/rocksdb/sst_file_writer.h and DB::AddFile() for more info.
 * Added support for opening SST files with .ldb suffix which enables opening LevelDB databases.
+* CompactionFilter now supports filtering of merge operands and merge results.
 
 ### Public API Changes
 * Added SingleDelete() to the DB interface.
 * Added AddFile() to DB interface.
 * Added SstFileWriter class.
+* CompactionFilter has a new method FilterMergeOperand() that RocksDB applies to every merge operand during compaction to decide whether to filter the operand.
 
 ## 4.0.0 (9/9/2015)
 ### New Features
 * Added support for transactions.  See include/rocksdb/utilities/transaction.h for more info.
-* DB::GetProperty() now accept "rocksdb.aggregated-table-properties" and "rocksdb.aggregated-table-properties-at-levelN", in which case it returns aggregated table properties of the target column family, or the aggregated table properties of the specified level N if the "at-level" version is used.
+* DB::GetProperty() now accepts "rocksdb.aggregated-table-properties" and "rocksdb.aggregated-table-properties-at-levelN", in which case it returns aggregated table properties of the target column family, or the aggregated table properties of the specified level N if the "at-level" version is used.
 * Add compression option kZSTDNotFinalCompression for people to experiment ZSTD although its format is not finalized.
 * We removed the need for LATEST_BACKUP file in BackupEngine. We still keep writing it when we create new backups (because of backward compatibility), but we don't read it anymore.
 

@@ -67,6 +67,10 @@ class StopWatchNano {
     return elapsed;
   }
 
+  uint64_t ElapsedNanosSafe(bool reset = false) {
+    return (env_ != nullptr) ? ElapsedNanos(reset) : 0U;
+  }
+
  private:
   Env* const env_;
   uint64_t start_;

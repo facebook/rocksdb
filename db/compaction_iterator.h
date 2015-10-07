@@ -41,7 +41,6 @@ class CompactionIterator {
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
                      std::vector<SequenceNumber>* snapshots, Env* env,
                      bool expect_valid_internal_key,
-                     Statistics* stats = nullptr,
                      Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      LogBuffer* log_buffer = nullptr);
@@ -91,7 +90,6 @@ class CompactionIterator {
   const std::vector<SequenceNumber>* snapshots_;
   Env* env_;
   bool expect_valid_internal_key_;
-  Statistics* stats_;
   Compaction* compaction_;
   const CompactionFilter* compaction_filter_;
   LogBuffer* log_buffer_;
