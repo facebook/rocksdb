@@ -131,6 +131,46 @@ class DBTestWithParam : public DBTest,
   uint32_t max_subcompactions_;
 };
 
+class BloomStatsTestWithParam
+    : public DBTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  BloomStatsTestWithParam() {
+    use_block_table_ = std::get<0>(GetParam());
+    use_block_based_builder_ = std::get<1>(GetParam());
+
+    options_.create_if_missing = true;
+    options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
+    options_.memtable_prefix_bloom_bits = 8 * 1024;
+    if (use_block_table_) {
+      BlockBasedTableOptions table_options;
+      table_options.hash_index_allow_collision = false;
+      table_options.filter_policy.reset(
+          NewBloomFilterPolicy(10, use_block_based_builder_));
+      options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    } else {
+      PlainTableOptions table_options;
+      options_.table_factory.reset(NewPlainTableFactory(table_options));
+    }
+
+    perf_context.Reset();
+    DestroyAndReopen(options_);
+  }
+
+  ~BloomStatsTestWithParam() {
+    perf_context.Reset();
+    Destroy(options_);
+  }
+
+  // Required if inheriting from testing::WithParamInterface<>
+  static void SetUpTestCase() {}
+  static void TearDownTestCase() {}
+
+  bool use_block_table_;
+  bool use_block_based_builder_;
+  Options options_;
+};
+
 TEST_F(DBTest, Empty) {
   do {
     Options options;
@@ -9709,6 +9749,119 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   ASSERT_EQ(true, done.load());
 }
 
+// 1 Insert 2 K-V pairs into DB
+// 2 Call Get() for both keys - expext memtable bloom hit stat to be 2
+// 3 Call Get() for nonexisting key - expect memtable bloom miss stat to be 1
+// 4 Call Flush() to create SST
+// 5 Call Get() for both keys - expext SST bloom hit stat to be 2
+// 6 Call Get() for nonexisting key - expect SST bloom miss stat to be 1
+// Test both: block and plain SST
+TEST_P(BloomStatsTestWithParam, BloomStatsTest) {
+  std::string key1("AAAA");
+  std::string key2("RXDB");  // not in DB
+  std::string key3("ZBRA");
+  std::string value1("Value1");
+  std::string value3("Value3");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+
+  // check memtable bloom stats
+  ASSERT_EQ(value1, Get(key1));
+  ASSERT_EQ(1, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(value3, Get(key3));
+  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  ASSERT_EQ(1, perf_context.bloom_memtable_miss_count);
+  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+
+  // sanity checks
+  ASSERT_EQ(0, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_sst_miss_count);
+
+  Flush();
+
+  // sanity checks
+  ASSERT_EQ(0, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_sst_miss_count);
+
+  // check SST bloom stats
+  // NOTE: hits per get differs because of code paths differences
+  // in BlockBasedTable::Get()
+  int hits_per_get = use_block_table_ && !use_block_based_builder_ ? 2 : 1;
+  ASSERT_EQ(value1, Get(key1));
+  ASSERT_EQ(hits_per_get, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(value3, Get(key3));
+  ASSERT_EQ(2 * hits_per_get, perf_context.bloom_sst_hit_count);
+
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
+}
+
+// Same scenario as in BloomStatsTest but using an iterator
+TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
+  std::string key1("AAAA");
+  std::string key2("RXDB");  // not in DB
+  std::string key3("ZBRA");
+  std::string value1("Value1");
+  std::string value3("Value3");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+
+  unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+
+  // check memtable bloom stats
+  iter->Seek(key1);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value1, iter->value().ToString());
+  ASSERT_EQ(1, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+
+  iter->Seek(key3);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value3, iter->value().ToString());
+  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+
+  iter->Seek(key2);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_EQ(1, perf_context.bloom_memtable_miss_count);
+  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+
+  Flush();
+
+  iter.reset(dbfull()->NewIterator(ReadOptions()));
+
+  // check SST bloom stats
+  iter->Seek(key1);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value1, iter->value().ToString());
+  ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
+
+  iter->Seek(key3);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value3, iter->value().ToString());
+  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+
+  iter->Seek(key2);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
+  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+}
+
+INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,
+                        ::testing::Values(std::make_tuple(true, true),
+                                          std::make_tuple(true, false),
+                                          std::make_tuple(false, false)));
 }  // namespace rocksdb
 
 #endif

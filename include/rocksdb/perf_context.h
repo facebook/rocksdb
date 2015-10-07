@@ -83,6 +83,14 @@ struct PerfContext {
   uint64_t block_seek_nanos;
   // Time spent on finding or creating a table reader
   uint64_t find_table_nanos;
+  // total number of mem table bloom hits
+  uint64_t bloom_memtable_hit_count;
+  // total number of mem table bloom misses
+  uint64_t bloom_memtable_miss_count;
+  // total number of SST table bloom hits
+  uint64_t bloom_sst_hit_count;
+  // total number of SST table bloom misses
+  uint64_t bloom_sst_miss_count;
 };
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)

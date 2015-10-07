@@ -488,7 +488,17 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
 }
 
 bool PlainTableReader::MatchBloom(uint32_t hash) const {
-  return !enable_bloom_ || bloom_.MayContainHash(hash);
+  if (!enable_bloom_) {
+    return true;
+  }
+
+  if (bloom_.MayContainHash(hash)) {
+    PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
+    return true;
+  } else {
+    PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
+    return false;
+  }
 }
 
 Status PlainTableReader::Next(PlainTableKeyDecoder* decoder, uint32_t* offset,
