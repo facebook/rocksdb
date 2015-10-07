@@ -351,8 +351,8 @@ class PosixMmapFile : public WritableFile {
   char* dst_;             // Where to write next  (in range [base_,limit_])
   char* last_sync_;       // Where have we synced up to
   uint64_t file_offset_;  // Offset of base_ in file
-  bool allow_fallocate_;  // If false, fallocate calls are bypassed
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+  bool allow_fallocate_;  // If false, fallocate calls are bypassed
   bool fallocate_with_keep_size_;
 #endif
 
@@ -452,9 +452,9 @@ class PosixMmapFile : public WritableFile {
         limit_(nullptr),
         dst_(nullptr),
         last_sync_(nullptr),
-        file_offset_(0),
-        allow_fallocate_(options.allow_fallocate) {
+        file_offset_(0) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+    allow_fallocate_ = options.allow_fallocate;
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
     assert((page_size & (page_size - 1)) == 0);
@@ -598,18 +598,16 @@ class PosixWritableFile : public WritableFile {
   const std::string filename_;
   int fd_;
   uint64_t filesize_;
-  bool allow_fallocate_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+  bool allow_fallocate_;
   bool fallocate_with_keep_size_;
 #endif
 
  public:
   PosixWritableFile(const std::string& fname, int fd, const EnvOptions& options)
-      : filename_(fname),
-        fd_(fd),
-        filesize_(0),
-        allow_fallocate_(options.allow_fallocate) {
+      : filename_(fname), fd_(fd), filesize_(0) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+    allow_fallocate_ = options.allow_fallocate;
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
     assert(!options.use_mmap_writes);
