@@ -227,6 +227,8 @@ UNITY_COMMANDS="[
     }
 ]"
 
+UNITY_COMMANDS=$DISABLE_COMMANDS
+
 #
 # Build RocksDB lite
 #
