@@ -231,6 +231,7 @@ DBOptions::DBOptions()
       max_log_file_size(0),
       log_file_time_to_roll(0),
       keep_log_file_num(1000),
+      recycle_log_file_num(0),
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       table_cache_numshardbits(4),
       WAL_ttl_seconds(0),
@@ -285,6 +286,7 @@ DBOptions::DBOptions(const Options& options)
       max_log_file_size(options.max_log_file_size),
       log_file_time_to_roll(options.log_file_time_to_roll),
       keep_log_file_num(options.keep_log_file_num),
+      recycle_log_file_num(options.recycle_log_file_num),
       max_manifest_file_size(options.max_manifest_file_size),
       table_cache_numshardbits(options.table_cache_numshardbits),
       WAL_ttl_seconds(options.WAL_ttl_seconds),
@@ -338,6 +340,8 @@ void DBOptions::Dump(Logger* log) const {
          log_file_time_to_roll);
     Header(log, "     Options.keep_log_file_num: %" ROCKSDB_PRIszt,
          keep_log_file_num);
+    Header(log, "  Options.recycle_log_file_num: %" ROCKSDB_PRIszt,
+           recycle_log_file_num);
     Header(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
     Header(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
     Header(log, "      Options.allow_fallocate: %d", allow_fallocate);
