@@ -420,7 +420,7 @@ Status DBImpl::NewDB() {
     file->SetPreallocationBlockSize(db_options_.manifest_preallocation_size);
     unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(file), env_options));
-    log::Writer log(std::move(file_writer));
+    log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
@@ -4117,7 +4117,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                                          mutable_cf_options.write_buffer_size);
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
-        new_log = new log::Writer(std::move(file_writer));
+        new_log = new log::Writer(std::move(file_writer),
+                                  new_log_number,
+				  db_options_.recycle_log_file_num > 0);
       }
     }
 
@@ -4756,8 +4758,11 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       impl->logfile_number_ = new_log_number;
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(lfile), opt_env_options));
-      impl->logs_.emplace_back(new_log_number,
-                               new log::Writer(std::move(file_writer)));
+      impl->logs_.emplace_back(
+          new_log_number,
+          new log::Writer(std::move(file_writer),
+                          new_log_number,
+			  impl->db_options_.recycle_log_file_num > 0));
 
       // set column family handles
       for (auto cf : column_families) {

@@ -5074,7 +5074,9 @@ class RecoveryTestHelper {
       ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(file), env_options));
-      current_log_writer.reset(new log::Writer(std::move(file_writer)));
+      current_log_writer.reset(new log::Writer(
+	  std::move(file_writer), current_log_number,
+	  db_options.recycle_log_file_num > 0));
 
       for (int i = 0; i < kKeysPerWALFile; i++) {
         std::string key = "key" + ToString(count++);

@@ -18,8 +18,12 @@
 namespace rocksdb {
 namespace log {
 
-Writer::Writer(unique_ptr<WritableFileWriter>&& dest)
-    : dest_(std::move(dest)), block_offset_(0) {
+Writer::Writer(unique_ptr<WritableFileWriter>&& dest,
+               uint64_t log_number, bool recycle_log_files)
+    : dest_(std::move(dest)),
+      block_offset_(0),
+      log_number_(log_number),
+      recycle_log_files_(recycle_log_files) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);

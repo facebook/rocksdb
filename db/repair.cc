@@ -413,7 +413,7 @@ class Repairer {
     {
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(file), env_options));
-      log::Writer log(std::move(file_writer));
+      log::Writer log(std::move(file_writer), 0, false);
       std::string record;
       edit_->EncodeTo(&record);
       status = log.AddRecord(record);
