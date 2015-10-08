@@ -933,6 +933,50 @@ class PosixEnv : public Env {
     return s;
   }
 
+  virtual Status ReuseWritableFile(const std::string& fname,
+                                   const std::string& old_fname,
+                                   unique_ptr<WritableFile>* result,
+                                   const EnvOptions& options) override {
+    result->reset();
+    Status s;
+    int fd = -1;
+    do {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(old_fname.c_str(), O_RDWR, 0644);
+    } while (fd < 0 && errno == EINTR);
+    if (fd < 0) {
+      s = IOError(fname, errno);
+    } else {
+      SetFD_CLOEXEC(fd, &options);
+      // rename into place
+      if (rename(old_fname.c_str(), fname.c_str()) != 0) {
+        Status r = IOError(old_fname, errno);
+        close(fd);
+        return r;
+      }
+      if (options.use_mmap_writes) {
+        if (!checkedDiskForMmap_) {
+          // this will be executed once in the program's lifetime.
+          // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
+          if (!SupportsFastAllocate(fname)) {
+            forceMmapOff = true;
+          }
+          checkedDiskForMmap_ = true;
+        }
+      }
+      if (options.use_mmap_writes && !forceMmapOff) {
+        result->reset(new PosixMmapFile(fname, fd, page_size_, options));
+      } else {
+        // disable mmap writes
+        EnvOptions no_mmap_writes_options = options;
+        no_mmap_writes_options.use_mmap_writes = false;
+
+        result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+      }
+    }
+    return s;
+  }
+
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
     result->reset();
