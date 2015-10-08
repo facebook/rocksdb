@@ -124,7 +124,9 @@ uint64_t SstFileReader::CalculateCompressedTableSize(
   BlockBasedTableFactory block_based_tf(table_options);
   unique_ptr<TableBuilder> table_builder;
   table_builder.reset(block_based_tf.NewTableBuilder(
-                         tb_options, dest_writer.get()));
+      tb_options,
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+      dest_writer.get()));
   unique_ptr<Iterator> iter(table_reader_->NewIterator(ReadOptions()));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {

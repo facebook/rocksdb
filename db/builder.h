@@ -37,7 +37,8 @@ TableBuilder* NewTableBuilder(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    WritableFileWriter* file, const CompressionType compression_type,
+    uint32_t column_family_id, WritableFileWriter* file,
+    const CompressionType compression_type,
     const CompressionOptions& compression_opts,
     const bool skip_filters = false);
 
@@ -52,7 +53,8 @@ extern Status BuildTable(
     FileMetaData* meta, const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    std::vector<SequenceNumber> snapshots, const CompressionType compression,
+    uint32_t column_family_id, std::vector<SequenceNumber> snapshots,
+    const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats,
     const Env::IOPriority io_priority = Env::IO_HIGH,

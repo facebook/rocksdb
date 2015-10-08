@@ -1317,8 +1317,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), env_options_, cfd->table_cache(),
           iter.get(), &meta, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), snapshots_.GetAll(),
-          GetCompressionFlush(*cfd->ioptions()),
+          cfd->int_tbl_prop_collector_factories(), cfd->GetID(),
+          snapshots_.GetAll(), GetCompressionFlush(*cfd->ioptions()),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), Env::IO_HIGH, &info.table_properties);
       LogFlush(db_options_.info_log);

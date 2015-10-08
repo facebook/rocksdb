@@ -61,13 +61,13 @@ Status BlockBasedTableFactory::NewTableReader(
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options,
+    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
     WritableFileWriter* file) const {
   auto table_builder = new BlockBasedTableBuilder(
       table_builder_options.ioptions, table_options_,
       table_builder_options.internal_comparator,
-      table_builder_options.int_tbl_prop_collector_factories, file,
-      table_builder_options.compression_type,
+      table_builder_options.int_tbl_prop_collector_factories, column_family_id,
+      file, table_builder_options.compression_type,
       table_builder_options.compression_opts,
       table_builder_options.skip_filters);
 

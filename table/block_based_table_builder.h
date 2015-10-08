@@ -40,7 +40,8 @@ class BlockBasedTableBuilder : public TableBuilder {
       const InternalKeyComparator& internal_comparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           int_tbl_prop_collector_factories,
-      WritableFileWriter* file, const CompressionType compression_type,
+      uint32_t column_family_id, WritableFileWriter* file,
+      const CompressionType compression_type,
       const CompressionOptions& compression_opts, const bool skip_filters);
 
   // REQUIRES: Either Finish() or Abandon() has been called.

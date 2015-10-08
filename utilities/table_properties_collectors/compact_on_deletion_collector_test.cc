@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "rocksdb/table.h"
+#include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/table_properties_collectors.h"
 #include "util/random.h"
 #include "utilities/table_properties_collectors/compact_on_deletion_collector.h"
@@ -24,6 +25,9 @@ int main(int argc, char** argv) {
       {1000, 10000, 10000, 127, 128, 129, 255, 256, 257, 2, 10000};
   const int kDeletionTriggers[] =
       {500, 9500, 4323, 47, 61, 128, 250, 250, 250, 2, 2};
+  rocksdb::TablePropertiesCollectorFactory::Context context;
+  context.column_family_id =
+      rocksdb::TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
 
   std::vector<int> window_sizes;
   std::vector<int> deletion_triggers;
@@ -57,8 +61,7 @@ int main(int argc, char** argv) {
       std::unique_ptr<rocksdb::TablePropertiesCollector> collector;
       auto factory = rocksdb::NewCompactOnDeletionCollectorFactory(
           kWindowSize, kNumDeletionTrigger);
-      collector.reset(
-          factory->CreateTablePropertiesCollector());
+      collector.reset(factory->CreateTablePropertiesCollector(context));
       const int kSample = 10;
       for (int delete_rate = 0; delete_rate <= kSample; ++delete_rate) {
         int deletions = 0;
@@ -90,8 +93,7 @@ int main(int argc, char** argv) {
       std::unique_ptr<rocksdb::TablePropertiesCollector> collector;
       auto factory = rocksdb::NewCompactOnDeletionCollectorFactory(
           kWindowSize, kNumDeletionTrigger);
-      collector.reset(
-          factory->CreateTablePropertiesCollector());
+      collector.reset(factory->CreateTablePropertiesCollector(context));
       const int kSample = 10;
       for (int delete_rate = 0; delete_rate <= kSample; ++delete_rate) {
         int deletions = 0;
@@ -138,8 +140,7 @@ int main(int argc, char** argv) {
       std::unique_ptr<rocksdb::TablePropertiesCollector> collector;
       auto factory = rocksdb::NewCompactOnDeletionCollectorFactory(
           kWindowSize, kNumDeletionTrigger);
-      collector.reset(
-          factory->CreateTablePropertiesCollector());
+      collector.reset(factory->CreateTablePropertiesCollector(context));
       assert(collector->NeedCompact() == false);
       // Insert "kNumDeletionTrigger * 0.95" deletions for every
       // "kWindowSize" and verify compaction is not needed.

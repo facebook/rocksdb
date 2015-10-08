@@ -821,21 +821,34 @@ class CoutingUserTblPropCollector : public TablePropertiesCollector {
 class CoutingUserTblPropCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
+  explicit CoutingUserTblPropCollectorFactory(
+      uint32_t expected_column_family_id)
+      : expected_column_family_id_(expected_column_family_id),
+        num_created_(0) {}
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override {
+    EXPECT_EQ(expected_column_family_id_, context.column_family_id);
+    num_created_++;
     return new CoutingUserTblPropCollector();
   }
   const char* Name() const override {
     return "CoutingUserTblPropCollectorFactory";
   }
+  void set_expected_column_family_id(uint32_t v) {
+    expected_column_family_id_ = v;
+  }
+  uint32_t expected_column_family_id_;
+  uint32_t num_created_;
 };
 
-TEST_F(DBTest, GetUserDefinedTablaProperties) {
+TEST_F(DBTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = (1<<30);
   options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
-  options.table_properties_collector_factories[0] =
-      std::make_shared<CoutingUserTblPropCollectorFactory>();
+  std::shared_ptr<CoutingUserTblPropCollectorFactory> collector_factory =
+      std::make_shared<CoutingUserTblPropCollectorFactory>(0);
+  options.table_properties_collector_factories[0] = collector_factory;
   Reopen(options);
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
@@ -861,6 +874,72 @@ TEST_F(DBTest, GetUserDefinedTablaProperties) {
     sum += count;
   }
   ASSERT_EQ(10u + 11u + 12u + 13u, sum);
+
+  ASSERT_GT(collector_factory->num_created_, 0);
+  collector_factory->num_created_ = 0;
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_GT(collector_factory->num_created_, 0);
+}
+
+TEST_F(DBTest, UserDefinedTablePropertiesContext) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_background_flushes = 0;
+  options.table_properties_collector_factories.resize(1);
+  std::shared_ptr<CoutingUserTblPropCollectorFactory> collector_factory =
+      std::make_shared<CoutingUserTblPropCollectorFactory>(1);
+  options.table_properties_collector_factories[0] = collector_factory,
+  CreateAndReopenWithCF({"pikachu"}, options);
+  // Create 2 files
+  for (int table = 0; table < 2; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(1, ToString(table * 100 + i), "val");
+    }
+    Flush(1);
+  }
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  collector_factory->num_created_ = 0;
+  // Trigger automatic compactions.
+  for (int table = 0; table < 3; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(1, ToString(table * 100 + i), "val");
+    }
+    Flush(1);
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  collector_factory->num_created_ = 0;
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  // Come back to write to default column family
+  collector_factory->num_created_ = 0;
+  collector_factory->set_expected_column_family_id(0);  // default CF
+  // Create 4 tables in default column family
+  for (int table = 0; table < 2; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(ToString(table * 100 + i), "val");
+    }
+    Flush();
+  }
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  collector_factory->num_created_ = 0;
+  // Trigger automatic compactions.
+  for (int table = 0; table < 3; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(ToString(table * 100 + i), "val");
+    }
+    Flush();
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  collector_factory->num_created_ = 0;
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_GT(collector_factory->num_created_, 0);
 }
 
 TEST_F(DBTest, LevelLimitReopen) {
@@ -8284,7 +8363,8 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
 class CountingDeleteTabPropCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override {
     return new CountingDeleteTabPropCollector();
   }
   const char* Name() const override {

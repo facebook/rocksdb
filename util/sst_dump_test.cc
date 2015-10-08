@@ -62,6 +62,7 @@ void createSST(const std::string& file_name,
       TableBuilderOptions(imoptions, ikc, &int_tbl_prop_collector_factories,
                           CompressionType::kNoCompression, CompressionOptions(),
                           false),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
   // Populate slightly more than 1K keys
