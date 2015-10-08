@@ -12,6 +12,7 @@
 * Added AddFile() to DB interface.
 * Added SstFileWriter class.
 * CompactionFilter has a new method FilterMergeOperand() that RocksDB applies to every merge operand during compaction to decide whether to filter the operand.
+* We removed CompactionFilterV2 interfaces from include/rocksdb/compaction_filter.h. The functionality was deprecated already in version 3.13.
 
 ## 4.0.0 (9/9/2015)
 ### New Features

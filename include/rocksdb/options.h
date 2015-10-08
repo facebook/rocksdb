@@ -30,7 +30,6 @@ namespace rocksdb {
 class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;
-class CompactionFilterFactoryV2;
 class Comparator;
 class Env;
 enum InfoLogLevel : unsigned char;
@@ -225,10 +224,6 @@ struct ColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
-
-  // This is deprecated. Talk to us if you depend on
-  // compaction_filter_factory_v2 and we'll put it back
-  // std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // -------------------
   // Parameters that affect performance

@@ -51,7 +51,6 @@ class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
-class CompactionFilterV2;
 class Arena;
 class WriteCallback;
 struct JobContext;
