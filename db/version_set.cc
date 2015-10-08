@@ -2376,8 +2376,8 @@ Status VersionSet::Recover(
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(std::move(manifest_file_reader), &reporter,
-                       true /*checksum*/, 0 /*initial_offset*/);
+    log::Reader reader(NULL, std::move(manifest_file_reader), &reporter,
+                       true /*checksum*/, 0 /*initial_offset*/, 0);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -2629,8 +2629,8 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   column_family_names.insert({0, kDefaultColumnFamilyName});
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(std::move(file_reader), &reporter, true /*checksum*/,
-                     0 /*initial_offset*/);
+  log::Reader reader(NULL, std::move(file_reader), &reporter, true /*checksum*/,
+                     0 /*initial_offset*/, 0);
   Slice record;
   std::string scratch;
   while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -2787,8 +2787,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(std::move(file_reader), &reporter, true /*checksum*/,
-                       0 /*initial_offset*/);
+    log::Reader reader(NULL, std::move(file_reader), &reporter,
+                       true /*checksum*/, 0 /*initial_offset*/, 0);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -3040,7 +3040,8 @@ bool VersionSet::ManifestContains(uint64_t manifest_file_num,
     }
     file_reader.reset(new SequentialFileReader(std::move(file)));
   }
-  log::Reader reader(std::move(file_reader), nullptr, true /*checksum*/, 0);
+  log::Reader reader(NULL, std::move(file_reader), nullptr,
+                     true /*checksum*/, 0, 0);
   Slice r;
   std::string scratch;
   bool result = false;

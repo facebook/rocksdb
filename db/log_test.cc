@@ -163,8 +163,8 @@ class LogTest : public ::testing::TestWithParam<int> {
         source_holder_(
             test::GetSequentialFileReader(new StringSource(reader_contents_))),
         writer_(std::move(dest_holder_), 123, GetParam()),
-        reader_(std::move(source_holder_), &report_, true /*checksum*/,
-                0 /*initial_offset*/) {}
+        reader_(NULL, std::move(source_holder_), &report_,
+                true /*checksum*/, 0 /*initial_offset*/, 123) {}
 
   void Write(const std::string& msg) {
     writer_.AddRecord(Slice(msg));
@@ -258,8 +258,8 @@ class LogTest : public ::testing::TestWithParam<int> {
     unique_ptr<SequentialFileReader> file_reader(
         test::GetSequentialFileReader(new StringSource(reader_contents_)));
     unique_ptr<Reader> offset_reader(
-        new Reader(std::move(file_reader), &report_, true /*checksum*/,
-                   WrittenBytes() + offset_past_end));
+        new Reader(NULL, std::move(file_reader), &report_,
+                   true /*checksum*/, WrittenBytes() + offset_past_end, 123));
     Slice record;
     std::string scratch;
     ASSERT_TRUE(!offset_reader->ReadRecord(&record, &scratch));
@@ -270,8 +270,9 @@ class LogTest : public ::testing::TestWithParam<int> {
     WriteInitialOffsetLog();
     unique_ptr<SequentialFileReader> file_reader(
         test::GetSequentialFileReader(new StringSource(reader_contents_)));
-    unique_ptr<Reader> offset_reader(new Reader(
-        std::move(file_reader), &report_, true /*checksum*/, initial_offset));
+    unique_ptr<Reader> offset_reader(
+        new Reader(NULL, std::move(file_reader), &report_,
+                   true /*checksum*/, initial_offset, 123));
     Slice record;
     std::string scratch;
     ASSERT_TRUE(offset_reader->ReadRecord(&record, &scratch));

@@ -1119,8 +1119,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
-    log::Reader reader(std::move(file_reader), &reporter, true /*checksum*/,
-                       0 /*initial_offset*/);
+    log::Reader reader(db_options_.info_log, std::move(file_reader), &reporter,
+                       true /*checksum*/, 0 /*initial_offset*/, log_number);
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "Recovering log #%" PRIu64 " mode %d skip-recovery %d", log_number,
         db_options_.wal_recovery_mode, !continue_replay_log);
