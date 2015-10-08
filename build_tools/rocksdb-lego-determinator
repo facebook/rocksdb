@@ -272,8 +272,6 @@ STRESS_CRASH_TEST_COMMANDS="[
     }
 ]"
 
-STRESS_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
-
 #
 # RocksDB test under address sanitizer
 #
@@ -313,8 +311,6 @@ ASAN_CRASH_TEST_COMMANDS="[
         $REPORT
     }
 ]"
-
-ASAN_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
 
 #
 # RocksDB unit test under valgrind
@@ -374,8 +370,6 @@ TSAN_CRASH_TEST_COMMANDS="[
         $REPORT
     }
 ]"
-
-TSAN_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
 
 #
 # RocksDB format compatible
