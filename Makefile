@@ -76,6 +76,8 @@ endif
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
 DISABLE_WARNING_AS_ERROR=1
+else
+$(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
 #-----------------------------------------------
@@ -322,10 +324,14 @@ TOOLS = \
 
 BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
-# The library name is configurable since we are maintaining libraries of both
-# debug/release mode.
+# if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
+# we should only run rocksdb in production with DEBUG_LEVEL 0
+ifeq ($(DEBUG_LEVEL),0)
         LIBNAME=librocksdb
+else
+        LIBNAME=librocksdb_debug
+endif
 endif
 LIBRARY = ${LIBNAME}.a
 
