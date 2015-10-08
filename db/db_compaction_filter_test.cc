@@ -97,8 +97,11 @@ class ChangeFilter : public CompactionFilter {
 
 class KeepFilterFactory : public CompactionFilterFactory {
  public:
-  explicit KeepFilterFactory(bool check_context = false)
-      : check_context_(check_context) {}
+  explicit KeepFilterFactory(bool check_context = false,
+                             bool check_context_cf_id = false)
+      : check_context_(check_context),
+        check_context_cf_id_(check_context_cf_id),
+        compaction_filter_created_(false) {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
@@ -106,13 +109,22 @@ class KeepFilterFactory : public CompactionFilterFactory {
       EXPECT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
       EXPECT_EQ(expect_manual_compaction_.load(), context.is_manual_compaction);
     }
+    if (check_context_cf_id_) {
+      EXPECT_EQ(expect_cf_id_.load(), context.column_family_id);
+    }
+    compaction_filter_created_ = true;
     return std::unique_ptr<CompactionFilter>(new KeepFilter());
   }
 
+  bool compaction_filter_created() const { return compaction_filter_created_; }
+
   virtual const char* Name() const override { return "KeepFilterFactory"; }
   bool check_context_;
+  bool check_context_cf_id_;
   std::atomic_bool expect_full_compaction_;
   std::atomic_bool expect_manual_compaction_;
+  std::atomic<uint32_t> expect_cf_id_;
+  bool compaction_filter_created_;
 };
 
 class DeleteFilterFactory : public CompactionFilterFactory {
@@ -482,7 +494,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
 }
 
 TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
-  KeepFilterFactory* filter = new KeepFilterFactory();
+  KeepFilterFactory* filter = new KeepFilterFactory(true, true);
 
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
@@ -504,15 +516,17 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     // be triggered.
     num_keys_per_file /= 2;
   }
+  dbfull()->TEST_WaitForCompact();
 
   // Force a manual compaction
   cfilter_count = 0;
   filter->expect_manual_compaction_.store(true);
-  filter->expect_full_compaction_.store(false);  // Manual compaction always
-                                                 // set this flag.
+  filter->expect_full_compaction_.store(true);
+  filter->expect_cf_id_.store(0);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(cfilter_count, 700);
   ASSERT_EQ(NumSortedRuns(0), 1);
+  ASSERT_TRUE(filter->compaction_filter_created());
 
   // Verify total number of keys is correct after manual compaction.
   {
@@ -535,6 +549,35 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_EQ(total, 700);
     ASSERT_EQ(count, 1);
   }
+}
+
+TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
+  KeepFilterFactory* filter = new KeepFilterFactory(false, true);
+  filter->expect_cf_id_.store(1);
+
+  Options options = CurrentOptions();
+  options.compaction_filter_factory.reset(filter);
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = 2;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  int num_keys_per_file = 400;
+  for (int j = 0; j < 3; j++) {
+    // Write several keys.
+    const std::string value(10, 'x');
+    for (int i = 0; i < num_keys_per_file; i++) {
+      char key[100];
+      snprintf(key, sizeof(key), "B%08d%02d", i, j);
+      Put(1, key, value);
+    }
+    Flush(1);
+    // Make sure next file is much smaller so automatic compaction will not
+    // be triggered.
+    num_keys_per_file /= 2;
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_TRUE(filter->compaction_filter_created());
 }
 
 // Compaction filters should only be applied to records that are newer than the

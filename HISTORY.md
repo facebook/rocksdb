@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 
+## Unreleased
+### Public API Changes
+* CompactionFilter::Context includes information of Column Family ID
+
 ## 4.1.0 (10/8/2015)
 ### New Features
 * Added single delete operation as a more efficient way to delete keys that have not been overwritten.
