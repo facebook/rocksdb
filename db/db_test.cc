@@ -642,10 +642,10 @@ TEST_F(DBTest, AggregatedTableProperties) {
 TEST_F(DBTest, ReadLatencyHistogramByLevel) {
   Options options = CurrentOptions();
   options.write_buffer_size = 110 << 10;
-  options.level0_file_num_compaction_trigger = 3;
+  options.level0_file_num_compaction_trigger = 6;
   options.num_levels = 4;
   options.compression = kNoCompression;
-  options.max_bytes_for_level_base = 450 << 10;
+  options.max_bytes_for_level_base = 4500 << 10;
   options.target_file_size_base = 98 << 10;
   options.max_write_buffer_number = 2;
   options.statistics = rocksdb::CreateDBStatistics();
@@ -657,10 +657,11 @@ TEST_F(DBTest, ReadLatencyHistogramByLevel) {
   DestroyAndReopen(options);
   int key_index = 0;
   Random rnd(301);
-  for (int num = 0; num < 5; num++) {
+  for (int num = 0; num < 7; num++) {
     Put("foo", "bar");
     GenerateNewFile(&rnd, &key_index);
   }
+  dbfull()->TEST_WaitForCompact();
 
   std::string prop;
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
@@ -676,6 +677,7 @@ TEST_F(DBTest, ReadLatencyHistogramByLevel) {
 
   // Reopen and issue Get(). See thee latency tracked
   Reopen(options);
+  dbfull()->TEST_WaitForCompact();
   for (int key = 0; key < 500; key++) {
     Get(Key(key));
   }
