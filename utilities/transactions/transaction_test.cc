@@ -1301,6 +1301,68 @@ TEST_F(TransactionTest, IteratorTest) {
   delete txn;
 }
 
+TEST_F(TransactionTest, DisableIndexingTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  s = txn->Put("A", "a");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+
+  txn->DisableIndexing();
+
+  s = txn->Put("B", "b");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  Iterator* iter = txn->GetIterator(read_options);
+  ASSERT_OK(iter->status());
+
+  iter->Seek("B");
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+
+  s = txn->Delete("A");
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+
+  txn->EnableIndexing();
+
+  s = txn->Put("B", "bb");
+  ASSERT_OK(s);
+
+  iter->Seek("B");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bb", iter->value().ToString());
+
+  s = txn->Get(read_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("bb", value);
+
+  s = txn->Put("A", "aa");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("aa", value);
+
+  delete iter;
+  delete txn;
+}
+
 TEST_F(TransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;

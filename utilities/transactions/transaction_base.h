@@ -170,6 +170,10 @@ class TransactionBaseImpl : public Transaction {
 
   void SetSnapshot() override;
 
+  void DisableIndexing() override { indexing_enabled_ = false; }
+
+  void EnableIndexing() override { indexing_enabled_ = true; }
+
   uint64_t GetElapsedTime() const override;
 
   uint64_t GetNumPuts() const override;
@@ -241,8 +245,16 @@ class TransactionBaseImpl : public Transaction {
   // Optimistic Transactions will wait till commit time to do conflict checking.
   TransactionKeyMap tracked_keys_;
 
+  // If true, future Put/Merge/Deletes will be indexed in the
+  // WriteBatchWithIndex.
+  // If false, future Put/Merge/Deletes will be inserted directly into the
+  // underlying WriteBatch and not indexed in the WriteBatchWithIndex.
+  bool indexing_enabled_ = true;
+
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
                  bool untracked = false);
+
+  WriteBatchBase* GetBatchForWrite();
 };
 
 }  // namespace rocksdb

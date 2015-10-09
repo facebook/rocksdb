@@ -181,6 +181,7 @@ Status TransactionDBImpl::Put(const WriteOptions& options,
   Status s;
 
   Transaction* txn = BeginInternalTransaction(options);
+  txn->DisableIndexing();
 
   // Since the client didn't create a transaction, they don't care about
   // conflict checking for this write.  So we just need to do PutUntracked().
@@ -201,6 +202,7 @@ Status TransactionDBImpl::Delete(const WriteOptions& wopts,
   Status s;
 
   Transaction* txn = BeginInternalTransaction(wopts);
+  txn->DisableIndexing();
 
   // Since the client didn't create a transaction, they don't care about
   // conflict checking for this write.  So we just need to do
@@ -222,6 +224,7 @@ Status TransactionDBImpl::Merge(const WriteOptions& options,
   Status s;
 
   Transaction* txn = BeginInternalTransaction(options);
+  txn->DisableIndexing();
 
   // Since the client didn't create a transaction, they don't care about
   // conflict checking for this write.  So we just need to do
@@ -241,6 +244,7 @@ Status TransactionDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   // Need to lock all keys in this batch to prevent write conflicts with
   // concurrent transactions.
   Transaction* txn = BeginInternalTransaction(opts);
+  txn->DisableIndexing();
 
   assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
   auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);

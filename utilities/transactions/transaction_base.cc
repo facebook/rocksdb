@@ -179,7 +179,7 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key);
 
   if (s.ok()) {
-    write_batch_->Put(column_family, key, value);
+    GetBatchForWrite()->Put(column_family, key, value);
     num_puts_++;
   }
 
@@ -192,7 +192,7 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key);
 
   if (s.ok()) {
-    write_batch_->Put(column_family, key, value);
+    GetBatchForWrite()->Put(column_family, key, value);
     num_puts_++;
   }
 
@@ -204,7 +204,7 @@ Status TransactionBaseImpl::Merge(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key);
 
   if (s.ok()) {
-    write_batch_->Merge(column_family, key, value);
+    GetBatchForWrite()->Merge(column_family, key, value);
     num_merges_++;
   }
 
@@ -216,7 +216,7 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key);
 
   if (s.ok()) {
-    write_batch_->Delete(column_family, key);
+    GetBatchForWrite()->Delete(column_family, key);
     num_deletes_++;
   }
 
@@ -228,7 +228,7 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key);
 
   if (s.ok()) {
-    write_batch_->Delete(column_family, key);
+    GetBatchForWrite()->Delete(column_family, key);
     num_deletes_++;
   }
 
@@ -240,7 +240,7 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key);
 
   if (s.ok()) {
-    write_batch_->SingleDelete(column_family, key);
+    GetBatchForWrite()->SingleDelete(column_family, key);
     num_deletes_++;
   }
 
@@ -252,7 +252,7 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key);
 
   if (s.ok()) {
-    write_batch_->SingleDelete(column_family, key);
+    GetBatchForWrite()->SingleDelete(column_family, key);
     num_deletes_++;
   }
 
@@ -265,7 +265,7 @@ Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key, untracked);
 
   if (s.ok()) {
-    write_batch_->Put(column_family, key, value);
+    GetBatchForWrite()->Put(column_family, key, value);
     num_puts_++;
   }
 
@@ -279,7 +279,7 @@ Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key, untracked);
 
   if (s.ok()) {
-    write_batch_->Put(column_family, key, value);
+    GetBatchForWrite()->Put(column_family, key, value);
     num_puts_++;
   }
 
@@ -293,7 +293,7 @@ Status TransactionBaseImpl::MergeUntracked(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key, untracked);
 
   if (s.ok()) {
-    write_batch_->Merge(column_family, key, value);
+    GetBatchForWrite()->Merge(column_family, key, value);
     num_merges_++;
   }
 
@@ -306,7 +306,7 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key, untracked);
 
   if (s.ok()) {
-    write_batch_->Delete(column_family, key);
+    GetBatchForWrite()->Delete(column_family, key);
     num_deletes_++;
   }
 
@@ -319,7 +319,7 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
   Status s = TryLock(column_family, key, untracked);
 
   if (s.ok()) {
-    write_batch_->Delete(column_family, key);
+    GetBatchForWrite()->Delete(column_family, key);
     num_deletes_++;
   }
 
@@ -378,6 +378,20 @@ const TransactionKeyMap* TransactionBaseImpl::GetTrackedKeysSinceSavePoint() {
   }
 
   return nullptr;
+}
+
+// Gets the write batch that should be used for Put/Merge/Deletes.
+//
+// Returns either a WriteBatch or WriteBatchWithIndex depending on whether
+// DisableIndexing() has been called.
+WriteBatchBase* TransactionBaseImpl::GetBatchForWrite() {
+  if (indexing_enabled_) {
+    // Use WriteBatchWithIndex
+    return write_batch_.get();
+  } else {
+    // Don't use WriteBatchWithIndex. Return base WriteBatch.
+    return write_batch_->GetWriteBatch();
+  }
 }
 
 }  // namespace rocksdb

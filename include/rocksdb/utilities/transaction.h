@@ -263,6 +263,21 @@ class Transaction {
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;
 
+  // By default, all Put/Merge/Delete operations will be indexed in the
+  // transaction so that Get/GetForUpdate/GetIterator can search for these
+  // keys.
+  //
+  // If the caller does not want to fetch the keys about to be written,
+  // they may want to avoid indexing as a performance optimization.
+  // Calling DisableIndexing() will turn off indexing for all future
+  // Put/Merge/Delete operations until EnableIndexing() is called.
+  //
+  // If a key is Put/Merge/Deleted after DisableIndexing is called and then
+  // is fetched via Get/GetForUpdate/GetIterator, the result of the fetch is
+  // undefined.
+  virtual void DisableIndexing() = 0;
+  virtual void EnableIndexing() = 0;
+
   // Returns the number of distinct Keys being tracked by this transaction.
   // If this transaction was created by a TransactinDB, this is the number of
   // keys that are currently locked by this transaction.
