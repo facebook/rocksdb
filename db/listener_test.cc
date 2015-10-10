@@ -157,10 +157,11 @@ struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
                                      const rocksdb::Slice& value,
                                      rocksdb::EntryType type,
                                      rocksdb::SequenceNumber seq,
-                                     uint64_t file_size) {
+                                     uint64_t file_size) override {
     return Status::OK();
   }
-  virtual rocksdb::Status Finish(rocksdb::UserCollectedProperties* properties) {
+  virtual rocksdb::Status Finish(
+      rocksdb::UserCollectedProperties* properties) override {
     properties->insert({"0", "1"});
     return Status::OK();
   }
