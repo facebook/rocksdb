@@ -174,26 +174,52 @@ bool ParseCompressionType(const std::string& string_value,
   return true;
 }
 
-BlockBasedTableOptions::IndexType ParseBlockBasedTableIndexType(
-    const std::string& type) {
-  if (type == "kBinarySearch") {
-    return BlockBasedTableOptions::kBinarySearch;
-  } else if (type == "kHashSearch") {
-    return BlockBasedTableOptions::kHashSearch;
+bool SerializeBlockBasedTableIndexType(
+    const BlockBasedTableOptions::IndexType& type, std::string* value) {
+  switch (type) {
+    case BlockBasedTableOptions::kBinarySearch:
+      *value = "kBinarySearch";
+      return true;
+    case BlockBasedTableOptions::kHashSearch:
+      *value = "kHashSearch";
+      return true;
+    default:
+      return false;
   }
-  throw std::invalid_argument("Unknown index type: " + type);
 }
 
-ChecksumType ParseBlockBasedTableChecksumType(
-    const std::string& type) {
-  if (type == "kNoChecksum") {
-    return kNoChecksum;
-  } else if (type == "kCRC32c") {
-    return kCRC32c;
-  } else if (type == "kxxHash") {
-    return kxxHash;
+bool ParseBlockBasedTableIndexType(const std::string& type,
+                                   BlockBasedTableOptions::IndexType* value) {
+  if (type == "kBinarySearch") {
+    *value = BlockBasedTableOptions::kBinarySearch;
+  } else if (type == "kHashSearch") {
+    *value = BlockBasedTableOptions::kHashSearch;
+  } else {
+    return false;
   }
-  throw std::invalid_argument("Unknown checksum type: " + type);
+  return true;
+}
+
+static std::unordered_map<std::string, ChecksumType> checksum_type_map = {
+    {"kNoChecksum", kNoChecksum}, {"kCRC32c", kCRC32c}, {"kxxHash", kxxHash}};
+
+bool ParseChecksumType(const std::string& type, ChecksumType* value) {
+  auto iter = checksum_type_map.find(type);
+  if (iter != checksum_type_map.end()) {
+    *value = iter->second;
+    return true;
+  }
+  return false;
+}
+
+bool SerializeChecksumType(const ChecksumType& type, std::string* value) {
+  for (const auto& pair : checksum_type_map) {
+    if (pair.second == type) {
+      *value = pair.first;
+      return true;
+    }
+  }
+  return false;
 }
 
 bool ParseBoolean(const std::string& type, const std::string& value) {
@@ -328,6 +354,7 @@ bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
     const std::string& value,
     std::shared_ptr<const SliceTransform>* slice_transform) {
+  static const std::string kNullptrString = "nullptr";
   auto& pe_value = value;
   if (pe_value.size() > kFixedPrefixName.size() &&
       pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) == 0) {
@@ -339,7 +366,7 @@ bool ParseSliceTransformHelper(
     int prefix_length =
         ParseInt(trim(pe_value.substr(kCappedPrefixName.size())));
     slice_transform->reset(NewCappedPrefixTransform(prefix_length));
-  } else if (value == "nullptr") {
+  } else if (value == kNullptrString) {
     slice_transform->reset();
   } else {
     return false;
@@ -414,6 +441,13 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseSliceTransform(
           value, reinterpret_cast<std::shared_ptr<const SliceTransform>*>(
                      opt_address));
+    case OptionType::kChecksumType:
+      return ParseChecksumType(value,
+                               reinterpret_cast<ChecksumType*>(opt_address));
+    case OptionType::kBlockBasedTableIndexType:
+      return ParseBlockBasedTableIndexType(
+          value,
+          reinterpret_cast<BlockBasedTableOptions::IndexType*>(opt_address));
     default:
       return false;
   }
@@ -425,6 +459,7 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
 bool SerializeSingleOptionHelper(const char* opt_address,
                                  const OptionType opt_type,
                                  std::string* value) {
+  static const std::string kNullptrString = kNullptrString;
   assert(value);
   switch (opt_type) {
     case OptionType::kBoolean:
@@ -469,7 +504,7 @@ bool SerializeSingleOptionHelper(const char* opt_address,
           reinterpret_cast<const std::shared_ptr<const SliceTransform>*>(
               opt_address);
       *value = slice_transform_ptr->get() ? slice_transform_ptr->get()->Name()
-                                          : "nullptr";
+                                          : kNullptrString;
       break;
     }
     case OptionType::kTableFactory: {
@@ -477,40 +512,61 @@ bool SerializeSingleOptionHelper(const char* opt_address,
           reinterpret_cast<const std::shared_ptr<const TableFactory>*>(
               opt_address);
       *value = table_factory_ptr->get() ? table_factory_ptr->get()->Name()
-                                        : "nullptr";
+                                        : kNullptrString;
       break;
     }
     case OptionType::kComparator: {
       // it's a const pointer of const Comparator*
       const auto* ptr = reinterpret_cast<const Comparator* const*>(opt_address);
-      *value = *ptr ? (*ptr)->Name() : "nullptr";
+      *value = *ptr ? (*ptr)->Name() : kNullptrString;
       break;
     }
     case OptionType::kCompactionFilter: {
       // it's a const pointer of const CompactionFilter*
       const auto* ptr =
           reinterpret_cast<const CompactionFilter* const*>(opt_address);
-      *value = *ptr ? (*ptr)->Name() : "nullptr";
+      *value = *ptr ? (*ptr)->Name() : kNullptrString;
       break;
     }
     case OptionType::kCompactionFilterFactory: {
       const auto* ptr =
           reinterpret_cast<const std::shared_ptr<CompactionFilterFactory>*>(
               opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : "nullptr";
+      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
     case OptionType::kMemTableRepFactory: {
       const auto* ptr =
           reinterpret_cast<const std::shared_ptr<MemTableRepFactory>*>(
               opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : "nullptr";
+      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
     case OptionType::kMergeOperator: {
       const auto* ptr =
           reinterpret_cast<const std::shared_ptr<MergeOperator>*>(opt_address);
-      *value = ptr->get() ? ptr->get()->Name() : "nullptr";
+      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
+      break;
+    }
+    case OptionType::kFilterPolicy: {
+      const auto* ptr =
+          reinterpret_cast<const std::shared_ptr<FilterPolicy>*>(opt_address);
+      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
+      break;
+    }
+    case OptionType::kChecksumType:
+      return SerializeChecksumType(
+          *reinterpret_cast<const ChecksumType*>(opt_address), value);
+    case OptionType::kBlockBasedTableIndexType:
+      return SerializeBlockBasedTableIndexType(
+          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
+              opt_address),
+          value);
+    case OptionType::kFlushBlockPolicyFactory: {
+      const auto* ptr =
+          reinterpret_cast<const std::shared_ptr<FlushBlockPolicyFactory>*>(
+              opt_address);
+      *value = ptr->get() ? ptr->get()->Name() : kNullptrString;
       break;
     }
     default:
@@ -881,6 +937,59 @@ Status GetStringFromColumnFamilyOptions(std::string* opt_string,
   return Status::OK();
 }
 
+bool SerializeSingleBlockBasedTableOption(
+    std::string* opt_string, const BlockBasedTableOptions& bbt_options,
+    const std::string& name, const std::string& delimiter) {
+  auto iter = block_based_table_type_info.find(name);
+  if (iter == block_based_table_type_info.end()) {
+    return false;
+  }
+  auto& opt_info = iter->second;
+  const char* opt_address =
+      reinterpret_cast<const char*>(&bbt_options) + opt_info.offset;
+  std::string value;
+  bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
+  if (result) {
+    *opt_string = name + "=" + value + delimiter;
+  }
+  return result;
+}
+
+Status GetStringFromBlockBasedTableOptions(
+    std::string* opt_string, const BlockBasedTableOptions& bbt_options,
+    const std::string& delimiter) {
+  assert(opt_string);
+  opt_string->clear();
+  for (auto iter = block_based_table_type_info.begin();
+       iter != block_based_table_type_info.end(); ++iter) {
+    if (iter->second.verification == OptionVerificationType::kDeprecated) {
+      // If the option is no longer used in rocksdb and marked as deprecated,
+      // we skip it in the serialization.
+      continue;
+    }
+    std::string single_output;
+    bool result = SerializeSingleBlockBasedTableOption(
+        &single_output, bbt_options, iter->first, delimiter);
+    assert(result);
+    if (result) {
+      opt_string->append(single_output);
+    }
+  }
+  return Status::OK();
+}
+
+Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
+                                 const std::string& delimiter) {
+  const auto* bbtf = dynamic_cast<const BlockBasedTableFactory*>(tf);
+  opts_str->clear();
+  if (bbtf != nullptr) {
+    return GetStringFromBlockBasedTableOptions(
+        opts_str, bbtf->GetTableOptions(), delimiter);
+  }
+
+  return Status::OK();
+}
+
 bool ParseDBOption(const std::string& name, const std::string& org_value,
                    DBOptions* new_options, bool input_string_escaped = false) {
   const std::string& value =
@@ -908,67 +1017,73 @@ bool ParseDBOption(const std::string& name, const std::string& org_value,
   return true;
 }
 
+std::string ParseBlockBasedTableOption(const std::string& name,
+                                       const std::string& org_value,
+                                       BlockBasedTableOptions* new_options,
+                                       bool input_string_escaped = false) {
+  const std::string& value =
+      input_string_escaped ? UnescapeOptionString(org_value) : org_value;
+  if (!input_string_escaped) {
+    // if the input string is not escaped, it means this function is
+    // invoked from SetOptions, which takes the old format.
+    if (name == "block_cache") {
+      new_options->block_cache = NewLRUCache(ParseSizeT(value));
+      return "";
+    } else if (name == "block_cache_compressed") {
+      new_options->block_cache_compressed = NewLRUCache(ParseSizeT(value));
+      return "";
+    } else if (name == "filter_policy") {
+      // Expect the following format
+      // bloomfilter:int:bool
+      const std::string kName = "bloomfilter:";
+      if (value.compare(0, kName.size(), kName) != 0) {
+        return "Invalid filter policy name";
+      }
+      size_t pos = value.find(':', kName.size());
+      if (pos == std::string::npos) {
+        return "Invalid filter policy config, missing bits_per_key";
+      }
+      int bits_per_key =
+          ParseInt(trim(value.substr(kName.size(), pos - kName.size())));
+      bool use_block_based_builder =
+          ParseBoolean("use_block_based_builder", trim(value.substr(pos + 1)));
+      new_options->filter_policy.reset(
+          NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
+      return "";
+    }
+  }
+  const auto iter = block_based_table_type_info.find(name);
+  if (iter == block_based_table_type_info.end()) {
+    return "Unrecognized option";
+  }
+  const auto& opt_info = iter->second;
+  if (!ParseOptionHelper(reinterpret_cast<char*>(new_options) + opt_info.offset,
+                         opt_info.type, value)) {
+    return "Invalid value";
+  }
+  return "";
+}
+
 Status GetBlockBasedTableOptionsFromMap(
     const BlockBasedTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    BlockBasedTableOptions* new_table_options) {
-
+    BlockBasedTableOptions* new_table_options, bool input_strings_escaped) {
   assert(new_table_options);
   *new_table_options = table_options;
   for (const auto& o : opts_map) {
-    try {
-      if (o.first == "cache_index_and_filter_blocks") {
-        new_table_options->cache_index_and_filter_blocks =
-          ParseBoolean(o.first, o.second);
-      } else if (o.first == "index_type") {
-        new_table_options->index_type = ParseBlockBasedTableIndexType(o.second);
-      } else if (o.first == "hash_index_allow_collision") {
-        new_table_options->hash_index_allow_collision =
-          ParseBoolean(o.first, o.second);
-      } else if (o.first == "checksum") {
-        new_table_options->checksum =
-          ParseBlockBasedTableChecksumType(o.second);
-      } else if (o.first == "no_block_cache") {
-        new_table_options->no_block_cache = ParseBoolean(o.first, o.second);
-      } else if (o.first == "block_cache") {
-        new_table_options->block_cache = NewLRUCache(ParseSizeT(o.second));
-      } else if (o.first == "block_cache_compressed") {
-        new_table_options->block_cache_compressed =
-          NewLRUCache(ParseSizeT(o.second));
-      } else if (o.first == "block_size") {
-        new_table_options->block_size = ParseSizeT(o.second);
-      } else if (o.first == "block_size_deviation") {
-        new_table_options->block_size_deviation = ParseInt(o.second);
-      } else if (o.first == "block_restart_interval") {
-        new_table_options->block_restart_interval = ParseInt(o.second);
-      } else if (o.first == "filter_policy") {
-        // Expect the following format
-        // bloomfilter:int:bool
-        const std::string kName = "bloomfilter:";
-        if (o.second.compare(0, kName.size(), kName) != 0) {
-          return Status::InvalidArgument("Invalid filter policy name");
-        }
-        size_t pos = o.second.find(':', kName.size());
-        if (pos == std::string::npos) {
-          return Status::InvalidArgument("Invalid filter policy config, "
-                                         "missing bits_per_key");
-        }
-        int bits_per_key = ParseInt(
-            trim(o.second.substr(kName.size(), pos - kName.size())));
-        bool use_block_based_builder =
-          ParseBoolean("use_block_based_builder",
-                       trim(o.second.substr(pos + 1)));
-        new_table_options->filter_policy.reset(
-            NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
-      } else if (o.first == "whole_key_filtering") {
-        new_table_options->whole_key_filtering =
-          ParseBoolean(o.first, o.second);
-      } else {
-        return Status::InvalidArgument("Unrecognized option: " + o.first);
+    auto error_message = ParseBlockBasedTableOption(
+        o.first, o.second, new_table_options, input_strings_escaped);
+    if (error_message != "") {
+      const auto iter = block_based_table_type_info.find(o.first);
+      if (iter == block_based_table_type_info.end() ||
+          !input_strings_escaped ||  // !input_strings_escaped indicates
+                                     // the old API, where everything is
+                                     // parsable.
+          (iter->second.verification != OptionVerificationType::kByName &&
+           iter->second.verification != OptionVerificationType::kDeprecated)) {
+        return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
+                                       o.first + " " + error_message);
       }
-    } catch (std::exception& e) {
-      return Status::InvalidArgument("error parsing " + o.first + ":" +
-                                     std::string(e.what()));
     }
   }
   return Status::OK();
@@ -1107,6 +1222,27 @@ Status GetOptionsFromString(const Options& base_options,
     }
   }
   *new_options = Options(new_db_options, new_cf_options);
+  return Status::OK();
+}
+
+Status GetTableFactoryFromMap(
+    const std::string& factory_name,
+    const std::unordered_map<std::string, std::string>& opt_map,
+    std::shared_ptr<TableFactory>* table_factory) {
+  Status s;
+  if (factory_name == BlockBasedTableFactory().Name()) {
+    BlockBasedTableOptions bbt_opt;
+    s = GetBlockBasedTableOptionsFromMap(BlockBasedTableOptions(), opt_map,
+                                         &bbt_opt, true);
+    if (!s.ok()) {
+      return s;
+    }
+    table_factory->reset(new BlockBasedTableFactory(bbt_opt));
+    return Status::OK();
+  }
+  // Return OK for not supported table factories as TableFactory
+  // Deserialization is optional.
+  table_factory->reset();
   return Status::OK();
 }
 

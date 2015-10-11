@@ -9,6 +9,7 @@
 #include <stdexcept>
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "rocksdb/table.h"
 #include "util/mutable_cf_options.h"
 
 #ifndef ROCKSDB_LITE
@@ -55,6 +56,14 @@ Status GetMutableOptionsFromStrings(
     const std::unordered_map<std::string, std::string>& options_map,
     MutableCFOptions* new_options);
 
+Status GetTableFactoryFromMap(
+    const std::string& factory_name,
+    const std::unordered_map<std::string, std::string>& opt_map,
+    std::shared_ptr<TableFactory>* table_factory);
+
+Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
+                                 const std::string& delimiter = ";  ");
+
 enum class OptionType {
   kBoolean,
   kInt,
@@ -74,6 +83,10 @@ enum class OptionType {
   kCompactionFilterFactory,
   kMergeOperator,
   kMemTableRepFactory,
+  kBlockBasedTableIndexType,
+  kFilterPolicy,
+  kFlushBlockPolicyFactory,
+  kChecksumType,
   kUnknown
 };
 
@@ -401,6 +414,48 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
      {offsetof(struct ColumnFamilyOptions, compaction_style),
       OptionType::kCompactionStyle, OptionVerificationType::kNormal}}};
 
+static std::unordered_map<std::string,
+                          OptionTypeInfo> block_based_table_type_info = {
+    /* currently not supported
+      std::shared_ptr<Cache> block_cache = nullptr;
+      std::shared_ptr<Cache> block_cache_compressed = nullptr;
+     */
+    {"flush_block_policy_factory",
+     {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
+      OptionType::kFlushBlockPolicyFactory, OptionVerificationType::kByName}},
+    {"cache_index_and_filter_blocks",
+     {offsetof(struct BlockBasedTableOptions, cache_index_and_filter_blocks),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"index_type",
+     {offsetof(struct BlockBasedTableOptions, index_type),
+      OptionType::kBlockBasedTableIndexType, OptionVerificationType::kNormal}},
+    {"hash_index_allow_collision",
+     {offsetof(struct BlockBasedTableOptions, hash_index_allow_collision),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"checksum",
+     {offsetof(struct BlockBasedTableOptions, checksum),
+      OptionType::kChecksumType, OptionVerificationType::kNormal}},
+    {"no_block_cache",
+     {offsetof(struct BlockBasedTableOptions, no_block_cache),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"block_size",
+     {offsetof(struct BlockBasedTableOptions, block_size), OptionType::kSizeT,
+      OptionVerificationType::kNormal}},
+    {"block_size_deviation",
+     {offsetof(struct BlockBasedTableOptions, block_size_deviation),
+      OptionType::kInt, OptionVerificationType::kNormal}},
+    {"block_restart_interval",
+     {offsetof(struct BlockBasedTableOptions, block_restart_interval),
+      OptionType::kInt, OptionVerificationType::kNormal}},
+    {"filter_policy",
+     {offsetof(struct BlockBasedTableOptions, filter_policy),
+      OptionType::kFilterPolicy, OptionVerificationType::kByName}},
+    {"whole_key_filtering",
+     {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"format_version",
+     {offsetof(struct BlockBasedTableOptions, format_version),
+      OptionType::kUInt32T, OptionVerificationType::kNormal}}};
 }  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE
