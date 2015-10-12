@@ -205,6 +205,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/prefix_test.cc                                                     \
   db/skiplist_test.cc                                                   \
   db/table_properties_collector_test.cc                                 \
+  db/db_test_util.cc                                                    \
   db/version_builder_test.cc                                            \
   db/version_edit_test.cc                                               \
   db/version_set_test.cc                                                \
@@ -233,7 +234,6 @@ TEST_BENCH_SOURCES =                                                    \
   util/cache_test.cc                                                    \
   util/coding_test.cc                                                   \
   util/crc32c_test.cc                                                   \
-  util/db_test_util.cc                                                  \
   util/dynamic_bloom_test.cc                                            \
   util/env_test.cc                                                      \
   util/filelock_test.cc                                                 \

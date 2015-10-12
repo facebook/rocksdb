@@ -609,7 +609,7 @@ unity.a: unity.o
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ unity.o
 
 # try compiling db_test with unity
-unity_test: db/db_test.o util/db_test_util.o $(TESTHARNESS) unity.a
+unity_test: db/db_test.o db/db_test_util.o $(TESTHARNESS) unity.a
 	$(AM_LINK)
 	./unity_test
 
@@ -709,34 +709,34 @@ crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_test: db/db_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_log_iter_test: db/db_log_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_log_iter_test: db/db_log_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_compaction_filter_test: db/db_compaction_filter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_compaction_filter_test: db/db_compaction_filter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_compaction_test: db/db_compaction_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_compaction_test: db/db_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_dynamic_level_test: db/db_dynamic_level_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_dynamic_level_test: db/db_dynamic_level_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_inplace_update_test: db/db_inplace_update_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_inplace_update_test: db/db_inplace_update_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_tailing_iter_test: db/db_tailing_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_tailing_iter_test: db/db_tailing_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_iter_test: db/db_iter_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_universal_compaction_test: db/db_universal_compaction_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_universal_compaction_test: db/db_universal_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_wal_test: db/db_wal_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_wal_test: db/db_wal_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)

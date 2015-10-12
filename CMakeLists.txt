@@ -100,6 +100,7 @@ set(SOURCES
         db/db_impl_experimental.cc
         db/db_impl_readonly.cc
         db/db_iter.cc
+        db/db_test_util.cc
         db/event_helpers.cc
         db/experimental.cc
         db/filename.cc
@@ -175,7 +176,6 @@ set(SOURCES
         util/crc32c.cc
         util/db_info_dumper.cc
         util/delete_scheduler_impl.cc
-        util/db_test_util.cc
         util/dynamic_bloom.cc
         util/env.cc
         util/env_hdfs.cc

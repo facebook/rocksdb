@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "db/db_impl.h"
+#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "rocksdb/cache.h"
@@ -43,7 +44,6 @@
 #include "table/mock_table.h"
 #include "table/plain_table_factory.h"
 #include "util/compression.h"
-#include "util/db_test_util.h"
 #include "util/hash_linklist_rep.h"
 #include "util/mock_env.h"
 #include "util/mutexlock.h"
