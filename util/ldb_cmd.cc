@@ -59,6 +59,7 @@ const string LDBCommand::ARG_DB_WRITE_BUFFER_SIZE = "db_write_buffer_size";
 const string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
 const string LDBCommand::ARG_FILE_SIZE = "file_size";
 const string LDBCommand::ARG_CREATE_IF_MISSING = "create_if_missing";
+const string LDBCommand::ARG_COLUMN_FAMILIES = "columns";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -895,7 +896,7 @@ DBDumperCommand::DBDumperCommand(const vector<string>& params,
                                     ARG_MAX_KEYS, ARG_COUNT_ONLY,
                                     ARG_COUNT_DELIM, ARG_STATS, ARG_TTL_START,
                                     ARG_TTL_END, ARG_TTL_BUCKET,
-                                    ARG_TIMESTAMP})),
+                                    ARG_TIMESTAMP, ARG_COLUMN_FAMILIES})),
     null_from_(true),
     null_to_(true),
     max_keys_(-1),
@@ -974,7 +975,6 @@ void DBDumperCommand::DoCommand() {
     return;
   }
   // Parse command line args
-  uint64_t count = 0;
   if (print_stats_) {
     string stats;
     if (db_->GetProperty("rocksdb.stats", &stats)) {
@@ -982,12 +982,39 @@ void DBDumperCommand::DoCommand() {
     }
   }
 
-  // Setup key iterator
-  Iterator* iter = db_->NewIterator(ReadOptions());
+  Status st = Status::OK();
+
+  // Setup key iterators. If column families are set, use only selected;
+  // otherwise use the default.
+  std::vector<Iterator*> iterators;
+  if (limited_families_.empty()) {
+    iterators.push_back(db_->NewIterator(ReadOptions()));
+  } else {
+    std::vector<ColumnFamilyHandle*> desired;
+    for (size_t idx : limited_families_) {
+      desired.push_back(column_handles_[idx]);
+    }
+    st = db_->NewIterators(ReadOptions(), desired, &iterators);
+  }
+
+  if (!st.ok()) {
+      exec_state_ =
+        LDBCommandExecuteResult::Failed("Iterator error." + st.ToString());
+  } else {
+    for (Iterator *iter : iterators) {
+      DoCommandHelper(iter);
+      delete iter;
+    }
+  }
+}
+
+void DBDumperCommand::DoCommandHelper(Iterator *iter) {
+  uint64_t count = 0;
   Status st = iter->status();
   if (!st.ok()) {
     exec_state_ =
         LDBCommandExecuteResult::Failed("Iterator error." + st.ToString());
+    return;
   }
 
   if (!null_from_) {
@@ -1007,7 +1034,6 @@ void DBDumperCommand::DoCommand() {
   }
   if (ttl_end < ttl_start) {
     fprintf(stderr, "Error: End time can't be less than start time\n");
-    delete iter;
     return;
   }
   int time_range = ttl_end - ttl_start;
@@ -1099,8 +1125,6 @@ void DBDumperCommand::DoCommand() {
   } else {
     fprintf(stdout, "Keys in range: %lld\n", (long long) count);
   }
-  // Clean up
-  delete iter;
 }
 
 const string ReduceDBLevelsCommand::ARG_NEW_LEVELS = "new_levels";

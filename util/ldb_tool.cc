@@ -58,6 +58,8 @@ public:
     ret.append("  --" + LDBCommand::ARG_WRITE_BUFFER_SIZE +
         "=<int,e.g.:4194304>\n");
     ret.append("  --" + LDBCommand::ARG_FILE_SIZE + "=<int,e.g.:2097152>\n");
+    ret.append("  --" + LDBCommand::ARG_COLUMN_FAMILIES +
+        "=<family1,family2,...> | *\n");
 
     ret.append("\n\n");
     ret.append("Data Access Commands:\n");

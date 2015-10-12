@@ -59,6 +59,7 @@ public:
   static const string ARG_WRITE_BUFFER_SIZE;
   static const string ARG_FILE_SIZE;
   static const string ARG_CREATE_IF_MISSING;
+  static const string ARG_COLUMN_FAMILIES;
 
   static LDBCommand* InitFromCmdLineArgs(
     const vector<string>& args,
@@ -184,6 +185,9 @@ protected:
   string db_path_;
   DB* db_;
   DBWithTTL* db_ttl_;
+  vector<ColumnFamilyDescriptor> column_descriptors_;
+  vector<ColumnFamilyHandle*> column_handles_;
+  vector<size_t> limited_families_; // Indices into column_handles_
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -242,13 +246,63 @@ protected:
     timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   }
 
+  void ValidateColumnFamiliesArg() {
+    string arg;
+    if (!ParseStringOption(option_map_, ARG_COLUMN_FAMILIES, &arg)) {
+        return;
+    }
+
+    assert(column_descriptors_.size() == column_handles_.size());
+
+    map<string, size_t> name_to_idx;
+    for (size_t i = 0; i < column_handles_.size(); ++i) {
+        name_to_idx[column_descriptors_[i].name] = i;
+    }
+
+    vector<string> families = StringSplit(arg, ',');
+    for (string const& family : families) {
+      if (family == "*") {
+        // An empty "limited_families_" set is equivalent to "default".
+        // This simplifies preserving pre-column-family behavior, but
+        // does lead to the following awkwardness:
+        limited_families_.clear();
+        for (size_t i = 0; i < column_handles_.size(); ++i) {
+            limited_families_.push_back(i);
+        }
+        break;
+      }
+
+      auto it = name_to_idx.find(family);
+      if (it == name_to_idx.end()) {
+        fprintf(stderr, "Warning: column family %s not recognized\n",
+          family.c_str());
+        continue;
+      }
+
+      limited_families_.push_back(it->second);
+    }
+  }
+
   void OpenDB() {
     Options opt = PrepareOptionsForOpenDB();
     if (!exec_state_.IsNotStarted()) {
       return;
     }
+
+    // Get the full list of column families
+    Status st = InitColumnFamilies(opt);
+    if (st.IsNotFound()) {
+      // Swallow not-found errors, assuming that the command has
+      // create-if-not-exists semantics; we'll take the normal failure
+      // path if that's not the case.
+      assert(column_descriptors_.empty());
+      column_descriptors_.push_back(ColumnFamilyDescriptor());
+    } else if (!st.ok()) {
+      string msg = st.ToString();
+      exec_state_ = LDBCommandExecuteResult::Failed(msg);
+    }
+
     // Open the DB.
-    Status st;
     if (is_db_ttl_) {
       if (is_read_only_) {
         st = DBWithTTL::Open(opt, db_path_, &db_ttl_, 0, true);
@@ -257,20 +311,42 @@ protected:
       }
       db_ = db_ttl_;
     } else if (is_read_only_) {
-      st = DB::OpenForReadOnly(opt, db_path_, &db_);
+      st = DB::OpenForReadOnly(opt, db_path_, column_descriptors_,
+              &column_handles_, &db_);
     } else {
-      st = DB::Open(opt, db_path_, &db_);
+      st = DB::Open(opt, db_path_, column_descriptors_, &column_handles_, &db_);
     }
     if (!st.ok()) {
       string msg = st.ToString();
       exec_state_ = LDBCommandExecuteResult::Failed(msg);
+    } else {
+      assert(column_descriptors_.size() == column_handles_.size());
+      // Validate column families passed as an argument, if any
+      ValidateColumnFamiliesArg();
     }
 
     options_ = opt;
   }
 
+  Status InitColumnFamilies(Options& opt) {
+    vector<string> names;
+    Status s = DB::ListColumnFamilies(DBOptions(), db_path_, &names);
+    if (!s.ok()) {
+      return s;
+    }
+    for (auto const& name : names) {
+      column_descriptors_.emplace_back(name, ColumnFamilyOptions(opt));
+    }
+    return Status::OK();
+  }
+
   void CloseDB () {
     if (db_ != nullptr) {
+      for (auto* handle : column_handles_) {
+        delete handle;
+      }
+      column_handles_.clear();
+
       delete db_;
       db_ = nullptr;
     }
@@ -441,6 +517,8 @@ public:
   virtual void DoCommand() override;
 
 private:
+  void DoCommandHelper(Iterator *iter);
+
   bool null_from_;
   string from_;
   bool null_to_;
