@@ -459,7 +459,7 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
 bool SerializeSingleOptionHelper(const char* opt_address,
                                  const OptionType opt_type,
                                  std::string* value) {
-  static const std::string kNullptrString = kNullptrString;
+  static const std::string kNullptrString = "nullptr";
   assert(value);
   switch (opt_type) {
     case OptionType::kBoolean:
