@@ -6,11 +6,12 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "db/compaction_iterator.h"
+#include "table/internal_iterator.h"
 
 namespace rocksdb {
 
 CompactionIterator::CompactionIterator(
-    Iterator* input, const Comparator* cmp, MergeHelper* merge_helper,
+    InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
     Env* env, bool expect_valid_internal_key, Compaction* compaction,
     const CompactionFilter* compaction_filter, LogBuffer* log_buffer)

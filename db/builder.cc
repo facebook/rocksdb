@@ -26,6 +26,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/block_based_table_builder.h"
+#include "table/internal_iterator.h"
 #include "util/file_reader_writer.h"
 #include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
@@ -52,8 +53,9 @@ TableBuilder* NewTableBuilder(
 
 Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
-    const EnvOptions& env_options, TableCache* table_cache, Iterator* iter,
-    FileMetaData* meta, const InternalKeyComparator& internal_comparator,
+    const EnvOptions& env_options, TableCache* table_cache,
+    InternalIterator* iter, FileMetaData* meta,
+    const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, std::vector<SequenceNumber> snapshots,
@@ -141,7 +143,7 @@ Status BuildTable(
 
     if (s.ok() && !empty) {
       // Verify that the table is usable
-      std::unique_ptr<Iterator> it(table_cache->NewIterator(
+      std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
           ReadOptions(), env_options, internal_comparator, meta->fd, nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),

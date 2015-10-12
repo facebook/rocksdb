@@ -19,6 +19,7 @@ int main() {
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "table/block_based_table_factory.h"
+#include "table/internal_iterator.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
 #include "table/get_context.h"
@@ -187,14 +188,17 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string end_key = MakeKey(r1, r2 + r2_len, through_db);
           uint64_t total_time = 0;
           uint64_t start_time = Now(env, measured_by_nanosecond);
-          Iterator* iter;
+          Iterator* iter = nullptr;
+          InternalIterator* iiter = nullptr;
           if (!through_db) {
-            iter = table_reader->NewIterator(read_options);
+            iiter = table_reader->NewIterator(read_options);
           } else {
             iter = db->NewIterator(read_options);
           }
           int count = 0;
-          for(iter->Seek(start_key); iter->Valid(); iter->Next()) {
+          for (through_db ? iter->Seek(start_key) : iiter->Seek(start_key);
+               through_db ? iter->Valid() : iiter->Valid();
+               through_db ? iter->Next() : iiter->Next()) {
             if (if_query_empty_keys) {
               break;
             }

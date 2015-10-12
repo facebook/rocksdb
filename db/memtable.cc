@@ -21,6 +21,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice_transform.h"
+#include "table/internal_iterator.h"
 #include "table/merger.h"
 #include "util/arena.h"
 #include "util/coding.h"
@@ -202,7 +203,7 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
   return scratch->data();
 }
 
-class MemTableIterator: public Iterator {
+class MemTableIterator : public InternalIterator {
  public:
   MemTableIterator(
       const MemTable& mem, const ReadOptions& read_options, Arena* arena)
@@ -285,7 +286,8 @@ class MemTableIterator: public Iterator {
   void operator=(const MemTableIterator&);
 };
 
-Iterator* MemTable::NewIterator(const ReadOptions& read_options, Arena* arena) {
+InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
+                                        Arena* arena) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
   return new (mem) MemTableIterator(*this, read_options, arena);

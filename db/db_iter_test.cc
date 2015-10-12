@@ -29,7 +29,7 @@ static uint64_t TestGetTickerCount(const Options& options,
   return options.statistics->getTickerCount(ticker_type);
 }
 
-class TestIterator : public Iterator {
+class TestIterator : public InternalIterator {
  public:
   explicit TestIterator(const Comparator* comparator)
       : initialized_(false),
@@ -1864,11 +1864,12 @@ class DBIterWithMergeIterTest : public testing::Test {
     internal_iter2_->Add("d", kTypeValue, "7", 3u);
     internal_iter2_->Finish();
 
-    std::vector<Iterator*> child_iters;
+    std::vector<InternalIterator*> child_iters;
     child_iters.push_back(internal_iter1_);
     child_iters.push_back(internal_iter2_);
     InternalKeyComparator icomp(BytewiseComparator());
-    Iterator* merge_iter = NewMergingIterator(&icomp_, &child_iters[0], 2u);
+    InternalIterator* merge_iter =
+        NewMergingIterator(&icomp_, &child_iters[0], 2u);
 
     db_iter_.reset(NewDBIterator(env_, ImmutableCFOptions(options_),
                                  BytewiseComparator(), merge_iter,

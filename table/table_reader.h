@@ -19,6 +19,7 @@ class Arena;
 struct ReadOptions;
 struct TableProperties;
 class GetContext;
+class InternalIterator;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
@@ -34,7 +35,8 @@ class TableReader {
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
-  virtual Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) = 0;
+  virtual InternalIterator* NewIterator(const ReadOptions&,
+                                        Arena* arena = nullptr) = 0;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were

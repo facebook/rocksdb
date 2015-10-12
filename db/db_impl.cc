@@ -2845,11 +2845,11 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 }
 }  // namespace
 
-Iterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
-                                      ColumnFamilyData* cfd,
-                                      SuperVersion* super_version,
-                                      Arena* arena) {
-  Iterator* internal_iter;
+InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
+                                              ColumnFamilyData* cfd,
+                                              SuperVersion* super_version,
+                                              Arena* arena) {
+  InternalIterator* internal_iter;
   assert(arena != nullptr);
   // Need to create internal iterator from the arena.
   MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena);
@@ -3148,7 +3148,8 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   file_info.num_entries = table_reader->GetTableProperties()->num_entries;
 
   ParsedInternalKey key;
-  std::unique_ptr<Iterator> iter(table_reader->NewIterator(ReadOptions()));
+  std::unique_ptr<InternalIterator> iter(
+      table_reader->NewIterator(ReadOptions()));
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
@@ -3307,8 +3308,8 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   return status;
 }
 
-Iterator* DBImpl::NewInternalIterator(Arena* arena,
-                                      ColumnFamilyHandle* column_family) {
+InternalIterator* DBImpl::NewInternalIterator(
+    Arena* arena, ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
@@ -3565,7 +3566,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
         read_options.iterate_upper_bound);
 
-    Iterator* internal_iter =
+    InternalIterator* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena());
     db_iter->SetIterUnderDBIter(internal_iter);
 
@@ -3632,8 +3633,8 @@ Status DBImpl::NewIterators(
       ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
           env_, *cfd->ioptions(), cfd->user_comparator(), snapshot,
           sv->mutable_cf_options.max_sequential_skip_in_iterations);
-      Iterator* internal_iter = NewInternalIterator(
-          read_options, cfd, sv, db_iter->GetArena());
+      InternalIterator* internal_iter =
+          NewInternalIterator(read_options, cfd, sv, db_iter->GetArena());
       db_iter->SetIterUnderDBIter(internal_iter);
       iterators->push_back(db_iter);
     }

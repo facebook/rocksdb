@@ -12,6 +12,7 @@
 #include "rocksdb/table_properties.h"
 #include "table/block.h"
 #include "table/format.h"
+#include "table/internal_iterator.h"
 #include "table/table_properties_internal.h"
 #include "util/coding.h"
 
@@ -152,7 +153,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   }
 
   Block properties_block(std::move(block_contents));
-  std::unique_ptr<Iterator> iter(
+  std::unique_ptr<InternalIterator> iter(
       properties_block.NewIterator(BytewiseComparator()));
 
   auto new_table_properties = new TableProperties();
@@ -237,7 +238,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
     return s;
   }
   Block metaindex_block(std::move(metaindex_contents));
-  std::unique_ptr<Iterator> meta_iter(
+  std::unique_ptr<InternalIterator> meta_iter(
       metaindex_block.NewIterator(BytewiseComparator()));
 
   // -- Read property block
@@ -258,7 +259,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   return s;
 }
 
-Status FindMetaBlock(Iterator* meta_index_iter,
+Status FindMetaBlock(InternalIterator* meta_index_iter,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle) {
   meta_index_iter->Seek(meta_block_name);
@@ -292,7 +293,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   }
   Block metaindex_block(std::move(metaindex_contents));
 
-  std::unique_ptr<Iterator> meta_iter;
+  std::unique_ptr<InternalIterator> meta_iter;
   meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));
 
   return FindMetaBlock(meta_iter.get(), meta_block_name, block_handle);
@@ -323,7 +324,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   // Finding metablock
   Block metaindex_block(std::move(metaindex_contents));
 
-  std::unique_ptr<Iterator> meta_iter;
+  std::unique_ptr<InternalIterator> meta_iter;
   meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));
 
   BlockHandle block_handle;

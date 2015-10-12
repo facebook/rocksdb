@@ -585,7 +585,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
-  std::unique_ptr<Iterator> input(
+  std::unique_ptr<InternalIterator> input(
       versions_->MakeInputIterator(sub_compact->compaction));
 
   AutoThreadOperationStageUpdater stage_updater(
@@ -811,7 +811,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
     ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-    Iterator* iter = cfd->table_cache()->NewIterator(
+    InternalIterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
         nullptr, cfd->internal_stats()->GetFileReadHist(
                      compact_->compaction->output_level()),

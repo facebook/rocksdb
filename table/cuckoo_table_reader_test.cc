@@ -148,7 +148,7 @@ class CuckooReaderTest : public testing::Test {
     CuckooTableReader reader(ioptions, std::move(file_reader), file_size, ucomp,
                              GetSliceHash);
     ASSERT_OK(reader.status());
-    Iterator* it = reader.NewIterator(ReadOptions(), nullptr);
+    InternalIterator* it = reader.NewIterator(ReadOptions(), nullptr);
     ASSERT_OK(it->status());
     ASSERT_TRUE(!it->Valid());
     it->SeekToFirst();
@@ -196,7 +196,7 @@ class CuckooReaderTest : public testing::Test {
     ASSERT_TRUE(keys[num_items/2] == it->key());
     ASSERT_TRUE(values[num_items/2] == it->value());
     ASSERT_OK(it->status());
-    it->~Iterator();
+    it->~InternalIterator();
   }
 
   std::vector<std::string> keys;

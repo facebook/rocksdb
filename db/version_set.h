@@ -48,7 +48,7 @@ class Writer;
 }
 
 class Compaction;
-class Iterator;
+class InternalIterator;
 class LogBuffer;
 class LookupKey;
 class MemTable;
@@ -502,7 +502,8 @@ class Version {
     return storage_info_.user_comparator_;
   }
 
-  bool PrefixMayMatch(const ReadOptions& read_options, Iterator* level_iter,
+  bool PrefixMayMatch(const ReadOptions& read_options,
+                      InternalIterator* level_iter,
                       const Slice& internal_prefix) const;
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
@@ -643,7 +644,7 @@ class VersionSet {
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
-  Iterator* MakeInputIterator(Compaction* c);
+  InternalIterator* MakeInputIterator(Compaction* c);
 
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);

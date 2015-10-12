@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "rocksdb/iterator.h"
+#include "table/internal_iterator.h"
 
 namespace rocksdb {
 
@@ -20,13 +20,15 @@ namespace rocksdb {
 class IteratorWrapper {
  public:
   IteratorWrapper(): iter_(nullptr), valid_(false) { }
-  explicit IteratorWrapper(Iterator* _iter) : iter_(nullptr) { Set(_iter); }
+  explicit IteratorWrapper(InternalIterator* _iter) : iter_(nullptr) {
+    Set(_iter);
+  }
   ~IteratorWrapper() {}
-  Iterator* iter() const { return iter_; }
+  InternalIterator* iter() const { return iter_; }
 
   // Takes ownership of "iter" and will delete it when destroyed, or
   // when Set() is invoked again.
-  void Set(Iterator* _iter) {
+  void Set(InternalIterator* _iter) {
     delete iter_;
     iter_ = _iter;
     if (iter_ == nullptr) {
@@ -40,7 +42,7 @@ class IteratorWrapper {
     if (!is_arena_mode) {
       delete iter_;
     } else {
-      iter_->~Iterator();
+      iter_->~InternalIterator();
     }
   }
 
@@ -64,16 +66,17 @@ class IteratorWrapper {
     }
   }
 
-  Iterator* iter_;
+  InternalIterator* iter_;
   bool valid_;
   Slice key_;
 };
 
 class Arena;
 // Return an empty iterator (yields nothing) allocated from arena.
-extern Iterator* NewEmptyIterator(Arena* arena);
+extern InternalIterator* NewEmptyInternalIterator(Arena* arena);
 
 // Return an empty iterator with the specified status, allocated arena.
-extern Iterator* NewErrorIterator(const Status& status, Arena* arena);
+extern InternalIterator* NewErrorInternalIterator(const Status& status,
+                                                  Arena* arena);
 
 }  // namespace rocksdb

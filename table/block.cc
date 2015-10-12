@@ -316,14 +316,14 @@ Block::Block(BlockContents&& contents)
   }
 }
 
-Iterator* Block::NewIterator(
-    const Comparator* cmp, BlockIter* iter, bool total_order_seek) {
+InternalIterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
+                                     bool total_order_seek) {
   if (size_ < 2*sizeof(uint32_t)) {
     if (iter != nullptr) {
       iter->SetStatus(Status::Corruption("bad block contents"));
       return iter;
     } else {
-      return NewErrorIterator(Status::Corruption("bad block contents"));
+      return NewErrorInternalIterator(Status::Corruption("bad block contents"));
     }
   }
   const uint32_t num_restarts = NumRestarts();
@@ -332,7 +332,7 @@ Iterator* Block::NewIterator(
       iter->SetStatus(Status::OK());
       return iter;
     } else {
-      return NewEmptyIterator();
+      return NewEmptyInternalIterator();
     }
   } else {
     BlockHashIndex* hash_index_ptr =

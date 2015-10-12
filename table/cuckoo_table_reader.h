@@ -24,6 +24,7 @@ namespace rocksdb {
 
 class Arena;
 class TableReader;
+class InternalIterator;
 
 class CuckooTableReader: public TableReader {
  public:
@@ -43,7 +44,8 @@ class CuckooTableReader: public TableReader {
   Status Get(const ReadOptions& read_options, const Slice& key,
              GetContext* get_context) override;
 
-  Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
+  InternalIterator* NewIterator(const ReadOptions&,
+                                Arena* arena = nullptr) override;
   void Prepare(const Slice& target) override;
 
   // Report an approximation of how much memory has been used.

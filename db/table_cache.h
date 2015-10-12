@@ -29,6 +29,7 @@ class Arena;
 struct FileDescriptor;
 class GetContext;
 class HistogramImpl;
+class InternalIterator;
 
 class TableCache {
  public:
@@ -43,12 +44,12 @@ class TableCache {
   // the returned iterator.  The returned "*tableptr" object is owned by
   // the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
-  Iterator* NewIterator(const ReadOptions& options, const EnvOptions& toptions,
-                        const InternalKeyComparator& internal_comparator,
-                        const FileDescriptor& file_fd,
-                        TableReader** table_reader_ptr = nullptr,
-                        HistogramImpl* file_read_hist = nullptr,
-                        bool for_compaction = false, Arena* arena = nullptr);
+  InternalIterator* NewIterator(
+      const ReadOptions& options, const EnvOptions& toptions,
+      const InternalKeyComparator& internal_comparator,
+      const FileDescriptor& file_fd, TableReader** table_reader_ptr = nullptr,
+      HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
+      Arena* arena = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until

@@ -35,6 +35,7 @@
 #include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
+#include "table/internal_iterator.h"
 #include "table/table_reader.h"
 #include "table/merger.h"
 #include "table/two_level_iterator.h"
@@ -420,7 +421,7 @@ namespace {
 // is the largest key that occurs in the file, and value() is an
 // 16-byte value containing the file number and file size, both
 // encoded using EncodeFixed64.
-class LevelFileNumIterator : public Iterator {
+class LevelFileNumIterator : public InternalIterator {
  public:
   LevelFileNumIterator(const InternalKeyComparator& icmp,
                        const LevelFilesBrief* flevel)
@@ -488,9 +489,9 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
         file_read_hist_(file_read_hist),
         for_compaction_(for_compaction) {}
 
-  Iterator* NewSecondaryIterator(const Slice& meta_handle) override {
+  InternalIterator* NewSecondaryIterator(const Slice& meta_handle) override {
     if (meta_handle.size() != sizeof(FileDescriptor)) {
-      return NewErrorIterator(
+      return NewErrorInternalIterator(
           Status::Corruption("FileReader invoked with unexpected value"));
     } else {
       const FileDescriptor* fd =
@@ -3119,7 +3120,7 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     // "key" falls in the range for this table.  Add the
     // approximate offset of "key" within the table.
     TableReader* table_reader_ptr;
-    Iterator* iter = v->cfd_->table_cache()->NewIterator(
+    InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
         ReadOptions(), env_options_, v->cfd_->internal_comparator(), f.fd,
         &table_reader_ptr);
     if (table_reader_ptr != nullptr) {
@@ -3166,7 +3167,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   }
 }
 
-Iterator* VersionSet::MakeInputIterator(Compaction* c) {
+InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums =
@@ -3182,7 +3183,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   const size_t space = (c->level() == 0 ? c->input_levels(0)->num_files +
                                               c->num_input_levels() - 1
                                         : c->num_input_levels());
-  Iterator** list = new Iterator* [space];
+  InternalIterator** list = new InternalIterator* [space];
   size_t num = 0;
   for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
@@ -3209,7 +3210,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     }
   }
   assert(num <= space);
-  Iterator* result =
+  InternalIterator* result =
       NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
                          static_cast<int>(num));
   delete[] list;

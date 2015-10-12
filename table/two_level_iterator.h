@@ -23,7 +23,7 @@ struct TwoLevelIteratorState {
       : check_prefix_may_match(_check_prefix_may_match) {}
 
   virtual ~TwoLevelIteratorState() {}
-  virtual Iterator* NewSecondaryIterator(const Slice& handle) = 0;
+  virtual InternalIterator* NewSecondaryIterator(const Slice& handle) = 0;
   virtual bool PrefixMayMatch(const Slice& internal_key) = 0;
 
   // If call PrefixMayMatch()
@@ -45,9 +45,8 @@ struct TwoLevelIteratorState {
 //        all the states but those allocated in arena.
 // need_free_iter_and_state: free `state` and `first_level_iter` if
 //                           true. Otherwise, just call destructor.
-extern Iterator* NewTwoLevelIterator(TwoLevelIteratorState* state,
-                                     Iterator* first_level_iter,
-                                     Arena* arena = nullptr,
-                                     bool need_free_iter_and_state = true);
+extern InternalIterator* NewTwoLevelIterator(
+    TwoLevelIteratorState* state, InternalIterator* first_level_iter,
+    Arena* arena = nullptr, bool need_free_iter_and_state = true);
 
 }  // namespace rocksdb

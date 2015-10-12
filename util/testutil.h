@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
+#include "table/internal_iterator.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 
@@ -127,7 +128,7 @@ class SimpleSuffixReverseComparator : public Comparator {
 extern const Comparator* Uint64Comparator();
 
 // Iterator over a vector of keys/values
-class VectorIterator : public Iterator {
+class VectorIterator : public InternalIterator {
  public:
   explicit VectorIterator(const std::vector<std::string>& keys)
       : keys_(keys), current_(keys.size()) {

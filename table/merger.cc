@@ -14,6 +14,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
+#include "table/internal_iterator.h"
 #include "table/iter_heap.h"
 #include "table/iterator_wrapper.h"
 #include "util/arena.h"
@@ -32,10 +33,10 @@ typedef BinaryHeap<IteratorWrapper*, MinIteratorComparator> MergerMinIterHeap;
 
 const size_t kNumIterReserve = 4;
 
-class MergingIterator : public Iterator {
+class MergingIterator : public InternalIterator {
  public:
-  MergingIterator(const Comparator* comparator, Iterator** children, int n,
-                  bool is_arena_mode)
+  MergingIterator(const Comparator* comparator, InternalIterator** children,
+                  int n, bool is_arena_mode)
       : is_arena_mode_(is_arena_mode),
         comparator_(comparator),
         current_(nullptr),
@@ -53,7 +54,7 @@ class MergingIterator : public Iterator {
     current_ = CurrentForward();
   }
 
-  virtual void AddIterator(Iterator* iter) {
+  virtual void AddIterator(InternalIterator* iter) {
     assert(direction_ == kForward);
     children_.emplace_back(iter);
     auto new_wrapper = children_.back();
@@ -288,11 +289,12 @@ void MergingIterator::InitMaxHeap() {
   }
 }
 
-Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n,
-                             Arena* arena) {
+InternalIterator* NewMergingIterator(const Comparator* cmp,
+                                     InternalIterator** list, int n,
+                                     Arena* arena) {
   assert(n >= 0);
   if (n == 0) {
-    return NewEmptyIterator(arena);
+    return NewEmptyInternalIterator(arena);
   } else if (n == 1) {
     return list[0];
   } else {
@@ -313,7 +315,7 @@ MergeIteratorBuilder::MergeIteratorBuilder(const Comparator* comparator,
   merge_iter = new (mem) MergingIterator(comparator, nullptr, 0, true);
 }
 
-void MergeIteratorBuilder::AddIterator(Iterator* iter) {
+void MergeIteratorBuilder::AddIterator(InternalIterator* iter) {
   if (!use_merging_iter && first_iter != nullptr) {
     merge_iter->AddIterator(first_iter);
     use_merging_iter = true;
@@ -325,7 +327,7 @@ void MergeIteratorBuilder::AddIterator(Iterator* iter) {
   }
 }
 
-Iterator* MergeIteratorBuilder::Finish() {
+InternalIterator* MergeIteratorBuilder::Finish() {
   if (!use_merging_iter) {
     return first_iter;
   } else {

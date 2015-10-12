@@ -43,11 +43,12 @@
 #include "table/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/plain_table_factory.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
 #include "util/hash_linklist_rep.h"
 #include "util/mock_env.h"
 #include "util/mutexlock.h"
-#include "util/scoped_arena_iterator.h"
+
 #include "util/string_util.h"
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
@@ -131,9 +132,7 @@ class SpecialEnv : public EnvWrapper {
 
      public:
       SSTableFile(SpecialEnv* env, unique_ptr<WritableFile>&& base)
-          : env_(env),
-            base_(std::move(base)) {
-      }
+          : env_(env), base_(std::move(base)) {}
       Status Append(const Slice& data) override {
         if (env_->table_write_callback_) {
           (*env_->table_write_callback_)();
@@ -148,9 +147,7 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
-      Status Truncate(uint64_t size) override {
-        return base_->Truncate(size);
-      }
+      Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
@@ -180,7 +177,7 @@ class SpecialEnv : public EnvWrapper {
     class ManifestFile : public WritableFile {
      public:
       ManifestFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
-          : env_(env), base_(std::move(b)) { }
+          : env_(env), base_(std::move(b)) {}
       Status Append(const Slice& data) override {
         if (env_->manifest_write_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated writer error");
@@ -283,8 +280,7 @@ class SpecialEnv : public EnvWrapper {
      public:
       CountingFile(unique_ptr<RandomAccessFile>&& target,
                    anon::AtomicCounter* counter)
-          : target_(std::move(target)), counter_(counter) {
-      }
+          : target_(std::move(target)), counter_(counter) {}
       virtual Status Read(uint64_t offset, size_t n, Slice* result,
                           char* scratch) const override {
         counter_->Increment();
@@ -328,7 +324,6 @@ class SpecialEnv : public EnvWrapper {
     }
     return s;
   }
-
 
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
@@ -406,7 +401,7 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<int64_t> addon_time_;
   bool no_sleep_;
 
-  std::atomic<bool> is_wal_sync_thread_safe_ {true};
+  std::atomic<bool> is_wal_sync_thread_safe_{true};
 };
 
 class DBTestBase : public testing::Test {
@@ -509,9 +504,7 @@ class DBTestBase : public testing::Test {
       const Options& defaultOptions,
       const anon::OptionsOverride& options_override = anon::OptionsOverride());
 
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
+  DBImpl* dbfull() { return reinterpret_cast<DBImpl*>(db_); }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options);
@@ -525,9 +518,8 @@ class DBTestBase : public testing::Test {
   void ReopenWithColumnFamilies(const std::vector<std::string>& cfs,
                                 const Options& options);
 
-  Status TryReopenWithColumnFamilies(
-      const std::vector<std::string>& cfs,
-      const std::vector<Options>& options);
+  Status TryReopenWithColumnFamilies(const std::vector<std::string>& cfs,
+                                     const std::vector<Options>& options);
 
   Status TryReopenWithColumnFamilies(const std::vector<std::string>& cfs,
                                      const Options& options);
@@ -643,21 +635,21 @@ class DBTestBase : public testing::Test {
   //   sets newValue with delta
   // If previous value is not empty,
   //   updates previous value with 'b' string of previous value size - 1.
-  static UpdateStatus updateInPlaceSmallerSize(
-      char* prevValue, uint32_t* prevSize,
-      Slice delta, std::string* newValue);
+  static UpdateStatus updateInPlaceSmallerSize(char* prevValue,
+                                               uint32_t* prevSize, Slice delta,
+                                               std::string* newValue);
 
-  static UpdateStatus updateInPlaceSmallerVarintSize(
-      char* prevValue, uint32_t* prevSize,
-      Slice delta, std::string* newValue);
+  static UpdateStatus updateInPlaceSmallerVarintSize(char* prevValue,
+                                                     uint32_t* prevSize,
+                                                     Slice delta,
+                                                     std::string* newValue);
 
-  static UpdateStatus updateInPlaceLargerSize(
-      char* prevValue, uint32_t* prevSize,
-      Slice delta, std::string* newValue);
+  static UpdateStatus updateInPlaceLargerSize(char* prevValue,
+                                              uint32_t* prevSize, Slice delta,
+                                              std::string* newValue);
 
-  static UpdateStatus updateInPlaceNoAction(
-      char* prevValue, uint32_t* prevSize,
-      Slice delta, std::string* newValue);
+  static UpdateStatus updateInPlaceNoAction(char* prevValue, uint32_t* prevSize,
+                                            Slice delta, std::string* newValue);
 
   // Utility method to test InplaceUpdate
   void validateNumberOfEntries(int numValues, int cf = 0);

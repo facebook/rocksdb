@@ -197,7 +197,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
     }
-    std::vector<Iterator*> memtables;
+    std::vector<InternalIterator*> memtables;
     ReadOptions ro;
     ro.total_order_seek = true;
     Arena arena;

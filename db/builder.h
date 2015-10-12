@@ -31,6 +31,7 @@ class VersionEdit;
 class TableBuilder;
 class WritableFileWriter;
 class InternalStats;
+class InternalIterator;
 
 TableBuilder* NewTableBuilder(
     const ImmutableCFOptions& options,
@@ -49,8 +50,9 @@ TableBuilder* NewTableBuilder(
 // zero, and no Table file will be produced.
 extern Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& options,
-    const EnvOptions& env_options, TableCache* table_cache, Iterator* iter,
-    FileMetaData* meta, const InternalKeyComparator& internal_comparator,
+    const EnvOptions& env_options, TableCache* table_cache,
+    InternalIterator* iter, FileMetaData* meta,
+    const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, std::vector<SequenceNumber> snapshots,

@@ -7,22 +7,23 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
-#include "rocksdb/iterator.h"
+#include "table/internal_iterator.h"
 
 namespace rocksdb {
 class ScopedArenaIterator {
  public:
-  explicit ScopedArenaIterator(Iterator* iter = nullptr) : iter_(iter) {}
+  explicit ScopedArenaIterator(InternalIterator* iter = nullptr)
+      : iter_(iter) {}
 
-  Iterator* operator->() { return iter_; }
+  InternalIterator* operator->() { return iter_; }
 
-  void set(Iterator* iter) { iter_ = iter; }
+  void set(InternalIterator* iter) { iter_ = iter; }
 
-  Iterator* get() { return iter_; }
+  InternalIterator* get() { return iter_; }
 
-  ~ScopedArenaIterator() { iter_->~Iterator(); }
+  ~ScopedArenaIterator() { iter_->~InternalIterator(); }
 
  private:
-  Iterator* iter_;
+  InternalIterator* iter_;
 };
 }  // namespace rocksdb

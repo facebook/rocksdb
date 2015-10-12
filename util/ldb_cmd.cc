@@ -21,11 +21,11 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table_properties.h"
+#include "table/scoped_arena_iterator.h"
 #include "port/dirent.h"
 #include "util/coding.h"
 #include "util/sst_dump_tool_imp.h"
 #include "util/string_util.h"
-#include "util/scoped_arena_iterator.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
 #include <cstdlib>

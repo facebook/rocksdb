@@ -11,6 +11,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "table/block_hash_index.h"
+#include "table/internal_iterator.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -18,7 +19,7 @@ namespace rocksdb {
 
 typedef std::map<std::string, std::string> Data;
 
-class MapIterator : public Iterator {
+class MapIterator : public InternalIterator {
  public:
   explicit MapIterator(const Data& data) : data_(data), pos_(data_.end()) {}
 

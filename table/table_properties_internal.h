@@ -10,9 +10,11 @@
 
 namespace rocksdb {
 
+class InternalIterator;
+
 // Seek to the properties block.
 // If it successfully seeks to the properties block, "is_found" will be
 // set to true.
-Status SeekToPropertiesBlock(Iterator* meta_iter, bool* is_found);
+Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found);
 
 }  // namespace rocksdb

@@ -10,6 +10,7 @@
 #pragma once
 #include <stdint.h>
 #include "rocksdb/db.h"
+#include "rocksdb/iterator.h"
 #include "db/dbformat.h"
 #include "util/arena.h"
 #include "util/autovector.h"
@@ -18,18 +19,17 @@ namespace rocksdb {
 
 class Arena;
 class DBIter;
+class InternalIterator;
 
 // Return a new iterator that converts internal keys (yielded by
 // "*internal_iter") that were live at the specified "sequence" number
 // into appropriate user keys.
-extern Iterator* NewDBIterator(
-    Env* env,
-    const ImmutableCFOptions& options,
-    const Comparator *user_key_comparator,
-    Iterator* internal_iter,
-    const SequenceNumber& sequence,
-    uint64_t max_sequential_skip_in_iterations,
-    const Slice* iterate_upper_bound = nullptr);
+extern Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& options,
+                               const Comparator* user_key_comparator,
+                               InternalIterator* internal_iter,
+                               const SequenceNumber& sequence,
+                               uint64_t max_sequential_skip_in_iterations,
+                               const Slice* iterate_upper_bound = nullptr);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -50,7 +50,7 @@ class ArenaWrappedDBIter : public Iterator {
 
   // Set the internal iterator wrapped inside the DB Iterator. Usually it is
   // a merging iterator.
-  virtual void SetIterUnderDBIter(Iterator* iter);
+  virtual void SetIterUnderDBIter(InternalIterator* iter);
   virtual bool Valid() const override;
   virtual void SeekToFirst() override;
   virtual void SeekToLast() override;
@@ -60,6 +60,7 @@ class ArenaWrappedDBIter : public Iterator {
   virtual Slice key() const override;
   virtual Slice value() const override;
   virtual Status status() const override;
+
   void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
 
  private:

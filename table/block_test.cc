@@ -96,7 +96,7 @@ TEST_F(BlockTest, SimpleTest) {
 
   // read contents of block sequentially
   int count = 0;
-  Iterator* iter = reader.NewIterator(options.comparator);
+  InternalIterator *iter = reader.NewIterator(options.comparator);
   for (iter->SeekToFirst();iter->Valid(); count++, iter->Next()) {
 
     // read kv from block
@@ -170,10 +170,10 @@ void CheckBlockContents(BlockContents contents, const int max_key,
     delete iter2;
   }
 
-  std::unique_ptr<Iterator> hash_iter(
+  std::unique_ptr<InternalIterator> hash_iter(
       reader1.NewIterator(BytewiseComparator(), nullptr, false));
 
-  std::unique_ptr<Iterator> regular_iter(
+  std::unique_ptr<InternalIterator> regular_iter(
       reader2.NewIterator(BytewiseComparator()));
 
   // Seek existent keys

@@ -2,54 +2,19 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-// An iterator yields a sequence of key/value pairs from a source.
-// The following class defines the interface.  Multiple implementations
-// are provided by this library.  In particular, iterators are provided
-// to access the contents of a Table or a DB.
-//
-// Multiple threads can invoke const methods on an Iterator without
-// external synchronization, but if any of the threads may call a
-// non-const method, all threads accessing the same Iterator must use
-// external synchronization.
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
-#define STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
+#pragma once
 
-#include "rocksdb/slice.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
 
-class Cleanable {
+class InternalIterator : public Cleanable {
  public:
-  Cleanable();
-  ~Cleanable();
-  // Clients are allowed to register function/arg1/arg2 triples that
-  // will be invoked when this iterator is destroyed.
-  //
-  // Note that unlike all of the preceding methods, this method is
-  // not abstract and therefore clients should not override it.
-  typedef void (*CleanupFunction)(void* arg1, void* arg2);
-  void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
-
- protected:
-  struct Cleanup {
-    CleanupFunction function;
-    void* arg1;
-    void* arg2;
-    Cleanup* next;
-  };
-  Cleanup cleanup_;
-};
-
-class Iterator : public Cleanable {
- public:
-  Iterator() {}
-  virtual ~Iterator() {}
+  InternalIterator() {}
+  virtual ~InternalIterator() {}
 
   // An iterator is either positioned at a key/value pair, or
   // not valid.  This method returns true iff the iterator is valid.
@@ -97,16 +62,14 @@ class Iterator : public Cleanable {
 
  private:
   // No copying allowed
-  Iterator(const Iterator&);
-  void operator=(const Iterator&);
+  InternalIterator(const InternalIterator&) = delete;
+  InternalIterator& operator=(const InternalIterator&) = delete;
 };
 
 // Return an empty iterator (yields nothing).
-extern Iterator* NewEmptyIterator();
+extern InternalIterator* NewEmptyInternalIterator();
 
 // Return an empty iterator with the specified status.
-extern Iterator* NewErrorIterator(const Status& status);
+extern InternalIterator* NewErrorInternalIterator(const Status& status);
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_

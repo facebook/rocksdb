@@ -15,11 +15,12 @@
 
 #include "db/filename.h"
 #include "db/dbformat.h"
+#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
-#include "port/port.h"
+#include "table/internal_iterator.h"
 #include "util/arena.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
@@ -58,9 +59,9 @@ class DBIter: public Iterator {
     kReverse
   };
 
-  DBIter(Env* env, const ImmutableCFOptions& ioptions,
-         const Comparator* cmp, Iterator* iter, SequenceNumber s,
-         bool arena_mode, uint64_t max_sequential_skip_in_iterations,
+  DBIter(Env* env, const ImmutableCFOptions& ioptions, const Comparator* cmp,
+         InternalIterator* iter, SequenceNumber s, bool arena_mode,
+         uint64_t max_sequential_skip_in_iterations,
          const Slice* iterate_upper_bound = nullptr)
       : arena_mode_(arena_mode),
         env_(env),
@@ -83,10 +84,10 @@ class DBIter: public Iterator {
     if (!arena_mode_) {
       delete iter_;
     } else {
-      iter_->~Iterator();
+      iter_->~InternalIterator();
     }
   }
-  virtual void SetIter(Iterator* iter) {
+  virtual void SetIter(InternalIterator* iter) {
     assert(iter_ == nullptr);
     iter_ = iter;
   }
@@ -142,7 +143,7 @@ class DBIter: public Iterator {
   Logger* logger_;
   const Comparator* const user_comparator_;
   const MergeOperator* const user_merge_operator_;
-  Iterator* iter_;
+  InternalIterator* iter_;
   SequenceNumber const sequence_;
 
   Status status_;
@@ -744,7 +745,7 @@ void DBIter::SeekToLast() {
 
 Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,
                         const Comparator* user_key_comparator,
-                        Iterator* internal_iter,
+                        InternalIterator* internal_iter,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
                         const Slice* iterate_upper_bound) {
@@ -757,7 +758,7 @@ ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
 
 void ArenaWrappedDBIter::SetDBIter(DBIter* iter) { db_iter_ = iter; }
 
-void ArenaWrappedDBIter::SetIterUnderDBIter(Iterator* iter) {
+void ArenaWrappedDBIter::SetIterUnderDBIter(InternalIterator* iter) {
   static_cast<DBIter*>(db_iter_)->SetIter(iter);
 }
 

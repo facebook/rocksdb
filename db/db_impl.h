@@ -36,11 +36,11 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
 #include "util/event_logger.h"
 #include "util/hash.h"
 #include "util/instrumented_mutex.h"
-#include "util/scoped_arena_iterator.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
@@ -251,8 +251,8 @@ class DBImpl : public DB {
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.
-  Iterator* NewInternalIterator(Arena* arena,
-                                ColumnFamilyHandle* column_family = nullptr);
+  InternalIterator* NewInternalIterator(
+      Arena* arena, ColumnFamilyHandle* column_family = nullptr);
 
 #ifndef NDEBUG
   // Extra methods (for testing) that are not in the public DB interface
@@ -370,8 +370,10 @@ class DBImpl : public DB {
   const DBOptions db_options_;
   Statistics* stats_;
 
-  Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
-                                SuperVersion* super_version, Arena* arena);
+  InternalIterator* NewInternalIterator(const ReadOptions&,
+                                        ColumnFamilyData* cfd,
+                                        SuperVersion* super_version,
+                                        Arena* arena);
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
