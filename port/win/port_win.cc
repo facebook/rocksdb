@@ -43,65 +43,50 @@ void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   tv->tv_usec = usNow.count() - duration_cast<microseconds>(secNow).count();
 }
 
-Mutex::Mutex(bool adaptive) : lock(m_mutex, std::defer_lock) {}
-
 Mutex::~Mutex() {}
-
-void Mutex::Lock() {
-  lock.lock();
-#ifndef NDEBUG
-  locked_ = true;
-#endif
-}
-
-void Mutex::Unlock() {
-#ifndef NDEBUG
-  locked_ = false;
-#endif
-  lock.unlock();
-}
-
-void Mutex::AssertHeld() {
-#ifndef NDEBUG
-  assert(locked_);
-#endif
-}
-
-CondVar::CondVar(Mutex* mu) : mu_(mu) {}
 
 CondVar::~CondVar() {}
 
 void CondVar::Wait() {
+  // Caller must ensure that mutex is held prior to calling this method
+  std::unique_lock<std::mutex> lk(mu_->getLock(), std::adopt_lock);
 #ifndef NDEBUG
   mu_->locked_ = false;
 #endif
-  cv_.wait(mu_->getLock());
+  cv_.wait(lk);
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
+  // Release ownership of the lock as we don't want it to be unlocked when
+  // it goes out of scope (as we adopted the lock and didn't lock it ourselves)
+  lk.release();
 }
 
 bool CondVar::TimedWait(uint64_t abs_time_us) {
-#ifndef NDEBUG
-  mu_->locked_ = false;
-#endif
 
   using namespace std::chrono;
 
   // MSVC++ library implements wait_until in terms of wait_for so
-  // there is not an absolute wait anyway.
+  // we need to convert absoulte wait into relative wait.
   microseconds usAbsTime(abs_time_us);
 
   microseconds usNow(
-      duration_cast<microseconds>(system_clock::now().time_since_epoch()));
+    duration_cast<microseconds>(system_clock::now().time_since_epoch()));
   microseconds relTimeUs =
-      (usAbsTime > usNow) ? (usAbsTime - usNow) : microseconds::zero();
+    (usAbsTime > usNow) ? (usAbsTime - usNow) : microseconds::zero();
 
-  std::cv_status cvStatus = cv_.wait_for(mu_->getLock(), relTimeUs);
-
+  // Caller must ensure that mutex is held prior to calling this method
+  std::unique_lock<std::mutex> lk(mu_->getLock(), std::adopt_lock);
+#ifndef NDEBUG
+  mu_->locked_ = false;
+#endif
+  std::cv_status cvStatus = cv_.wait_for(lk, relTimeUs);
 #ifndef NDEBUG
   mu_->locked_ = true;
 #endif
+  // Release ownership of the lock as we don't want it to be unlocked when
+  // it goes out of scope (as we adopted the lock and didn't lock it ourselves)
+  lk.release();
 
   if (cvStatus == std::cv_status::timeout) {
     return true;

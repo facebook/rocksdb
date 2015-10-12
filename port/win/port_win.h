@@ -113,29 +113,50 @@ class CondVar;
 
 class Mutex {
  public:
-  /* implicit */ Mutex(bool adaptive = false);
+
+   /* implicit */ Mutex(bool adaptive = false) : locked_(false) {
+  }
+
   ~Mutex();
 
-  void Lock();
-  void Unlock();
+  void Lock() {
+    mutex_.lock();
+#ifndef NDEBUG
+    locked_ = true;
+#endif
+  }
+
+  void Unlock() {
+#ifndef NDEBUG
+    locked_ = false;
+#endif
+    mutex_.unlock();
+  }
 
   // this will assert if the mutex is not locked
   // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld();
+  void AssertHeld() {
+#ifndef NDEBUG
+    assert(locked_);
+#endif
+  }
 
-  std::unique_lock<std::mutex>& getLock() { return lock; }
+  // Mutex is move only with lock ownership transfer
+  Mutex(const Mutex&) = delete;
+  void operator=(const Mutex&) = delete;
 
  private:
+
   friend class CondVar;
-  std::mutex m_mutex;
-  std::unique_lock<std::mutex> lock;
+
+  std::mutex& getLock() {
+    return mutex_;
+  }
+
+  std::mutex mutex_;
 #ifndef NDEBUG
   bool locked_;
 #endif
-
-  // No copying
-  Mutex(const Mutex&);
-  void operator=(const Mutex&);
 };
 
 class RWMutex {
@@ -162,12 +183,21 @@ class RWMutex {
 
 class CondVar {
  public:
-  explicit CondVar(Mutex* mu);
+  explicit CondVar(Mutex* mu) : mu_(mu) {
+  }
+
   ~CondVar();
   void Wait();
   bool TimedWait(uint64_t expiration_time);
   void Signal();
   void SignalAll();
+
+  // Condition var is not copy/move constructible
+  CondVar(const CondVar&) = delete;
+  CondVar& operator=(const CondVar&) = delete;
+
+  CondVar(CondVar&&) = delete;
+  CondVar& operator=(CondVar&&) = delete;
 
  private:
   std::condition_variable cv_;
