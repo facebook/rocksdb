@@ -20,7 +20,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
   end
 
   config.vm.provision :shell, path: "build-linux-centos.sh"
-  config.vm.synced_folder "../", "/rocksdb-build"
+  config.vm.synced_folder "../target", "/rocksdb-build"
   config.vm.synced_folder "../..", "/rocksdb", type: "rsync"
   config.vm.boot_timeout = 1200
 end
