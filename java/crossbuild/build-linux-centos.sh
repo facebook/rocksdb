@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # install all required packages for rocksdb that are available through yum
 ARCH=$(uname -i)
-sudo yum -y install openssl java-1.7.0-openjdk-devel.$ARCH zlib zlib-devel bzip2 bzip2-devel
+sudo yum -y install openssl java-1.7.0-openjdk-devel.$ARCH 
 
 # install gcc/g++ 4.8.2 via CERN (http://linux.web.cern.ch/linux/devtoolset/)
 sudo wget -O /etc/yum.repos.d/slc5-devtoolset.repo http://linuxsoft.cern.ch/cern/devtoolset/slc5-devtoolset.repo
