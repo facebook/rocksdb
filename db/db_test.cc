@@ -9986,7 +9986,7 @@ TEST_F(DBTest, WalFilterTest) {
           break;
         }
         case WALFilter::WALProcessingOption::kIgnoreCurrentRecord: {
-          fprintf(stderr, "Testing with ignoring record %d only\n",
+          fprintf(stderr, "Testing with ignoring record %" PRIu64 " only\n",
             applyOptionForRecordIndex);
           // We expect the record with applyOptionForRecordIndex to be not
           // found.
@@ -10003,7 +10003,7 @@ TEST_F(DBTest, WalFilterTest) {
           break;
         }
         case WALFilter::WALProcessingOption::kStopReplay: {
-          fprintf(stderr, "Testing with stopping replay from record %d\n",
+          fprintf(stderr, "Testing with stopping replay from record %" PRIu64 "\n",
             applyOptionForRecordIndex);
           // We expect records beyond applyOptionForRecordIndex to be not
           // found.
