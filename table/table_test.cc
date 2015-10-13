@@ -1974,6 +1974,7 @@ TEST_F(HarnessTest, Randomized) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(HarnessTest, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
   TestArgs args = { DB_TEST, false, 16, kNoCompression, 0 };
@@ -1997,6 +1998,7 @@ TEST_F(HarnessTest, RandomizedLongDB) {
   }
   ASSERT_GT(files, 0);
 }
+#endif  // ROCKSDB_LITE
 
 class MemTableTest : public testing::Test {};
 

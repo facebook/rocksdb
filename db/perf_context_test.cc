@@ -444,6 +444,7 @@ void ProfileQueries(bool enabled_time = false) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(PerfContextTest, KeyComparisonCount) {
   SetPerfLevel(kEnableCount);
   ProfileQueries();
@@ -454,6 +455,7 @@ TEST_F(PerfContextTest, KeyComparisonCount) {
   SetPerfLevel(kEnableTime);
   ProfileQueries(true);
 }
+#endif  // ROCKSDB_LITE
 
 // make perf_context_test
 // export ROCKSDB_TESTS=PerfContextTest.SeekKeyComparison
