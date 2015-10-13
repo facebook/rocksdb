@@ -61,10 +61,30 @@ class Transaction {
   // methods.  See Transaction::Get() for more details.
   virtual void SetSnapshot() = 0;
 
+  // Similar to SetSnapshot(), but will not change the current snapshot
+  // until Put/Merge/Delete/GetForUpdate/MultigetForUpdate is called.
+  // By calling this function, the transaction will essentially call
+  // SetSnapshot() for you right before performing the next write/GetForUpdate.
+  //
+  // Calling SetSnapshotOnNextOperation() will not affect what snapshot is
+  // returned by GetSnapshot() until the next write/GetForUpdate is executed.
+  //
+  // This is an optimization to reduce the likelyhood of conflicts that
+  // could occur in between the time SetSnapshot() is called and the first
+  // write/GetForUpdate operation.  Eg, this prevents the following
+  // race-condition:
+  //
+  //   txn1->SetSnapshot();
+  //                             txn2->Put("A", ...);
+  //                             txn2->Commit();
+  //   txn1->GetForUpdate(opts, "A", ...);  // FAIL!
+  virtual void SetSnapshotOnNextOperation() = 0;
+
   // Returns the Snapshot created by the last call to SetSnapshot().
   //
   // REQUIRED: The returned Snapshot is only valid up until the next time
-  // SetSnapshot() is called or the Transaction is deleted.
+  // SetSnapshot()/SetSnapshotOnNextSavePoint() is called or the Transaction
+  // is deleted.
   virtual const Snapshot* GetSnapshot() const = 0;
 
   // Write all batched keys to the db atomically.
@@ -262,6 +282,21 @@ class Transaction {
 
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;
+
+  // By default, all Put/Merge/Delete operations will be indexed in the
+  // transaction so that Get/GetForUpdate/GetIterator can search for these
+  // keys.
+  //
+  // If the caller does not want to fetch the keys about to be written,
+  // they may want to avoid indexing as a performance optimization.
+  // Calling DisableIndexing() will turn off indexing for all future
+  // Put/Merge/Delete operations until EnableIndexing() is called.
+  //
+  // If a key is Put/Merge/Deleted after DisableIndexing is called and then
+  // is fetched via Get/GetForUpdate/GetIterator, the result of the fetch is
+  // undefined.
+  virtual void DisableIndexing() = 0;
+  virtual void EnableIndexing() = 0;
 
   // Returns the number of distinct Keys being tracked by this transaction.
   // If this transaction was created by a TransactinDB, this is the number of

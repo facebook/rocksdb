@@ -76,6 +76,8 @@ endif
 ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
 DISABLE_WARNING_AS_ERROR=1
+else
+$(warning Warning: Compiling in debug mode. Don't use the resulting binary in production)
 endif
 
 #-----------------------------------------------
@@ -322,10 +324,14 @@ TOOLS = \
 
 BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
-# The library name is configurable since we are maintaining libraries of both
-# debug/release mode.
+# if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
+# we should only run rocksdb in production with DEBUG_LEVEL 0
+ifeq ($(DEBUG_LEVEL),0)
         LIBNAME=librocksdb
+else
+        LIBNAME=librocksdb_debug
+endif
 endif
 LIBRARY = ${LIBNAME}.a
 
@@ -602,6 +608,11 @@ unity.a: unity.o
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ unity.o
 
+# try compiling db_test with unity
+unity_test: db/db_test.o db/db_test_util.o $(TESTHARNESS) unity.a
+	$(AM_LINK)
+	./unity_test
+
 rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
 	build_tools/amalgamate.py -I. -i./include unity.cc -x include/rocksdb/c.h -H rocksdb.h -o rocksdb.cc
 
@@ -698,34 +709,34 @@ crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_test: db/db_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_log_iter_test: db/db_log_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_log_iter_test: db/db_log_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_compaction_filter_test: db/db_compaction_filter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_compaction_filter_test: db/db_compaction_filter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_compaction_test: db/db_compaction_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_compaction_test: db/db_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_dynamic_level_test: db/db_dynamic_level_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_dynamic_level_test: db/db_dynamic_level_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_inplace_update_test: db/db_inplace_update_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_inplace_update_test: db/db_inplace_update_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_tailing_iter_test: db/db_tailing_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_tailing_iter_test: db/db_tailing_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_iter_test: db/db_iter_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_universal_compaction_test: db/db_universal_compaction_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_universal_compaction_test: db/db_universal_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_wal_test: db/db_wal_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_wal_test: db/db_wal_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1037,7 +1048,7 @@ rocksdbjavastatic: $(java_libobjects) libz.a libbz2.a libsnappy.a liblz4.a
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(java_libobjects) $(COVERAGEFLAGS) \
-	  libz.a libbz2.a libsnappy.a liblz4.a $(LDFLAGS)
+	  libz.a libbz2.a libsnappy.a liblz4.a $(JAVA_STATIC_LDFLAGS)
 	cd java/target;strip -S -x $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)

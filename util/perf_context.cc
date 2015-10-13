@@ -54,6 +54,10 @@ void PerfContext::Reset() {
   new_table_iterator_nanos = 0;
   block_seek_nanos = 0;
   find_table_nanos = 0;
+  bloom_memtable_hit_count = 0;
+  bloom_memtable_miss_count = 0;
+  bloom_sst_hit_count = 0;
+  bloom_sst_miss_count = 0;
 #endif
 }
 
@@ -80,7 +84,9 @@ std::string PerfContext::ToString() const {
      << OUTPUT(merge_operator_time_nanos) << OUTPUT(write_delay_time)
      << OUTPUT(read_index_block_nanos) << OUTPUT(read_filter_block_nanos)
      << OUTPUT(new_table_block_iter_nanos) << OUTPUT(new_table_iterator_nanos)
-     << OUTPUT(block_seek_nanos) << OUTPUT(find_table_nanos);
+     << OUTPUT(block_seek_nanos) << OUTPUT(find_table_nanos)
+     << OUTPUT(bloom_memtable_hit_count) << OUTPUT(bloom_memtable_miss_count)
+     << OUTPUT(bloom_sst_hit_count) << OUTPUT(bloom_sst_miss_count);
   return ss.str();
 #endif
 }

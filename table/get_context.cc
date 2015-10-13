@@ -92,7 +92,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 user_key_, &value, merge_context_->GetOperands(), value_,
                 logger_);
             RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
-                       env_ != nullptr ? timer.ElapsedNanos() : 0);
+                       timer.ElapsedNanosSafe());
           }
           if (!merge_success) {
             RecordTick(statistics_, NUMBER_MERGE_FAILURES);
@@ -118,7 +118,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                 user_key_, nullptr, merge_context_->GetOperands(), value_,
                 logger_);
             RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
-                       env_ != nullptr ? timer.ElapsedNanos() : 0);
+                       timer.ElapsedNanosSafe());
           }
           if (!merge_success) {
             RecordTick(statistics_, NUMBER_MERGE_FAILURES);

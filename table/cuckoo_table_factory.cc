@@ -27,7 +27,7 @@ Status CuckooTableFactory::NewTableReader(
 }
 
 TableBuilder* CuckooTableFactory::NewTableBuilder(
-    const TableBuilderOptions& table_builder_options,
+    const TableBuilderOptions& table_builder_options, uint32_t column_family_id,
     WritableFileWriter* file) const {
   // Ignore the skipFIlters flag. Does not apply to this file format
   //

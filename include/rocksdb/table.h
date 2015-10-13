@@ -375,7 +375,7 @@ class TableFactory {
   // to use in this table.
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      WritableFileWriter* file) const = 0;
+      uint32_t column_family_id, WritableFileWriter* file) const = 0;
 
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
   //

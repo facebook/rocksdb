@@ -272,6 +272,7 @@ class TableConstructor: public Constructor {
         TableBuilderOptions(ioptions, internal_comparator,
                             &int_tbl_prop_collector_factories,
                             options.compression, CompressionOptions(), false),
+        TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer_.get()));
 
     for (const auto kv : kv_map) {
@@ -1423,6 +1424,9 @@ class BlockCachePropertiesSnapshot {
     filter_block_cache_miss =
         statistics->getTickerCount(BLOCK_CACHE_FILTER_MISS);
     filter_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT);
+    block_cache_bytes_read = statistics->getTickerCount(BLOCK_CACHE_BYTES_READ);
+    block_cache_bytes_write =
+        statistics->getTickerCount(BLOCK_CACHE_BYTES_WRITE);
   }
 
   void AssertIndexBlockStat(int64_t expected_index_block_cache_miss,
@@ -1453,6 +1457,10 @@ class BlockCachePropertiesSnapshot {
               block_cache_hit);
   }
 
+  int64_t GetCacheBytesRead() { return block_cache_bytes_read; }
+
+  int64_t GetCacheBytesWrite() { return block_cache_bytes_write; }
+
  private:
   int64_t block_cache_miss = 0;
   int64_t block_cache_hit = 0;
@@ -1462,6 +1470,8 @@ class BlockCachePropertiesSnapshot {
   int64_t data_block_cache_hit = 0;
   int64_t filter_block_cache_miss = 0;
   int64_t filter_block_cache_hit = 0;
+  int64_t block_cache_bytes_read = 0;
+  int64_t block_cache_bytes_write = 0;
 };
 
 // Make sure, by default, index/filter blocks were pre-loaded (meaning we won't
@@ -1537,12 +1547,17 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   // Since block_cache is disabled, no cache activities will be involved.
   unique_ptr<Iterator> iter;
 
+  int64_t last_cache_bytes_read = 0;
   // At first, no block will be accessed.
   {
     BlockCachePropertiesSnapshot props(options.statistics.get());
     // index will be added to block cache.
     props.AssertEqual(1,  // index block miss
                       0, 0, 0);
+    ASSERT_EQ(props.GetCacheBytesRead(), 0);
+    ASSERT_EQ(props.GetCacheBytesWrite(),
+              table_options.block_cache->GetUsage());
+    last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
   // Only index block will be accessed
@@ -1554,6 +1569,11 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     // value; other numbers remain the same.
     props.AssertEqual(1, 0 + 1,  // index block hit
                       0, 0);
+    // Cache hit, bytes read from cache should increase
+    ASSERT_GT(props.GetCacheBytesRead(), last_cache_bytes_read);
+    ASSERT_EQ(props.GetCacheBytesWrite(),
+              table_options.block_cache->GetUsage());
+    last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
   // Only data block will be accessed
@@ -1562,6 +1582,11 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1, 1, 0 + 1,  // data block miss
                       0);
+    // Cache miss, Bytes read from cache should not change
+    ASSERT_EQ(props.GetCacheBytesRead(), last_cache_bytes_read);
+    ASSERT_EQ(props.GetCacheBytesWrite(),
+              table_options.block_cache->GetUsage());
+    last_cache_bytes_read = props.GetCacheBytesRead();
   }
 
   // Data block will be in cache
@@ -1571,6 +1596,11 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1, 1 + 1, /* index block hit */
                       1, 0 + 1 /* data block hit */);
+    // Cache hit, bytes read from cache should increase
+    ASSERT_GT(props.GetCacheBytesRead(), last_cache_bytes_read);
+    ASSERT_EQ(props.GetCacheBytesWrite(),
+              table_options.block_cache->GetUsage());
+    last_cache_bytes_read = props.GetCacheBytesRead();
   }
   // release the iterator so that the block cache can reset correctly.
   iter.reset();
@@ -1587,6 +1617,8 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(1,  // index block miss
                       0, 0, 0);
+    // Cache miss, Bytes read from cache should not change
+    ASSERT_EQ(props.GetCacheBytesRead(), 0);
   }
 
   {
@@ -1598,6 +1630,8 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     props.AssertEqual(1 + 1,  // index block miss
                       0, 0,   // data block miss
                       0);
+    // Cache hit, bytes read from cache should increase
+    ASSERT_EQ(props.GetCacheBytesRead(), 0);
   }
 
   {
@@ -1607,6 +1641,8 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertEqual(2, 0, 0 + 1,  // data block miss
                       0);
+    // Cache miss, Bytes read from cache should not change
+    ASSERT_EQ(props.GetCacheBytesRead(), 0);
   }
   iter.reset();
 
@@ -1789,6 +1825,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                           kNoCompression, CompressionOptions(), false),
+      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
   for (char c = 'a'; c <= 'z'; ++c) {

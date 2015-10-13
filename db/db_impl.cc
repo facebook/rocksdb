@@ -1338,8 +1338,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), env_options_, cfd->table_cache(),
           iter.get(), &meta, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), snapshots_.GetAll(),
-          GetCompressionFlush(*cfd->ioptions()),
+          cfd->int_tbl_prop_collector_factories(), cfd->GetID(),
+          snapshots_.GetAll(), GetCompressionFlush(*cfd->ioptions()),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), Env::IO_HIGH, &info.table_properties);
       LogFlush(db_options_.info_log);
@@ -1433,15 +1433,16 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (s.ok()) {
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
-                           job_context->job_id);
+                           job_context->job_id, flush_job.GetTableProperties());
   }
 #endif  // ROCKSDB_LITE
   return s;
 }
 
-void DBImpl::NotifyOnFlushCompleted(
-    ColumnFamilyData* cfd, FileMetaData* file_meta,
-    const MutableCFOptions& mutable_cf_options, int job_id) {
+void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
+                                    FileMetaData* file_meta,
+                                    const MutableCFOptions& mutable_cf_options,
+                                    int job_id, TableProperties prop) {
 #ifndef ROCKSDB_LITE
   if (db_options_.listeners.size() == 0U) {
     return;
@@ -1471,6 +1472,7 @@ void DBImpl::NotifyOnFlushCompleted(
     info.triggered_writes_stop = triggered_writes_stop;
     info.smallest_seqno = file_meta->smallest_seqno;
     info.largest_seqno = file_meta->largest_seqno;
+    info.table_properties = prop;
     for (auto listener : db_options_.listeners) {
       listener->OnFlushCompleted(this, info);
     }
@@ -1816,12 +1818,20 @@ void DBImpl::NotifyOnCompactionCompleted(
     info.base_input_level = c->start_level();
     info.output_level = c->output_level();
     info.stats = compaction_job_stats;
+    info.table_properties = c->GetOutputTableProperties();
     for (size_t i = 0; i < c->num_input_levels(); ++i) {
       for (const auto fmd : *c->inputs(i)) {
-        info.input_files.push_back(
-            TableFileName(db_options_.db_paths,
-                          fmd->fd.GetNumber(),
-                          fmd->fd.GetPathId()));
+        auto fn = TableFileName(db_options_.db_paths, fmd->fd.GetNumber(),
+                                fmd->fd.GetPathId());
+        info.input_files.push_back(fn);
+        if (info.table_properties.count(fn) == 0) {
+          std::shared_ptr<const TableProperties> tp;
+          std::string fname;
+          auto s = cfd->current()->GetTableProperties(&tp, fmd, &fname);
+          if (s.ok()) {
+            info.table_properties[fn] = tp;
+          }
+        }
       }
     }
     for (const auto newf : c->edit()->GetNewFiles()) {
@@ -4502,6 +4512,10 @@ Status DBImpl::CheckConsistency() {
 
     uint64_t fsize = 0;
     Status s = env_->GetFileSize(file_path, &fsize);
+    if (!s.ok() &&
+        env_->GetFileSize(Rocks2LevelTableFileName(file_path), &fsize).ok()) {
+      s = Status::OK();
+    }
     if (!s.ok()) {
       corruption_messages +=
           "Can't access " + md.name + ": " + s.ToString() + "\n";

@@ -169,6 +169,11 @@ class TransactionBaseImpl : public Transaction {
   }
 
   void SetSnapshot() override;
+  void SetSnapshotOnNextOperation() override;
+
+  void DisableIndexing() override { indexing_enabled_ = false; }
+
+  void EnableIndexing() override { indexing_enabled_ = true; }
 
   uint64_t GetElapsedTime() const override;
 
@@ -190,6 +195,9 @@ class TransactionBaseImpl : public Transaction {
   void TrackKey(uint32_t cfh_id, const std::string& key, SequenceNumber seqno);
 
   const TransactionKeyMap* GetTrackedKeysSinceSavePoint();
+
+  // Sets a snapshot if SetSnapshotOnNextOperation() has been called.
+  void SetSnapshotIfNeeded();
 
   DB* const db_;
 
@@ -214,6 +222,7 @@ class TransactionBaseImpl : public Transaction {
 
   struct SavePoint {
     std::shared_ptr<ManagedSnapshot> snapshot_;
+    bool snapshot_needed_;
     uint64_t num_puts_;
     uint64_t num_deletes_;
     uint64_t num_merges_;
@@ -221,9 +230,10 @@ class TransactionBaseImpl : public Transaction {
     // Record all keys tracked since the last savepoint
     TransactionKeyMap new_keys_;
 
-    SavePoint(std::shared_ptr<ManagedSnapshot> snapshot, uint64_t num_puts,
-              uint64_t num_deletes, uint64_t num_merges)
+    SavePoint(std::shared_ptr<ManagedSnapshot> snapshot, bool snapshot_needed,
+              uint64_t num_puts, uint64_t num_deletes, uint64_t num_merges)
         : snapshot_(snapshot),
+          snapshot_needed_(snapshot_needed),
           num_puts_(num_puts),
           num_deletes_(num_deletes),
           num_merges_(num_merges) {}
@@ -241,8 +251,20 @@ class TransactionBaseImpl : public Transaction {
   // Optimistic Transactions will wait till commit time to do conflict checking.
   TransactionKeyMap tracked_keys_;
 
+  // If true, future Put/Merge/Deletes will be indexed in the
+  // WriteBatchWithIndex.
+  // If false, future Put/Merge/Deletes will be inserted directly into the
+  // underlying WriteBatch and not indexed in the WriteBatchWithIndex.
+  bool indexing_enabled_ = true;
+
+  // SetSnapshotOnNextOperation() has been called and the snapshot has not yet
+  // been reset.
+  bool snapshot_needed_ = false;
+
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
                  bool untracked = false);
+
+  WriteBatchBase* GetBatchForWrite();
 };
 
 }  // namespace rocksdb

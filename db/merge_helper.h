@@ -10,8 +10,10 @@
 #include <string>
 
 #include "db/dbformat.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
+#include "util/stop_watch.h"
 
 namespace rocksdb {
 
@@ -23,17 +25,26 @@ class Statistics;
 
 class MergeHelper {
  public:
-  MergeHelper(const Comparator* user_comparator,
-              const MergeOperator* user_merge_operator, Logger* logger,
+  MergeHelper(Env* env, const Comparator* user_comparator,
+              const MergeOperator* user_merge_operator,
+              const CompactionFilter* compaction_filter, Logger* logger,
               unsigned min_partial_merge_operands,
-              bool assert_valid_internal_key)
-      : user_comparator_(user_comparator),
+              bool assert_valid_internal_key, SequenceNumber latest_snapshot,
+              int level = 0, Statistics* stats = nullptr)
+      : env_(env),
+        user_comparator_(user_comparator),
         user_merge_operator_(user_merge_operator),
+        compaction_filter_(compaction_filter),
         logger_(logger),
         min_partial_merge_operands_(min_partial_merge_operands),
         assert_valid_internal_key_(assert_valid_internal_key),
+        latest_snapshot_(latest_snapshot),
+        level_(level),
         keys_(),
-        operands_() {
+        operands_(),
+        filter_timer_(env_),
+        total_filter_time_(0U),
+        stats_(stats) {
     assert(user_comparator_ != nullptr);
   }
 
@@ -62,6 +73,7 @@ class MergeHelper {
   //                   0 means no restriction
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
+  //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
   // - MergeInProgress: Put/Delete not encountered and unable to merge operands.
@@ -71,8 +83,11 @@ class MergeHelper {
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(Iterator* iter, const SequenceNumber stop_before = 0,
-                    const bool at_bottom = false, Statistics* stats = nullptr,
-                    Env* env_ = nullptr);
+                    const bool at_bottom = false);
+
+  // Filters a merge operand using the compaction filter specified
+  // in the constructor. Returns true if the operand should be filtered out.
+  bool FilterMerge(const Slice& user_key, const Slice& value_slice);
 
   // Query the merge result
   // These are valid until the next MergeUntil call
@@ -101,19 +116,28 @@ class MergeHelper {
   // TODO: Re-style this comment to be like the first one
   const std::deque<std::string>& keys() const { return keys_; }
   const std::deque<std::string>& values() const { return operands_; }
+  uint64_t TotalFilterTime() const { return total_filter_time_; }
   bool HasOperator() const { return user_merge_operator_ != nullptr; }
 
  private:
+  Env* env_;
   const Comparator* user_comparator_;
   const MergeOperator* user_merge_operator_;
+  const CompactionFilter* compaction_filter_;
   Logger* logger_;
   unsigned min_partial_merge_operands_;
   bool assert_valid_internal_key_; // enforce no internal key corruption?
+  SequenceNumber latest_snapshot_;
+  int level_;
 
   // the scratch area that holds the result of MergeUntil
   // valid up to the next MergeUntil call
   std::deque<std::string> keys_;    // Keeps track of the sequence of keys seen
   std::deque<std::string> operands_;  // Parallel with keys_; stores the values
+
+  StopWatchNano filter_timer_;
+  uint64_t total_filter_time_;
+  Statistics* stats_;
 };
 
 // MergeOutputIterator can be used to iterate over the result of a merge.

@@ -210,6 +210,14 @@ class Compaction {
       int output_level, VersionStorageInfo* vstorage,
       const std::vector<CompactionInputFiles>& inputs);
 
+  TablePropertiesCollection GetOutputTableProperties() const {
+    return output_table_properties_;
+  }
+
+  void SetOutputTableProperties(TablePropertiesCollection tp) {
+    output_table_properties_ = std::move(tp);
+  }
+
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
@@ -273,6 +281,9 @@ class Compaction {
 
   // Does input compression match the output compression?
   bool InputCompressionMatchesOutput() const;
+
+  // table properties of output files
+  TablePropertiesCollection output_table_properties_;
 };
 
 // Utility function

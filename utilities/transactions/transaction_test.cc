@@ -1301,6 +1301,68 @@ TEST_F(TransactionTest, IteratorTest) {
   delete txn;
 }
 
+TEST_F(TransactionTest, DisableIndexingTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  s = txn->Put("A", "a");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+
+  txn->DisableIndexing();
+
+  s = txn->Put("B", "b");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  Iterator* iter = txn->GetIterator(read_options);
+  ASSERT_OK(iter->status());
+
+  iter->Seek("B");
+  ASSERT_OK(iter->status());
+  ASSERT_FALSE(iter->Valid());
+
+  s = txn->Delete("A");
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+
+  txn->EnableIndexing();
+
+  s = txn->Put("B", "bb");
+  ASSERT_OK(s);
+
+  iter->Seek("B");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bb", iter->value().ToString());
+
+  s = txn->Get(read_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("bb", value);
+
+  s = txn->Put("A", "aa");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("aa", value);
+
+  delete iter;
+  delete txn;
+}
+
 TEST_F(TransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
@@ -1881,6 +1943,222 @@ TEST_F(TransactionTest, MergeTest) {
   s = db->Get(read_options, "A", &value);
   ASSERT_OK(s);
   ASSERT_EQ("a,3", value);
+}
+
+TEST_F(TransactionTest, DeferSnapshotTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+  Status s;
+
+  s = db->Put(write_options, "A", "a0");
+  ASSERT_OK(s);
+
+  Transaction* txn1 = db->BeginTransaction(write_options);
+  Transaction* txn2 = db->BeginTransaction(write_options);
+
+  txn1->SetSnapshotOnNextOperation();
+  auto snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot);
+
+  s = txn2->Put("A", "a2");
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  // Should not conflict with txn2 since snapshot wasn't set until
+  // GetForUpdate was called.
+  ASSERT_OK(s);
+  ASSERT_EQ("a2", value);
+
+  s = txn1->Put("A", "a1");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "B", "b0");
+  ASSERT_OK(s);
+
+  // Cannot lock B since it was written after the snapshot was set
+  s = txn1->Put("B", "b1");
+  ASSERT_TRUE(s.IsBusy());
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  s = db->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a1", value);
+
+  s = db->Get(read_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b0", value);
+}
+
+TEST_F(TransactionTest, DeferSnapshotTest2) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  string value;
+  Status s;
+
+  Transaction* txn1 = db->BeginTransaction(write_options);
+
+  txn1->SetSnapshot();
+
+  s = txn1->Put("A", "a1");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "C", "c0");
+  ASSERT_OK(s);
+  s = db->Put(write_options, "D", "d0");
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+
+  txn1->SetSnapshotOnNextOperation();
+
+  s = txn1->Get(snapshot_read_options, "C", &value);
+  // Snapshot was set before C was written
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->Get(snapshot_read_options, "D", &value);
+  // Snapshot was set before D was written
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Snapshot should not have changed yet.
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+
+  s = txn1->Get(snapshot_read_options, "C", &value);
+  // Snapshot was set before C was written
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->Get(snapshot_read_options, "D", &value);
+  // Snapshot was set before D was written
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0", value);
+
+  s = db->Put(write_options, "D", "d00");
+  ASSERT_OK(s);
+
+  // Snapshot is now set
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+  s = txn1->Get(snapshot_read_options, "D", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d0", value);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+}
+
+TEST_F(TransactionTest, DeferSnapshotSavePointTest) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  string value;
+  Status s;
+
+  Transaction* txn1 = db->BeginTransaction(write_options);
+
+  txn1->SetSavePoint();  // 1
+
+  s = db->Put(write_options, "T", "1");
+  ASSERT_OK(s);
+
+  txn1->SetSnapshotOnNextOperation();
+
+  s = db->Put(write_options, "T", "2");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 2
+
+  s = db->Put(write_options, "T", "3");
+  ASSERT_OK(s);
+
+  s = txn1->Put("A", "a");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 3
+
+  s = db->Put(write_options, "T", "4");
+  ASSERT_OK(s);
+
+  txn1->SetSnapshot();
+  txn1->SetSnapshotOnNextOperation();
+
+  txn1->SetSavePoint();  // 4
+
+  s = db->Put(write_options, "T", "5");
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+  s = txn1->Get(snapshot_read_options, "T", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("4", value);
+
+  s = txn1->Put("A", "a1");
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+  s = txn1->Get(snapshot_read_options, "T", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("5", value);
+
+  s = txn1->RollbackToSavePoint();  // Rollback to 4
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+  s = txn1->Get(snapshot_read_options, "T", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("4", value);
+
+  s = txn1->RollbackToSavePoint();  // Rollback to 3
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+  s = txn1->Get(snapshot_read_options, "T", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("3", value);
+
+  s = txn1->Get(read_options, "T", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("5", value);
+
+  s = txn1->RollbackToSavePoint();  // Rollback to 2
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot_read_options.snapshot);
+  s = txn1->Get(snapshot_read_options, "T", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("5", value);
+
+  s = txn1->Delete("A");
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+  ASSERT_TRUE(snapshot_read_options.snapshot);
+  s = txn1->Get(snapshot_read_options, "T", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("5", value);
+
+  s = txn1->RollbackToSavePoint();  // Rollback to 1
+  ASSERT_OK(s);
+
+  s = txn1->Delete("A");
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot_read_options.snapshot);
+  s = txn1->Get(snapshot_read_options, "T", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("5", value);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  delete txn1;
 }
 
 }  // namespace rocksdb

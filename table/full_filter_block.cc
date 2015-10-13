@@ -8,6 +8,7 @@
 #include "rocksdb/filter_policy.h"
 #include "port/port.h"
 #include "util/coding.h"
+#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -89,7 +90,13 @@ bool FullFilterBlockReader::PrefixMayMatch(const Slice& prefix,
 
 bool FullFilterBlockReader::MayMatch(const Slice& entry) {
   if (contents_.size() != 0)  {
-    return filter_bits_reader_->MayMatch(entry);
+    if (filter_bits_reader_->MayMatch(entry)) {
+      PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
+      return true;
+    } else {
+      PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
+      return false;
+    }
   }
   return true;  // remain the same with block_based filter
 }

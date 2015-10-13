@@ -26,7 +26,7 @@
 #include "db/filename.h"
 #include "db/dbformat.h"
 #include "db/db_impl.h"
-#include "db/filename.h"
+#include "db/db_test_util.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -55,7 +55,6 @@
 #include "table/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/plain_table_factory.h"
-#include "util/db_test_util.h"
 #include "util/file_reader_writer.h"
 #include "util/hash.h"
 #include "util/hash_linklist_rep.h"
@@ -131,6 +130,46 @@ class DBTestWithParam : public DBTest,
   static void TearDownTestCase() {}
 
   uint32_t max_subcompactions_;
+};
+
+class BloomStatsTestWithParam
+    : public DBTest,
+      public testing::WithParamInterface<std::tuple<bool, bool>> {
+ public:
+  BloomStatsTestWithParam() {
+    use_block_table_ = std::get<0>(GetParam());
+    use_block_based_builder_ = std::get<1>(GetParam());
+
+    options_.create_if_missing = true;
+    options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
+    options_.memtable_prefix_bloom_bits = 8 * 1024;
+    if (use_block_table_) {
+      BlockBasedTableOptions table_options;
+      table_options.hash_index_allow_collision = false;
+      table_options.filter_policy.reset(
+          NewBloomFilterPolicy(10, use_block_based_builder_));
+      options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    } else {
+      PlainTableOptions table_options;
+      options_.table_factory.reset(NewPlainTableFactory(table_options));
+    }
+
+    perf_context.Reset();
+    DestroyAndReopen(options_);
+  }
+
+  ~BloomStatsTestWithParam() {
+    perf_context.Reset();
+    Destroy(options_);
+  }
+
+  // Required if inheriting from testing::WithParamInterface<>
+  static void SetUpTestCase() {}
+  static void TearDownTestCase() {}
+
+  bool use_block_table_;
+  bool use_block_based_builder_;
+  Options options_;
 };
 
 TEST_F(DBTest, Empty) {
@@ -604,10 +643,10 @@ TEST_F(DBTest, AggregatedTableProperties) {
 TEST_F(DBTest, ReadLatencyHistogramByLevel) {
   Options options = CurrentOptions();
   options.write_buffer_size = 110 << 10;
-  options.level0_file_num_compaction_trigger = 3;
+  options.level0_file_num_compaction_trigger = 6;
   options.num_levels = 4;
   options.compression = kNoCompression;
-  options.max_bytes_for_level_base = 450 << 10;
+  options.max_bytes_for_level_base = 4500 << 10;
   options.target_file_size_base = 98 << 10;
   options.max_write_buffer_number = 2;
   options.statistics = rocksdb::CreateDBStatistics();
@@ -619,10 +658,11 @@ TEST_F(DBTest, ReadLatencyHistogramByLevel) {
   DestroyAndReopen(options);
   int key_index = 0;
   Random rnd(301);
-  for (int num = 0; num < 5; num++) {
+  for (int num = 0; num < 7; num++) {
     Put("foo", "bar");
     GenerateNewFile(&rnd, &key_index);
   }
+  dbfull()->TEST_WaitForCompact();
 
   std::string prop;
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
@@ -638,6 +678,7 @@ TEST_F(DBTest, ReadLatencyHistogramByLevel) {
 
   // Reopen and issue Get(). See thee latency tracked
   Reopen(options);
+  dbfull()->TEST_WaitForCompact();
   for (int key = 0; key < 500; key++) {
     Get(Key(key));
   }
@@ -781,21 +822,34 @@ class CoutingUserTblPropCollector : public TablePropertiesCollector {
 class CoutingUserTblPropCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
+  explicit CoutingUserTblPropCollectorFactory(
+      uint32_t expected_column_family_id)
+      : expected_column_family_id_(expected_column_family_id),
+        num_created_(0) {}
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override {
+    EXPECT_EQ(expected_column_family_id_, context.column_family_id);
+    num_created_++;
     return new CoutingUserTblPropCollector();
   }
   const char* Name() const override {
     return "CoutingUserTblPropCollectorFactory";
   }
+  void set_expected_column_family_id(uint32_t v) {
+    expected_column_family_id_ = v;
+  }
+  uint32_t expected_column_family_id_;
+  uint32_t num_created_;
 };
 
-TEST_F(DBTest, GetUserDefinedTablaProperties) {
+TEST_F(DBTest, GetUserDefinedTableProperties) {
   Options options = CurrentOptions();
   options.level0_file_num_compaction_trigger = (1<<30);
   options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
-  options.table_properties_collector_factories[0] =
-      std::make_shared<CoutingUserTblPropCollectorFactory>();
+  std::shared_ptr<CoutingUserTblPropCollectorFactory> collector_factory =
+      std::make_shared<CoutingUserTblPropCollectorFactory>(0);
+  options.table_properties_collector_factories[0] = collector_factory;
   Reopen(options);
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
@@ -821,6 +875,72 @@ TEST_F(DBTest, GetUserDefinedTablaProperties) {
     sum += count;
   }
   ASSERT_EQ(10u + 11u + 12u + 13u, sum);
+
+  ASSERT_GT(collector_factory->num_created_, 0);
+  collector_factory->num_created_ = 0;
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_GT(collector_factory->num_created_, 0);
+}
+
+TEST_F(DBTest, UserDefinedTablePropertiesContext) {
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_background_flushes = 0;
+  options.table_properties_collector_factories.resize(1);
+  std::shared_ptr<CoutingUserTblPropCollectorFactory> collector_factory =
+      std::make_shared<CoutingUserTblPropCollectorFactory>(1);
+  options.table_properties_collector_factories[0] = collector_factory,
+  CreateAndReopenWithCF({"pikachu"}, options);
+  // Create 2 files
+  for (int table = 0; table < 2; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(1, ToString(table * 100 + i), "val");
+    }
+    Flush(1);
+  }
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  collector_factory->num_created_ = 0;
+  // Trigger automatic compactions.
+  for (int table = 0; table < 3; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(1, ToString(table * 100 + i), "val");
+    }
+    Flush(1);
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  collector_factory->num_created_ = 0;
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  // Come back to write to default column family
+  collector_factory->num_created_ = 0;
+  collector_factory->set_expected_column_family_id(0);  // default CF
+  // Create 4 tables in default column family
+  for (int table = 0; table < 2; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(ToString(table * 100 + i), "val");
+    }
+    Flush();
+  }
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  collector_factory->num_created_ = 0;
+  // Trigger automatic compactions.
+  for (int table = 0; table < 3; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(ToString(table * 100 + i), "val");
+    }
+    Flush();
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_GT(collector_factory->num_created_, 0);
+
+  collector_factory->num_created_ = 0;
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_GT(collector_factory->num_created_, 0);
 }
 
 TEST_F(DBTest, LevelLimitReopen) {
@@ -8244,7 +8364,8 @@ class CountingDeleteTabPropCollector : public TablePropertiesCollector {
 class CountingDeleteTabPropCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override {
     return new CountingDeleteTabPropCollector();
   }
   const char* Name() const override {
@@ -8268,8 +8389,8 @@ TEST_F(DBTest, TablePropertiesNeedCompactTest) {
   options.soft_rate_limit = 1.1;
   options.num_levels = 8;
 
-  std::shared_ptr<TablePropertiesCollectorFactory> collector_factory(
-      new CountingDeleteTabPropCollectorFactory);
+  std::shared_ptr<TablePropertiesCollectorFactory> collector_factory =
+      std::make_shared<CountingDeleteTabPropCollectorFactory>();
   options.table_properties_collector_factories.resize(1);
   options.table_properties_collector_factories[0] = collector_factory;
 
@@ -8324,6 +8445,61 @@ TEST_F(DBTest, TablePropertiesNeedCompactTest) {
     ASSERT_EQ(c, 0);
     ASSERT_LT(perf_context.internal_delete_skipped_count, 30u);
     ASSERT_LT(perf_context.internal_key_skipped_count, 30u);
+    SetPerfLevel(kDisable);
+  }
+}
+
+TEST_F(DBTest, NeedCompactHintPersistentTest) {
+  Random rnd(301);
+
+  Options options;
+  options.create_if_missing = true;
+  options.max_write_buffer_number = 8;
+  options.level0_file_num_compaction_trigger = 10;
+  options.level0_slowdown_writes_trigger = 10;
+  options.level0_stop_writes_trigger = 10;
+  options.disable_auto_compactions = true;
+
+  std::shared_ptr<TablePropertiesCollectorFactory> collector_factory =
+      std::make_shared<CountingDeleteTabPropCollectorFactory>();
+  options.table_properties_collector_factories.resize(1);
+  options.table_properties_collector_factories[0] = collector_factory;
+
+  DestroyAndReopen(options);
+
+  const int kMaxKey = 100;
+  for (int i = 0; i < kMaxKey; i++) {
+    ASSERT_OK(Put(Key(i), ""));
+  }
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  for (int i = 1; i < kMaxKey - 1; i++) {
+    Delete(Key(i));
+  }
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+
+  // Restart the DB. Although number of files didn't reach
+  // options.level0_file_num_compaction_trigger, compaction should
+  // still be triggered because of the need-compaction hint.
+  options.disable_auto_compactions = false;
+  Reopen(options);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  {
+    SetPerfLevel(kEnableCount);
+    perf_context.Reset();
+    int c = 0;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    for (iter->Seek(Key(0)); iter->Valid(); iter->Next()) {
+      c++;
+    }
+    ASSERT_EQ(c, 2);
+    ASSERT_EQ(perf_context.internal_delete_skipped_count, 0);
+    // We iterate every key twice. Is it a bug?
+    ASSERT_LE(perf_context.internal_key_skipped_count, 2);
     SetPerfLevel(kDisable);
   }
 }
@@ -9640,6 +9816,47 @@ TEST_F(DBTest, AddExternalSstFileMultiThreaded) {
                          kSkipFIFOCompaction));
 }
 
+// 1 Create some SST files by inserting K-V pairs into DB
+// 2 Close DB and change suffix from ".sst" to ".ldb" for every other SST file
+// 3 Open DB and check if all key can be read
+TEST_F(DBTest, SSTsWithLdbSuffixHandling) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 110 << 10;  // 110KB
+  options.num_levels = 4;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int key_id = 0;
+  for (int i = 0; i < 10; ++i) {
+    GenerateNewFile(&rnd, &key_id, false);
+  }
+  Flush();
+  Close();
+  int const num_files = GetSstFileCount(dbname_);
+  ASSERT_GT(num_files, 0);
+
+  std::vector<std::string> filenames;
+  GetSstFiles(dbname_, &filenames);
+  int num_ldb_files = 0;
+  for (unsigned int i = 0; i < filenames.size(); ++i) {
+    if (i & 1) {
+      continue;
+    }
+    std::string const rdb_name = dbname_ + "/" + filenames[i];
+    std::string const ldb_name = Rocks2LevelTableFileName(rdb_name);
+    ASSERT_TRUE(env_->RenameFile(rdb_name, ldb_name).ok());
+    ++num_ldb_files;
+  }
+  ASSERT_GT(num_ldb_files, 0);
+  ASSERT_EQ(num_files, GetSstFileCount(dbname_));
+
+  Reopen(options);
+  for (int k = 0; k < key_id; ++k) {
+    ASSERT_NE("NOT_FOUND", Get(Key(k)));
+  }
+  Destroy(options);
+}
+
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                         ::testing::Values(1, 4));
 
@@ -9846,6 +10063,120 @@ TEST_F(DBTest, WalFilterTest) {
     }
   }
 }
+
+// 1 Insert 2 K-V pairs into DB
+// 2 Call Get() for both keys - expext memtable bloom hit stat to be 2
+// 3 Call Get() for nonexisting key - expect memtable bloom miss stat to be 1
+// 4 Call Flush() to create SST
+// 5 Call Get() for both keys - expext SST bloom hit stat to be 2
+// 6 Call Get() for nonexisting key - expect SST bloom miss stat to be 1
+// Test both: block and plain SST
+TEST_P(BloomStatsTestWithParam, BloomStatsTest) {
+  std::string key1("AAAA");
+  std::string key2("RXDB");  // not in DB
+  std::string key3("ZBRA");
+  std::string value1("Value1");
+  std::string value3("Value3");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+
+  // check memtable bloom stats
+  ASSERT_EQ(value1, Get(key1));
+  ASSERT_EQ(1, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(value3, Get(key3));
+  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  ASSERT_EQ(1, perf_context.bloom_memtable_miss_count);
+  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+
+  // sanity checks
+  ASSERT_EQ(0, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_sst_miss_count);
+
+  Flush();
+
+  // sanity checks
+  ASSERT_EQ(0, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_sst_miss_count);
+
+  // check SST bloom stats
+  // NOTE: hits per get differs because of code paths differences
+  // in BlockBasedTable::Get()
+  int hits_per_get = use_block_table_ && !use_block_based_builder_ ? 2 : 1;
+  ASSERT_EQ(value1, Get(key1));
+  ASSERT_EQ(hits_per_get, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(value3, Get(key3));
+  ASSERT_EQ(2 * hits_per_get, perf_context.bloom_sst_hit_count);
+
+  ASSERT_EQ("NOT_FOUND", Get(key2));
+  ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
+}
+
+// Same scenario as in BloomStatsTest but using an iterator
+TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
+  std::string key1("AAAA");
+  std::string key2("RXDB");  // not in DB
+  std::string key3("ZBRA");
+  std::string value1("Value1");
+  std::string value3("Value3");
+
+  ASSERT_OK(Put(key1, value1, WriteOptions()));
+  ASSERT_OK(Put(key3, value3, WriteOptions()));
+
+  unique_ptr<Iterator> iter(dbfull()->NewIterator(ReadOptions()));
+
+  // check memtable bloom stats
+  iter->Seek(key1);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value1, iter->value().ToString());
+  ASSERT_EQ(1, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+
+  iter->Seek(key3);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value3, iter->value().ToString());
+  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+  ASSERT_EQ(0, perf_context.bloom_memtable_miss_count);
+
+  iter->Seek(key2);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_EQ(1, perf_context.bloom_memtable_miss_count);
+  ASSERT_EQ(2, perf_context.bloom_memtable_hit_count);
+
+  Flush();
+
+  iter.reset(dbfull()->NewIterator(ReadOptions()));
+
+  // check SST bloom stats
+  iter->Seek(key1);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value1, iter->value().ToString());
+  ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
+
+  iter->Seek(key3);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value3, iter->value().ToString());
+  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+
+  iter->Seek(key2);
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+  ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
+  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+}
+
+INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,
+                        ::testing::Values(std::make_tuple(true, true),
+                                          std::make_tuple(true, false),
+                                          std::make_tuple(false, false)));
 }  // namespace rocksdb
 
 #endif

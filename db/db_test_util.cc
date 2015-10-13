@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/db_test_util.h"
+#include "db/db_test_util.h"
 
 namespace rocksdb {
 
@@ -794,19 +794,22 @@ std::string DBTestBase::DumpSSTableList() {
   return property;
 }
 
+void DBTestBase::GetSstFiles(std::string path,
+                             std::vector<std::string>* files) {
+  env_->GetChildren(path, files);
+
+  files->erase(
+      std::remove_if(files->begin(), files->end(), [](std::string name) {
+        uint64_t number;
+        FileType type;
+        return !(ParseFileName(name, &number, &type) && type == kTableFile);
+      }), files->end());
+}
+
 int DBTestBase::GetSstFileCount(std::string path) {
   std::vector<std::string> files;
-  env_->GetChildren(path, &files);
-
-  int sst_count = 0;
-  uint64_t number;
-  FileType type;
-  for (size_t i = 0; i < files.size(); i++) {
-    if (ParseFileName(files[i], &number, &type) && type == kTableFile) {
-      sst_count++;
-    }
-  }
-  return sst_count;
+  GetSstFiles(path, &files);
+  return static_cast<int>(files.size());
 }
 
 // this will generate non-overlapping files since it keeps increasing key_idx

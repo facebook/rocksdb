@@ -4,13 +4,18 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 
 namespace rocksdb {
+
+typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
+    TablePropertiesCollection;
 
 class DB;
 class Status;
@@ -72,6 +77,8 @@ struct FlushJobInfo {
   SequenceNumber smallest_seqno;
   // The largest sequence number in the newly created file
   SequenceNumber largest_seqno;
+  // Table properties of the table being flushed
+  TableProperties table_properties;
 };
 
 struct CompactionJobInfo {
@@ -93,8 +100,13 @@ struct CompactionJobInfo {
   int output_level;
   // the names of the compaction input files.
   std::vector<std::string> input_files;
+
   // the names of the compaction output files.
   std::vector<std::string> output_files;
+  // Table properties for input and output tables.
+  // The map is keyed by values from input_files and output_files.
+  TablePropertiesCollection table_properties;
+
   // If non-null, this variable stores detailed information
   // about this compaction.
   CompactionJobStats stats;

@@ -1,19 +1,24 @@
 ## Compilation
 
+**Important**: If you plan to run RocksDB in production, don't compile using default 
+`make` or `make all`. That will compile RocksDB in debug mode, which is much slower
+than release mode.
+
 RocksDB's library should be able to compile without any dependency installed,
 although we recommend installing some compression libraries (see below).
 We do depend on newer gcc/clang with C++11 support.
 
 There are few options when compiling RocksDB:
 
-* [recommended] `make static_lib` will compile librocksdb.a, RocksDB static library.
+* [recommended] `make static_lib` will compile librocksdb.a, RocksDB static library. Compiles static library in release mode.
 
-* `make shared_lib` will compile librocksdb.so, RocksDB shared library.
+* `make shared_lib` will compile librocksdb.so, RocksDB shared library. Compiles shared library in release mode.
 
-* `make check` will compile and run all the unit tests
+* `make check` will compile and run all the unit tests. `make check` will compile RocksDB in debug mode.
 
 * `make all` will compile our static library, and all our tools and unit tests. Our tools
-depend on gflags. You will need to have gflags installed to run `make all`.
+depend on gflags. You will need to have gflags installed to run `make all`. This will compile RocksDB in debug mode. Don't
+use binaries compiled by `make all` in production.
 
 * By default the binary we produce is optimized for the platform you're compiling on
 (-march=native). If you want to build a portable binary, add 'PORTABLE=1' before

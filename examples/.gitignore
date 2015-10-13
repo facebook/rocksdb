@@ -1,6 +1,7 @@
-column_families_example
-simple_example
 c_simple_example
+column_families_example
 compact_files_example
-transaction_example
+compaction_filter_example
 optimistic_transaction_example
+simple_example
+transaction_example

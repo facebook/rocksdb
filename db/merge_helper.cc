@@ -14,7 +14,6 @@
 #include "rocksdb/merge_operator.h"
 #include "util/perf_context_imp.h"
 #include "util/statistics.h"
-#include "util/stop_watch.h"
 
 namespace rocksdb {
 
@@ -41,8 +40,7 @@ Status MergeHelper::TimedFullMerge(const Slice& key, const Slice* value,
   bool success =
       merge_operator->FullMerge(key, value, operands, result, logger);
 
-  RecordTick(statistics, MERGE_OPERATION_TOTAL_TIME,
-             env != nullptr ? timer.ElapsedNanos() : 0);
+  RecordTick(statistics, MERGE_OPERATION_TOTAL_TIME, timer.ElapsedNanosSafe());
 
   if (!success) {
     RecordTick(statistics, NUMBER_MERGE_FAILURES);
@@ -59,30 +57,33 @@ Status MergeHelper::TimedFullMerge(const Slice& key, const Slice* value,
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
 Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
-                               const bool at_bottom, Statistics* stats,
-                               Env* env_) {
+                               const bool at_bottom) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
   keys_.clear();
   operands_.clear();
-  keys_.push_front(iter->key().ToString());
-  operands_.push_front(iter->value().ToString());
   assert(user_merge_operator_);
+  bool first_key = true;
 
   // We need to parse the internal key again as the parsed key is
   // backed by the internal key!
   // Assume no internal key corruption as it has been successfully parsed
   // by the caller.
-  // Invariant: keys_.back() will not change. Hence, orig_ikey is always valid.
+  // original_key_is_iter variable is just caching the information:
+  // original_key_is_iter == (iter->key().ToString() == original_key)
+  bool original_key_is_iter = true;
+  std::string original_key = iter->key().ToString();
+  // Important:
+  // orig_ikey is backed by original_key if keys_.empty()
+  // orig_ikey is backed by keys_.back() if !keys_.empty()
   ParsedInternalKey orig_ikey;
-  ParseInternalKey(keys_.back(), &orig_ikey);
+  ParseInternalKey(original_key, &orig_ikey);
 
   Status s;
   bool hit_the_next_user_key = false;
-  for (iter->Next(); iter->Valid(); iter->Next()) {
+  for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
     ParsedInternalKey ikey;
-    assert(operands_.size() >= 1);        // Should be invariants!
     assert(keys_.size() == operands_.size());
 
     if (!ParseInternalKey(iter->key(), &ikey)) {
@@ -92,6 +93,9 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
         return Status::Corruption("Corrupted internal key not expected.");
       }
       break;
+    } else if (first_key) {
+      assert(user_comparator_->Equal(ikey.user_key, orig_ikey.user_key));
+      first_key = false;
     } else if (!user_comparator_->Equal(ikey.user_key, orig_ikey.user_key)) {
       // hit a different user key, stop right here
       hit_the_next_user_key = true;
@@ -105,16 +109,29 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
 
     assert(IsValueType(ikey.type));
     if (ikey.type != kTypeMerge) {
-      // Merges operands can only be used with puts and deletions, single
-      // deletions are not supported.
-      assert(ikey.type == kTypeValue || ikey.type == kTypeDeletion);
+      if (ikey.type != kTypeValue && ikey.type != kTypeDeletion) {
+        // Merges operands can only be used with puts and deletions, single
+        // deletions are not supported.
+        assert(false);
+        // release build doesn't have asserts, so we return error status
+        return Status::InvalidArgument(
+            " Merges operands can only be used with puts and deletions, single "
+            "deletions are not supported.");
+      }
 
       // hit a put/delete
       //   => merge the put value or a nullptr with operands_
       //   => store result in operands_.back() (and update keys_.back())
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Success!
-      //
+
+      // If there are no operands, just return the Status::OK(). That will cause
+      // the compaction iterator to write out the key we're currently at, which
+      // is the put/delete we just encountered.
+      if (keys_.empty()) {
+        return Status::OK();
+      }
+
       // TODO(noetzli) If the merge operator returns false, we are currently
       // (almost) silently dropping the put/delete. That's probably not what we
       // want.
@@ -122,14 +139,14 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
       const Slice* val_ptr = (kTypeValue == ikey.type) ? &val : nullptr;
       std::string merge_result;
       s = TimedFullMerge(ikey.user_key, val_ptr, operands_,
-                         user_merge_operator_, stats, env_, logger_,
+                         user_merge_operator_, stats_, env_, logger_,
                          &merge_result);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
       if (s.ok()) {
         // The original key encountered
-        std::string original_key = std::move(keys_.back());
+        original_key = std::move(keys_.back());
         orig_ikey.type = kTypeValue;
         UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
         keys_.clear();
@@ -143,16 +160,40 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
       return s;
     } else {
       // hit a merge
+      //   => if there is a compaction filter, apply it.
       //   => merge the operand into the front of the operands_ list
-      //   => use the user's associative merge function to determine how.
+      //      if not filtered
       //   => then continue because we haven't yet seen a Put/Delete.
-      assert(!operands_.empty()); // Should have at least one element in it
-
-      // keep queuing keys and operands until we either meet a put / delete
+      //
+      // Keep queuing keys and operands until we either meet a put / delete
       // request or later did a partial merge.
-      keys_.push_front(iter->key().ToString());
-      operands_.push_front(iter->value().ToString());
+
+      Slice value_slice = iter->value();
+      // add an operand to the list if:
+      // 1) it's included in one of the snapshots. in that case we *must* write
+      // it out, no matter what compaction filter says
+      // 2) it's not filtered by a compaction filter
+      if (ikey.sequence <= latest_snapshot_ ||
+          !FilterMerge(orig_ikey.user_key, value_slice)) {
+        if (original_key_is_iter) {
+          // this is just an optimization that saves us one memcpy
+          keys_.push_front(std::move(original_key));
+        } else {
+          keys_.push_front(iter->key().ToString());
+        }
+        if (keys_.size() == 1) {
+          // we need to re-anchor the orig_ikey because it was anchored by
+          // original_key before
+          ParseInternalKey(keys_.back(), &orig_ikey);
+        }
+        operands_.push_front(value_slice.ToString());
+      }
     }
+  }
+
+  if (operands_.size() == 0) {
+    // we filtered out all the merge operands
+    return Status::OK();
   }
 
   // We are sure we have seen this key's entire history if we are at the
@@ -179,11 +220,13 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
     assert(operands_.size() == keys_.size());
     std::string merge_result;
     s = TimedFullMerge(orig_ikey.user_key, nullptr, operands_,
-                       user_merge_operator_, stats, env_, logger_,
+                       user_merge_operator_, stats_, env_, logger_,
                        &merge_result);
     if (s.ok()) {
       // The original key encountered
-      std::string original_key = std::move(keys_.back());
+      // We are certain that keys_ is not empty here (see assertions couple of
+      // lines before).
+      original_key = std::move(keys_.back());
       orig_ikey.type = kTypeValue;
       UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
       keys_.clear();
@@ -205,14 +248,14 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
       bool merge_success = false;
       std::string merge_result;
       {
-        StopWatchNano timer(env_, stats != nullptr);
+        StopWatchNano timer(env_, stats_ != nullptr);
         PERF_TIMER_GUARD(merge_operator_time_nanos);
         merge_success = user_merge_operator_->PartialMergeMulti(
             orig_ikey.user_key,
             std::deque<Slice>(operands_.begin(), operands_.end()),
             &merge_result, logger_);
-        RecordTick(stats, MERGE_OPERATION_TOTAL_TIME,
-                   env_ != nullptr ? timer.ElapsedNanos() : 0);
+        RecordTick(stats_, MERGE_OPERATION_TOTAL_TIME,
+                   timer.ElapsedNanosSafe());
       }
       if (merge_success) {
         // Merging of operands (associative merge) was successful.
@@ -236,7 +279,6 @@ MergeOutputIterator::MergeOutputIterator(const MergeHelper* merge_helper)
 void MergeOutputIterator::SeekToFirst() {
   const auto& keys = merge_helper_->keys();
   const auto& values = merge_helper_->values();
-  assert(keys.size() > 0);
   assert(keys.size() == values.size());
   it_keys_ = keys.rbegin();
   it_values_ = values.rbegin();
@@ -245,6 +287,19 @@ void MergeOutputIterator::SeekToFirst() {
 void MergeOutputIterator::Next() {
   ++it_keys_;
   ++it_values_;
+}
+
+bool MergeHelper::FilterMerge(const Slice& user_key, const Slice& value_slice) {
+  if (compaction_filter_ == nullptr) {
+    return false;
+  }
+  if (stats_ != nullptr) {
+    filter_timer_.Start();
+  }
+  bool to_delete =
+      compaction_filter_->FilterMergeOperand(level_, user_key, value_slice);
+  total_filter_time_ += filter_timer_.ElapsedNanosSafe();
+  return to_delete;
 }
 
 } // namespace rocksdb

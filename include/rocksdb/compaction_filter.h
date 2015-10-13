@@ -39,6 +39,8 @@ class CompactionFilter {
     // Is this compaction requested by the client (true),
     // or is it occurring as an automatic compaction process
     bool is_manual_compaction;
+    // Which column family this compaction is for.
+    uint32_t column_family_id;
   };
 
   virtual ~CompactionFilter() {}
@@ -51,9 +53,23 @@ class CompactionFilter {
   // output of the compaction.  The application can inspect
   // the existing value of the key and make decision based on it.
   //
+  // Key-Values that are results of merge operation during compaction are not
+  // passed into this function. Currently, when you have a mix of Put()s and
+  // Merge()s on a same key, we only guarantee to process the merge operands
+  // through the compaction filters. Put()s might be processed, or might not.
+  //
   // When the value is to be preserved, the application has the option
   // to modify the existing_value and pass it back through new_value.
   // value_changed needs to be set to true in this case.
+  //
+  // If you use snapshot feature of RocksDB (i.e. call GetSnapshot() API on a
+  // DB* object), CompactionFilter might not be very useful for you. Due to
+  // guarantees we need to maintain, compaction process will not call Filter()
+  // on any keys that were written before the latest snapshot. In other words,
+  // compaction will only call Filter() on keys written after your most recent
+  // call to GetSnapshot(). In most cases, Filter() will not be called very
+  // often. This is something we're fixing. See the discussion at:
+  // https://www.facebook.com/groups/mysqlonrocksdb/permalink/999723240091865/
   //
   // If multithreaded compaction is being used *and* a single CompactionFilter
   // instance was supplied via Options::compaction_filter, this method may be
@@ -64,44 +80,23 @@ class CompactionFilter {
   // be used by a single thread that is doing the compaction run, and this
   // call does not need to be thread-safe.  However, multiple filters may be
   // in existence and operating concurrently.
+  //
+  // The last paragraph is not true if you set max_subcompactions to more than
+  // 1. In that case, subcompaction from multiple threads may call a single
+  // CompactionFilter concurrently.
   virtual bool Filter(int level,
                       const Slice& key,
                       const Slice& existing_value,
                       std::string* new_value,
                       bool* value_changed) const = 0;
 
-  // Returns a name that identifies this compaction filter.
-  // The name will be printed to LOG file on start up for diagnosis.
-  virtual const char* Name() const = 0;
-};
-
-// CompactionFilterV2 that buffers kv pairs sharing the same prefix and let
-// application layer to make individual decisions for all the kv pairs in the
-// buffer.
-class CompactionFilterV2 {
- public:
-  virtual ~CompactionFilterV2() {}
-
-  // The compaction process invokes this method for all the kv pairs
-  // sharing the same prefix. It is a "roll-up" version of CompactionFilter.
-  //
-  // Each entry in the return vector indicates if the corresponding kv should
-  // be preserved in the output of this compaction run. The application can
-  // inspect the existing values of the keys and make decision based on it.
-  //
-  // When a value is to be preserved, the application has the option
-  // to modify the entry in existing_values and pass it back through an entry
-  // in new_values. A corresponding values_changed entry needs to be set to
-  // true in this case. Note that the new_values vector contains only changed
-  // values, i.e. new_values.size() <= values_changed.size().
-  //
-  typedef std::vector<Slice> SliceVector;
-  virtual std::vector<bool> Filter(int level,
-                                   const SliceVector& keys,
-                                   const SliceVector& existing_values,
-                                   std::vector<std::string>* new_values,
-                                   std::vector<bool>* values_changed)
-    const = 0;
+  // The compaction process invokes this method on every merge operand. If this
+  // method returns true, the merge operand will be ignored and not written out
+  // in the compaction output
+  virtual bool FilterMergeOperand(int level, const Slice& key,
+                                  const Slice& operand) const {
+    return false;
+  }
 
   // Returns a name that identifies this compaction filter.
   // The name will be printed to LOG file on start up for diagnosis.
@@ -132,65 +127,6 @@ class DefaultCompactionFilterFactory : public CompactionFilterFactory {
 
   virtual const char* Name() const override {
     return "DefaultCompactionFilterFactory";
-  }
-};
-
-// Each compaction will create a new CompactionFilterV2
-//
-// CompactionFilterFactoryV2 enables application to specify a prefix and use
-// CompactionFilterV2 to filter kv-pairs in batches. Each batch contains all
-// the kv-pairs sharing the same prefix.
-//
-// This is useful for applications that require grouping kv-pairs in
-// compaction filter to make a purge/no-purge decision. For example, if the
-// key prefix is user id and the rest of key represents the type of value.
-// This batching filter will come in handy if the application's compaction
-// filter requires knowledge of all types of values for any user id.
-//
-class CompactionFilterFactoryV2 {
- public:
-  // NOTE: CompactionFilterFactoryV2 will not delete prefix_extractor
-  explicit CompactionFilterFactoryV2(const SliceTransform* prefix_extractor)
-    : prefix_extractor_(prefix_extractor) { }
-
-  virtual ~CompactionFilterFactoryV2() { }
-
-  virtual std::unique_ptr<CompactionFilterV2> CreateCompactionFilterV2(
-    const CompactionFilterContext& context) = 0;
-
-  // Returns a name that identifies this compaction filter factory.
-  virtual const char* Name() const = 0;
-
-  const SliceTransform* GetPrefixExtractor() const {
-    return prefix_extractor_;
-  }
-
-  void SetPrefixExtractor(const SliceTransform* prefix_extractor) {
-    prefix_extractor_ = prefix_extractor;
-  }
-
- private:
-  // Prefix extractor for compaction filter v2
-  // Keys sharing the same prefix will be buffered internally.
-  // Client can implement a Filter callback function to operate on the buffer
-  const SliceTransform* prefix_extractor_;
-};
-
-// Default implementation of CompactionFilterFactoryV2 which does not
-// return any filter
-class DefaultCompactionFilterFactoryV2 : public CompactionFilterFactoryV2 {
- public:
-  explicit DefaultCompactionFilterFactoryV2()
-      : CompactionFilterFactoryV2(nullptr) { }
-
-  virtual std::unique_ptr<CompactionFilterV2>
-  CreateCompactionFilterV2(
-      const CompactionFilterContext& context) override {
-    return std::unique_ptr<CompactionFilterV2>(nullptr);
-  }
-
-  virtual const char* Name() const override {
-    return "DefaultCompactionFilterFactoryV2";
   }
 };
 

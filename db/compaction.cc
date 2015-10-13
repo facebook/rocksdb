@@ -50,15 +50,34 @@ void Compaction::GetBoundaryKeys(
     if (inputs[i].files.empty()) {
       continue;
     }
-    const Slice& start_user_key = inputs[i].files[0]->smallest.user_key();
-    if (!initialized || ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
-      *smallest_user_key = start_user_key;
+    if (inputs[i].level == 0) {
+      // we need to consider all files on level 0
+      for (const auto* f : inputs[i].files) {
+        const Slice& start_user_key = f->smallest.user_key();
+        if (!initialized ||
+            ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
+          *smallest_user_key = start_user_key;
+        }
+        const Slice& end_user_key = f->largest.user_key();
+        if (!initialized ||
+            ucmp->Compare(end_user_key, *largest_user_key) > 0) {
+          *largest_user_key = end_user_key;
+        }
+        initialized = true;
+      }
+    } else {
+      // we only need to consider the first and last file
+      const Slice& start_user_key = inputs[i].files[0]->smallest.user_key();
+      if (!initialized ||
+          ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
+        *smallest_user_key = start_user_key;
+      }
+      const Slice& end_user_key = inputs[i].files.back()->largest.user_key();
+      if (!initialized || ucmp->Compare(end_user_key, *largest_user_key) > 0) {
+        *largest_user_key = end_user_key;
+      }
+      initialized = true;
     }
-    const Slice& end_user_key = inputs[i].files.back()->largest.user_key();
-    if (!initialized || ucmp->Compare(end_user_key, *largest_user_key) > 0) {
-      *largest_user_key = end_user_key;
-    }
-    initialized = true;
   }
 }
 
@@ -420,6 +439,7 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
+  context.column_family_id = cfd_->GetID();
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
 }

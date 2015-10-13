@@ -290,10 +290,11 @@ class Repairer {
       ro.total_order_seek = true;
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
-      status = BuildTable(dbname_, env_, ioptions_, env_options_, table_cache_,
-                          iter.get(), &meta, icmp_,
-                          &int_tbl_prop_collector_factories_, {},
-                          kNoCompression, CompressionOptions(), false, nullptr);
+      status = BuildTable(
+          dbname_, env_, ioptions_, env_options_, table_cache_, iter.get(),
+          &meta, icmp_, &int_tbl_prop_collector_factories_,
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily, {},
+          kNoCompression, CompressionOptions(), false, nullptr);
     }
     delete mem->Unref();
     delete cf_mems_default;

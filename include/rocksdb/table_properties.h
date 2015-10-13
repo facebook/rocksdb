@@ -56,6 +56,7 @@ struct TableProperties {
 
   // user collected properties
   UserCollectedProperties user_collected_properties;
+  UserCollectedProperties readable_properties;
 
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.
@@ -144,9 +145,15 @@ class TablePropertiesCollector {
 // TablePropertiesCollector for each new table
 class TablePropertiesCollectorFactory {
  public:
+  struct Context {
+    uint32_t column_family_id;
+    static const uint32_t kUnknownColumnFamily;
+  };
+
   virtual ~TablePropertiesCollectorFactory() {}
   // has to be thread-safe
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() = 0;
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) = 0;
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;

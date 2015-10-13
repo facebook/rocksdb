@@ -40,13 +40,14 @@ TableBuilder* NewTableBuilder(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    WritableFileWriter* file, const CompressionType compression_type,
+    uint32_t column_family_id, WritableFileWriter* file,
+    const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters) {
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
                           compression_opts, skip_filters),
-      file);
+      column_family_id, file);
 }
 
 Status BuildTable(
@@ -55,7 +56,8 @@ Status BuildTable(
     FileMetaData* meta, const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    std::vector<SequenceNumber> snapshots, const CompressionType compression,
+    uint32_t column_family_id, std::vector<SequenceNumber> snapshots,
+    const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, const Env::IOPriority io_priority,
     TableProperties* table_properties) {
@@ -82,13 +84,14 @@ Status BuildTable(
 
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
-          file_writer.get(), compression, compression_opts);
+          column_family_id, file_writer.get(), compression, compression_opts);
     }
 
-    MergeHelper merge(internal_comparator.user_comparator(),
-                      ioptions.merge_operator, ioptions.info_log,
+    MergeHelper merge(env, internal_comparator.user_comparator(),
+                      ioptions.merge_operator, nullptr, ioptions.info_log,
                       ioptions.min_partial_merge_operands,
-                      true /* internal key corruption is not ok */);
+                      true /* internal key corruption is not ok */,
+                      snapshots.empty() ? 0 : snapshots.back());
 
     CompactionIterator c_iter(iter, internal_comparator.user_comparator(),
                               &merge, kMaxSequenceNumber, &snapshots, env,

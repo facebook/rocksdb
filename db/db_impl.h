@@ -51,7 +51,6 @@ class TableCache;
 class Version;
 class VersionEdit;
 class VersionSet;
-class CompactionFilterV2;
 class Arena;
 class WriteCallback;
 struct JobContext;
@@ -376,7 +375,7 @@ class DBImpl : public DB {
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
-                              int job_id);
+                              int job_id, TableProperties prop);
 
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
                                    Compaction *c, const Status &st,

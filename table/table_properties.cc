@@ -12,6 +12,9 @@
 
 namespace rocksdb {
 
+const uint32_t TablePropertiesCollectorFactory::Context::kUnknownColumnFamily =
+    port::kMaxInt32;
+
 namespace {
   void AppendProperty(
       std::string& props,

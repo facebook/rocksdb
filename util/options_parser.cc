@@ -66,6 +66,7 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
   writable->Append(options_file_content + "\n");
 
   for (size_t i = 0; i < cf_opts.size(); ++i) {
+    // CFOptions section
     writable->Append("\n[" + opt_section_titles[kOptionSectionCFOptions] +
                      " \"" + EscapeOptionString(cf_names[i]) + "\"]\n  ");
     s = GetStringFromColumnFamilyOptions(&options_file_content, cf_opts[i],
@@ -75,6 +76,18 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
       return s;
     }
     writable->Append(options_file_content + "\n");
+    // TableOptions section
+    auto* tf = cf_opts[i].table_factory.get();
+    if (tf != nullptr) {
+      writable->Append("[" + opt_section_titles[kOptionSectionTableOptions] +
+                       tf->Name() + " \"" + EscapeOptionString(cf_names[i]) +
+                       "\"]\n  ");
+      s = GetStringFromTableFactory(&options_file_content, tf, "\n  ");
+      if (!s.ok()) {
+        return s;
+      }
+      writable->Append(options_file_content + "\n");
+    }
   }
   writable->Flush();
   writable->Fsync();
@@ -112,11 +125,11 @@ bool RocksDBOptionsParser::IsSection(const std::string& line) {
 }
 
 Status RocksDBOptionsParser::ParseSection(OptionSection* section,
+                                          std::string* title,
                                           std::string* argument,
                                           const std::string& line,
                                           const int line_num) {
   *section = kOptionSectionUnknown;
-  std::string sec_string;
   // A section is of the form [<SectionName> "<SectionArg>"], where
   // "<SectionArg>" is optional.
   size_t arg_start_pos = line.find("\"");
@@ -124,17 +137,30 @@ Status RocksDBOptionsParser::ParseSection(OptionSection* section,
   // The following if-then check tries to identify whether the input
   // section has the optional section argument.
   if (arg_start_pos != std::string::npos && arg_start_pos != arg_end_pos) {
-    sec_string = TrimAndRemoveComment(line.substr(1, arg_start_pos - 1), true);
+    *title = TrimAndRemoveComment(line.substr(1, arg_start_pos - 1), true);
     *argument = UnescapeOptionString(
         line.substr(arg_start_pos + 1, arg_end_pos - arg_start_pos - 1));
   } else {
-    sec_string = TrimAndRemoveComment(line.substr(1, line.size() - 2), true);
+    *title = TrimAndRemoveComment(line.substr(1, line.size() - 2), true);
     *argument = "";
   }
   for (int i = 0; i < kOptionSectionUnknown; ++i) {
-    if (opt_section_titles[i] == sec_string) {
-      *section = static_cast<OptionSection>(i);
-      return CheckSection(*section, *argument, line_num);
+    if (title->find(opt_section_titles[i]) == 0) {
+      if (i == kOptionSectionVersion || i == kOptionSectionDBOptions ||
+          i == kOptionSectionCFOptions) {
+        if (title->size() == opt_section_titles[i].size()) {
+          // if true, then it indicats equal
+          *section = static_cast<OptionSection>(i);
+          return CheckSection(*section, *argument, line_num);
+        }
+      } else if (i == kOptionSectionTableOptions) {
+        // This type of sections has a sufffix at the end of the
+        // section title
+        if (title->size() > opt_section_titles[i].size()) {
+          *section = static_cast<OptionSection>(i);
+          return CheckSection(*section, *argument, line_num);
+        }
+      }
     }
   }
   return Status::InvalidArgument(std::string("Unknown section ") + line);
@@ -215,6 +241,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
   }
 
   OptionSection section = kOptionSectionUnknown;
+  std::string title;
   std::string argument;
   std::unordered_map<std::string, std::string> opt_map;
   std::istringstream iss;
@@ -231,12 +258,12 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
       continue;
     }
     if (IsSection(line)) {
-      s = EndSection(section, argument, opt_map);
+      s = EndSection(section, title, argument, opt_map);
       opt_map.clear();
       if (!s.ok()) {
         return s;
       }
-      s = ParseSection(&section, &argument, line, line_num);
+      s = ParseSection(&section, &title, &argument, line, line_num);
       if (!s.ok()) {
         return s;
       }
@@ -251,7 +278,7 @@ Status RocksDBOptionsParser::Parse(const std::string& file_name, Env* env) {
     }
   }
 
-  s = EndSection(section, argument, opt_map);
+  s = EndSection(section, title, argument, opt_map);
   opt_map.clear();
   if (!s.ok()) {
     return s;
@@ -280,13 +307,21 @@ Status RocksDBOptionsParser::CheckSection(const OptionSection section,
       return InvalidArgument(
           line_num,
           "Default column family must be the first CFOptions section "
-          "in the option config file");
+          "in the optio/n config file");
     } else if (GetCFOptions(section_arg) != nullptr) {
       return InvalidArgument(
           line_num,
           "Two identical column families found in option config file");
     }
     has_default_cf_options_ |= is_default_cf;
+  } else if (section == kOptionSectionTableOptions) {
+    if (GetCFOptions(section_arg) == nullptr) {
+      return InvalidArgument(
+          line_num, std::string(
+                        "Does not find a matched column family name in "
+                        "TableOptions section.  Column Family Name:") +
+                        section_arg);
+    }
   } else if (section == kOptionSectionVersion) {
     if (has_version_section_) {
       return InvalidArgument(
@@ -350,7 +385,8 @@ Status RocksDBOptionsParser::ParseVersionNumber(const std::string& ver_name,
 }
 
 Status RocksDBOptionsParser::EndSection(
-    const OptionSection section, const std::string& section_arg,
+    const OptionSection section, const std::string& section_title,
+    const std::string& section_arg,
     const std::unordered_map<std::string, std::string>& opt_map) {
   Status s;
   if (section == kOptionSectionDBOptions) {
@@ -372,6 +408,23 @@ Status RocksDBOptionsParser::EndSection(
     }
     // keep the parsed string.
     cf_opt_maps_.emplace_back(opt_map);
+  } else if (section == kOptionSectionTableOptions) {
+    assert(GetCFOptions(section_arg) != nullptr);
+    auto* cf_opt = GetCFOptionsImpl(section_arg);
+    if (cf_opt == nullptr) {
+      return Status::InvalidArgument(
+          "The specified column family must be defined before the "
+          "TableOptions section:",
+          section_arg);
+    }
+    // Ignore error as table factory deserialization is optional
+    s = GetTableFactoryFromMap(
+        section_title.substr(
+            opt_section_titles[kOptionSectionTableOptions].size()),
+        opt_map, &(cf_opt->table_factory));
+    if (!s.ok()) {
+      return s;
+    }
   } else if (section == kOptionSectionVersion) {
     for (const auto pair : opt_map) {
       if (pair.first == "rocksdb_version") {
@@ -493,6 +546,14 @@ bool AreEqualOptions(
           reinterpret_cast<const std::vector<CompressionType>*>(offset2);
       return (*vec1 == *vec2);
     }
+    case OptionType::kChecksumType:
+      return (*reinterpret_cast<const ChecksumType*>(offset1) ==
+              *reinterpret_cast<const ChecksumType*>(offset2));
+    case OptionType::kBlockBasedTableIndexType:
+      return (
+          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
+              offset1) ==
+          *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(offset2));
     default:
       if (type_info.verification == OptionVerificationType::kByName) {
         std::string value1;
@@ -561,6 +622,11 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     if (!s.ok()) {
       return s;
     }
+    s = VerifyTableFactory(cf_opts[i].table_factory.get(),
+                           parser.cf_opts()->at(i).table_factory.get());
+    if (!s.ok()) {
+      return s;
+    }
   }
 
   return Status::OK();
@@ -604,6 +670,59 @@ Status RocksDBOptionsParser::VerifyCFOptions(
           "failed the verification on ColumnFamilyOptions::",
           pair.first);
     }
+  }
+  return Status::OK();
+}
+
+Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
+    const BlockBasedTableFactory* base_tf,
+    const BlockBasedTableFactory* file_tf) {
+  if ((base_tf != nullptr) != (file_tf != nullptr)) {
+    return Status::Corruption(
+        "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
+  }
+  if (base_tf == nullptr) {
+    return Status::OK();
+  }
+
+  const auto& base_opt = base_tf->GetTableOptions();
+  const auto& file_opt = file_tf->GetTableOptions();
+
+  for (auto& pair : block_based_table_type_info) {
+    if (pair.second.verification == OptionVerificationType::kDeprecated) {
+      // We skip checking deprecated variables as they might
+      // contain random values since they might not be initialized
+      continue;
+    }
+    if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
+                         reinterpret_cast<const char*>(&file_opt), pair.second,
+                         pair.first, nullptr)) {
+      return Status::Corruption(
+          "[RocksDBOptionsParser]: "
+          "failed the verification on BlockBasedTableOptions::",
+          pair.first);
+    }
+  }
+  return Status::OK();
+}
+
+Status RocksDBOptionsParser::VerifyTableFactory(const TableFactory* base_tf,
+                                                const TableFactory* file_tf) {
+  if (base_tf && file_tf) {
+    if (base_tf->Name() != file_tf->Name()) {
+      return Status::Corruption(
+          "[RocksDBOptionsParser]: "
+          "failed the verification on TableFactory->Name()");
+    }
+    auto s = VerifyBlockBasedTableFactory(
+        dynamic_cast<const BlockBasedTableFactory*>(base_tf),
+        dynamic_cast<const BlockBasedTableFactory*>(file_tf));
+    if (!s.ok()) {
+      return s;
+    }
+    // TODO(yhchiang): add checks for other table factory types
+  } else {
+    // TODO(yhchiang): further support sanity check here
   }
   return Status::OK();
 }

@@ -152,6 +152,40 @@ class EventListenerTest : public testing::Test {
   std::vector<ColumnFamilyHandle*> handles_;
 };
 
+struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
+  virtual rocksdb::Status AddUserKey(const rocksdb::Slice& key,
+                                     const rocksdb::Slice& value,
+                                     rocksdb::EntryType type,
+                                     rocksdb::SequenceNumber seq,
+                                     uint64_t file_size) override {
+    return Status::OK();
+  }
+  virtual rocksdb::Status Finish(
+      rocksdb::UserCollectedProperties* properties) override {
+    properties->insert({"0", "1"});
+    return Status::OK();
+  }
+
+  virtual const char* Name() const override {
+    return "TestTablePropertiesCollector";
+  }
+
+  rocksdb::UserCollectedProperties GetReadableProperties() const override {
+    rocksdb::UserCollectedProperties ret;
+    ret["2"] = "3";
+    return ret;
+  }
+};
+
+class TestPropertiesCollectorFactory : public TablePropertiesCollectorFactory {
+ public:
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override {
+    return new TestPropertiesCollector;
+  }
+  const char* Name() const override { return "TestTablePropertiesCollector"; }
+};
+
 class TestCompactionListener : public EventListener {
  public:
   void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) override {
@@ -161,6 +195,16 @@ class TestCompactionListener : public EventListener {
     ASSERT_GT(ci.output_files.size(), 0U);
     ASSERT_EQ(db->GetEnv()->GetThreadID(), ci.thread_id);
     ASSERT_GT(ci.thread_id, 0U);
+
+    for (auto fl : {ci.input_files, ci.output_files}) {
+      for (auto fn : fl) {
+        auto it = ci.table_properties.find(fn);
+        ASSERT_NE(it, ci.table_properties.end());
+        auto tp = it->second;
+        ASSERT_TRUE(tp != nullptr);
+        ASSERT_EQ(tp->user_collected_properties.find("0")->second, "1");
+      }
+    }
   }
 
   std::vector<DB*> compacted_dbs_;
@@ -186,6 +230,8 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
   options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.table_properties_collector_factories.push_back(
+      std::make_shared<TestPropertiesCollectorFactory>());
 
   TestCompactionListener* listener = new TestCompactionListener();
   options.listeners.emplace_back(listener);
@@ -274,6 +320,8 @@ class TestFlushListener : public EventListener {
     ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
     ASSERT_EQ(db->GetEnv()->GetThreadID(), info.thread_id);
     ASSERT_GT(info.thread_id, 0U);
+    ASSERT_EQ(info.table_properties.user_collected_properties.find("0")->second,
+              "1");
   }
 
   std::vector<std::string> flushed_column_family_names_;
@@ -299,6 +347,8 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
       "nikitich", "alyosha", "popovich"};
+  options.table_properties_collector_factories.push_back(
+      std::make_shared<TestPropertiesCollectorFactory>());
   CreateAndReopenWithCF(cf_names, &options);
 
   ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
@@ -330,6 +380,8 @@ TEST_F(EventListenerTest, MultiCF) {
 #endif  // ROCKSDB_USING_THREAD_STATUS
   TestFlushListener* listener = new TestFlushListener(options.env);
   options.listeners.emplace_back(listener);
+  options.table_properties_collector_factories.push_back(
+      std::make_shared<TestPropertiesCollectorFactory>());
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
       "nikitich", "alyosha", "popovich"};
@@ -360,6 +412,8 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
 #if ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
+  options.table_properties_collector_factories.push_back(
+      std::make_shared<TestPropertiesCollectorFactory>());
   std::vector<TestFlushListener*> listeners;
   const int kNumDBs = 5;
   const int kNumListeners = 10;
@@ -454,6 +508,8 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   options.compaction_style = kCompactionStyleNone;
   options.compression = kNoCompression;
   options.write_buffer_size = 100000;  // Small write buffer
+  options.table_properties_collector_factories.push_back(
+      std::make_shared<TestPropertiesCollectorFactory>());
 
   CreateAndReopenWithCF({"pikachu"}, &options);
   ColumnFamilyMetaData cf_meta;

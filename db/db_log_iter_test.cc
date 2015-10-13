@@ -12,8 +12,8 @@
 // which is a pity, it is a good test
 #if !(defined NDEBUG) || !defined(OS_WIN)
 
+#include "db/db_test_util.h"
 #include "port/stack_trace.h"
-#include "util/db_test_util.h"
 
 namespace rocksdb {
 

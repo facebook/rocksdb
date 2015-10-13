@@ -16,7 +16,8 @@ class CompactionIteratorTest : public testing::Test {
   void InitIterator(const std::vector<std::string>& ks,
                     const std::vector<std::string>& vs,
                     SequenceNumber last_sequence) {
-    merge_helper_.reset(new MergeHelper(cmp_, nullptr, nullptr, 0U, false));
+    merge_helper_.reset(new MergeHelper(Env::Default(), cmp_, nullptr, nullptr,
+                                        nullptr, 0U, false, 0));
     iter_.reset(new test::VectorIterator(ks, vs));
     iter_->SeekToFirst();
     c_iter_.reset(new CompactionIterator(iter_.get(), cmp_, merge_helper_.get(),

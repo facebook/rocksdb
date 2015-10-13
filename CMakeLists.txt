@@ -13,8 +13,8 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        cmake -G "Visual Studio 12 Win64" .. <more options>
-# 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads)
+#        sample command: cmake -G "Visual Studio 12 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 ..
+# 4. Then build the project in debug mode (you may want to add /m:<N> flag to run msbuild in <N> parallel threads)
 #        msbuild ALL_BUILD.vcxproj
 # 5. And release mode (/m[:<N>] is also supported)
 #        msbuild ALL_BUILD.vcxproj /p:Configuration=Release
@@ -66,13 +66,13 @@ endif()
 
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /MD")
 
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DEBUG")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
 
 add_definitions(-DWIN32 -DOS_WIN -D_MBCS -DWIN64)
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(${PROJECT_SOURCE_DIR}/port)
 include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
 
 set(ROCKSDB_LIBS rocksdblib${ARTIFACT_SUFFIX})
@@ -100,6 +100,7 @@ set(SOURCES
         db/db_impl_experimental.cc
         db/db_impl_readonly.cc
         db/db_iter.cc
+        db/db_test_util.cc
         db/event_helpers.cc
         db/experimental.cc
         db/filename.cc
@@ -163,6 +164,7 @@ set(SOURCES
         table/plain_table_reader.cc
         table/table_properties.cc
         table/two_level_iterator.cc
+        tools/dump/db_dump_tool.cc
         util/arena.cc
         util/auto_roll_logger.cc
         util/bloom.cc
@@ -174,7 +176,6 @@ set(SOURCES
         util/crc32c.cc
         util/db_info_dumper.cc
         util/delete_scheduler_impl.cc
-        util/db_test_util.cc
         util/dynamic_bloom.cc
         util/env.cc
         util/env_hdfs.cc

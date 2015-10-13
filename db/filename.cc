@@ -24,6 +24,9 @@
 
 namespace rocksdb {
 
+static const std::string kRocksDbTFileExt = "sst";
+static const std::string kLevelDbTFileExt = "ldb";
+
 // Given a path, flatten the path name by replacing all chars not in
 // {[0-9,a-z,A-Z,-,_,.]} with _. And append '_LOG\0' at the end.
 // Return the number of chars stored in dest not including the trailing '\0'.
@@ -78,7 +81,16 @@ std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
 }
 
 std::string MakeTableFileName(const std::string& path, uint64_t number) {
-  return MakeFileName(path, number, "sst");
+  return MakeFileName(path, number, kRocksDbTFileExt.c_str());
+}
+
+std::string Rocks2LevelTableFileName(const std::string& fullname) {
+  assert(fullname.size() > kRocksDbTFileExt.size() + 1);
+  if (fullname.size() <= kRocksDbTFileExt.size() + 1) {
+    return "";
+  }
+  return fullname.substr(0, fullname.size() - kRocksDbTFileExt.size()) +
+         kLevelDbTFileExt;
 }
 
 uint64_t TableFileNameToNumber(const std::string& name) {
@@ -273,17 +285,23 @@ bool ParseFileName(const std::string& fname, uint64_t* number,
     if (!ConsumeDecimalNumber(&rest, &num)) {
       return false;
     }
+    if (rest.size() <= 1 || rest[0] != '.') {
+      return false;
+    }
+    rest.remove_prefix(1);
+
     Slice suffix = rest;
-    if (suffix == Slice(".log")) {
+    if (suffix == Slice("log")) {
       *type = kLogFile;
       if (log_type && !archive_dir_found) {
         *log_type = kAliveLogFile;
       }
     } else if (archive_dir_found) {
       return false; // Archive dir can contain only log files
-    } else if (suffix == Slice(".sst")) {
+    } else if (suffix == Slice(kRocksDbTFileExt) ||
+               suffix == Slice(kLevelDbTFileExt)) {
       *type = kTableFile;
-    } else if (suffix == Slice(".dbtmp")) {
+    } else if (suffix == Slice("dbtmp")) {
       *type = kTempFile;
     } else {
       return false;

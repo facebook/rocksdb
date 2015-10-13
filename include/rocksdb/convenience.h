@@ -40,7 +40,8 @@ Status GetDBOptionsFromMap(
 Status GetBlockBasedTableOptionsFromMap(
     const BlockBasedTableOptions& table_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    BlockBasedTableOptions* new_table_options);
+    BlockBasedTableOptions* new_table_options,
+    bool input_strings_escaped = false);
 
 // Take a string representation of option names and  values, apply them into the
 // base_options, and return the new options as a result. The string has the

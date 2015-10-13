@@ -35,6 +35,8 @@ class TablePropertiesTest : public testing::Test,
 
 // Utilities test functions
 namespace {
+static const uint32_t kTestColumnFamilyId = 66;
+
 void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                  const InternalKeyComparator& internal_comparator,
                  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -46,7 +48,8 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
 
   builder->reset(NewTableBuilder(
       ioptions, internal_comparator, int_tbl_prop_collector_factories,
-      writable->get(), options.compression, options.compression_opts));
+      kTestColumnFamilyId /* column_family_id */, writable->get(),
+      options.compression, options.compression_opts));
 }
 }  // namespace
 
@@ -178,14 +181,17 @@ class RegularKeysStartWithAFactory : public IntTblPropCollectorFactory,
  public:
   explicit RegularKeysStartWithAFactory(bool backward_mode)
       : backward_mode_(backward_mode) {}
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override {
+    EXPECT_EQ(kTestColumnFamilyId, context.column_family_id);
     if (!backward_mode_) {
       return new RegularKeysStartWithA();
     } else {
       return new RegularKeysStartWithABackwardCompatible();
     }
   }
-  virtual IntTblPropCollector* CreateIntTblPropCollector() override {
+  virtual IntTblPropCollector* CreateIntTblPropCollector(
+      uint32_t column_family_id) override {
     return new RegularKeysStartWithAInternal();
   }
   const char* Name() const override { return "RegularKeysStartWithA"; }

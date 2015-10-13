@@ -230,10 +230,15 @@ class MemTableIterator: public Iterator {
   virtual void Seek(const Slice& k) override {
     PERF_TIMER_GUARD(seek_on_memtable_time);
     PERF_COUNTER_ADD(seek_on_memtable_count, 1);
-    if (bloom_ != nullptr &&
-        !bloom_->MayContain(prefix_extractor_->Transform(ExtractUserKey(k)))) {
-      valid_ = false;
-      return;
+    if (bloom_ != nullptr) {
+      if (!bloom_->MayContain(
+              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+        PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+        valid_ = false;
+        return;
+      } else {
+        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+      }
     }
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
@@ -508,12 +513,18 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   Slice user_key = key.user_key();
   bool found_final_value = false;
   bool merge_in_progress = s->IsMergeInProgress();
-
-  if (prefix_bloom_ &&
-      !prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
+  bool const may_contain =
+      nullptr == prefix_bloom_
+          ? false
+          : prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key));
+  if (prefix_bloom_ && !may_contain) {
     // iter is null if prefix bloom says the key does not exist
+    PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
     *seq = kMaxSequenceNumber;
   } else {
+    if (prefix_bloom_) {
+      PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+    }
     Saver saver;
     saver.status = s;
     saver.found_final_value = &found_final_value;

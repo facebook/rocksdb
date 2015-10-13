@@ -30,7 +30,6 @@ namespace rocksdb {
 class Cache;
 class CompactionFilter;
 class CompactionFilterFactory;
-class CompactionFilterFactoryV2;
 class Comparator;
 class Env;
 enum InfoLogLevel : unsigned char;
@@ -226,10 +225,6 @@ struct ColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
-
-  // This is deprecated. Talk to us if you depend on
-  // compaction_filter_factory_v2 and we'll put it back
-  // std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // -------------------
   // Parameters that affect performance
@@ -1007,6 +1002,9 @@ struct DBOptions {
   // Default: false
   bool allow_mmap_writes;
 
+  // If false, fallocate() calls are bypassed
+  bool allow_fallocate;
+
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec;
 
@@ -1145,9 +1143,7 @@ struct DBOptions {
 // Options to control the behavior of a database (passed to DB::Open)
 struct Options : public DBOptions, public ColumnFamilyOptions {
   // Create an Options object with default values for all fields.
-  Options() :
-    DBOptions(),
-    ColumnFamilyOptions() {}
+  Options() : DBOptions(), ColumnFamilyOptions() {}
 
   Options(const DBOptions& db_options,
           const ColumnFamilyOptions& column_family_options)

@@ -12,7 +12,6 @@
 #include <thread>
 #include "port/port.h"
 #include "port/sys_time.h"
-#include "port/port.h"
 
 #include "rocksdb/options.h"
 #include "util/arena.h"
@@ -283,6 +282,7 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->set_fd_cloexec = options.is_fd_close_on_exec;
   env_options->bytes_per_sync = options.bytes_per_sync;
   env_options->rate_limiter = options.rate_limiter.get();
+  env_options->allow_fallocate = options.allow_fallocate;
 }
 
 }

@@ -1565,6 +1565,23 @@ TEST_F(OptionsParserTest, DumpAndParse) {
   }
 }
 
+TEST_F(OptionsParserTest, DifferentDefault) {
+  const std::string kOptionsFileName = "test-persisted-options.ini";
+
+  ColumnFamilyOptions cf_level_opts;
+  cf_level_opts.OptimizeLevelStyleCompaction();
+
+  ColumnFamilyOptions cf_univ_opts;
+  cf_univ_opts.OptimizeUniversalStyleCompaction();
+
+  ASSERT_OK(PersistRocksDBOptions(DBOptions(), {"default", "universal"},
+                                  {cf_level_opts, cf_univ_opts},
+                                  kOptionsFileName, env_.get()));
+
+  RocksDBOptionsParser parser;
+  ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
+}
+
 namespace {
 bool IsEscapedString(const std::string& str) {
   for (size_t i = 0; i < str.size(); ++i) {

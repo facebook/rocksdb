@@ -12,16 +12,14 @@ namespace rocksdb {
 CompactionIterator::CompactionIterator(
     Iterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
-    Env* env, bool expect_valid_internal_key, Statistics* stats,
-    Compaction* compaction, const CompactionFilter* compaction_filter,
-    LogBuffer* log_buffer)
+    Env* env, bool expect_valid_internal_key, Compaction* compaction,
+    const CompactionFilter* compaction_filter, LogBuffer* log_buffer)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),
       env_(env),
       expect_valid_internal_key_(expect_valid_internal_key),
-      stats_(stats),
       compaction_(compaction),
       compaction_filter_(compaction_filter),
       log_buffer_(log_buffer),
@@ -277,24 +275,30 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      merge_helper_->MergeUntil(input_, prev_snapshot, bottommost_level_,
-                                stats_, env_);
+      merge_helper_->MergeUntil(input_, prev_snapshot, bottommost_level_);
       merge_out_iter_.SeekToFirst();
 
-      // NOTE: key, value, and ikey_ refer to old entries.
-      //       These will be correctly set below.
-      key_ = merge_out_iter_.key();
-      value_ = merge_out_iter_.value();
-      bool valid_key __attribute__((__unused__)) =
-          ParseInternalKey(key_, &ikey_);
-      // MergeUntil stops when it encounters a corrupt key and does not
-      // include them in the result, so we expect the keys here to valid.
-      assert(valid_key);
-      // Keep current_key_ in sync.
-      current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-      key_ = current_key_.GetKey();
-      ikey_.user_key = current_key_.GetUserKey();
-      valid_ = true;
+      if (merge_out_iter_.Valid()) {
+        // NOTE: key, value, and ikey_ refer to old entries.
+        //       These will be correctly set below.
+        key_ = merge_out_iter_.key();
+        value_ = merge_out_iter_.value();
+        bool valid_key __attribute__((__unused__)) =
+            ParseInternalKey(key_, &ikey_);
+        // MergeUntil stops when it encounters a corrupt key and does not
+        // include them in the result, so we expect the keys here to valid.
+        assert(valid_key);
+        // Keep current_key_ in sync.
+        current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
+        key_ = current_key_.GetKey();
+        ikey_.user_key = current_key_.GetUserKey();
+        valid_ = true;
+      } else {
+        // all merge operands were filtered out. reset the user key, since the
+        // batch consumed by the merge operator should not shadow any keys
+        // coming after the merges
+        has_current_user_key_ = false;
+      }
     } else {
       valid_ = true;
     }

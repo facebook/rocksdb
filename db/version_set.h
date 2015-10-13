@@ -666,6 +666,7 @@ class VersionSet {
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
+  // This function doesn't support leveldb SST filenames
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files,

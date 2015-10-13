@@ -7,12 +7,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <algorithm>
 #include "table/block_based_filter_block.h"
+#include <algorithm>
 
 #include "db/dbformat.h"
 #include "rocksdb/filter_policy.h"
 #include "util/coding.h"
+#include "util/perf_context_imp.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -219,7 +220,14 @@ bool BlockBasedFilterBlockReader::MayMatch(const Slice& entry,
     uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);
     if (start <= limit && limit <= (uint32_t)(offset_ - data_)) {
       Slice filter = Slice(data_ + start, limit - start);
-      return policy_->KeyMayMatch(entry, filter);
+      bool const may_match = policy_->KeyMayMatch(entry, filter);
+      if (may_match) {
+        PERF_COUNTER_ADD(bloom_sst_hit_count, 1);
+        return true;
+      } else {
+        PERF_COUNTER_ADD(bloom_sst_miss_count, 1);
+        return false;
+      }
     } else if (start == limit) {
       // Empty filters do not match any entries
       return false;

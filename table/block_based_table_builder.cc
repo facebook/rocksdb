@@ -474,7 +474,8 @@ struct BlockBasedTableBuilder::Rep {
       const InternalKeyComparator& icomparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           int_tbl_prop_collector_factories,
-      WritableFileWriter* f, const CompressionType _compression_type,
+      uint32_t column_family_id, WritableFileWriter* f,
+      const CompressionType _compression_type,
       const CompressionOptions& _compression_opts, const bool skip_filters)
       : ioptions(_ioptions),
         table_options(table_opt),
@@ -494,7 +495,7 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)) {
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
       table_properties_collectors.emplace_back(
-          collector_factories->CreateIntTblPropCollector());
+          collector_factories->CreateIntTblPropCollector(column_family_id));
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
@@ -509,7 +510,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    WritableFileWriter* file, const CompressionType compression_type,
+    uint32_t column_family_id, WritableFileWriter* file,
+    const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
@@ -523,8 +525,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   }
 
   rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
-                 int_tbl_prop_collector_factories, file, compression_type,
-                 compression_opts, skip_filters);
+                 int_tbl_prop_collector_factories, column_family_id, file,
+                 compression_type, compression_opts, skip_filters);
 
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
@@ -871,8 +873,9 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
   TableProperties ret = rep_->props;
   for (const auto& collector : rep_->table_properties_collectors) {
     for (const auto& prop : collector->GetReadableProperties()) {
-      ret.user_collected_properties.insert(prop);
+      ret.readable_properties.insert(prop);
     }
+    collector->Finish(&ret.user_collected_properties);
   }
   return ret;
 }

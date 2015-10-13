@@ -1,19 +1,29 @@
 # Rocksdb Change Log
 
 ## Unreleased
+### Public API Changes
+* CompactionFilter::Context includes information of Column Family ID
+* The need-compaction hint given by TablePropertiesCollector::NeedCompact() will be persistent and recoverable after DB recovery. This introduces a breaking format change. If you use this experimental feature, including NewCompactOnDeletionCollectorFactory() in the new version, you may not be able to directly downgrade the DB back to version 4.0 or lower.
+* TablePropertiesCollectorFactory::CreateTablePropertiesCollector() now takes an option Context, containing the information of column family ID for the file being written.
+
+## 4.1.0 (10/8/2015)
 ### New Features
 * Added single delete operation as a more efficient way to delete keys that have not been overwritten.
 * Added experimental AddFile() to DB interface that allow users to add files created by SstFileWriter into an empty Database, see include/rocksdb/sst_file_writer.h and DB::AddFile() for more info.
+* Added support for opening SST files with .ldb suffix which enables opening LevelDB databases.
+* CompactionFilter now supports filtering of merge operands and merge results.
 
 ### Public API Changes
 * Added SingleDelete() to the DB interface.
 * Added AddFile() to DB interface.
 * Added SstFileWriter class.
+* CompactionFilter has a new method FilterMergeOperand() that RocksDB applies to every merge operand during compaction to decide whether to filter the operand.
+* We removed CompactionFilterV2 interfaces from include/rocksdb/compaction_filter.h. The functionality was deprecated already in version 3.13.
 
 ## 4.0.0 (9/9/2015)
 ### New Features
 * Added support for transactions.  See include/rocksdb/utilities/transaction.h for more info.
-* DB::GetProperty() now accept "rocksdb.aggregated-table-properties" and "rocksdb.aggregated-table-properties-at-levelN", in which case it returns aggregated table properties of the target column family, or the aggregated table properties of the specified level N if the "at-level" version is used.
+* DB::GetProperty() now accepts "rocksdb.aggregated-table-properties" and "rocksdb.aggregated-table-properties-at-levelN", in which case it returns aggregated table properties of the target column family, or the aggregated table properties of the specified level N if the "at-level" version is used.
 * Add compression option kZSTDNotFinalCompression for people to experiment ZSTD although its format is not finalized.
 * We removed the need for LATEST_BACKUP file in BackupEngine. We still keep writing it when we create new backups (because of backward compatibility), but we don't read it anymore.
 

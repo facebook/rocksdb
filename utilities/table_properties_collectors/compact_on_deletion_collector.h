@@ -6,6 +6,7 @@
 #pragma once
 
 #ifndef ROCKSDB_LITE
+#include "rocksdb/utilities/table_properties_collectors.h"
 namespace rocksdb {
 
 // A factory of a table property collector that marks a SST
@@ -28,7 +29,8 @@ class CompactOnDeletionCollectorFactory
 
   virtual ~CompactOnDeletionCollectorFactory() {}
 
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override;
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override;
 
   virtual const char* Name() const override {
     return "CompactOnDeletionCollector";

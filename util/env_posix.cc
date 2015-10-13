@@ -352,6 +352,7 @@ class PosixMmapFile : public WritableFile {
   char* last_sync_;       // Where have we synced up to
   uint64_t file_offset_;  // Offset of base_ in file
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+  bool allow_fallocate_;  // If false, fallocate calls are bypassed
   bool fallocate_with_keep_size_;
 #endif
 
@@ -393,7 +394,7 @@ class PosixMmapFile : public WritableFile {
 
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     // we can't fallocate with FALLOC_FL_KEEP_SIZE here
-    {
+    if (allow_fallocate_) {
       IOSTATS_TIMER_GUARD(allocate_nanos);
       int alloc_status = fallocate(fd_, 0, file_offset_, map_size_);
       if (alloc_status != 0) {
@@ -453,6 +454,7 @@ class PosixMmapFile : public WritableFile {
         last_sync_(nullptr),
         file_offset_(0) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+    allow_fallocate_ = options.allow_fallocate;
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
     assert((page_size & (page_size - 1)) == 0);
@@ -575,8 +577,12 @@ class PosixMmapFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
-    int alloc_status = fallocate(
-        fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
+    int alloc_status = 0;
+    if (allow_fallocate_) {
+      alloc_status =
+          fallocate(fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0,
+                    offset, len);
+    }
     if (alloc_status == 0) {
       return Status::OK();
     } else {
@@ -593,6 +599,7 @@ class PosixWritableFile : public WritableFile {
   int fd_;
   uint64_t filesize_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+  bool allow_fallocate_;
   bool fallocate_with_keep_size_;
 #endif
 
@@ -600,6 +607,7 @@ class PosixWritableFile : public WritableFile {
   PosixWritableFile(const std::string& fname, int fd, const EnvOptions& options)
       : filename_(fname), fd_(fd), filesize_(0) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+    allow_fallocate_ = options.allow_fallocate;
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
     assert(!options.use_mmap_writes);
@@ -660,8 +668,10 @@ class PosixWritableFile : public WritableFile {
       // We ignore error since failure of this operation does not affect
       // correctness.
       IOSTATS_TIMER_GUARD(allocate_nanos);
-      fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
-                filesize_, block_size * last_allocated_block - filesize_);
+      if (allow_fallocate_) {
+        fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,
+                  block_size * last_allocated_block - filesize_);
+      }
 #endif
     }
 
@@ -714,9 +724,12 @@ class PosixWritableFile : public WritableFile {
   virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     IOSTATS_TIMER_GUARD(allocate_nanos);
-    int alloc_status;
-    alloc_status = fallocate(
-        fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
+    int alloc_status = 0;
+    if (allow_fallocate_) {
+      alloc_status =
+          fallocate(fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0,
+                    offset, len);
+    }
     if (alloc_status == 0) {
       return Status::OK();
     } else {
@@ -1146,7 +1159,7 @@ class PosixEnv : public Env {
     } else {
       int fd = fileno(f);
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024 * 1024);
+      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024);
 #endif
       SetFD_CLOEXEC(fd, nullptr);
       result->reset(new PosixLogger(f, &PosixEnv::gettid, this));
@@ -1609,10 +1622,11 @@ class PosixEnv : public Env {
 
 };
 
-PosixEnv::PosixEnv() : checkedDiskForMmap_(false),
-                       forceMmapOff(false),
-                       page_size_(getpagesize()),
-                       thread_pools_(Priority::TOTAL) {
+PosixEnv::PosixEnv()
+    : checkedDiskForMmap_(false),
+      forceMmapOff(false),
+      page_size_(getpagesize()),
+      thread_pools_(Priority::TOTAL) {
   PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
   for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
     thread_pools_[pool_id].SetThreadPriority(

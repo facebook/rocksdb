@@ -98,7 +98,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
         TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                             CompressionType::kNoCompression,
                             CompressionOptions(), false),
-        file_writer.get());
+        0, file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);

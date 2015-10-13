@@ -53,7 +53,7 @@ void EventHelpers::LogAndNotifyTableFileCreation(
                 info.table_properties.filter_policy_name;
 
     // user collected properties
-    for (const auto& prop : info.table_properties.user_collected_properties) {
+    for (const auto& prop : info.table_properties.readable_properties) {
       jwriter << prop.first << prop.second;
     }
     jwriter.EndObject();

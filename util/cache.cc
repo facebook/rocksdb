@@ -540,6 +540,11 @@ class ShardedLRUCache : public Cache {
     }
     return usage;
   }
+
+  virtual size_t GetUsage(Handle* handle) const override {
+    return reinterpret_cast<LRUHandle*>(handle)->charge;
+  }
+
   virtual size_t GetPinnedUsage() const override {
     // We will not lock the cache when getting the usage from shards.
     int num_shards = 1 << num_shard_bits_;
