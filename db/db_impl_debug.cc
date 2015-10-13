@@ -19,23 +19,6 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
 }
 
-Iterator* DBImpl::TEST_NewInternalIterator(Arena* arena,
-                                           ColumnFamilyHandle* column_family) {
-  ColumnFamilyData* cfd;
-  if (column_family == nullptr) {
-    cfd = default_cf_handle_->cfd();
-  } else {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-    cfd = cfh->cfd();
-  }
-
-  mutex_.Lock();
-  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
-  mutex_.Unlock();
-  ReadOptions roptions;
-  return NewInternalIterator(roptions, cfd, super_version, arena);
-}
-
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
     ColumnFamilyHandle* column_family) {
   ColumnFamilyData* cfd;

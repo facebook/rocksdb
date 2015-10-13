@@ -552,9 +552,9 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   Arena arena;
   ScopedArenaIterator iter;
   if (cf == 0) {
-    iter.set(dbfull()->TEST_NewInternalIterator(&arena));
+    iter.set(dbfull()->NewInternalIterator(&arena));
   } else {
-    iter.set(dbfull()->TEST_NewInternalIterator(&arena, handles_[cf]));
+    iter.set(dbfull()->NewInternalIterator(&arena, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
   iter->Seek(target.Encode());
@@ -934,9 +934,9 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   ScopedArenaIterator iter;
   Arena arena;
   if (cf != 0) {
-    iter.set(dbfull()->TEST_NewInternalIterator(&arena, handles_[cf]));
+    iter.set(dbfull()->NewInternalIterator(&arena, handles_[cf]));
   } else {
-    iter.set(dbfull()->TEST_NewInternalIterator(&arena));
+    iter.set(dbfull()->NewInternalIterator(&arena));
   }
   iter->SeekToFirst();
   ASSERT_EQ(iter->status().ok(), true);

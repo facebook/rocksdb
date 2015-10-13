@@ -228,7 +228,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Arena arena;
   {
     ScopedArenaIterator iter(
-        dbfull()->TEST_NewInternalIterator(&arena, handles_[1]));
+        dbfull()->NewInternalIterator(&arena, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -316,7 +316,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   count = 0;
   {
     ScopedArenaIterator iter(
-        dbfull()->TEST_NewInternalIterator(&arena, handles_[1]));
+        dbfull()->NewInternalIterator(&arena, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -533,7 +533,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     int count = 0;
     int total = 0;
     Arena arena;
-    ScopedArenaIterator iter(dbfull()->TEST_NewInternalIterator(&arena));
+    ScopedArenaIterator iter(dbfull()->NewInternalIterator(&arena));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {

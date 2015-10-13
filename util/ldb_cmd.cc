@@ -809,7 +809,7 @@ void InternalDumpCommand::DoCommand() {
   uint64_t s1=0,s2=0;
   // Setup internal key iterator
   Arena arena;
-  ScopedArenaIterator iter(idb->TEST_NewInternalIterator(&arena));
+  ScopedArenaIterator iter(idb->NewInternalIterator(&arena));
   Status st = iter->status();
   if (!st.ok()) {
     exec_state_ =

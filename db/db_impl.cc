@@ -3306,6 +3306,23 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   }
   return status;
 }
+
+Iterator* DBImpl::NewInternalIterator(Arena* arena,
+                                      ColumnFamilyHandle* column_family) {
+  ColumnFamilyData* cfd;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    cfd = cfh->cfd();
+  }
+
+  mutex_.Lock();
+  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
+  mutex_.Unlock();
+  ReadOptions roptions;
+  return NewInternalIterator(roptions, cfd, super_version, arena);
+}
 #endif  // ROCKSDB_LITE
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,

@@ -248,6 +248,12 @@ class DBImpl : public DB {
                              const Slice* begin, const Slice* end,
                              bool disallow_trivial_move = false);
 
+  // Return an internal iterator over the current state of the database.
+  // The keys of this iterator are internal keys (see format.h).
+  // The returned iterator should be deleted when no longer needed.
+  Iterator* NewInternalIterator(Arena* arena,
+                                ColumnFamilyHandle* column_family = nullptr);
+
 #ifndef ROCKSDB_LITE
   // Extra methods (for testing) that are not in the public DB interface
   // Implemented in db_impl_debug.cc
@@ -265,12 +271,6 @@ class DBImpl : public DB {
 
   // Wait for any compaction
   Status TEST_WaitForCompact();
-
-  // Return an internal iterator over the current state of the database.
-  // The keys of this iterator are internal keys (see format.h).
-  // The returned iterator should be deleted when no longer needed.
-  Iterator* TEST_NewInternalIterator(
-      Arena* arena, ColumnFamilyHandle* column_family = nullptr);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
