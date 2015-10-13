@@ -43,6 +43,7 @@ enum Tag {
 enum CustomTag {
   kTerminate = 1,  // The end of customized fields
   kNeedCompaction = 2,
+  kPrivMeta = 10,
   kPathId = 65,
 };
 // If this bit for the custom tag is set, opening DB should fail if
@@ -114,7 +115,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       return false;
     }
     bool has_customized_fields = false;
-    if (f.marked_for_compaction) {
+    if (f.marked_for_compaction || f.priv_meta != nullptr) {
       PutVarint32(dst, kNewFile4);
       has_customized_fields = true;
     } else if (f.fd.GetPathId() == 0) {
@@ -161,6 +162,7 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       //   tag kPathId: 1 byte as path_id
       //   tag kNeedCompaction:
       //        now only can take one char value 1 indicating need-compaction
+      //   tag kPrivMeta: Allow Env to store private metadata
       //
       if (f.fd.GetPathId() != 0) {
         PutVarint32(dst, CustomTag::kPathId);
@@ -171,6 +173,14 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
         PutVarint32(dst, CustomTag::kNeedCompaction);
         char p = static_cast<char>(1);
         PutLengthPrefixedSlice(dst, Slice(&p, 1));
+      }
+      if (f.priv_meta != nullptr) {
+        PutVarint32(dst, CustomTag::kPrivMeta);
+        // EncodePrivateMetadata returns a string formatted by the storage
+        // backend following the PutVarint* convention in coding.h
+        std::string tmp;
+        f.EncodePrivateMetadata(&tmp);
+        PutLengthPrefixedSlice(dst, tmp);
       }
       TEST_SYNC_POINT_CALLBACK("VersionEdit::EncodeTo:NewFile4:CustomizeFields",
                                dst);
@@ -260,6 +270,11 @@ const char* VersionEdit::DecodeNewFile4From(Slice* input) {
           }
           f.marked_for_compaction = (field[0] == 1);
           break;
+        case kPrivMeta:
+          if (field.size() < 1) {
+            return "Env private metadata field wrong size";
+          }
+          f.DecodePrivateMetadata(&field);
         default:
           if ((custom_tag & kCustomTagNonSafeIgnoreMask) != 0) {
             // Should not proceed if cannot understand it
