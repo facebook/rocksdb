@@ -48,6 +48,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/wal_filter.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
@@ -9669,6 +9670,182 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   ASSERT_EQ(true, done.load());
 }
 
+TEST_F(DBTest, WalFilterTest) {
+  class TestWALFilter : public WALFilter {
+  private:
+    // Processing option that is requested to be applied at the given index
+    WALFilter::WALProcessingOption m_walProcessingOption;
+    // Index at which to apply m_walProcessingOption
+    // At other indexes default WALProcessingOption::kContinueProcessing is
+    // returned.
+    size_t m_applyOptionAtRecordIndex;
+    // Current record index, incremented with each record encountered.
+    size_t m_currentRecordIndex;
+  public:
+    TestWALFilter(WALFilter::WALProcessingOption walProcessingOption,
+      size_t applyOptionForRecordIndex) :
+      m_walProcessingOption(walProcessingOption),
+      m_applyOptionAtRecordIndex(applyOptionForRecordIndex),
+      m_currentRecordIndex(0) { }
+
+    virtual WALProcessingOption LogRecord(const WriteBatch & batch) const override {
+      WALFilter::WALProcessingOption optionToReturn;
+
+      if (m_currentRecordIndex == m_applyOptionAtRecordIndex) {
+        optionToReturn = m_walProcessingOption;
+      }
+      else {
+        optionToReturn = WALProcessingOption::kContinueProcessing;
+      }
+
+      // Filter is passed as a const object for RocksDB to not modify the
+      // object, however we modify it for our own purpose here and hence
+      // cast the constness away.
+      (const_cast<TestWALFilter*>(this)->m_currentRecordIndex)++;
+
+      return optionToReturn;
+    }
+
+    virtual const char* Name() const override {
+      return "TestWALFilter";
+    }
+  };
+
+  // Create 3 batches with two keys each
+  std::vector<std::vector<std::string>> batchKeys(3);
+
+  batchKeys[0].push_back("key1");
+  batchKeys[0].push_back("key2");
+  batchKeys[1].push_back("key3");
+  batchKeys[1].push_back("key4");
+  batchKeys[2].push_back("key5");
+  batchKeys[2].push_back("key6");
+
+  // Test with all WAL processing options
+  for (char option = 0; 
+    option < static_cast<char>(WALFilter::WALProcessingOption::kWALProcessingOptionMax); 
+    option++) {
+    Options options = OptionsForLogIterTest();
+    DestroyAndReopen(options);
+    CreateAndReopenWithCF({ "pikachu" }, options);
+    {
+      // Write given keys in given batches
+      for (size_t i = 0; i < batchKeys.size(); i++) {
+        WriteBatch batch;
+        for (size_t j = 0; j < batchKeys[i].size(); j++) {
+          batch.Put(handles_[0], batchKeys[i][j], DummyString(1024));
+        }
+        dbfull()->Write(WriteOptions(), &batch);
+      }
+
+      WALFilter::WALProcessingOption walProcessingOption =
+        static_cast<WALFilter::WALProcessingOption>(option);
+
+      // Create a test filter that would apply walProcessingOption at the first
+      // record
+      size_t applyOptionForRecordIndex = 1;
+      TestWALFilter testWalFilter(walProcessingOption, 
+        applyOptionForRecordIndex);
+
+      // Reopen database with option to use WAL filter
+      options = OptionsForLogIterTest();
+      options.wal_filter = &testWalFilter;
+      ReopenWithColumnFamilies({ "default", "pikachu" }, options);
+
+      // Compute which keys we expect to be found
+      // and which we expect not to be found after recovery.
+      std::vector<Slice> keysMustExist;
+      std::vector<Slice> keysMustNotExist;
+      switch (walProcessingOption) {
+        case  WALFilter::WALProcessingOption::kContinueProcessing: {
+          fprintf(stderr, "Testing with complete WAL processing,"
+            " i.e. the default case\n");
+          //we expect all records to be processed
+          for (size_t i = 0; i < batchKeys.size(); i++) {
+            for (size_t j = 0; j < batchKeys[i].size(); j++) {
+              keysMustExist.push_back(Slice(batchKeys[i][j]));
+            }
+          }
+          break;
+        }
+        case WALFilter::WALProcessingOption::kIgnoreCurrentRecord: {
+          fprintf(stderr, "Testing with ignoring record %d only\n",
+            applyOptionForRecordIndex);
+          // We expect the record with applyOptionForRecordIndex to be not
+          // found.
+          for (size_t i = 0; i < batchKeys.size(); i++) {
+            for (size_t j = 0; j < batchKeys[i].size(); j++) {
+              if (i == applyOptionForRecordIndex) {
+                keysMustNotExist.push_back(Slice(batchKeys[i][j]));
+              }
+              else {
+                keysMustExist.push_back(Slice(batchKeys[i][j]));
+              }
+            }
+          }
+          break;
+        }
+        case WALFilter::WALProcessingOption::kStopReplay: {
+          fprintf(stderr, "Testing with stopping replay from record %d\n",
+            applyOptionForRecordIndex);
+          // We expect records beyond applyOptionForRecordIndex to be not
+          // found.
+          for (size_t i = 0; i < batchKeys.size(); i++) {
+            for (size_t j = 0; j < batchKeys[i].size(); j++) {
+              if (i >= applyOptionForRecordIndex) {
+                keysMustNotExist.push_back(Slice(batchKeys[i][j]));
+              }
+              else {
+                keysMustExist.push_back(Slice(batchKeys[i][j]));
+              }
+            }
+          }
+          break;
+        }
+        default:
+          assert(false); //unhandled case
+      }
+
+      bool checkedAfterReopen = false;
+
+      while (true)
+      {
+        // Ensure that expected keys exist after recovery
+        std::vector<std::string> values;
+        if (keysMustExist.size() > 0) {
+          std::vector<Status> status_list = dbfull()->MultiGet(ReadOptions(),
+            keysMustExist,
+            &values);
+          for (size_t i = 0; i < keysMustExist.size(); i++) {
+            ASSERT_OK(status_list[i]);
+          }
+        }
+
+        // Ensure that discarded keys don't exist after recovery
+        if (keysMustNotExist.size() > 0) {
+          std::vector<Status> status_list = dbfull()->MultiGet(ReadOptions(),
+            keysMustNotExist,
+            &values);
+          for (size_t i = 0; i < keysMustNotExist.size(); i++) {
+            ASSERT_TRUE(status_list[i].IsNotFound());
+          }
+        }
+
+        if (checkedAfterReopen) {
+          break;
+        }
+
+        //reopen database again to make sure previous log(s) are not used
+        //(even if they were skipped)
+        //reopn database with option to use WAL filter
+        options = OptionsForLogIterTest();
+        ReopenWithColumnFamilies({ "default", "pikachu" }, options);
+
+        checkedAfterReopen = true;
+      }
+    }
+  }
+}
 }  // namespace rocksdb
 
 #endif

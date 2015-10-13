@@ -63,6 +63,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/version.h"
+#include "rocksdb/wal_filter.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
 #include "table/merger.h"
@@ -1152,6 +1153,26 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
+
+      if (db_options_.wal_filter != nullptr) {
+        WALFilter::WALProcessingOption walProcessingOption =
+          db_options_.wal_filter->LogRecord(batch);
+
+        switch (walProcessingOption) {
+        case  WALFilter::WALProcessingOption::kContinueProcessing:
+          //do nothing, proceeed normally
+          break;
+        case WALFilter::WALProcessingOption::kIgnoreCurrentRecord:
+          //skip current record
+          continue;
+        case WALFilter::WALProcessingOption::kStopReplay:
+          //skip current record and stop replay
+          continue_replay_log = false;
+          continue;
+        default:
+          assert(false); //unhandled case
+        }
+      }
 
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
