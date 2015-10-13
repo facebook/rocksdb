@@ -716,6 +716,9 @@ class DB {
   virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
+  virtual Status GetPropertiesOfTablesInRange(
+      ColumnFamilyHandle* column_family, const Range* range, int n,
+      TablePropertiesCollection* props) = 0;
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

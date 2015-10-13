@@ -84,24 +84,6 @@ static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
 // This test assumes entries size is different for each of the tables.
 namespace {
 
-void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
-  TablePropertiesCollection props;
-  ASSERT_OK(db->GetPropertiesOfAllTables(&props));
-
-  ASSERT_EQ(4U, props.size());
-  std::unordered_set<uint64_t> unique_entries;
-
-  // Indirect test
-  uint64_t sum = 0;
-  for (const auto& item : props) {
-    unique_entries.insert(item.second->num_entries);
-    sum += item.second->num_entries;
-  }
-
-  ASSERT_EQ(props.size(), unique_entries.size());
-  ASSERT_EQ(expected_entries_size, sum);
-}
-
 uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
                                             std::string column_family_name) {
   std::vector<LiveFileMetaData> metadata;
@@ -438,42 +420,6 @@ TEST_F(DBTest, ParanoidFileChecks) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(3, /* Totally 3 files created up to now */
             TestGetTickerCount(options, BLOCK_CACHE_ADD));
-}
-
-TEST_F(DBTest, GetPropertiesOfAllTablesTest) {
-  Options options = CurrentOptions();
-  options.level0_file_num_compaction_trigger = 8;
-  Reopen(options);
-  // Create 4 tables
-  for (int table = 0; table < 4; ++table) {
-    for (int i = 0; i < 10 + table; ++i) {
-      db_->Put(WriteOptions(), ToString(table * 100 + i), "val");
-    }
-    db_->Flush(FlushOptions());
-  }
-
-  // 1. Read table properties directly from file
-  Reopen(options);
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
-
-  // 2. Put two tables to table cache and
-  Reopen(options);
-  // fetch key from 1st and 2nd table, which will internally place that table to
-  // the table cache.
-  for (int i = 0; i < 2; ++i) {
-    Get(ToString(i * 100 + 0));
-  }
-
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
-
-  // 3. Put all tables to table cache
-  Reopen(options);
-  // fetch key from 1st and 2nd table, which will internally place that table to
-  // the table cache.
-  for (int i = 0; i < 4; ++i) {
-    Get(ToString(i * 100 + 0));
-  }
-  VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 }
 
 namespace {
@@ -5689,6 +5635,12 @@ class ModelDB: public DB {
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
       ColumnFamilyHandle* column_family,
+      TablePropertiesCollection* props) override {
+    return Status();
+  }
+
+  virtual Status GetPropertiesOfTablesInRange(
+      ColumnFamilyHandle* column_family, const Range* range, int n,
       TablePropertiesCollection* props) override {
     return Status();
   }

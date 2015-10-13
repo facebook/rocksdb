@@ -294,6 +294,7 @@ set(TESTS
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
         db/db_tailing_iter_test.cc
+        db/db_table_properties_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
         db/fault_injection_test.cc

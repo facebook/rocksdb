@@ -542,7 +542,7 @@ class BaseReferencedVersionBuilder {
 
 Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                                    const FileMetaData* file_meta,
-                                   const std::string* fname) {
+                                   const std::string* fname) const {
   auto table_cache = cfd_->table_cache();
   auto ioptions = cfd_->ioptions();
   Status s = table_cache->GetTableProperties(
@@ -618,6 +618,38 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
       props->insert({fname, table_properties});
     } else {
       return s;
+    }
+  }
+
+  return Status::OK();
+}
+
+Status Version::GetPropertiesOfTablesInRange(
+    const Range* range, int n, TablePropertiesCollection* props) const {
+  for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
+    for (int i = 0; i < n; i++) {
+      // Convert user_key into a corresponding internal key.
+      InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
+      InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
+      std::vector<FileMetaData*> files;
+      storage_info_.GetOverlappingInputs(level, &k1, &k2, &files, -1, nullptr,
+                                         false);
+      for (const auto& file_meta : files) {
+        auto fname =
+            TableFileName(vset_->db_options_->db_paths,
+                          file_meta->fd.GetNumber(), file_meta->fd.GetPathId());
+        if (props->count(fname) == 0) {
+          // 1. If the table is already present in table cache, load table
+          // properties from there.
+          std::shared_ptr<const TableProperties> table_properties;
+          Status s = GetTableProperties(&table_properties, file_meta, &fname);
+          if (s.ok()) {
+            props->insert({fname, table_properties});
+          } else {
+            return s;
+          }
+        }
+      }
     }
   }
 
@@ -1406,7 +1438,8 @@ bool VersionStorageInfo::OverlapInLevel(int level,
 // The file_index returns a pointer to any file in an overlapping range.
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
-    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) {
+    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index,
+    bool expand_range) const {
   if (level >= num_non_empty_levels_) {
     // this level is empty, no overlapping inputs
     return;
@@ -1439,7 +1472,7 @@ void VersionStorageInfo::GetOverlappingInputs(
       // "f" is completely after specified range; skip it
     } else {
       inputs->push_back(files_[level][i-1]);
-      if (level == 0) {
+      if (level == 0 && expand_range) {
         // Level-0 files may overlap each other.  So check if the newly
         // added file has expanded the range.  If so, restart search.
         if (begin != nullptr && user_cmp->Compare(file_start, user_begin) < 0) {
@@ -1465,7 +1498,7 @@ void VersionStorageInfo::GetOverlappingInputs(
 // forwards to find all overlapping files.
 void VersionStorageInfo::GetOverlappingInputsBinarySearch(
     int level, const Slice& user_begin, const Slice& user_end,
-    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) {
+    std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) const {
   assert(level > 0);
   int min = 0;
   int mid = 0;
@@ -1513,8 +1546,7 @@ void VersionStorageInfo::GetOverlappingInputsBinarySearch(
 // Use FileLevel in searching, make it faster
 void VersionStorageInfo::ExtendOverlappingInputs(
     int level, const Slice& user_begin, const Slice& user_end,
-    std::vector<FileMetaData*>* inputs, unsigned int midIndex) {
-
+    std::vector<FileMetaData*>* inputs, unsigned int midIndex) const {
   const Comparator* user_cmp = user_comparator_;
   const FdWithKeyRange* files = level_files_brief_[level].files;
 #ifndef NDEBUG

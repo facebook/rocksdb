@@ -810,6 +810,10 @@ class DBImpl : public DB {
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props)
       override;
+  virtual Status GetPropertiesOfTablesInRange(
+      ColumnFamilyHandle* column_family, const Range* range, int n,
+      TablePropertiesCollection* props) override;
+
 #endif  // ROCKSDB_LITE
 
   // Function that Get and KeyMayExist call with no_io true or false

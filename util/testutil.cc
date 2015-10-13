@@ -33,7 +33,7 @@ extern std::string RandomHumanReadableString(Random* rnd, int len) {
   return ret;
 }
 
-std::string RandomKey(Random* rnd, int len) {
+std::string RandomKey(Random* rnd, int len, RandomKeyType type) {
   // Make sure to generate a wide variety of characters so we
   // test the boundary conditions for short-key optimizations.
   static const char kTestChars[] = {
@@ -41,7 +41,22 @@ std::string RandomKey(Random* rnd, int len) {
   };
   std::string result;
   for (int i = 0; i < len; i++) {
-    result += kTestChars[rnd->Uniform(sizeof(kTestChars))];
+    std::size_t indx = 0;
+    switch (type) {
+      case RandomKeyType::RANDOM:
+        indx = rnd->Uniform(sizeof(kTestChars));
+        break;
+      case RandomKeyType::LARGEST:
+        indx = sizeof(kTestChars) - 1;
+        break;
+      case RandomKeyType::MIDDLE:
+        indx = sizeof(kTestChars) / 2;
+        break;
+      case RandomKeyType::SMALLEST:
+        indx = 0;
+        break;
+    }
+    result += kTestChars[indx];
   }
   return result;
 }

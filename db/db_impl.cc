@@ -4161,6 +4161,29 @@ Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
 
   return s;
 }
+
+Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
+                                            const Range* range, int n,
+                                            TablePropertiesCollection* props) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Increment the ref count
+  mutex_.Lock();
+  auto version = cfd->current();
+  version->Ref();
+  mutex_.Unlock();
+
+  auto s = version->GetPropertiesOfTablesInRange(range, n, props);
+
+  // Decrement the ref count
+  mutex_.Lock();
+  version->Unref();
+  mutex_.Unlock();
+
+  return s;
+}
+
 #endif  // ROCKSDB_LITE
 
 const std::string& DBImpl::GetName() const {

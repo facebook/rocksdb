@@ -35,7 +35,9 @@ extern std::string RandomHumanReadableString(Random* rnd, int len);
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
-extern std::string RandomKey(Random* rnd, int len);
+enum RandomKeyType : char { RANDOM, LARGEST, SMALLEST, MIDDLE };
+extern std::string RandomKey(Random* rnd, int len,
+                             RandomKeyType type = RandomKeyType::RANDOM);
 
 // Store in *dst a string of length "len" that will compress to
 // "N*compressed_fraction" bytes and return a Slice that references
