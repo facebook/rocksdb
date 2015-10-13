@@ -15,7 +15,7 @@ Once you have these items, run this make command from RocksDB's root source dire
 
 This command will build RocksDB natively on OSX, and will then spin up two Vagrant Virtualbox Ubuntu images to build RocksDB for both 32-bit and 64-bit Linux. 
 
-You can find all native binaries and JARs in the java directory upon completion:
+You can find all native binaries and JARs in the java/target directory upon completion:
 
     librocksdbjni-linux32.so
     librocksdbjni-linux64.so
