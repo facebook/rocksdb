@@ -9887,6 +9887,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   ASSERT_EQ(true, done.load());
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest, WalFilterTest) {
   class TestWALFilter : public WALFilter {
   private:
@@ -10063,6 +10064,7 @@ TEST_F(DBTest, WalFilterTest) {
     }
   }
 }
+#endif // ROCKSDB_LITE
 
 // 1 Insert 2 K-V pairs into DB
 // 2 Call Get() for both keys - expext memtable bloom hit stat to be 2

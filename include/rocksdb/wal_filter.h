@@ -9,6 +9,8 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_WAL_FILTER_H_
 #define STORAGE_ROCKSDB_INCLUDE_WAL_FILTER_H_
 
+#ifndef ROCKSDB_LITE
+
 namespace rocksdb {
 
 class WriteBatch;
@@ -59,5 +61,7 @@ class DefaultWALFilter : WALFilter {
 };
 
 }  // namespace rocksdb
+
+#endif // ROCKSDB_LITE
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_WAL_FILTER_H_

@@ -1154,6 +1154,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
       WriteBatchInternal::SetContents(&batch, record);
 
+#ifndef ROCKSDB_LITE
       if (db_options_.wal_filter != nullptr) {
         WALFilter::WALProcessingOption walProcessingOption =
           db_options_.wal_filter->LogRecord(batch);
@@ -1173,6 +1174,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           assert(false); //unhandled case
         }
       }
+#endif //ROCKSDB_LITE
 
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
