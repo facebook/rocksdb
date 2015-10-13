@@ -254,7 +254,7 @@ class DBImpl : public DB {
   Iterator* NewInternalIterator(Arena* arena,
                                 ColumnFamilyHandle* column_family = nullptr);
 
-#ifndef ROCKSDB_LITE
+#ifndef NDEBUG
   // Extra methods (for testing) that are not in the public DB interface
   // Implemented in db_impl_debug.cc
 
@@ -305,7 +305,7 @@ class DBImpl : public DB {
 
   uint64_t TEST_LogfileNumber();
 
-#endif  // ROCKSDB_LITE
+#endif  // NDEBUG
 
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.

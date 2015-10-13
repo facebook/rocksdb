@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
+#ifndef NDEBUG
 
 #include "db/db_impl.h"
 #include "util/thread_status_updater.h"
@@ -136,4 +136,4 @@ uint64_t DBImpl::TEST_LogfileNumber() {
 }
 
 }  // namespace rocksdb
-#endif  // ROCKSDB_LITE
+#endif  // NDEBUG
