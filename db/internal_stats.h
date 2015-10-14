@@ -49,10 +49,10 @@ enum DBPropertyType : uint32_t {
                                    // memtable.
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
                                    // the immutable mem tables.
-  kNumDeletesInMutableMemtable,    // Return number of entries in the mutable
-                                   // memtable.
-  kNumDeletesInImmutableMemtable,  // Return sum of number of deletes in all
-                                   // the immutable mem tables.
+  kNumDeletesInMutableMemtable,    // Return number of deletion entries in the
+                                   // mutable memtable.
+  kNumDeletesInImmutableMemtable,  // Return the total number of deletion
+                                   // entries in all the immutable mem tables.
   kEstimatedNumKeys,  // Estimated total number of keys in the database.
   kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
   kIsFileDeletionEnabled,         // Equals disable_delete_obsolete_files_,
