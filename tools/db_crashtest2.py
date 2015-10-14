@@ -124,7 +124,7 @@ def main(argv):
                 --sync=0
                 --progress_reports=0
                 --disable_wal=0
-                --disable_data_sync=1
+                --disable_data_sync=0
                 --target_file_size_base=16777216
                 --target_file_size_multiplier=1
                 --max_write_buffer_number=3
@@ -163,7 +163,7 @@ def main(argv):
                 --sync=0
                 --progress_reports=0
                 --disable_wal=0
-                --disable_data_sync=1
+                --disable_data_sync=0
                 --target_file_size_base=2097152
                 --target_file_size_multiplier=2
                 --max_write_buffer_number=3
