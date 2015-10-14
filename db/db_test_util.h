@@ -566,15 +566,19 @@ class DBTestBase : public testing::Test {
 
   std::string AllEntriesFor(const Slice& user_key, int cf = 0);
 
+#ifndef ROCKSDB_LITE
   int NumSortedRuns(int cf = 0);
 
   uint64_t TotalSize(int cf = 0);
 
-  int NumTableFilesAtLevel(int level, int cf = 0);
-
   uint64_t SizeAtLevel(int level);
 
   int TotalLiveFiles(int cf = 0);
+
+  size_t CountLiveFiles();
+#endif  // ROCKSDB_LITE
+
+  int NumTableFilesAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
 
@@ -582,8 +586,6 @@ class DBTestBase : public testing::Test {
   std::string FilesPerLevel(int cf = 0);
 
   size_t CountFiles();
-
-  size_t CountLiveFiles();
 
   uint64_t Size(const Slice& start, const Slice& limit, int cf = 0);
 

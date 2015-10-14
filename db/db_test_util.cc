@@ -78,6 +78,19 @@ DBTestBase::~DBTestBase() {
 // test.  Return false if there are no more configurations to test.
 bool DBTestBase::ChangeOptions(int skip_mask) {
   for (option_config_++; option_config_ < kEnd; option_config_++) {
+#ifdef ROCKSDB_LITE
+    // These options are not supported in ROCKSDB_LITE
+    if (option_config_ == kHashSkipList ||
+        option_config_ == kPlainTableFirstBytePrefix ||
+        option_config_ == kPlainTableCappedPrefix ||
+        option_config_ == kPlainTableCappedPrefixNonMmap ||
+        option_config_ == kPlainTableAllBytesPrefix ||
+        option_config_ == kVectorRep || option_config_ == kHashLinkList ||
+        option_config_ == kHashCuckoo) {
+      continue;
+    }
+#endif
+
     if ((skip_mask & kSkipDeletesFilterFirst) &&
         option_config_ == kDeletesFilterFirst) {
       continue;
@@ -202,6 +215,7 @@ Options DBTestBase::CurrentOptions(
   BlockBasedTableOptions table_options;
   bool set_block_based_table_factory = true;
   switch (option_config_) {
+#ifndef ROCKSDB_LITE
     case kHashSkipList:
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
       options.memtable_factory.reset(NewHashSkipListRepFactory(16));
@@ -234,6 +248,19 @@ Options DBTestBase::CurrentOptions(
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;
+    case kVectorRep:
+      options.memtable_factory.reset(new VectorRepFactory(100));
+      break;
+    case kHashLinkList:
+      options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+      options.memtable_factory.reset(
+          NewHashLinkListRepFactory(4, 0, 3, true, 4));
+      break;
+    case kHashCuckoo:
+      options.memtable_factory.reset(
+          NewHashCuckooRepFactory(options.write_buffer_size));
+      break;
+#endif  // ROCKSDB_LITE
     case kMergePut:
       options.merge_operator = MergeOperators::CreatePutOperator();
       break;
@@ -269,18 +296,6 @@ Options DBTestBase::CurrentOptions(
       break;
     case kDeletesFilterFirst:
       options.filter_deletes = true;
-      break;
-    case kVectorRep:
-      options.memtable_factory.reset(new VectorRepFactory(100));
-      break;
-    case kHashLinkList:
-      options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-      options.memtable_factory.reset(
-          NewHashLinkListRepFactory(4, 0, 3, true, 4));
-      break;
-    case kHashCuckoo:
-      options.memtable_factory.reset(
-          NewHashCuckooRepFactory(options.write_buffer_size));
       break;
     case kUniversalCompaction:
       options.compaction_style = kCompactionStyleUniversal;
@@ -599,6 +614,7 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   return result;
 }
 
+#ifndef ROCKSDB_LITE
 int DBTestBase::NumSortedRuns(int cf) {
   ColumnFamilyMetaData cf_meta;
   if (cf == 0) {
@@ -625,20 +641,6 @@ uint64_t DBTestBase::TotalSize(int cf) {
   return cf_meta.size;
 }
 
-int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
-  std::string property;
-  if (cf == 0) {
-    // default cfd
-    EXPECT_TRUE(db_->GetProperty(
-        "rocksdb.num-files-at-level" + NumberToString(level), &property));
-  } else {
-    EXPECT_TRUE(db_->GetProperty(
-        handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
-        &property));
-  }
-  return atoi(property.c_str());
-}
-
 uint64_t DBTestBase::SizeAtLevel(int level) {
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
@@ -663,6 +665,27 @@ int DBTestBase::TotalLiveFiles(int cf) {
     num_files += level.files.size();
   }
   return num_files;
+}
+
+size_t DBTestBase::CountLiveFiles() {
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  return metadata.size();
+}
+#endif  // ROCKSDB_LITE
+
+int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
+  std::string property;
+  if (cf == 0) {
+    // default cfd
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(level), &property));
+  } else {
+    EXPECT_TRUE(db_->GetProperty(
+        handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
+        &property));
+  }
+  return atoi(property.c_str());
 }
 
 int DBTestBase::TotalTableFiles(int cf, int levels) {
@@ -705,12 +728,6 @@ size_t DBTestBase::CountFiles() {
   }
 
   return files.size() + logfiles.size();
-}
-
-size_t DBTestBase::CountLiveFiles() {
-  std::vector<LiveFileMetaData> metadata;
-  db_->GetLiveFilesMetaData(&metadata);
-  return metadata.size();
 }
 
 uint64_t DBTestBase::Size(const Slice& start, const Slice& limit, int cf) {
