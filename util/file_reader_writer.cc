@@ -57,7 +57,8 @@ Status WritableFileWriter::Append(const Slice& data) {
   pending_sync_ = true;
   pending_fsync_ = true;
 
-  TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
+  TEST_KILL_RANDOM("WritableFileWriter::Append:0",
+                   rocksdb_kill_odds * REDUCE_ODDS2);
 
   {
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
@@ -114,7 +115,7 @@ Status WritableFileWriter::Append(const Slice& data) {
     s = WriteBuffered(src, left);
   }
 
-  TEST_KILL_RANDOM(rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
   filesize_ += data.size();
   return Status::OK();
 }
@@ -141,7 +142,7 @@ Status WritableFileWriter::Close() {
     s = interim;
   }
 
-  TEST_KILL_RANDOM(rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Close:0", rocksdb_kill_odds);
   interim = writable_file_->Close();
   if (!interim.ok() && s.ok()) {
     s = interim;
@@ -156,7 +157,8 @@ Status WritableFileWriter::Close() {
 // write out the cached data to the OS cache
 Status WritableFileWriter::Flush() {
   Status s;
-  TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
+  TEST_KILL_RANDOM("WritableFileWriter::Flush:0",
+                   rocksdb_kill_odds * REDUCE_ODDS2);
 
   if (buf_.CurrentSize() > 0) {
     if (use_os_buffer_) {
@@ -209,14 +211,14 @@ Status WritableFileWriter::Sync(bool use_fsync) {
   if (!s.ok()) {
     return s;
   }
-  TEST_KILL_RANDOM(rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Sync:0", rocksdb_kill_odds);
   if (!direct_io_ && pending_sync_) {
     s = SyncInternal(use_fsync);
     if (!s.ok()) {
       return s;
     }
   }
-  TEST_KILL_RANDOM(rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Sync:1", rocksdb_kill_odds);
   pending_sync_ = false;
   if (use_fsync) {
     pending_fsync_ = false;
@@ -294,7 +296,7 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
     }
 
     IOSTATS_ADD(bytes_written, allowed);
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("WritableFileWriter::WriteBuffered:0", rocksdb_kill_odds);
 
     left -= allowed;
     src += allowed;

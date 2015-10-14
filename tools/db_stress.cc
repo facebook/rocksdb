@@ -277,6 +277,11 @@ static const bool FLAGS_kill_random_test_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_kill_random_test, &ValidateInt32Positive);
 extern int rocksdb_kill_odds;
 
+DEFINE_string(kill_prefix_blacklist, "",
+              "If non-empty, kill points with prefix in the list given will be"
+              " skipped. Items are comma-separated.");
+extern std::vector<std::string> rocksdb_kill_prefix_blacklist;
+
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
 DEFINE_int32(target_file_size_base, 64 * KB,
@@ -355,6 +360,21 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
+}
+
+std::vector<std::string> SplitString(std::string src) {
+  std::vector<std::string> ret;
+  if (src.empty()) {
+    return ret;
+  }
+  size_t pos = 0;
+  size_t pos_comma;
+  while ((pos_comma = src.find(',', pos)) != std::string::npos) {
+    ret.push_back(src.substr(pos, pos_comma - pos));
+    pos = pos_comma + 1;
+  }
+  ret.push_back(src.substr(pos, src.length()));
+  return ret;
 }
 }  // namespace
 
@@ -1921,6 +1941,14 @@ class StressTest {
 
     fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
 
+    fprintf(stdout, "Test kill odd             : %d\n", rocksdb_kill_odds);
+    if (!rocksdb_kill_prefix_blacklist.empty()) {
+      fprintf(stdout, "Skipping kill points prefixes:\n");
+      for (auto& p : rocksdb_kill_prefix_blacklist) {
+        fprintf(stdout, "  %s\n", p.c_str());
+      }
+    }
+
     fprintf(stdout, "------------------------------------------------\n");
   }
 
@@ -1952,7 +1980,6 @@ class StressTest {
     options_.disableDataSync = FLAGS_disable_data_sync;
     options_.use_fsync = FLAGS_use_fsync;
     options_.allow_mmap_reads = FLAGS_mmap_read;
-    rocksdb_kill_odds = FLAGS_kill_random_test;
     options_.target_file_size_base = FLAGS_target_file_size_base;
     options_.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
     options_.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
@@ -2185,6 +2212,9 @@ int main(int argc, char** argv) {
       default_db_path += "/dbstress";
       FLAGS_db = default_db_path;
   }
+
+  rocksdb_kill_odds = FLAGS_kill_random_test;
+  rocksdb_kill_prefix_blacklist = SplitString(FLAGS_kill_prefix_blacklist);
 
   rocksdb::StressTest stress;
   if (stress.Run()) {
