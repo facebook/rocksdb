@@ -27,42 +27,42 @@ struct PerfContext {
   uint64_t block_cache_hit_count;     // total number of block cache hits
   uint64_t block_read_count;          // total number of block reads (with IO)
   uint64_t block_read_byte;           // total number of bytes from block reads
-  uint64_t block_read_time;           // total time spent on block reads
-  uint64_t block_checksum_time;       // total time spent on block checksum
-  uint64_t block_decompress_time;     // total time spent on block decompression
+  uint64_t block_read_time;           // total nanos spent on block reads
+  uint64_t block_checksum_time;       // total nanos spent on block checksum
+  uint64_t block_decompress_time;  // total nanos spent on block decompression
   // total number of internal keys skipped over during iteration (overwritten or
   // deleted, to be more specific, hidden by a put or delete of the same key)
   uint64_t internal_key_skipped_count;
   // total number of deletes and single deletes skipped over during iteration
   uint64_t internal_delete_skipped_count;
 
-  uint64_t get_snapshot_time;          // total time spent on getting snapshot
-  uint64_t get_from_memtable_time;     // total time spent on querying memtables
+  uint64_t get_snapshot_time;       // total nanos spent on getting snapshot
+  uint64_t get_from_memtable_time;  // total nanos spent on querying memtables
   uint64_t get_from_memtable_count;    // number of mem tables queried
-  // total time spent after Get() finds a key
+  // total nanos spent after Get() finds a key
   uint64_t get_post_process_time;
-  uint64_t get_from_output_files_time; // total time reading from output files
-  // total time spent on seeking memtable
+  uint64_t get_from_output_files_time;  // total nanos reading from output files
+  // total nanos spent on seeking memtable
   uint64_t seek_on_memtable_time;
   // number of seeks issued on memtable
   uint64_t seek_on_memtable_count;
-  // total time spent on seeking child iters
+  // total nanos spent on seeking child iters
   uint64_t seek_child_seek_time;
   // number of seek issued in child iterators
   uint64_t seek_child_seek_count;
-  uint64_t seek_min_heap_time;         // total time spent on the merge heap
-  // total time spent on seeking the internal entries
+  uint64_t seek_min_heap_time;  // total nanos spent on the merge heap
+  // total nanos spent on seeking the internal entries
   uint64_t seek_internal_seek_time;
-  // total time spent on iterating internal entries to find the next user entry
+  // total nanos spent on iterating internal entries to find the next user entry
   uint64_t find_next_user_entry_time;
 
-  // total time spent on writing to WAL
+  // total nanos spent on writing to WAL
   uint64_t write_wal_time;
-  // total time spent on writing to mem tables
+  // total nanos spent on writing to mem tables
   uint64_t write_memtable_time;
-  // total time spent on delaying write
+  // total nanos spent on delaying write
   uint64_t write_delay_time;
-  // total time spent on writing a record, excluding the above three times
+  // total nanos spent on writing a record, excluding the above three times
   uint64_t write_pre_and_post_process_time;
 
   uint64_t db_mutex_lock_nanos;      // time spent on acquiring DB mutex.
