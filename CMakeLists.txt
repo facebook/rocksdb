@@ -302,6 +302,7 @@ set(TESTS
         db/flush_job_test.cc
         db/listener_test.cc
         db/log_test.cc
+        db/manual_compaction_test.cc
         db/memtable_list_test.cc
         db/merge_test.cc
         db/merge_helper_test.cc
@@ -342,7 +343,6 @@ set(TESTS
         util/heap_test.cc
         util/histogram_test.cc
         util/ldb_cmd_test.cc
-        util/manual_compaction_test.cc
         util/memenv_test.cc
         util/mock_env_test.cc
         util/options_test.cc

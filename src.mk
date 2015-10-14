@@ -198,6 +198,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/listener_test.cc                                                   \
   db/log_and_apply_bench.cc                                             \
   db/log_test.cc                                                        \
+  db/manual_compaction_test.cc                                          \
   db/memtablerep_bench.cc                                               \
   db/merge_test.cc                                                      \
   db/perf_context_test.cc                                               \
@@ -252,7 +253,6 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
   util/log_write_bench.cc                                               \
-  util/manual_compaction_test.cc                                        \
   util/memenv_test.cc                                                   \
   util/mock_env_test.cc                                                 \
   util/options_test.cc                                                  \

@@ -916,7 +916,7 @@ optimistic_transaction_test: utilities/transactions/optimistic_transaction_test.
 mock_env_test : util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-manual_compaction_test: util/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
+manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
