@@ -657,9 +657,10 @@ TEST_F(DBTest, ReadLatencyHistogramByLevel) {
   DestroyAndReopen(options);
   int key_index = 0;
   Random rnd(301);
-  for (int num = 0; num < 7; num++) {
+  for (int num = 0; num < 8; num++) {
     Put("foo", "bar");
     GenerateNewFile(&rnd, &key_index);
+    dbfull()->TEST_WaitForCompact();
   }
   dbfull()->TEST_WaitForCompact();
 
@@ -667,7 +668,7 @@ TEST_F(DBTest, ReadLatencyHistogramByLevel) {
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
 
   // Get() after flushes, See latency histogram tracked.
-  for (int key = 0; key < 500; key++) {
+  for (int key = 0; key < key_index; key++) {
     Get(Key(key));
   }
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
@@ -678,7 +679,7 @@ TEST_F(DBTest, ReadLatencyHistogramByLevel) {
   // Reopen and issue Get(). See thee latency tracked
   Reopen(options);
   dbfull()->TEST_WaitForCompact();
-  for (int key = 0; key < 500; key++) {
+  for (int key = 0; key < key_index; key++) {
     Get(Key(key));
   }
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
@@ -709,7 +710,7 @@ TEST_F(DBTest, ReadLatencyHistogramByLevel) {
   ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
   ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
   ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
-  for (int key = 0; key < 500; key++) {
+  for (int key = 0; key < key_index; key++) {
     Get(Key(key));
   }
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
