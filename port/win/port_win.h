@@ -114,8 +114,11 @@ class CondVar;
 class Mutex {
  public:
 
-   /* implicit */ Mutex(bool adaptive = false) : locked_(false) {
-  }
+   /* implicit */ Mutex(bool adaptive = false)
+#ifndef NDEBUG
+     : locked_(false)
+#endif
+   { }
 
   ~Mutex();
 
