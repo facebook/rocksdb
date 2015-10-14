@@ -31,7 +31,7 @@ string(REGEX REPLACE "(..)/(..)/..(..).*" "\\1/\\2/\\3" DATE ${DATE})
 string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME ${TIME})
 string(CONCAT GIT_DATE_TIME ${DATE} ${TIME})
 
-execute_process(COMMAND $ENV{COMSPEC} " /C git rev-parse HEAD 2>nil" OUTPUT_VARIABLE GIT_SHA)
+execute_process(COMMAND $ENV{COMSPEC} " /C git -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD" OUTPUT_VARIABLE GIT_SHA)
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA ${GIT_SHA})
 
 set(BUILD_VERSION_CC ${CMAKE_CURRENT_SOURCE_DIR}/util/build_version.cc)
