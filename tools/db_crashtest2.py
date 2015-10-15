@@ -71,6 +71,7 @@ def main(argv):
 
     total_check_mode = 4
     check_mode = 0
+    kill_mode = 0
 
     test_tmpdir = os.environ.get("TEST_TMPDIR")
     if test_tmpdir is None or test_tmpdir == "":
@@ -83,7 +84,19 @@ def main(argv):
         killoption = ""
         if check_mode == 0:
             # run with kill_random_test
-            killoption = " --kill_random_test=" + str(kill_random_test)
+            if kill_mode == 0:
+                killoption = " --kill_random_test=" + str(kill_random_test)
+            elif kill_mode == 1:
+                # Remove kill point for normal reads and reduce kill odds
+                # by 3, so that it still runs about one minutes in average
+                # before hitting a crash point.
+                killoption = " --kill_random_test=" + \
+                             str(kill_random_test / 3 + 1)
+                killoption += \
+                    " --kill_prefix_blacklist=WritableFileWriter::Append," \
+                    "WritableFileWriter::WriteBuffered"
+            # Run kill mode 0 and 1 by turn.
+            kill_mode = (kill_mode + 1) % 2
             # use large ops per thread since we will kill it anyway
             additional_opts = "--ops_per_thread=" + \
                               str(100 * ops_per_thread) + killoption
@@ -133,6 +146,8 @@ def main(argv):
                 --filter_deletes=%s
                 --memtablerep=skip_list
                 --prefix_size=0
+                --nooverwritepercent=1
+                --log2_keys_per_lock=10
                  %s
                 """ % (threads,
                        write_buf_size,
@@ -172,6 +187,8 @@ def main(argv):
                 --filter_deletes=%s
                 --memtablerep=prefix_hash
                 --prefix_size=7
+                --nooverwritepercent=1
+                --log2_keys_per_lock=10
                 %s
                 """ % (random.randint(0, 1),
                        threads,
