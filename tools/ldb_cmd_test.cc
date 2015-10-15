@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#ifndef ROCKSDB_LITE
+
 #include "tools/ldb_cmd.h"
 #include "util/testharness.h"
 
@@ -42,3 +44,12 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as LDBCommand is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // ROCKSDB_LITE

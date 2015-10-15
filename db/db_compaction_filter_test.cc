@@ -186,6 +186,7 @@ class ChangeFilterFactory : public CompactionFilterFactory {
   virtual const char* Name() const override { return "ChangeFilterFactory"; }
 };
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Options options = CurrentOptions();
   options.max_open_files = -1;
@@ -362,6 +363,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 
   delete itr;
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
   do {
@@ -493,6 +495,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   ASSERT_EQ(newvalue, four);
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
   KeepFilterFactory* filter = new KeepFilterFactory(true, true);
 
@@ -550,6 +553,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_EQ(count, 1);
   }
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   KeepFilterFactory* filter = new KeepFilterFactory(false, true);
@@ -580,6 +584,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
   ASSERT_TRUE(filter->compaction_filter_created());
 }
 
+#ifndef ROCKSDB_LITE
 // Compaction filters should only be applied to records that are newer than the
 // latest snapshot. This test inserts records and applies a delete filter.
 TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
@@ -615,6 +620,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(0U, CountLiveFiles());
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 
