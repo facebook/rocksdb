@@ -87,4 +87,5 @@ your make commands, like this: `PORTABLE=1 make static_lib`
   * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.
 
 * **Windows**:
+  * For building with MS Visual Studio 13 you will need Update 4 installed.
   * Read and follow the instructions at CMakeLists.txt
