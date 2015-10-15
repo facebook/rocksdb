@@ -904,7 +904,7 @@ options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
 event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-sst_dump_test: util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
+sst_dump_test: tools/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memenv_test : util/memenv_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -940,7 +940,7 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
-ldb_cmd_test: util/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
+ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ldb: tools/ldb.o $(LIBOBJECTS)

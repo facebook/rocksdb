@@ -5,7 +5,7 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "util/sst_dump_tool_imp.h"
+#include "tools/sst_dump_tool_imp.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS

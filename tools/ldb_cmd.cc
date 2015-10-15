@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #ifndef ROCKSDB_LITE
-#include "util/ldb_cmd.h"
+#include "tools/ldb_cmd.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -23,8 +23,8 @@
 #include "rocksdb/table_properties.h"
 #include "table/scoped_arena_iterator.h"
 #include "port/dirent.h"
+#include "tools/sst_dump_tool_imp.h"
 #include "util/coding.h"
-#include "util/sst_dump_tool_imp.h"
 #include "util/string_util.h"
 #include "utilities/ttl/db_ttl_impl.h"
 

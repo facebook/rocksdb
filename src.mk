@@ -161,9 +161,9 @@ LIB_SOURCES =                                                   \
   util/xxhash.cc                                                \
 
 TOOL_SOURCES = \
-  util/ldb_cmd.cc                                               \
-  util/ldb_tool.cc                                              \
-  util/sst_dump_tool.cc                                         \
+  tools/ldb_cmd.cc                                               \
+  tools/ldb_tool.cc                                              \
+  tools/sst_dump_tool.cc                                         \
 
 MOCK_SOURCES = \
   table/mock_table.cc \
@@ -224,7 +224,9 @@ TEST_BENCH_SOURCES =                                                    \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
   tools/db_sanity_test.cc                                               \
+  tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
+  tools/sst_dump_test.cc                                                \
   util/arena_test.cc                                                    \
   util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
@@ -259,12 +261,10 @@ TEST_BENCH_SOURCES =                                                    \
   util/event_logger_test.cc                                             \
   util/rate_limiter_test.cc                                             \
   util/slice_transform_test.cc                                          \
-  util/sst_dump_test.cc                                                 \
   util/testharness.cc                                                   \
   util/testutil.cc                                                      \
   util/thread_list_test.cc                                              \
-  util/thread_local_test.cc                                             \
-  util/ldb_cmd_test.cc
+  util/thread_local_test.cc
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

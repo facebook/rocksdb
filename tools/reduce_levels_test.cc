@@ -9,10 +9,10 @@
 #include "rocksdb/db.h"
 #include "db/db_impl.h"
 #include "db/version_set.h"
+#include "tools/ldb_cmd.h"
 #include "util/logging.h"
 #include "util/testutil.h"
 #include "util/testharness.h"
-#include "util/ldb_cmd.h"
 
 namespace rocksdb {
 

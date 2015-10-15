@@ -164,6 +164,7 @@ set(SOURCES
         table/plain_table_reader.cc
         table/table_properties.cc
         table/two_level_iterator.cc
+        tools/sst_dump_tool.cc
         tools/dump/db_dump_tool.cc
         util/arena.cc
         util/auto_roll_logger.cc
@@ -190,8 +191,8 @@ set(SOURCES
         util/histogram.cc
         util/instrumented_mutex.cc
         util/iostats_context.cc
-        util/ldb_cmd.cc
-        util/ldb_tool.cc
+        tools/ldb_cmd.cc
+        tools/ldb_tool.cc
         util/logging.cc
         util/log_buffer.cc
         util/memenv.cc
@@ -207,7 +208,6 @@ set(SOURCES
         util/rate_limiter.cc
         util/skiplistrep.cc
         util/slice.cc
-        util/sst_dump_tool.cc
         util/statistics.cc
         util/status.cc
         util/status_message.cc
@@ -327,7 +327,9 @@ set(TESTS
         table/merger_test.cc
         table/table_test.cc
         tools/db_sanity_test.cc
+        tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
+        tools/sst_dump_test.cc
         util/arena_test.cc
         util/autovector_test.cc
         util/auto_roll_logger_test.cc
@@ -342,13 +344,11 @@ set(TESTS
         util/file_reader_writer_test.cc
         util/heap_test.cc
         util/histogram_test.cc
-        util/ldb_cmd_test.cc
         util/memenv_test.cc
         util/mock_env_test.cc
         util/options_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
-        util/sst_dump_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc

@@ -5,7 +5,7 @@
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
-#include "util/ldb_cmd.h"
+#include "tools/ldb_cmd.h"
 
 namespace rocksdb {
 
