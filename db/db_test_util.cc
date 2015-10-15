@@ -86,7 +86,11 @@ bool DBTestBase::ChangeOptions(int skip_mask) {
         option_config_ == kPlainTableCappedPrefixNonMmap ||
         option_config_ == kPlainTableAllBytesPrefix ||
         option_config_ == kVectorRep || option_config_ == kHashLinkList ||
-        option_config_ == kHashCuckoo) {
+        option_config_ == kHashCuckoo ||
+        option_config_ == kUniversalCompaction ||
+        option_config_ == kUniversalCompactionMultiLevel ||
+        option_config_ == kUniversalSubcompactions ||
+        option_config_ == kFIFOCompaction) {
       continue;
     }
 #endif

@@ -550,8 +550,10 @@ check: all
 	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
+ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	python tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
+endif
 
 check_some: $(SUBSET) ldb_tests
 	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
