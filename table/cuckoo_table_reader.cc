@@ -143,11 +143,16 @@ Status CuckooTableReader::Get(const ReadOptions& readOptions, const Slice& key,
         return Status::OK();
       }
       // Here, we compare only the user key part as we support only one entry
-      // per user key and we don't support sanpshot.
+      // per user key and we don't support snapshot.
       if (ucomp_->Equal(user_key, Slice(bucket, user_key.size()))) {
         Slice value(bucket + key_length_, value_length_);
         if (is_last_level_) {
-          get_context->SaveValue(value);
+          // Sequence number is not stored at the last level, so we will use
+          // kMaxSequenceNumber since it is unknown.  This could cause some
+          // transactions to fail to lock a key due to known sequence number.
+          // However, it is expected for anyone to use a CuckooTable in a
+          // TransactionDB.
+          get_context->SaveValue(value, kMaxSequenceNumber);
         } else {
           Slice full_key(bucket, key_length_);
           ParsedInternalKey found_ikey;

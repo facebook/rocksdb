@@ -1394,11 +1394,17 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
     {
       mutex_.Unlock();
       TableFileCreationInfo info;
+
+      SequenceNumber earliest_write_conflict_snapshot;
+      std::vector<SequenceNumber> snapshot_seqs =
+          snapshots_.GetAll(&earliest_write_conflict_snapshot);
+
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), env_options_, cfd->table_cache(),
           iter.get(), &meta, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), cfd->GetID(),
-          snapshots_.GetAll(), GetCompressionFlush(*cfd->ioptions()),
+          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), snapshot_seqs,
+          earliest_write_conflict_snapshot,
+          GetCompressionFlush(*cfd->ioptions()),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), Env::IO_HIGH, &info.table_properties);
       LogFlush(db_options_.info_log);
@@ -1453,12 +1459,16 @@ Status DBImpl::FlushMemTableToOutputFile(
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
-  FlushJob flush_job(dbname_, cfd, db_options_, mutable_cf_options,
-                     env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     snapshots_.GetAll(), job_context, log_buffer,
-                     directories_.GetDbDir(), directories_.GetDataDir(0U),
-                     GetCompressionFlush(*cfd->ioptions()), stats_,
-                     &event_logger_);
+  SequenceNumber earliest_write_conflict_snapshot;
+  std::vector<SequenceNumber> snapshot_seqs =
+      snapshots_.GetAll(&earliest_write_conflict_snapshot);
+
+  FlushJob flush_job(
+      dbname_, cfd, db_options_, mutable_cf_options, env_options_,
+      versions_.get(), &mutex_, &shutting_down_, snapshot_seqs,
+      earliest_write_conflict_snapshot, job_context, log_buffer,
+      directories_.GetDbDir(), directories_.GetDataDir(0U),
+      GetCompressionFlush(*cfd->ioptions()), stats_, &event_logger_);
 
   FileMetaData file_meta;
 
@@ -5368,9 +5378,9 @@ SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
-Status DBImpl::GetLatestSequenceForKeyFromMemtable(SuperVersion* sv,
-                                                   const Slice& key,
-                                                   SequenceNumber* seq) {
+Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
+                                       bool cache_only, SequenceNumber* seq,
+                                       bool* found_record_for_key) {
   Status s;
   std::string value;
   MergeContext merge_context;
@@ -5379,6 +5389,10 @@ Status DBImpl::GetLatestSequenceForKeyFromMemtable(SuperVersion* sv,
   LookupKey lkey(key, current_seq);
 
   *seq = kMaxSequenceNumber;
+  *found_record_for_key = false;
+
+  // TODO(agiardullo): Should optimize all the Get() functions below to not
+  // return a value since we do not use it.
 
   // Check if there is a record for this key in the latest memtable
   sv->mem->Get(lkey, &value, &s, &merge_context, seq);
@@ -5394,6 +5408,7 @@ Status DBImpl::GetLatestSequenceForKeyFromMemtable(SuperVersion* sv,
 
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check immutable memtables
+    *found_record_for_key = true;
     return Status::OK();
   }
 
@@ -5411,6 +5426,7 @@ Status DBImpl::GetLatestSequenceForKeyFromMemtable(SuperVersion* sv,
 
   if (*seq != kMaxSequenceNumber) {
     // Found a sequence number, no need to check memtable history
+    *found_record_for_key = true;
     return Status::OK();
   }
 
@@ -5424,6 +5440,31 @@ Status DBImpl::GetLatestSequenceForKeyFromMemtable(SuperVersion* sv,
         s.ToString().c_str());
 
     return s;
+  }
+
+  if (*seq != kMaxSequenceNumber) {
+    // Found a sequence number, no need to check SST files
+    *found_record_for_key = true;
+    return Status::OK();
+  }
+
+  // TODO(agiardullo): possible optimization: consider checking cached
+  // SST files if cache_only=true?
+  if (!cache_only) {
+    // Check tables
+    ReadOptions read_options;
+
+    sv->current->Get(read_options, lkey, &value, &s, &merge_context,
+                     nullptr /* value_found */, found_record_for_key, seq);
+
+    if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
+      // unexpected error reading SST files
+      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+          "Unexpected status returned from Version::Get: %s\n",
+          s.ToString().c_str());
+
+      return s;
+    }
   }
 
   return Status::OK();

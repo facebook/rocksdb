@@ -333,6 +333,10 @@ void CompactionIterator::NextFromInput() {
       // same key, then this kv is not visible in any snapshot.
       // Hidden by an newer entry for same user key
       // TODO: why not > ?
+      //
+      // Note: Dropping this key will not affect TransactionDB write-conflict
+      // checking since there has already been a record returned for this key
+      // in this snapshot.
       assert(last_sequence >= current_user_key_sequence_);
       ++iter_stats_.num_record_drop_hidden;  // (A)
       input_->Next();
@@ -351,6 +355,9 @@ void CompactionIterator::NextFromInput() {
       //     smaller sequence numbers will be dropped in the next
       //     few iterations of this loop (by rule (A) above).
       // Therefore this deletion marker is obsolete and can be dropped.
+      //
+      // Note:  Dropping this Delete will not affect TransactionDB
+      // write-conflict checking since it is earlier than any snapshot.
       ++iter_stats_.num_record_drop_obsolete;
       input_->Next();
     } else if (ikey_.type == kTypeMerge) {
@@ -400,6 +407,9 @@ void CompactionIterator::PrepareOutput() {
   // If this is the bottommost level (no files in lower levels)
   // and the earliest snapshot is larger than this seqno
   // then we can squash the seqno to zero.
+
+  // This is safe for TransactionDB write-conflict checking since transactions
+  // only care about sequence number larger than any active snapshots.
   if (bottommost_level_ && valid_ && ikey_.sequence < earliest_snapshot_ &&
       ikey_.type != kTypeMerge) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);

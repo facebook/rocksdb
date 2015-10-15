@@ -312,7 +312,8 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
       column_family ? column_family : db_impl->DefaultColumnFamily();
 
   return TransactionUtil::CheckKeyForConflicts(
-      db_impl, cfh, key.ToString(), snapshot_->snapshot()->GetSequenceNumber());
+      db_impl, cfh, key.ToString(), snapshot_->snapshot()->GetSequenceNumber(),
+      false /* cache_only */);
 }
 
 }  // namespace rocksdb

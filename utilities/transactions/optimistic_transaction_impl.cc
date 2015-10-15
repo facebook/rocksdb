@@ -95,15 +95,19 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 // if we can not determine whether there would be any such conflicts.
 //
 // Should only be called on writer thread in order to avoid any race conditions
-// in detecting
-// write conflicts.
+// in detecting write conflicts.
 Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
   Status result;
 
   assert(dynamic_cast<DBImpl*>(db) != nullptr);
   auto db_impl = reinterpret_cast<DBImpl*>(db);
 
-  return TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys());
+  // Since we are on the write thread and do not want to block other writers,
+  // we will do a cache-only conflict check.  This can result in TryAgain
+  // getting returned if there is not sufficient memtable history to check
+  // for conflicts.
+  return TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys(),
+                                                true /* cache_only */);
 }
 
 }  // namespace rocksdb

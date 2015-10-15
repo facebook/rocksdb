@@ -294,7 +294,8 @@ class Repairer {
           dbname_, env_, ioptions_, env_options_, table_cache_, iter.get(),
           &meta, icmp_, &int_tbl_prop_collector_factories_,
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily, {},
-          kNoCompression, CompressionOptions(), false, nullptr);
+          kMaxSequenceNumber, kNoCompression, CompressionOptions(), false,
+          nullptr);
     }
     delete mem->Unref();
     delete cf_mems_default;

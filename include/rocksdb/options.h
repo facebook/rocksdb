@@ -276,8 +276,16 @@ struct ColumnFamilyOptions {
   // max_write_buffer_number, this parameter does not affect flushing.
   // This controls the minimum amount of write history that will be available
   // in memory for conflict checking when Transactions are used.
+  //
+  // When using an OptimisticTransactionDB:
   // If this value is too low, some transactions may fail at commit time due
   // to not being able to determine whether there were any write conflicts.
+  //
+  // When using a TransactionDB:
+  // If Transaction::SetSnapshot is used, TransactionDB will read either
+  // in-memory write buffers or SST files to do write-conflict checking.
+  // Increasing this value can reduce the number of reads to SST files
+  // done for conflict detection.
   //
   // Setting this value to 0 will cause write buffers to be freed immediately
   // after they are flushed.

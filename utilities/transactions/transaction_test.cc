@@ -12,8 +12,10 @@
 #include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "table/mock_table.h"
 #include "util/logging.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -32,6 +34,8 @@ class TransactionTest : public testing::Test {
   TransactionTest() {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
+    options.write_buffer_size = 4 * 1024;
+    options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     dbname = test::TmpDir() + "/transaction_testdb";
 
@@ -45,6 +49,15 @@ class TransactionTest : public testing::Test {
   ~TransactionTest() {
     delete db;
     DestroyDB(dbname, options);
+  }
+
+  Status ReOpen() {
+    delete db;
+    DestroyDB(dbname, options);
+
+    Status s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+
+    return s;
   }
 };
 
@@ -81,6 +94,43 @@ TEST_F(TransactionTest, SuccessTest) {
   s = db->Get(read_options, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar2");
+
+  delete txn;
+}
+
+TEST_F(TransactionTest, FirstWriteTest) {
+  WriteOptions write_options;
+
+  // Test conflict checking against the very first write to a db.
+  // The transaction's snapshot will have seq 1 and the following write
+  // will have sequence 1.
+  Status s = db->Put(write_options, "A", "a");
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  txn->SetSnapshot();
+
+  ASSERT_OK(s);
+
+  s = txn->Put("A", "b");
+  ASSERT_OK(s);
+
+  delete txn;
+}
+
+TEST_F(TransactionTest, FirstWriteTest2) {
+  WriteOptions write_options;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  txn->SetSnapshot();
+
+  // Test conflict checking against the very first write to a db.
+  // The transaction's snapshot is a seq 0 while the following write
+  // will have sequence 1.
+  Status s = db->Put(write_options, "A", "a");
+  ASSERT_OK(s);
+
+  s = txn->Put("A", "b");
+  ASSERT_TRUE(s.IsBusy());
 
   delete txn;
 }
@@ -268,68 +318,155 @@ TEST_F(TransactionTest, FlushTest) {
 }
 
 TEST_F(TransactionTest, FlushTest2) {
-  WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
-  string value;
-  Status s;
+  const size_t num_tests = 3;
 
-  db->Put(write_options, Slice("foo"), Slice("bar"));
-  db->Put(write_options, Slice("foo2"), Slice("bar"));
+  for (size_t n = 0; n < num_tests; n++) {
+    // Test different table factories
+    switch (n) {
+      case 0:
+        break;
+      case 1:
+        options.table_factory.reset(new mock::MockTableFactory());
+        break;
+      case 2: {
+        PlainTableOptions pt_opts;
+        pt_opts.hash_table_ratio = 0;
+        options.table_factory.reset(NewPlainTableFactory(pt_opts));
+        break;
+      }
+    }
 
-  txn_options.set_snapshot = true;
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn);
+    Status s = ReOpen();
+    ASSERT_OK(s);
 
-  snapshot_read_options.snapshot = txn->GetSnapshot();
+    WriteOptions write_options;
+    ReadOptions read_options, snapshot_read_options;
+    TransactionOptions txn_options;
+    string value;
 
-  txn->GetForUpdate(snapshot_read_options, "foo", &value);
-  ASSERT_EQ(value, "bar");
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetBaseDB());
 
-  s = txn->Put(Slice("foo"), Slice("bar2"));
-  ASSERT_OK(s);
+    db->Put(write_options, Slice("foo"), Slice("bar"));
+    db->Put(write_options, Slice("foo2"), Slice("bar2"));
+    db->Put(write_options, Slice("foo3"), Slice("bar3"));
 
-  txn->GetForUpdate(snapshot_read_options, "foo", &value);
-  ASSERT_EQ(value, "bar2");
+    txn_options.set_snapshot = true;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn);
 
-  // Put a random key so we have a MemTable to flush
-  s = db->Put(write_options, "dummy", "dummy");
-  ASSERT_OK(s);
+    snapshot_read_options.snapshot = txn->GetSnapshot();
 
-  // force a memtable flush
-  FlushOptions flush_ops;
-  db->Flush(flush_ops);
+    txn->GetForUpdate(snapshot_read_options, "foo", &value);
+    ASSERT_EQ(value, "bar");
 
-  // Put a random key so we have a MemTable to flush
-  s = db->Put(write_options, "dummy", "dummy2");
-  ASSERT_OK(s);
+    s = txn->Put(Slice("foo"), Slice("bar2"));
+    ASSERT_OK(s);
 
-  // force a memtable flush
-  db->Flush(flush_ops);
+    txn->GetForUpdate(snapshot_read_options, "foo", &value);
+    ASSERT_EQ(value, "bar2");
+    // verify foo is locked by txn
+    s = db->Delete(write_options, "foo");
+    ASSERT_TRUE(s.IsTimedOut());
 
-  s = db->Put(write_options, "dummy", "dummy3");
-  ASSERT_OK(s);
+    s = db->Put(write_options, "Z", "z");
+    ASSERT_OK(s);
+    s = db->Put(write_options, "dummy", "dummy");
+    ASSERT_OK(s);
 
-  // force a memtable flush
-  // Since our test db has max_write_buffer_number=2, this flush will cause
-  // the first memtable to get purged from the MemtableList history.
-  db->Flush(flush_ops);
+    s = db->Put(write_options, "S", "s");
+    ASSERT_OK(s);
+    s = db->SingleDelete(write_options, "S");
+    ASSERT_OK(s);
 
-  s = txn->Put("X", "Y");
-  // Put should fail since MemTableList History is not older than the snapshot.
-  ASSERT_TRUE(s.IsTryAgain());
+    s = txn->Delete("S");
+    // Should fail after encountering a write to S in memtable
+    ASSERT_TRUE(s.IsBusy());
 
-  s = txn->Commit();
-  ASSERT_OK(s);
+    // force a memtable flush
+    s = db_impl->TEST_FlushMemTable(true);
+    ASSERT_OK(s);
 
-  // Transaction should only write the keys that succeeded.
-  s = db->Get(read_options, "foo", &value);
-  ASSERT_EQ(value, "bar2");
+    // Put a random key so we have a MemTable to flush
+    s = db->Put(write_options, "dummy", "dummy2");
+    ASSERT_OK(s);
 
-  s = db->Get(read_options, "X", &value);
-  ASSERT_TRUE(s.IsNotFound());
+    // force a memtable flush
+    ASSERT_OK(db_impl->TEST_FlushMemTable(true));
+
+    s = db->Put(write_options, "dummy", "dummy3");
+    ASSERT_OK(s);
+
+    // force a memtable flush
+    // Since our test db has max_write_buffer_number=2, this flush will cause
+    // the first memtable to get purged from the MemtableList history.
+    ASSERT_OK(db_impl->TEST_FlushMemTable(true));
+
+    s = txn->Put("X", "Y");
+    // Should succeed after verifying there is no write to X in SST file
+    ASSERT_OK(s);
+
+    s = txn->Put("Z", "zz");
+    // Should fail after encountering a write to Z in SST file
+    ASSERT_TRUE(s.IsBusy());
+
+    s = txn->GetForUpdate(read_options, "foo2", &value);
+    // should succeed since key was written before txn started
+    ASSERT_OK(s);
+    // verify foo2 is locked by txn
+    s = db->Delete(write_options, "foo2");
+    ASSERT_TRUE(s.IsTimedOut());
+
+    s = txn->Delete("S");
+    // Should fail after encountering a write to S in SST file
+    fprintf(stderr, "%lu %s\n", n, s.ToString().c_str());
+    ASSERT_TRUE(s.IsBusy());
+
+    // Write a bunch of keys to db to force a compaction
+    Random rnd(47);
+    for (int i = 0; i < 1000; i++) {
+      s = db->Put(write_options, std::to_string(i),
+                  test::CompressibleString(&rnd, 0.8, 100, &value));
+      ASSERT_OK(s);
+    }
+
+    s = txn->Put("X", "yy");
+    // Should succeed after verifying there is no write to X in SST file
+    ASSERT_OK(s);
+
+    s = txn->Put("Z", "zzz");
+    // Should fail after encountering a write to Z in SST file
+    ASSERT_TRUE(s.IsBusy());
+
+    s = txn->Delete("S");
+    // Should fail after encountering a write to S in SST file
+    ASSERT_TRUE(s.IsBusy());
+
+    s = txn->GetForUpdate(read_options, "foo3", &value);
+    // should succeed since key was written before txn started
+    ASSERT_OK(s);
+    // verify foo3 is locked by txn
+    s = db->Delete(write_options, "foo3");
+    ASSERT_TRUE(s.IsTimedOut());
+
+    db_impl->TEST_WaitForCompact();
+
+    s = txn->Commit();
+    ASSERT_OK(s);
+
+    // Transaction should only write the keys that succeeded.
+    s = db->Get(read_options, "foo", &value);
+    ASSERT_EQ(value, "bar2");
+
+    s = db->Get(read_options, "X", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("yy", value);
+
+    s = db->Get(read_options, "Z", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("z", value);
 
   delete txn;
+  }
 }
 
 TEST_F(TransactionTest, NoSnapshotTest) {

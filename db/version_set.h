@@ -424,11 +424,24 @@ class Version {
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
-  // Uses *operands to store merge_operator operations to apply later
+  // Uses *operands to store merge_operator operations to apply later.
+  //
+  // If the ReadOptions.read_tier is set to do a read-only fetch, then
+  // *value_found will be set to false if it cannot be determined whether
+  // this value exists without doing IO.
+  //
+  // If the key is Deleted, *status will be set to NotFound and
+  //                        *key_exists will be set to true.
+  // If no key was found, *status will be set to NotFound and
+  //                      *key_exists will be set to false.
+  // If seq is non-null, *seq will be set to the sequence number found
+  // for the key if a key was found.
+  //
   // REQUIRES: lock is not held
   void Get(const ReadOptions&, const LookupKey& key, std::string* val,
            Status* status, MergeContext* merge_context,
-           bool* value_found = nullptr);
+           bool* value_found = nullptr, bool* key_exists = nullptr,
+           SequenceNumber* seq = nullptr);
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.

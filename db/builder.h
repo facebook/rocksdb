@@ -56,6 +56,7 @@ extern Status BuildTable(
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, std::vector<SequenceNumber> snapshots,
+    SequenceNumber earliest_write_conflict_snapshot,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats,

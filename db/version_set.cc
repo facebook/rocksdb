@@ -868,21 +868,24 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       refs_(0),
       version_number_(version_number) {}
 
-void Version::Get(const ReadOptions& read_options,
-                  const LookupKey& k,
-                  std::string* value,
-                  Status* status,
-                  MergeContext* merge_context,
-                  bool* value_found) {
+void Version::Get(const ReadOptions& read_options, const LookupKey& k,
+                  std::string* value, Status* status,
+                  MergeContext* merge_context, bool* value_found,
+                  bool* key_exists, SequenceNumber* seq) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
   assert(status->ok() || status->IsMergeInProgress());
 
+  if (key_exists != nullptr) {
+    // will falsify below if not found
+    *key_exists = true;
+  }
+
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, this->env_);
+      value, value_found, merge_context, this->env_, seq);
 
   FilePicker fp(
       storage_info_.files_, user_key, ikey, &storage_info_.level_files_brief_,
@@ -942,6 +945,9 @@ void Version::Get(const ReadOptions& read_options,
                                    user_key);
     }
   } else {
+    if (key_exists != nullptr) {
+      *key_exists = false;
+    }
     *status = Status::NotFound(); // Use an empty error message for speed
   }
 }

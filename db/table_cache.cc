@@ -219,7 +219,9 @@ Status TableCache::Get(const ReadOptions& options,
   IterKey row_cache_key;
   std::string row_cache_entry_buffer;
 
-  if (ioptions_.row_cache) {
+  // Check row cache if enabled. Since row cache does not currently store
+  // sequence numbers, we cannot use it if we need to fetch the sequence.
+  if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
     uint64_t fd_number = fd.GetNumber();
     auto user_key = ExtractUserKey(k);
     // We use the user key as cache key instead of the internal key,

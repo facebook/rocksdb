@@ -226,13 +226,30 @@ class DBImpl : public DB {
                                                    bool include_history);
 
   // For a given key, check to see if there are any records for this key
-  // in the memtables, including memtable history.
-
-  // On success, *seq will contain the sequence number for the
-  // latest such change or kMaxSequenceNumber if no records were present.
-  // Returns OK on success, other status on error reading memtables.
-  Status GetLatestSequenceForKeyFromMemtable(SuperVersion* sv, const Slice& key,
-                                             SequenceNumber* seq);
+  // in the memtables, including memtable history.  If cache_only is false,
+  // SST files will also be checked.
+  //
+  // If a key is found, *found_record_for_key will be set to true and
+  // *seq will will be set to the stored sequence number for the latest
+  // operation on this key or kMaxSequenceNumber if unknown.
+  // If no key is found, *found_record_for_key will be set to false.
+  //
+  // Note: If cache_only=false, it is possible for *seq to be set to 0 if
+  // the sequence number has been cleared from the record.  If the caller is
+  // holding an active db snapshot, we know the missing sequence must be less
+  // than the snapshot's sequence number (sequence numbers are only cleared
+  // when there are no earlier active snapshots).
+  //
+  // If NotFound is returned and found_record_for_key is set to false, then no
+  // record for this key was found.  If the caller is holding an active db
+  // snapshot, we know that no key could have existing after this snapshot
+  // (since we do not compact keys that have an earlier snapshot).
+  //
+  // Returns OK or NotFound on success,
+  // other status on unexpected error.
+  Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
+                                 bool cache_only, SequenceNumber* seq,
+                                 bool* found_record_for_key);
 
   using DB::AddFile;
   virtual Status AddFile(ColumnFamilyHandle* column_family,

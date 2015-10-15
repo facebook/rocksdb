@@ -59,6 +59,7 @@ Status BuildTable(
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, std::vector<SequenceNumber> snapshots,
+    SequenceNumber earliest_write_conflict_snapshot,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, const Env::IOPriority io_priority,
@@ -97,7 +98,7 @@ Status BuildTable(
 
     CompactionIterator c_iter(iter, internal_comparator.user_comparator(),
                               &merge, kMaxSequenceNumber, &snapshots,
-                              kMaxSequenceNumber, env,
+                              earliest_write_conflict_snapshot, env,
                               true /* internal key corruption is not ok */);
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {

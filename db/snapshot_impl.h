@@ -91,7 +91,7 @@ class SnapshotList {
       ret.push_back(s->next_->number_);
 
       if (oldest_write_conflict_snapshot != nullptr &&
-          *oldest_write_conflict_snapshot != kMaxSequenceNumber &&
+          *oldest_write_conflict_snapshot == kMaxSequenceNumber &&
           s->next_->is_write_conflict_boundary_) {
         // If this is the first write-conflict boundary snapshot in the list,
         // it is the oldest
