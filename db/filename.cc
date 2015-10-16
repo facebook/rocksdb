@@ -21,6 +21,7 @@
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -322,7 +323,9 @@ Status SetCurrentFile(Env* env, const std::string& dbname,
   std::string tmp = TempFileName(dbname, descriptor_number);
   Status s = WriteStringToFile(env, contents.ToString() + "\n", tmp, true);
   if (s.ok()) {
+    TEST_KILL_RANDOM("SetCurrentFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
     s = env->RenameFile(tmp, CurrentFileName(dbname));
+    TEST_KILL_RANDOM("SetCurrentFile:1", rocksdb_kill_odds * REDUCE_ODDS2);
   }
   if (s.ok()) {
     if (directory_to_fsync != nullptr) {
@@ -351,6 +354,7 @@ Status SetIdentityFile(Env* env, const std::string& dbname) {
 
 Status SyncManifest(Env* env, const DBOptions* db_options,
                     WritableFileWriter* file) {
+  TEST_KILL_RANDOM("SyncManifest:0", rocksdb_kill_odds * REDUCE_ODDS2);
   if (db_options->disableDataSync) {
     return Status::OK();
   } else {

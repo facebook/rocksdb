@@ -911,7 +911,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   unique_ptr<WritableFile> writable_file;
   std::string fname = TableFileName(db_options_.db_paths, file_number,
                                     sub_compact->compaction->output_path_id());
-  Status s = env_->NewWritableFile(fname, &writable_file, env_options_);
+  Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
         "[%s] [JOB %d] OpenCompactionOutputFiles for table #%" PRIu64

@@ -2071,8 +2071,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
           "Creating manifest %" PRIu64 "\n", pending_manifest_file_number_);
       unique_ptr<WritableFile> descriptor_file;
       EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
-      s = env_->NewWritableFile(
-          DescriptorFileName(dbname_, pending_manifest_file_number_),
+      s = NewWritableFile(
+          env_, DescriptorFileName(dbname_, pending_manifest_file_number_),
           &descriptor_file, opt_env_opts);
       if (s.ok()) {
         descriptor_file->SetPreallocationBlockSize(
@@ -2099,6 +2099,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
               "Unable to Encode VersionEdit:" + e->DebugString(true));
           break;
         }
+        TEST_KILL_RANDOM("VersionSet::LogAndApply:BeforeAddRecord",
+                         rocksdb_kill_odds * REDUCE_ODDS2);
         s = descriptor_log_->AddRecord(record);
         if (!s.ok()) {
           break;

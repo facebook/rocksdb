@@ -76,7 +76,7 @@ Status BuildTable(
     unique_ptr<WritableFileWriter> file_writer;
     {
       unique_ptr<WritableFile> file;
-      s = env->NewWritableFile(fname, &file, env_options);
+      s = NewWritableFile(env, fname, &file, env_options);
       if (!s.ok()) {
         return s;
       }
