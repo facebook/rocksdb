@@ -14,6 +14,7 @@
 #include <string>
 #include <utility>
 
+#include "util/kv_map.h"
 #include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
@@ -21,7 +22,6 @@
 #include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "util/mutexlock.h"
-#include "util/stl_wrappers.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 

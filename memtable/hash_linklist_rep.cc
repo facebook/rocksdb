@@ -5,7 +5,7 @@
 //
 
 #ifndef ROCKSDB_LITE
-#include "util/hash_linklist_rep.h"
+#include "memtable/hash_linklist_rep.h"
 
 #include <algorithm>
 #include <atomic>

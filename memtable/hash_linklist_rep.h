@@ -6,37 +6,42 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
 #pragma once
+#ifndef ROCKSDB_LITE
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
 
 namespace rocksdb {
 
-class HashSkipListRepFactory : public MemTableRepFactory {
+class HashLinkListRepFactory : public MemTableRepFactory {
  public:
-  explicit HashSkipListRepFactory(
-    size_t bucket_count,
-    int32_t skiplist_height,
-    int32_t skiplist_branching_factor)
+  explicit HashLinkListRepFactory(size_t bucket_count,
+                                  uint32_t threshold_use_skiplist,
+                                  size_t huge_page_tlb_size,
+                                  int bucket_entries_logging_threshold,
+                                  bool if_log_bucket_dist_when_flash)
       : bucket_count_(bucket_count),
-        skiplist_height_(skiplist_height),
-        skiplist_branching_factor_(skiplist_branching_factor) { }
+        threshold_use_skiplist_(threshold_use_skiplist),
+        huge_page_tlb_size_(huge_page_tlb_size),
+        bucket_entries_logging_threshold_(bucket_entries_logging_threshold),
+        if_log_bucket_dist_when_flash_(if_log_bucket_dist_when_flash) {}
 
-  virtual ~HashSkipListRepFactory() {}
+  virtual ~HashLinkListRepFactory() {}
 
   virtual MemTableRep* CreateMemTableRep(
       const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
       const SliceTransform* transform, Logger* logger) override;
 
   virtual const char* Name() const override {
-    return "HashSkipListRepFactory";
+    return "HashLinkListRepFactory";
   }
 
  private:
   const size_t bucket_count_;
-  const int32_t skiplist_height_;
-  const int32_t skiplist_branching_factor_;
+  const uint32_t threshold_use_skiplist_;
+  const size_t huge_page_tlb_size_;
+  int bucket_entries_logging_threshold_;
+  bool if_log_bucket_dist_when_flash_;
 };
 
 }

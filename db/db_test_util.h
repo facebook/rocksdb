@@ -30,6 +30,7 @@
 #include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
+#include "memtable/hash_linklist_rep.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
@@ -45,7 +46,6 @@
 #include "table/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
-#include "util/hash_linklist_rep.h"
 #include "util/mock_env.h"
 #include "util/mutexlock.h"
 

@@ -46,6 +46,9 @@ LIB_SOURCES =                                                   \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
   db/write_thread.cc                                            \
+  memtable/hash_cuckoo_rep.cc                                   \
+  memtable/hash_linklist_rep.cc                                 \
+  memtable/hash_skiplist_rep.cc                                 \
   port/stack_trace.cc                                           \
   port/port_posix.cc                                            \
   table/adaptive_table_factory.cc                               \
@@ -96,9 +99,6 @@ LIB_SOURCES =                                                   \
   util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
-  util/hash_cuckoo_rep.cc                                       \
-  util/hash_linklist_rep.cc                                     \
-  util/hash_skiplist_rep.cc                                     \
   util/histogram.cc                                             \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
