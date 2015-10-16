@@ -35,10 +35,15 @@ class AlignedBuffer {
 
 public:
   AlignedBuffer()
-    : alignment_(),
-      capacity_(0),
-      cursize_(0),
-      bufstart_(nullptr) {
+    : alignment_() {
+    Reset();
+  }
+
+  void Reset() {
+    buf_.reset();
+    capacity_ = 0;
+    cursize_ = 0;
+    bufstart_ = nullptr;
   }
 
   AlignedBuffer(AlignedBuffer&& o) ROCKSDB_NOEXCEPT {
