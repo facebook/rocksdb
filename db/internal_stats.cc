@@ -130,6 +130,8 @@ static const std::string aggregated_table_properties =
     "aggregated-table-properties";
 static const std::string aggregated_table_properties_at_level =
     aggregated_table_properties + "-at-level";
+static const std::string num_running_compactions = "num-running-compactions";
+static const std::string num_running_flushes = "num-running-flushes";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -143,6 +145,10 @@ const std::string DB::Properties::kMemTableFlushPending =
                       rocksdb_prefix + mem_table_flush_pending;
 const std::string DB::Properties::kCompactionPending =
                       rocksdb_prefix + compaction_pending;
+const std::string DB::Properties::kNumRunningCompactions =
+    rocksdb_prefix + num_running_compactions;
+const std::string DB::Properties::kNumRunningFlushes =
+    rocksdb_prefix + num_running_flushes;
 const std::string DB::Properties::kBackgroundErrors =
                       rocksdb_prefix + background_errors;
 const std::string DB::Properties::kCurSizeActiveMemTable =
@@ -260,6 +266,10 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kTotalSstFilesSize;
   } else if (in == estimate_pending_comp_bytes) {
     return kEstimatePendingCompactionBytes;
+  } else if (in == num_running_flushes) {
+    return kNumRunningFlushes;
+  } else if (in == num_running_compactions) {
+    return kNumRunningCompactions;
   }
   return kUnknown;
 }
@@ -388,10 +398,16 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       // Return number of mem tables that are ready to flush (made immutable)
       *value = (cfd_->imm()->IsFlushPending() ? 1 : 0);
       return true;
+    case kNumRunningFlushes:
+      *value = db->num_running_flushes();
+      return true;
     case kCompactionPending:
       // 1 if the system already determines at least one compaction is needed.
       // 0 otherwise,
       *value = (cfd_->compaction_picker()->NeedsCompaction(vstorage) ? 1 : 0);
+      return true;
+    case kNumRunningCompactions:
+      *value = db->num_running_compactions_;
       return true;
     case kBackgroundErrors:
       // Accumulated number of  errors in background flushes or compactions.

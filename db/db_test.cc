@@ -6941,6 +6941,10 @@ TEST_F(DBTest, ThreadStatusFlush) {
   ASSERT_EQ("v1", Get(1, "foo"));
   VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0);
 
+  uint64_t num_running_flushes = 0;
+  db_->GetIntProperty(DB::Properties::kNumRunningFlushes, &num_running_flushes);
+  ASSERT_EQ(num_running_flushes, 0);
+
   Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
   Put(1, "k2", std::string(100000, 'y'));  // Trigger flush
 
@@ -6948,10 +6952,11 @@ TEST_F(DBTest, ThreadStatusFlush) {
   // running when we perform VerifyOperationCount().
   TEST_SYNC_POINT("DBTest::ThreadStatusFlush:1");
   VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 1);
+  db_->GetIntProperty(DB::Properties::kNumRunningFlushes, &num_running_flushes);
+  ASSERT_EQ(num_running_flushes, 1);
   // This second sync point is to ensure the flush job will not
   // be completed until we already perform VerifyOperationCount().
   TEST_SYNC_POINT("DBTest::ThreadStatusFlush:2");
-
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -6996,6 +7001,10 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
     }
     // This makes sure a compaction won't be scheduled until
     // we have done with the above Put Phase.
+    uint64_t num_running_compactions = 0;
+    db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                        &num_running_compactions);
+    ASSERT_EQ(num_running_compactions, 0);
     TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:0");
     ASSERT_GE(NumTableFilesAtLevel(0),
               options.level0_file_num_compaction_trigger);
@@ -7010,6 +7019,9 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
       // If thread tracking is not enabled, compaction count should be 0.
       VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 0);
     }
+    db_->GetIntProperty(DB::Properties::kNumRunningCompactions,
+                        &num_running_compactions);
+    ASSERT_EQ(num_running_compactions, 1);
     // TODO(yhchiang): adding assert to verify each compaction stage.
     TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:2");
 

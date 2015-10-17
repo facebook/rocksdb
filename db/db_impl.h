@@ -363,6 +363,20 @@ class DBImpl : public DB {
   // Same as above, should called without mutex held and not on write thread.
   ColumnFamilyHandle* GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
 
+  // Returns the number of currently running flushes.
+  // REQUIREMENT: mutex_ must be held when calling this function.
+  int num_running_flushes() {
+    mutex_.AssertHeld();
+    return num_running_flushes_;
+  }
+
+  // Returns the number of currently running compactions.
+  // REQUIREMENT: mutex_ must be held when calling this function.
+  int num_running_compactions() {
+    mutex_.AssertHeld();
+    return num_running_compactions_;
+  }
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -687,6 +701,9 @@ class DBImpl : public DB {
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_;
 
+  // stores the number of compactions are currently running
+  int num_running_compactions_;
+
   // If non-zero, MaybeScheduleFlushOrCompaction() will only schedule manual
   // compactions (if manual_compaction_ is not null). This mechanism enables
   // manual compactions to wait until all other compactions are finished.
@@ -694,6 +711,9 @@ class DBImpl : public DB {
 
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_;
+
+  // stores the number of flushes are currently running
+  int num_running_flushes_;
 
   // Information for a manual compaction
   struct ManualCompaction {

@@ -245,8 +245,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
       bg_compaction_scheduled_(0),
+      num_running_compactions_(0),
       bg_manual_only_(0),
       bg_flush_scheduled_(0),
+      num_running_flushes_(0),
       manual_compaction_(nullptr),
       disable_delete_obsolete_files_(0),
       delete_obsolete_files_next_run_(
@@ -2404,6 +2406,7 @@ void DBImpl::BackgroundCallFlush() {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
     InstrumentedMutexLock l(&mutex_);
+    num_running_flushes_++;
 
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
@@ -2449,6 +2452,8 @@ void DBImpl::BackgroundCallFlush() {
       mutex_.Lock();
     }
 
+    assert(num_running_flushes_ > 0);
+    num_running_flushes_--;
     bg_flush_scheduled_--;
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
@@ -2469,6 +2474,7 @@ void DBImpl::BackgroundCallCompaction() {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
     InstrumentedMutexLock l(&mutex_);
+    num_running_compactions_++;
 
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
@@ -2517,6 +2523,8 @@ void DBImpl::BackgroundCallCompaction() {
       mutex_.Lock();
     }
 
+    assert(num_running_compactions_ > 0);
+    num_running_compactions_--;
     bg_compaction_scheduled_--;
 
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
