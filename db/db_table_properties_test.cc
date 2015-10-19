@@ -188,7 +188,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
     // create a bunch of ranges
     std::vector<std::string> random_keys;
     auto n = 2 * rnd.Uniform(50);
-    for (uint i = 0; i < n; ++i) {
+    for (uint32_t i = 0; i < n; ++i) {
       random_keys.push_back(test::RandomKey(&rnd, 5));
     }
 
