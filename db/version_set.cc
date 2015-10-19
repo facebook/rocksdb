@@ -524,7 +524,7 @@ class BaseReferencedVersionBuilder {
   explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd)
       : version_builder_(new VersionBuilder(
             cfd->current()->version_set()->env_options(), cfd->table_cache(),
-            cfd->current()->storage_info())),
+            cfd->current()->storage_info(), cfd->ioptions()->info_log)),
         version_(cfd->current()) {
     version_->Ref();
   }
@@ -1262,13 +1262,27 @@ bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
 }
 } // anonymous namespace
 
-void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
+void VersionStorageInfo::AddFile(int level, FileMetaData* f, Logger* info_log) {
   auto* level_files = &files_[level];
   // Must not overlap
-  assert(level <= 0 || level_files->empty() ||
-         internal_comparator_->Compare(
-             (*level_files)[level_files->size() - 1]->largest, f->smallest) <
-             0);
+#ifndef NDEBUG
+  if (level > 0 && !level_files->empty() &&
+      internal_comparator_->Compare(
+          (*level_files)[level_files->size() - 1]->largest, f->smallest) >= 0) {
+    auto* f2 = (*level_files)[level_files->size() - 1];
+    if (info_log != nullptr) {
+      Error(info_log, "Adding new file %" PRIu64
+                      " range (%s, %s) to level %d but overlapping "
+                      "with existing file %" PRIu64 " %s %s",
+            f->fd.GetNumber(), f->smallest.DebugString(true).c_str(),
+            f->largest.DebugString(true).c_str(), level, f2->fd.GetNumber(),
+            f2->smallest.DebugString(true).c_str(),
+            f2->largest.DebugString(true).c_str());
+      LogFlush(info_log);
+    }
+    assert(false);
+  }
+#endif
   f->refs++;
   level_files->push_back(f);
 }
