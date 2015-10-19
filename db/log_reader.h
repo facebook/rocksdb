@@ -124,6 +124,8 @@ class Reader {
     kBadRecord = kMaxRecordType + 2,
     // Returned when we fail to read a valid header.
     kBadHeader = kMaxRecordType + 3,
+    // Returned when we read an old record from a previous user of the log.
+    kOldRecord = kMaxRecordType + 4,
   };
 
   // Skips all blocks that are completely before "initial_offset_".
@@ -133,6 +135,9 @@ class Reader {
 
   // Return type, or one of the preceding special values
   unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);
+
+  // Read some more
+  bool ReadMore(size_t* drop_size, int *error);
 
   // Reports dropped bytes to the reporter.
   // buffer_ must be updated to remove the dropped bytes prior to invocation.

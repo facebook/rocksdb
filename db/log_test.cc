@@ -153,7 +153,7 @@ class LogTest : public ::testing::TestWithParam<int> {
 
   // Record metadata for testing initial offset functionality
   static size_t initial_offset_record_sizes_[];
-  static uint64_t initial_offset_last_record_offsets_[];
+  uint64_t initial_offset_last_record_offsets_[4];
 
  public:
   LogTest()
@@ -163,8 +163,16 @@ class LogTest : public ::testing::TestWithParam<int> {
         source_holder_(
             test::GetSequentialFileReader(new StringSource(reader_contents_))),
         writer_(std::move(dest_holder_), 123, GetParam()),
-        reader_(NULL, std::move(source_holder_), &report_,
-                true /*checksum*/, 0 /*initial_offset*/, 123) {}
+        reader_(NULL, std::move(source_holder_), &report_, true /*checksum*/,
+                0 /*initial_offset*/, 123) {
+    int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+    initial_offset_last_record_offsets_[0] = 0;
+    initial_offset_last_record_offsets_[1] = header_size + 10000;
+    initial_offset_last_record_offsets_[2] = 2 * (header_size + 10000);
+    initial_offset_last_record_offsets_[3] = 2 * (header_size + 10000) +
+                                             (2 * log::kBlockSize - 1000) +
+                                             3 * header_size;
+  }
 
   void Write(const std::string& msg) {
     writer_.AddRecord(Slice(msg));
@@ -200,9 +208,11 @@ class LogTest : public ::testing::TestWithParam<int> {
     dest->Drop(bytes);
   }
 
-  void FixChecksum(int header_offset, int len) {
+  void FixChecksum(int header_offset, int len, bool recyclable) {
     // Compute crc of type/len/data
-    uint32_t crc = crc32c::Value(&dest_contents()[header_offset+6], 1 + len);
+    int header_size = recyclable ? kRecyclableHeaderSize : kHeaderSize;
+    uint32_t crc = crc32c::Value(&dest_contents()[header_offset + 6],
+                                 header_size - 6 + len);
     crc = crc32c::Mask(crc);
     EncodeFixed32(&dest_contents()[header_offset], crc);
   }
@@ -292,13 +302,6 @@ size_t LogTest::initial_offset_record_sizes_[] =
      2 * log::kBlockSize - 1000,  // Span three blocks
      1};
 
-uint64_t LogTest::initial_offset_last_record_offsets_[] =
-    {0,
-     kHeaderSize + 10000,
-     2 * (kHeaderSize + 10000),
-     2 * (kHeaderSize + 10000) +
-         (2 * log::kBlockSize - 1000) + 3 * kHeaderSize};
-
 TEST_P(LogTest, Empty) { ASSERT_EQ("EOF", Read()); }
 
 TEST_P(LogTest, ReadWrite) {
@@ -336,9 +339,10 @@ TEST_P(LogTest, Fragmentation) {
 
 TEST_P(LogTest, MarginalTrailer) {
   // Make a trailer that is exactly the same length as an empty record.
-  const int n = kBlockSize - 2*kHeaderSize;
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  const int n = kBlockSize - 2 * header_size;
   Write(BigString("foo", n));
-  ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize), WrittenBytes());
+  ASSERT_EQ((unsigned int)(kBlockSize - header_size), WrittenBytes());
   Write("");
   Write("bar");
   ASSERT_EQ(BigString("foo", n), Read());
@@ -349,9 +353,10 @@ TEST_P(LogTest, MarginalTrailer) {
 
 TEST_P(LogTest, MarginalTrailer2) {
   // Make a trailer that is exactly the same length as an empty record.
-  const int n = kBlockSize - 2*kHeaderSize;
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  const int n = kBlockSize - 2 * header_size;
   Write(BigString("foo", n));
-  ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize), WrittenBytes());
+  ASSERT_EQ((unsigned int)(kBlockSize - header_size), WrittenBytes());
   Write("bar");
   ASSERT_EQ(BigString("foo", n), Read());
   ASSERT_EQ("bar", Read());
@@ -361,9 +366,10 @@ TEST_P(LogTest, MarginalTrailer2) {
 }
 
 TEST_P(LogTest, ShortTrailer) {
-  const int n = kBlockSize - 2*kHeaderSize + 4;
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  const int n = kBlockSize - 2 * header_size + 4;
   Write(BigString("foo", n));
-  ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize + 4), WrittenBytes());
+  ASSERT_EQ((unsigned int)(kBlockSize - header_size + 4), WrittenBytes());
   Write("");
   Write("bar");
   ASSERT_EQ(BigString("foo", n), Read());
@@ -373,9 +379,10 @@ TEST_P(LogTest, ShortTrailer) {
 }
 
 TEST_P(LogTest, AlignedEof) {
-  const int n = kBlockSize - 2*kHeaderSize + 4;
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  const int n = kBlockSize - 2 * header_size + 4;
   Write(BigString("foo", n));
-  ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize + 4), WrittenBytes());
+  ASSERT_EQ((unsigned int)(kBlockSize - header_size + 4), WrittenBytes());
   ASSERT_EQ(BigString("foo", n), Read());
   ASSERT_EQ("EOF", Read());
 }
@@ -407,7 +414,7 @@ TEST_P(LogTest, BadRecordType) {
   Write("foo");
   // Type is stored in header[6]
   IncrementByte(6, 100);
-  FixChecksum(0, 3);
+  FixChecksum(0, 3, false);
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("unknown record type"));
@@ -432,7 +439,8 @@ TEST_P(LogTest, TruncatedTrailingRecordIsNotIgnored) {
 }
 
 TEST_P(LogTest, BadLength) {
-  const int kPayloadSize = kBlockSize - kHeaderSize;
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  const int kPayloadSize = kBlockSize - header_size;
   Write(BigString("bar", kPayloadSize));
   Write("foo");
   // Least significant size byte is stored in header[4].
@@ -459,17 +467,17 @@ TEST_P(LogTest, BadLengthAtEndIsNotIgnored) {
 }
 
 TEST_P(LogTest, ChecksumMismatch) {
-  Write("foo");
-  IncrementByte(0, 10);
+  Write("foooooo");
+  IncrementByte(0, 14);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(10U, DroppedBytes());
+  ASSERT_EQ(14U + 4 * !!GetParam(), DroppedBytes());
   ASSERT_EQ("OK", MatchError("checksum mismatch"));
 }
 
 TEST_P(LogTest, UnexpectedMiddleType) {
   Write("foo");
-  SetByte(6, kMiddleType);
-  FixChecksum(0, 3);
+  SetByte(6, GetParam() ? kRecyclableMiddleType : kMiddleType);
+  FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("missing start"));
@@ -477,8 +485,8 @@ TEST_P(LogTest, UnexpectedMiddleType) {
 
 TEST_P(LogTest, UnexpectedLastType) {
   Write("foo");
-  SetByte(6, kLastType);
-  FixChecksum(0, 3);
+  SetByte(6, GetParam() ? kRecyclableLastType : kLastType);
+  FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("missing start"));
@@ -487,8 +495,8 @@ TEST_P(LogTest, UnexpectedLastType) {
 TEST_P(LogTest, UnexpectedFullType) {
   Write("foo");
   Write("bar");
-  SetByte(6, kFirstType);
-  FixChecksum(0, 3);
+  SetByte(6, GetParam() ? kRecyclableFirstType : kFirstType);
+  FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ("bar", Read());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
@@ -498,8 +506,8 @@ TEST_P(LogTest, UnexpectedFullType) {
 TEST_P(LogTest, UnexpectedFirstType) {
   Write("foo");
   Write(BigString("bar", 100000));
-  SetByte(6, kFirstType);
-  FixChecksum(0, 3);
+  SetByte(6, GetParam() ? kRecyclableFirstType : kFirstType);
+  FixChecksum(0, 3, !!GetParam());
   ASSERT_EQ(BigString("bar", 100000), Read());
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
@@ -573,13 +581,25 @@ TEST_P(LogTest, ReadSecondOneOff) { CheckInitialOffsetRecord(1, 1); }
 
 TEST_P(LogTest, ReadSecondTenThousand) { CheckInitialOffsetRecord(10000, 1); }
 
-TEST_P(LogTest, ReadSecondStart) { CheckInitialOffsetRecord(10007, 1); }
+TEST_P(LogTest, ReadSecondStart) {
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  CheckInitialOffsetRecord(10000 + header_size, 1);
+}
 
-TEST_P(LogTest, ReadThirdOneOff) { CheckInitialOffsetRecord(10008, 2); }
+TEST_P(LogTest, ReadThirdOneOff) {
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  CheckInitialOffsetRecord(10000 + header_size + 1, 2);
+}
 
-TEST_P(LogTest, ReadThirdStart) { CheckInitialOffsetRecord(20014, 2); }
+TEST_P(LogTest, ReadThirdStart) {
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  CheckInitialOffsetRecord(20000 + 2 * header_size, 2);
+}
 
-TEST_P(LogTest, ReadFourthOneOff) { CheckInitialOffsetRecord(20015, 3); }
+TEST_P(LogTest, ReadFourthOneOff) {
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  CheckInitialOffsetRecord(20000 + 2 * header_size + 1, 3);
+}
 
 TEST_P(LogTest, ReadFourthFirstBlockTrailer) {
   CheckInitialOffsetRecord(log::kBlockSize - 4, 3);
@@ -594,8 +614,9 @@ TEST_P(LogTest, ReadFourthLastBlock) {
 }
 
 TEST_P(LogTest, ReadFourthStart) {
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
   CheckInitialOffsetRecord(
-      2 * (kHeaderSize + 1000) + (2 * log::kBlockSize - 1000) + 3 * kHeaderSize,
+      2 * (header_size + 1000) + (2 * log::kBlockSize - 1000) + 3 * header_size,
       3);
 }
 
@@ -606,7 +627,8 @@ TEST_P(LogTest, ReadPastEnd) { CheckOffsetPastEndReturnsNoRecords(5); }
 TEST_P(LogTest, ClearEofSingleBlock) {
   Write("foo");
   Write("bar");
-  ForceEOF(3 + kHeaderSize + 2);
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  ForceEOF(3 + header_size + 2);
   ASSERT_EQ("foo", Read());
   UnmarkEOF();
   ASSERT_EQ("bar", Read());
@@ -620,10 +642,11 @@ TEST_P(LogTest, ClearEofSingleBlock) {
 
 TEST_P(LogTest, ClearEofMultiBlock) {
   size_t num_full_blocks = 5;
-  size_t n = (kBlockSize - kHeaderSize) * num_full_blocks + 25;
+  int header_size = GetParam() ? kRecyclableHeaderSize : kHeaderSize;
+  size_t n = (kBlockSize - header_size) * num_full_blocks + 25;
   Write(BigString("foo", n));
   Write(BigString("bar", n));
-  ForceEOF(n + num_full_blocks * kHeaderSize + 10);
+  ForceEOF(n + num_full_blocks * header_size + header_size + 3);
   ASSERT_EQ(BigString("foo", n), Read());
   ASSERT_TRUE(IsEOF());
   UnmarkEOF();

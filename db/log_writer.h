@@ -43,7 +43,7 @@ namespace log {
  * Data is written out in kBlockSize chunks. If next record does not fit
  * into the space left, the leftover space will be padded with \0.
  *
- * Record format:
+ * Legacy record format:
  *
  * +---------+-----------+-----------+--- ... ---+
  * |CRC (4B) | Size (2B) | Type (1B) | Payload   |
@@ -57,6 +57,15 @@ namespace log {
  *        blocks that are larger than kBlockSize
  * Payload = Byte stream as long as specified by the payload size
  *
+ * Recyclable record format:
+ *
+ * +---------+-----------+-----------+----------------+--- ... ---+
+ * |CRC (4B) | Size (2B) | Type (1B) | Log number (4B)| Payload   |
+ * +---------+-----------+-----------+----------------+--- ... ---+
+ *
+ * Same as above, with the addition of
+ * Log number = 32bit log file number, so that we can distinguish between
+ * records written by the most recent log writer vs a previous one.
  */
 class Writer {
  public:

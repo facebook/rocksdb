@@ -95,6 +95,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
     const unsigned int record_type = ReadPhysicalRecord(&fragment, &drop_size);
     switch (record_type) {
       case kFullType:
+      case kRecyclableFullType:
         if (in_fragmented_record && !scratch->empty()) {
           // Handle bug in earlier versions of log::Writer where
           // it could emit an empty kFirstType record at the tail end
@@ -109,6 +110,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         return true;
 
       case kFirstType:
+      case kRecyclableFirstType:
         if (in_fragmented_record && !scratch->empty()) {
           // Handle bug in earlier versions of log::Writer where
           // it could emit an empty kFirstType record at the tail end
@@ -122,6 +124,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       case kMiddleType:
+      case kRecyclableMiddleType:
         if (!in_fragmented_record) {
           ReportCorruption(fragment.size(),
                            "missing start of fragmented record(1)");
@@ -131,6 +134,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       case kLastType:
+      case kRecyclableLastType:
         if (!in_fragmented_record) {
           ReportCorruption(fragment.size(),
                            "missing start of fragmented record(2)");
@@ -161,6 +165,23 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           scratch->clear();
         }
         return false;
+
+      case kOldRecord:
+        if (wal_recovery_mode != WALRecoveryMode::kSkipAnyCorruptedRecords) {
+          // Treat a record from a previous instance of the log as EOF.
+          if (in_fragmented_record) {
+            if (wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency) {
+              // in clean shutdown we don't expect any error in the log files
+              ReportCorruption(scratch->size(), "error reading trailing data");
+            }
+            // This can be caused by the writer dying immediately after
+            //  writing a physical record but before completing the next; don't
+            //  treat it as a corruption, just ignore the entire logical record.
+            scratch->clear();
+          }
+          return false;
+        }
+      // fall-thru
 
       case kBadRecord:
         if (in_fragmented_record) {
@@ -263,37 +284,49 @@ void Reader::ReportDrop(size_t bytes, const Status& reason) {
   }
 }
 
+bool Reader::ReadMore(size_t* drop_size, int *error) {
+  if (!eof_ && !read_error_) {
+    // Last read was a full read, so this is a trailer to skip
+    buffer_.clear();
+    Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
+    end_of_buffer_offset_ += buffer_.size();
+    if (!status.ok()) {
+      buffer_.clear();
+      ReportDrop(kBlockSize, status);
+      read_error_ = true;
+      *error = kEof;
+      return false;
+    } else if (buffer_.size() < (size_t)kBlockSize) {
+      eof_ = true;
+      eof_offset_ = buffer_.size();
+    }
+    return true;
+  } else {
+    // Note that if buffer_ is non-empty, we have a truncated header at the
+    //  end of the file, which can be caused by the writer crashing in the
+    //  middle of writing the header. Unless explicitly requested we don't
+    //  considering this an error, just report EOF.
+    if (buffer_.size()) {
+      *drop_size = buffer_.size();
+      buffer_.clear();
+      *error = kBadHeader;
+      return false;
+    }
+    buffer_.clear();
+    *error = kEof;
+    return false;
+  }
+}
+
 unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
   while (true) {
+    // We need at least the minimum header size
     if (buffer_.size() < (size_t)kHeaderSize) {
-      if (!eof_ && !read_error_) {
-        // Last read was a full read, so this is a trailer to skip
-        buffer_.clear();
-        Status status = file_->Read(kBlockSize, &buffer_, backing_store_);
-        end_of_buffer_offset_ += buffer_.size();
-        if (!status.ok()) {
-          buffer_.clear();
-          ReportDrop(kBlockSize, status);
-          read_error_ = true;
-          return kEof;
-        } else if (buffer_.size() < (size_t)kBlockSize) {
-          eof_ = true;
-          eof_offset_ = buffer_.size();
-        }
-        continue;
-      } else {
-        // Note that if buffer_ is non-empty, we have a truncated header at the
-        //  end of the file, which can be caused by the writer crashing in the
-        //  middle of writing the header. Unless explicitly requested we don't
-        //  considering this an error, just report EOF.
-        if (buffer_.size()) {
-          *drop_size = buffer_.size();
-          buffer_.clear();
-          return kBadHeader;
-        }
-        buffer_.clear();
-        return kEof;
+      int r;
+      if (!ReadMore(drop_size, &r)) {
+	return r;
       }
+      continue;
     }
 
     // Parse the header
@@ -302,7 +335,23 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     const uint32_t b = static_cast<uint32_t>(header[5]) & 0xff;
     const unsigned int type = header[6];
     const uint32_t length = a | (b << 8);
-    if (kHeaderSize + length > buffer_.size()) {
+    int header_size = kHeaderSize;
+    if (type >= kRecyclableFullType && type <= kRecyclableLastType) {
+      header_size = kRecyclableHeaderSize;
+      // We need enough for the larger header
+      if (buffer_.size() < (size_t)kRecyclableHeaderSize) {
+	int r;
+	if (!ReadMore(drop_size, &r)) {
+          return r;
+        }
+	continue;
+      }
+      const uint32_t log_num = DecodeFixed32(header + 7);
+      if (log_num != log_number_) {
+        return kOldRecord;
+      }
+    }
+    if (header_size + length > buffer_.size()) {
       *drop_size = buffer_.size();
       buffer_.clear();
       if (!eof_) {
@@ -331,7 +380,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     // Check crc
     if (checksum_) {
       uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(header));
-      uint32_t actual_crc = crc32c::Value(header + 6, 1 + length);
+      uint32_t actual_crc = crc32c::Value(header + 6, length + header_size - 6);
       if (actual_crc != expected_crc) {
         // Drop the rest of the buffer since "length" itself may have
         // been corrupted and if we trust it, we could find some
@@ -344,16 +393,16 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       }
     }
 
-    buffer_.remove_prefix(kHeaderSize + length);
+    buffer_.remove_prefix(header_size + length);
 
     // Skip physical record that started before initial_offset_
-    if (end_of_buffer_offset_ - buffer_.size() - kHeaderSize - length <
+    if (end_of_buffer_offset_ - buffer_.size() - header_size - length <
         initial_offset_) {
       result->clear();
       return kBadRecord;
     }
 
-    *result = Slice(header + kHeaderSize, length);
+    *result = Slice(header + header_size, length);
     return type;
   }
 }
