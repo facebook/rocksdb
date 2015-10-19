@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+#include <string>
 #include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
 #include "port/port.h"
@@ -36,8 +37,8 @@ class SequentialFileReader {
     return *this;
   }
 
-  SequentialFileReader(SequentialFileReader&) = delete;
-  SequentialFileReader& operator=(SequentialFileReader&) = delete;
+  SequentialFileReader(const SequentialFileReader&) = delete;
+  SequentialFileReader& operator=(const SequentialFileReader&) = delete;
 
   Status Read(size_t n, Slice* result, char* scratch);
 
@@ -163,4 +164,8 @@ class WritableFileWriter {
   size_t RequestToken(size_t bytes, bool align);
   Status SyncInternal(bool use_fsync);
 };
+
+extern Status NewWritableFile(Env* env, const std::string& fname,
+                              unique_ptr<WritableFile>* result,
+                              const EnvOptions& options);
 }  // namespace rocksdb

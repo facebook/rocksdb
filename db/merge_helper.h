@@ -22,6 +22,7 @@ class Iterator;
 class Logger;
 class MergeOperator;
 class Statistics;
+class InternalIterator;
 
 class MergeHelper {
  public:
@@ -82,7 +83,8 @@ class MergeHelper {
   //   with asserts removed).
   //
   // REQUIRED: The first key in the input is not corrupted.
-  Status MergeUntil(Iterator* iter, const SequenceNumber stop_before = 0,
+  Status MergeUntil(InternalIterator* iter,
+                    const SequenceNumber stop_before = 0,
                     const bool at_bottom = false);
 
   // Filters a merge operand using the compaction filter specified

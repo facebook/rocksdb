@@ -38,7 +38,10 @@ enum DBPropertyType : uint32_t {
                                  // in memory that have already been flushed
   kMemtableFlushPending,         // Return 1 if mem table flushing is pending,
                                  // otherwise 0.
+  kNumRunningFlushes,      // Return the number of currently running flushes.
   kCompactionPending,      // Return 1 if a compaction is pending. Otherwise 0.
+  kNumRunningCompactions,  // Return the number of currently running
+                           // compactions.
   kBackgroundErrors,       // Return accumulated background errors encountered.
   kCurSizeActiveMemTable,  // Return current size of the active memtable
   kCurSizeAllMemTables,    // Return current size of unflushed
@@ -49,10 +52,10 @@ enum DBPropertyType : uint32_t {
                                    // memtable.
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
                                    // the immutable mem tables.
-  kNumDeletesInMutableMemtable,    // Return number of entries in the mutable
-                                   // memtable.
-  kNumDeletesInImmutableMemtable,  // Return sum of number of deletes in all
-                                   // the immutable mem tables.
+  kNumDeletesInMutableMemtable,    // Return number of deletion entries in the
+                                   // mutable memtable.
+  kNumDeletesInImmutableMemtable,  // Return the total number of deletion
+                                   // entries in all the immutable mem tables.
   kEstimatedNumKeys,  // Estimated total number of keys in the database.
   kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
   kIsFileDeletionEnabled,         // Equals disable_delete_obsolete_files_,

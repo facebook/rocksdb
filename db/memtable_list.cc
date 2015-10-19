@@ -138,9 +138,9 @@ bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
   return false;
 }
 
-void MemTableListVersion::AddIterators(const ReadOptions& options,
-                                       std::vector<Iterator*>* iterator_list,
-                                       Arena* arena) {
+void MemTableListVersion::AddIterators(
+    const ReadOptions& options, std::vector<InternalIterator*>* iterator_list,
+    Arena* arena) {
   for (auto& m : memlist_) {
     iterator_list->push_back(m->NewIterator(options, arena));
   }

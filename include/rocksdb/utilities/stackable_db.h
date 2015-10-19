@@ -279,6 +279,13 @@ class StackableDB : public DB {
     return db_->GetPropertiesOfAllTables(column_family, props);
   }
 
+  using DB::GetPropertiesOfTablesInRange;
+  virtual Status GetPropertiesOfTablesInRange(
+      ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
+      TablePropertiesCollection* props) override {
+    return db_->GetPropertiesOfTablesInRange(column_family, range, n, props);
+  }
+
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options) override {

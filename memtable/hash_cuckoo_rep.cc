@@ -5,8 +5,7 @@
 //
 
 #ifndef ROCKSDB_LITE
-
-#include "util/hash_cuckoo_rep.h"
+#include "memtable/hash_cuckoo_rep.h"
 
 #include <algorithm>
 #include <atomic>
@@ -18,9 +17,10 @@
 
 #include "db/memtable.h"
 #include "db/skiplist.h"
+#include "memtable/stl_wrappers.h"
+#include "port/port.h"
 #include "rocksdb/memtablerep.h"
 #include "util/murmurhash.h"
-#include "util/stl_wrappers.h"
 
 namespace rocksdb {
 namespace {

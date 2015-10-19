@@ -22,6 +22,7 @@
 #include "table/bloom_block.h"
 #include "table/filter_block.h"
 #include "table/format.h"
+#include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
 #include "table/plain_table_factory.h"
@@ -51,7 +52,7 @@ inline uint32_t GetFixed32Element(const char* base, size_t offset) {
 }  // namespace
 
 // Iterator to iterate IndexedTable
-class PlainTableIterator : public Iterator {
+class PlainTableIterator : public InternalIterator {
  public:
   explicit PlainTableIterator(PlainTableReader* table, bool use_prefix_seek);
   ~PlainTableIterator();
@@ -186,10 +187,10 @@ Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
 void PlainTableReader::SetupForCompaction() {
 }
 
-Iterator* PlainTableReader::NewIterator(const ReadOptions& options,
-                                        Arena* arena) {
+InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
+                                                Arena* arena) {
   if (options.total_order_seek && !IsTotalOrderMode()) {
-    return NewErrorIterator(
+    return NewErrorInternalIterator(
         Status::InvalidArgument("total_order_seek not supported"), arena);
   }
   if (arena == nullptr) {

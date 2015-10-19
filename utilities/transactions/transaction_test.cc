@@ -2161,6 +2161,53 @@ TEST_F(TransactionTest, DeferSnapshotSavePointTest) {
   delete txn1;
 }
 
+TEST_F(TransactionTest, ClearSnapshotTest) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  string value;
+  Status s;
+
+  s = db->Put(write_options, "foo", "0");
+  ASSERT_OK(s);
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  s = db->Put(write_options, "foo", "1");
+  ASSERT_OK(s);
+
+  snapshot_read_options.snapshot = txn->GetSnapshot();
+  ASSERT_FALSE(snapshot_read_options.snapshot);
+
+  // No snapshot created yet
+  s = txn->Get(snapshot_read_options, "foo", &value);
+  ASSERT_EQ(value, "1");
+
+  txn->SetSnapshot();
+  snapshot_read_options.snapshot = txn->GetSnapshot();
+  ASSERT_TRUE(snapshot_read_options.snapshot);
+
+  s = db->Put(write_options, "foo", "2");
+  ASSERT_OK(s);
+
+  // Snapshot was created before change to '2'
+  s = txn->Get(snapshot_read_options, "foo", &value);
+  ASSERT_EQ(value, "1");
+
+  txn->ClearSnapshot();
+  snapshot_read_options.snapshot = txn->GetSnapshot();
+  ASSERT_FALSE(snapshot_read_options.snapshot);
+
+  // Snapshot has now been cleared
+  s = txn->Get(snapshot_read_options, "foo", &value);
+  ASSERT_EQ(value, "2");
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  delete txn;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #ifndef ROCKSDB_LITE
-#include "util/ldb_cmd.h"
+#include "tools/ldb_cmd.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -21,11 +21,11 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table_properties.h"
+#include "table/scoped_arena_iterator.h"
 #include "port/dirent.h"
+#include "tools/sst_dump_tool_imp.h"
 #include "util/coding.h"
-#include "util/sst_dump_tool_imp.h"
 #include "util/string_util.h"
-#include "util/scoped_arena_iterator.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
 #include <cstdlib>
@@ -809,7 +809,7 @@ void InternalDumpCommand::DoCommand() {
   uint64_t s1=0,s2=0;
   // Setup internal key iterator
   Arena arena;
-  ScopedArenaIterator iter(idb->TEST_NewInternalIterator(&arena));
+  ScopedArenaIterator iter(idb->NewInternalIterator(&arena));
   Status st = iter->status();
   if (!st.ok()) {
     exec_state_ =

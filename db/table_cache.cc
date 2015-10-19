@@ -14,6 +14,7 @@
 #include "db/version_edit.h"
 
 #include "rocksdb/statistics.h"
+#include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
 #include "table/table_builder.h"
 #include "table/table_reader.h"
@@ -148,13 +149,11 @@ Status TableCache::FindTable(const EnvOptions& env_options,
   return s;
 }
 
-Iterator* TableCache::NewIterator(const ReadOptions& options,
-                                  const EnvOptions& env_options,
-                                  const InternalKeyComparator& icomparator,
-                                  const FileDescriptor& fd,
-                                  TableReader** table_reader_ptr,
-                                  HistogramImpl* file_read_hist,
-                                  bool for_compaction, Arena* arena) {
+InternalIterator* TableCache::NewIterator(
+    const ReadOptions& options, const EnvOptions& env_options,
+    const InternalKeyComparator& icomparator, const FileDescriptor& fd,
+    TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
+    bool for_compaction, Arena* arena) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   if (table_reader_ptr != nullptr) {
@@ -171,7 +170,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
         env_options, icomparator, fd, /* sequential mode */ true,
         /* record stats */ false, nullptr, &table_reader_unique_ptr);
     if (!s.ok()) {
-      return NewErrorIterator(s, arena);
+      return NewErrorInternalIterator(s, arena);
     }
     table_reader = table_reader_unique_ptr.release();
   } else {
@@ -182,13 +181,13 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     !for_compaction /* record read_stats */, file_read_hist);
       if (!s.ok()) {
-        return NewErrorIterator(s, arena);
+        return NewErrorInternalIterator(s, arena);
       }
       table_reader = GetTableReaderFromHandle(handle);
     }
   }
 
-  Iterator* result = table_reader->NewIterator(options, arena);
+  InternalIterator* result = table_reader->NewIterator(options, arena);
 
   if (create_new_table_reader) {
     assert(handle == nullptr);

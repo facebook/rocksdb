@@ -36,11 +36,11 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
 #include "util/event_logger.h"
 #include "util/hash.h"
 #include "util/instrumented_mutex.h"
-#include "util/scoped_arena_iterator.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 
@@ -248,7 +248,13 @@ class DBImpl : public DB {
                              const Slice* begin, const Slice* end,
                              bool disallow_trivial_move = false);
 
-#ifndef ROCKSDB_LITE
+  // Return an internal iterator over the current state of the database.
+  // The keys of this iterator are internal keys (see format.h).
+  // The returned iterator should be deleted when no longer needed.
+  InternalIterator* NewInternalIterator(
+      Arena* arena, ColumnFamilyHandle* column_family = nullptr);
+
+#ifndef NDEBUG
   // Extra methods (for testing) that are not in the public DB interface
   // Implemented in db_impl_debug.cc
 
@@ -265,12 +271,6 @@ class DBImpl : public DB {
 
   // Wait for any compaction
   Status TEST_WaitForCompact();
-
-  // Return an internal iterator over the current state of the database.
-  // The keys of this iterator are internal keys (see format.h).
-  // The returned iterator should be deleted when no longer needed.
-  Iterator* TEST_NewInternalIterator(
-      Arena* arena, ColumnFamilyHandle* column_family = nullptr);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
@@ -305,7 +305,7 @@ class DBImpl : public DB {
 
   uint64_t TEST_LogfileNumber();
 
-#endif  // ROCKSDB_LITE
+#endif  // NDEBUG
 
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
@@ -363,6 +363,20 @@ class DBImpl : public DB {
   // Same as above, should called without mutex held and not on write thread.
   ColumnFamilyHandle* GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
 
+  // Returns the number of currently running flushes.
+  // REQUIREMENT: mutex_ must be held when calling this function.
+  int num_running_flushes() {
+    mutex_.AssertHeld();
+    return num_running_flushes_;
+  }
+
+  // Returns the number of currently running compactions.
+  // REQUIREMENT: mutex_ must be held when calling this function.
+  int num_running_compactions() {
+    mutex_.AssertHeld();
+    return num_running_compactions_;
+  }
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -370,8 +384,10 @@ class DBImpl : public DB {
   const DBOptions db_options_;
   Statistics* stats_;
 
-  Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
-                                SuperVersion* super_version, Arena* arena);
+  InternalIterator* NewInternalIterator(const ReadOptions&,
+                                        ColumnFamilyData* cfd,
+                                        SuperVersion* super_version,
+                                        Arena* arena);
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
@@ -685,6 +701,9 @@ class DBImpl : public DB {
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_;
 
+  // stores the number of compactions are currently running
+  int num_running_compactions_;
+
   // If non-zero, MaybeScheduleFlushOrCompaction() will only schedule manual
   // compactions (if manual_compaction_ is not null). This mechanism enables
   // manual compactions to wait until all other compactions are finished.
@@ -692,6 +711,9 @@ class DBImpl : public DB {
 
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_;
+
+  // stores the number of flushes are currently running
+  int num_running_flushes_;
 
   // Information for a manual compaction
   struct ManualCompaction {
@@ -788,6 +810,10 @@ class DBImpl : public DB {
   virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                           TablePropertiesCollection* props)
       override;
+  virtual Status GetPropertiesOfTablesInRange(
+      ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
+      TablePropertiesCollection* props) override;
+
 #endif  // ROCKSDB_LITE
 
   // Function that Get and KeyMayExist call with no_io true or false

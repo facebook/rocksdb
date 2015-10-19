@@ -74,7 +74,8 @@ class MemTableListVersion {
   }
 
   void AddIterators(const ReadOptions& options,
-                    std::vector<Iterator*>* iterator_list, Arena* arena);
+                    std::vector<InternalIterator*>* iterator_list,
+                    Arena* arena);
 
   void AddIterators(const ReadOptions& options,
                     MergeIteratorBuilder* merge_iter_builder);

@@ -50,6 +50,8 @@
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
 #include "db/writebuffer.h"
+#include "memtable/hash_linklist_rep.h"
+#include "memtable/hash_skiplist_rep.h"
 #include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -78,8 +80,6 @@
 #include "util/db_info_dumper.h"
 #include "util/file_reader_writer.h"
 #include "util/file_util.h"
-#include "util/hash_linklist_rep.h"
-#include "util/hash_skiplist_rep.h"
 #include "util/iostats_context_imp.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"
@@ -246,8 +246,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
       bg_compaction_scheduled_(0),
+      num_running_compactions_(0),
       bg_manual_only_(0),
       bg_flush_scheduled_(0),
+      num_running_flushes_(0),
       manual_compaction_(nullptr),
       disable_delete_obsolete_files_(0),
       delete_obsolete_files_next_run_(
@@ -408,7 +410,7 @@ Status DBImpl::NewDB() {
   {
     unique_ptr<WritableFile> file;
     EnvOptions env_options = env_->OptimizeForManifestWrite(env_options_);
-    s = env_->NewWritableFile(manifest, &file, env_options);
+    s = NewWritableFile(env_, manifest, &file, env_options);
     if (!s.ok()) {
       return s;
     }
@@ -2236,6 +2238,23 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   return manual.status;
 }
 
+InternalIterator* DBImpl::NewInternalIterator(
+    Arena* arena, ColumnFamilyHandle* column_family) {
+  ColumnFamilyData* cfd;
+  if (column_family == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    cfd = cfh->cfd();
+  }
+
+  mutex_.Lock();
+  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
+  mutex_.Unlock();
+  ReadOptions roptions;
+  return NewInternalIterator(roptions, cfd, super_version, arena);
+}
+
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
                              const FlushOptions& flush_options) {
   Status s;
@@ -2455,6 +2474,7 @@ void DBImpl::BackgroundCallFlush() {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
     InstrumentedMutexLock l(&mutex_);
+    num_running_flushes_++;
 
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
@@ -2500,6 +2520,8 @@ void DBImpl::BackgroundCallFlush() {
       mutex_.Lock();
     }
 
+    assert(num_running_flushes_ > 0);
+    num_running_flushes_--;
     bg_flush_scheduled_--;
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
@@ -2520,6 +2542,7 @@ void DBImpl::BackgroundCallCompaction() {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
     InstrumentedMutexLock l(&mutex_);
+    num_running_compactions_++;
 
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
@@ -2568,6 +2591,8 @@ void DBImpl::BackgroundCallCompaction() {
       mutex_.Lock();
     }
 
+    assert(num_running_compactions_ > 0);
+    num_running_compactions_--;
     bg_compaction_scheduled_--;
 
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
@@ -2913,11 +2938,11 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 }
 }  // namespace
 
-Iterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
-                                      ColumnFamilyData* cfd,
-                                      SuperVersion* super_version,
-                                      Arena* arena) {
-  Iterator* internal_iter;
+InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
+                                              ColumnFamilyData* cfd,
+                                              SuperVersion* super_version,
+                                              Arena* arena) {
+  InternalIterator* internal_iter;
   assert(arena != nullptr);
   // Need to create internal iterator from the arena.
   MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena);
@@ -3216,7 +3241,8 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   file_info.num_entries = table_reader->GetTableProperties()->num_entries;
 
   ParsedInternalKey key;
-  std::unique_ptr<Iterator> iter(table_reader->NewIterator(ReadOptions()));
+  std::unique_ptr<InternalIterator> iter(
+      table_reader->NewIterator(ReadOptions()));
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
@@ -3616,7 +3642,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
         read_options.iterate_upper_bound);
 
-    Iterator* internal_iter =
+    InternalIterator* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena());
     db_iter->SetIterUnderDBIter(internal_iter);
 
@@ -3683,8 +3709,8 @@ Status DBImpl::NewIterators(
       ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
           env_, *cfd->ioptions(), cfd->user_comparator(), snapshot,
           sv->mutable_cf_options.max_sequential_skip_in_iterations);
-      Iterator* internal_iter = NewInternalIterator(
-          read_options, cfd, sv, db_iter->GetArena());
+      InternalIterator* internal_iter =
+          NewInternalIterator(read_options, cfd, sv, db_iter->GetArena());
       db_iter->SetIterUnderDBIter(internal_iter);
       iterators->push_back(db_iter);
     }
@@ -4124,9 +4150,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (creating_new_log) {
       EnvOptions opt_env_opt =
           env_->OptimizeForLogWrite(env_options_, db_options_);
-      s = env_->NewWritableFile(
-          LogFileName(db_options_.wal_dir, new_log_number), &lfile,
-          opt_env_opt);
+      s = NewWritableFile(env_,
+                          LogFileName(db_options_.wal_dir, new_log_number),
+                          &lfile, opt_env_opt);
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
@@ -4203,6 +4229,29 @@ Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
 
   return s;
 }
+
+Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
+                                            const Range* range, std::size_t n,
+                                            TablePropertiesCollection* props) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+
+  // Increment the ref count
+  mutex_.Lock();
+  auto version = cfd->current();
+  version->Ref();
+  mutex_.Unlock();
+
+  auto s = version->GetPropertiesOfTablesInRange(range, n, props);
+
+  // Decrement the ref count
+  mutex_.Lock();
+  version->Unref();
+  mutex_.Unlock();
+
+  return s;
+}
+
 #endif  // ROCKSDB_LITE
 
 const std::string& DBImpl::GetName() const {
@@ -4742,9 +4791,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     EnvOptions soptions(db_options);
     EnvOptions opt_env_options =
         impl->db_options_.env->OptimizeForLogWrite(soptions, impl->db_options_);
-    s = impl->db_options_.env->NewWritableFile(
-        LogFileName(impl->db_options_.wal_dir, new_log_number), &lfile,
-        opt_env_options);
+    s = NewWritableFile(impl->db_options_.env,
+                        LogFileName(impl->db_options_.wal_dir, new_log_number),
+                        &lfile, opt_env_options);
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
       impl->logfile_number_ = new_log_number;

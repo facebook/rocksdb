@@ -8,6 +8,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
 #include "port/port.h"
+#include "table/internal_iterator.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -114,7 +115,7 @@ extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
 
 // Seek to the properties block.
 // Return true if it successfully seeks to the properties block.
-Status SeekToPropertiesBlock(Iterator* meta_iter, bool* is_found) {
+Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
   *is_found = true;
   meta_iter->Seek(kPropertiesBlock);
   if (meta_iter->status().ok() &&

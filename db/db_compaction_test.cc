@@ -14,8 +14,7 @@
 namespace rocksdb {
 
 // SYNC_POINT is not supported in released Windows mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
-
+#if (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
 
 class DBCompactionTest : public DBTestBase {
  public:
@@ -1844,11 +1843,11 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
                         ::testing::Values(1, 4));
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+#endif  // (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-#if !(defined NDEBUG) || !defined(OS_WIN)
+#if (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

@@ -31,7 +31,7 @@ string(REGEX REPLACE "(..)/(..)/..(..).*" "\\1/\\2/\\3" DATE ${DATE})
 string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME ${TIME})
 string(CONCAT GIT_DATE_TIME ${DATE} ${TIME})
 
-execute_process(COMMAND $ENV{COMSPEC} " /C git rev-parse HEAD 2>nil" OUTPUT_VARIABLE GIT_SHA)
+execute_process(COMMAND $ENV{COMSPEC} " /C git -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD" OUTPUT_VARIABLE GIT_SHA)
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA ${GIT_SHA})
 
 set(BUILD_VERSION_CC ${CMAKE_CURRENT_SOURCE_DIR}/util/build_version.cc)
@@ -131,6 +131,9 @@ set(SOURCES
         db/write_batch_base.cc
         db/write_controller.cc
         db/write_thread.cc
+        memtable/hash_cuckoo_rep.cc
+        memtable/hash_linklist_rep.cc
+        memtable/hash_skiplist_rep.cc
         port/stack_trace.cc
         port/win/env_win.cc
         port/win/port_win.cc
@@ -164,6 +167,7 @@ set(SOURCES
         table/plain_table_reader.cc
         table/table_properties.cc
         table/two_level_iterator.cc
+        tools/sst_dump_tool.cc
         tools/dump/db_dump_tool.cc
         util/arena.cc
         util/auto_roll_logger.cc
@@ -184,14 +188,11 @@ set(SOURCES
         util/file_reader_writer.cc
         util/filter_policy.cc
         util/hash.cc
-        util/hash_cuckoo_rep.cc
-        util/hash_linklist_rep.cc
-        util/hash_skiplist_rep.cc
         util/histogram.cc
         util/instrumented_mutex.cc
         util/iostats_context.cc
-        util/ldb_cmd.cc
-        util/ldb_tool.cc
+        tools/ldb_cmd.cc
+        tools/ldb_tool.cc
         util/logging.cc
         util/log_buffer.cc
         util/memenv.cc
@@ -207,7 +208,6 @@ set(SOURCES
         util/rate_limiter.cc
         util/skiplistrep.cc
         util/slice.cc
-        util/sst_dump_tool.cc
         util/statistics.cc
         util/status.cc
         util/status_message.cc
@@ -294,6 +294,7 @@ set(TESTS
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
         db/db_tailing_iter_test.cc
+        db/db_table_properties_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
         db/fault_injection_test.cc
@@ -302,6 +303,7 @@ set(TESTS
         db/flush_job_test.cc
         db/listener_test.cc
         db/log_test.cc
+        db/manual_compaction_test.cc
         db/memtable_list_test.cc
         db/merge_test.cc
         db/merge_helper_test.cc
@@ -326,7 +328,9 @@ set(TESTS
         table/merger_test.cc
         table/table_test.cc
         tools/db_sanity_test.cc
+        tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
+        tools/sst_dump_test.cc
         util/arena_test.cc
         util/autovector_test.cc
         util/auto_roll_logger_test.cc
@@ -341,14 +345,11 @@ set(TESTS
         util/file_reader_writer_test.cc
         util/heap_test.cc
         util/histogram_test.cc
-        util/ldb_cmd_test.cc
-        util/manual_compaction_test.cc
         util/memenv_test.cc
         util/mock_env_test.cc
         util/options_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
-        util/sst_dump_test.cc
         util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc

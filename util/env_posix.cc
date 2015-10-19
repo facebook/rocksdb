@@ -317,7 +317,7 @@ class PosixMmapReadableFile: public RandomAccessFile {
       *result = Slice();
       return IOError(filename_, EINVAL);
     } else if (offset + n > length_) {
-      n = length_ - offset;
+      n = static_cast<size_t>(length_ - offset);
     }
     *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
     return s;
@@ -368,7 +368,7 @@ class PosixMmapFile : public WritableFile {
   }
 
   Status UnmapCurrentRegion() {
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0", rocksdb_kill_odds);
     if (base_ != nullptr) {
       int munmap_status = munmap(base_, limit_ - base_);
       if (munmap_status != 0) {
@@ -392,7 +392,7 @@ class PosixMmapFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     assert(base_ == nullptr);
 
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0", rocksdb_kill_odds);
     // we can't fallocate with FALLOC_FL_KEEP_SIZE here
     if (allow_fallocate_) {
       IOSTATS_TIMER_GUARD(allocate_nanos);
@@ -407,13 +407,13 @@ class PosixMmapFile : public WritableFile {
       }
     }
 
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("PosixMmapFile::Append:1", rocksdb_kill_odds);
     void* ptr = mmap(nullptr, map_size_, PROT_READ | PROT_WRITE, MAP_SHARED,
                      fd_, file_offset_);
     if (ptr == MAP_FAILED) {
       return Status::IOError("MMap failed on " + filename_);
     }
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("PosixMmapFile::Append:2", rocksdb_kill_odds);
 
     base_ = reinterpret_cast<char*>(ptr);
     limit_ = base_ + map_size_;
@@ -434,7 +434,7 @@ class PosixMmapFile : public WritableFile {
     size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
     size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
     last_sync_ = dst_;
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("PosixMmapFile::Msync:0", rocksdb_kill_odds);
     if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
       return IOError(filename_, errno);
     }
@@ -484,7 +484,7 @@ class PosixMmapFile : public WritableFile {
         if (!s.ok()) {
           return s;
         }
-        TEST_KILL_RANDOM(rocksdb_kill_odds);
+        TEST_KILL_RANDOM("PosixMmapFile::Append:0", rocksdb_kill_odds);
       }
 
       size_t n = (left <= avail) ? left : avail;
@@ -576,7 +576,7 @@ class PosixMmapFile : public WritableFile {
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("PosixMmapFile::Allocate:0", rocksdb_kill_odds);
     int alloc_status = 0;
     if (allow_fallocate_) {
       alloc_status =
@@ -722,7 +722,7 @@ class PosixWritableFile : public WritableFile {
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("PosixWritableFile::Allocate:0", rocksdb_kill_odds);
     IOSTATS_TIMER_GUARD(allocate_nanos);
     int alloc_status = 0;
     if (allow_fallocate_) {

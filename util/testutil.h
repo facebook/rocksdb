@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
+#include "table/internal_iterator.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
 
@@ -34,7 +35,9 @@ extern std::string RandomHumanReadableString(Random* rnd, int len);
 
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
-extern std::string RandomKey(Random* rnd, int len);
+enum RandomKeyType : char { RANDOM, LARGEST, SMALLEST, MIDDLE };
+extern std::string RandomKey(Random* rnd, int len,
+                             RandomKeyType type = RandomKeyType::RANDOM);
 
 // Store in *dst a string of length "len" that will compress to
 // "N*compressed_fraction" bytes and return a Slice that references
@@ -127,7 +130,7 @@ class SimpleSuffixReverseComparator : public Comparator {
 extern const Comparator* Uint64Comparator();
 
 // Iterator over a vector of keys/values
-class VectorIterator : public Iterator {
+class VectorIterator : public InternalIterator {
  public:
   explicit VectorIterator(const std::vector<std::string>& keys)
       : keys_(keys), current_(keys.size()) {
@@ -187,7 +190,7 @@ class StringSink: public WritableFile {
   const std::string& contents() const { return contents_; }
 
   virtual Status Truncate(uint64_t size) override {
-    contents_.resize(size);
+    contents_.resize(static_cast<size_t>(size));
     return Status::OK();
   }
   virtual Status Close() override { return Status::OK(); }
@@ -240,13 +243,13 @@ class StringSource: public RandomAccessFile {
       return Status::InvalidArgument("invalid Read offset");
     }
     if (offset + n > contents_.size()) {
-      n = contents_.size() - offset;
+      n = contents_.size() - static_cast<size_t>(offset);
     }
     if (!mmap_) {
-      memcpy(scratch, &contents_[offset], n);
+      memcpy(scratch, &contents_[static_cast<size_t>(offset)], n);
       *result = Slice(scratch, n);
     } else {
-      *result = Slice(&contents_[offset], n);
+      *result = Slice(&contents_[static_cast<size_t>(offset)], n);
     }
     return Status::OK();
   }

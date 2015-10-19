@@ -33,7 +33,9 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # with debug level 0. To compile with level 0, run `make shared_lib`,
 # `make install-shared`, `make static_lib`, `make install-static` or
 # `make install`
-DEBUG_LEVEL=1
+
+# Set the default DEBUG_LEVEL to 1
+DEBUG_LEVEL?=1
 
 ifeq ($(MAKECMDGOALS),dbg)
 	DEBUG_LEVEL=2
@@ -230,6 +232,7 @@ TESTS = \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
 	db_wal_test \
+	db_table_properties_test \
 	block_hash_index_test \
 	autovector_test \
 	column_family_test \
@@ -550,8 +553,10 @@ check: all
 	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
+ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	python tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
+endif
 
 check_some: $(SUBSET) ldb_tests
 	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
@@ -563,12 +568,12 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py -s
-	python -u tools/db_crashtest.py
+	python -u tools/db_crashtest.py --simple blackbox 
+	python -u tools/db_crashtest.py blackbox
 
 whitebox_crash_test: db_stress
-	python -u tools/db_crashtest2.py -s
-	python -u tools/db_crashtest2.py
+	python -u tools/db_crashtest.py --simple whitebox
+	python -u tools/db_crashtest.py whitebox
 
 asan_check:
 	$(MAKE) clean
@@ -739,6 +744,9 @@ db_universal_compaction_test: db/db_universal_compaction_test.o db/db_test_util.
 db_wal_test: db/db_wal_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_table_properties_test: db/db_table_properties_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK) $(pg)
 
@@ -904,7 +912,7 @@ options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
 event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-sst_dump_test: util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
+sst_dump_test: tools/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memenv_test : util/memenv_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -916,7 +924,7 @@ optimistic_transaction_test: utilities/transactions/optimistic_transaction_test.
 mock_env_test : util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-manual_compaction_test: util/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
+manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -940,7 +948,7 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
-ldb_cmd_test: util/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
+ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
@@ -1035,19 +1043,22 @@ liblz4.a:
 	   cd lz4-r127/lib && make CFLAGS='-fPIC' all
 	   cp lz4-r127/lib/liblz4.a .
 
-# A version of each $(LIBOBJECTS) compiled with -fPIC
-java_libobjects = $(patsubst %,jl/%,$(LIBOBJECTS))
-CLEAN_FILES += jl
+# A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
+java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
+CLEAN_FILES += jls
 
-$(java_libobjects): jl/%.o: %.cc
-	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
+JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
+JAVA_STATIC_INCLUDES = -I./zlib-1.2.8 -I./bzip2-1.0.6 -I./snappy-1.1.1 -I./lz4-r127/lib
 
-rocksdbjavastatic: $(java_libobjects) libz.a libbz2.a libsnappy.a liblz4.a
+$(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
+
+rocksdbjavastatic: $(java_static_libobjects)
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
-	  $(java_libobjects) $(COVERAGEFLAGS) \
+	  $(java_static_libobjects) $(COVERAGEFLAGS) \
 	  libz.a libbz2.a libsnappy.a liblz4.a $(JAVA_STATIC_LDFLAGS)
 	cd java/target;strip -S -x $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
@@ -1059,7 +1070,7 @@ rocksdbjavastatic: $(java_libobjects) libz.a libbz2.a libsnappy.a liblz4.a
 rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/crossbuild && vagrant destroy -f && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64
 	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
-	cd java;jar -uf target/$(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
+	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease
@@ -1069,6 +1080,13 @@ rocksdbjavastaticpublish: rocksdbjavastaticrelease
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux32.jar -Dclassifier=linux32
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar -Dclassifier=osx
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
+
+# A version of each $(LIBOBJECTS) compiled with -fPIC
+java_libobjects = $(patsubst %,jl/%,$(LIBOBJECTS))
+CLEAN_FILES += jl
+
+$(java_libobjects): jl/%.o: %.cc
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 rocksdbjava: $(java_libobjects)
 	$(AM_V_GEN)cd java;$(MAKE) javalib;

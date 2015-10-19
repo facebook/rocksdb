@@ -963,7 +963,7 @@ class WinWritableFile : public WritableFile {
 
   virtual Status Allocate(off_t offset, off_t len) override {
     Status status;
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("WinWritableFile::Allocate", rocksdb_kill_odds);
 
     // Make sure that we reserve an aligned amount of space
     // since the reservation block size is driven outside so we want

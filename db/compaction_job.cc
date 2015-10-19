@@ -585,7 +585,7 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
 
 void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   assert(sub_compact != nullptr);
-  std::unique_ptr<Iterator> input(
+  std::unique_ptr<InternalIterator> input(
       versions_->MakeInputIterator(sub_compact->compaction));
 
   AutoThreadOperationStageUpdater stage_updater(
@@ -601,10 +601,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if (measure_io_stats_) {
     prev_perf_level = GetPerfLevel();
     SetPerfLevel(PerfLevel::kEnableTime);
-    prev_write_nanos = iostats_context.write_nanos;
-    prev_fsync_nanos = iostats_context.fsync_nanos;
-    prev_range_sync_nanos = iostats_context.range_sync_nanos;
-    prev_prepare_write_nanos = iostats_context.prepare_write_nanos;
+    prev_write_nanos = IOSTATS(write_nanos);
+    prev_fsync_nanos = IOSTATS(fsync_nanos);
+    prev_range_sync_nanos = IOSTATS(range_sync_nanos);
+    prev_prepare_write_nanos = IOSTATS(prepare_write_nanos);
   }
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
@@ -728,13 +728,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   if (measure_io_stats_) {
     sub_compact->compaction_job_stats.file_write_nanos +=
-        iostats_context.write_nanos - prev_write_nanos;
+        IOSTATS(write_nanos) - prev_write_nanos;
     sub_compact->compaction_job_stats.file_fsync_nanos +=
-        iostats_context.fsync_nanos - prev_fsync_nanos;
+        IOSTATS(fsync_nanos) - prev_fsync_nanos;
     sub_compact->compaction_job_stats.file_range_sync_nanos +=
-        iostats_context.range_sync_nanos - prev_range_sync_nanos;
+        IOSTATS(range_sync_nanos) - prev_range_sync_nanos;
     sub_compact->compaction_job_stats.file_prepare_write_nanos +=
-        iostats_context.prepare_write_nanos - prev_prepare_write_nanos;
+        IOSTATS(prepare_write_nanos) - prev_prepare_write_nanos;
     if (prev_perf_level != PerfLevel::kEnableTime) {
       SetPerfLevel(prev_perf_level);
     }
@@ -811,7 +811,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
     ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
-    Iterator* iter = cfd->table_cache()->NewIterator(
+    InternalIterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
         nullptr, cfd->internal_stats()->GetFileReadHist(
                      compact_->compaction->output_level()),
@@ -911,7 +911,7 @@ Status CompactionJob::OpenCompactionOutputFile(
   unique_ptr<WritableFile> writable_file;
   std::string fname = TableFileName(db_options_.db_paths, file_number,
                                     sub_compact->compaction->output_path_id());
-  Status s = env_->NewWritableFile(fname, &writable_file, env_options_);
+  Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
         "[%s] [JOB %d] OpenCompactionOutputFiles for table #%" PRIu64

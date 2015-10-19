@@ -43,6 +43,7 @@ struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
 class GetContext;
+class InternalIterator;
 
 using std::unique_ptr;
 
@@ -79,7 +80,8 @@ class BlockBasedTable : public TableReader {
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
-  Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
+  InternalIterator* NewIterator(const ReadOptions&,
+                                Arena* arena = nullptr) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context) override;
@@ -129,9 +131,9 @@ class BlockBasedTable : public TableReader {
 
   class BlockEntryIteratorState;
   // input_iter: if it is not null, update this one and return it as Iterator
-  static Iterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
-                                        const Slice& index_value,
-                                        BlockIter* input_iter = nullptr);
+  static InternalIterator* NewDataBlockIterator(
+      Rep* rep, const ReadOptions& ro, const Slice& index_value,
+      BlockIter* input_iter = nullptr);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -148,8 +150,8 @@ class BlockBasedTable : public TableReader {
   //  2. index is not present in block cache.
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
-  Iterator* NewIndexIterator(const ReadOptions& read_options,
-                             BlockIter* input_iter = nullptr);
+  InternalIterator* NewIndexIterator(const ReadOptions& read_options,
+                                     BlockIter* input_iter = nullptr);
 
   // Read block cache from block caches (if set): block_cache and
   // block_cache_compressed.
@@ -186,17 +188,16 @@ class BlockBasedTable : public TableReader {
   // Optionally, user can pass a preloaded meta_index_iter for the index that
   // need to access extra meta blocks for index construction. This parameter
   // helps avoid re-reading meta index block if caller already created one.
-  Status CreateIndexReader(IndexReader** index_reader,
-                           Iterator* preloaded_meta_index_iter = nullptr);
+  Status CreateIndexReader(
+      IndexReader** index_reader,
+      InternalIterator* preloaded_meta_index_iter = nullptr);
 
   bool FullFilterKeyMayMatch(FilterBlockReader* filter,
                              const Slice& user_key) const;
 
   // Read the meta block from sst.
-  static Status ReadMetaBlock(
-      Rep* rep,
-      std::unique_ptr<Block>* meta_block,
-      std::unique_ptr<Iterator>* iter);
+  static Status ReadMetaBlock(Rep* rep, std::unique_ptr<Block>* meta_block,
+                              std::unique_ptr<InternalIterator>* iter);
 
   // Create the filter from the filter block.
   static FilterBlockReader* ReadFilter(Rep* rep, size_t* filter_size = nullptr);

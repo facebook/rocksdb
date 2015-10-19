@@ -7,10 +7,11 @@
 #include <map>
 #include <string>
 
+#include "memtable/stl_wrappers.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/hash.h"
-#include "util/stl_wrappers.h"
+#include "util/kv_map.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"

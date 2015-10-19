@@ -13,6 +13,7 @@ namespace rocksdb {
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 
 #define PERF_TIMER_GUARD(metric)
+#define PERF_CONDITIONAL_TIMER_GUARD(metric, condition)
 #define PERF_TIMER_MEASURE(metric)
 #define PERF_TIMER_STOP(metric)
 #define PERF_TIMER_START(metric)
@@ -31,6 +32,12 @@ namespace rocksdb {
 #define PERF_TIMER_GUARD(metric)                                      \
   PerfStepTimer perf_step_timer_ ## metric(&(perf_context.metric));   \
   perf_step_timer_ ## metric.Start();
+
+#define PERF_CONDITIONAL_TIMER_GUARD(metric, condition)           \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric)); \
+  if ((condition)) {                                              \
+    perf_step_timer_##metric.Start();                             \
+  }
 
 // Update metric with time elapsed since last START. start time is reset
 // to current timestamp.

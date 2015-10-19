@@ -9,7 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
-#if !(defined NDEBUG) || !defined(OS_WIN)
+#if (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -1210,10 +1210,10 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalManualCompactionOutputPathId,
 
 }  // namespace rocksdb
 
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+#endif  // (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
 
 int main(int argc, char** argv) {
-#if !(defined NDEBUG) || !defined(OS_WIN)
+#if (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

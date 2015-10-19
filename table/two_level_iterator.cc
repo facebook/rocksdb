@@ -19,10 +19,10 @@ namespace rocksdb {
 
 namespace {
 
-class TwoLevelIterator: public Iterator {
+class TwoLevelIterator : public InternalIterator {
  public:
   explicit TwoLevelIterator(TwoLevelIteratorState* state,
-                            Iterator* first_level_iter,
+                            InternalIterator* first_level_iter,
                             bool need_free_iter_and_state);
 
   virtual ~TwoLevelIterator() {
@@ -68,7 +68,7 @@ class TwoLevelIterator: public Iterator {
   }
   void SkipEmptyDataBlocksForward();
   void SkipEmptyDataBlocksBackward();
-  void SetSecondLevelIterator(Iterator* iter);
+  void SetSecondLevelIterator(InternalIterator* iter);
   void InitDataBlock();
 
   TwoLevelIteratorState* state_;
@@ -82,7 +82,7 @@ class TwoLevelIterator: public Iterator {
 };
 
 TwoLevelIterator::TwoLevelIterator(TwoLevelIteratorState* state,
-                                   Iterator* first_level_iter,
+                                   InternalIterator* first_level_iter,
                                    bool need_free_iter_and_state)
     : state_(state),
       first_level_iter_(first_level_iter),
@@ -168,7 +168,7 @@ void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
   }
 }
 
-void TwoLevelIterator::SetSecondLevelIterator(Iterator* iter) {
+void TwoLevelIterator::SetSecondLevelIterator(InternalIterator* iter) {
   if (second_level_iter_.iter() != nullptr) {
     SaveError(second_level_iter_.status());
   }
@@ -186,7 +186,7 @@ void TwoLevelIterator::InitDataBlock() {
       // second_level_iter is already constructed with this iterator, so
       // no need to change anything
     } else {
-      Iterator* iter = state_->NewSecondaryIterator(handle);
+      InternalIterator* iter = state_->NewSecondaryIterator(handle);
       data_block_handle_.assign(handle.data(), handle.size());
       SetSecondLevelIterator(iter);
     }
@@ -195,9 +195,10 @@ void TwoLevelIterator::InitDataBlock() {
 
 }  // namespace
 
-Iterator* NewTwoLevelIterator(TwoLevelIteratorState* state,
-                              Iterator* first_level_iter, Arena* arena,
-                              bool need_free_iter_and_state) {
+InternalIterator* NewTwoLevelIterator(TwoLevelIteratorState* state,
+                                      InternalIterator* first_level_iter,
+                                      Arena* arena,
+                                      bool need_free_iter_and_state) {
   if (arena == nullptr) {
     return new TwoLevelIterator(state, first_level_iter,
                                 need_free_iter_and_state);

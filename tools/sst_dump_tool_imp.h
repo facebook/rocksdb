@@ -2,8 +2,8 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
-#ifndef ROCKSDB_LITE
 #pragma once
+#ifndef ROCKSDB_LITE
 
 #include "rocksdb/sst_dump_tool.h"
 
@@ -29,8 +29,8 @@
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
+#include "tools/ldb_cmd.h"
 #include "util/file_reader_writer.h"
-#include "util/ldb_cmd.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"

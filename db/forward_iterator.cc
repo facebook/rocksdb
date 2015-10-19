@@ -28,7 +28,7 @@ namespace rocksdb {
 //     iter.SetFileIndex(file_index);
 //     iter.Seek(target);
 //     iter.Next()
-class LevelIterator : public Iterator {
+class LevelIterator : public InternalIterator {
  public:
   LevelIterator(const ColumnFamilyData* const cfd,
       const ReadOptions& read_options,
@@ -113,7 +113,7 @@ class LevelIterator : public Iterator {
   bool valid_;
   uint32_t file_index_;
   Status status_;
-  std::unique_ptr<Iterator> file_iter_;
+  std::unique_ptr<InternalIterator> file_iter_;
 };
 
 ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
@@ -146,10 +146,10 @@ ForwardIterator::~ForwardIterator() {
 
 void ForwardIterator::Cleanup(bool release_sv) {
   if (mutable_iter_ != nullptr) {
-    mutable_iter_->~Iterator();
+    mutable_iter_->~InternalIterator();
   }
   for (auto* m : imm_iters_) {
-    m->~Iterator();
+    m->~InternalIterator();
   }
   imm_iters_.clear();
   for (auto* f : l0_iters_) {

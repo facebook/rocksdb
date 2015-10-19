@@ -20,8 +20,8 @@
 #include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/logging.h"
-#include "util/scoped_arena_iterator.h"
 #include "util/testharness.h"
 
 /*

@@ -46,6 +46,9 @@ LIB_SOURCES =                                                   \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
   db/write_thread.cc                                            \
+  memtable/hash_cuckoo_rep.cc                                   \
+  memtable/hash_linklist_rep.cc                                 \
+  memtable/hash_skiplist_rep.cc                                 \
   port/stack_trace.cc                                           \
   port/port_posix.cc                                            \
   table/adaptive_table_factory.cc                               \
@@ -96,9 +99,6 @@ LIB_SOURCES =                                                   \
   util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
-  util/hash_cuckoo_rep.cc                                       \
-  util/hash_linklist_rep.cc                                     \
-  util/hash_skiplist_rep.cc                                     \
   util/histogram.cc                                             \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
@@ -161,9 +161,9 @@ LIB_SOURCES =                                                   \
   util/xxhash.cc                                                \
 
 TOOL_SOURCES = \
-  util/ldb_cmd.cc                                               \
-  util/ldb_tool.cc                                              \
-  util/sst_dump_tool.cc                                         \
+  tools/ldb_cmd.cc                                               \
+  tools/ldb_tool.cc                                              \
+  tools/sst_dump_tool.cc                                         \
 
 MOCK_SOURCES = \
   table/mock_table.cc \
@@ -190,6 +190,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/db_universal_compaction_test.cc                                    \
   db/db_tailing_iter_test.cc                                            \
   db/db_wal_test.cc                                                     \
+  db/db_table_properties_test.cc                                        \
   db/deletefile_test.cc                                                 \
   db/fault_injection_test.cc                                            \
   db/file_indexer_test.cc                                               \
@@ -198,6 +199,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/listener_test.cc                                                   \
   db/log_and_apply_bench.cc                                             \
   db/log_test.cc                                                        \
+  db/manual_compaction_test.cc                                          \
   db/memtablerep_bench.cc                                               \
   db/merge_test.cc                                                      \
   db/perf_context_test.cc                                               \
@@ -223,7 +225,9 @@ TEST_BENCH_SOURCES =                                                    \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
   tools/db_sanity_test.cc                                               \
+  tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
+  tools/sst_dump_test.cc                                                \
   util/arena_test.cc                                                    \
   util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
@@ -252,19 +256,16 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
   util/log_write_bench.cc                                               \
-  util/manual_compaction_test.cc                                        \
   util/memenv_test.cc                                                   \
   util/mock_env_test.cc                                                 \
   util/options_test.cc                                                  \
   util/event_logger_test.cc                                             \
   util/rate_limiter_test.cc                                             \
   util/slice_transform_test.cc                                          \
-  util/sst_dump_test.cc                                                 \
   util/testharness.cc                                                   \
   util/testutil.cc                                                      \
   util/thread_list_test.cc                                              \
-  util/thread_local_test.cc                                             \
-  util/ldb_cmd_test.cc
+  util/thread_local_test.cc
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

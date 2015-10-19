@@ -5,7 +5,7 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "util/sst_dump_tool_imp.h"
+#include "tools/sst_dump_tool_imp.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -127,7 +127,7 @@ uint64_t SstFileReader::CalculateCompressedTableSize(
       tb_options,
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       dest_writer.get()));
-  unique_ptr<Iterator> iter(table_reader_->NewIterator(ReadOptions()));
+  unique_ptr<InternalIterator> iter(table_reader_->NewIterator(ReadOptions()));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {
       fputs(iter->status().ToString().c_str(), stderr);
@@ -261,8 +261,8 @@ Status SstFileReader::ReadSequential(bool print_kv,
     return init_result_;
   }
 
-  Iterator* iter = table_reader_->NewIterator(ReadOptions(verify_checksum_,
-                                                         false));
+  InternalIterator* iter =
+      table_reader_->NewIterator(ReadOptions(verify_checksum_, false));
   uint64_t i = 0;
   if (has_from) {
     InternalKey ikey;

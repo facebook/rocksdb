@@ -21,6 +21,7 @@
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "db/writebuffer.h"
+#include "memtable/stl_wrappers.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -36,13 +37,13 @@
 #include "table/block_builder.h"
 #include "table/format.h"
 #include "table/get_context.h"
+#include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/compression.h"
 #include "util/random.h"
-#include "util/scoped_arena_iterator.h"
 #include "util/statistics.h"
-#include "util/stl_wrappers.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -142,7 +143,7 @@ class Constructor {
                             const InternalKeyComparator& internal_comparator,
                             const stl_wrappers::KVMap& data) = 0;
 
-  virtual Iterator* NewIterator() const = 0;
+  virtual InternalIterator* NewIterator() const = 0;
 
   virtual const stl_wrappers::KVMap& data() { return data_; }
 
@@ -188,7 +189,7 @@ class BlockConstructor: public Constructor {
     block_ = new Block(std::move(contents));
     return Status::OK();
   }
-  virtual Iterator* NewIterator() const override {
+  virtual InternalIterator* NewIterator() const override {
     return block_->NewIterator(comparator_);
   }
 
@@ -201,13 +202,14 @@ class BlockConstructor: public Constructor {
 };
 
 // A helper class that converts internal format keys into user keys
-class KeyConvertingIterator: public Iterator {
+class KeyConvertingIterator : public InternalIterator {
  public:
-  explicit KeyConvertingIterator(Iterator* iter, bool arena_mode = false)
+  explicit KeyConvertingIterator(InternalIterator* iter,
+                                 bool arena_mode = false)
       : iter_(iter), arena_mode_(arena_mode) {}
   virtual ~KeyConvertingIterator() {
     if (arena_mode_) {
-      iter_->~Iterator();
+      iter_->~InternalIterator();
     } else {
       delete iter_;
     }
@@ -241,7 +243,7 @@ class KeyConvertingIterator: public Iterator {
 
  private:
   mutable Status status_;
-  Iterator* iter_;
+  InternalIterator* iter_;
   bool arena_mode_;
 
   // No copying allowed
@@ -301,9 +303,9 @@ class TableConstructor: public Constructor {
         std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
   }
 
-  virtual Iterator* NewIterator() const override {
+  virtual InternalIterator* NewIterator() const override {
     ReadOptions ro;
-    Iterator* iter = table_reader_->NewIterator(ro);
+    InternalIterator* iter = table_reader_->NewIterator(ro);
     if (convert_to_internal_key_) {
       return new KeyConvertingIterator(iter);
     } else {
@@ -390,7 +392,7 @@ class MemTableConstructor: public Constructor {
     }
     return Status::OK();
   }
-  virtual Iterator* NewIterator() const override {
+  virtual InternalIterator* NewIterator() const override {
     return new KeyConvertingIterator(
         memtable_->NewIterator(ReadOptions(), &arena_), true);
   }
@@ -406,6 +408,23 @@ class MemTableConstructor: public Constructor {
   WriteBuffer* write_buffer_;
   MemTable* memtable_;
   std::shared_ptr<SkipListFactory> table_factory_;
+};
+
+class InternalIteratorFromIterator : public InternalIterator {
+ public:
+  explicit InternalIteratorFromIterator(Iterator* it) : it_(it) {}
+  virtual bool Valid() const override { return it_->Valid(); }
+  virtual void Seek(const Slice& target) override { it_->Seek(target); }
+  virtual void SeekToFirst() override { it_->SeekToFirst(); }
+  virtual void SeekToLast() override { it_->SeekToLast(); }
+  virtual void Next() override { it_->Next(); }
+  virtual void Prev() override { it_->Prev(); }
+  Slice key() const override { return it_->key(); }
+  Slice value() const override { return it_->value(); }
+  virtual Status status() const override { return it_->status(); }
+
+ private:
+  unique_ptr<Iterator> it_;
 };
 
 class DBConstructor: public Constructor {
@@ -434,8 +453,9 @@ class DBConstructor: public Constructor {
     }
     return Status::OK();
   }
-  virtual Iterator* NewIterator() const override {
-    return db_->NewIterator(ReadOptions());
+
+  virtual InternalIterator* NewIterator() const override {
+    return new InternalIteratorFromIterator(db_->NewIterator(ReadOptions()));
   }
 
   virtual DB* db() const override { return db_; }
@@ -705,7 +725,7 @@ class HarnessTest : public testing::Test {
 
   void TestForwardScan(const std::vector<std::string>& keys,
                        const stl_wrappers::KVMap& data) {
-    Iterator* iter = constructor_->NewIterator();
+    InternalIterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
     iter->SeekToFirst();
     for (stl_wrappers::KVMap::const_iterator model_iter = data.begin();
@@ -715,7 +735,7 @@ class HarnessTest : public testing::Test {
     }
     ASSERT_TRUE(!iter->Valid());
     if (constructor_->IsArenaMode() && !constructor_->AnywayDeleteIterator()) {
-      iter->~Iterator();
+      iter->~InternalIterator();
     } else {
       delete iter;
     }
@@ -723,7 +743,7 @@ class HarnessTest : public testing::Test {
 
   void TestBackwardScan(const std::vector<std::string>& keys,
                         const stl_wrappers::KVMap& data) {
-    Iterator* iter = constructor_->NewIterator();
+    InternalIterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
     iter->SeekToLast();
     for (stl_wrappers::KVMap::const_reverse_iterator model_iter = data.rbegin();
@@ -733,7 +753,7 @@ class HarnessTest : public testing::Test {
     }
     ASSERT_TRUE(!iter->Valid());
     if (constructor_->IsArenaMode() && !constructor_->AnywayDeleteIterator()) {
-      iter->~Iterator();
+      iter->~InternalIterator();
     } else {
       delete iter;
     }
@@ -742,7 +762,7 @@ class HarnessTest : public testing::Test {
   void TestRandomAccess(Random* rnd, const std::vector<std::string>& keys,
                         const stl_wrappers::KVMap& data) {
     static const bool kVerbose = false;
-    Iterator* iter = constructor_->NewIterator();
+    InternalIterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
     stl_wrappers::KVMap::const_iterator model_iter = data.begin();
     if (kVerbose) fprintf(stderr, "---\n");
@@ -806,7 +826,7 @@ class HarnessTest : public testing::Test {
       }
     }
     if (constructor_->IsArenaMode() && !constructor_->AnywayDeleteIterator()) {
-      iter->~Iterator();
+      iter->~InternalIterator();
     } else {
       delete iter;
     }
@@ -830,7 +850,7 @@ class HarnessTest : public testing::Test {
     }
   }
 
-  std::string ToString(const Iterator* it) {
+  std::string ToString(const InternalIterator* it) {
     if (!it->Valid()) {
       return "END";
     } else {
@@ -1191,7 +1211,7 @@ TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
     auto* reader = c.GetTableReader();
     ReadOptions ro;
     ro.total_order_seek = true;
-    std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(ro));
 
     iter->Seek(InternalKey("b", 0, kTypeValue).Encode());
     ASSERT_OK(iter->status());
@@ -1275,7 +1295,8 @@ TEST_F(TableTest, HashIndexTest) {
   auto props = reader->GetTableProperties();
   ASSERT_EQ(5u, props->num_data_blocks);
 
-  std::unique_ptr<Iterator> hash_iter(reader->NewIterator(ReadOptions()));
+  std::unique_ptr<InternalIterator> hash_iter(
+      reader->NewIterator(ReadOptions()));
 
   // -- Find keys do not exist, but have common prefix.
   std::vector<std::string> prefixes = {"001", "003", "005", "007", "009"};
@@ -1545,7 +1566,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
 
   // -- PART 1: Open with regular block cache.
   // Since block_cache is disabled, no cache activities will be involved.
-  unique_ptr<Iterator> iter;
+  unique_ptr<InternalIterator> iter;
 
   int64_t last_cache_bytes_read = 0;
   // At first, no block will be accessed.
@@ -1778,7 +1799,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   const ImmutableCFOptions ioptions(opt);
   c.Finish(opt, ioptions, table_options, *ikc, &keys, &kvmap);
 
-  unique_ptr<Iterator> iter(c.NewIterator());
+  unique_ptr<InternalIterator> iter(c.NewIterator());
   iter->SeekToFirst();
   while (iter->Valid()) {
     iter->key();
@@ -1974,6 +1995,7 @@ TEST_F(HarnessTest, Randomized) {
   }
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(HarnessTest, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
   TestArgs args = { DB_TEST, false, 16, kNoCompression, 0 };
@@ -1997,6 +2019,7 @@ TEST_F(HarnessTest, RandomizedLongDB) {
   }
   ASSERT_GT(files, 0);
 }
+#endif  // ROCKSDB_LITE
 
 class MemTableTest : public testing::Test {};
 

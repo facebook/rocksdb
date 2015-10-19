@@ -81,8 +81,8 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/file_reader_writer.h"
-#include "util/scoped_arena_iterator.h"
 
 namespace rocksdb {
 
@@ -340,7 +340,7 @@ class Repairer {
     t->meta.fd = FileDescriptor(t->meta.fd.GetNumber(), t->meta.fd.GetPathId(),
                                 file_size);
     if (status.ok()) {
-      Iterator* iter = table_cache_->NewIterator(
+      InternalIterator* iter = table_cache_->NewIterator(
           ReadOptions(), env_options_, icmp_, t->meta.fd);
       bool empty = true;
       ParsedInternalKey parsed;

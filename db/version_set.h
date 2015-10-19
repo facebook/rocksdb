@@ -48,7 +48,7 @@ class Writer;
 }
 
 class Compaction;
-class Iterator;
+class InternalIterator;
 class LogBuffer;
 class LookupKey;
 class MemTable;
@@ -159,23 +159,26 @@ class VersionStorageInfo {
       int level, const InternalKey* begin,  // nullptr means before all keys
       const InternalKey* end,               // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      int hint_index = -1,         // index of overlap file
-      int* file_index = nullptr);  // return index of overlap file
+      int hint_index = -1,        // index of overlap file
+      int* file_index = nullptr,  // return index of overlap file
+      bool expand_range = true)   // if set, returns files which overlap the
+      const;                      // range and overlap each other. If false,
+                                  // then just files intersecting the range
 
   void GetOverlappingInputsBinarySearch(
       int level,
       const Slice& begin,  // nullptr means before all keys
       const Slice& end,    // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      int hint_index,    // index of overlap file
-      int* file_index);  // return index of overlap file
+      int hint_index,          // index of overlap file
+      int* file_index) const;  // return index of overlap file
 
   void ExtendOverlappingInputs(
       int level,
       const Slice& begin,  // nullptr means before all keys
       const Slice& end,    // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      unsigned int index);  // start extending from this index
+      unsigned int index) const;  // start extending from this index
 
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].
@@ -456,15 +459,16 @@ class Version {
   // file-name conversion.
   Status GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                             const FileMetaData* file_meta,
-                            const std::string* fname = nullptr);
+                            const std::string* fname = nullptr) const;
 
   // REQUIRES: lock is held
   // On success, *props will be populated with all SSTables' table properties.
   // The keys of `props` are the sst file name, the values of `props` are the
   // tables' propertis, represented as shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
-
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
+  Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
+                                      TablePropertiesCollection* props) const;
 
   // REQUIRES: lock is held
   // On success, "tp" will contains the aggregated table property amoug
@@ -502,7 +506,8 @@ class Version {
     return storage_info_.user_comparator_;
   }
 
-  bool PrefixMayMatch(const ReadOptions& read_options, Iterator* level_iter,
+  bool PrefixMayMatch(const ReadOptions& read_options,
+                      InternalIterator* level_iter,
                       const Slice& internal_prefix) const;
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
@@ -643,7 +648,7 @@ class VersionSet {
 
   // Create an iterator that reads over the compaction inputs for "*c".
   // The caller should delete the iterator when no longer needed.
-  Iterator* MakeInputIterator(Compaction* c);
+  InternalIterator* MakeInputIterator(Compaction* c);
 
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);

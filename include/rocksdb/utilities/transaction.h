@@ -83,9 +83,21 @@ class Transaction {
   // Returns the Snapshot created by the last call to SetSnapshot().
   //
   // REQUIRED: The returned Snapshot is only valid up until the next time
-  // SetSnapshot()/SetSnapshotOnNextSavePoint() is called or the Transaction
-  // is deleted.
+  // SetSnapshot()/SetSnapshotOnNextSavePoint() is called, ClearSnapshot()
+  // is called, or the Transaction is deleted.
   virtual const Snapshot* GetSnapshot() const = 0;
+
+  // Clears the current snapshot (i.e. no snapshot will be 'set')
+  //
+  // This removes any snapshot that currently exists or is set to be created
+  // on the next update operation (SetSnapshotOnNextOperation).
+  //
+  // Calling ClearSnapshot() has no effect on keys written before this function
+  // has been called.
+  //
+  // If a reference to a snapshot was retrieved via GetSnapshot(), it will no
+  // longer be valid and should be discarded after a call to ClearSnapshot().
+  virtual void ClearSnapshot() = 0;
 
   // Write all batched keys to the db atomically.
   //
@@ -202,10 +214,6 @@ class Transaction {
   //
   // The returned iterator is only valid until Commit(), Rollback(), or
   // RollbackToSavePoint() is called.
-  // NOTE: Transaction::Put/Merge/Delete will currently invalidate this iterator
-  // until
-  // the following issue is fixed:
-  // https://github.com/facebook/rocksdb/issues/616
   virtual Iterator* GetIterator(const ReadOptions& read_options) = 0;
 
   virtual Iterator* GetIterator(const ReadOptions& read_options,

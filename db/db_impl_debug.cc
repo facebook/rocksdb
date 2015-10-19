@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
+#ifndef NDEBUG
 
 #include "db/db_impl.h"
 #include "util/thread_status_updater.h"
@@ -17,23 +17,6 @@ namespace rocksdb {
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   InstrumentedMutexLock l(&mutex_);
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
-}
-
-Iterator* DBImpl::TEST_NewInternalIterator(Arena* arena,
-                                           ColumnFamilyHandle* column_family) {
-  ColumnFamilyData* cfd;
-  if (column_family == nullptr) {
-    cfd = default_cf_handle_->cfd();
-  } else {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-    cfd = cfh->cfd();
-  }
-
-  mutex_.Lock();
-  SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
-  mutex_.Unlock();
-  ReadOptions roptions;
-  return NewInternalIterator(roptions, cfd, super_version, arena);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
@@ -153,4 +136,4 @@ uint64_t DBImpl::TEST_LogfileNumber() {
 }
 
 }  // namespace rocksdb
-#endif  // ROCKSDB_LITE
+#endif  // NDEBUG

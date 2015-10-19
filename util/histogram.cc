@@ -82,7 +82,7 @@ void HistogramImpl::Clear() {
   memset(buckets_, 0, sizeof buckets_);
 }
 
-bool HistogramImpl::Empty() { return sum_squares_ == 0; }
+bool HistogramImpl::Empty() { return num_ == 0; }
 
 void HistogramImpl::Add(uint64_t value) {
   const size_t index = bucketMapper.IndexForValue(value);

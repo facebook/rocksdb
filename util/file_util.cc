@@ -49,8 +49,7 @@ Status CopyFile(Env* env, const std::string& source,
   char buffer[4096];
   Slice slice;
   while (size > 0) {
-    uint64_t bytes_to_read =
-        std::min(static_cast<uint64_t>(sizeof(buffer)), size);
+    size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
     if (s.ok()) {
       s = src_reader->Read(bytes_to_read, &slice, buffer);
     }

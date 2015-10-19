@@ -57,7 +57,8 @@ Status WritableFileWriter::Append(const Slice& data) {
   pending_sync_ = true;
   pending_fsync_ = true;
 
-  TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
+  TEST_KILL_RANDOM("WritableFileWriter::Append:0",
+                   rocksdb_kill_odds * REDUCE_ODDS2);
 
   {
     IOSTATS_TIMER_GUARD(prepare_write_nanos);
@@ -114,7 +115,7 @@ Status WritableFileWriter::Append(const Slice& data) {
     s = WriteBuffered(src, left);
   }
 
-  TEST_KILL_RANDOM(rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
   filesize_ += data.size();
   return Status::OK();
 }
@@ -141,13 +142,14 @@ Status WritableFileWriter::Close() {
     s = interim;
   }
 
-  TEST_KILL_RANDOM(rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Close:0", rocksdb_kill_odds);
   interim = writable_file_->Close();
   if (!interim.ok() && s.ok()) {
     s = interim;
   }
 
   writable_file_.reset();
+  TEST_KILL_RANDOM("WritableFileWriter::Close:1", rocksdb_kill_odds);
 
   return s;
 }
@@ -156,7 +158,8 @@ Status WritableFileWriter::Close() {
 // write out the cached data to the OS cache
 Status WritableFileWriter::Flush() {
   Status s;
-  TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
+  TEST_KILL_RANDOM("WritableFileWriter::Flush:0",
+                   rocksdb_kill_odds * REDUCE_ODDS2);
 
   if (buf_.CurrentSize() > 0) {
     if (use_os_buffer_) {
@@ -209,14 +212,14 @@ Status WritableFileWriter::Sync(bool use_fsync) {
   if (!s.ok()) {
     return s;
   }
-  TEST_KILL_RANDOM(rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Sync:0", rocksdb_kill_odds);
   if (!direct_io_ && pending_sync_) {
     s = SyncInternal(use_fsync);
     if (!s.ok()) {
       return s;
     }
   }
-  TEST_KILL_RANDOM(rocksdb_kill_odds);
+  TEST_KILL_RANDOM("WritableFileWriter::Sync:1", rocksdb_kill_odds);
   pending_sync_ = false;
   if (use_fsync) {
     pending_fsync_ = false;
@@ -294,7 +297,7 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
     }
 
     IOSTATS_ADD(bytes_written, allowed);
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    TEST_KILL_RANDOM("WritableFileWriter::WriteBuffered:0", rocksdb_kill_odds);
 
     left -= allowed;
     src += allowed;
@@ -409,8 +412,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     // if offset between [buffer_offset_, buffer_offset_ + buffer_len>
     if (offset >= buffer_offset_ && offset < buffer_len_ + buffer_offset_) {
       uint64_t offset_in_buffer = offset - buffer_offset_;
-      copied = std::min(static_cast<uint64_t>(buffer_len_) - offset_in_buffer,
-        static_cast<uint64_t>(n));
+      copied = std::min(buffer_len_ - static_cast<size_t>(offset_in_buffer), n);
       memcpy(scratch, buffer_.get() + offset_in_buffer, copied);
       if (copied == n) {
         // fully cached
@@ -466,6 +468,14 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
   std::unique_ptr<RandomAccessFile> result(
     new ReadaheadRandomAccessFile(std::move(file), readahead_size));
   return result;
+}
+
+Status NewWritableFile(Env* env, const std::string& fname,
+                       unique_ptr<WritableFile>* result,
+                       const EnvOptions& options) {
+  Status s = env->NewWritableFile(fname, result, options);
+  TEST_KILL_RANDOM("NewWritableFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
+  return s;
 }
 
 }  // namespace rocksdb

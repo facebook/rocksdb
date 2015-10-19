@@ -388,6 +388,8 @@ TSAN_CRASH_TEST_COMMANDS="[
     }
 ]"
 
+TSAN_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
+
 #
 # RocksDB format compatible
 #

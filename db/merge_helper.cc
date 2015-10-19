@@ -12,6 +12,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
+#include "table/internal_iterator.h"
 #include "util/perf_context_imp.h"
 #include "util/statistics.h"
 
@@ -56,7 +57,8 @@ Status MergeHelper::TimedFullMerge(const Slice& key, const Slice* value,
 //       keys_ stores the list of keys encountered while merging.
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
-Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
+Status MergeHelper::MergeUntil(InternalIterator* iter,
+                               const SequenceNumber stop_before,
                                const bool at_bottom) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.

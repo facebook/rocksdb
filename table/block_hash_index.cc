@@ -10,6 +10,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
+#include "table/internal_iterator.h"
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -53,8 +54,9 @@ Status CreateBlockHashIndex(const SliceTransform* hash_key_extractor,
 }
 
 BlockHashIndex* CreateBlockHashIndexOnTheFly(
-    Iterator* index_iter, Iterator* data_iter, const uint32_t num_restarts,
-    const Comparator* comparator, const SliceTransform* hash_key_extractor) {
+    InternalIterator* index_iter, InternalIterator* data_iter,
+    const uint32_t num_restarts, const Comparator* comparator,
+    const SliceTransform* hash_key_extractor) {
   assert(hash_key_extractor);
   auto hash_index = new BlockHashIndex(
       hash_key_extractor,

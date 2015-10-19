@@ -17,10 +17,10 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/logging.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
-#include "util/scoped_arena_iterator.h"
 
 namespace rocksdb {
 

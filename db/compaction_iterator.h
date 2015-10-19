@@ -37,7 +37,7 @@ struct CompactionIteratorStats {
 
 class CompactionIterator {
  public:
-  CompactionIterator(Iterator* input, const Comparator* cmp,
+  CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
                      std::vector<SequenceNumber>* snapshots, Env* env,
                      bool expect_valid_internal_key,
@@ -84,7 +84,7 @@ class CompactionIterator {
   inline SequenceNumber findEarliestVisibleSnapshot(
       SequenceNumber in, SequenceNumber* prev_snapshot);
 
-  Iterator* input_;
+  InternalIterator* input_;
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
   const std::vector<SequenceNumber>* snapshots_;

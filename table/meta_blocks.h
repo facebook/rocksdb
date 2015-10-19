@@ -11,12 +11,12 @@
 
 #include "db/builder.h"
 #include "db/table_properties_collector.h"
+#include "util/kv_map.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "table/block_builder.h"
 #include "table/format.h"
-#include "util/stl_wrappers.h"
 
 namespace rocksdb {
 
@@ -27,6 +27,7 @@ class Footer;
 class Logger;
 class RandomAccessFile;
 struct TableProperties;
+class InternalIterator;
 
 class MetaIndexBuilder {
  public:
@@ -105,7 +106,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            Logger* info_log, TableProperties** properties);
 
 // Find the meta block from the meta index block.
-Status FindMetaBlock(Iterator* meta_index_iter,
+Status FindMetaBlock(InternalIterator* meta_index_iter,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle);
 

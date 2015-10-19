@@ -171,6 +171,11 @@ class TransactionBaseImpl : public Transaction {
   void SetSnapshot() override;
   void SetSnapshotOnNextOperation() override;
 
+  void ClearSnapshot() override {
+    snapshot_.reset();
+    snapshot_needed_ = false;
+  }
+
   void DisableIndexing() override { indexing_enabled_ = false; }
 
   void EnableIndexing() override { indexing_enabled_ = true; }

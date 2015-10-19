@@ -14,7 +14,7 @@
 namespace rocksdb {
 
 class Comparator;
-class Iterator;
+class InternalIterator;
 class Slice;
 class SliceTransform;
 
@@ -79,7 +79,8 @@ Status CreateBlockHashIndex(const SliceTransform* hash_key_extractor,
 // @params hash_key_extractor: extract the hashable part of a given key.
 // On error, nullptr will be returned.
 BlockHashIndex* CreateBlockHashIndexOnTheFly(
-    Iterator* index_iter, Iterator* data_iter, const uint32_t num_restarts,
-    const Comparator* comparator, const SliceTransform* hash_key_extractor);
+    InternalIterator* index_iter, InternalIterator* data_iter,
+    const uint32_t num_restarts, const Comparator* comparator,
+    const SliceTransform* hash_key_extractor);
 
 }  // namespace rocksdb

@@ -324,34 +324,37 @@ class DB {
   //  "rocksdb.compaction-pending" - 1 if at least one compaction is pending
   //  "rocksdb.background-errors" - accumulated number of background errors
   //  "rocksdb.cur-size-active-mem-table"
-//  "rocksdb.size-all-mem-tables"
-//  "rocksdb.num-entries-active-mem-table"
-//  "rocksdb.num-entries-imm-mem-tables"
-//  "rocksdb.num-deletes-active-mem-table"
-//  "rocksdb.num-deletes-imm-mem-tables"
-//  "rocksdb.estimate-num-keys" - estimated keys in the column family
-//  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
-//      SST tables, that is not counted as a part of block cache.
-//  "rocksdb.is-file-deletions-enabled"
-//  "rocksdb.num-snapshots"
-//  "rocksdb.oldest-snapshot-time"
-//  "rocksdb.num-live-versions" - `version` is an internal data structure.
-//      See version_set.h for details. More live versions often mean more SST
-//      files are held from being deleted, by iterators or unfinished
-//      compactions.
-//  "rocksdb.estimate-live-data-size"
-//  "rocksdb.total-sst-files-size" - total size of all used sst files, this may
-//      slow down online queries if there are too many files.
-//  "rocksdb.base-level"
-//  "rocksdb.estimate-pending-compaction-bytes" - estimated total number of
-//      bytes compaction needs to rewrite the data to get all levels down
-//      to under target size. Not valid for other compactions than level-based.
-//  "rocksdb.aggregated-table-properties" - returns a string representation of
-//      the aggregated table properties of the target column family.
-//  "rocksdb.aggregated-table-properties-at-level<N>", same as the previous
-//      one but only returns the aggregated table properties of the specified
-//      level "N" at the target column family.
-//  replaced by the target level.
+  //  "rocksdb.size-all-mem-tables"
+  //  "rocksdb.num-entries-active-mem-table"
+  //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.num-deletes-active-mem-table"
+  //  "rocksdb.num-deletes-imm-mem-tables"
+  //  "rocksdb.estimate-num-keys" - estimated keys in the column family
+  //  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
+  //      SST tables, that is not counted as a part of block cache.
+  //  "rocksdb.is-file-deletions-enabled"
+  //  "rocksdb.num-snapshots"
+  //  "rocksdb.oldest-snapshot-time"
+  //  "rocksdb.num-live-versions" - `version` is an internal data structure.
+  //      See version_set.h for details. More live versions often mean more SST
+  //      files are held from being deleted, by iterators or unfinished
+  //      compactions.
+  //  "rocksdb.estimate-live-data-size"
+  //  "rocksdb.total-sst-files-size" - total size of all used sst files, this
+  //      may slow down online queries if there are too many files.
+  //  "rocksdb.base-level"
+  //  "rocksdb.estimate-pending-compaction-bytes" - estimated total number of
+  //      bytes compaction needs to rewrite the data to get all levels down
+  //      to under target size. Not valid for other compactions than
+  //      level-based.
+  //  "rocksdb.aggregated-table-properties" - returns a string representation
+  //      of the aggregated table properties of the target column family.
+  //  "rocksdb.aggregated-table-properties-at-level<N>", same as the previous
+  //      one but only returns the aggregated table properties of the specified
+  //      level "N" at the target column family.
+  //  "rocksdb.num-running-compactions" - the number of currently running
+  //      compacitons.
+  //  "rocksdb.num-running-flushes" - the number of currently running flushes.
 #ifndef ROCKSDB_LITE
   struct Properties {
     static const std::string kNumFilesAtLevelPrefix;
@@ -361,7 +364,9 @@ class DB {
     static const std::string kDBStats;
     static const std::string kNumImmutableMemTable;
     static const std::string kMemTableFlushPending;
+    static const std::string kNumRunningFlushes;
     static const std::string kCompactionPending;
+    static const std::string kNumRunningCompactions;
     static const std::string kBackgroundErrors;
     static const std::string kCurSizeActiveMemTable;
     static const std::string kCurSizeAllMemTables;
@@ -414,6 +419,8 @@ class DB {
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"
+  //  "rocksdb.num-running-compactions"
+  //  "rocksdb.num-running-flushes"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -709,6 +716,9 @@ class DB {
   virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
+  virtual Status GetPropertiesOfTablesInRange(
+      ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
+      TablePropertiesCollection* props) = 0;
 #endif  // ROCKSDB_LITE
 
   // Needed for StackableDB

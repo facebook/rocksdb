@@ -116,20 +116,6 @@ class CompactionFilterFactory {
   virtual const char* Name() const = 0;
 };
 
-// Default implementation of CompactionFilterFactory which does not
-// return any filter
-class DefaultCompactionFilterFactory : public CompactionFilterFactory {
- public:
-  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& context) override {
-    return std::unique_ptr<CompactionFilter>(nullptr);
-  }
-
-  virtual const char* Name() const override {
-    return "DefaultCompactionFilterFactory";
-  }
-};
-
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_
