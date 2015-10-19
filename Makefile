@@ -568,12 +568,12 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py -s
-	python -u tools/db_crashtest.py
+	python -u tools/db_crashtest.py --simple blackbox 
+	python -u tools/db_crashtest.py blackbox
 
 whitebox_crash_test: db_stress
-	python -u tools/db_crashtest2.py -s
-	python -u tools/db_crashtest2.py
+	python -u tools/db_crashtest.py --simple whitebox
+	python -u tools/db_crashtest.py whitebox
 
 asan_check:
 	$(MAKE) clean
