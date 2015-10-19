@@ -717,7 +717,7 @@ class DB {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
   virtual Status GetPropertiesOfTablesInRange(
-      ColumnFamilyHandle* column_family, const Range* range, int n,
+      ColumnFamilyHandle* column_family, const Range* range, std::size_t n,
       TablePropertiesCollection* props) = 0;
 #endif  // ROCKSDB_LITE
 

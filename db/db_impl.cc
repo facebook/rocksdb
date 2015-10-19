@@ -4163,7 +4163,7 @@ Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
 }
 
 Status DBImpl::GetPropertiesOfTablesInRange(ColumnFamilyHandle* column_family,
-                                            const Range* range, int n,
+                                            const Range* range, std::size_t n,
                                             TablePropertiesCollection* props) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();

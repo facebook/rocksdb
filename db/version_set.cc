@@ -625,9 +625,9 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
 }
 
 Status Version::GetPropertiesOfTablesInRange(
-    const Range* range, int n, TablePropertiesCollection* props) const {
+    const Range* range, std::size_t n, TablePropertiesCollection* props) const {
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
-    for (int i = 0; i < n; i++) {
+    for (decltype(n) i = 0; i < n; i++) {
       // Convert user_key into a corresponding internal key.
       InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
       InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);

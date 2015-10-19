@@ -467,7 +467,7 @@ class Version {
   // tables' propertis, represented as shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
-  Status GetPropertiesOfTablesInRange(const Range* range, int n,
+  Status GetPropertiesOfTablesInRange(const Range* range, std::size_t n,
                                       TablePropertiesCollection* props) const;
 
   // REQUIRES: lock is held
