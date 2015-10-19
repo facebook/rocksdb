@@ -33,7 +33,9 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # with debug level 0. To compile with level 0, run `make shared_lib`,
 # `make install-shared`, `make static_lib`, `make install-static` or
 # `make install`
-DEBUG_LEVEL=1
+
+# Set the default DEBUG_LEVEL to 1
+DEBUG_LEVEL?=1
 
 ifeq ($(MAKECMDGOALS),dbg)
 	DEBUG_LEVEL=2
