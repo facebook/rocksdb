@@ -1156,22 +1156,67 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
 #ifndef ROCKSDB_LITE
       if (db_options_.wal_filter != nullptr) {
-        WALFilter::WALProcessingOption walProcessingOption =
-          db_options_.wal_filter->LogRecord(batch);
+        WriteBatch new_batch;
+        bool batch_changed = false;
+
+        WalFilter::WalProcessingOption walProcessingOption =
+          db_options_.wal_filter->LogRecord(batch, &new_batch, &batch_changed);
 
         switch (walProcessingOption) {
-        case  WALFilter::WALProcessingOption::kContinueProcessing:
+        case  WalFilter::WalProcessingOption::kContinueProcessing:
           //do nothing, proceeed normally
           break;
-        case WALFilter::WALProcessingOption::kIgnoreCurrentRecord:
+        case WalFilter::WalProcessingOption::kIgnoreCurrentRecord:
           //skip current record
           continue;
-        case WALFilter::WALProcessingOption::kStopReplay:
+        case WalFilter::WalProcessingOption::kStopReplay:
           //skip current record and stop replay
           continue_replay_log = false;
           continue;
-        default:
+        case WalFilter::WalProcessingOption::kCorruptedRecord: {
+          status = Status::Corruption("Corruption reported by Wal Filter ",
+            db_options_.wal_filter->Name());
+          MaybeIgnoreError(&status);
+          if (!status.ok()) {
+            reporter.Corruption(record.size(), status);
+            continue;
+          }
+          break;
+        }
+        default: {
           assert(false); //unhandled case
+          status = Status::NotSupported("Unknown WalProcessingOption returned"
+            " by Wal Filter ", db_options_.wal_filter->Name());
+          MaybeIgnoreError(&status);
+          if (!status.ok()) {
+            return status;
+          }
+          else {
+            // Ignore the error with current record processing.
+            continue;
+          }
+        }
+        }
+
+        if (batch_changed) {
+          // Make sure that the count in the new batch is
+          // within the orignal count.
+          int new_count = WriteBatchInternal::Count(&new_batch);
+          int original_count = WriteBatchInternal::Count(&batch);
+          if (new_count > original_count) {
+            // Question: should this be treated as an error ??
+            // Would it cause problems if #num records > diff in seq#?
+            Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+              "Recovering log #%" PRIu64 " mode %d log filter %s returned " 
+              "more records (%d) than original (%d)", log_number,
+              db_options_.wal_recovery_mode, db_options_.wal_filter->Name(),
+              new_count, original_count);
+          }
+          // Set the same sequence number in the new_batch
+          // as the original batch.
+          WriteBatchInternal::SetSequence(&new_batch, 
+            WriteBatchInternal::Sequence(&batch));
+          batch = new_batch;
         }
       }
 #endif //ROCKSDB_LITE

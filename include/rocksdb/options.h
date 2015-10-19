@@ -46,7 +46,7 @@ class Slice;
 class SliceTransform;
 class Statistics;
 class InternalKeyComparator;
-class WALFilter;
+class WalFilter;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -1138,7 +1138,7 @@ struct DBOptions {
   // records, ignoring a particular record or skipping replay.
   // The filter is invoked at startup and is invoked from a single-thread
   // currently.
-  const WALFilter * wal_filter;
+  const WalFilter* wal_filter;
 #endif //ROCKSDB_LITE
 };
 

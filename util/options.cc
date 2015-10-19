@@ -258,7 +258,7 @@ DBOptions::DBOptions()
       skip_stats_update_on_db_open(false),
       wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords)
 #ifndef ROCKSDB_LITE
-      ,wal_filter(nullptr) 
+      , wal_filter(nullptr) 
 #endif // ROCKSDB_LITE
       {
 }
@@ -318,7 +318,7 @@ DBOptions::DBOptions(const Options& options)
       wal_recovery_mode(options.wal_recovery_mode),
       row_cache(options.row_cache)
 #ifndef ROCKSDB_LITE
-      ,wal_filter(options.wal_filter)
+      , wal_filter(options.wal_filter)
 #endif // ROCKSDB_LITE
       {
 }
