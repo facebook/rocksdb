@@ -214,10 +214,6 @@ class Transaction {
   //
   // The returned iterator is only valid until Commit(), Rollback(), or
   // RollbackToSavePoint() is called.
-  // NOTE: Transaction::Put/Merge/Delete will currently invalidate this iterator
-  // until
-  // the following issue is fixed:
-  // https://github.com/facebook/rocksdb/issues/616
   virtual Iterator* GetIterator(const ReadOptions& read_options) = 0;
 
   virtual Iterator* GetIterator(const ReadOptions& read_options,
