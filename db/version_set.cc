@@ -1097,7 +1097,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
   // We keep doing it to Level 2, 3, etc, until the last level and return the
   // accumulated bytes.
 
-  size_t bytes_compact_to_next_level = 0;
+  uint64_t bytes_compact_to_next_level = 0;
   // Level 0
   bool level0_compact_triggered = false;
   if (static_cast<int>(files_[0].size()) >
@@ -1113,7 +1113,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
 
   // Level 1 and up.
   for (int level = base_level(); level <= MaxInputLevel(); level++) {
-    size_t level_size = 0;
+    uint64_t level_size = 0;
     for (auto* f : files_[level]) {
       level_size += f->fd.GetFileSize();
     }
@@ -1124,7 +1124,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
     // Add size added by previous compaction
     level_size += bytes_compact_to_next_level;
     bytes_compact_to_next_level = 0;
-    size_t level_target = MaxBytesForLevel(level);
+    uint64_t level_target = MaxBytesForLevel(level);
     if (level_size > level_target) {
       bytes_compact_to_next_level = level_size - level_target;
       // Simplify to assume the actual compaction fan-out ratio is always

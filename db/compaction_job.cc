@@ -601,10 +601,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if (measure_io_stats_) {
     prev_perf_level = GetPerfLevel();
     SetPerfLevel(PerfLevel::kEnableTime);
-    prev_write_nanos = iostats_context.write_nanos;
-    prev_fsync_nanos = iostats_context.fsync_nanos;
-    prev_range_sync_nanos = iostats_context.range_sync_nanos;
-    prev_prepare_write_nanos = iostats_context.prepare_write_nanos;
+    prev_write_nanos = IOSTATS(write_nanos);
+    prev_fsync_nanos = IOSTATS(fsync_nanos);
+    prev_range_sync_nanos = IOSTATS(range_sync_nanos);
+    prev_prepare_write_nanos = IOSTATS(prepare_write_nanos);
   }
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
@@ -728,13 +728,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 
   if (measure_io_stats_) {
     sub_compact->compaction_job_stats.file_write_nanos +=
-        iostats_context.write_nanos - prev_write_nanos;
+        IOSTATS(write_nanos) - prev_write_nanos;
     sub_compact->compaction_job_stats.file_fsync_nanos +=
-        iostats_context.fsync_nanos - prev_fsync_nanos;
+        IOSTATS(fsync_nanos) - prev_fsync_nanos;
     sub_compact->compaction_job_stats.file_range_sync_nanos +=
-        iostats_context.range_sync_nanos - prev_range_sync_nanos;
+        IOSTATS(range_sync_nanos) - prev_range_sync_nanos;
     sub_compact->compaction_job_stats.file_prepare_write_nanos +=
-        iostats_context.prepare_write_nanos - prev_prepare_write_nanos;
+        IOSTATS(prepare_write_nanos) - prev_prepare_write_nanos;
     if (prev_perf_level != PerfLevel::kEnableTime) {
       SetPerfLevel(prev_perf_level);
     }

@@ -190,7 +190,7 @@ class StringSink: public WritableFile {
   const std::string& contents() const { return contents_; }
 
   virtual Status Truncate(uint64_t size) override {
-    contents_.resize(size);
+    contents_.resize(static_cast<size_t>(size));
     return Status::OK();
   }
   virtual Status Close() override { return Status::OK(); }
@@ -243,13 +243,13 @@ class StringSource: public RandomAccessFile {
       return Status::InvalidArgument("invalid Read offset");
     }
     if (offset + n > contents_.size()) {
-      n = contents_.size() - offset;
+      n = contents_.size() - static_cast<size_t>(offset);
     }
     if (!mmap_) {
-      memcpy(scratch, &contents_[offset], n);
+      memcpy(scratch, &contents_[static_cast<size_t>(offset)], n);
       *result = Slice(scratch, n);
     } else {
-      *result = Slice(&contents_[offset], n);
+      *result = Slice(&contents_[static_cast<size_t>(offset)], n);
     }
     return Status::OK();
   }

@@ -412,8 +412,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     // if offset between [buffer_offset_, buffer_offset_ + buffer_len>
     if (offset >= buffer_offset_ && offset < buffer_len_ + buffer_offset_) {
       uint64_t offset_in_buffer = offset - buffer_offset_;
-      copied = std::min(static_cast<uint64_t>(buffer_len_) - offset_in_buffer,
-        static_cast<uint64_t>(n));
+      copied = std::min(buffer_len_ - static_cast<size_t>(offset_in_buffer), n);
       memcpy(scratch, buffer_.get() + offset_in_buffer, copied);
       if (copied == n) {
         // fully cached

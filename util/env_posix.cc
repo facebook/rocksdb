@@ -317,7 +317,7 @@ class PosixMmapReadableFile: public RandomAccessFile {
       *result = Slice();
       return IOError(filename_, EINVAL);
     } else if (offset + n > length_) {
-      n = length_ - offset;
+      n = static_cast<size_t>(length_ - offset);
     }
     *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
     return s;
