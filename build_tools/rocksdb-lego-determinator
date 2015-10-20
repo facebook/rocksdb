@@ -70,6 +70,13 @@ TSAN="COMPILE_WITH_TSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 PARSER="'parser':'egrep \'Failure|^#|Abort\''"
 
+ARTIFACTS=" 'artifacts': [
+    {
+        'name':'database',
+        'paths':[ '/dev/shm/rocksdb' ],
+    }
+]"
+
 #
 # A mechanism to disable tests temporarily
 #
@@ -280,6 +287,7 @@ STRESS_CRASH_TEST_COMMANDS="[
                 $PARSER
             }
         ],
+        $ARTIFACTS,
         $REPORT
     }
 ]"
