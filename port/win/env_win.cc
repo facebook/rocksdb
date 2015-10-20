@@ -789,17 +789,6 @@ class WinRandomAccessFile : public RandomAccessFile {
     }
   }
 
-  virtual void EnableReadAhead() override {
-    if (!use_os_buffer_ && compaction_readahead_size_ > 0) {
-      std::lock_guard<std::mutex> lg(buffer_mut_);
-      read_ahead_ = true;
-      // This would allocate read-ahead size + 2 alignments
-      // - one for memory alignment which added implicitly by AlignedBuffer
-      // - We add one more alignment because we will read one alignment more from disk
-      buffer_.AllocateNewBuffer(compaction_readahead_size_ + buffer_.Alignment());
-    }
-  }
-
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
     Status s;
@@ -883,7 +872,22 @@ class WinRandomAccessFile : public RandomAccessFile {
     return true;
   }
 
-  virtual void Hint(AccessPattern pattern) override {}
+  virtual void Hint(AccessPattern pattern) override {
+
+    if (pattern == SEQUENTIAL &&
+        !use_os_buffer_ &&
+        compaction_readahead_size_ > 0) {
+
+      std::lock_guard<std::mutex> lg(buffer_mut_);
+      if (!read_ahead_) {
+        read_ahead_ = true;
+        // This would allocate read-ahead size + 2 alignments
+        // - one for memory alignment which added implicitly by AlignedBuffer
+        // - We add one more alignment because we will read one alignment more from disk
+        buffer_.AllocateNewBuffer(compaction_readahead_size_ + buffer_.Alignment());
+      }
+    }
+  }
 
   virtual Status InvalidateCache(size_t offset, size_t length) override {
     return Status::OK();

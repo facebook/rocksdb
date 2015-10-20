@@ -1073,6 +1073,8 @@ struct DBOptions {
   // value and always try to read ahead. With read-ahead we always
   // pre-allocate buffer to the size instead of growing it up to a limit.
   //
+  // Currently is honored only on Windows.
+  //
   // Default: 1 Mb
   size_t random_access_max_buffer_size;
 

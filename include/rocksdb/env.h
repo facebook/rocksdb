@@ -408,11 +408,6 @@ class RandomAccessFile {
     return false;
   }
 
-  // For cases when read-ahead is implemented in the platform dependent
-  // layer
-  virtual void EnableReadAhead() {
-  }
-
   // Tries to get an unique ID for this file that will be the same each time
   // the file is opened (and will stay the same while the file is open).
   // Furthermore, it tries to make this ID at most "max_size" bytes. If such an

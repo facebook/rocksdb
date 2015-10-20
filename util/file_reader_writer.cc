@@ -386,8 +386,6 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
        buffer_len_(0) {
      if (!forward_calls_) {
        buffer_.reset(new char[readahead_size_]);
-     } else if (readahead_size_ > 0) {
-       file_->EnableReadAhead();
      }
    }
 
