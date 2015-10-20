@@ -219,7 +219,7 @@ def blackbox_crash_main(args):
         time.sleep(1)  # time to stabilize before the next run
 
     # we need to clean up after ourselves -- only do this on test success
-    shutil.rmtree(dbname, True)
+    shutil.rmtree(cmd_params['db'], True)
 
 
 # This python script runs db_stress multiple times. Some runs with
@@ -328,7 +328,7 @@ def whitebox_crash_main(args):
         if time.time() > half_time:
             # we need to clean up after ourselves -- only do this on test
             # success
-            shutil.rmtree(dbname, True)
+            shutil.rmtree(cmd_params['db'], True)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
