@@ -57,7 +57,6 @@ def get_dbname(test_name):
     return dbname
 
 blackbox_default_params = {
-    'db': lambda: get_dbname('blackbox'),
     # total time for this script to test db_stress
     "duration": 6000,
     # time for one db_stress instance to run
@@ -69,7 +68,6 @@ blackbox_default_params = {
 }
 
 whitebox_default_params = {
-    'db': lambda: get_dbname('whitebox'),
     "duration": 10000,
     "log2_keys_per_lock": 10,
     "nooverwritepercent": 1,
@@ -110,7 +108,6 @@ simple_default_params = {
 }
 
 blackbox_simple_default_params = {
-    'db': lambda: get_dbname('blackbox'),
     "duration": 6000,
     "interval": 120,
     "open_files": -1,
@@ -120,7 +117,6 @@ blackbox_simple_default_params = {
 }
 
 whitebox_simple_default_params = {
-    'db': lambda: get_dbname('whitebox'),
     "duration": 10000,
     "log2_keys_per_lock": 10,
     "nooverwritepercent": 1,
@@ -166,7 +162,7 @@ def gen_cmd(params):
 # in case of unsafe crashes in RocksDB.
 def blackbox_crash_main(args):
     cmd_params = gen_cmd_params(args)
-
+    dbname = get_dbname('blackbox')
     exit_time = time.time() + cmd_params['duration']
 
     print("Running blackbox-crash-test with \n"
@@ -180,7 +176,7 @@ def blackbox_crash_main(args):
         run_had_errors = False
         killtime = time.time() + cmd_params['interval']
 
-        cmd = gen_cmd(cmd_params)
+        cmd = gen_cmd(dict(cmd_params.items() + {'db': dbname}.items()))
 
         child = subprocess.Popen([cmd],
                                  stderr=subprocess.PIPE, shell=True)
@@ -219,13 +215,14 @@ def blackbox_crash_main(args):
         time.sleep(1)  # time to stabilize before the next run
 
     # we need to clean up after ourselves -- only do this on test success
-    shutil.rmtree(cmd_params['db'], True)
+    shutil.rmtree(dbname, True)
 
 
 # This python script runs db_stress multiple times. Some runs with
 # kill_random_test that causes rocksdb to crash at various points in code.
 def whitebox_crash_main(args):
     cmd_params = gen_cmd_params(args)
+    dbname = get_dbname('whitebox')
 
     cur_time = time.time()
     exit_time = cur_time + cmd_params['duration']
@@ -285,7 +282,8 @@ def whitebox_crash_main(args):
                 "ops_per_thread": cmd_params['ops_per_thread'],
             }
 
-        cmd = gen_cmd(dict(cmd_params.items() + additional_opts.items()))
+        cmd = gen_cmd(dict(cmd_params.items() + additional_opts.items()
+                           + {'db': dbname}.items()))
 
         print "Running:" + cmd + "\n"
 
@@ -328,7 +326,7 @@ def whitebox_crash_main(args):
         if time.time() > half_time:
             # we need to clean up after ourselves -- only do this on test
             # success
-            shutil.rmtree(cmd_params['db'], True)
+            shutil.rmtree(dbname, True)
             check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
