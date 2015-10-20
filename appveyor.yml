@@ -5,7 +5,7 @@ before_build:
 - cmake -G "Visual Studio 12 Win64" ..
 - cd ..
 build:
-  project: build\ALL_BUILD.vcxproj
+  project: build\rocksdb.sln
   parallel: true
   verbosity: minimal
 test: off
