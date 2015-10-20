@@ -1227,6 +1227,7 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
 TEST_P(DBCompactionTestWithParam, ManualCompaction) {
   Options options = CurrentOptions();
   options.max_subcompactions = max_subcompactions_;
+  options.statistics = rocksdb::CreateDBStatistics();
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // iter - 0 with 7 levels
@@ -1258,7 +1259,14 @@ TEST_P(DBCompactionTestWithParam, ManualCompaction) {
     // Compact all
     MakeTables(1, "a", "z", 1);
     ASSERT_EQ("1,0,2", FilesPerLevel(1));
+
+    uint64_t prev_block_cache_add =
+        options.statistics->getTickerCount(BLOCK_CACHE_ADD);
     db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+    // Verify manual compaction doesn't fill block cache
+    ASSERT_EQ(prev_block_cache_add,
+              options.statistics->getTickerCount(BLOCK_CACHE_ADD));
+
     ASSERT_EQ("0,0,1", FilesPerLevel(1));
 
     if (iter == 0) {
@@ -1266,6 +1274,7 @@ TEST_P(DBCompactionTestWithParam, ManualCompaction) {
       options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
+      options.statistics = rocksdb::CreateDBStatistics();
       DestroyAndReopen(options);
       CreateAndReopenWithCF({"pikachu"}, options);
     }
