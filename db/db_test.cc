@@ -10092,12 +10092,12 @@ TEST_F(DBTest, WalFilterTest) {
 TEST_F(DBTest, WalFilterTestWithChangeBatch) {
   class ChangeBatchHandler : public WriteBatch::Handler {
   private:
-    // Whether we have already added a key to new batch
-    size_t m_numKeysAdded;
     // Batch to insert keys in
     WriteBatch* newWriteBatch_;
     // Number of keys to add in the new batch
     size_t m_numKeysToAddInNewBatch;
+    // Number of keys added to new batch
+    size_t m_numKeysAdded;
   public:
     ChangeBatchHandler(WriteBatch* newWriteBatch, 
       size_t numKeysToAddInNewBatch) :
