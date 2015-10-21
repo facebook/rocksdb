@@ -41,6 +41,14 @@ ifeq ($(MAKECMDGOALS),dbg)
 	DEBUG_LEVEL=2
 endif
 
+ifeq ($(MAKECMDGOALS),clean)
+	DEBUG_LEVEL=0
+endif
+
+ifeq ($(MAKECMDGOALS),release)
+	DEBUG_LEVEL=0
+endif
+
 ifeq ($(MAKECMDGOALS),shared_lib)
 	DEBUG_LEVEL=0
 endif
@@ -404,7 +412,7 @@ dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 # creates static library and programs
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) static_lib tools db_bench
+	DEBUG_LEVEL=0 $(MAKE) static_lib tools db_bench
 
 coverage:
 	$(MAKE) clean

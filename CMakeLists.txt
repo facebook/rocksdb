@@ -14,10 +14,15 @@
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
 #        sample command: cmake -G "Visual Studio 12 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 ..
-# 4. Then build the project in debug mode (you may want to add /m:<N> flag to run msbuild in <N> parallel threads)
-#        msbuild ALL_BUILD.vcxproj
+# 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
+#                                          or simply /m ot use all avail cores)
+#        msbuild rocksdb.sln
+#
+#        rocksdb.sln build features exclusions of test only code in Release. If you build ALL_BUILD then everything
+#        will be attempted but test only code does not build in Release mode.
+#
 # 5. And release mode (/m[:<N>] is also supported)
-#        msbuild ALL_BUILD.vcxproj /p:Configuration=Release
+#        msbuild rocksdb.sln /p:Configuration=Release
 #
 
 cmake_minimum_required(VERSION 2.6)
@@ -90,6 +95,7 @@ set(LIBS ${ROCKSDB_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
 
+# Main library source code
 set(SOURCES
         db/builder.cc
         db/c.cc
@@ -107,7 +113,6 @@ set(SOURCES
         db/db_impl_experimental.cc
         db/db_impl_readonly.cc
         db/db_iter.cc
-        db/db_test_util.cc
         db/event_helpers.cc
         db/experimental.cc
         db/filename.cc
@@ -259,6 +264,12 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
 )
 
+# For test util library that is build only in DEBUG mode
+# and linked to tests. Add test only code that is not #ifdefed for Release here.
+set(TESTUTIL_SOURCE
+    db/db_test_util.cc
+)
+
 add_library(rocksdblib${ARTIFACT_SUFFIX} ${SOURCES})
 set_target_properties(rocksdblib${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib${ARTIFACT_SUFFIX}.pdb")
 add_dependencies(rocksdblib${ARTIFACT_SUFFIX} GenerateBuildVersion)
@@ -374,7 +385,7 @@ set(TESTS
         utilities/write_batch_with_index/write_batch_with_index_test.cc
 )
 
-set(EXES ${APPS} ${TESTS})
+set(EXES ${APPS})
 
 foreach(sourcefile ${EXES})
     string(REPLACE ".cc" "" exename ${sourcefile})
@@ -383,12 +394,42 @@ foreach(sourcefile ${EXES})
     target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS})
 endforeach(sourcefile ${EXES})
 
-# C executables must link to a shared object
-set(C_EXES ${C_TESTS})
+# test utilities are only build in debug
+set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
+add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
+set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
+set_target_properties(${TESTUTILLIB}
+      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+      )
 
-foreach(sourcefile ${C_EXES})
+# Tests are excluded from Release builds
+set(TEST_EXES ${TESTS})
+
+foreach(sourcefile ${TEST_EXES})
+    string(REPLACE ".cc" "" exename ${sourcefile})
+    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
+    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+    set_target_properties(${exename}${ARTIFACT_SUFFIX}
+      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+      )
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS} testutillib${ARTIFACT_SUFFIX})
+endforeach(sourcefile ${TEST_EXES})
+
+# C executables must link to a shared object
+set(C_TEST_EXES ${C_TESTS})
+
+foreach(sourcefile ${C_TEST_EXES})
     string(REPLACE ".c" "" exename ${sourcefile})
     string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
     add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} rocksdb${ARTIFACT_SUFFIX})
-endforeach(sourcefile ${C_TESTS})
+    set_target_properties(${exename}${ARTIFACT_SUFFIX}
+      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
+      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
+      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
+      )
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} rocksdb${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX})
+endforeach(sourcefile ${C_TEST_EXES})
