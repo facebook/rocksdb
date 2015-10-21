@@ -88,6 +88,9 @@ class FbcodeCppLinter extends ArcanistLinter {
   }
 
   private function getCppLintOutput($path) {
+     if (!array_key_exists($path, $this->rawLintOutput)) {
+       return array();
+     }
     list($output) = $this->rawLintOutput[$path];
 
     $msgs = array();
