@@ -9,9 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
-#if !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/sync_point.h"
-#endif
 
 namespace rocksdb {
 class DBWALTest : public DBTestBase {
@@ -70,7 +68,6 @@ TEST_F(DBWALTest, RollLog) {
   } while (ChangeOptions());
 }
 
-#if !(defined NDEBUG) || !defined(OS_WIN)
 TEST_F(DBWALTest, SyncWALNotBlockWrite) {
   Options options = CurrentOptions();
   options.max_write_buffer_number = 4;
@@ -130,15 +127,10 @@ TEST_F(DBWALTest, SyncWALNotWaitWrite) {
   ASSERT_EQ(Get("foo2"), "bar2");
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-#if !(defined NDEBUG) || !defined(OS_WIN)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  return 0;
-#endif
 }

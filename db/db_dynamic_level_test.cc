@@ -10,7 +10,7 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
-#if (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
+#if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -484,10 +484,10 @@ TEST_F(DBTestDynamicLevel, MigrateToDynamicLevelMaxBytesBase) {
 }
 }  // namespace rocksdb
 
-#endif  // (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
+#endif  // !defined(ROCKSDB_LITE)
 
 int main(int argc, char** argv) {
-#if (!(defined NDEBUG) || !defined(OS_WIN)) && !defined(ROCKSDB_LITE)
+#if !defined(ROCKSDB_LITE)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
