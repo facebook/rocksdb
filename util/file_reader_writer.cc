@@ -384,9 +384,13 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
      : file_(std::move(file)),
        readahead_size_(readahead_size),
        forward_calls_(file_->ShouldForwardRawRequest()),
-       buffer_(new char[readahead_size_]),
+       buffer_(),
        buffer_offset_(0),
-       buffer_len_(0) {}
+       buffer_len_(0) {
+     if (!forward_calls_) {
+       buffer_.reset(new char[readahead_size_]);
+     }
+   }
 
  ReadaheadRandomAccessFile(const ReadaheadRandomAccessFile&) = delete;
 

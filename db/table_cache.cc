@@ -96,6 +96,7 @@ Status TableCache::GetTableReader(
   if (sequential_mode && ioptions_.compaction_readahead_size > 0) {
     file = NewReadaheadRandomAccessFile(std::move(file),
                                         ioptions_.compaction_readahead_size);
+    file->Hint(RandomAccessFile::SEQUENTIAL);
   }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {

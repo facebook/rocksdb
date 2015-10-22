@@ -88,6 +88,12 @@ struct EnvOptions {
   // WAL writes
   bool fallocate_with_keep_size = true;
 
+  // See DBOPtions doc
+  size_t compaction_readahead_size;
+
+  // See DBOPtions doc
+  size_t random_access_max_buffer_size;
+
   // If not nullptr, write rate limiting is enabled for flush and compaction
   RateLimiter* rate_limiter = nullptr;
 };
