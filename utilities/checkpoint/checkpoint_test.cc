@@ -10,8 +10,6 @@
 // Syncpoint prevents us building and running tests in release
 #ifndef ROCKSDB_LITE
 
-#if !defined(NDEBUG) || !defined(OS_WIN)
-
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -350,16 +348,10 @@ TEST_F(DBTest, CheckpointCF) {
 
 }  // namespace rocksdb
 
-#endif
-
 int main(int argc, char** argv) {
-#if !defined(NDEBUG) || !defined(OS_WIN)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  return 0;
-#endif
 }
 
 #else
