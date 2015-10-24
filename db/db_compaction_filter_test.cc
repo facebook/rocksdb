@@ -625,11 +625,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-#if !(defined NDEBUG) || !defined(OS_WIN)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
-#else
-  return 0;
-#endif
 }

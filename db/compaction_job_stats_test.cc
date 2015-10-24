@@ -64,7 +64,7 @@
 #include "util/xfunc.h"
 #include "utilities/merge_operators.h"
 
-#if !defined(IOS_CROSS_COMPILE) && (!defined(NDEBUG) || !defined(OS_WIN))
+#if !defined(IOS_CROSS_COMPILE)
 #ifndef ROCKSDB_LITE
 namespace rocksdb {
 

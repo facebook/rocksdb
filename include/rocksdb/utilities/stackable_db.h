@@ -148,7 +148,8 @@ class StackableDB : public DB {
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* r, int n, uint64_t* sizes,
                                    bool include_memtable = false) override {
-      return db_->GetApproximateSizes(column_family, r, n, sizes);
+    return db_->GetApproximateSizes(column_family, r, n, sizes,
+                                    include_memtable);
   }
 
   using DB::CompactRange;
