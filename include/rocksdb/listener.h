@@ -150,8 +150,7 @@ class EventListener {
   // Note that the this function must be implemented in a way such that
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
-  virtual void OnFlushCompleted(
-      DB* db, const FlushJobInfo& flush_job_info) {}
+  virtual void OnFlushCompleted(DB*, const FlushJobInfo&) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a SST file is deleted.  Different from OnCompactionCompleted and
@@ -164,8 +163,7 @@ class EventListener {
   // Note that if applications would like to use the passed reference
   // outside this function call, they should make copies from the
   // returned value.
-  virtual void OnTableFileDeleted(
-      const TableFileDeletionInfo& info) {}
+  virtual void OnTableFileDeleted(const TableFileDeletionInfo&) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation
@@ -180,7 +178,7 @@ class EventListener {
   // @param ci a reference to a CompactionJobInfo struct. 'ci' is released
   //  after this function is returned, and must be copied if it is needed
   //  outside of this function.
-  virtual void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) {}
+  virtual void OnCompactionCompleted(DB*, const CompactionJobInfo&) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a SST file is created.  Different from OnCompactionCompleted and
@@ -194,7 +192,7 @@ class EventListener {
   // outside this function call, they should make copies from these
   // returned value.
   virtual void OnTableFileCreated(
-      const TableFileCreationInfo& info) {}
+      const TableFileCreationInfo&) {}
 
   virtual ~EventListener() {}
 };

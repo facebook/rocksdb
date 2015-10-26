@@ -258,9 +258,9 @@ class DB {
   // This check is potentially lighter-weight than invoking DB::Get(). One way
   // to make this lighter weight is to avoid doing any IOs.
   // Default implementation here returns true and sets 'value_found' to false
-  virtual bool KeyMayExist(const ReadOptions& options,
-                           ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value, bool* value_found = nullptr) {
+  virtual bool KeyMayExist(const ReadOptions&,
+                           ColumnFamilyHandle*, const Slice&,
+                           std::string*, bool* value_found = nullptr) {
     if (value_found != nullptr) {
       *value_found = false;
     }
@@ -502,8 +502,8 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  virtual Status SetOptions(ColumnFamilyHandle* column_family,
-      const std::unordered_map<std::string, std::string>& new_options) {
+  virtual Status SetOptions(ColumnFamilyHandle*,
+      const std::unordered_map<std::string, std::string>&) {
     return Status::NotSupported("Not implemented");
   }
   virtual Status SetOptions(
@@ -653,7 +653,7 @@ class DB {
 
   // Returns a list of all table files with their level, start key
   // and end key
-  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {}
+  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>*) {}
 
   // Obtains the meta data of the specified column family of the DB.
   // Status::NotFound() will be returned if the current DB does not have
@@ -662,8 +662,7 @@ class DB {
   // If cf_name is not specified, then the metadata of the default
   // column family will be returned.
   virtual void GetColumnFamilyMetaData(
-      ColumnFamilyHandle* column_family,
-      ColumnFamilyMetaData* metadata) {}
+      ColumnFamilyHandle*, ColumnFamilyMetaData*) {}
 
   // Get the metadata of the default column family.
   void GetColumnFamilyMetaData(

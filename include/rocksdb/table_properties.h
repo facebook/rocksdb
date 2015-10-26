@@ -105,9 +105,7 @@ class TablePropertiesCollector {
   // DEPRECATE User defined collector should implement AddUserKey(), though
   //           this old function still works for backward compatible reason.
   // Add() will be called when a new key/value pair is inserted into the table.
-  // @params key    the user key that is inserted into the table.
-  // @params value  the value that is inserted into the table.
-  virtual Status Add(const Slice& key, const Slice& value) {
+  virtual Status Add(const Slice&, const Slice&) {
     return Status::InvalidArgument(
         "TablePropertiesCollector::Add() deprecated.");
   }
@@ -116,10 +114,8 @@ class TablePropertiesCollector {
   // table.
   // @params key    the user key that is inserted into the table.
   // @params value  the value that is inserted into the table.
-  // @params file_size  file size up to now
   virtual Status AddUserKey(const Slice& key, const Slice& value,
-                            EntryType type, SequenceNumber seq,
-                            uint64_t file_size) {
+                            EntryType, SequenceNumber, uint64_t) {
     // For backwards-compatibility.
     return Add(key, value);
   }
