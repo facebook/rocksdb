@@ -249,8 +249,8 @@ class Repairer {
     // corruptions cause entire commits to be skipped instead of
     // propagating bad information (like overly large sequence
     // numbers).
-    log::Reader reader(std::move(lfile_reader), &reporter,
-                       true /*enable checksum*/, 0 /*initial_offset*/);
+    log::Reader reader(options_.info_log, std::move(lfile_reader), &reporter,
+                       true /*enable checksum*/, 0 /*initial_offset*/, log);
 
     // Read all the records and add to a memtable
     std::string scratch;
@@ -413,7 +413,7 @@ class Repairer {
     {
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(file), env_options));
-      log::Writer log(std::move(file_writer));
+      log::Writer log(std::move(file_writer), 0, false);
       std::string record;
       edit_->EncodeTo(&record);
       status = log.AddRecord(record);

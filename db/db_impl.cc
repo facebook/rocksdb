@@ -150,6 +150,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     }
   }
 
+  if (result.WAL_ttl_seconds > 0 || result.WAL_size_limit_MB > 0) {
+    result.recycle_log_file_num = false;
+  }
+
   if (result.wal_dir.empty()) {
     // Use dbname as default
     result.wal_dir = dbname;
@@ -416,7 +420,7 @@ Status DBImpl::NewDB() {
     file->SetPreallocationBlockSize(db_options_.manifest_preallocation_size);
     unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(file), env_options));
-    log::Writer log(std::move(file_writer));
+    log::Writer log(std::move(file_writer), 0, false);
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
@@ -601,7 +605,13 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     // find newly obsoleted log files
     while (alive_log_files_.begin()->number < min_log_number) {
       auto& earliest = *alive_log_files_.begin();
-      job_context->log_delete_files.push_back(earliest.number);
+      if (db_options_.recycle_log_file_num > log_recycle_files.size()) {
+        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+            "adding log %" PRIu64 " to recycle list\n", earliest.number);
+        log_recycle_files.push_back(earliest.number);
+      } else {
+        job_context->log_delete_files.push_back(earliest.number);
+      }
       total_log_size_ -= earliest.size;
       alive_log_files_.pop_front();
       // Current log should always stay alive since it can't have
@@ -1109,28 +1119,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
-    log::Reader reader(std::move(file_reader), &reporter, true /*checksum*/,
-                       0 /*initial_offset*/);
+    log::Reader reader(db_options_.info_log, std::move(file_reader), &reporter,
+                       true /*checksum*/, 0 /*initial_offset*/, log_number);
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "Recovering log #%" PRIu64 " mode %d skip-recovery %d", log_number,
         db_options_.wal_recovery_mode, !continue_replay_log);
 
     // Determine if we should tolerate incomplete records at the tail end of the
-    // log
-    bool report_eof_inconsistency;
-    if (db_options_.wal_recovery_mode ==
-        WALRecoveryMode::kAbsoluteConsistency) {
-      // in clean shutdown we don't expect any error in the log files
-      report_eof_inconsistency = true;
-    } else {
-      // for other modes ignore only incomplete records in the last log file
-      // which is presumably due to write in progress during restart
-      report_eof_inconsistency = false;
-
-      // TODO krad: Evaluate if we need to move to a more strict mode where we
-      // restrict the inconsistency to only the last log
-    }
-
     // Read all the records and add to a memtable
     std::string scratch;
     Slice record;
@@ -1145,9 +1140,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
     }
 
-    while (continue_replay_log &&
-           reader.ReadRecord(&record, &scratch, report_eof_inconsistency) &&
-           status.ok()) {
+    while (
+        continue_replay_log &&
+        reader.ReadRecord(&record, &scratch, db_options_.wal_recovery_mode) &&
+        status.ok()) {
       if (record.size() < 12) {
         reporter.Corruption(record.size(),
                             Status::Corruption("log record too small"));
@@ -4072,6 +4068,12 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   // Do this without holding the dbmutex lock.
   assert(versions_->prev_log_number() == 0);
   bool creating_new_log = !log_empty_;
+  uint64_t recycle_log_number = 0;
+  if (creating_new_log && db_options_.recycle_log_file_num &&
+      !log_recycle_files.empty()) {
+    recycle_log_number = log_recycle_files.front();
+    log_recycle_files.pop_front();
+  }
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
   SuperVersion* new_superversion = nullptr;
@@ -4082,17 +4084,28 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     if (creating_new_log) {
       EnvOptions opt_env_opt =
           env_->OptimizeForLogWrite(env_options_, db_options_);
-      s = NewWritableFile(env_,
-                          LogFileName(db_options_.wal_dir, new_log_number),
-                          &lfile, opt_env_opt);
+      if (recycle_log_number) {
+        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+            "reusing log %" PRIu64 " from recycle list\n", recycle_log_number);
+        s = env_->ReuseWritableFile(
+            LogFileName(db_options_.wal_dir, new_log_number),
+            LogFileName(db_options_.wal_dir, recycle_log_number), &lfile,
+            opt_env_opt);
+      } else {
+				s = NewWritableFile(env_,
+														LogFileName(db_options_.wal_dir, new_log_number),
+														&lfile, opt_env_opt);
+      }
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
-        lfile->SetPreallocationBlockSize(
-            1.1 * mutable_cf_options.write_buffer_size);
+        lfile->SetPreallocationBlockSize(1.1 *
+                                         mutable_cf_options.write_buffer_size);
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
-        new_log = new log::Writer(std::move(file_writer));
+        new_log = new log::Writer(std::move(file_writer),
+                                  new_log_number,
+				  db_options_.recycle_log_file_num > 0);
       }
     }
 
@@ -4731,8 +4744,11 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       impl->logfile_number_ = new_log_number;
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(lfile), opt_env_options));
-      impl->logs_.emplace_back(new_log_number,
-                               new log::Writer(std::move(file_writer)));
+      impl->logs_.emplace_back(
+          new_log_number,
+          new log::Writer(std::move(file_writer),
+                          new_log_number,
+			  impl->db_options_.recycle_log_file_num > 0));
 
       // set column family handles
       for (auto cf : column_families) {

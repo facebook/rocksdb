@@ -14,10 +14,12 @@
 #include "db/log_format.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
 class SequentialFileReader;
+class Logger;
 using std::unique_ptr;
 
 namespace log {
@@ -51,8 +53,10 @@ class Reader {
   //
   // The Reader will start reading at the first record located at physical
   // position >= initial_offset within the file.
-  Reader(unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
-         bool checksum, uint64_t initial_offset);
+  Reader(std::shared_ptr<Logger> info_log,
+	 unique_ptr<SequentialFileReader>&& file,
+         Reporter* reporter, bool checksum, uint64_t initial_offset,
+         uint64_t log_num);
 
   ~Reader();
 
@@ -62,7 +66,8 @@ class Reader {
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
   bool ReadRecord(Slice* record, std::string* scratch,
-                  bool report_eof_inconsistency = false);
+                  WALRecoveryMode wal_recovery_mode =
+                      WALRecoveryMode::kTolerateCorruptedTailRecords);
 
   // Returns the physical offset of the last record returned by ReadRecord.
   //
@@ -84,6 +89,7 @@ class Reader {
   SequentialFileReader* file() { return file_.get(); }
 
  private:
+  std::shared_ptr<Logger> info_log_;
   const unique_ptr<SequentialFileReader> file_;
   Reporter* const reporter_;
   bool const checksum_;
@@ -104,6 +110,9 @@ class Reader {
   // Offset at which to start looking for the first record to return
   uint64_t const initial_offset_;
 
+  // which log number this is
+  uint64_t const log_number_;
+
   // Extend record types with the following special values
   enum {
     kEof = kMaxRecordType + 1,
@@ -112,7 +121,11 @@ class Reader {
     // * The record has an invalid CRC (ReadPhysicalRecord reports a drop)
     // * The record is a 0-length record (No drop is reported)
     // * The record is below constructor's initial_offset (No drop is reported)
-    kBadRecord = kMaxRecordType + 2
+    kBadRecord = kMaxRecordType + 2,
+    // Returned when we fail to read a valid header.
+    kBadHeader = kMaxRecordType + 3,
+    // Returned when we read an old record from a previous user of the log.
+    kOldRecord = kMaxRecordType + 4,
   };
 
   // Skips all blocks that are completely before "initial_offset_".
@@ -121,8 +134,10 @@ class Reader {
   bool SkipToInitialBlock();
 
   // Return type, or one of the preceding special values
-  unsigned int ReadPhysicalRecord(Slice* result,
-                                  bool report_eof_inconsistency = false);
+  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);
+
+  // Read some more
+  bool ReadMore(size_t* drop_size, int *error);
 
   // Reports dropped bytes to the reporter.
   // buffer_ must be updated to remove the dropped bytes prior to invocation.

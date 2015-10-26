@@ -556,6 +556,8 @@ class DBImpl : public DB {
   // * whenever there is an error in background flush or compaction
   InstrumentedCondVar bg_cv_;
   uint64_t logfile_number_;
+  std::deque<uint64_t>
+      log_recycle_files;  // a list of log files that we can recycle
   bool log_dir_synced_;
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;

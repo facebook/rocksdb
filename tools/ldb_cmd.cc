@@ -1438,7 +1438,21 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     }
   } else {
     StdErrReporter reporter;
-    log::Reader reader(move(wal_file_reader), &reporter, true, 0);
+    uint64_t log_number;
+    FileType type;
+
+    // we need the log number, but ParseFilename expects dbname/NNN.log.
+    string sanitized = wal_file;
+    size_t lastslash = sanitized.rfind('/');
+    if (lastslash != std::string::npos)
+      sanitized = sanitized.substr(lastslash + 1);
+    if (!ParseFileName(sanitized, &log_number, &type)) {
+      // bogus input, carry on as best we can
+      log_number = 0;
+    }
+    DBOptions db_options;
+    log::Reader reader(db_options.info_log, move(wal_file_reader), &reporter,
+                       true, 0, log_number);
     string scratch;
     WriteBatch batch;
     Slice record;
