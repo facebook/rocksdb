@@ -245,20 +245,29 @@ def whitebox_crash_main(args):
                 # use large ops per thread since we will kill it anyway
                 "ops_per_thread": 100 * cmd_params['ops_per_thread'],
             }
-            # run with kill_random_test
+            # run with kill_random_test, with three modes.
+            # Mode 0 covers all kill points. Mode 1 covers less kill points but
+            # increases change of triggering them. Mode 2 covers even less
+            # frequent kill points and further increases triggering change.
             if kill_mode == 0:
                 additional_opts.update({
                     "kill_random_test": kill_random_test,
                 })
             elif kill_mode == 1:
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 3 + 1),
+                    "kill_random_test": (kill_random_test / 2 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     + "WritableFileWriter::WriteBuffered",
                 })
-
-            # Run kill mode 0 and 1 by turn.
-            kill_mode = (kill_mode + 1) % 2
+            elif kill_mode == 2:
+                additional_opts.update({
+                    "kill_random_test": (kill_random_test / 4 + 1),
+                    "kill_prefix_blacklist": "WritableFileWriter::Append,"
+                    "WritableFileWriter::WriteBuffered,"
+                    "PosixMmapFile::Allocate,WritableFileWriter::Flush",
+                })
+            # Run kill mode 0, 1 and 2 by turn.
+            kill_mode = (kill_mode + 1) % 3
         elif check_mode == 1:
             # normal run with universal compaction mode
             additional_opts = {

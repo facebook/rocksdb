@@ -25,6 +25,11 @@ void TestKillRandom(std::string kill_point, int odds,
   Random r((uint32_t)curtime);
 
   assert(odds > 0);
+  if (odds % 7 == 0) {
+    // class Rarndom uses multiplier 16807, which is 7^5. If odds are
+    // multiplier of 7, the first random value might have limited values.
+    odds++;
+  }
   bool crash = r.OneIn(odds);
   if (crash) {
     port::Crash(srcfile, srcline);
