@@ -147,7 +147,7 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument(
           "non-default column family and PutCF not implemented");
     }
-    virtual void Put(const Slice& key, const Slice& value) {}
+    virtual void Put(const Slice& /*key*/, const Slice& /*value*/) {}
 
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
@@ -157,7 +157,7 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument(
           "non-default column family and DeleteCF not implemented");
     }
-    virtual void Delete(const Slice& key) {}
+    virtual void Delete(const Slice& /*key*/) {}
 
     virtual Status SingleDeleteCF(uint32_t column_family_id, const Slice& key) {
       if (column_family_id == 0) {
@@ -167,7 +167,7 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument(
           "non-default column family and SingleDeleteCF not implemented");
     }
-    virtual void SingleDelete(const Slice& key) {}
+    virtual void SingleDelete(const Slice& /*key*/) {}
 
     // Merge and LogData are not pure virtual. Otherwise, we would break
     // existing clients of Handler on a source code level. The default
@@ -181,7 +181,7 @@ class WriteBatch : public WriteBatchBase {
       return Status::InvalidArgument(
           "non-default column family and MergeCF not implemented");
     }
-    virtual void Merge(const Slice& key, const Slice& value) {}
+    virtual void Merge(const Slice& /*key*/, const Slice& /*value*/) {}
 
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);

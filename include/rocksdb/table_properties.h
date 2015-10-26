@@ -107,7 +107,7 @@ class TablePropertiesCollector {
   // Add() will be called when a new key/value pair is inserted into the table.
   // @params key    the user key that is inserted into the table.
   // @params value  the value that is inserted into the table.
-  virtual Status Add(const Slice& key, const Slice& value) {
+  virtual Status Add(const Slice& /*key*/, const Slice& /*value*/) {
     return Status::InvalidArgument(
         "TablePropertiesCollector::Add() deprecated.");
   }
@@ -116,10 +116,9 @@ class TablePropertiesCollector {
   // table.
   // @params key    the user key that is inserted into the table.
   // @params value  the value that is inserted into the table.
-  // @params file_size  file size up to now
   virtual Status AddUserKey(const Slice& key, const Slice& value,
-                            EntryType type, SequenceNumber seq,
-                            uint64_t file_size) {
+                            EntryType /*type*/, SequenceNumber /*seq*/,
+                            uint64_t /*file_size*/) {
     // For backwards-compatibility.
     return Add(key, value);
   }
