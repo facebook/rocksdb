@@ -1161,10 +1161,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         WriteBatch new_batch;
         bool batch_changed = false;
 
-        WalFilter::WalProcessingOption walProcessingOption =
+        WalFilter::WalProcessingOption wal_processing_option =
           db_options_.wal_filter->LogRecord(batch, &new_batch, &batch_changed);
 
-        switch (walProcessingOption) {
+        switch (wal_processing_option) {
         case  WalFilter::WalProcessingOption::kContinueProcessing:
           //do nothing, proceeed normally
           break;
@@ -1206,13 +1206,15 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           int new_count = WriteBatchInternal::Count(&new_batch);
           int original_count = WriteBatchInternal::Count(&batch);
           if (new_count > original_count) {
-            // Question: should this be treated as an error ??
-            // Would it cause problems if #num records > diff in seq#?
-            Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+            Log(InfoLogLevel::FATAL_LEVEL, db_options_.info_log,
               "Recovering log #%" PRIu64 " mode %d log filter %s returned " 
-              "more records (%d) than original (%d)", log_number,
-              db_options_.wal_recovery_mode, db_options_.wal_filter->Name(),
-              new_count, original_count);
+              "more records (%d) than original (%d) which is not allowed. "
+              "Aborting recovery.",
+              log_number, db_options_.wal_recovery_mode,
+              db_options_.wal_filter->Name(), new_count, original_count);
+            status = Status::NotSupported("More than original # of records "
+              "returned by Wal Filter ", db_options_.wal_filter->Name());
+            return status;
           }
           // Set the same sequence number in the new_batch
           // as the original batch.

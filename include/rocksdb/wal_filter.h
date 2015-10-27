@@ -40,6 +40,20 @@ public:
   //  * stop log replay
   //    (by returning kStop replay) - please note that this implies
   //    discarding the logs from current record onwards.
+  //
+  // @params batch          batch encountered in the log during recovery
+  // @params new_batch      new_batch to populate if filter wants to change
+  //                        the batch (for example to filter some records out,
+  //                        or alter some records).
+  //                        Please note that the new batch MUST NOT contain
+  //                        more records than original, else recovery would
+  //                        be failed.
+  // @params batch_changed  Whether batch was changed by the filter.
+  //                        It must be set to true if new_batch was populated,
+  //                        else new_batch has no effect.
+  // @returns               Processing option for the current record.
+  //                        Please see WalProcessingOption enum above for
+  //                        details.
   virtual WalProcessingOption LogRecord(const WriteBatch& batch,
     WriteBatch* new_batch, bool* batch_changed) const = 0;
 
