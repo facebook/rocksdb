@@ -68,10 +68,8 @@ class PosixWritableFile : public WritableFile {
   const std::string filename_;
   int fd_;
   uint64_t filesize_;
-#ifdef ROCKSDB_FALLOCATE_PRESENT
   bool allow_fallocate_;
   bool fallocate_with_keep_size_;
-#endif
 
  public:
   PosixWritableFile(const std::string& fname, int fd,
@@ -89,11 +87,9 @@ class PosixWritableFile : public WritableFile {
   virtual bool IsSyncThreadSafe() const override;
   virtual uint64_t GetFileSize() override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
-#ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override;
   virtual Status RangeSync(off_t offset, off_t nbytes) override;
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
-#endif
 };
 
 class PosixMmapReadableFile : public RandomAccessFile {
@@ -123,10 +119,8 @@ class PosixMmapFile : public WritableFile {
   char* dst_;             // Where to write next  (in range [base_,limit_])
   char* last_sync_;       // Where have we synced up to
   uint64_t file_offset_;  // Offset of base_ in file
-#ifdef ROCKSDB_FALLOCATE_PRESENT
   bool allow_fallocate_;  // If false, fallocate calls are bypassed
   bool fallocate_with_keep_size_;
-#endif
 
   // Roundup x to a multiple of y
   static size_t Roundup(size_t x, size_t y) { return ((x + y - 1) / y) * y; }
@@ -156,9 +150,7 @@ class PosixMmapFile : public WritableFile {
   virtual Status Fsync() override;
   virtual uint64_t GetFileSize() override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
-#ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override;
-#endif
 };
 
 class PosixDirectory : public Directory {

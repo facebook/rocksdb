@@ -18,6 +18,7 @@
 #include <list>
 
 #ifdef OS_LINUX
+#include <fcntl.h>
 #include <linux/fs.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -26,7 +27,6 @@
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 #include <errno.h>
-#include <fcntl.h>
 #endif
 
 #include "rocksdb/env.h"

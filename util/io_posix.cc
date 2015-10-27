@@ -477,8 +477,8 @@ Status PosixMmapFile::InvalidateCache(size_t offset, size_t length) {
 #endif
 }
 
-#ifdef ROCKSDB_FALLOCATE_PRESENT
 Status PosixMmapFile::Allocate(off_t offset, off_t len) {
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   TEST_KILL_RANDOM("PosixMmapFile::Allocate:0", rocksdb_kill_odds);
   int alloc_status = 0;
   if (allow_fallocate_) {
@@ -490,8 +490,10 @@ Status PosixMmapFile::Allocate(off_t offset, off_t len) {
   } else {
     return IOError(filename_, errno);
   }
-}
+#else
+  return Status::NotSupported("PosixMmapFile::Allocate() not supported.");
 #endif
+}
 
 /*
  * PosixWritableFile
@@ -605,8 +607,8 @@ Status PosixWritableFile::InvalidateCache(size_t offset, size_t length) {
 #endif
 }
 
-#ifdef ROCKSDB_FALLOCATE_PRESENT
 Status PosixWritableFile::Allocate(off_t offset, off_t len) {
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   TEST_KILL_RANDOM("PosixWritableFile::Allocate:0", rocksdb_kill_odds);
   IOSTATS_TIMER_GUARD(allocate_nanos);
   int alloc_status = 0;
@@ -619,20 +621,31 @@ Status PosixWritableFile::Allocate(off_t offset, off_t len) {
   } else {
     return IOError(filename_, errno);
   }
+#else
+  return Status::NotSupported("PosixWritableFile::Allocate() not supported.");
+#endif
 }
 
 Status PosixWritableFile::RangeSync(off_t offset, off_t nbytes) {
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
     return Status::OK();
   } else {
     return IOError(filename_, errno);
   }
+#else
+  return Status::NotSupported("PosixWritableFile::RangeSync() not supported.");
+#endif
 }
 
 size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
+#ifdef ROCKSDB_FALLOCATE_PRESENT
   return GetUniqueIdFromFile(fd_, id, max_size);
-}
+#else
+  // What we should do with it?
+  return 0;
 #endif
+}
 
 PosixDirectory::~PosixDirectory() { close(fd_); }
 
