@@ -65,6 +65,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "rocksdb/version.h"
+#include "rocksdb/wal_filter.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
 #include "table/merger.h"
@@ -1150,6 +1151,75 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
+
+#ifndef ROCKSDB_LITE
+      if (db_options_.wal_filter != nullptr) {
+        WriteBatch new_batch;
+        bool batch_changed = false;
+
+        WalFilter::WalProcessingOption wal_processing_option =
+          db_options_.wal_filter->LogRecord(batch, &new_batch, &batch_changed);
+
+        switch (wal_processing_option) {
+        case  WalFilter::WalProcessingOption::kContinueProcessing:
+          //do nothing, proceeed normally
+          break;
+        case WalFilter::WalProcessingOption::kIgnoreCurrentRecord:
+          //skip current record
+          continue;
+        case WalFilter::WalProcessingOption::kStopReplay:
+          //skip current record and stop replay
+          continue_replay_log = false;
+          continue;
+        case WalFilter::WalProcessingOption::kCorruptedRecord: {
+          status = Status::Corruption("Corruption reported by Wal Filter ",
+            db_options_.wal_filter->Name());
+          MaybeIgnoreError(&status);
+          if (!status.ok()) {
+            reporter.Corruption(record.size(), status);
+            continue;
+          }
+          break;
+        }
+        default: {
+          assert(false); //unhandled case
+          status = Status::NotSupported("Unknown WalProcessingOption returned"
+            " by Wal Filter ", db_options_.wal_filter->Name());
+          MaybeIgnoreError(&status);
+          if (!status.ok()) {
+            return status;
+          }
+          else {
+            // Ignore the error with current record processing.
+            continue;
+          }
+        }
+        }
+
+        if (batch_changed) {
+          // Make sure that the count in the new batch is
+          // within the orignal count.
+          int new_count = WriteBatchInternal::Count(&new_batch);
+          int original_count = WriteBatchInternal::Count(&batch);
+          if (new_count > original_count) {
+            Log(InfoLogLevel::FATAL_LEVEL, db_options_.info_log,
+              "Recovering log #%" PRIu64 " mode %d log filter %s returned " 
+              "more records (%d) than original (%d) which is not allowed. "
+              "Aborting recovery.",
+              log_number, db_options_.wal_recovery_mode,
+              db_options_.wal_filter->Name(), new_count, original_count);
+            status = Status::NotSupported("More than original # of records "
+              "returned by Wal Filter ", db_options_.wal_filter->Name());
+            return status;
+          }
+          // Set the same sequence number in the new_batch
+          // as the original batch.
+          WriteBatchInternal::SetSequence(&new_batch, 
+            WriteBatchInternal::Sequence(&batch));
+          batch = new_batch;
+        }
+      }
+#endif //ROCKSDB_LITE
 
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the

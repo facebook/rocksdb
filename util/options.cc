@@ -29,6 +29,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/wal_filter.h"
 #include "table/block_based_table_factory.h"
 #include "util/compression.h"
 #include "util/statistics.h"
@@ -256,7 +257,11 @@ DBOptions::DBOptions()
       enable_thread_tracking(false),
       delayed_write_rate(1024U * 1024U),
       skip_stats_update_on_db_open(false),
-      wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords) {
+      wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords)
+#ifndef ROCKSDB_LITE
+      , wal_filter(nullptr) 
+#endif // ROCKSDB_LITE
+      {
 }
 
 DBOptions::DBOptions(const Options& options)
@@ -313,7 +318,12 @@ DBOptions::DBOptions(const Options& options)
       delayed_write_rate(options.delayed_write_rate),
       skip_stats_update_on_db_open(options.skip_stats_update_on_db_open),
       wal_recovery_mode(options.wal_recovery_mode),
-      row_cache(options.row_cache) {}
+      row_cache(options.row_cache)
+#ifndef ROCKSDB_LITE
+      , wal_filter(options.wal_filter)
+#endif // ROCKSDB_LITE
+      {
+}
 
 static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"
@@ -413,6 +423,10 @@ void DBOptions::Dump(Logger* log) const {
     } else {
       Header(log, "                               Options.row_cache: None");
     }
+#ifndef ROCKSDB_LITE
+    Header(log, "       Options.wal_filter: %s",
+      wal_filter ? wal_filter->Name() : "None");
+#endif // ROCKDB_LITE
 }  // DBOptions::Dump
 
 void ColumnFamilyOptions::Dump(Logger* log) const {

@@ -46,6 +46,7 @@ class Slice;
 class SliceTransform;
 class Statistics;
 class InternalKeyComparator;
+class WalFilter;
 
 // DB contents are stored in a set of blocks, each of which holds a
 // sequence of key,value pairs.  Each block may be compressed before
@@ -1140,6 +1141,15 @@ struct DBOptions {
   // Default: nullptr (disabled)
   // Not supported in ROCKSDB_LITE mode!
   std::shared_ptr<Cache> row_cache;
+
+#ifndef ROCKSDB_LITE
+  // A filter object supplied to be invoked while processing write-ahead-logs
+  // (WALs) during recovery. The filter provides a way to inspect log
+  // records, ignoring a particular record or skipping replay.
+  // The filter is invoked at startup and is invoked from a single-thread
+  // currently.
+  const WalFilter* wal_filter;
+#endif //ROCKSDB_LITE
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
