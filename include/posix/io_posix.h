@@ -164,14 +164,8 @@ class PosixMmapFile : public WritableFile {
 class PosixDirectory : public Directory {
  public:
   explicit PosixDirectory(int fd) : fd_(fd) {}
-  ~PosixDirectory() { close(fd_); }
-
-  virtual Status Fsync() override {
-    if (fsync(fd_) == -1) {
-      return IOError("directory", errno);
-    }
-    return Status::OK();
-  }
+  ~PosixDirectory();
+  virtual Status Fsync() override;
 
  private:
   int fd_;
