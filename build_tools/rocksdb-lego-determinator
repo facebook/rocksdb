@@ -70,6 +70,13 @@ TSAN="COMPILE_WITH_TSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 PARSER="'parser':'egrep \'Failure|^#|Abort\''"
 
+ARTIFACTS=" 'artifacts': [
+    {
+        'name':'database',
+        'paths':[ '/dev/shm/rocksdb' ],
+    }
+]"
+
 #
 # A mechanism to disable tests temporarily
 #
@@ -257,6 +264,26 @@ LITE_BUILD_COMMANDS="[
 ]"
 
 #
+# RocksDB lite tests
+#
+LITE_UNIT_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Lite Unit Test',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build RocksDB debug version',
+                'shell':'$SHM $LITE $DEBUG make J=1 check',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB stress/crash test
 #
 STRESS_CRASH_TEST_COMMANDS="[
@@ -280,6 +307,7 @@ STRESS_CRASH_TEST_COMMANDS="[
                 $PARSER
             }
         ],
+        $ARTIFACTS,
         $REPORT
     }
 ]"
@@ -566,6 +594,9 @@ case $1 in
     ;;
   lite)
     echo $LITE_BUILD_COMMANDS
+    ;;
+  lite_test)
+    echo $LITE_UNIT_TEST_COMMANDS
     ;;
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS

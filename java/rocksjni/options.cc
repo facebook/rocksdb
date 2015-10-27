@@ -578,6 +578,33 @@ void Java_org_rocksdb_Options_setKeepLogFileNum(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    recycleLogFiles
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_recycleLogFileNum(JNIEnv* env, jobject jobj,
+                                                 jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->recycle_log_file_num;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setRecycleLogFiles
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setRecycleLogFiles(JNIEnv* env, jobject jobj,
+                                                 jlong jhandle,
+                                                 jlong recycle_log_file_num) {
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(recycle_log_file_num);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->recycle_log_file_num =
+        recycle_log_file_num;
+  } else {
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    maxManifestFileSize
  * Signature: (J)J
  */
@@ -3531,6 +3558,32 @@ void Java_org_rocksdb_DBOptions_setKeepLogFileNum(
 jlong Java_org_rocksdb_DBOptions_keepLogFileNum(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->keep_log_file_num;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setRecycleLogFiles
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setRecycleLogFileNum(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong recycle_log_file_num) {
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(recycle_log_file_num);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::DBOptions*>(jhandle)->recycle_log_file_num =
+        recycle_log_file_num;
+  } else {
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    recycleLogFiles
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_recycleLogFileNum(JNIEnv* env, jobject jobj,
+                                                   jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->recycle_log_file_num;
 }
 
 /*

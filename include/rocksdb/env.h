@@ -139,6 +139,12 @@ class Env {
                                  unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) = 0;
 
+  // Reuse an existing file by renaming it and opening it as writable.
+  virtual Status ReuseWritableFile(const std::string& fname,
+                                   const std::string& old_fname,
+                                   unique_ptr<WritableFile>* result,
+                                   const EnvOptions& options);
+
   // Create an object that represents a directory. Will fail if directory
   // doesn't exist. If the directory exists, it will open the directory
   // and create a new Directory object.

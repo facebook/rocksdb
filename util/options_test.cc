@@ -323,6 +323,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"max_log_file_size", "37"},
       {"log_file_time_to_roll", "38"},
       {"keep_log_file_num", "39"},
+      {"recycle_log_file_num", "5"},
       {"max_manifest_file_size", "40"},
       {"table_cache_numshardbits", "41"},
       {"WAL_ttl_seconds", "43"},
@@ -339,7 +340,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
       {"bytes_per_sync", "47"},
-      {"wal_bytes_per_sync", "48"}, };
+      {"wal_bytes_per_sync", "48"},
+  };
 
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
@@ -431,6 +433,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.max_log_file_size, 37U);
   ASSERT_EQ(new_db_opt.log_file_time_to_roll, 38U);
   ASSERT_EQ(new_db_opt.keep_log_file_num, 39U);
+  ASSERT_EQ(new_db_opt.recycle_log_file_num, 5U);
   ASSERT_EQ(new_db_opt.max_manifest_file_size, static_cast<uint64_t>(40));
   ASSERT_EQ(new_db_opt.table_cache_numshardbits, 41);
   ASSERT_EQ(new_db_opt.WAL_ttl_seconds, static_cast<uint64_t>(43));
@@ -692,6 +695,7 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
+  db_opt->recycle_log_file_num = rnd->Uniform(2);
 
   // int options
   db_opt->max_background_compactions = rnd->Uniform(100);

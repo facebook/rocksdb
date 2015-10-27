@@ -58,12 +58,9 @@ DBTestBase::DBTestBase(const std::string path)
 }
 
 DBTestBase::~DBTestBase() {
-// SyncPoint is not supported in Released Windows Mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->LoadDependency({});
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
   Close();
   Options options;
   options.db_paths.emplace_back(dbname_, 0);
@@ -341,6 +338,10 @@ Options DBTestBase::CurrentOptions(
     }
     case kRowCache: {
       options.row_cache = NewLRUCache(1024 * 1024);
+      break;
+    }
+    case kRecycleLogFiles: {
+      options.recycle_log_file_num = 2;
       break;
     }
     case kLevelSubcompactions: {

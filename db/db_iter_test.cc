@@ -1943,8 +1943,6 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIterator2) {
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 }
 
-#if !(defined NDEBUG) || !defined(OS_WIN)
-
 TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
   // Test Prev() when one child iterator is at its end but more rows
   // are added.
@@ -2295,7 +2293,6 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif // #if !(defined NDEBUG) || !defined(OS_WIN)
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

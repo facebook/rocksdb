@@ -27,6 +27,17 @@ uint64_t Env::GetThreadID() const {
   return hasher(std::this_thread::get_id());
 }
 
+Status Env::ReuseWritableFile(const std::string& fname,
+                              const std::string& old_fname,
+                              unique_ptr<WritableFile>* result,
+                              const EnvOptions& options) {
+  Status s = RenameFile(old_fname, fname);
+  if (!s.ok()) {
+    return s;
+  }
+  return NewWritableFile(fname, result, options);
+}
+
 SequentialFile::~SequentialFile() {
 }
 

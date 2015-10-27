@@ -82,6 +82,7 @@ class VersionBuilder::Rep {
   };
 
   const EnvOptions& env_options_;
+  Logger* info_log_;
   TableCache* table_cache_;
   VersionStorageInfo* base_vstorage_;
   LevelState* levels_;
@@ -89,9 +90,10 @@ class VersionBuilder::Rep {
   FileComparator level_nonzero_cmp_;
 
  public:
-  Rep(const EnvOptions& env_options, TableCache* table_cache,
+  Rep(const EnvOptions& env_options, Logger* info_log, TableCache* table_cache,
       VersionStorageInfo* base_vstorage)
       : env_options_(env_options),
+        info_log_(info_log),
         table_cache_(table_cache),
         base_vstorage_(base_vstorage) {
     levels_ = new LevelState[base_vstorage_->num_levels()];
@@ -335,15 +337,16 @@ class VersionBuilder::Rep {
     if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
       // File is deleted: do nothing
     } else {
-      vstorage->AddFile(level, f);
+      vstorage->AddFile(level, f, info_log_);
     }
   }
 };
 
 VersionBuilder::VersionBuilder(const EnvOptions& env_options,
                                TableCache* table_cache,
-                               VersionStorageInfo* base_vstorage)
-    : rep_(new Rep(env_options, table_cache, base_vstorage)) {}
+                               VersionStorageInfo* base_vstorage,
+                               Logger* info_log)
+    : rep_(new Rep(env_options, info_log, table_cache, base_vstorage)) {}
 VersionBuilder::~VersionBuilder() { delete rep_; }
 void VersionBuilder::CheckConsistency(VersionStorageInfo* vstorage) {
   rep_->CheckConsistency(vstorage);
