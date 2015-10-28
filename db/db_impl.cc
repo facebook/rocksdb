@@ -1873,8 +1873,7 @@ void DBImpl::NotifyOnCompactionCompleted(
         info.input_files.push_back(fn);
         if (info.table_properties.count(fn) == 0) {
           std::shared_ptr<const TableProperties> tp;
-          std::string fname;
-          auto s = cfd->current()->GetTableProperties(&tp, fmd, &fname);
+          auto s = cfd->current()->GetTableProperties(&tp, fmd, &fn);
           if (s.ok()) {
             info.table_properties[fn] = tp;
           }
