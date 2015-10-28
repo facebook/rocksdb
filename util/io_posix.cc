@@ -633,14 +633,5 @@ size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(fd_, id, max_size);
 }
 #endif
-
-PosixDirectory::~PosixDirectory() { close(fd_); }
-
-Status PosixDirectory::Fsync() {
-  if (fsync(fd_) == -1) {
-    return IOError("directory", errno);
-  }
-  return Status::OK();
-}
 }  // namespace rocksdb
 #endif
