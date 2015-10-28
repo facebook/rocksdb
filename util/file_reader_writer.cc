@@ -102,7 +102,7 @@ Status WritableFileWriter::Append(const Slice& data) {
         // We double the buffer here because
         // Flush calls do not keep up with the incoming bytes
         // This is the only place when buffer is changed with unbuffered I/O
-        if (buf_.Capacity() < (1 << 20)) {
+        if (buf_.Capacity() < c_OneMb) {
           size_t desiredCapacity = buf_.Capacity() * 2;
           desiredCapacity = std::min(desiredCapacity, c_OneMb);
           buf_.AllocateNewBuffer(desiredCapacity);
@@ -116,8 +116,10 @@ Status WritableFileWriter::Append(const Slice& data) {
   }
 
   TEST_KILL_RANDOM("WritableFileWriter::Append:1", rocksdb_kill_odds);
-  filesize_ += data.size();
-  return Status::OK();
+  if (s.ok()) {
+    filesize_ += data.size();
+  }
+  return s;
 }
 
 Status WritableFileWriter::Close() {
