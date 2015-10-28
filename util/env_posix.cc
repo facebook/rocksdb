@@ -6,28 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-#include <dirent.h>
-#include <errno.h>
-#include <fcntl.h>
-#if defined(OS_LINUX)
-#include <linux/fs.h>
-#endif
-#include <pthread.h>
-#include <signal.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#ifdef OS_LINUX
-#include <sys/statfs.h>
-#include <sys/syscall.h>
-#endif
-#include <sys/time.h>
-#include <sys/types.h>
-#include <time.h>
-#include <algorithm>
+
+#include "posix/io_posix.h"
+
 // Get nano time includes
 #if defined(OS_LINUX) || defined(OS_FREEBSD)
 #elif defined(__MACH__)
@@ -36,19 +17,6 @@
 #else
 #include <chrono>
 #endif
-#include <deque>
-#include <set>
-#include "port/port.h"
-#include "posix/io_posix.h"
-#include "rocksdb/slice.h"
-#include "util/coding.h"
-#include "util/iostats_context_imp.h"
-#include "util/logging.h"
-#include "util/posix_logger.h"
-#include "util/string_util.h"
-#include "util/sync_point.h"
-#include "util/thread_status_updater.h"
-#include "util/thread_status_util.h"
 
 #if !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994

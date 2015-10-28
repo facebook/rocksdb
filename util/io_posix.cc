@@ -10,29 +10,6 @@
 #ifdef ROCKSDB_LIB_IO_POSIX
 
 #include "posix/io_posix.h"
-#include <errno.h>
-#include <fcntl.h>
-#if defined(OS_LINUX)
-#include <linux/fs.h>
-#endif
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#ifdef OS_LINUX
-#include <sys/statfs.h>
-#include <sys/syscall.h>
-#endif
-#include "port/port.h"
-#include "rocksdb/slice.h"
-#include "util/coding.h"
-#include "util/iostats_context_imp.h"
-#include "util/posix_logger.h"
-#include "util/string_util.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
