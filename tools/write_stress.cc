@@ -240,6 +240,9 @@ class WriteStress {
     }
     threads_.clear();
 
+// Skip checking for leaked files in ROCKSDB_LITE since we don't have access to
+// function GetLiveFilesMetaData
+#ifndef ROCKSDB_LITE
     // let's see if we leaked some files
     db_->PauseBackgroundWork();
     std::vector<LiveFileMetaData> metadata;
@@ -274,8 +277,8 @@ class WriteStress {
         }
       }
     }
-
     db_->ContinueBackgroundWork();
+#endif  // !ROCKSDB_LITE
 
     return 0;
   }
