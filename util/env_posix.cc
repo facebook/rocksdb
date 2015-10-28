@@ -39,9 +39,9 @@
 #include <deque>
 #include <set>
 #include "port/port.h"
-#include "posix/io_posix.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
+#include "util/io_posix.h"
 #include "util/iostats_context_imp.h"
 #include "util/logging.h"
 #include "util/posix_logger.h"

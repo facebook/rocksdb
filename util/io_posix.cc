@@ -9,7 +9,7 @@
 
 #ifdef ROCKSDB_LIB_IO_POSIX
 
-#include "posix/io_posix.h"
+#include "util/io_posix.h"
 #include <errno.h>
 #include <fcntl.h>
 #if defined(OS_LINUX)
