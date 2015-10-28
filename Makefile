@@ -328,6 +328,7 @@ TOOLS = \
 	sst_dump \
 	db_sanity_test \
 	db_stress \
+	write_stress \
 	ldb \
 	db_repl_stress \
 	rocksdb_dump \
@@ -666,6 +667,9 @@ block_hash_index_test: table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS
 	$(AM_LINK)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
+write_stress: tools/write_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_sanity_test: tools/db_sanity_test.o $(LIBOBJECTS) $(TESTUTIL)
