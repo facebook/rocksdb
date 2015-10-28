@@ -7,9 +7,43 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+#include <deque>
+#include <set>
+#include <dirent.h>
+#include <pthread.h>
+#include <string.h>
+#include <sys/time.h>
+#include <time.h>
+#include <signal.h>
+#include <algorithm>
+#include <fcntl.h>
 #include <unistd.h>
+#include <stdio.h>
 #include <errno.h>
+#include <stdlib.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/mman.h>
+#ifdef OS_LINUX
+#include <sys/statfs.h>
+#include <sys/syscall.h>
+#endif
+#if defined(OS_LINUX)
+#include <linux/fs.h>
+#endif
 #include "rocksdb/env.h"
+#include "util/sync_point.h"
+#include "util/iostats_context_imp.h"
+#include "util/coding.h"
+#include "rocksdb/slice.h"
+#include "port/port.h"
+#include "util/logging.h"
+#include "util/posix_logger.h"
+#include "util/random.h"
+#include "util/string_util.h"
+#include "util/thread_status_updater.h"
+#include "util/thread_status_util.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.
