@@ -373,6 +373,12 @@ DEFINE_int32(new_table_reader_for_compaction_inputs, true,
 
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
+DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024, 
+             "Maximum write buffer for Writeable File");
+
+DEFINE_int32(skip_table_builder_flush, false, "Skip flushing block in "
+             "table builder ");
+
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
 DEFINE_int32(memtable_bloom_bits, 0, "Bloom filter bits per key for memtable. "
@@ -2295,6 +2301,8 @@ class Benchmark {
     options.new_table_reader_for_compaction_inputs =
         FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
+    options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
+    options.skip_table_builder_flush = FLAGS_skip_table_builder_flush;
     options.statistics = dbstats;
     if (FLAGS_enable_io_prio) {
       FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
