@@ -23,6 +23,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "table/block_based_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "util/options_helper.h"
 #include "util/options_parser.h"
 #include "util/random.h"
@@ -588,6 +589,23 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
               "optimize_filters_for_hits=junk",
               &new_cf_opt));
+
+  // Nested plain table options
+  // Emtpy
+  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
+            "write_buffer_size=10;max_write_buffer_number=16;"
+            "plain_table_factory={};arena_block_size=1024",
+            &new_cf_opt));
+  ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
+  ASSERT_EQ(new_cf_opt.table_factory->Name(), "PlainTable");
+  // Non-empty
+  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
+            "write_buffer_size=10;max_write_buffer_number=16;"
+            "plain_table_factory={user_key_len=66;bloom_bits_per_key=20;};"
+            "arena_block_size=1024",
+            &new_cf_opt));
+  ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
+  ASSERT_EQ(new_cf_opt.table_factory->Name(), "PlainTable");
 }
 #endif  // !ROCKSDB_LITE
 
@@ -643,6 +661,40 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
              "cache_index_and_filter_blocks=1;"
              "filter_policy=bloomfilter:4",
              &new_opt));
+}
+#endif  // !ROCKSDB_LITE
+
+
+#ifndef ROCKSDB_LITE  // GetPlainTableOptionsFromString is not supported
+TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
+  PlainTableOptions table_opt;
+  PlainTableOptions new_opt;
+  // make sure default values are overwritten by something else
+  ASSERT_OK(GetPlainTableOptionsFromString(table_opt,
+            "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+            "index_sparseness=8;huge_page_tlb_size=4;encoding_type=kPrefix;"
+            "full_scan_mode=true;store_index_in_file=true",
+            &new_opt));
+  ASSERT_EQ(new_opt.user_key_len, 66);
+  ASSERT_EQ(new_opt.bloom_bits_per_key, 20);
+  ASSERT_EQ(new_opt.hash_table_ratio, 0.5);
+  ASSERT_EQ(new_opt.index_sparseness, 8);
+  ASSERT_EQ(new_opt.huge_page_tlb_size, 4);
+  ASSERT_EQ(new_opt.encoding_type, EncodingType::kPrefix);
+  ASSERT_TRUE(new_opt.full_scan_mode);
+  ASSERT_TRUE(new_opt.store_index_in_file);
+
+  // unknown option
+  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
+             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+             "bad_option=1",
+             &new_opt));
+
+  // unrecognized EncodingType
+  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
+             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+             "encoding_type=kPrefixXX",
+             &new_opt));  
 }
 #endif  // !ROCKSDB_LITE
 

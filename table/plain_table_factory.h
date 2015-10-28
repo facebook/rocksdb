@@ -142,26 +142,23 @@ class PlainTableFactory : public TableFactory {
   // huge_page_tlb_size determines whether to allocate hash indexes from huge
   // page TLB and the page size if allocating from there. See comments of
   // Arena::AllocateAligned() for details.
-  explicit PlainTableFactory(const PlainTableOptions& options =
-                                 PlainTableOptions())
-      : user_key_len_(options.user_key_len),
-        bloom_bits_per_key_(options.bloom_bits_per_key),
-        hash_table_ratio_(options.hash_table_ratio),
-        index_sparseness_(options.index_sparseness),
-        huge_page_tlb_size_(options.huge_page_tlb_size),
-        encoding_type_(options.encoding_type),
-        full_scan_mode_(options.full_scan_mode),
-        store_index_in_file_(options.store_index_in_file) {}
+  explicit PlainTableFactory(const PlainTableOptions& table_options =
+                             PlainTableOptions())
+      : table_options_(table_options) {};
+
   const char* Name() const override { return "PlainTable"; }
   Status NewTableReader(const TableReaderOptions& table_reader_options,
                         unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size,
                         unique_ptr<TableReader>* table) const override;
+  
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
   std::string GetPrintableTableOptions() const override;
+
+  const PlainTableOptions& GetTableOptions() const;
 
   static const char kValueTypeSeqId0 = 0xFF;
 
@@ -172,14 +169,7 @@ class PlainTableFactory : public TableFactory {
   }
 
  private:
-  uint32_t user_key_len_;
-  int bloom_bits_per_key_;
-  double hash_table_ratio_;
-  size_t index_sparseness_;
-  size_t huge_page_tlb_size_;
-  EncodingType encoding_type_;
-  bool full_scan_mode_;
-  bool store_index_in_file_;
+  PlainTableOptions table_options_;
 };
 
 }  // namespace rocksdb
