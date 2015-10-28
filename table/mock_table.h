@@ -176,7 +176,7 @@ class MockTableFactory : public TableFactory {
   void AssertLatestFile(const stl_wrappers::KVMap& file_contents);
 
  private:
-  uint32_t GetAndWriteNextID(WritableFile* file) const;
+  uint32_t GetAndWriteNextID(WritableFileWriter* file) const;
   uint32_t GetIDFromFile(RandomAccessFileReader* file) const;
 
   mutable MockTableFileSystem file_system_;
