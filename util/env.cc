@@ -293,6 +293,9 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->set_fd_cloexec = options.is_fd_close_on_exec;
   env_options->bytes_per_sync = options.bytes_per_sync;
   env_options->rate_limiter = options.rate_limiter.get();
+  env_options->writable_file_max_buffer_size = 
+                  options.writable_file_max_buffer_size;
+  env_options->skip_table_builder_flush = options.skip_table_builder_flush;
   env_options->allow_fallocate = options.allow_fallocate;
 }
 

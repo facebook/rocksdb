@@ -160,7 +160,7 @@ class WriteStress {
     std::uniform_real_distribution<double> dist(0, 1);
 
     auto random_string = [](std::mt19937& r, int len) {
-      std::uniform_int_distribution<char> char_dist('a', 'z');
+      std::uniform_int_distribution<int> char_dist('a', 'z');
       std::string ret;
       for (int i = 0; i < len; ++i) {
         ret += char_dist(r);
@@ -204,7 +204,7 @@ class WriteStress {
   void PrefixMutatorThread() {
     std::mt19937 rng(static_cast<unsigned int>(FLAGS_seed));
     std::uniform_real_distribution<double> dist(0, 1);
-    std::uniform_int_distribution<char> char_dist('a', 'z');
+    std::uniform_int_distribution<int> char_dist('a', 'z');
     while (!stop_.load(std::memory_order_relaxed)) {
       Env::Default()->SleepForMicroseconds(FLAGS_prefix_mutate_period_sec *
                                            1000 * 1000LL);

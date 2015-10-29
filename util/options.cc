@@ -250,6 +250,8 @@ DBOptions::DBOptions()
       access_hint_on_compaction_start(NORMAL),
       new_table_reader_for_compaction_inputs(false),
       compaction_readahead_size(0),
+      writable_file_max_buffer_size(1024 * 1024),
+      skip_table_builder_flush(false),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
@@ -310,6 +312,8 @@ DBOptions::DBOptions(const Options& options)
       new_table_reader_for_compaction_inputs(
           options.new_table_reader_for_compaction_inputs),
       compaction_readahead_size(options.compaction_readahead_size),
+      writable_file_max_buffer_size(options.writable_file_max_buffer_size),
+      skip_table_builder_flush(options.skip_table_builder_flush),
       use_adaptive_mutex(options.use_adaptive_mutex),
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
@@ -403,6 +407,13 @@ void DBOptions::Dump(Logger* log) const {
          "               Options.compaction_readahead_size: %" ROCKSDB_PRIszt
          "d",
          compaction_readahead_size);
+    Header(log,
+         "              Options.writable_file_max_buffer_size: %" ROCKSDB_PRIszt
+         "d",
+         writable_file_max_buffer_size);
+    Header(log,
+         "              Options.skip_table_builder_flush: %d",
+         skip_table_builder_flush);
     Header(log, "                      Options.use_adaptive_mutex: %d",
         use_adaptive_mutex);
     Header(log, "                            Options.rate_limiter: %p",

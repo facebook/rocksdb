@@ -88,6 +88,12 @@ struct EnvOptions {
   // WAL writes
   bool fallocate_with_keep_size = true;
 
+  // See DBOptions doc
+  size_t writable_file_max_buffer_size = 1024 * 1024;
+
+  // See DBOptions doc
+  bool skip_table_builder_flush = false;
+
   // If not nullptr, write rate limiting is enabled for flush and compaction
   RateLimiter* rate_limiter = nullptr;
 };
