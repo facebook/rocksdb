@@ -260,9 +260,10 @@ DBOptions::DBOptions()
       skip_stats_update_on_db_open(false),
       wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords)
 #ifndef ROCKSDB_LITE
-      , wal_filter(nullptr) 
-#endif // ROCKSDB_LITE
-      {
+      ,
+      wal_filter(nullptr)
+#endif  // ROCKSDB_LITE
+{
 }
 
 DBOptions::DBOptions(const Options& options)
@@ -322,9 +323,10 @@ DBOptions::DBOptions(const Options& options)
       wal_recovery_mode(options.wal_recovery_mode),
       row_cache(options.row_cache)
 #ifndef ROCKSDB_LITE
-      , wal_filter(options.wal_filter)
-#endif // ROCKSDB_LITE
-      {
+      ,
+      wal_filter(options.wal_filter)
+#endif  // ROCKSDB_LITE
+{
 }
 
 static const char* const access_hints[] = {
@@ -405,7 +407,8 @@ void DBOptions::Dump(Logger* log) const {
          "               Options.compaction_readahead_size: %" ROCKSDB_PRIszt
          "d",
          compaction_readahead_size);
-    Header(log,
+    Header(
+        log,
         "               Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt
         "d",
         random_access_max_buffer_size);
@@ -431,8 +434,8 @@ void DBOptions::Dump(Logger* log) const {
     }
 #ifndef ROCKSDB_LITE
     Header(log, "       Options.wal_filter: %s",
-      wal_filter ? wal_filter->Name() : "None");
-#endif // ROCKDB_LITE
+           wal_filter ? wal_filter->Name() : "None");
+#endif  // ROCKDB_LITE
 }  // DBOptions::Dump
 
 void ColumnFamilyOptions::Dump(Logger* log) const {

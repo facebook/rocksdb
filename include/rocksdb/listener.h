@@ -151,7 +151,7 @@ class EventListener {
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
   virtual void OnFlushCompleted(DB* /*db*/,
-      const FlushJobInfo& /*flush_job_info*/) {}
+                                const FlushJobInfo& /*flush_job_info*/) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a SST file is deleted.  Different from OnCompactionCompleted and
@@ -180,7 +180,7 @@ class EventListener {
   //  after this function is returned, and must be copied if it is needed
   //  outside of this function.
   virtual void OnCompactionCompleted(DB* /*db*/,
-      const CompactionJobInfo& /*ci*/) {}
+                                     const CompactionJobInfo& /*ci*/) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a SST file is created.  Different from OnCompactionCompleted and

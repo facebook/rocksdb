@@ -1158,42 +1158,44 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         bool batch_changed = false;
 
         WalFilter::WalProcessingOption wal_processing_option =
-          db_options_.wal_filter->LogRecord(batch, &new_batch, &batch_changed);
+            db_options_.wal_filter->LogRecord(batch, &new_batch,
+                                              &batch_changed);
 
         switch (wal_processing_option) {
-        case  WalFilter::WalProcessingOption::kContinueProcessing:
-          //do nothing, proceeed normally
-          break;
-        case WalFilter::WalProcessingOption::kIgnoreCurrentRecord:
-          //skip current record
-          continue;
-        case WalFilter::WalProcessingOption::kStopReplay:
-          //skip current record and stop replay
-          continue_replay_log = false;
-          continue;
-        case WalFilter::WalProcessingOption::kCorruptedRecord: {
-          status = Status::Corruption("Corruption reported by Wal Filter ",
-            db_options_.wal_filter->Name());
-          MaybeIgnoreError(&status);
-          if (!status.ok()) {
-            reporter.Corruption(record.size(), status);
+          case WalFilter::WalProcessingOption::kContinueProcessing:
+            // do nothing, proceeed normally
+            break;
+          case WalFilter::WalProcessingOption::kIgnoreCurrentRecord:
+            // skip current record
             continue;
-          }
-          break;
-        }
-        default: {
-          assert(false); //unhandled case
-          status = Status::NotSupported("Unknown WalProcessingOption returned"
-            " by Wal Filter ", db_options_.wal_filter->Name());
-          MaybeIgnoreError(&status);
-          if (!status.ok()) {
-            return status;
-          }
-          else {
-            // Ignore the error with current record processing.
+          case WalFilter::WalProcessingOption::kStopReplay:
+            // skip current record and stop replay
+            continue_replay_log = false;
             continue;
+          case WalFilter::WalProcessingOption::kCorruptedRecord: {
+            status = Status::Corruption("Corruption reported by Wal Filter ",
+                                        db_options_.wal_filter->Name());
+            MaybeIgnoreError(&status);
+            if (!status.ok()) {
+              reporter.Corruption(record.size(), status);
+              continue;
+            }
+            break;
           }
-        }
+          default: {
+            assert(false);  // unhandled case
+            status = Status::NotSupported(
+                "Unknown WalProcessingOption returned"
+                " by Wal Filter ",
+                db_options_.wal_filter->Name());
+            MaybeIgnoreError(&status);
+            if (!status.ok()) {
+              return status;
+            } else {
+              // Ignore the error with current record processing.
+              continue;
+            }
+          }
         }
 
         if (batch_changed) {
@@ -1203,23 +1205,26 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           int original_count = WriteBatchInternal::Count(&batch);
           if (new_count > original_count) {
             Log(InfoLogLevel::FATAL_LEVEL, db_options_.info_log,
-              "Recovering log #%" PRIu64 " mode %d log filter %s returned " 
-              "more records (%d) than original (%d) which is not allowed. "
-              "Aborting recovery.",
-              log_number, db_options_.wal_recovery_mode,
-              db_options_.wal_filter->Name(), new_count, original_count);
-            status = Status::NotSupported("More than original # of records "
-              "returned by Wal Filter ", db_options_.wal_filter->Name());
+                "Recovering log #%" PRIu64
+                " mode %d log filter %s returned "
+                "more records (%d) than original (%d) which is not allowed. "
+                "Aborting recovery.",
+                log_number, db_options_.wal_recovery_mode,
+                db_options_.wal_filter->Name(), new_count, original_count);
+            status = Status::NotSupported(
+                "More than original # of records "
+                "returned by Wal Filter ",
+                db_options_.wal_filter->Name());
             return status;
           }
           // Set the same sequence number in the new_batch
           // as the original batch.
-          WriteBatchInternal::SetSequence(&new_batch, 
-            WriteBatchInternal::Sequence(&batch));
+          WriteBatchInternal::SetSequence(&new_batch,
+                                          WriteBatchInternal::Sequence(&batch));
           batch = new_batch;
         }
       }
-#endif //ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
@@ -4161,9 +4166,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
             LogFileName(db_options_.wal_dir, recycle_log_number), &lfile,
             opt_env_opt);
       } else {
-				s = NewWritableFile(env_,
-														LogFileName(db_options_.wal_dir, new_log_number),
-														&lfile, opt_env_opt);
+        s = NewWritableFile(env_,
+                            LogFileName(db_options_.wal_dir, new_log_number),
+                            &lfile, opt_env_opt);
       }
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
@@ -4172,9 +4177,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
                                          mutable_cf_options.write_buffer_size);
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
-        new_log = new log::Writer(std::move(file_writer),
-                                  new_log_number,
-				  db_options_.recycle_log_file_num > 0);
+        new_log = new log::Writer(std::move(file_writer), new_log_number,
+                                  db_options_.recycle_log_file_num > 0);
       }
     }
 
@@ -4815,9 +4819,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
           new WritableFileWriter(std::move(lfile), opt_env_options));
       impl->logs_.emplace_back(
           new_log_number,
-          new log::Writer(std::move(file_writer),
-                          new_log_number,
-			  impl->db_options_.recycle_log_file_num > 0));
+          new log::Writer(std::move(file_writer), new_log_number,
+                          impl->db_options_.recycle_log_file_num > 0));
 
       // set column family handles
       for (auto cf : column_families) {

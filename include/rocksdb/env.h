@@ -416,8 +416,7 @@ class RandomAccessFile {
 
   // For cases when read-ahead is implemented in the platform dependent
   // layer
-  virtual void EnableReadAhead() {
-  }
+  virtual void EnableReadAhead() {}
 
   // Tries to get an unique ID for this file that will be the same each time
   // the file is opened (and will stay the same while the file is open).

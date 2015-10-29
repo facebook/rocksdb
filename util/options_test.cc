@@ -339,7 +339,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"use_adaptive_mutex", "false"},
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
-      {"random_access_max_buffer_size", "3145728" },
+      {"random_access_max_buffer_size", "3145728"},
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
   };

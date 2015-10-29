@@ -13,7 +13,7 @@ class WriteBatch;
 // records or modify their processing on recovery.
 // Please see the details below.
 class WalFilter {
-public:
+ public:
   enum class WalProcessingOption {
     // Continue processing as usual
     kContinueProcessing = 0,
@@ -28,12 +28,12 @@ public:
     kWalProcessingOptionMax = 4
   };
 
-  virtual ~WalFilter() { };
+  virtual ~WalFilter() {}
 
   // LogRecord is invoked for each log record encountered for all the logs
   // during replay on logs on recovery. This method can be used to:
   //  * inspect the record (using the batch parameter)
-  //  * ignoring current record 
+  //  * ignoring current record
   //    (by returning WalProcessingOption::kIgnoreCurrentRecord)
   //  * reporting corrupted record
   //    (by returning WalProcessingOption::kCorruptedRecord)
@@ -55,7 +55,8 @@ public:
   //                        Please see WalProcessingOption enum above for
   //                        details.
   virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-    WriteBatch* new_batch, bool* batch_changed) const = 0;
+                                        WriteBatch* new_batch,
+                                        bool* batch_changed) const = 0;
 
   // Returns a name that identifies this WAL filter.
   // The name will be printed to LOG file on start up for diagnosis.

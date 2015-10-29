@@ -381,20 +381,20 @@ Status WritableFileWriter::WriteUnbuffered() {
 namespace {
 class ReadaheadRandomAccessFile : public RandomAccessFile {
  public:
-   ReadaheadRandomAccessFile(std::unique_ptr<RandomAccessFile>&& file,
-     size_t readahead_size)
-     : file_(std::move(file)),
-       readahead_size_(readahead_size),
-       forward_calls_(file_->ShouldForwardRawRequest()),
-       buffer_(),
-       buffer_offset_(0),
-       buffer_len_(0) {
-     if (!forward_calls_) {
-       buffer_.reset(new char[readahead_size_]);
-     } else if (readahead_size_ > 0) {
-       file_->EnableReadAhead();
-     }
-   }
+  ReadaheadRandomAccessFile(std::unique_ptr<RandomAccessFile>&& file,
+                            size_t readahead_size)
+      : file_(std::move(file)),
+        readahead_size_(readahead_size),
+        forward_calls_(file_->ShouldForwardRawRequest()),
+        buffer_(),
+        buffer_offset_(0),
+        buffer_len_(0) {
+    if (!forward_calls_) {
+      buffer_.reset(new char[readahead_size_]);
+    } else if (readahead_size_ > 0) {
+      file_->EnableReadAhead();
+    }
+  }
 
  ReadaheadRandomAccessFile(const ReadaheadRandomAccessFile&) = delete;
 

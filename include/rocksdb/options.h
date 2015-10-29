@@ -1163,7 +1163,7 @@ struct DBOptions {
   // The filter is invoked at startup and is invoked from a single-thread
   // currently.
   const WalFilter* wal_filter;
-#endif //ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

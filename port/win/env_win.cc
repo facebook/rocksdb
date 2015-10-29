@@ -688,39 +688,44 @@ class WinRandomAccessFile : public RandomAccessFile {
   const std::string filename_;
   HANDLE hFile_;
   const bool use_os_buffer_;
-  bool    read_ahead_;
-  const size_t  compaction_readahead_size_;
-  const size_t  random_access_max_buffer_size_;
+  bool read_ahead_;
+  const size_t compaction_readahead_size_;
+  const size_t random_access_max_buffer_size_;
   mutable std::mutex buffer_mut_;
   mutable AlignedBuffer buffer_;
   mutable uint64_t
       buffered_start_;  // file offset set that is currently buffered
 
   /*
-   * The function reads a requested amount of bytes into the specified aligned buffer
-   * Upon success the function sets the length of the buffer to the amount of bytes actually
-   * read even though it might be less than actually requested.
-   * It then copies the amount of bytes requested by the user (left) to the user supplied
-   * buffer (dest) and reduces left by the amount of bytes copied to the user buffer
+   * The function reads a requested amount of bytes into the specified aligned
+   * buffer Upon success the function sets the length of the buffer to the
+   * amount of bytes actually read even though it might be less than actually
+   * requested. It then copies the amount of bytes requested by the user (left)
+   * to the user supplied buffer (dest) and reduces left by the amount of bytes
+   * copied to the user buffer
    *
    * @user_offset [in] - offset on disk where the read was requested by the user
-   * @first_page_start [in] - actual page aligned disk offset that we want to read from
-   * @bytes_to_read [in] - total amount of bytes that will be read from disk which is generally
-   *                     greater or equal to the amount that the user has requested due to the
-   *                     either alignment requirements or read_ahead in effect.
-   * @left [in/out] total amount of bytes that needs to be copied to the user buffer. It is reduced
-   *                by the amount of bytes that actually copied
+   * @first_page_start [in] - actual page aligned disk offset that we want to
+   *                          read from
+   * @bytes_to_read [in] - total amount of bytes that will be read from disk
+   *                       which is generally greater or equal to the amount
+   *                       that the user has requested due to the
+   *                       either alignment requirements or read_ahead in
+   *                       effect.
+   * @left [in/out] total amount of bytes that needs to be copied to the user
+   *                buffer. It is reduced by the amount of bytes that actually
+   *                copied
    * @buffer - buffer to use
    * @dest - user supplied buffer
   */
   SSIZE_T ReadIntoBuffer(uint64_t user_offset, uint64_t first_page_start,
-    size_t bytes_to_read, size_t& left, AlignedBuffer& buffer, char* dest) const {
-
+                         size_t bytes_to_read, size_t& left,
+                         AlignedBuffer& buffer, char* dest) const {
     assert(buffer.CurrentSize() == 0);
     assert(buffer.Capacity() >= bytes_to_read);
 
-    SSIZE_T read = pread(hFile_, buffer.Destination(), bytes_to_read,
-      first_page_start);
+    SSIZE_T read =
+        pread(hFile_, buffer.Destination(), bytes_to_read, first_page_start);
 
     if (read > 0) {
       buffer.Size(read);
@@ -739,21 +744,22 @@ class WinRandomAccessFile : public RandomAccessFile {
   }
 
   SSIZE_T ReadIntoOneShotBuffer(uint64_t user_offset, uint64_t first_page_start,
-    size_t bytes_to_read, size_t& left, char* dest) const {
-
+                                size_t bytes_to_read, size_t& left,
+                                char* dest) const {
     AlignedBuffer bigBuffer;
     bigBuffer.Alignment(buffer_.Alignment());
     bigBuffer.AllocateNewBuffer(bytes_to_read);
 
     return ReadIntoBuffer(user_offset, first_page_start, bytes_to_read, left,
-      bigBuffer, dest);
+                          bigBuffer, dest);
   }
 
-  SSIZE_T ReadIntoInstanceBuffer(uint64_t user_offset, uint64_t first_page_start,
-    size_t bytes_to_read, size_t& left, char* dest) const {
-
+  SSIZE_T ReadIntoInstanceBuffer(uint64_t user_offset,
+                                 uint64_t first_page_start,
+                                 size_t bytes_to_read, size_t& left,
+                                 char* dest) const {
     SSIZE_T read = ReadIntoBuffer(user_offset, first_page_start, bytes_to_read,
-      left, buffer_, dest);
+                                  left, buffer_, dest);
 
     if (read > 0) {
       buffered_start_ = first_page_start;
@@ -789,9 +795,7 @@ class WinRandomAccessFile : public RandomAccessFile {
     }
   }
 
-  virtual void EnableReadAhead() override {
-    this->Hint(SEQUENTIAL);
-  }
+  virtual void EnableReadAhead() override { this->Hint(SEQUENTIAL); }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
@@ -824,7 +828,7 @@ class WinRandomAccessFile : public RandomAccessFile {
         // Figure out the start/end offset for reading and amount to read
         const size_t alignment = buffer_.Alignment();
         const size_t first_page_start =
-          TruncateToPageBoundary(alignment, offset);
+            TruncateToPageBoundary(alignment, offset);
 
         size_t bytes_requested = left;
         if (read_ahead_ && bytes_requested < compaction_readahead_size_) {
@@ -832,29 +836,29 @@ class WinRandomAccessFile : public RandomAccessFile {
         }
 
         const size_t last_page_start =
-          TruncateToPageBoundary(alignment, offset + bytes_requested - 1);
+            TruncateToPageBoundary(alignment, offset + bytes_requested - 1);
         const size_t actual_bytes_toread =
-          (last_page_start - first_page_start) + alignment;
+            (last_page_start - first_page_start) + alignment;
 
         if (buffer_.Capacity() < actual_bytes_toread) {
           // If we are in read-ahead mode or the requested size
           // exceeds max buffer size then use one-shot
           // big buffer otherwise reallocate main buffer
           if (read_ahead_ ||
-            (actual_bytes_toread > random_access_max_buffer_size_)) {
+              (actual_bytes_toread > random_access_max_buffer_size_)) {
             // Unlock the mutex since we are not using instance buffer
             lock.unlock();
             r = ReadIntoOneShotBuffer(offset, first_page_start,
-              actual_bytes_toread, left, dest);
+                                      actual_bytes_toread, left, dest);
           } else {
             buffer_.AllocateNewBuffer(actual_bytes_toread);
             r = ReadIntoInstanceBuffer(offset, first_page_start,
-              actual_bytes_toread, left, dest);
+                                       actual_bytes_toread, left, dest);
           }
         } else {
           buffer_.Clear();
           r = ReadIntoInstanceBuffer(offset, first_page_start,
-            actual_bytes_toread, left, dest);
+                                     actual_bytes_toread, left, dest);
         }
       }
     } else {
@@ -877,9 +881,7 @@ class WinRandomAccessFile : public RandomAccessFile {
   }
 
   virtual void Hint(AccessPattern pattern) override {
-
-    if (pattern == SEQUENTIAL &&
-        !use_os_buffer_ &&
+    if (pattern == SEQUENTIAL && !use_os_buffer_ &&
         compaction_readahead_size_ > 0) {
       std::lock_guard<std::mutex> lg(buffer_mut_);
       if (!read_ahead_) {
@@ -888,11 +890,11 @@ class WinRandomAccessFile : public RandomAccessFile {
         // - one for memory alignment which added implicitly by AlignedBuffer
         // - We add one more alignment because we will read one alignment more
         // from disk
-        buffer_.AllocateNewBuffer(compaction_readahead_size_ + buffer_.Alignment());
+        buffer_.AllocateNewBuffer(compaction_readahead_size_ +
+                                  buffer_.Alignment());
       }
     }
   }
-
 
   virtual Status InvalidateCache(size_t offset, size_t length) override {
     return Status::OK();

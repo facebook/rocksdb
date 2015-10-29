@@ -503,7 +503,8 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  virtual Status SetOptions(ColumnFamilyHandle* /*column_family*/,
+  virtual Status SetOptions(
+      ColumnFamilyHandle* /*column_family*/,
       const std::unordered_map<std::string, std::string>& /*new_options*/) {
     return Status::NotSupported("Not implemented");
   }
@@ -655,7 +656,7 @@ class DB {
   // Returns a list of all table files with their level, start key
   // and end key
   virtual void GetLiveFilesMetaData(
-    std::vector<LiveFileMetaData>* /*metadata*/) {}
+      std::vector<LiveFileMetaData>* /*metadata*/) {}
 
   // Obtains the meta data of the specified column family of the DB.
   // Status::NotFound() will be returned if the current DB does not have
@@ -663,9 +664,8 @@ class DB {
   //
   // If cf_name is not specified, then the metadata of the default
   // column family will be returned.
-  virtual void GetColumnFamilyMetaData(
-      ColumnFamilyHandle* /*column_family*/,
-      ColumnFamilyMetaData* /*metadata*/) {}
+  virtual void GetColumnFamilyMetaData(ColumnFamilyHandle* /*column_family*/,
+                                       ColumnFamilyMetaData* /*metadata*/) {}
 
   // Get the metadata of the default column family.
   void GetColumnFamilyMetaData(

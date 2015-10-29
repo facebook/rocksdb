@@ -5073,9 +5073,9 @@ class RecoveryTestHelper {
       ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(file), env_options));
-      current_log_writer.reset(new log::Writer(
-	  std::move(file_writer), current_log_number,
-	  db_options.recycle_log_file_num > 0));
+      current_log_writer.reset(
+          new log::Writer(std::move(file_writer), current_log_number,
+                          db_options.recycle_log_file_num > 0));
 
       for (int i = 0; i < kKeysPerWALFile; i++) {
         std::string key = "key" + ToString(count++);
@@ -9891,36 +9891,33 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
 
 #ifndef ROCKSDB_LITE
 namespace {
-  void ValidateKeyExistence(DB* db,
-    const std::vector<Slice>& keys_must_exist,
-    const std::vector<Slice>& keys_must_not_exist) {
-    // Ensure that expected keys exist
-    std::vector<std::string> values;
-    if (keys_must_exist.size() > 0) {
-      std::vector<Status> status_list = db->MultiGet(ReadOptions(),
-        keys_must_exist,
-        &values);
-      for (size_t i = 0; i < keys_must_exist.size(); i++) {
-        ASSERT_OK(status_list[i]);
-      }
-    }
-
-    // Ensure that given keys don't exist
-    if (keys_must_not_exist.size() > 0) {
-      std::vector<Status> status_list = db->MultiGet(ReadOptions(),
-        keys_must_not_exist,
-        &values);
-      for (size_t i = 0; i < keys_must_not_exist.size(); i++) {
-        ASSERT_TRUE(status_list[i].IsNotFound());
-      }
+void ValidateKeyExistence(DB* db, const std::vector<Slice>& keys_must_exist,
+                          const std::vector<Slice>& keys_must_not_exist) {
+  // Ensure that expected keys exist
+  std::vector<std::string> values;
+  if (keys_must_exist.size() > 0) {
+    std::vector<Status> status_list =
+        db->MultiGet(ReadOptions(), keys_must_exist, &values);
+    for (size_t i = 0; i < keys_must_exist.size(); i++) {
+      ASSERT_OK(status_list[i]);
     }
   }
 
-} //namespace
+  // Ensure that given keys don't exist
+  if (keys_must_not_exist.size() > 0) {
+    std::vector<Status> status_list =
+        db->MultiGet(ReadOptions(), keys_must_not_exist, &values);
+    for (size_t i = 0; i < keys_must_not_exist.size(); i++) {
+      ASSERT_TRUE(status_list[i].IsNotFound());
+    }
+  }
+}
+
+}  // namespace
 
 TEST_F(DBTest, WalFilterTest) {
   class TestWalFilter : public WalFilter {
-  private:
+   private:
     // Processing option that is requested to be applied at the given index
     WalFilter::WalProcessingOption wal_processing_option_;
     // Index at which to apply wal_processing_option_
@@ -9929,21 +9926,22 @@ TEST_F(DBTest, WalFilterTest) {
     size_t apply_option_at_record_index_;
     // Current record index, incremented with each record encountered.
     size_t current_record_index_;
-  public:
-    TestWalFilter(WalFilter::WalProcessingOption wal_processing_option,
-      size_t apply_option_for_record_index) :
-      wal_processing_option_(wal_processing_option),
-      apply_option_at_record_index_(apply_option_for_record_index),
-      current_record_index_(0) { }
 
-    virtual WalProcessingOption LogRecord(const WriteBatch & batch,
-      WriteBatch* new_batch, bool* batch_changed) const override {
+   public:
+    TestWalFilter(WalFilter::WalProcessingOption wal_processing_option,
+                  size_t apply_option_for_record_index)
+        : wal_processing_option_(wal_processing_option),
+          apply_option_at_record_index_(apply_option_for_record_index),
+          current_record_index_(0) {}
+
+    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
+                                          WriteBatch* new_batch,
+                                          bool* batch_changed) const override {
       WalFilter::WalProcessingOption option_to_return;
 
       if (current_record_index_ == apply_option_at_record_index_) {
         option_to_return = wal_processing_option_;
-      }
-      else {
+      } else {
         option_to_return = WalProcessingOption::kContinueProcessing;
       }
 
@@ -9955,9 +9953,7 @@ TEST_F(DBTest, WalFilterTest) {
       return option_to_return;
     }
 
-    virtual const char* Name() const override {
-      return "TestWalFilter";
-    }
+    virtual const char* Name() const override { return "TestWalFilter"; }
   };
 
   // Create 3 batches with two keys each
@@ -9971,12 +9967,13 @@ TEST_F(DBTest, WalFilterTest) {
   batch_keys[2].push_back("key6");
 
   // Test with all WAL processing options
-  for (int option = 0; 
-    option < static_cast<int>(WalFilter::WalProcessingOption::kWalProcessingOptionMax); 
-    option++) {
+  for (int option = 0;
+       option < static_cast<int>(
+                    WalFilter::WalProcessingOption::kWalProcessingOptionMax);
+       option++) {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
-    CreateAndReopenWithCF({ "pikachu" }, options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Write given keys in given batches
     for (size_t i = 0; i < batch_keys.size(); i++) {
@@ -9988,26 +9985,26 @@ TEST_F(DBTest, WalFilterTest) {
     }
 
     WalFilter::WalProcessingOption wal_processing_option =
-      static_cast<WalFilter::WalProcessingOption>(option);
+        static_cast<WalFilter::WalProcessingOption>(option);
 
     // Create a test filter that would apply wal_processing_option at the first
     // record
     size_t apply_option_for_record_index = 1;
-    TestWalFilter test_wal_filter(wal_processing_option, 
-      apply_option_for_record_index);
+    TestWalFilter test_wal_filter(wal_processing_option,
+                                  apply_option_for_record_index);
 
     // Reopen database with option to use WAL filter
     options = OptionsForLogIterTest();
     options.wal_filter = &test_wal_filter;
-    Status status = TryReopenWithColumnFamilies({ "default", "pikachu" }, 
-      options);
+    Status status =
+        TryReopenWithColumnFamilies({"default", "pikachu"}, options);
     if (wal_processing_option ==
-      WalFilter::WalProcessingOption::kCorruptedRecord) {
+        WalFilter::WalProcessingOption::kCorruptedRecord) {
       assert(!status.ok());
       // In case of corruption we can turn off paranoid_checks to reopen
       // databse
       options.paranoid_checks = false;
-      ReopenWithColumnFamilies({ "default", "pikachu" }, options);
+      ReopenWithColumnFamilies({"default", "pikachu"}, options);
     } else {
       assert(status.ok());
     }
@@ -10017,10 +10014,10 @@ TEST_F(DBTest, WalFilterTest) {
     std::vector<Slice> keys_must_exist;
     std::vector<Slice> keys_must_not_exist;
     switch (wal_processing_option) {
-      case  WalFilter::WalProcessingOption::kCorruptedRecord:
-      case  WalFilter::WalProcessingOption::kContinueProcessing: {
+      case WalFilter::WalProcessingOption::kCorruptedRecord:
+      case WalFilter::WalProcessingOption::kContinueProcessing: {
         fprintf(stderr, "Testing with complete WAL processing\n");
-        //we expect all records to be processed
+        // we expect all records to be processed
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
             keys_must_exist.push_back(Slice(batch_keys[i][j]));
@@ -10029,16 +10026,16 @@ TEST_F(DBTest, WalFilterTest) {
         break;
       }
       case WalFilter::WalProcessingOption::kIgnoreCurrentRecord: {
-        fprintf(stderr, "Testing with ignoring record %" ROCKSDB_PRIszt " only\n",
-          apply_option_for_record_index);
+        fprintf(stderr,
+                "Testing with ignoring record %" ROCKSDB_PRIszt " only\n",
+                apply_option_for_record_index);
         // We expect the record with apply_option_for_record_index to be not
         // found.
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
             if (i == apply_option_for_record_index) {
               keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
-            }
-            else {
+            } else {
               keys_must_exist.push_back(Slice(batch_keys[i][j]));
             }
           }
@@ -10046,16 +10043,17 @@ TEST_F(DBTest, WalFilterTest) {
         break;
       }
       case WalFilter::WalProcessingOption::kStopReplay: {
-        fprintf(stderr, "Testing with stopping replay from record %" ROCKSDB_PRIszt "\n",
-          apply_option_for_record_index);
+        fprintf(stderr,
+                "Testing with stopping replay from record %" ROCKSDB_PRIszt
+                "\n",
+                apply_option_for_record_index);
         // We expect records beyond apply_option_for_record_index to be not
         // found.
         for (size_t i = 0; i < batch_keys.size(); i++) {
           for (size_t j = 0; j < batch_keys[i].size(); j++) {
             if (i >= apply_option_for_record_index) {
               keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
-            }
-            else {
+            } else {
               keys_must_exist.push_back(Slice(batch_keys[i][j]));
             }
           }
@@ -10063,7 +10061,7 @@ TEST_F(DBTest, WalFilterTest) {
         break;
       }
       default:
-        assert(false); //unhandled case
+        assert(false);  // unhandled case
     }
 
     bool checked_after_reopen = false;
@@ -10077,11 +10075,11 @@ TEST_F(DBTest, WalFilterTest) {
         break;
       }
 
-      //reopen database again to make sure previous log(s) are not used
+      // reopen database again to make sure previous log(s) are not used
       //(even if they were skipped)
-      //reopn database with option to use WAL filter
+      // reopn database with option to use WAL filter
       options = OptionsForLogIterTest();
-      ReopenWithColumnFamilies({ "default", "pikachu" }, options);
+      ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
       checked_after_reopen = true;
     }
@@ -10090,19 +10088,20 @@ TEST_F(DBTest, WalFilterTest) {
 
 TEST_F(DBTest, WalFilterTestWithChangeBatch) {
   class ChangeBatchHandler : public WriteBatch::Handler {
-  private:
+   private:
     // Batch to insert keys in
     WriteBatch* new_write_batch_;
     // Number of keys to add in the new batch
     size_t num_keys_to_add_in_new_batch_;
     // Number of keys added to new batch
     size_t num_keys_added_;
-  public:
-    ChangeBatchHandler(WriteBatch* new_write_batch, 
-      size_t num_keys_to_add_in_new_batch) :
-      new_write_batch_(new_write_batch),
-      num_keys_to_add_in_new_batch_(num_keys_to_add_in_new_batch),
-      num_keys_added_(0){ }
+
+   public:
+    ChangeBatchHandler(WriteBatch* new_write_batch,
+                       size_t num_keys_to_add_in_new_batch)
+        : new_write_batch_(new_write_batch),
+          num_keys_to_add_in_new_batch_(num_keys_to_add_in_new_batch),
+          num_keys_added_(0) {}
     virtual void Put(const Slice& key, const Slice& value) override {
       if (num_keys_added_ < num_keys_to_add_in_new_batch_) {
         new_write_batch_->Put(key, value);
@@ -10112,24 +10111,24 @@ TEST_F(DBTest, WalFilterTestWithChangeBatch) {
   };
 
   class TestWalFilterWithChangeBatch : public WalFilter {
-  private:
+   private:
     // Index at which to start changing records
     size_t change_records_from_index_;
     // Number of keys to add in the new batch
     size_t num_keys_to_add_in_new_batch_;
     // Current record index, incremented with each record encountered.
     size_t current_record_index_;
-  public:
-    TestWalFilterWithChangeBatch(
-      size_t change_records_from_index,
-      size_t num_keys_to_add_in_new_batch) :
-      change_records_from_index_(change_records_from_index),
-      num_keys_to_add_in_new_batch_(num_keys_to_add_in_new_batch),
-      current_record_index_(0) { }
 
-    virtual WalProcessingOption LogRecord(const WriteBatch & batch,
-      WriteBatch* new_batch, bool* batch_changed) const override {
+   public:
+    TestWalFilterWithChangeBatch(size_t change_records_from_index,
+                                 size_t num_keys_to_add_in_new_batch)
+        : change_records_from_index_(change_records_from_index),
+          num_keys_to_add_in_new_batch_(num_keys_to_add_in_new_batch),
+          current_record_index_(0) {}
 
+    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
+                                          WriteBatch* new_batch,
+                                          bool* batch_changed) const override {
       if (current_record_index_ >= change_records_from_index_) {
         ChangeBatchHandler handler(new_batch, num_keys_to_add_in_new_batch_);
         batch.Iterate(&handler);
@@ -10139,7 +10138,8 @@ TEST_F(DBTest, WalFilterTestWithChangeBatch) {
       // Filter is passed as a const object for RocksDB to not modify the
       // object, however we modify it for our own purpose here and hence
       // cast the constness away.
-      (const_cast<TestWalFilterWithChangeBatch*>(this)->current_record_index_)++;
+      (const_cast<TestWalFilterWithChangeBatch*>(this)
+           ->current_record_index_)++;
 
       return WalProcessingOption::kContinueProcessing;
     }
@@ -10160,7 +10160,7 @@ TEST_F(DBTest, WalFilterTestWithChangeBatch) {
 
   Options options = OptionsForLogIterTest();
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({ "pikachu" }, options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   // Write given keys in given batches
   for (size_t i = 0; i < batch_keys.size(); i++) {
@@ -10176,12 +10176,12 @@ TEST_F(DBTest, WalFilterTestWithChangeBatch) {
   size_t change_records_from_index = 1;
   size_t num_keys_to_add_in_new_batch = 1;
   TestWalFilterWithChangeBatch test_wal_filter_with_change_batch(
-    change_records_from_index, num_keys_to_add_in_new_batch);
+      change_records_from_index, num_keys_to_add_in_new_batch);
 
   // Reopen database with option to use WAL filter
   options = OptionsForLogIterTest();
   options.wal_filter = &test_wal_filter_with_change_batch;
-  ReopenWithColumnFamilies({ "default", "pikachu" }, options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   // Ensure that all keys exist before change_records_from_index_
   // And after that index only single key exists
@@ -10193,8 +10193,7 @@ TEST_F(DBTest, WalFilterTestWithChangeBatch) {
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
       if (i >= change_records_from_index && j >= num_keys_to_add_in_new_batch) {
         keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
-      }
-      else {
+      } else {
         keys_must_exist.push_back(Slice(batch_keys[i][j]));
       }
     }
@@ -10211,11 +10210,11 @@ TEST_F(DBTest, WalFilterTestWithChangeBatch) {
       break;
     }
 
-    //reopen database again to make sure previous log(s) are not used
+    // reopen database again to make sure previous log(s) are not used
     //(even if they were skipped)
-    //reopn database with option to use WAL filter
+    // reopn database with option to use WAL filter
     options = OptionsForLogIterTest();
-    ReopenWithColumnFamilies({ "default", "pikachu" }, options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
     checked_after_reopen = true;
   }
@@ -10223,9 +10222,10 @@ TEST_F(DBTest, WalFilterTestWithChangeBatch) {
 
 TEST_F(DBTest, WalFilterTestWithChangeBatchExtraKeys) {
   class TestWalFilterWithChangeBatchAddExtraKeys : public WalFilter {
-  public:
-    virtual WalProcessingOption LogRecord(const WriteBatch & batch,
-      WriteBatch* new_batch, bool* batch_changed) const override {
+   public:
+    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
+                                          WriteBatch* new_batch,
+                                          bool* batch_changed) const override {
       *new_batch = batch;
       new_batch->Put("key_extra", "value_extra");
       *batch_changed = true;
@@ -10248,7 +10248,7 @@ TEST_F(DBTest, WalFilterTestWithChangeBatchExtraKeys) {
 
   Options options = OptionsForLogIterTest();
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({ "pikachu" }, options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   // Write given keys in given batches
   for (size_t i = 0; i < batch_keys.size(); i++) {
@@ -10265,17 +10265,16 @@ TEST_F(DBTest, WalFilterTestWithChangeBatchExtraKeys) {
   // Reopen database with option to use WAL filter
   options = OptionsForLogIterTest();
   options.wal_filter = &test_wal_filter_extra_keys;
-  Status status = 
-    TryReopenWithColumnFamilies({ "default", "pikachu" }, options);
+  Status status = TryReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_TRUE(status.IsNotSupported());
 
   // Reopen without filter, now reopen should succeed - previous
   // attempt to open must not have altered the db.
   options = OptionsForLogIterTest();
-  ReopenWithColumnFamilies({ "default", "pikachu" }, options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   std::vector<Slice> keys_must_exist;
-  std::vector<Slice> keys_must_not_exist; //empty vector
+  std::vector<Slice> keys_must_not_exist;  // empty vector
 
   for (size_t i = 0; i < batch_keys.size(); i++) {
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
@@ -10286,7 +10285,7 @@ TEST_F(DBTest, WalFilterTestWithChangeBatchExtraKeys) {
   ValidateKeyExistence(db_, keys_must_exist, keys_must_not_exist);
 }
 
-#endif // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
