@@ -93,6 +93,7 @@ class WritableFileWriter {
  private:
   std::unique_ptr<WritableFile> writable_file_;
   AlignedBuffer           buf_;
+  size_t                  max_buffer_size_;
   // Actually written data size can be used for truncate
   // not counting padding data
   uint64_t                filesize_;
@@ -113,6 +114,7 @@ class WritableFileWriter {
                      const EnvOptions& options)
       : writable_file_(std::move(file)),
         buf_(),
+        max_buffer_size_(options.writable_file_max_buffer_size),
         filesize_(0),
         next_write_offset_(0),
         pending_sync_(false),

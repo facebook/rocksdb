@@ -91,6 +91,12 @@ struct EnvOptions {
   // See DBOPtions doc
   size_t compaction_readahead_size;
 
+  // See DBOptions doc
+  size_t writable_file_max_buffer_size = 1024 * 1024;
+
+  // See DBOptions doc
+  bool skip_table_builder_flush = false;
+
   // See DBOPtions doc
   size_t random_access_max_buffer_size;
 

@@ -21,10 +21,6 @@
 
 namespace rocksdb {
 
-namespace {
-  const size_t c_OneMb = (1 << 20);
-}
-
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s = file_->Read(n, result, scratch);
   IOSTATS_ADD(bytes_read, result->size());
@@ -76,9 +72,9 @@ Status WritableFileWriter::Append(const Slice& data) {
       }
     }
 
-    if (buf_.Capacity() < c_OneMb) {
+    if (buf_.Capacity() < max_buffer_size_) {
       size_t desiredCapacity = buf_.Capacity() * 2;
-      desiredCapacity = std::min(desiredCapacity, c_OneMb);
+      desiredCapacity = std::min(desiredCapacity, max_buffer_size_);
       buf_.AllocateNewBuffer(desiredCapacity);
     }
     assert(buf_.CurrentSize() == 0);
@@ -102,9 +98,9 @@ Status WritableFileWriter::Append(const Slice& data) {
         // We double the buffer here because
         // Flush calls do not keep up with the incoming bytes
         // This is the only place when buffer is changed with unbuffered I/O
-        if (buf_.Capacity() < c_OneMb) {
+        if (buf_.Capacity() < max_buffer_size_) {
           size_t desiredCapacity = buf_.Capacity() * 2;
-          desiredCapacity = std::min(desiredCapacity, c_OneMb);
+          desiredCapacity = std::min(desiredCapacity, max_buffer_size_);
           buf_.AllocateNewBuffer(desiredCapacity);
         }
       }
@@ -155,7 +151,6 @@ Status WritableFileWriter::Close() {
 
   return s;
 }
-
 
 // write out the cached data to the OS cache
 Status WritableFileWriter::Flush() {
