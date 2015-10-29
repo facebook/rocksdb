@@ -373,7 +373,8 @@ DEFINE_int32(new_table_reader_for_compaction_inputs, true,
 
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
-DEFINE_int32(random_access_max_buffer_size, 1024 * 1024, "Maximum windows randomaccess buffer size");
+DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
+            "Maximum windows randomaccess buffer size");
 
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
