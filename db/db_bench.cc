@@ -373,6 +373,9 @@ DEFINE_int32(new_table_reader_for_compaction_inputs, true,
 
 DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 
+DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
+             "Maximum windows randomaccess buffer size");
+
 DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024, 
              "Maximum write buffer for Writeable File");
 
@@ -2301,6 +2304,7 @@ class Benchmark {
     options.new_table_reader_for_compaction_inputs =
         FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
+    options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
     options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
     options.skip_table_builder_flush = FLAGS_skip_table_builder_flush;
     options.statistics = dbstats;

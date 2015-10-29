@@ -1075,6 +1075,20 @@ struct DBOptions {
   // Default: 0
   size_t compaction_readahead_size;
 
+  // This is a maximum buffer size that is used by WinMmapReadableFile in
+  // unbuffered disk I/O mode. We need to maintain an aligned buffer for
+  // reads. We allow the buffer to grow until the specified value and then
+  // for bigger requests allocate one shot buffers. In unbuffered mode we
+  // always bypass read-ahead buffer at ReadaheadRandomAccessFile
+  // When read-ahead is required we then make use of compaction_readahead_size
+  // value and always try to read ahead. With read-ahead we always
+  // pre-allocate buffer to the size instead of growing it up to a limit.
+  //
+  // This option is currently honored only on Windows
+  //
+  // Default: 1 Mb
+  size_t random_access_max_buffer_size;
+
   // This is the maximum buffer size that is used by WritableFileWriter.
   // On Windows, we need to maintain an aligned buffer for writes. 
   // We allow the buffer to grow until it's size hits the limit. 

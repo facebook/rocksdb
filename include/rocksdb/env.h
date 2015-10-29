@@ -88,11 +88,17 @@ struct EnvOptions {
   // WAL writes
   bool fallocate_with_keep_size = true;
 
+  // See DBOPtions doc
+  size_t compaction_readahead_size;
+
   // See DBOptions doc
   size_t writable_file_max_buffer_size = 1024 * 1024;
 
   // See DBOptions doc
   bool skip_table_builder_flush = false;
+
+  // See DBOPtions doc
+  size_t random_access_max_buffer_size;
 
   // If not nullptr, write rate limiting is enabled for flush and compaction
   RateLimiter* rate_limiter = nullptr;
@@ -412,6 +418,11 @@ class RandomAccessFile {
   // should simply forward the call and do not enact buffering or locking.
   virtual bool ShouldForwardRawRequest() const {
     return false;
+  }
+
+  // For cases when read-ahead is implemented in the platform dependent
+  // layer
+  virtual void EnableReadAhead() {
   }
 
   // Tries to get an unique ID for this file that will be the same each time

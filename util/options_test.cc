@@ -340,8 +340,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"use_adaptive_mutex", "false"},
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
+      {"random_access_max_buffer_size", "3145728" },
       {"writable_file_max_buffer_size", "314159"},
-      {"skip_table_builder_flush", "true"},
+      {"skip_table_builder_flush", "true"},   
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
   };
@@ -452,6 +453,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
+  ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
   ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
   ASSERT_EQ(new_db_opt.skip_table_builder_flush, true);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
