@@ -295,7 +295,14 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->compaction_readahead_size = options.compaction_readahead_size;
   env_options->random_access_max_buffer_size =
       options.random_access_max_buffer_size;
+<<<<<<< HEAD
+  env_options->random_access_max_buffer_size = options.random_access_max_buffer_size;
+=======
+>>>>>>> origin/SkipFlush
   env_options->rate_limiter = options.rate_limiter.get();
+  env_options->writable_file_max_buffer_size = 
+                  options.writable_file_max_buffer_size;
+  env_options->skip_table_builder_flush = options.skip_table_builder_flush;
   env_options->allow_fallocate = options.allow_fallocate;
 }
 

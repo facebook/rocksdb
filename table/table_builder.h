@@ -44,13 +44,15 @@ struct TableBuilderOptions {
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, bool _skip_filters)
+      const CompressionOptions& _compression_opts, 
+      bool _skip_filters, bool _skip_flush)
       : ioptions(_ioptions),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        skip_filters(_skip_filters) {}
+        skip_filters(_skip_filters),
+        skip_flush(_skip_flush) {}
   const ImmutableCFOptions& ioptions;
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -58,6 +60,7 @@ struct TableBuilderOptions {
   CompressionType compression_type;
   const CompressionOptions& compression_opts;
   bool skip_filters = false;
+  bool skip_flush = false;
 };
 
 // TableBuilder provides the interface used to build a Table

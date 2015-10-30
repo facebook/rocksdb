@@ -939,11 +939,12 @@ Status CompactionJob::OpenCompactionOutputFile(
   // data is going to be found
   bool skip_filters =
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
+  bool skip_flush = db_options_.skip_table_builder_flush;
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), cfd->internal_comparator(),
       cfd->int_tbl_prop_collector_factories(), cfd->GetID(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
-      cfd->ioptions()->compression_opts, skip_filters));
+      cfd->ioptions()->compression_opts, skip_filters, skip_flush));
   LogFlush(db_options_.info_log);
   return s;
 }

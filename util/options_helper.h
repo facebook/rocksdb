@@ -87,6 +87,7 @@ enum class OptionType {
   kFilterPolicy,
   kFlushBlockPolicyFactory,
   kChecksumType,
+  kEncodingType,
   kUnknown
 };
 
@@ -181,8 +182,19 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
      {offsetof(struct DBOptions, compaction_readahead_size), OptionType::kSizeT,
       OptionVerificationType::kNormal}},
     {"random_access_max_buffer_size",
-     {offsetof(struct DBOptions, random_access_max_buffer_size),
+<<<<<<< HEAD
+     { offsetof(struct DBOptions, random_access_max_buffer_size), 
       OptionType::kSizeT, OptionVerificationType::kNormal}},
+=======
+     { offsetof(struct DBOptions, random_access_max_buffer_size), OptionType::kSizeT,
+      OptionVerificationType::kNormal}},
+>>>>>>> origin/SkipFlush
+    {"writable_file_max_buffer_size",
+     {offsetof(struct DBOptions, writable_file_max_buffer_size),  
+      OptionType::kSizeT, OptionVerificationType::kNormal}},
+    {"skip_table_builder_flush",
+     {offsetof(struct DBOptions, skip_table_builder_flush),  
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
     {"use_adaptive_mutex",
      {offsetof(struct DBOptions, use_adaptive_mutex), OptionType::kBoolean,
       OptionVerificationType::kNormal}},
@@ -462,6 +474,34 @@ static std::unordered_map<std::string,
     {"format_version",
      {offsetof(struct BlockBasedTableOptions, format_version),
       OptionType::kUInt32T, OptionVerificationType::kNormal}}};
+
+static std::unordered_map<std::string, 
+                          OptionTypeInfo> plain_table_type_info = {
+      {"user_key_len", 
+       {offsetof(struct PlainTableOptions, user_key_len),
+        OptionType::kUInt32T, OptionVerificationType::kNormal}},
+      {"bloom_bits_per_key", 
+       {offsetof(struct PlainTableOptions, bloom_bits_per_key),
+        OptionType::kInt, OptionVerificationType::kNormal}},
+      {"hash_table_ratio", 
+       {offsetof(struct PlainTableOptions, hash_table_ratio),
+        OptionType::kDouble, OptionVerificationType::kNormal}},
+      {"index_sparseness", 
+       {offsetof(struct PlainTableOptions, index_sparseness),
+        OptionType::kSizeT, OptionVerificationType::kNormal}},
+      {"huge_page_tlb_size", 
+       {offsetof(struct PlainTableOptions, huge_page_tlb_size),
+        OptionType::kSizeT, OptionVerificationType::kNormal}},
+      {"encoding_type", 
+       {offsetof(struct PlainTableOptions, encoding_type),
+        OptionType::kEncodingType, OptionVerificationType::kByName}},
+      {"full_scan_mode", 
+       {offsetof(struct PlainTableOptions, full_scan_mode),
+        OptionType::kBoolean, OptionVerificationType::kNormal}},
+      {"store_index_in_file", 
+       {offsetof(struct PlainTableOptions, store_index_in_file),
+        OptionType::kBoolean, OptionVerificationType::kNormal}}};  
+
 }  // namespace rocksdb
 
 #endif  // !ROCKSDB_LITE
