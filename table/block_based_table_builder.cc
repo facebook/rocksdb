@@ -478,7 +478,7 @@ struct BlockBasedTableBuilder::Rep {
       uint32_t column_family_id, WritableFileWriter* f,
       const CompressionType _compression_type,
       const CompressionOptions& _compression_opts, 
-      const bool skip_filters, const bool skip_flush)
+      const bool skip_filters, const bool _skip_flush)
       : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
@@ -492,7 +492,7 @@ struct BlockBasedTableBuilder::Rep {
         compression_opts(_compression_opts),
         filter_block(skip_filters ? nullptr : CreateFilterBlockBuilder(
                                                   _ioptions, table_options)),
-        skip_flush(skip_flush),
+        skip_flush(_skip_flush),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)) {
