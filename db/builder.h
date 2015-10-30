@@ -41,7 +41,8 @@ TableBuilder* NewTableBuilder(
     uint32_t column_family_id, WritableFileWriter* file,
     const CompressionType compression_type,
     const CompressionOptions& compression_opts,
-    const bool skip_filters = false);
+    const bool skip_filters = false,
+    const bool skip_flush = false);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to number specified in meta. On success, the rest of

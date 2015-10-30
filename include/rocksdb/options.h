@@ -1089,6 +1089,27 @@ struct DBOptions {
   // Default: 1 Mb
   size_t random_access_max_buffer_size;
 
+  // This is the maximum buffer size that is used by WritableFileWriter.
+  // On Windows, we need to maintain an aligned buffer for writes. 
+  // We allow the buffer to grow until it's size hits the limit. 
+  //
+  // Default: 1024 * 1024 (1 MB)
+  size_t writable_file_max_buffer_size;
+
+  // If true, block will not be explictly flushed to disk during building
+  // a SstTable. Instead, buffer in WritableFileWriter will take 
+  // care of the flushing when it is full. 
+  //
+  // On Windows, this option helps a lot when unbuffered I/O 
+  // (allow_os_buffer = false) is used, since it avoids small 
+  // unbuffered disk write. 
+  //
+  // User may also adjust writable_file_max_buffer_size to optimize disk I/O 
+  // size. 
+  //
+  // Default: false
+  bool skip_table_builder_flush;
+
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not
   // heavily contended. However, if the mutex is hot, we could end up
