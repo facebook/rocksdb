@@ -599,7 +599,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
             "plain_table_factory={};arena_block_size=1024",
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
-  ASSERT_EQ(new_cf_opt.table_factory->Name(), "PlainTable");
+  ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
   // Non-empty
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "write_buffer_size=10;max_write_buffer_number=16;"
@@ -607,7 +607,7 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
             "arena_block_size=1024",
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
-  ASSERT_EQ(new_cf_opt.table_factory->Name(), "PlainTable");
+  ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
 }
 #endif  // !ROCKSDB_LITE
 
