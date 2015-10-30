@@ -9602,9 +9602,15 @@ TEST_F(DBTest, AddExternalSstFile) {
       ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
     }
 
-    // Add file using file info
-    s = db_->AddFile(&file2_info);
-    ASSERT_TRUE(s.ok()) << s.ToString();
+    // Add file while holding a snapshot will fail
+    const Snapshot* s1 = db_->GetSnapshot();
+    if (s1 != nullptr) {
+      ASSERT_NOK(db_->AddFile(&file2_info));
+      db_->ReleaseSnapshot(s1);
+    }
+    // We can add the file after releaseing the snapshot
+    ASSERT_OK(db_->AddFile(&file2_info));
+
     ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
     for (int k = 0; k < 200; k++) {
       ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
@@ -9624,9 +9630,8 @@ TEST_F(DBTest, AddExternalSstFile) {
     }
     ASSERT_NE(db_->GetLatestSequenceNumber(), 0U);
 
-    // DB have values in memtable now, we cannot add files anymore
-    s = db_->AddFile(file5);
-    ASSERT_FALSE(s.ok()) << s.ToString();
+    // Key range of file5 (400 => 499) dont overlap with any keys in DB
+    ASSERT_OK(db_->AddFile(file5));
 
     // Make sure values are correct before and after flush/compaction
     for (int i = 0; i < 2; i++) {
@@ -9637,13 +9642,37 @@ TEST_F(DBTest, AddExternalSstFile) {
         }
         ASSERT_EQ(Get(Key(k)), value);
       }
+      for (int k = 400; k < 500; k++) {
+        std::string value = Key(k) + "_val";
+        ASSERT_EQ(Get(Key(k)), value);
+      }
       ASSERT_OK(Flush());
       ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     }
 
-    // DB sequence number is not zero, cannot add files anymore
-    s = db_->AddFile(file5);
-    ASSERT_FALSE(s.ok()) << s.ToString();
+    Close();
+    options.disable_auto_compactions = true;
+    Reopen(options);
+
+    // Delete keys in range (400 => 499)
+    for (int k = 400; k < 500; k++) {
+      ASSERT_OK(Delete(Key(k)));
+    }
+    // We deleted range (400 => 499) but cannot add file5 because
+    // of the range tombstones
+    ASSERT_NOK(db_->AddFile(file5));
+
+    // Compacting the DB will remove the tombstones
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+    // Now we can add the file
+    ASSERT_OK(db_->AddFile(file5));
+
+    // Verify values of file5 in DB
+    for (int k = 400; k < 500; k++) {
+      std::string value = Key(k) + "_val";
+      ASSERT_EQ(Get(Key(k)), value);
+    }
   } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
                          kSkipFIFOCompaction));
 }
@@ -9816,6 +9845,107 @@ TEST_F(DBTest, AddExternalSstFileMultiThreaded) {
   } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
                          kSkipFIFOCompaction));
 }
+
+TEST_F(DBTest, AddExternalSstFileOverlappingRanges) {
+  std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+  Random rnd(301);
+  do {
+    env_->CreateDir(sst_files_folder);
+    Options options = CurrentOptions();
+    DestroyAndReopen(options);
+    const ImmutableCFOptions ioptions(options);
+    SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+
+    printf("Option config = %d\n", option_config_);
+    std::vector<std::pair<int, int>> key_ranges;
+    for (int i = 0; i < 500; i++) {
+      int range_start = rnd.Uniform(20000);
+      int keys_per_range = 10 + rnd.Uniform(41);
+
+      key_ranges.emplace_back(range_start, range_start + keys_per_range);
+    }
+
+    int memtable_add = 0;
+    int success_add_file = 0;
+    int failed_add_file = 0;
+    std::map<std::string, std::string> true_data;
+    for (size_t i = 0; i < key_ranges.size(); i++) {
+      int range_start = key_ranges[i].first;
+      int range_end = key_ranges[i].second;
+
+      Status s;
+      std::string range_val = "range_" + ToString(i);
+
+      // For 20% of ranges we use DB::Put, for 80% we use DB::AddFile
+      if (i && i % 5 == 0) {
+        // Use DB::Put to insert range (insert into memtable)
+        range_val += "_put";
+        for (int k = range_start; k <= range_end; k++) {
+          s = Put(Key(k), range_val);
+          ASSERT_OK(s);
+        }
+        memtable_add++;
+      } else {
+        // Use DB::AddFile to insert range
+        range_val += "_add_file";
+
+        // Generate the file containing the range
+        std::string file_name = sst_files_folder + env_->GenerateUniqueId();
+        ASSERT_OK(sst_file_writer.Open(file_name));
+        for (int k = range_start; k <= range_end; k++) {
+          s = sst_file_writer.Add(Key(k), range_val);
+          ASSERT_OK(s);
+        }
+        ExternalSstFileInfo file_info;
+        s = sst_file_writer.Finish(&file_info);
+        ASSERT_OK(s);
+
+        // Insert the generated file
+        s = db_->AddFile(&file_info);
+
+        auto it = true_data.lower_bound(Key(range_start));
+        if (it != true_data.end() && it->first <= Key(range_end)) {
+          // This range overlap with data already exist in DB
+          ASSERT_NOK(s);
+          failed_add_file++;
+        } else {
+          ASSERT_OK(s);
+          success_add_file++;
+        }
+      }
+
+      if (s.ok()) {
+        // Update true_data map to include the new inserted data
+        for (int k = range_start; k <= range_end; k++) {
+          true_data[Key(k)] = range_val;
+        }
+      }
+
+      // Flush / Compact the DB
+      if (i && i % 50 == 0) {
+        Flush();
+      }
+      if (i && i % 75 == 0) {
+        db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      }
+    }
+
+    printf(
+        "Total: %zu ranges\n"
+        "AddFile()|Success: %d ranges\n"
+        "AddFile()|RangeConflict: %d ranges\n"
+        "Put(): %d ranges\n",
+        key_ranges.size(), success_add_file, failed_add_file, memtable_add);
+
+    // Verify the correctness of the data
+    for (const auto& kv : true_data) {
+      ASSERT_EQ(Get(kv.first), kv.second);
+    }
+    printf("keys/values verified\n");
+  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
+                         kSkipFIFOCompaction));
+}
+
 #endif  // ROCKSDB_LITE
 
 // 1 Create some SST files by inserting K-V pairs into DB

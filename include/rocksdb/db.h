@@ -679,13 +679,11 @@ class DB {
   // move the file instead of copying it.
   //
   // Current Requirements:
-  // (1) Memtable is empty.
-  // (2) All existing files (if any) have sequence number = 0.
-  // (3) Key range in loaded table file don't overlap with existing
-  //     files key ranges.
-  // (4) No other writes happen during AddFile call, otherwise
+  // (1) Key range in loaded table file don't overlap with
+  //     existing keys or tombstones in DB.
+  // (2) No other writes happen during AddFile call, otherwise
   //     DB may get corrupted.
-  // (5) Database have at least 2 levels.
+  // (3) No snapshots are held.
   virtual Status AddFile(ColumnFamilyHandle* column_family,
                          const std::string& file_path,
                          bool move_file = false) = 0;

@@ -136,7 +136,10 @@ class VersionBuilder::Rep {
         auto f2 = level_files[i];
         if (level == 0) {
           assert(level_zero_cmp_(f1, f2));
-          assert(f1->largest_seqno > f2->largest_seqno);
+          assert(f1->largest_seqno > f2->largest_seqno ||
+                 // We can have multiple files with seqno = 0 as a result of
+                 // using DB::AddFile()
+                 (f1->largest_seqno == 0 && f2->largest_seqno == 0));
         } else {
           assert(level_nonzero_cmp_(f1, f2));
 

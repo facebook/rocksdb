@@ -3274,10 +3274,6 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
 
-  if (cfd->NumberLevels() <= 1) {
-    return Status::NotSupported(
-        "AddFile requires a database with at least 2 levels");
-  }
   if (file_info->version != 1) {
     return Status::InvalidArgument("Generated table version is not supported");
   }
@@ -3324,48 +3320,44 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
 
-    // Make sure memtables are empty
-    if (!cfd->mem()->IsEmpty() || cfd->imm()->NumNotFlushed() > 0) {
-      // Cannot add the file since the keys in memtable
-      // will hide the keys in file
-      status = Status::NotSupported("Memtable is not empty");
+    if (!snapshots_.empty()) {
+      // Check that no snapshots are being held
+      status =
+          Status::NotSupported("Cannot add a file while holding snapshots");
     }
 
-    // Make sure last sequence number is 0, if there are existing files then
-    // they should have sequence number = 0
-    if (status.ok() && versions_->LastSequence() > 0) {
-      status = Status::NotSupported("Last Sequence number is not zero");
-    }
-
-    auto* vstorage = cfd->current()->storage_info();
     if (status.ok()) {
-      // Make sure that the key range in the file we will add does not overlap
-      // with previously added files
-      Slice smallest_user_key = meta.smallest.user_key();
-      Slice largest_user_key = meta.largest.user_key();
-      for (int level = 0; level < vstorage->num_non_empty_levels(); level++) {
-        if (vstorage->OverlapInLevel(level, &smallest_user_key,
-                                     &largest_user_key)) {
-          status = Status::NotSupported("Cannot add overlapping files");
-          break;
+      // Verify that added file key range dont overlap with any keys in DB
+      SuperVersion* sv = cfd->GetSuperVersion()->Ref();
+      Arena arena;
+      ReadOptions ro;
+      ro.total_order_seek = true;
+      ScopedArenaIterator iter(NewInternalIterator(ro, cfd, sv, &arena));
+
+      InternalKey range_start(file_info->smallest_key, kMaxSequenceNumber,
+                              kTypeValue);
+      iter->Seek(range_start.Encode());
+      status = iter->status();
+
+      if (status.ok() && iter->Valid()) {
+        ParsedInternalKey seek_result;
+        if (ParseInternalKey(iter->key(), &seek_result)) {
+          auto* vstorage = cfd->current()->storage_info();
+          if (vstorage->InternalComparator()->user_comparator()->Compare(
+                  seek_result.user_key, file_info->largest_key) <= 0) {
+            status = Status::NotSupported("Cannot add overlapping range");
+          }
+        } else {
+          status = Status::Corruption("DB have corrupted keys");
         }
       }
     }
 
     if (status.ok()) {
-      // We add the file to the last level
-      int target_level = cfd->NumberLevels() - 1;
-      if (cfd->ioptions()->level_compaction_dynamic_level_bytes == false) {
-        // If we are using dynamic level compaction we add the file to
-        // last level with files
-        target_level = vstorage->num_non_empty_levels() - 1;
-        if (target_level <= 0) {
-          target_level = 1;
-        }
-      }
+      // Add file to L0
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
-      edit.AddFile(target_level, meta.fd.GetNumber(), meta.fd.GetPathId(),
+      edit.AddFile(0, meta.fd.GetNumber(), meta.fd.GetPathId(),
                    meta.fd.GetFileSize(), meta.smallest, meta.largest,
                    meta.smallest_seqno, meta.largest_seqno,
                    meta.marked_for_compaction);
