@@ -122,22 +122,25 @@ bool AutoRollLogger::LogExpired() {
   return cached_now >= ctime_ + kLogFileTimeToRoll;
 }
 
-Status CreateLoggerFromOptions(
-    const std::string& dbname,
-    const std::string& db_log_dir,
-    Env* env,
-    const DBOptions& options,
-    std::shared_ptr<Logger>* logger) {
+Status CreateLoggerFromOptions(const std::string& dbname,
+                               const DBOptions& options,
+                               std::shared_ptr<Logger>* logger) {
+  if (options.info_log) {
+    *logger = options.info_log;
+    return Status::OK();
+  }
+
+  Env* env = options.env;
   std::string db_absolute_path;
   env->GetAbsolutePath(dbname, &db_absolute_path);
-  std::string fname = InfoLogFileName(dbname, db_absolute_path, db_log_dir);
+  std::string fname =
+      InfoLogFileName(dbname, db_absolute_path, options.db_log_dir);
 
   env->CreateDirIfMissing(dbname);  // In case it does not exist
   // Currently we only support roll by time-to-roll and log size
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
     AutoRollLogger* result = new AutoRollLogger(
-        env, dbname, db_log_dir,
-        options.max_log_file_size,
+        env, dbname, options.db_log_dir, options.max_log_file_size,
         options.log_file_time_to_roll, options.info_log_level);
     Status s = result->GetStatus();
     if (!s.ok()) {
@@ -148,8 +151,9 @@ Status CreateLoggerFromOptions(
     return s;
   } else {
     // Open a log file in the same directory as the db
-    env->RenameFile(fname, OldInfoLogFileName(dbname, env->NowMicros(),
-                                              db_absolute_path, db_log_dir));
+    env->RenameFile(
+        fname, OldInfoLogFileName(dbname, env->NowMicros(), db_absolute_path,
+                                  options.db_log_dir));
     auto s = env->NewLogger(fname, logger);
     if (logger->get() != nullptr) {
       (*logger)->SetInfoLogLevel(options.info_log_level);

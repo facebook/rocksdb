@@ -221,13 +221,13 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   shared_ptr<Logger> logger;
 
   // Normal logger
-  ASSERT_OK(CreateLoggerFromOptions(kTestDir, "", env, options, &logger));
+  ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
   ASSERT_TRUE(dynamic_cast<PosixLogger*>(logger.get()));
 
   // Only roll by size
   InitTestDb();
   options.max_log_file_size = 1024;
-  ASSERT_OK(CreateLoggerFromOptions(kTestDir, "", env, options, &logger));
+  ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
   AutoRollLogger* auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
   ASSERT_TRUE(auto_roll_logger);
@@ -239,7 +239,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   InitTestDb();
   options.max_log_file_size = 0;
   options.log_file_time_to_roll = 2;
-  ASSERT_OK(CreateLoggerFromOptions(kTestDir, "", env, options, &logger));
+  ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
   auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
   RollLogFileByTimeTest(
@@ -250,7 +250,7 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   InitTestDb();
   options.max_log_file_size = 1024 * 5;
   options.log_file_time_to_roll = 2;
-  ASSERT_OK(CreateLoggerFromOptions(kTestDir, "", env, options, &logger));
+  ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
   auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
   RollLogFileBySizeTest(

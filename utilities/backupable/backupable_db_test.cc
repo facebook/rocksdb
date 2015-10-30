@@ -424,9 +424,14 @@ class BackupableDBTest : public testing::Test {
     options_.write_buffer_size = 1 << 17; // 128KB
     options_.env = test_db_env_.get();
     options_.wal_dir = dbname_;
+
+    // Create logger
+    DBOptions logger_options;
+    logger_options.env = env_;
+    logger_options.db_log_dir = backupdir_;
+    CreateLoggerFromOptions(dbname_, logger_options, &logger_);
+
     // set up backup db options
-    CreateLoggerFromOptions(dbname_, backupdir_, env_,
-                            DBOptions(), &logger_);
     backupable_options_.reset(new BackupableDBOptions(
         backupdir_, test_backup_env_.get(), true, logger_.get(), true));
 
