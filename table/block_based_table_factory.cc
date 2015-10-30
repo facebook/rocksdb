@@ -158,7 +158,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   return ret;
 }
 
-const BlockBasedTableOptions& BlockBasedTableFactory::GetTableOptions() const {
+const BlockBasedTableOptions& BlockBasedTableFactory::table_options() const {
   return table_options_;
 }
 
