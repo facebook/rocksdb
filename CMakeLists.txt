@@ -58,7 +58,7 @@ add_custom_command(OUTPUT ${BUILD_VERSION_CC}
 add_custom_target(GenerateBuildVersion DEPENDS ${BUILD_VERSION_CC})
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /WX /wd4018 /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /WX /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996")
 
 # Used to run CI build and tests so we can run faster
 set(OPTIMIZE_DEBUG_DEFAULT 0)        # Debug build is unoptimized by default use -DOPTDBG=1 to optimize
@@ -230,7 +230,6 @@ set(SOURCES
         util/thread_local.cc
         util/thread_status_impl.cc
         util/thread_status_updater.cc
-        util/thread_status_updater_debug.cc
         util/thread_status_util.cc
         util/thread_status_util_debug.cc
         util/vectorrep.cc
@@ -268,6 +267,7 @@ set(SOURCES
 # and linked to tests. Add test only code that is not #ifdefed for Release here.
 set(TESTUTIL_SOURCE
     db/db_test_util.cc
+    util/thread_status_updater_debug.cc
 )
 
 add_library(rocksdblib${ARTIFACT_SUFFIX} ${SOURCES})

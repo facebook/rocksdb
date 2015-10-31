@@ -788,10 +788,10 @@ TEST_F(DBTest, GetUserDefinedTableProperties) {
   }
   ASSERT_EQ(10u + 11u + 12u + 13u, sum);
 
-  ASSERT_GT(collector_factory->num_created_, 0);
+  ASSERT_GT(collector_factory->num_created_, 0U);
   collector_factory->num_created_ = 0;
   dbfull()->TEST_CompactRange(0, nullptr, nullptr);
-  ASSERT_GT(collector_factory->num_created_, 0);
+  ASSERT_GT(collector_factory->num_created_, 0U);
 }
 #endif  // ROCKSDB_LITE
 
@@ -811,7 +811,7 @@ TEST_F(DBTest, UserDefinedTablePropertiesContext) {
     }
     Flush(1);
   }
-  ASSERT_GT(collector_factory->num_created_, 0);
+  ASSERT_GT(collector_factory->num_created_, 0U);
 
   collector_factory->num_created_ = 0;
   // Trigger automatic compactions.
@@ -822,11 +822,11 @@ TEST_F(DBTest, UserDefinedTablePropertiesContext) {
     Flush(1);
     dbfull()->TEST_WaitForCompact();
   }
-  ASSERT_GT(collector_factory->num_created_, 0);
+  ASSERT_GT(collector_factory->num_created_, 0U);
 
   collector_factory->num_created_ = 0;
   dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-  ASSERT_GT(collector_factory->num_created_, 0);
+  ASSERT_GT(collector_factory->num_created_, 0U);
 
   // Come back to write to default column family
   collector_factory->num_created_ = 0;
@@ -838,7 +838,7 @@ TEST_F(DBTest, UserDefinedTablePropertiesContext) {
     }
     Flush();
   }
-  ASSERT_GT(collector_factory->num_created_, 0);
+  ASSERT_GT(collector_factory->num_created_, 0U);
 
   collector_factory->num_created_ = 0;
   // Trigger automatic compactions.
@@ -849,11 +849,11 @@ TEST_F(DBTest, UserDefinedTablePropertiesContext) {
     Flush();
     dbfull()->TEST_WaitForCompact();
   }
-  ASSERT_GT(collector_factory->num_created_, 0);
+  ASSERT_GT(collector_factory->num_created_, 0U);
 
   collector_factory->num_created_ = 0;
   dbfull()->TEST_CompactRange(0, nullptr, nullptr);
-  ASSERT_GT(collector_factory->num_created_, 0);
+  ASSERT_GT(collector_factory->num_created_, 0U);
 }
 
 #ifndef ROCKSDB_LITE
@@ -5140,7 +5140,7 @@ class RecoveryTestHelper {
   // Overwrite data with 'a' from offset for length len
   static void InduceCorruption(const std::string& filename, uint32_t offset,
                                uint32_t len) {
-    ASSERT_GT(len, 0);
+    ASSERT_GT(len, 0U);
 
     int fd = open(filename.c_str(), O_RDWR);
 
