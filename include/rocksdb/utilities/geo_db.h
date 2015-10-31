@@ -59,6 +59,48 @@ class GeoObject {
   }
 };
 
+class GeoIterator : public Iterator {
+  private:
+    std::vector<GeoObject>* values_;
+    std::vector<GeoObject>::iterator iter_;
+    Status status_;
+  public:
+    explicit GeoIterator(std::vector<GeoObject>* values) {
+      values_ = values;
+      iter_ = values_->begin();
+    }
+    virtual ~GeoIterator() {
+      delete values_;
+    }
+    virtual void Next() override {
+      if (!Valid()) {
+        status_ = Status::InvalidArgument("Iterator value invalid");
+        return;
+      }
+      status_ = Status::OK();
+      iter_++;
+    }
+    virtual bool Valid() const override { return iter_ != values_->end(); }
+    GeoObject GeoObject() {
+      if (!Valid()) {
+        status_ = Status::InvalidArgument("Iterator value invalid");
+        return GeoObject();
+      }
+      status_ = Status::OK();
+      return *iter_;
+    }
+    virtual Status status() const override { return status_; }
+    virtual void SeekToFirst() override { iter_ = values_->begin(); };
+    virtual void SeekToLast() override {
+      iter_ = values_->end();
+      --iter_;
+    };
+    virtual void Seek(const Slice& target) override {};
+    virtual void Prev() override { --iter_; };
+    virtual Slice key() const override { Slice* s = new Slice(); return *s; };
+    virtual Slice value() const override { Slice* s = new Slice(); return *s; };
+};
+  
 //
 // Stack your DB with GeoDB to be able to get geo-spatial support
 //
@@ -97,7 +139,7 @@ class GeoDB : public StackableDB {
   // The radius is specified in 'meters'.
   virtual Status SearchRadial(const GeoPosition& pos,
                               double radius,
-                              std::vector<GeoObject>* values,
+                              GeoIterator** geo_iter,
                               int number_of_values = INT_MAX) = 0;
 };
 

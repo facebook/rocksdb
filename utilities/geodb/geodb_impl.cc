@@ -161,8 +161,11 @@ Status GeoDBImpl::Remove(const Slice& id) {
 
 Status GeoDBImpl::SearchRadial(const GeoPosition& pos,
   double radius,
-  std::vector<GeoObject>* values,
+  GeoIterator** geo_iter,
   int number_of_values) {
+  
+  std::vector<GeoObject>* values = new std::vector<GeoObject>();
+  
   // Gather all bounding quadkeys
   std::vector<std::string> qids;
   Status s = searchQuadIds(pos, radius, &qids);
@@ -208,6 +211,7 @@ Status GeoDBImpl::SearchRadial(const GeoPosition& pos,
     }
   }
   delete iter;
+  *geo_iter = new GeoIterator(values);
   return Status::OK();
 }
 
