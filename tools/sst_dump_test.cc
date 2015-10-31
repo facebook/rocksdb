@@ -61,7 +61,7 @@ void createSST(const std::string& file_name,
   tb.reset(opts.table_factory->NewTableBuilder(
       TableBuilderOptions(imoptions, ikc, &int_tbl_prop_collector_factories,
                           CompressionType::kNoCompression, CompressionOptions(),
-                          false, env_options.skip_table_builder_flush),
+                          false),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 

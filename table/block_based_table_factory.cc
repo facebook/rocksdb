@@ -69,8 +69,7 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,
       table_builder_options.compression_opts,
-      table_builder_options.skip_filters,
-      table_builder_options.skip_flush);
+      table_builder_options.skip_filters);
 
   return table_builder;
 }
@@ -153,6 +152,10 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  skip_table_builder_flush: %d\n",
+           table_options_.skip_table_builder_flush);
+  ret.append(buffer);
   snprintf(buffer, kBufferSize, "  format_version: %d\n",
            table_options_.format_version);
   ret.append(buffer);

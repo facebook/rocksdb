@@ -465,7 +465,6 @@ struct BlockBasedTableBuilder::Rep {
   BlockHandle pending_handle;  // Handle to add to index block
 
   std::string compressed_output;
-  bool skip_flush;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
   std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
@@ -477,8 +476,7 @@ struct BlockBasedTableBuilder::Rep {
           int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* f,
       const CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, 
-      const bool skip_filters, const bool _skip_flush)
+      const CompressionOptions& _compression_opts, const bool skip_filters)
       : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
@@ -492,7 +490,6 @@ struct BlockBasedTableBuilder::Rep {
         compression_opts(_compression_opts),
         filter_block(skip_filters ? nullptr : CreateFilterBlockBuilder(
                                                   _ioptions, table_options)),
-        skip_flush(_skip_flush),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)) {
@@ -515,8 +512,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file,
     const CompressionType compression_type,
-    const CompressionOptions& compression_opts,
-    const bool skip_filters, const bool skip_flush) {
+    const CompressionOptions& compression_opts, const bool skip_filters) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -530,7 +526,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
 
   rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
                  int_tbl_prop_collector_factories, column_family_id, file,
-                 compression_type, compression_opts, skip_filters, skip_flush);
+                 compression_type, compression_opts, skip_filters);
 
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
@@ -556,10 +552,9 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     assert(r->internal_comparator.Compare(key, Slice(r->last_key)) > 0);
   }
 
-  auto should_seal = r->flush_block_policy->Update(key, value);
-  if (should_seal) {
+  auto should_flush = r->flush_block_policy->Update(key, value);
+  if (should_flush) {
     assert(!r->data_block.empty());
-    SealDataBlock();
     Flush();
     
     // Add item to index block.
@@ -593,17 +588,13 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
 void BlockBasedTableBuilder::Flush() {
   Rep* r = rep_;
-  if (ok() && !r->skip_flush) {
-    r->status = r->file->Flush();
-  }
-}
-
-void BlockBasedTableBuilder::SealDataBlock() {
-  Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
   if (r->data_block.empty()) return;
   WriteBlock(&r->data_block, &r->pending_handle);
+  if (ok() && !r->table_options.skip_table_builder_flush) {
+    r->status = r->file->Flush();
+  }
   if (r->filter_block != nullptr) {
     r->filter_block->StartBlock(r->offset);
   }
@@ -737,7 +728,6 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 Status BlockBasedTableBuilder::Finish() {
   Rep* r = rep_;
   bool empty_data_block = r->data_block.empty();
-  SealDataBlock();
   Flush();
   assert(!r->closed);
   r->closed = true;

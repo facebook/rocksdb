@@ -42,8 +42,7 @@ class BlockBasedTableBuilder : public TableBuilder {
           int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* file,
       const CompressionType compression_type,
-      const CompressionOptions& compression_opts, 
-      const bool skip_filters, const bool skip_flush);
+      const CompressionOptions& compression_opts, const bool skip_filters);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();
@@ -101,8 +100,6 @@ class BlockBasedTableBuilder : public TableBuilder {
   // the same data block.  Most clients should not need to use this method.
   // REQUIRES: Finish(), Abandon() have not been called
   void Flush();
-
-  void SealDataBlock();
 
   // Some compression libraries fail when the raw size is bigger than int. If
   // uncompressed size is bigger than kCompressionSizeLimit, don't compress it

@@ -43,12 +43,11 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file,
     const CompressionType compression_type,
-    const CompressionOptions& compression_opts, 
-    const bool skip_filters, const bool skip_flush) {
+    const CompressionOptions& compression_opts, const bool skip_filters) {
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, skip_filters, skip_flush),
+                          compression_opts, skip_filters),
       column_family_id, file);
 }
 
@@ -87,8 +86,7 @@ Status BuildTable(
 
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
-          column_family_id, file_writer.get(), compression, compression_opts,
-          false, env_options.skip_table_builder_flush);
+          column_family_id, file_writer.get(), compression, compression_opts);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),

@@ -1096,19 +1096,6 @@ struct DBOptions {
   // Default: 1024 * 1024 (1 MB)
   size_t writable_file_max_buffer_size;
 
-  // If true, block will not be explictly flushed to disk during building
-  // a SstTable. Instead, buffer in WritableFileWriter will take 
-  // care of the flushing when it is full. 
-  //
-  // On Windows, this option helps a lot when unbuffered I/O 
-  // (allow_os_buffer = false) is used, since it avoids small 
-  // unbuffered disk write. 
-  //
-  // User may also adjust writable_file_max_buffer_size to optimize disk I/O 
-  // size. 
-  //
-  // Default: false
-  bool skip_table_builder_flush;
 
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not

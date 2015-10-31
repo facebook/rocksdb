@@ -273,8 +273,7 @@ class TableConstructor: public Constructor {
     builder.reset(ioptions.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, internal_comparator,
                             &int_tbl_prop_collector_factories,
-                            options.compression, CompressionOptions(), 
-                            false, options.skip_table_builder_flush),
+                            options.compression, CompressionOptions(), false),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer_.get()));
 
@@ -1846,8 +1845,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
       int_tbl_prop_collector_factories;
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
-                          kNoCompression, CompressionOptions(),
-                          false, options.skip_table_builder_flush),
+                          kNoCompression, CompressionOptions(), false),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 

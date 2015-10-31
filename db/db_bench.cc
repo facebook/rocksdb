@@ -2306,7 +2306,6 @@ class Benchmark {
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
     options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
-    options.skip_table_builder_flush = FLAGS_skip_table_builder_flush;
     options.statistics = dbstats;
     if (FLAGS_enable_io_prio) {
       FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
@@ -2449,6 +2448,8 @@ class Benchmark {
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
       block_based_options.filter_policy = filter_policy_;
+      block_based_options.skip_table_builder_flush = 
+          FLAGS_skip_table_builder_flush;
       block_based_options.format_version = 2;
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));

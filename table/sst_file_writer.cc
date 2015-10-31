@@ -114,8 +114,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   TableBuilderOptions table_builder_options(
       r->ioptions, r->internal_comparator, &int_tbl_prop_collector_factories,
-      compression_type, r->ioptions.compression_opts, false, 
-      r->env_options.skip_table_builder_flush);
+      compression_type, r->ioptions.compression_opts, false);
   r->file_writer.reset(
       new WritableFileWriter(std::move(sst_file), r->env_options));
   r->builder.reset(r->ioptions.table_factory->NewTableBuilder(
