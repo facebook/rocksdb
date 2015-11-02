@@ -891,7 +891,7 @@ bool ParseColumnFamilyOption(const std::string& name,
           reinterpret_cast<char*>(new_options) + opt_info.offset, opt_info.type,
           value);
     }
-  } catch (std::exception& e) {
+  } catch (const std::exception&) {
     return false;
   }
   return true;
@@ -1058,7 +1058,7 @@ bool ParseDBOption(const std::string& name, const std::string& org_value,
             opt_info.type, value);
       }
     }
-  } catch (const std::exception& e) {
+  } catch (const std::exception&) {
     return false;
   }
   return true;
