@@ -47,7 +47,7 @@ class GeoDBImpl : public GeoDB {
   // Returns a list of all items within a circular radius from the
   // specified gps location
   virtual Status SearchRadial(const GeoPosition& pos, double radius,
-                              std::vector<GeoObject>* values,
+                              GeoIterator** geo_iter,
                               int number_of_values) override;
 
  private:
