@@ -103,17 +103,21 @@ TEST_F(GeoDBTest, Search) {
   // search all objects centered at 46 degree latitude with
   // a radius of 200 kilometers. We should find the one object that
   // we inserted earlier.
-  std::vector<GeoObject> values;
-  status = getdb()->SearchRadial(GeoPosition(46, 46), 200000, &values);
+  GeoIterator* iter = getdb()->SearchRadial(GeoPosition(46, 46), 200000);
   ASSERT_TRUE(status.ok());
-  ASSERT_EQ(values.size(), 1U);
+  ASSERT_EQ(iter->geo_object().value, "midvalue1");
+  uint size = 0;
+  while (iter->Valid()) {
+    size++;
+    iter->Next();
+  }
+  ASSERT_EQ(size, 1U);
 
   // search all objects centered at 46 degree latitude with
   // a radius of 2 kilometers. There should be none.
-  values.clear();
-  status = getdb()->SearchRadial(GeoPosition(46, 46), 2, &values);
+  iter = getdb()->SearchRadial(GeoPosition(46, 46), 2);
   ASSERT_TRUE(status.ok());
-  ASSERT_EQ(values.size(), 0U);
+  ASSERT_FALSE(iter->Valid());
 }
 
 }  // namespace rocksdb
