@@ -556,7 +556,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   if (should_flush) {
     assert(!r->data_block.empty());
     Flush();
-    
+
     // Add item to index block.
     // We do not emit the index entry for a block until we have seen the
     // first key for the next data block.  This allows us to use shorter
@@ -599,7 +599,7 @@ void BlockBasedTableBuilder::Flush() {
     r->filter_block->StartBlock(r->offset);
   }
   r->props.data_size = r->offset;
-  ++r->props.num_data_blocks; 
+  ++r->props.num_data_blocks;
 }
 
 void BlockBasedTableBuilder::WriteBlock(BlockBuilder* block,
