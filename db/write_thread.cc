@@ -120,12 +120,13 @@ size_t WriteThread::EnterAsBatchGroupLeader(
       break;
     }
 
-    size += WriteBatchInternal::ByteSize(w->batch);
-    if (size > max_size) {
+    auto batch_size = WriteBatchInternal::ByteSize(w->batch);
+    if (size + batch_size > max_size) {
       // Do not make batch too big
       break;
     }
 
+    size += batch_size;
     write_batch_group->push_back(w->batch);
     w->in_batch_group = true;
     *last_writer = w;
