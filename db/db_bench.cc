@@ -376,6 +376,12 @@ DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
 DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
              "Maximum windows randomaccess buffer size");
 
+DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024, 
+             "Maximum write buffer for Writeable File");
+
+DEFINE_int32(skip_table_builder_flush, false, "Skip flushing block in "
+             "table builder ");
+
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
 DEFINE_int32(memtable_bloom_bits, 0, "Bloom filter bits per key for memtable. "
@@ -2299,6 +2305,7 @@ class Benchmark {
         FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
+    options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
     options.statistics = dbstats;
     if (FLAGS_enable_io_prio) {
       FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
@@ -2441,6 +2448,8 @@ class Benchmark {
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
       block_based_options.filter_policy = filter_policy_;
+      block_based_options.skip_table_builder_flush = 
+          FLAGS_skip_table_builder_flush;
       block_based_options.format_version = 2;
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));

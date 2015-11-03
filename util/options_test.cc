@@ -341,6 +341,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"new_table_reader_for_compaction_inputs", "true"},
       {"compaction_readahead_size", "100"},
       {"random_access_max_buffer_size", "3145728"},
+      {"writable_file_max_buffer_size", "314159"},
       {"bytes_per_sync", "47"},
       {"wal_bytes_per_sync", "48"},
   };
@@ -452,6 +453,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.compaction_readahead_size, 100);
   ASSERT_EQ(new_db_opt.random_access_max_buffer_size, 3145728);
+  ASSERT_EQ(new_db_opt.writable_file_max_buffer_size, 314159);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
 }
@@ -621,7 +623,8 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
             "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
             "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
             "block_size_deviation=8;block_restart_interval=4;"
-            "filter_policy=bloomfilter:4:true;whole_key_filtering=1",
+            "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
+            "skip_table_builder_flush=1",
             &new_opt));
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
@@ -636,6 +639,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.block_size_deviation, 8);
   ASSERT_EQ(new_opt.block_restart_interval, 4);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
+  ASSERT_TRUE(new_opt.skip_table_builder_flush);
 
   // unknown option
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,

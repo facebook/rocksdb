@@ -592,7 +592,7 @@ void BlockBasedTableBuilder::Flush() {
   if (!ok()) return;
   if (r->data_block.empty()) return;
   WriteBlock(&r->data_block, &r->pending_handle);
-  if (ok()) {
+  if (ok() && !r->table_options.skip_table_builder_flush) {
     r->status = r->file->Flush();
   }
   if (r->filter_block != nullptr) {
