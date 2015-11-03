@@ -7,6 +7,7 @@
 * TablePropertiesCollectorFactory::CreateTablePropertiesCollector() now takes an option Context, containing the information of column family ID for the file being written.
 * Remove DefaultCompactionFilterFactory.
 * Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions. 
+* Add GetAggregatedIntProperty(), which returns the sum of the GetIntProperty of all the column families. 
 
 ## 4.1.0 (10/8/2015)
 ### New Features

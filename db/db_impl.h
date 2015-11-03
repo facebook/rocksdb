@@ -122,6 +122,9 @@ class DBImpl : public DB {
   using DB::GetIntProperty;
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) override;
+  using DB::GetAggregatedIntProperty;
+  virtual bool GetAggregatedIntProperty(const Slice& property,
+                                        uint64_t* aggregated_value) override;
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
@@ -824,9 +827,10 @@ class DBImpl : public DB {
                  const Slice& key, std::string* value,
                  bool* value_found = nullptr);
 
-  bool GetIntPropertyInternal(ColumnFamilyHandle* column_family,
+  bool GetIntPropertyInternal(ColumnFamilyData* cfd,
                               DBPropertyType property_type,
-                              bool need_out_of_mutex, uint64_t* value);
+                              bool need_out_of_mutex, bool is_locked,
+                              uint64_t* value);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

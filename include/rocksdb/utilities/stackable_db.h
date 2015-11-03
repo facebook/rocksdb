@@ -144,6 +144,12 @@ class StackableDB : public DB {
     return db_->GetIntProperty(column_family, property, value);
   }
 
+  using DB::GetAggregatedIntProperty;
+  virtual bool GetAggregatedIntProperty(const Slice& property,
+                                        uint64_t* value) override {
+    return db_->GetAggregatedIntProperty(property, value);
+  }
+
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* r, int n, uint64_t* sizes,

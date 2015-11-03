@@ -4286,17 +4286,16 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
       GetPropertyType(property, &is_int_property, &need_out_of_mutex);
 
   value->clear();
+  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   if (is_int_property) {
     uint64_t int_value;
-    bool ret_value = GetIntPropertyInternal(column_family, property_type,
-                                            need_out_of_mutex, &int_value);
+    bool ret_value = GetIntPropertyInternal(
+        cfd, property_type, need_out_of_mutex, false, &int_value);
     if (ret_value) {
       *value = ToString(int_value);
     }
     return ret_value;
   } else {
-    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-    auto cfd = cfh->cfd();
     InstrumentedMutexLock l(&mutex_);
     return cfd->internal_stats()->GetStringProperty(property_type, property,
                                                     value);
@@ -4312,29 +4311,68 @@ bool DBImpl::GetIntProperty(ColumnFamilyHandle* column_family,
   if (!is_int_property) {
     return false;
   }
-  return GetIntPropertyInternal(column_family, property_type, need_out_of_mutex,
+  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  return GetIntPropertyInternal(cfd, property_type, need_out_of_mutex, false,
                                 value);
 }
 
-bool DBImpl::GetIntPropertyInternal(ColumnFamilyHandle* column_family,
+bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
                                     DBPropertyType property_type,
-                                    bool need_out_of_mutex, uint64_t* value) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
-
+                                    bool need_out_of_mutex, bool is_locked,
+                                    uint64_t* value) {
   if (!need_out_of_mutex) {
-    InstrumentedMutexLock l(&mutex_);
-    return cfd->internal_stats()->GetIntProperty(property_type, value, this);
+    if (is_locked) {
+      mutex_.AssertHeld();
+      return cfd->internal_stats()->GetIntProperty(property_type, value, this);
+    } else {
+      InstrumentedMutexLock l(&mutex_);
+      return cfd->internal_stats()->GetIntProperty(property_type, value, this);
+    }
   } else {
-    SuperVersion* sv = GetAndRefSuperVersion(cfd);
+    SuperVersion* sv = nullptr;
+    if (!is_locked) {
+      sv = GetAndRefSuperVersion(cfd);
+    } else {
+      sv = cfd->GetSuperVersion();
+    }
 
     bool ret = cfd->internal_stats()->GetIntPropertyOutOfMutex(
         property_type, sv->current, value);
 
-    ReturnAndCleanupSuperVersion(cfd, sv);
+    if (!is_locked) {
+      ReturnAndCleanupSuperVersion(cfd, sv);
+    }
 
     return ret;
   }
+}
+
+bool DBImpl::GetAggregatedIntProperty(const Slice& property,
+                                      uint64_t* aggregated_value) {
+  bool need_out_of_mutex;
+  bool is_int_property;
+  DBPropertyType property_type =
+      GetPropertyType(property, &is_int_property, &need_out_of_mutex);
+  if (!is_int_property) {
+    return false;
+  }
+
+  uint64_t sum = 0;
+  {
+    // Needs mutex to protect the list of column families.
+    InstrumentedMutexLock l(&mutex_);
+    uint64_t value;
+    for (auto* cfd : *versions_->GetColumnFamilySet()) {
+      if (GetIntPropertyInternal(cfd, property_type, need_out_of_mutex, true,
+                                 &value)) {
+        sum += value;
+      } else {
+        return false;
+      }
+    }
+  }
+  *aggregated_value = sum;
+  return true;
 }
 
 SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {

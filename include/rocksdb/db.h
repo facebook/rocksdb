@@ -428,6 +428,11 @@ class DB {
     return GetIntProperty(DefaultColumnFamily(), property, value);
   }
 
+  // Same as GetIntProperty(), but this one returns the aggregated int
+  // property from all column families.
+  virtual bool GetAggregatedIntProperty(const Slice& property,
+                                        uint64_t* value) = 0;
+
   // For each i in [0,n-1], store in "sizes[i]", the approximate
   // file system space used by keys in "[range[i].start .. range[i].limit)".
   //

@@ -200,6 +200,59 @@ TEST_F(DBTest, WriteEmptyBatch) {
 }
 
 #ifndef ROCKSDB_LITE
+TEST_F(DBTest, GetAggregatedIntPropertyTest) {
+  const int kKeySize = 100;
+  const int kValueSize = 500;
+  const int kKeyNum = 100;
+
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.write_buffer_size = (kKeySize + kValueSize) * kKeyNum / 10;
+  // Make them never flush
+  options.min_write_buffer_number_to_merge = 1000;
+  options.max_write_buffer_number = 1000;
+  options = CurrentOptions(options);
+  CreateAndReopenWithCF({"one", "two", "three", "four"}, options);
+
+  Random rnd(301);
+  for (auto* handle : handles_) {
+    for (int i = 0; i < kKeyNum; ++i) {
+      db_->Put(WriteOptions(), handle, RandomString(&rnd, kKeySize),
+               RandomString(&rnd, kValueSize));
+    }
+  }
+
+  uint64_t manual_sum = 0;
+  uint64_t api_sum = 0;
+  uint64_t value = 0;
+  for (auto* handle : handles_) {
+    ASSERT_TRUE(
+        db_->GetIntProperty(handle, DB::Properties::kSizeAllMemTables, &value));
+    manual_sum += value;
+  }
+  ASSERT_TRUE(db_->GetAggregatedIntProperty(DB::Properties::kSizeAllMemTables,
+                                            &api_sum));
+  ASSERT_GT(manual_sum, 0);
+  ASSERT_EQ(manual_sum, api_sum);
+
+  ASSERT_FALSE(db_->GetAggregatedIntProperty(DB::Properties::kDBStats, &value));
+
+  uint64_t before_flush_trm;
+  uint64_t after_flush_trm;
+  for (auto* handle : handles_) {
+    ASSERT_TRUE(db_->GetAggregatedIntProperty(
+        DB::Properties::kEstimateTableReadersMem, &before_flush_trm));
+
+    // Issue flush and expect larger memory usage of table readers.
+    db_->Flush(FlushOptions(), handle);
+
+    ASSERT_TRUE(db_->GetAggregatedIntProperty(
+        DB::Properties::kEstimateTableReadersMem, &after_flush_trm));
+    ASSERT_GT(after_flush_trm, before_flush_trm);
+  }
+}
+
 TEST_F(DBTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
@@ -5715,6 +5768,11 @@ class ModelDB: public DB {
   using DB::GetIntProperty;
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) override {
+    return false;
+  }
+  using DB::GetAggregatedIntProperty;
+  virtual bool GetAggregatedIntProperty(const Slice& property,
+                                        uint64_t* value) override {
     return false;
   }
   using DB::GetApproximateSizes;
