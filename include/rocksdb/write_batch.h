@@ -71,8 +71,7 @@ class WriteBatch : public WriteBatchBase {
   void Delete(const SliceParts& key) override { Delete(nullptr, key); }
 
   using WriteBatchBase::SingleDelete;
-  // If the database contains a mapping for "key", erase it. Expects that the
-  // key was not overwritten. Else do nothing.
+  // WriteBatch implementation of DB::SingleDelete().  See db.h.
   void SingleDelete(ColumnFamilyHandle* column_family,
                     const Slice& key) override;
   void SingleDelete(const Slice& key) override { SingleDelete(nullptr, key); }

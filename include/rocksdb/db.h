@@ -189,6 +189,18 @@ class DB {
   // Remove the database entry for "key". Requires that the key exists
   // and was not overwritten. Returns OK on success, and a non-OK status
   // on error.  It is not an error if "key" did not exist in the database.
+  //
+  // If a key is overwritten (by calling Put() multiple times), then the result
+  // of calling SingleDelete() on this key is undefined.  SingleDelete() only
+  // behaves correctly if there has been only one Put() for this key since the
+  // previous call to SingleDelete() for this key.
+  //
+  // This feature is currently an experimental performance optimization
+  // for a very specific workload.  It is up to the caller to ensure that
+  // SingleDelete is only used for a key that is not deleted using Delete() or
+  // written using Merge().  Mixing SingleDelete operations with Deletes and
+  // Merges can result in undefined behavior.
+  //
   // Note: consider setting options.sync = true.
   virtual Status SingleDelete(const WriteOptions& options,
                               ColumnFamilyHandle* column_family,
