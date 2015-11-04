@@ -8,6 +8,7 @@
 * Remove DefaultCompactionFilterFactory.
 * Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions. 
 * Add GetAggregatedIntProperty(), which returns the sum of the GetIntProperty of all the column families. 
+* Add MemoryUtil in rocksdb/utilities/memory.h.  It currently offers a way to get the memory usage by type from a list rocksdb instances.
 
 ## 4.1.0 (10/8/2015)
 ### New Features

@@ -243,6 +243,7 @@ set(SOURCES
         utilities/flashcache/flashcache.cc
         utilities/geodb/geodb_impl.cc
         utilities/leveldb_options/leveldb_options.cc
+        utilities/memory/memory_util.cc
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/put.cc
@@ -376,6 +377,7 @@ set(TESTS
         utilities/document/document_db_test.cc
         utilities/document/json_document_test.cc
         utilities/geodb/geodb_test.cc
+        utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc

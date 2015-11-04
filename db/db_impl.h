@@ -308,6 +308,12 @@ class DBImpl : public DB {
 
   uint64_t TEST_LogfileNumber();
 
+  // Returns column family name to ImmutableCFOptions map.
+  Status TEST_GetAllImmutableCFOptions(
+      std::unordered_map<std::string, const ImmutableCFOptions*>* iopts_map);
+
+  Cache* TEST_table_cache() { return table_cache_.get(); }
+
 #endif  // NDEBUG
 
   // Returns the list of live files in 'live' and the list

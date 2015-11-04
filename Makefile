@@ -272,6 +272,7 @@ TESTS = \
 	mock_env_test \
 	memtable_list_test \
 	merge_helper_test \
+	memory_test \
 	merge_test \
 	merger_test \
 	redis_test \
@@ -880,6 +881,9 @@ write_controller_test: db/write_controller_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 merge_helper_test: db/merge_helper_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+memory_test: utilities/memory/memory_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)

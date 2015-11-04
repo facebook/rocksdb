@@ -135,5 +135,24 @@ uint64_t DBImpl::TEST_LogfileNumber() {
   return logfile_number_;
 }
 
+Status DBImpl::TEST_GetAllImmutableCFOptions(
+    std::unordered_map<std::string, const ImmutableCFOptions*>* iopts_map) {
+  std::vector<std::string> cf_names;
+  std::vector<const ImmutableCFOptions*> iopts;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      cf_names.push_back(cfd->GetName());
+      iopts.push_back(cfd->ioptions());
+    }
+  }
+  iopts_map->clear();
+  for (size_t i = 0; i < cf_names.size(); ++i) {
+    iopts_map->insert({cf_names[i], iopts[i]});
+  }
+
+  return Status::OK();
+}
+
 }  // namespace rocksdb
 #endif  // NDEBUG
