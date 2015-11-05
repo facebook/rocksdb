@@ -854,6 +854,14 @@ bool ParseColumnFamilyOption(const std::string& name,
         return false;
       }
       new_options->table_factory.reset(NewPlainTableFactory(table_opt));
+    } else if (name == "memtable_factory") {
+      MemTableRepFactory* new_mem_factory;
+      Status mem_factory_s = GetMemTableRepFactoryFromString(
+          value, &new_mem_factory);
+      if (!mem_factory_s.ok()) {
+       return false;
+      }
+      new_options->memtable_factory.reset(new_mem_factory);
     } else if (name == "compression_opts") {
       size_t start = 0;
       size_t end = value.find(':');
@@ -1115,7 +1123,7 @@ std::string ParsePlainTableOptions(const std::string& name,
                                    const std::string& org_value,
                                    PlainTableOptions* new_option,
                                    bool input_strings_escaped = false) {
-  const std::string& value = 
+  const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   const auto iter = plain_table_type_info.find(name);
   if (iter == plain_table_type_info.end()) {
@@ -1201,8 +1209,78 @@ Status GetPlainTableOptionsFromString(
   if (!s.ok()) {
     return s;
   }
-  return GetPlainTableOptionsFromMap(table_options, opts_map, 
+  return GetPlainTableOptionsFromMap(table_options, opts_map,
                                      new_table_options);
+}
+
+Status GetMemTableRepFactoryFromString(
+    const std::string& opts_str,
+    MemTableRepFactory** new_mem_factory) {
+  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
+  size_t len = opts_list.size();
+  if (opts_list[0] == "skip_list") {
+    // Expecting format
+    // skip_list:<lookahead>
+    if (2 == len) {
+      size_t lookahead = ParseSizeT(opts_list[1]);
+      *new_mem_factory = new SkipListFactory(lookahead);
+    } else if (1 == len) {
+      *new_mem_factory = new SkipListFactory();
+    } else {
+      return Status::InvalidArgument("Can't parse memtable_factory option ",
+                                     opts_str);
+    }
+  } else if (opts_list[0] == "prefix_hash") {
+    // Expecting format
+    // prfix_hash:<hash_bucket_count>
+    if (2 == len) {
+      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+      *new_mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
+    } else if (1 == len) {
+      *new_mem_factory = NewHashSkipListRepFactory();
+    } else {
+      return Status::InvalidArgument("Can't parse memtable_factory option ",
+                                     opts_str);
+    }
+  } else if (opts_list[0] == "hash_linkedlist") {
+    // Expecting format
+    // hash_linkedlist:<hash_bucket_count>
+    if (2 == len) {
+      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+      *new_mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
+    } else if (1 == len) {
+      *new_mem_factory = NewHashLinkListRepFactory();
+    } else {
+      return Status::InvalidArgument("Can't parse memtable_factory option ",
+                                     opts_str);
+    }
+  } else if (opts_list[0] == "vector") {
+    // Expecting format
+    // vector:<count>
+    if (2 == len) {
+      size_t count = ParseSizeT(opts_list[1]);
+      *new_mem_factory = new VectorRepFactory(count);
+    } else if (1 == len) {
+      *new_mem_factory = new VectorRepFactory();
+    } else {
+      return Status::InvalidArgument("Can't parse memtable_factory option ",
+                                     opts_str);
+    }
+  } else if (opts_list[0] == "cuckoo") {
+    // Expecting format
+    // cuckoo:<write_buffer_size>
+    if (2 == len) {
+      size_t write_buffer_size = ParseSizeT(opts_list[1]);
+      *new_mem_factory = NewHashCuckooRepFactory(write_buffer_size);
+    } else {
+      return Status::InvalidArgument("Can't parse memtable_factory option ",
+                                     opts_str);
+    }
+  } else {
+    return Status::InvalidArgument("Unrecognized memtable_factory option ",
+                                   opts_str);
+  }
+  return Status::OK();
 }
 
 Status GetColumnFamilyOptionsFromMap(
@@ -1301,7 +1379,7 @@ Status GetTableFactoryFromMap(
     return Status::OK();
   } else if (factory_name == PlainTableFactory().Name()) {
     PlainTableOptions pt_opt;
-    s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, 
+    s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map,
                                     &pt_opt, true);
     if (!s.ok()) {
       return s;
