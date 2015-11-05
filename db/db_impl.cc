@@ -3813,9 +3813,11 @@ Status DBImpl::NewIterators(
 
 const Snapshot* DBImpl::GetSnapshot() { return GetSnapshotImpl(false); }
 
+#ifndef ROCKSDB_LITE
 const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
   return GetSnapshotImpl(true);
 }
+#endif  // ROCKSDB_LITE
 
 const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
   int64_t unix_time = 0;

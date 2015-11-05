@@ -127,6 +127,14 @@ class CompactionIterator {
   Slice current_user_key_;
   SequenceNumber current_user_key_sequence_;
   SequenceNumber current_user_key_snapshot_;
+
+  // True if the iterator has already returned a record for the current key.
+  bool has_outputted_key_ = false;
+
+  // truncated the value of the next key and output it without applying any
+  // compaction rules.  This is used for outputting a put after a single delete.
+  bool clear_and_output_next_key_ = false;
+
   MergeOutputIterator merge_out_iter_;
   std::string compaction_filter_value_;
   // "level_ptrs" holds indices that remember which file of an associated

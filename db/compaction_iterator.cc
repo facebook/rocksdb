@@ -97,6 +97,11 @@ void CompactionIterator::Next() {
     NextFromInput();
   }
 
+  if (valid_) {
+    // Record that we've ouputted a record for the current key.
+    has_outputted_key_ = true;
+  }
+
   PrepareOutput();
 }
 
@@ -143,8 +148,10 @@ void CompactionIterator::NextFromInput() {
       key_ = current_key_.SetKey(key_, &ikey_);
       current_user_key_ = ikey_.user_key;
       has_current_user_key_ = true;
+      has_outputted_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
+
       // apply the compaction filter to the first occurrence of the user key
       if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
           (visible_at_tip_ || ikey_.sequence > latest_snapshot_ ||
@@ -198,36 +205,99 @@ void CompactionIterator::NextFromInput() {
         visible_at_tip_ ? visible_at_tip_ : findEarliestVisibleSnapshot(
                                                 ikey_.sequence, &prev_snapshot);
 
-    if (ikey_.type == kTypeSingleDeletion) {
+    if (clear_and_output_next_key_) {
+      // In the previous iteration we encountered a single delete that we could
+      // not compact out.  We will keep this Put, but can drop it's data.
+      // (See Optimization 3, below.)
+      assert(ikey_.type == kTypeValue);
+      assert(current_user_key_snapshot_ == last_snapshot);
+
+      value_.clear();
+      valid_ = true;
+      clear_and_output_next_key_ = false;
+    } else if (ikey_.type == kTypeSingleDeletion) {
+      // We can compact out a SingleDelete if:
+      // 1) We encounter the corresponding PUT -OR- we know that this key
+      //    doesn't appear past this output level
+      // =AND=
+      // 2) We've already returned a record in this snapshot -OR-
+      //    there are no earlier earliest_write_conflict_snapshot.
+      //
+      // Rule 1 is needed for SingleDelete correctness.  Rule 2 is needed to
+      // allow Transactions to do write-conflict checking (if we compacted away
+      // all keys, then we wouldn't know that a write happened in this
+      // snapshot).  If there is no earlier snapshot, then we know that there
+      // are no active transactions that need to know about any writes.
+      //
+      // Optimization 3:
+      // If we encounter a SingleDelete followed by a PUT and Rule 2 is NOT
+      // true, then we must output a SingleDelete.  In this case, we will decide
+      // to also output the PUT.  While we are compacting less by outputting the
+      // PUT now, hopefully this will lead to better compaction in the future
+      // when Rule 2 is later true (Ie, We are hoping we can later compact out
+      // both the SingleDelete and the Put, while we couldn't if we only
+      // outputted the SingleDelete now).
+      // In this case, we can save space by removing the PUT's value as it will
+      // never be read.
+      //
+      // Deletes and Merges are not supported on the same key that has a
+      // SingleDelete as it is not possible to correctly do any partial
+      // compaction of such a combination of operations.  The result of mixing
+      // those operations for a given key is documented as being undefined.  So
+      // we can choose how to handle such a combinations of operations.  We will
+      // try to compact out as much as we can in these cases.
+
+      // The easiest way to process a SingleDelete during iteration is to peek
+      // ahead at the next key.
       ParsedInternalKey next_ikey;
       input_->Next();
 
-      if (earliest_write_conflict_snapshot_) {
-        // TODO(agiardullo): to be used in D50295
-        // adding this if statement to keep CLANG happy in the meantime
-      }
-
-      // Check whether the current key is valid, not corrupt and the same
+      // Check whether the next key exists, is not corrupt, and is the same key
       // as the single delete.
       if (input_->Valid() && ParseInternalKey(input_->key(), &next_ikey) &&
           cmp_->Equal(ikey_.user_key, next_ikey.user_key)) {
-        // Mixing single deletes and merges is not supported. Consecutive
-        // single deletes are not valid.
-        if (next_ikey.type != kTypeValue) {
-          assert(false);
-          status_ =
-              Status::InvalidArgument("Put expected after single delete.");
-          break;
-        }
-
-        // Check whether the current key belongs to the same snapshot as the
-        // single delete.
+        // Check whether the next key belongs to the same snapshot as the
+        // SingleDelete.
         if (prev_snapshot == 0 || next_ikey.sequence > prev_snapshot) {
-          // Found the matching value, we can drop the single delete and the
-          // value.
-          ++iter_stats_.num_record_drop_hidden;
-          ++iter_stats_.num_record_drop_obsolete;
-          input_->Next();
+          if (next_ikey.type == kTypeSingleDeletion) {
+            // We encountered two SingleDeletes in a row.  This could be due to
+            // unexpected user input.
+            // Skip the first SingleDelete and let the next iteration decide how
+            // to handle the second SingleDelete
+
+            // First SingleDelete has been skipped since we already called
+            // input_->Next().
+            ++iter_stats_.num_record_drop_obsolete;
+          } else if ((ikey_.sequence <= earliest_write_conflict_snapshot_) ||
+                     has_outputted_key_) {
+            // Found a matching value, we can drop the single delete and the
+            // value.  It is safe to drop both records since we've already
+            // outputted a key in this snapshot, or there is no earlier
+            // snapshot (Rule 2 above).
+
+            // Note: it doesn't matter whether the second key is a Put or if it
+            // is an unexpected Merge or Delete.  We will compact it out
+            // either way.
+            ++iter_stats_.num_record_drop_hidden;
+            ++iter_stats_.num_record_drop_obsolete;
+            // Already called input_->Next() once.  Call it a second time to
+            // skip past the second key.
+            input_->Next();
+          } else {
+            // Found a matching value, but we cannot drop both keys since
+            // there is an earlier snapshot and we need to leave behind a record
+            // to know that a write happened in this snapshot (Rule 2 above).
+            // Clear the value and output the SingleDelete. (The value will be
+            // outputted on the next iteration.)
+            ++iter_stats_.num_record_drop_hidden;
+
+            // Setting valid_ to true will output the current SingleDelete
+            valid_ = true;
+
+            // Set up the Put to be outputted in the next iteration.
+            // (Optimization 3).
+            clear_and_output_next_key_ = true;
+          }
         } else {
           // We hit the next snapshot without hitting a put, so the iterator
           // returns the single delete.
@@ -242,11 +312,14 @@ void CompactionIterator::NextFromInput() {
         // iteration. If the next key is corrupt, we return before the
         // comparison, so the value of has_current_user_key does not matter.
         has_current_user_key_ = false;
-        if (compaction_ != nullptr &&
+        if (compaction_ != nullptr && ikey_.sequence <= earliest_snapshot_ &&
             compaction_->KeyNotExistsBeyondOutputLevel(ikey_.user_key,
                                                        &level_ptrs_)) {
+          // Key doesn't exist outside of this range.
+          // Can compact out this SingleDelete.
           ++iter_stats_.num_record_drop_obsolete;
         } else {
+          // Output SingleDelete
           valid_ = true;
         }
       }
