@@ -106,7 +106,7 @@ TEST_F(GeoDBTest, Search) {
   GeoIterator* iter = getdb()->SearchRadial(GeoPosition(46, 46), 200000);
   ASSERT_TRUE(status.ok());
   ASSERT_EQ(iter->geo_object().value, "midvalue1");
-  uint size = 0;
+  uint32_t size = 0;
   while (iter->Valid()) {
     size++;
     iter->Next();
