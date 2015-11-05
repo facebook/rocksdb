@@ -26,6 +26,7 @@
 #include "table/plain_table_factory.h"
 #include "util/options_helper.h"
 #include "util/options_parser.h"
+#include "util/options_sanity_check.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -1642,6 +1643,133 @@ TEST_F(OptionsParserTest, DifferentDefault) {
 
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
+}
+
+class OptionsSanityCheckTest : public OptionsParserTest {
+ public:
+  OptionsSanityCheckTest() {}
+
+ protected:
+  Status SanityCheckCFOptions(const ColumnFamilyOptions& cf_opts,
+                              OptionsSanityCheckLevel level) {
+    return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+        DBOptions(), {"default"}, {cf_opts}, kOptionsFileName, env_.get(),
+        level);
+  }
+
+  Status PersistCFOptions(const ColumnFamilyOptions& cf_opts) {
+    Status s = env_->DeleteFile(kOptionsFileName);
+    if (!s.ok()) {
+      return s;
+    }
+    return PersistRocksDBOptions(DBOptions(), {"default"}, {cf_opts},
+                                 kOptionsFileName, env_.get());
+  }
+
+  const std::string kOptionsFileName = "OPTIONS";
+};
+
+TEST_F(OptionsSanityCheckTest, SanityCheck) {
+  ColumnFamilyOptions opts;
+  Random rnd(301);
+
+  // default ColumnFamilyOptions
+  {
+    ASSERT_OK(PersistCFOptions(opts));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+  }
+
+  // prefix_extractor
+  {
+    // change the prefix extractor and expect only pass when
+    // sanity-level == kSanityLevelNone
+    opts.prefix_extractor.reset(NewCappedPrefixTransform(10));
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+    // persist the change
+    ASSERT_OK(PersistCFOptions(opts));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+
+    // use same prefix extractor but with different parameter
+    opts.prefix_extractor.reset(NewCappedPrefixTransform(15));
+    // expect pass only in kSanityLevelNone
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+    // repeat the test with FixedPrefixTransform
+    opts.prefix_extractor.reset(NewFixedPrefixTransform(10));
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+    // persist the change of prefix_extractor
+    ASSERT_OK(PersistCFOptions(opts));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+
+    // use same prefix extractor but with different parameter
+    opts.prefix_extractor.reset(NewFixedPrefixTransform(15));
+    // expect pass only in kSanityLevelNone
+    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+  }
+
+  // table_factory
+  {
+    for (int tb = 2; tb >= 0; --tb) {
+      // change the table factory
+      opts.table_factory.reset(RandomTableFactory(&rnd, tb));
+      ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+      // persist the change
+      ASSERT_OK(PersistCFOptions(opts));
+      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    }
+  }
+
+  // merge_operator
+  {
+    for (int test = 0; test < 5; ++test) {
+      // change the merge operator
+      opts.merge_operator.reset(RandomMergeOperator(&rnd));
+      ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+      // persist the change
+      ASSERT_OK(PersistCFOptions(opts));
+      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    }
+  }
+
+  // compaction_filter
+  {
+    for (int test = 0; test < 5; ++test) {
+      // change the compaction filter
+      opts.compaction_filter = RandomCompactionFilter(&rnd);
+      ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+
+      // persist the change
+      ASSERT_OK(PersistCFOptions(opts));
+      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+      delete opts.compaction_filter;
+      opts.compaction_filter = nullptr;
+    }
+  }
+
+  // compaction_filter_factory
+  {
+    for (int test = 0; test < 5; ++test) {
+      // change the compaction filter factory
+      opts.compaction_filter_factory.reset(RandomCompactionFilterFactory(&rnd));
+      ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+
+      // persist the change
+      ASSERT_OK(PersistCFOptions(opts));
+      ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
+    }
+  }
 }
 
 namespace {

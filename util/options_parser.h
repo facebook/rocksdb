@@ -11,6 +11,8 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "util/options_helper.h"
+#include "util/options_sanity_check.h"
 #include "table/block_based_table_factory.h"
 
 namespace rocksdb {
@@ -65,24 +67,27 @@ class RocksDBOptionsParser {
   static Status VerifyRocksDBOptionsFromFile(
       const DBOptions& db_opt, const std::vector<std::string>& cf_names,
       const std::vector<ColumnFamilyOptions>& cf_opts,
-      const std::string& file_name, Env* env);
+      const std::string& file_name, Env* env,
+      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
 
   static Status VerifyDBOptions(
       const DBOptions& base_opt, const DBOptions& new_opt,
-      const std::unordered_map<std::string, std::string>* new_opt_map =
-          nullptr);
+      const std::unordered_map<std::string, std::string>* new_opt_map = nullptr,
+      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
 
   static Status VerifyCFOptions(
       const ColumnFamilyOptions& base_opt, const ColumnFamilyOptions& new_opt,
-      const std::unordered_map<std::string, std::string>* new_opt_map =
-          nullptr);
+      const std::unordered_map<std::string, std::string>* new_opt_map = nullptr,
+      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
 
   static Status VerifyTableFactory(const TableFactory* base_tf,
-                                   const TableFactory* file_tf);
+                                   const TableFactory* file_tf,
+                                   OptionsSanityCheckLevel sanity_check_level);
 
   static Status VerifyBlockBasedTableFactory(
       const BlockBasedTableFactory* base_tf,
-      const BlockBasedTableFactory* file_tf);
+      const BlockBasedTableFactory* file_tf,
+      OptionsSanityCheckLevel sanity_check_level);
 
   static Status ExtraParserCheck(const RocksDBOptionsParser& input_parser);
 

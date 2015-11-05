@@ -138,10 +138,11 @@ LIB_SOURCES =                                                   \
   util/memenv.cc                                                \
   util/murmurhash.cc                                            \
   util/mutable_cf_options.cc                                    \
-  util/options_builder.cc                                       \
   util/options.cc                                               \
+  util/options_builder.cc                                       \
   util/options_helper.cc                                        \
   util/options_parser.cc                                        \
+  util/options_sanity_check.cc                                  \
   util/perf_context.cc                                          \
   util/perf_level.cc                                            \
   util/rate_limiter.cc                                          \
