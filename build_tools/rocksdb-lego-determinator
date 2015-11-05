@@ -312,6 +312,28 @@ STRESS_CRASH_TEST_COMMANDS="[
     }
 ]"
 
+# RocksDB write stress test.
+# We run on disk device on purpose (i.e. no $SHM)
+# because we want to add some randomness to fsync commands
+WRITE_STRESS_COMMANDS="[
+    {
+        'name':'Rocksdb Write Stress Test',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB write stress tests',
+                'shell':'make write_stress && python tools/write_stress_runner.py --runtime_sec=3600 --db=/tmp/rocksdb_write_stress',
+                'user':'root',
+                $PARSER
+            }
+        ],
+        'artifacts': [{'name': 'database', 'paths': ['/tmp/rocksdb_write_stress']}],
+        $REPORT
+    }
+]"
+
+
 #
 # RocksDB test under address sanitizer
 #
@@ -600,6 +622,9 @@ case $1 in
     ;;
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS
+    ;;
+  write_stress)
+    echo $WRITE_STRESS_COMMANDS
     ;;
   asan)
     echo $ASAN_TEST_COMMANDS
