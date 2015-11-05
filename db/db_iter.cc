@@ -62,7 +62,8 @@ class DBIter: public Iterator {
   DBIter(Env* env, const ImmutableCFOptions& ioptions, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
          uint64_t max_sequential_skip_in_iterations,
-         const Slice* iterate_upper_bound = nullptr)
+         const Slice* iterate_upper_bound = nullptr,
+         bool prefix_same_as_start = false)
       : arena_mode_(arena_mode),
         env_(env),
         logger_(ioptions.info_log),
@@ -74,7 +75,8 @@ class DBIter: public Iterator {
         valid_(false),
         current_entry_is_merged_(false),
         statistics_(ioptions.statistics),
-        iterate_upper_bound_(iterate_upper_bound) {
+        iterate_upper_bound_(iterate_upper_bound),
+        prefix_same_as_start_(prefix_same_as_start) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = ioptions.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
@@ -155,6 +157,8 @@ class DBIter: public Iterator {
   Statistics* statistics_;
   uint64_t max_skip_;
   const Slice* iterate_upper_bound_;
+  Slice prefix_start_;
+  bool prefix_same_as_start_;
 
   // No copying allowed
   DBIter(const DBIter&);
@@ -196,6 +200,11 @@ void DBIter::Next() {
       RecordTick(statistics_, NUMBER_DB_NEXT_FOUND);
       RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
     }
+  }
+  if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
+      prefix_extractor_->Transform(saved_key_.GetKey())
+              .compare(prefix_start_) != 0) {
+    valid_ = false;
   }
 }
 
@@ -366,6 +375,11 @@ void DBIter::Prev() {
       RecordTick(statistics_, NUMBER_DB_PREV_FOUND);
       RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
     }
+  }
+  if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
+      prefix_extractor_->Transform(saved_key_.GetKey())
+              .compare(prefix_start_) != 0) {
+    valid_ = false;
   }
 }
 
@@ -668,6 +682,9 @@ void DBIter::Seek(const Slice& target) {
   } else {
     valid_ = false;
   }
+  if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
+    prefix_start_ = prefix_extractor_->Transform(target);
+  }
 }
 
 void DBIter::SeekToFirst() {
@@ -695,6 +712,9 @@ void DBIter::SeekToFirst() {
     }
   } else {
     valid_ = false;
+  }
+  if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
+    prefix_start_ = prefix_extractor_->Transform(saved_key_.GetKey());
   }
 }
 
@@ -741,6 +761,9 @@ void DBIter::SeekToLast() {
       RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
     }
   }
+  if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
+    prefix_start_ = prefix_extractor_->Transform(saved_key_.GetKey());
+  }
 }
 
 Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,
@@ -748,10 +771,11 @@ Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,
                         InternalIterator* internal_iter,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
-                        const Slice* iterate_upper_bound) {
+                        const Slice* iterate_upper_bound,
+                        bool prefix_same_as_start) {
   return new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
                     false, max_sequential_skip_in_iterations,
-                    iterate_upper_bound);
+                    iterate_upper_bound, prefix_same_as_start);
 }
 
 ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
@@ -780,16 +804,16 @@ void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
 
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ImmutableCFOptions& ioptions,
-    const Comparator* user_key_comparator,
-    const SequenceNumber& sequence,
+    const Comparator* user_key_comparator, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations,
-    const Slice* iterate_upper_bound) {
+    const Slice* iterate_upper_bound, bool prefix_same_as_start) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
-  DBIter* db_iter = new (mem) DBIter(env, ioptions, user_key_comparator,
-      nullptr, sequence, true, max_sequential_skip_in_iterations,
-      iterate_upper_bound);
+  DBIter* db_iter =
+      new (mem) DBIter(env, ioptions, user_key_comparator, nullptr, sequence,
+                       true, max_sequential_skip_in_iterations,
+                       iterate_upper_bound, prefix_same_as_start);
 
   iter->SetDBIter(db_iter);
 

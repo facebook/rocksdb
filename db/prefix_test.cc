@@ -20,9 +20,11 @@ int main() {
 #include <gflags/gflags.h>
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/table.h"
 #include "util/histogram.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -162,6 +164,12 @@ class PrefixTest : public testing::Test {
     options.memtable_prefix_bloom_probes = FLAGS_memtable_prefix_bloom_probes;
     options.memtable_prefix_bloom_huge_page_tlb_size =
         FLAGS_memtable_prefix_bloom_huge_page_tlb_size;
+
+    options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+    BlockBasedTableOptions bbto;
+    bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    bbto.whole_key_filtering = false;
+    options.table_factory.reset(NewBlockBasedTableFactory(bbto));
 
     Status s = DB::Open(options, kDbName,  &db);
     EXPECT_OK(s);
@@ -389,6 +397,55 @@ TEST_F(PrefixTest, TestResult) {
       ASSERT_EQ(v16.ToString(), Get(db.get(), read_options, 1, 6));
       ASSERT_EQ(v17.ToString(), Get(db.get(), read_options, 1, 7));
       ASSERT_EQ(v18.ToString(), Get(db.get(), read_options, 1, 8));
+    }
+  }
+}
+
+// Show results in prefix
+TEST_F(PrefixTest, PrefixValid) {
+  for (int num_buckets = 1; num_buckets <= 2; num_buckets++) {
+    FirstOption();
+    while (NextOptions(num_buckets)) {
+      std::cout << "*** Mem table: " << options.memtable_factory->Name()
+                << " number of buckets: " << num_buckets << std::endl;
+      DestroyDB(kDbName, Options());
+      auto db = OpenDb();
+      WriteOptions write_options;
+      ReadOptions read_options;
+
+      // Insert keys with common prefix and one key with different
+      Slice v16("v16");
+      Slice v17("v17");
+      Slice v18("v18");
+      Slice v19("v19");
+      PutKey(db.get(), write_options, 12345, 6, v16);
+      PutKey(db.get(), write_options, 12345, 7, v17);
+      PutKey(db.get(), write_options, 12345, 8, v18);
+      PutKey(db.get(), write_options, 12345, 9, v19);
+      PutKey(db.get(), write_options, 12346, 8, v16);
+      db->Flush(FlushOptions());
+      db->Delete(write_options, TestKeyToSlice(TestKey(12346, 8)));
+      db->Flush(FlushOptions());
+      read_options.prefix_same_as_start = true;
+      std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+      SeekIterator(iter.get(), 12345, 6);
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v16 == iter->value());
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v17 == iter->value());
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v18 == iter->value());
+
+      iter->Next();
+      ASSERT_TRUE(iter->Valid());
+      ASSERT_TRUE(v19 == iter->value());
+      iter->Next();
+      ASSERT_FALSE(iter->Valid());
+      ASSERT_EQ(kNotFoundResult, Get(db.get(), read_options, 12346, 8));
     }
   }
 }

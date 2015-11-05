@@ -1290,6 +1290,14 @@ struct ReadOptions {
   // this option.
   bool total_order_seek;
 
+  // Enforce that the iterator only iterates over the same prefix as the seek.
+  // This option is effective only for prefix seeks, i.e. prefix_extractor is
+  // non-null for the column family and total_order_seek is false.  Unlike
+  // iterate_upper_bound, prefix_same_as_start only works within a prefix
+  // but in both directions.
+  // Default: false
+  bool prefix_same_as_start;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
