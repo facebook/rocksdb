@@ -225,7 +225,7 @@ DBOptions::DBOptions()
       use_fsync(false),
       db_log_dir(""),
       wal_dir(""),
-      delete_obsolete_files_period_micros(6 * 60 * 60 * 1000000UL),
+      delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000),
       max_background_compactions(1),
       max_subcompactions(1),
       max_background_flushes(1),

@@ -635,7 +635,7 @@ DEFINE_double(soft_rate_limit, 0.0, "");
 
 DEFINE_double(hard_rate_limit, 0.0, "DEPRECATED");
 
-DEFINE_uint64(hard_pending_compaction_bytes_limit, 128u * 1024 * 1024 * 1024,
+DEFINE_uint64(hard_pending_compaction_bytes_limit, 128ull * 1024 * 1024 * 1024,
               "Stop writes if pending compaction bytes exceed this number");
 
 DEFINE_uint64(delayed_write_rate, 2097152u,
