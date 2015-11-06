@@ -145,6 +145,7 @@ LIB_SOURCES =                                                   \
   util/options_sanity_check.cc                                  \
   util/perf_context.cc                                          \
   util/perf_level.cc                                            \
+  util/random.cc                                                \
   util/rate_limiter.cc                                          \
   util/skiplistrep.cc                                           \
   util/slice.cc                                                 \

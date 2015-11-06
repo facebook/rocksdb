@@ -119,6 +119,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
 TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   Options options;
   options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.size_ratio = 5;
   options.num_levels = num_levels_;
   options.write_buffer_size = 105 << 10;  // 105KB
   options.arena_block_size = 4 << 10;
@@ -852,6 +853,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   options.db_paths.emplace_back(dbname_ + "_3", 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_4", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.size_ratio = 5;
   options.write_buffer_size = 110 << 10;  // 105KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
@@ -1047,6 +1049,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   options.db_paths.emplace_back(dbname_, 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.size_ratio = 5;
   options.write_buffer_size = 110 << 10;  // 105KB
   options.arena_block_size = 4 * 1024;
   options.arena_block_size = 4 << 10;

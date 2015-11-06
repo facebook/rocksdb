@@ -232,8 +232,16 @@ class CorruptionTest : public testing::Test {
 
   // Return the value to associate with the specified key
   Slice Value(int k, std::string* storage) {
-    Random r(k);
-    return test::RandomString(&r, kValueSize, storage);
+    if (k == 0) {
+      // Ugh.  Random seed of 0 used to produce no entropy.  This code
+      // preserves the implementation that was in place when all of the
+      // magic values in this file were picked.
+      *storage = std::string(kValueSize, ' ');
+      return Slice(*storage);
+    } else {
+      Random r(k);
+      return test::RandomString(&r, kValueSize, storage);
+    }
   }
 };
 

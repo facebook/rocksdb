@@ -55,6 +55,7 @@ DBTestBase::DBTestBase(const std::string path)
   EXPECT_OK(DestroyDB(dbname_, options));
   db_ = nullptr;
   Reopen(options);
+  Random::GetTLSInstance()->Reset(0xdeadbeef);
 }
 
 DBTestBase::~DBTestBase() {
