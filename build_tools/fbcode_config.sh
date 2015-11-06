@@ -30,8 +30,8 @@ CFLAGS+=" -DSNAPPY"
 
 if test -z $PIC_BUILD; then
   # location of zlib headers and libraries
-  ZLIB_INCLUDE=" -I /mnt/gvfs/third-party2/zlib/feb983d9667f4cf5e9da07ce75abc824764b67a1/1.2.8/gcc-4.9-glibc-2.20/4230243/include/"
-  ZLIB_LIBS=" /mnt/gvfs/third-party2/zlib/feb983d9667f4cf5e9da07ce75abc824764b67a1/1.2.8/gcc-4.9-glibc-2.20/4230243/lib/libz.a"
+  ZLIB_INCLUDE=" -I /mnt/gvfs/third-party2/zlib/bdbc7c65a775f6b1c6ae43d677b1d380720dba7c/1.2.8/gcc-4.9-glibc-2.20/e9936bf/include/"
+  ZLIB_LIBS=" /mnt/gvfs/third-party2/zlib/bdbc7c65a775f6b1c6ae43d677b1d380720dba7c/1.2.8/gcc-4.9-glibc-2.20/e9936bf/lib/libz.a"
   CFLAGS+=" -DZLIB"
 
   # location of bzip headers and libraries
