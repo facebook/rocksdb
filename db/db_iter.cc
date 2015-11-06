@@ -157,7 +157,7 @@ class DBIter: public Iterator {
   Statistics* statistics_;
   uint64_t max_skip_;
   const Slice* iterate_upper_bound_;
-  Slice prefix_start_;
+  IterKey prefix_start_;
   bool prefix_same_as_start_;
 
   // No copying allowed
@@ -203,7 +203,7 @@ void DBIter::Next() {
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
       prefix_extractor_->Transform(saved_key_.GetKey())
-              .compare(prefix_start_) != 0) {
+              .compare(prefix_start_.GetKey()) != 0) {
     valid_ = false;
   }
 }
@@ -378,7 +378,7 @@ void DBIter::Prev() {
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
       prefix_extractor_->Transform(saved_key_.GetKey())
-              .compare(prefix_start_) != 0) {
+              .compare(prefix_start_.GetKey()) != 0) {
     valid_ = false;
   }
 }
@@ -683,7 +683,7 @@ void DBIter::Seek(const Slice& target) {
     valid_ = false;
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_ = prefix_extractor_->Transform(target);
+    prefix_start_.SetKey(prefix_extractor_->Transform(target));
   }
 }
 
@@ -714,7 +714,7 @@ void DBIter::SeekToFirst() {
     valid_ = false;
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_ = prefix_extractor_->Transform(saved_key_.GetKey());
+    prefix_start_.SetKey(prefix_extractor_->Transform(saved_key_.GetKey()));
   }
 }
 
@@ -762,7 +762,7 @@ void DBIter::SeekToLast() {
     }
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_ = prefix_extractor_->Transform(saved_key_.GetKey());
+    prefix_start_.SetKey(prefix_extractor_->Transform(saved_key_.GetKey()));
   }
 }
 
