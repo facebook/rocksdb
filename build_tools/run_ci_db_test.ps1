@@ -8,7 +8,10 @@ Param(
   [string]$WorkFolder = "",  # Direct tests to use that folder
   [int]$Limit = -1, # -1 means run all otherwise limit for testing purposes
   [string]$Exclude = "", # Expect a comma separated list, no spaces
-  [string]$Run = "db_test"  # Run db_test|tests
+  [string]$Run = "db_test",  # Run db_test|tests
+   # Number of async tasks that would run concurrently. Recommend a number below 64.
+   # However, CPU utlization really depends on the storage media. Recommend ram based disk.
+  [int]$Concurrency = 62
 )
 
 # Folders and commands must be fullpath to run assuming
@@ -122,10 +125,17 @@ function Normalize-DbTests($HashTable) {
 function Discover-TestBinaries($HashTable) {
 
     $Exclusions = @("db_test*", "db_sanity_test*")
-    $p = -join ($BinariesFolder, "*_test*.exe")
+    if($EnableJE) {
+        $p = -join ($BinariesFolder, "*_test_je.exe")
+    } else {
+        $p = -join ($BinariesFolder, "*_test.exe")
+    }
 
     dir -Path $p -Exclude $Exclusions | ForEach-Object {
        $t = ($_.Name) -replace '.exe$', ''
+       if($ExcludeTests.Contains($t)) {
+            continue
+       }
        $test_log = -join ($t, ".log")
        $HashTable.Add($t, $test_log)
     }
@@ -137,6 +147,9 @@ if($Run -ceq "db_test") {
     Normalize-DbTests -HashTable $TestToLog
 } elseif($Run -ceq "tests") {
     Discover-TestBinaries -HashTable $TestToLog
+} else {
+    Write-Warning "Invalid -Run option value"
+    exit 2
 }
 
 
@@ -159,39 +172,47 @@ $JobToLog = @{}
 # Test limiting factor here
 $count = 0
 
-ForEach($k in $TestToLog.keys) {
-
-    Write-Host "Starting $k"
-    $log_path = -join ($LogFolder, ($TestToLog.$k))
-
-    if($Run -ceq "db_test") {
-        $job = Start-Job -Name $k -ScriptBlock $InvokeTestCase -ArgumentList @($db_test,$k,$log_path)
-    } else {
-        [string]$Exe =  -Join ($BinariesFolder, $k)
-        $job = Start-Job -Name $k -ScriptBlock $InvokeTestAsync -ArgumentList @($exe,$log_path)
-    }
-
-    $JobToLog.Add($job, $log_path)
-
-    # Limiting trial runs
-    if(($Limit -gt 0) -and (++$count -ge $Limit)) {
-         break
-    }
-}
-
 [bool]$success = $true;
 
 # Wait for all to finish and get the results
-while($JobToLog.Count -gt 0) {
+while(($JobToLog.Count -gt 0) -or
+      ($TestToLog.Count -gt 0)) {
+
+    # Make sure we have maximum concurrent jobs running if anything
+    # and the $Limit either not set or allows to proceed
+    while(($JobToLog.Count -lt $Concurrency) -and
+          (($TestToLog.Count -gt 0) -and
+          (($Limit -lt 0) -or ($count -lt $Limit)))) {
+
+
+        # We only need the first key
+        foreach($key in $TestToLog.keys) {
+            $k = $key
+            break
+        }
+
+        Write-Host "Starting $k"
+        $log_path = -join ($LogFolder, ($TestToLog.$k))
+
+        if($Run -ceq "db_test") {
+          $job = Start-Job -Name $k -ScriptBlock $InvokeTestCase -ArgumentList @($db_test,$k,$log_path)
+        } else {
+          [string]$Exe =  -Join ($BinariesFolder, $k)
+           $job = Start-Job -Name $k -ScriptBlock $InvokeTestAsync -ArgumentList @($exe,$log_path)
+        }
+
+        $JobToLog.Add($job, $log_path)
+        $TestToLog.Remove($k)
+
+        ++$count
+    }
+
+    if($JobToLog.Count -lt 1) {
+      break
+    }
 
     $jobs = @()
     foreach($k in $JobToLog.Keys) { $jobs += $k }
-
-<#
-    if(!$success) {
-        break
-    }
-#>
 
     $completed = Wait-Job -Job $jobs -Any
     $log = $JobToLog[$completed]
