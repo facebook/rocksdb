@@ -12,6 +12,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -112,17 +113,28 @@ class WriteBatchInternal {
 
   static void SetContents(WriteBatch* batch, const Slice& contents);
 
-  // Inserts batch entries into memtable
-  // If dont_filter_deletes is false AND options.filter_deletes is true,
-  // then --> Drops deletes in batch if db->KeyMayExist returns false
-  // If ignore_missing_column_families == true. WriteBatch referencing
-  // non-existing column family should be ignored.
-  // However, if ignore_missing_column_families == false, any WriteBatch
-  // referencing non-existing column family will return a InvalidArgument()
-  // failure.
+  // Inserts batches[i] into memtable, for i in 0..num_batches-1 inclusive.
+  //
+  // If dont_filter_deletes is false AND options.filter_deletes is true
+  // AND db->KeyMayExist is false, then a Delete won't modify the memtable.
+  //
+  // If ignore_missing_column_families == true. WriteBatch
+  // referencing non-existing column family will be ignored.
+  // If ignore_missing_column_families == false, processing of the
+  // batches will be stopped if a reference is found to a non-existing
+  // column family and InvalidArgument() will be returned.  The writes
+  // in batches may be only partially applied at that point.
   //
   // If log_number is non-zero, the memtable will be updated only if
-  // memtables->GetLogNumber() >= log_number
+  // memtables->GetLogNumber() >= log_number.
+  static Status InsertInto(const autovector<WriteBatch*>& batches,
+                           SequenceNumber sequence,
+                           ColumnFamilyMemTables* memtables,
+                           bool ignore_missing_column_families = false,
+                           uint64_t log_number = 0, DB* db = nullptr,
+                           const bool dont_filter_deletes = true);
+
+  // Convenience form of InsertInto when you have only one batch
   static Status InsertInto(const WriteBatch* batch,
                            ColumnFamilyMemTables* memtables,
                            bool ignore_missing_column_families = false,
@@ -130,6 +142,10 @@ class WriteBatchInternal {
                            const bool dont_filter_deletes = true);
 
   static void Append(WriteBatch* dst, const WriteBatch* src);
+
+  // Returns the byte size of appending a WriteBatch with ByteSize
+  // leftByteSize and a WriteBatch with ByteSize rightByteSize
+  static size_t AppendedByteSize(size_t leftByteSize, size_t rightByteSize);
 };
 
 }  // namespace rocksdb

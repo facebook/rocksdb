@@ -3993,33 +3993,48 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   // At this point the mutex is unlocked
 
   if (status.ok()) {
-      WriteBatch* updates = nullptr;
-      if (write_batch_group.size() == 1) {
-        updates = write_batch_group[0];
-      } else {
-        updates = &tmp_batch_;
-        for (size_t i = 0; i < write_batch_group.size(); ++i) {
-          WriteBatchInternal::Append(updates, write_batch_group[i]);
-        }
+      int total_count = 0;
+      uint64_t total_byte_size = 0;
+      for (auto b : write_batch_group) {
+        total_count += WriteBatchInternal::Count(b);
+        total_byte_size = WriteBatchInternal::AppendedByteSize(
+            total_byte_size, WriteBatchInternal::ByteSize(b));
       }
 
       const SequenceNumber current_sequence = last_sequence + 1;
-      WriteBatchInternal::SetSequence(updates, current_sequence);
-      int my_batch_count = WriteBatchInternal::Count(updates);
-      last_sequence += my_batch_count;
-      const uint64_t batch_size = WriteBatchInternal::ByteSize(updates);
+      last_sequence += total_count;
+
       // Record statistics
-      RecordTick(stats_, NUMBER_KEYS_WRITTEN, my_batch_count);
-      RecordTick(stats_, BYTES_WRITTEN, batch_size);
+      RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
+      RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
+      PERF_TIMER_STOP(write_pre_and_post_process_time);
+
       if (write_options.disableWAL) {
         flush_on_destroy_ = true;
       }
-      PERF_TIMER_STOP(write_pre_and_post_process_time);
 
       uint64_t log_size = 0;
       if (!write_options.disableWAL) {
         PERF_TIMER_GUARD(write_wal_time);
-        Slice log_entry = WriteBatchInternal::Contents(updates);
+
+        WriteBatch* merged_batch = nullptr;
+        if (write_batch_group.size() == 1) {
+          merged_batch = write_batch_group[0];
+        } else {
+          // WAL needs all of the batches flattened into a single batch.
+          // We could avoid copying here with an iov-like AddRecord
+          // interface
+          merged_batch = &tmp_batch_;
+          for (auto b : write_batch_group) {
+            WriteBatchInternal::Append(merged_batch, b);
+          }
+        }
+        WriteBatchInternal::SetSequence(merged_batch, current_sequence);
+
+        assert(WriteBatchInternal::Count(merged_batch) == total_count);
+        assert(WriteBatchInternal::ByteSize(merged_batch) == total_byte_size);
+
+        Slice log_entry = WriteBatchInternal::Contents(merged_batch);
         status = logs_.back().writer->AddRecord(log_entry);
         total_log_size_ += log_entry.size();
         alive_log_files_.back().AddSize(log_entry.size());
@@ -4049,34 +4064,41 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             status = directories_.GetWalDir()->Fsync();
           }
         }
+
+        if (merged_batch == &tmp_batch_) {
+          tmp_batch_.Clear();
+        }
       }
       if (status.ok()) {
         PERF_TIMER_GUARD(write_memtable_time);
 
         status = WriteBatchInternal::InsertInto(
-            updates, column_family_memtables_.get(),
-            write_options.ignore_missing_column_families, 0, this, false);
-        // A non-OK status here indicates iteration failure (either in-memory
-        // writebatch corruption (very bad), or the client specified invalid
-        // column family).  This will later on trigger bg_error_.
+            write_batch_group, current_sequence, column_family_memtables_.get(),
+            write_options.ignore_missing_column_families,
+            /*log_number*/ 0, this, /*dont_filter_deletes*/ false);
+
+        // A non-OK status here indicates that the state implied by the
+        // WAL has diverged from the in-memory state.  This could be
+        // because of a corrupt write_batch (very bad), or because the
+        // client specified an invalid column family and didn't specify
+        // ignore_missing_column_families.
         //
-        // Note that existing logic was not sound. Any partial failure writing
-        // into the memtable would result in a state that some write ops might
-        // have succeeded in memtable but Status reports error for all writes.
+        // Is setting bg_error_ enough here?  This will at least stop
+        // compaction and fail any further writes.
+        if (!status.ok() && bg_error_.ok()) {
+          bg_error_ = status;
+        }
 
         SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
       }
       PERF_TIMER_START(write_pre_and_post_process_time);
-      if (updates == &tmp_batch_) {
-        tmp_batch_.Clear();
-      }
       mutex_.Lock();
 
       // internal stats
-      default_cf_internal_stats_->AddDBStats(
-          InternalStats::BYTES_WRITTEN, batch_size);
+      default_cf_internal_stats_->AddDBStats(InternalStats::BYTES_WRITTEN,
+                                             total_byte_size);
       default_cf_internal_stats_->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN,
-                                             my_batch_count);
+                                             total_count);
       if (!write_options.disableWAL) {
         if (write_options.sync) {
           default_cf_internal_stats_->AddDBStats(InternalStats::WAL_FILE_SYNCED,

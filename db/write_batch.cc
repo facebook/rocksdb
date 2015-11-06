@@ -591,6 +591,7 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     return true;
   }
+
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) override {
     Status seek_status;
@@ -647,8 +648,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  virtual Status DeleteCF(uint32_t column_family_id,
-                          const Slice& key) override {
+  Status DeleteImpl(uint32_t column_family_id, const Slice& key,
+                    ValueType delete_type) {
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
@@ -671,40 +672,20 @@ class MemTableInserter : public WriteBatch::Handler {
         return Status::OK();
       }
     }
-    mem->Add(sequence_, kTypeDeletion, key, Slice());
+    mem->Add(sequence_, delete_type, key, Slice());
     sequence_++;
     cf_mems_->CheckMemtableFull();
     return Status::OK();
   }
 
+  virtual Status DeleteCF(uint32_t column_family_id,
+                          const Slice& key) override {
+    return DeleteImpl(column_family_id, key, kTypeDeletion);
+  }
+
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
-    Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      ++sequence_;
-      return seek_status;
-    }
-    MemTable* mem = cf_mems_->GetMemTable();
-    auto* moptions = mem->GetMemTableOptions();
-    if (!dont_filter_deletes_ && moptions->filter_deletes) {
-      SnapshotImpl read_from_snapshot;
-      read_from_snapshot.number_ = sequence_;
-      ReadOptions ropts;
-      ropts.snapshot = &read_from_snapshot;
-      std::string value;
-      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
-      if (cf_handle == nullptr) {
-        cf_handle = db_->DefaultColumnFamily();
-      }
-      if (!db_->KeyMayExist(ropts, cf_handle, key, &value)) {
-        RecordTick(moptions->statistics, NUMBER_FILTERED_DELETES);
-        return Status::OK();
-      }
-    }
-    mem->Add(sequence_, kTypeSingleDeletion, key, Slice());
-    sequence_++;
-    cf_mems_->CheckMemtableFull();
-    return Status::OK();
+    return DeleteImpl(column_family_id, key, kTypeSingleDeletion);
   }
 
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
@@ -791,18 +772,32 @@ class MemTableInserter : public WriteBatch::Handler {
 
 // This function can only be called in these conditions:
 // 1) During Recovery()
-// 2) during Write(), in a single-threaded write thread
-// The reason is that it calles ColumnFamilyMemTablesImpl::Seek(), which needs
-// to be called from a single-threaded write thread (or while holding DB mutex)
-Status WriteBatchInternal::InsertInto(const WriteBatch* b,
+// 2) During Write(), in a single-threaded write thread
+// The reason is that it calls memtables->Seek(), which has a stateful cache
+Status WriteBatchInternal::InsertInto(const autovector<WriteBatch*>& batches,
+                                      SequenceNumber sequence,
                                       ColumnFamilyMemTables* memtables,
                                       bool ignore_missing_column_families,
                                       uint64_t log_number, DB* db,
                                       const bool dont_filter_deletes) {
-  MemTableInserter inserter(WriteBatchInternal::Sequence(b), memtables,
+  MemTableInserter inserter(sequence, memtables, ignore_missing_column_families,
+                            log_number, db, dont_filter_deletes);
+  Status rv = Status::OK();
+  for (size_t i = 0; i < batches.size() && rv.ok(); ++i) {
+    rv = batches[i]->Iterate(&inserter);
+  }
+  return rv;
+}
+
+Status WriteBatchInternal::InsertInto(const WriteBatch* batch,
+                                      ColumnFamilyMemTables* memtables,
+                                      bool ignore_missing_column_families,
+                                      uint64_t log_number, DB* db,
+                                      const bool dont_filter_deletes) {
+  MemTableInserter inserter(WriteBatchInternal::Sequence(batch), memtables,
                             ignore_missing_column_families, log_number, db,
                             dont_filter_deletes);
-  return b->Iterate(&inserter);
+  return batch->Iterate(&inserter);
 }
 
 void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
@@ -819,6 +814,15 @@ void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
       dst->content_flags_.load(std::memory_order_relaxed) |
           src->content_flags_.load(std::memory_order_relaxed),
       std::memory_order_relaxed);
+}
+
+size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
+                                            size_t rightByteSize) {
+  if (leftByteSize == 0 || rightByteSize == 0) {
+    return leftByteSize + rightByteSize;
+  } else {
+    return leftByteSize + rightByteSize - kHeader;
+  }
 }
 
 }  // namespace rocksdb
