@@ -160,7 +160,7 @@ class PlainTableFactory : public TableFactory {
 
   const PlainTableOptions& GetTableOptions() const;
 
-  static const char kValueTypeSeqId0 = 0xFF;
+  static const char kValueTypeSeqId0 = char(0xFF);
 
   // Sanitizes the specified DB Options.
   Status SanitizeOptions(const DBOptions& db_opts,
