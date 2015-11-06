@@ -25,6 +25,7 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
 #define STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
 
+#include <atomic>
 #include <stack>
 #include <string>
 #include <stdint.h>
@@ -201,16 +202,38 @@ class WriteBatch : public WriteBatchBase {
   // Returns the number of updates in the batch
   int Count() const;
 
+  // Returns true if PutCF will be called during Iterate
+  bool HasPut() const;
+
+  // Returns true if DeleteCF will be called during Iterate
+  bool HasDelete() const;
+
+  // Returns true if SingleDeleteCF will be called during Iterate
+  bool HasSingleDelete() const;
+
+  // Returns trie if MergeCF will be called during Iterate
+  bool HasMerge() const;
+
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
 
   // Constructor with a serialized string object
-  explicit WriteBatch(const std::string& rep)
-      : save_points_(nullptr), rep_(rep) {}
+  explicit WriteBatch(const std::string& rep);
+
+  WriteBatch(const WriteBatch& src);
+  WriteBatch(WriteBatch&& src);
+  WriteBatch& operator=(const WriteBatch& src);
+  WriteBatch& operator=(WriteBatch&& src);
 
  private:
   friend class WriteBatchInternal;
   SavePoints* save_points_;
+
+  // For HasXYZ.  Mutable to allow lazy computation of results
+  mutable std::atomic<uint32_t> content_flags_;
+
+  // Performs deferred computation of content_flags if necessary
+  uint32_t ComputeContentFlags() const;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
