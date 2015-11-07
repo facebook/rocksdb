@@ -318,7 +318,7 @@ void HashCuckooRep::Get(const LookupKey& key, void* callback_args,
 }
 
 void HashCuckooRep::Insert(KeyHandle handle) {
-  static const float kMaxFullness = 0.90;
+  static const float kMaxFullness = 0.90f;
 
   auto* key = static_cast<char*>(handle);
   int initial_hash_id = 0;
@@ -620,7 +620,7 @@ MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
   // degrades as the fullness of the mem-table increases.  Setting kFullness
   // to a value around 0.7 can better avoid write performance degradation while
   // keeping efficient memory usage.
-  static const float kFullness = 0.7;
+  static const float kFullness = 0.7f;
   size_t pointer_size = sizeof(std::atomic<const char*>);
   assert(write_buffer_size_ >= (average_data_size_ + pointer_size));
   size_t bucket_count =
