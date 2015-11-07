@@ -53,16 +53,6 @@ struct TableProperties {
   // The name of the filter policy used in this table.
   // If no filter policy is used, `filter_policy_name` will be an empty string.
   std::string filter_policy_name;
-  // The name of the comparator used in this table.
-  std::string comparator_name;
-  // The name of the merge operator used in this table.
-  // If no merge operator is used, `merge_operator_name` will be
-  // an empty string.
-  std::string merge_operator_name;
-  // The names of the property collectors factories used in this table
-  // separated by commas
-  // {collector_name[1]},{collector_name[2]},{collector_name[3]} ..
-  std::string property_collectors_names;
 
   // user collected properties
   UserCollectedProperties user_collected_properties;
@@ -90,9 +80,6 @@ struct TablePropertiesNames {
   static const std::string kFormatVersion;
   static const std::string kFixedKeyLen;
   static const std::string kFilterPolicy;
-  static const std::string kComparator;
-  static const std::string kMergeOperator;
-  static const std::string kPropertyCollectors;
 };
 
 extern const std::string kPropertiesBlock;
