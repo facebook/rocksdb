@@ -33,7 +33,7 @@ class MemoryUtil {
   };
 
   // Returns the approximate memory usage of different types in the input
-  // list of DBs and Cache set.  For instance, in the output vector
+  // list of DBs and Cache set.  For instance, in the output map
   // usage_by_type, usage_by_type[kMemTableTotal] will store the memory
   // usage of all the mem-tables from all the input rocksdb instances.
   //
