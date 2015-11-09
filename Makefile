@@ -155,10 +155,8 @@ ifdef COMPILE_WITH_TSAN
 	EXEC_LDFLAGS += -fsanitize=thread -pie
 	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
 	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
-	# Use PIC versions of any precompiled libraries
-	EXEC_LDFLAGS := $(shell echo "$(EXEC_LDFLAGS)" | sed -e 's/[.]a /_pic.a /g')
-	# Turn off -pg when enabling TSAN testing, because that induces
-	# a link failure.  TODO: find the root cause
+        # Turn off -pg when enabling TSAN testing, because that induces
+        # a link failure.  TODO: find the root cause
 	pg =
 else
 	pg = -pg
