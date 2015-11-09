@@ -855,13 +855,13 @@ bool ParseColumnFamilyOption(const std::string& name,
       }
       new_options->table_factory.reset(NewPlainTableFactory(table_opt));
     } else if (name == "memtable_factory") {
-      MemTableRepFactory* new_mem_factory;
-      Status mem_factory_s = GetMemTableRepFactoryFromString(
-          value, &new_mem_factory);
+      std::unique_ptr<MemTableRepFactory> new_mem_factory;
+      Status mem_factory_s =
+          GetMemTableRepFactoryFromString(value, &new_mem_factory);
       if (!mem_factory_s.ok()) {
-       return false;
+        return false;
       }
-      new_options->memtable_factory.reset(new_mem_factory);
+      new_options->memtable_factory.reset(new_mem_factory.release());
     } else if (name == "compression_opts") {
       size_t start = 0;
       size_t end = value.find(':');
@@ -1213,66 +1213,61 @@ Status GetPlainTableOptionsFromString(
                                      new_table_options);
 }
 
-Status GetMemTableRepFactoryFromString(
-    const std::string& opts_str,
-    MemTableRepFactory** new_mem_factory) {
+Status GetMemTableRepFactoryFromString(const std::string& opts_str,
+    std::unique_ptr<MemTableRepFactory>* new_mem_factory) {
   std::vector<std::string> opts_list = StringSplit(opts_str, ':');
   size_t len = opts_list.size();
+
+  if (opts_list.size() <= 0 || opts_list.size() > 2) {
+    return Status::InvalidArgument("Can't parse memtable_factory option ",
+                                     opts_str);
+  }
+
+  MemTableRepFactory* mem_factory = nullptr;
+
   if (opts_list[0] == "skip_list") {
     // Expecting format
     // skip_list:<lookahead>
     if (2 == len) {
       size_t lookahead = ParseSizeT(opts_list[1]);
-      *new_mem_factory = new SkipListFactory(lookahead);
+      mem_factory = new SkipListFactory(lookahead);
     } else if (1 == len) {
-      *new_mem_factory = new SkipListFactory();
-    } else {
-      return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                     opts_str);
+      mem_factory = new SkipListFactory();
     }
   } else if (opts_list[0] == "prefix_hash") {
     // Expecting format
     // prfix_hash:<hash_bucket_count>
     if (2 == len) {
       size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      *new_mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
+      mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
     } else if (1 == len) {
-      *new_mem_factory = NewHashSkipListRepFactory();
-    } else {
-      return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                     opts_str);
+      mem_factory = NewHashSkipListRepFactory();
     }
   } else if (opts_list[0] == "hash_linkedlist") {
     // Expecting format
     // hash_linkedlist:<hash_bucket_count>
     if (2 == len) {
       size_t hash_bucket_count = ParseSizeT(opts_list[1]);
-      *new_mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
+      mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
     } else if (1 == len) {
-      *new_mem_factory = NewHashLinkListRepFactory();
-    } else {
-      return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                     opts_str);
+      mem_factory = NewHashLinkListRepFactory();
     }
   } else if (opts_list[0] == "vector") {
     // Expecting format
     // vector:<count>
     if (2 == len) {
       size_t count = ParseSizeT(opts_list[1]);
-      *new_mem_factory = new VectorRepFactory(count);
+      mem_factory = new VectorRepFactory(count);
     } else if (1 == len) {
-      *new_mem_factory = new VectorRepFactory();
-    } else {
-      return Status::InvalidArgument("Can't parse memtable_factory option ",
-                                     opts_str);
+      mem_factory = new VectorRepFactory();
     }
   } else if (opts_list[0] == "cuckoo") {
     // Expecting format
     // cuckoo:<write_buffer_size>
     if (2 == len) {
       size_t write_buffer_size = ParseSizeT(opts_list[1]);
-      *new_mem_factory = NewHashCuckooRepFactory(write_buffer_size);
-    } else {
+      mem_factory= NewHashCuckooRepFactory(write_buffer_size);
+    } else if (1 == len) {
       return Status::InvalidArgument("Can't parse memtable_factory option ",
                                      opts_str);
     }
@@ -1280,6 +1275,11 @@ Status GetMemTableRepFactoryFromString(
     return Status::InvalidArgument("Unrecognized memtable_factory option ",
                                    opts_str);
   }
+
+  if (mem_factory != nullptr){
+    new_mem_factory->reset(mem_factory);
+  }
+
   return Status::OK();
 }
 

@@ -716,48 +716,40 @@ TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
 
 #ifndef ROCKSDB_LITE  // GetMemTableRepFactoryFromString is not supported
 TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
-  MemTableRepFactory* new_mem_factory = nullptr;
+  std::unique_ptr<MemTableRepFactory> new_mem_factory = nullptr;
 
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "skip_list", &new_mem_factory));
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "skip_list:16", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("skip_list", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("skip_list:16", &new_mem_factory));
   ASSERT_EQ(std::string(new_mem_factory->Name()), "SkipListFactory");
-  ASSERT_NOK(GetMemTableRepFactoryFromString(
-      "skip_list:16:invalid_opt", &new_mem_factory));
+  ASSERT_NOK(GetMemTableRepFactoryFromString("skip_list:16:invalid_opt",
+                                             &new_mem_factory));
 
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "prefix_hash", &new_mem_factory));
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "prefix_hash:1000", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash:1000",
+                                            &new_mem_factory));
   ASSERT_EQ(std::string(new_mem_factory->Name()), "HashSkipListRepFactory");
-  ASSERT_NOK(GetMemTableRepFactoryFromString(
-      "prefix_hash:1000:invalid_opt", &new_mem_factory));
+  ASSERT_NOK(GetMemTableRepFactoryFromString("prefix_hash:1000:invalid_opt",
+                                             &new_mem_factory));
 
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "hash_linkedlist", &new_mem_factory));
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "hash_linkedlist:1000", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("hash_linkedlist",
+                                            &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("hash_linkedlist:1000",
+                                            &new_mem_factory));
   ASSERT_EQ(std::string(new_mem_factory->Name()), "HashLinkListRepFactory");
-  ASSERT_NOK(GetMemTableRepFactoryFromString(
-      "hash_linkedlist:1000:invalid_opt", &new_mem_factory));
+  ASSERT_NOK(GetMemTableRepFactoryFromString("hash_linkedlist:1000:invalid_opt",
+                                             &new_mem_factory));
 
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "vector", &new_mem_factory));
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "vector:1024", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("vector", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("vector:1024", &new_mem_factory));
   ASSERT_EQ(std::string(new_mem_factory->Name()), "VectorRepFactory");
-  ASSERT_NOK(GetMemTableRepFactoryFromString(
-      "vector:1024:invalid_opt", &new_mem_factory));
+  ASSERT_NOK(GetMemTableRepFactoryFromString("vector:1024:invalid_opt",
+                                             &new_mem_factory));
 
-  ASSERT_NOK(GetMemTableRepFactoryFromString(
-      "cuckoo", &new_mem_factory));
-  ASSERT_OK(GetMemTableRepFactoryFromString(
-      "cuckoo:1024", &new_mem_factory));
+  ASSERT_NOK(GetMemTableRepFactoryFromString("cuckoo", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("cuckoo:1024", &new_mem_factory));
   ASSERT_EQ(std::string(new_mem_factory->Name()), "HashCuckooRepFactory");
 
-  ASSERT_NOK(GetMemTableRepFactoryFromString(
-      "invalid_factory", &new_mem_factory));
+  ASSERT_NOK(GetMemTableRepFactoryFromString("bad_factory", &new_mem_factory));
 }
 #endif  // !ROCKSDB_LITE
 
