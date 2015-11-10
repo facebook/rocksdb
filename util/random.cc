@@ -6,9 +6,10 @@
 
 #include "util/random.h"
 
-#include <pthread.h>
 #include <stdint.h>
 #include <string.h>
+#include <thread>
+#include <utility>
 
 #include "port/likely.h"
 #include "util/thread_local.h"
@@ -27,10 +28,8 @@ Random* Random::GetTLSInstance() {
 
   auto rv = tls_instance;
   if (UNLIKELY(rv == nullptr)) {
-    const pthread_t self = pthread_self();
-    uint32_t seed = 0;
-    memcpy(&seed, &self, sizeof(seed));
-    rv = new (&tls_instance_bytes) Random(seed);
+    size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+    rv = new (&tls_instance_bytes) Random((uint32_t)seed);
     tls_instance = rv;
   }
   return rv;

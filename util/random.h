@@ -18,8 +18,12 @@ namespace rocksdb {
 // package.
 class Random {
  private:
-  static constexpr uint32_t M = 2147483647L;  // 2^31-1
-  static constexpr uint64_t A = 16807;        // bits 14, 8, 7, 5, 2, 1, 0
+  enum : uint32_t {
+    M = 2147483647L  // 2^31-1
+  };
+  enum : uint64_t {
+    A = 16807  // bits 14, 8, 7, 5, 2, 1, 0
+  };
 
   uint32_t seed_;
 
@@ -27,7 +31,7 @@ class Random {
 
  public:
   // This is the largest value that can be returned from Next()
-  static constexpr uint32_t kMaxNext = M;
+  enum : uint32_t { kMaxNext = M };
 
   explicit Random(uint32_t s) : seed_(GoodSeed(s)) {}
 
