@@ -570,7 +570,7 @@ class WritableFile {
   // This asks the OS to initiate flushing the cached data to disk,
   // without waiting for completion.
   // Default implementation does nothing.
-  virtual Status RangeSync(off_t offset, off_t nbytes) { return Status::OK(); }
+  virtual Status RangeSync(uint64_t offset, uint64_t nbytes) { return Status::OK(); }
 
   // PrepareWrite performs any necessary preparation for a write
   // before the write actually occurs.  This allows for pre-allocation
@@ -590,8 +590,8 @@ class WritableFile {
     if (new_last_preallocated_block > last_preallocated_block_) {
       size_t num_spanned_blocks =
         new_last_preallocated_block - last_preallocated_block_;
-      Allocate(static_cast<off_t>(block_size * last_preallocated_block_),
-               static_cast<off_t>(block_size * num_spanned_blocks));
+      Allocate(block_size * last_preallocated_block_,
+               block_size * num_spanned_blocks);
       last_preallocated_block_ = new_last_preallocated_block;
     }
   }
@@ -600,7 +600,7 @@ class WritableFile {
   /*
    * Pre-allocate space for a file.
    */
-  virtual Status Allocate(off_t offset, off_t len) {
+  virtual Status Allocate(uint64_t offset, uint64_t len) {
     return Status::OK();
   }
 
@@ -920,10 +920,10 @@ class WritableFileWrapper : public WritableFile {
   }
 
  protected:
-  Status Allocate(off_t offset, off_t len) override {
+  Status Allocate(uint64_t offset, uint64_t len) override {
     return target_->Allocate(offset, len);
   }
-  Status RangeSync(off_t offset, off_t nbytes) override {
+  Status RangeSync(uint64_t offset, uint64_t nbytes) override {
     return target_->RangeSync(offset, nbytes);
   }
 

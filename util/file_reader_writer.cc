@@ -248,7 +248,7 @@ Status WritableFileWriter::SyncInternal(bool use_fsync) {
   return s;
 }
 
-Status WritableFileWriter::RangeSync(off_t offset, off_t nbytes) {
+Status WritableFileWriter::RangeSync(uint64_t offset, uint64_t nbytes) {
   IOSTATS_TIMER_GUARD(range_sync_nanos);
   TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
   return writable_file_->RangeSync(offset, nbytes);

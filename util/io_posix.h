@@ -90,8 +90,8 @@ class PosixWritableFile : public WritableFile {
   virtual uint64_t GetFileSize() override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual Status Allocate(off_t offset, off_t len) override;
-  virtual Status RangeSync(off_t offset, off_t nbytes) override;
+  virtual Status Allocate(uint64_t offset, uint64_t len) override;
+  virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
 };
@@ -157,7 +157,7 @@ class PosixMmapFile : public WritableFile {
   virtual uint64_t GetFileSize() override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual Status Allocate(off_t offset, off_t len) override;
+  virtual Status Allocate(uint64_t offset, uint64_t len) override;
 #endif
 };
 

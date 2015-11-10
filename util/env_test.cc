@@ -971,11 +971,11 @@ TEST_F(EnvPosixTest, WritableFileWrapper) {
     }
 
    protected:
-    Status Allocate(off_t offset, off_t len) override {
+    Status Allocate(uint64_t offset, uint64_t len) override {
       inc(11);
       return Status::OK();
     }
-    Status RangeSync(off_t offset, off_t nbytes) override {
+    Status RangeSync(uint64_t offset, uint64_t nbytes) override {
       inc(12);
       return Status::OK();
     }
