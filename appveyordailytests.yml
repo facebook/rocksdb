@@ -10,7 +10,7 @@ build:
   verbosity: minimal
 test:
 test_script:
-- ps: build_tools\run_ci_db_test.ps1
+- ps: build_tools\run_ci_db_test.ps1 -Run db_test -Concurrency 16
 notifications:
   - provider: Email
     to:

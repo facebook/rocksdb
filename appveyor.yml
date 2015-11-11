@@ -8,4 +8,16 @@ build:
   project: build\rocksdb.sln
   parallel: true
   verbosity: minimal
-test: off
+test:
+test_script:
+- ps: build_tools\run_ci_db_test.ps1 -Run db_test -Concurrency 16
+notifications:
+  - provider: Email
+    to:
+      - svmtrocksdb@microsoft.com
+    subject: "Build {{status}}"
+    message: "{{message}}, {{commitId}}, ..."
+    on_build_success: false
+    on_build_failure: true
+    on_build_status_changed: true
+
