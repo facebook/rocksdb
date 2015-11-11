@@ -329,6 +329,7 @@ set(TESTS
         db/memtable_list_test.cc
         db/merge_test.cc
         db/merge_helper_test.cc
+        db/options_file_test.cc
         db/perf_context_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc

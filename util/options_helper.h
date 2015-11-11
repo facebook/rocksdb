@@ -64,6 +64,9 @@ Status GetTableFactoryFromMap(
 Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
                                  const std::string& delimiter = ";  ");
 
+ColumnFamilyOptions BuildColumnFamilyOptions(
+    const Options& options, const MutableCFOptions& mutable_cf_options);
+
 enum class OptionType {
   kBoolean,
   kInt,

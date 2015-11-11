@@ -57,6 +57,7 @@ class ColumnFamilyTest : public testing::Test {
     env_ = new EnvCounter(Env::Default());
     dbname_ = test::TmpDir() + "/column_family_test";
     db_options_.create_if_missing = true;
+    db_options_.fail_if_options_file_error = true;
     db_options_.env = env_;
     DestroyDB(dbname_, Options(db_options_, column_family_options_));
   }

@@ -275,6 +275,7 @@ TESTS = \
 	memory_test \
 	merge_test \
 	merger_test \
+	options_file_test \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
@@ -890,6 +891,9 @@ merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 merger_test: table/merger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+options_file_test: db/options_file_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)

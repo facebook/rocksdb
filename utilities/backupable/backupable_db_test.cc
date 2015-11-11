@@ -1198,18 +1198,18 @@ TEST_F(BackupableDBTest, GarbageCollectionBeforeBackup) {
   OpenDBAndBackupEngine(true);
 
   env_->CreateDirIfMissing(backupdir_ + "/shared");
-  std::string file_five = backupdir_ + "/shared/000005.sst";
+  std::string file_five = backupdir_ + "/shared/000007.sst";
   std::string file_five_contents = "I'm not really a sst file";
-  // this depends on the fact that 00005.sst is the first file created by the DB
+  // this depends on the fact that 00007.sst is the first file created by the DB
   ASSERT_OK(file_manager_->WriteToFile(file_five, file_five_contents));
 
   FillDB(db_.get(), 0, 100);
-  // backup overwrites file 000005.sst
+  // backup overwrites file 000007.sst
   ASSERT_TRUE(backup_engine_->CreateNewBackup(db_.get(), true).ok());
 
   std::string new_file_five_contents;
   ASSERT_OK(ReadFileToString(env_, file_five, &new_file_five_contents));
-  // file 000005.sst was overwritten
+  // file 000007.sst was overwritten
   ASSERT_TRUE(new_file_five_contents != file_five_contents);
 
   CloseDBAndBackupEngine();

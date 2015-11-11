@@ -1172,6 +1172,13 @@ struct DBOptions {
   // currently.
   const WalFilter* wal_filter;
 #endif  // ROCKSDB_LITE
+
+  // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
+  // / SetOptions will fail if options file is not detected or properly
+  // persisted.
+  //
+  // DEFAULT: false
+  bool fail_if_options_file_error;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

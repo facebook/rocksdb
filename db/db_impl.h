@@ -398,6 +398,13 @@ class DBImpl : public DB {
                                         SuperVersion* super_version,
                                         Arena* arena);
 
+  // The following options file related functions should not be
+  // called while DB mutex is held.
+  Status WriteOptionsFile();
+  Status WriteOptionsToTempFile(std::string* file_name);
+  Status RenameTempFileToOptionsFile(const std::string& file_name);
+  Status DeleteObsoleteOptionsFiles();
+
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
                               int job_id, TableProperties prop);
@@ -552,8 +559,13 @@ class DBImpl : public DB {
   // Lock over the persistent DB state.  Non-nullptr iff successfully acquired.
   FileLock* db_lock_;
 
+  // The mutex for options file related operations.
+  // NOTE: should never acquire options_file_mutex_ and mutex_ at the
+  //       same time.
+  InstrumentedMutex options_files_mutex_;
   // State below is protected by mutex_
   InstrumentedMutex mutex_;
+
   std::atomic<bool> shutting_down_;
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0

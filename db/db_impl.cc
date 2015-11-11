@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstdio>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -84,6 +85,8 @@
 #include "util/log_buffer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/options_helper.h"
+#include "util/options_parser.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -734,8 +737,12 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
         // Also, SetCurrentFile creates a temp file when writing out new
         // manifest, which is equal to state.pending_manifest_file_number. We
         // should not delete that file
+        //
+        // TODO(yhchiang): carefully modify the third condition to safely
+        //                 remove the temp options files.
         keep = (sst_live_map.find(number) != sst_live_map.end()) ||
-               (number == state.pending_manifest_file_number);
+               (number == state.pending_manifest_file_number) ||
+               (to_delete.find(kOptionsFileNamePrefix) != std::string::npos);
         break;
       case kInfoLogFile:
         keep = true;
@@ -747,6 +754,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       case kDBLockFile:
       case kIdentityFile:
       case kMetaDatabase:
+      case kOptionsFile:
         keep = true;
         break;
     }
@@ -1920,6 +1928,19 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     s = cfd->SetOptions(options_map);
     if (s.ok()) {
       new_options = *cfd->GetLatestMutableCFOptions();
+    }
+  }
+  if (s.ok()) {
+    Status persist_options_status = WriteOptionsFile();
+    if (!persist_options_status.ok()) {
+      if (db_options_.fail_if_options_file_error) {
+        s = Status::IOError(
+            "SetOptions succeeded, but unable to persist options",
+            persist_options_status.ToString());
+      }
+      Warn(db_options_.info_log,
+           "Unable to persist options in SetOptions() -- %s",
+           persist_options_status.ToString().c_str());
     }
   }
 
@@ -3458,6 +3479,18 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
 
   // this is outside the mutex
   if (s.ok()) {
+    Status persist_options_status = WriteOptionsFile();
+    if (!persist_options_status.ok()) {
+      if (db_options_.fail_if_options_file_error) {
+        s = Status::IOError(
+            "ColumnFamily has been created, but unable to persist"
+            "options in CreateColumnFamily()",
+            persist_options_status.ToString().c_str());
+      }
+      Warn(db_options_.info_log,
+           "Unable to persist options in CreateColumnFamily() -- %s",
+           persist_options_status.ToString().c_str());
+    }
     NewThreadStatusCfInfo(
         reinterpret_cast<ColumnFamilyHandleImpl*>(*handle)->cfd());
   }
@@ -3515,6 +3548,18 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
     max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
                                   mutable_cf_options->max_write_buffer_number;
+    auto options_persist_status = WriteOptionsFile();
+    if (!options_persist_status.ok()) {
+      if (db_options_.fail_if_options_file_error) {
+        s = Status::IOError(
+            "ColumnFamily has been dropped, but unable to persist "
+            "options in DropColumnFamily()",
+            options_persist_status.ToString().c_str());
+      }
+      Warn(db_options_.info_log,
+           "Unable to persist options in DropColumnFamily() -- %s",
+           options_persist_status.ToString().c_str());
+    }
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "Dropped column family with id %u\n",
         cfd->GetID());
@@ -4931,6 +4976,19 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
         impl);
     LogFlush(impl->db_options_.info_log);
 
+    auto persist_options_status = impl->WriteOptionsFile();
+    if (!persist_options_status.ok()) {
+      if (db_options.fail_if_options_file_error) {
+        s = Status::IOError(
+            "DB::Open() failed --- Unable to persist Options file",
+            persist_options_status.ToString());
+      }
+      Warn(impl->db_options_.info_log,
+           "Unable to persist options in DB::Open() -- %s",
+           persist_options_status.ToString().c_str());
+    }
+  }
+  if (s.ok()) {
     *dbptr = impl;
   } else {
     for (auto* h : *handles) {
@@ -4938,6 +4996,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     }
     handles->clear();
     delete impl;
+    *dbptr = nullptr;
   }
   return s;
 }
@@ -5034,6 +5093,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         }
       }
     }
+
     // ignore case where no archival directory is present.
     env->DeleteDir(archivedir);
 
@@ -5043,6 +5103,114 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
     env->DeleteDir(soptions.wal_dir);
   }
   return result;
+}
+
+Status DBImpl::WriteOptionsFile() {
+#ifndef ROCKSDB_LITE
+  std::string file_name;
+  Status s = WriteOptionsToTempFile(&file_name);
+  if (!s.ok()) {
+    return s;
+  }
+  s = RenameTempFileToOptionsFile(file_name);
+  return s;
+#else
+  return Status::OK();
+#endif  // !ROCKSDB_LITE
+}
+
+Status DBImpl::WriteOptionsToTempFile(std::string* file_name) {
+#ifndef ROCKSDB_LITE
+  std::vector<std::string> cf_names;
+  std::vector<ColumnFamilyOptions> cf_opts;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // This part requires mutex to protect the column family options
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
+      cf_names.push_back(cfd->GetName());
+      cf_opts.push_back(BuildColumnFamilyOptions(
+          *cfd->options(), *cfd->GetLatestMutableCFOptions()));
+    }
+  }
+  *file_name = TempOptionsFileName(GetName(), versions_->NewFileNumber());
+
+  Status s = PersistRocksDBOptions(GetDBOptions(), cf_names, cf_opts,
+                                   *file_name, GetEnv());
+  return s;
+#else
+  return Status::OK();
+#endif  // !ROCKSDB_LITE
+}
+
+#ifndef ROCKSDB_LITE
+namespace {
+void DeleteOptionsFilesHelper(const std::map<uint64_t, std::string>& filenames,
+                              const size_t num_files_to_keep,
+                              const std::shared_ptr<Logger>& info_log,
+                              Env* env) {
+  if (filenames.size() <= num_files_to_keep) {
+    return;
+  }
+  for (auto iter = std::next(filenames.begin(), num_files_to_keep);
+       iter != filenames.end(); ++iter) {
+    if (!env->DeleteFile(iter->second).ok()) {
+      Warn(info_log, "Unable to delete options file %s", iter->second.c_str());
+    }
+  }
+}
+}  // namespace
+#endif  // !ROCKSDB_LITE
+
+Status DBImpl::DeleteObsoleteOptionsFiles() {
+#ifndef ROCKSDB_LITE
+  options_files_mutex_.AssertHeld();
+
+  std::vector<std::string> filenames;
+  // use ordered map to store keep the filenames sorted from the newest
+  // to the oldest.
+  std::map<uint64_t, std::string> options_filenames;
+  Status s;
+  s = GetEnv()->GetChildren(GetName(), &filenames);
+  if (!s.ok()) {
+    return s;
+  }
+  for (auto& filename : filenames) {
+    uint64_t file_number;
+    FileType type;
+    if (ParseFileName(filename, &file_number, &type) && type == kOptionsFile) {
+      options_filenames.insert(
+          {std::numeric_limits<uint64_t>::max() - file_number,
+           GetName() + "/" + filename});
+    }
+  }
+
+  // Keeps the latest 2 Options file
+  const size_t kNumOptionsFilesKept = 2;
+  DeleteOptionsFilesHelper(options_filenames, kNumOptionsFilesKept,
+                           db_options_.info_log, GetEnv());
+  return Status::OK();
+#else
+  return Status::OK();
+#endif  // !ROCKSDB_LITE
+}
+
+Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
+#ifndef ROCKSDB_LITE
+  InstrumentedMutexLock l(&options_files_mutex_);
+  Status s;
+  std::string options_file_name =
+      OptionsFileName(GetName(), versions_->NewFileNumber());
+  // Retry if the file name happen to conflict with an existing one.
+  s = GetEnv()->RenameFile(file_name, options_file_name);
+
+  DeleteObsoleteOptionsFiles();
+  return s;
+#else
+  return Status::OK();
+#endif  // !ROCKSDB_LITE
 }
 
 #if ROCKSDB_USING_THREAD_STATUS

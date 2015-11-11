@@ -259,12 +259,11 @@ DBOptions::DBOptions()
       enable_thread_tracking(false),
       delayed_write_rate(1024U * 1024U),
       skip_stats_update_on_db_open(false),
-      wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords)
+      wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords),
 #ifndef ROCKSDB_LITE
-      ,
-      wal_filter(nullptr)
+      wal_filter(nullptr),
 #endif  // ROCKSDB_LITE
-{
+      fail_if_options_file_error(false) {
 }
 
 DBOptions::DBOptions(const Options& options)
@@ -323,12 +322,11 @@ DBOptions::DBOptions(const Options& options)
       delayed_write_rate(options.delayed_write_rate),
       skip_stats_update_on_db_open(options.skip_stats_update_on_db_open),
       wal_recovery_mode(options.wal_recovery_mode),
-      row_cache(options.row_cache)
+      row_cache(options.row_cache),
 #ifndef ROCKSDB_LITE
-      ,
-      wal_filter(options.wal_filter)
+      wal_filter(options.wal_filter),
 #endif  // ROCKSDB_LITE
-{
+      fail_if_options_file_error(options.fail_if_options_file_error) {
 }
 
 static const char* const access_hints[] = {

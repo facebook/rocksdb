@@ -36,7 +36,8 @@ enum FileType {
   kTempFile,
   kInfoLogFile,  // Either the current one, or an old one
   kMetaDatabase,
-  kIdentityFile
+  kIdentityFile,
+  kOptionsFile
 };
 
 // Return the name of the log file with the specified number
@@ -113,6 +114,19 @@ extern std::string InfoLogFileName(const std::string& dbname,
 extern std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
                                       const std::string& db_path = "",
                                       const std::string& log_dir = "");
+
+static const std::string kOptionsFileNamePrefix = "OPTIONS-";
+static const std::string kTempFileNameSuffix = "dbtmp";
+
+// Return a options file name given the "dbname" and file number.
+// Format:  OPTIONS-[number].dbtmp
+extern std::string OptionsFileName(const std::string& dbname,
+                                   uint64_t file_num);
+
+// Return a temp options file name given the "dbname" and file number.
+// Format:  OPTIONS-[number]
+extern std::string TempOptionsFileName(const std::string& dbname,
+                                       uint64_t file_num);
 
 // Return the name to use for a metadatabase. The result will be prefixed with
 // "dbname".

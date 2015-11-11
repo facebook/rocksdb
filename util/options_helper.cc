@@ -1315,5 +1315,71 @@ Status GetTableFactoryFromMap(
   return Status::OK();
 }
 
+ColumnFamilyOptions BuildColumnFamilyOptions(
+    const Options& options, const MutableCFOptions& mutable_cf_options) {
+  ColumnFamilyOptions cf_opts(options);
+
+  // Memtable related options
+  cf_opts.write_buffer_size = mutable_cf_options.write_buffer_size;
+  cf_opts.max_write_buffer_number = mutable_cf_options.max_write_buffer_number;
+  cf_opts.arena_block_size = mutable_cf_options.arena_block_size;
+  cf_opts.memtable_prefix_bloom_bits =
+      mutable_cf_options.memtable_prefix_bloom_bits;
+  cf_opts.memtable_prefix_bloom_probes =
+      mutable_cf_options.memtable_prefix_bloom_probes;
+  cf_opts.memtable_prefix_bloom_huge_page_tlb_size =
+      mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size;
+  cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
+  cf_opts.filter_deletes = mutable_cf_options.filter_deletes;
+  cf_opts.inplace_update_num_locks =
+      mutable_cf_options.inplace_update_num_locks;
+
+  // Compaction related options
+  cf_opts.disable_auto_compactions =
+      mutable_cf_options.disable_auto_compactions;
+  cf_opts.soft_rate_limit = mutable_cf_options.soft_rate_limit;
+  cf_opts.level0_file_num_compaction_trigger =
+      mutable_cf_options.level0_file_num_compaction_trigger;
+  cf_opts.level0_slowdown_writes_trigger =
+      mutable_cf_options.level0_slowdown_writes_trigger;
+  cf_opts.level0_stop_writes_trigger =
+      mutable_cf_options.level0_stop_writes_trigger;
+  cf_opts.max_grandparent_overlap_factor =
+      mutable_cf_options.max_grandparent_overlap_factor;
+  cf_opts.expanded_compaction_factor =
+      mutable_cf_options.expanded_compaction_factor;
+  cf_opts.source_compaction_factor =
+      mutable_cf_options.source_compaction_factor;
+  cf_opts.target_file_size_base = mutable_cf_options.target_file_size_base;
+  cf_opts.target_file_size_multiplier =
+      mutable_cf_options.target_file_size_multiplier;
+  cf_opts.max_bytes_for_level_base =
+      mutable_cf_options.max_bytes_for_level_base;
+  cf_opts.max_bytes_for_level_multiplier =
+      mutable_cf_options.max_bytes_for_level_multiplier;
+
+  cf_opts.max_bytes_for_level_multiplier_additional.clear();
+  for (auto value :
+       mutable_cf_options.max_bytes_for_level_multiplier_additional) {
+    cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
+  }
+
+  cf_opts.verify_checksums_in_compaction =
+      mutable_cf_options.verify_checksums_in_compaction;
+
+  // Misc options
+  cf_opts.max_sequential_skip_in_iterations =
+      mutable_cf_options.max_sequential_skip_in_iterations;
+  cf_opts.paranoid_file_checks = mutable_cf_options.paranoid_file_checks;
+  cf_opts.compaction_measure_io_stats =
+      mutable_cf_options.compaction_measure_io_stats;
+
+  cf_opts.table_factory = options.table_factory;
+  // TODO(yhchiang): find some way to handle the following derived options
+  // * max_file_size
+
+  return cf_opts;
+}
+
 #endif  // !ROCKSDB_LITE
 }  // namespace rocksdb
