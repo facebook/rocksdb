@@ -47,8 +47,8 @@ TEST_F(WritableFileWriterTest, RangeSync) {
     }
 
    protected:
-    Status Allocate(off_t offset, off_t len) override { return Status::OK(); }
-    Status RangeSync(off_t offset, off_t nbytes) override {
+    Status Allocate(uint64_t offset, uint64_t len) override { return Status::OK(); }
+    Status RangeSync(uint64_t offset, uint64_t nbytes) override {
       EXPECT_EQ(offset % 4096, 0u);
       EXPECT_EQ(nbytes % 4096, 0u);
 

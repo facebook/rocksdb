@@ -61,12 +61,6 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
 }
 
-// A wrapper for fadvise, if the platform doesn't support fadvise,
-// it will simply return Status::NotSupport.
-int Fadvise(int fd, off_t offset, size_t len, int advice) {
-  return 0;  // simply do nothing.
-}
-
 inline Status IOErrorFromWindowsError(const std::string& context, DWORD err) {
   return Status::IOError(context, GetWindowsErrSz(err));
 }
@@ -605,7 +599,7 @@ class WinMmapFile : public WritableFile {
     return Status::OK();
   }
 
-  virtual Status Allocate(off_t offset, off_t len) override {
+  virtual Status Allocate(uint64_t offset, uint64_t len) override {
     return Status::OK();
   }
 };
@@ -1053,7 +1047,7 @@ class WinWritableFile : public WritableFile {
     return filesize_;
   }
 
-  virtual Status Allocate(off_t offset, off_t len) override {
+  virtual Status Allocate(uint64_t offset, uint64_t len) override {
     Status status;
     TEST_KILL_RANDOM("WinWritableFile::Allocate", rocksdb_kill_odds);
 
