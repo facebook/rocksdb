@@ -109,6 +109,9 @@ int main(int argc, char** argv) {
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 }
 #else
+
+#include <cstdio>
+
 int main(int argc, char** argv) {
   printf("Skipped as Options file is not supported in RocksDBLite.\n");
   return 0;
