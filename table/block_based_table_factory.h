@@ -58,6 +58,8 @@ class BlockBasedTableFactory : public TableFactory {
 
   const BlockBasedTableOptions& GetTableOptions() const;
 
+  void* GetOptions() override { return &table_options_; }
+
  private:
   BlockBasedTableOptions table_options_;
 };

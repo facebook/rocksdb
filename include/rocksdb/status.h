@@ -48,7 +48,7 @@ class Status {
     kAborted = 10,
     kBusy = 11,
     kExpired = 12,
-    kTryAgain = 13
+    kTryAgain = 13,
   };
 
   Code code() const { return code_; }

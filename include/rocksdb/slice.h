@@ -73,6 +73,11 @@ class Slice {
     size_ -= n;
   }
 
+  void remove_suffix(size_t n) {
+    assert(n <= size());
+    size_ -= n;
+  }
+
   // Return a string that contains the copy of the referenced data.
   std::string ToString(bool hex = false) const;
 
@@ -86,6 +91,11 @@ class Slice {
   bool starts_with(const Slice& x) const {
     return ((size_ >= x.size_) &&
             (memcmp(data_, x.data_, x.size_) == 0));
+  }
+
+  bool ends_with(const Slice& x) const {
+    return ((size_ >= x.size_) &&
+            (memcmp(data_ + size_ - x.size_, x.data_, x.size_) == 0));
   }
 
   // Compare two slices and returns the first byte where they differ

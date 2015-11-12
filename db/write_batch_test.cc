@@ -39,6 +39,10 @@ static std::string PrintContents(WriteBatch* b) {
   ColumnFamilyMemTablesDefault cf_mems_default(mem);
   Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
+  int put_count = 0;
+  int delete_count = 0;
+  int single_delete_count = 0;
+  int merge_count = 0;
   Arena arena;
   ScopedArenaIterator iter(mem->NewIterator(ReadOptions(), &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -53,18 +57,21 @@ static std::string PrintContents(WriteBatch* b) {
         state.append(iter->value().ToString());
         state.append(")");
         count++;
+        put_count++;
         break;
       case kTypeDeletion:
         state.append("Delete(");
         state.append(ikey.user_key.ToString());
         state.append(")");
         count++;
+        delete_count++;
         break;
       case kTypeSingleDeletion:
         state.append("SingleDelete(");
         state.append(ikey.user_key.ToString());
         state.append(")");
         count++;
+        single_delete_count++;
         break;
       case kTypeMerge:
         state.append("Merge(");
@@ -73,6 +80,7 @@ static std::string PrintContents(WriteBatch* b) {
         state.append(iter->value().ToString());
         state.append(")");
         count++;
+        merge_count++;
         break;
       default:
         assert(false);
@@ -81,6 +89,10 @@ static std::string PrintContents(WriteBatch* b) {
     state.append("@");
     state.append(NumberToString(ikey.sequence));
   }
+  EXPECT_EQ(b->HasPut(), put_count > 0);
+  EXPECT_EQ(b->HasDelete(), delete_count > 0);
+  EXPECT_EQ(b->HasSingleDelete(), single_delete_count > 0);
+  EXPECT_EQ(b->HasMerge(), merge_count > 0);
   if (!s.ok()) {
     state.append(s.ToString());
   } else if (count != WriteBatchInternal::Count(b)) {

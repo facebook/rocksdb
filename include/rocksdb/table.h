@@ -402,6 +402,22 @@ class TableFactory {
   // Return a string that contains printable format of table configurations.
   // RocksDB prints configurations at DB Open().
   virtual std::string GetPrintableTableOptions() const = 0;
+
+  // Returns the raw pointer of the table options that is used by this
+  // TableFactory, or nullptr if this function is not supported.
+  // Since the return value is a raw pointer, the TableFactory owns the
+  // pointer and the caller should not delete the pointer.
+  //
+  // In certan case, it is desirable to alter the underlying options when the
+  // TableFactory is not used by any open DB by casting the returned pointer
+  // to the right class.   For instance, if BlockBasedTableFactory is used,
+  // then the pointer can be casted to BlockBasedTableOptions.
+  //
+  // Note that changing the underlying TableFactory options while the
+  // TableFactory is currently used by any open DB is undefined behavior.
+  // Developers should use DB::SetOption() instead to dynamically change
+  // options while the DB is open.
+  virtual void* GetOptions() { return nullptr; }
 };
 
 #ifndef ROCKSDB_LITE

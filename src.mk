@@ -118,6 +118,7 @@ LIB_SOURCES =                                                   \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/uint64add.cc                        \
+  utilities/options/options_util.cc                             \
   utilities/redis/redis_lists.cc                                \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
@@ -206,6 +207,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/manual_compaction_test.cc                                          \
   db/memtablerep_bench.cc                                               \
   db/merge_test.cc                                                      \
+  db/options_file_test.cc                                               \
   db/perf_context_test.cc                                               \
   db/plain_table_db_test.cc                                             \
   db/prefix_test.cc                                                     \
@@ -253,6 +255,7 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/geodb/geodb_test.cc                                         \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \
+  utilities/options_util_test.cc                                        \
   utilities/redis/redis_lists_test.cc                                   \
   utilities/spatialdb/spatial_db_test.cc                                \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \

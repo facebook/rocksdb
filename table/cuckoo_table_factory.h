@@ -72,8 +72,10 @@ class CuckooTableFactory : public TableFactory {
 
   std::string GetPrintableTableOptions() const override;
 
+  void* GetOptions() override { return &table_options_; }
+
  private:
-  const CuckooTableOptions table_options_;
+  CuckooTableOptions table_options_;
 };
 
 }  // namespace rocksdb

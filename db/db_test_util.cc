@@ -368,6 +368,7 @@ Options DBTestBase::CurrentOptions(
   }
   options.env = env_;
   options.create_if_missing = true;
+  options.fail_if_options_file_error = true;
   return options;
 }
 

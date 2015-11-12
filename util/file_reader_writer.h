@@ -162,7 +162,7 @@ class WritableFileWriter {
   Status WriteUnbuffered();
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
-  Status RangeSync(off_t offset, off_t nbytes);
+  Status RangeSync(uint64_t offset, uint64_t nbytes);
   size_t RequestToken(size_t bytes, bool align);
   Status SyncInternal(bool use_fsync);
 };

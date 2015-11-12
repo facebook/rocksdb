@@ -275,6 +275,7 @@ TESTS = \
 	memory_test \
 	merge_test \
 	merger_test \
+	options_file_test \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
@@ -302,6 +303,7 @@ TESTS = \
 	rate_limiter_test \
 	delete_scheduler_test \
 	options_test \
+	options_util_test \
 	event_logger_test \
 	cuckoo_table_builder_test \
 	cuckoo_table_reader_test \
@@ -892,6 +894,9 @@ merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 merger_test: table/merger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+options_file_test: db/options_file_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -923,6 +928,9 @@ compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
