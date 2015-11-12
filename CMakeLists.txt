@@ -250,6 +250,7 @@ set(SOURCES
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/put.cc
         utilities/merge_operators/uint64add.cc
+        utilities/options/options_util.cc
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
@@ -382,6 +383,7 @@ set(TESTS
         utilities/geodb/geodb_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
+        utilities/options_util_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc

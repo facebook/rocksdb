@@ -7,6 +7,8 @@
 
 #include <string>
 #include <stdexcept>
+#include <vector>
+
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -117,6 +119,24 @@ struct OptionTypeInfo {
 // based on the specified OptionType.
 bool SerializeSingleOptionHelper(const char* opt_address,
                                  const OptionType opt_type, std::string* value);
+
+// In addition to its public version defined in rocksdb/convenience.h,
+// this further takes an optional output vector "unsupported_options_names",
+// which stores the name of all the unsupported options specified in "opts_map".
+Status GetDBOptionsFromMapInternal(
+    const DBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    DBOptions* new_options, bool input_strings_escaped,
+    std::vector<std::string>* unsupported_options_names = nullptr);
+
+// In addition to its public version defined in rocksdb/convenience.h,
+// this further takes an optional output vector "unsupported_options_names",
+// which stores the name of all the unsupported options specified in "opts_map".
+Status GetColumnFamilyOptionsFromMapInternal(
+    const ColumnFamilyOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    ColumnFamilyOptions* new_options, bool input_strings_escaped,
+    std::vector<std::string>* unsupported_options_names = nullptr);
 
 static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     /*

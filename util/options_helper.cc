@@ -548,7 +548,16 @@ bool SerializeSingleOptionHelper(const char* opt_address,
     case OptionType::kComparator: {
       // it's a const pointer of const Comparator*
       const auto* ptr = reinterpret_cast<const Comparator* const*>(opt_address);
-      *value = *ptr ? (*ptr)->Name() : kNullptrString;
+      // Since the user-specified comparator will be wrapped by
+      // InternalKeyComparator, we should persist the user-specified one
+      // instead of InternalKeyComparator.
+      const auto* internal_comparator =
+          dynamic_cast<const InternalKeyComparator*>(*ptr);
+      if (internal_comparator != nullptr) {
+        *value = internal_comparator->user_comparator()->Name();
+      } else {
+        *value = *ptr ? (*ptr)->Name() : kNullptrString;
+      }
       break;
     }
     case OptionType::kCompactionFilter: {
@@ -804,10 +813,10 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
-bool ParseColumnFamilyOption(const std::string& name,
-                             const std::string& org_value,
-                             ColumnFamilyOptions* new_options,
-                             bool input_strings_escaped = false) {
+Status ParseColumnFamilyOption(const std::string& name,
+                               const std::string& org_value,
+                               ColumnFamilyOptions* new_options,
+                               bool input_strings_escaped = false) {
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   try {
@@ -837,7 +846,8 @@ bool ParseColumnFamilyOption(const std::string& name,
       Status table_opt_s = GetBlockBasedTableOptionsFromString(
           base_table_options, value, &table_opt);
       if (!table_opt_s.ok()) {
-        return false;
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
       }
       new_options->table_factory.reset(NewBlockBasedTableFactory(table_opt));
     } else if (name == "plain_table_factory") {
@@ -851,50 +861,66 @@ bool ParseColumnFamilyOption(const std::string& name,
       Status table_opt_s = GetPlainTableOptionsFromString(
           base_table_options, value, &table_opt);
       if (!table_opt_s.ok()) {
-        return false;
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
       }
       new_options->table_factory.reset(NewPlainTableFactory(table_opt));
     } else if (name == "compression_opts") {
       size_t start = 0;
       size_t end = value.find(':');
       if (end == std::string::npos) {
-        return false;
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
       }
       new_options->compression_opts.window_bits =
           ParseInt(value.substr(start, end - start));
       start = end + 1;
       end = value.find(':', start);
       if (end == std::string::npos) {
-        return false;
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
       }
       new_options->compression_opts.level =
           ParseInt(value.substr(start, end - start));
       start = end + 1;
       if (start >= value.size()) {
-        return false;
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
       }
       new_options->compression_opts.strategy =
           ParseInt(value.substr(start, value.size() - start));
-    } else if (name == "compaction_options_universal") {
-      // TODO(ljin): add support
-      return false;
     } else if (name == "compaction_options_fifo") {
       new_options->compaction_options_fifo.max_table_files_size =
           ParseUint64(value);
     } else {
       auto iter = cf_options_type_info.find(name);
       if (iter == cf_options_type_info.end()) {
-        return false;
+        return Status::InvalidArgument(
+            "Unable to parse the specified CF option " + name);
       }
       const auto& opt_info = iter->second;
-      return ParseOptionHelper(
-          reinterpret_cast<char*>(new_options) + opt_info.offset, opt_info.type,
-          value);
+      if (ParseOptionHelper(
+              reinterpret_cast<char*>(new_options) + opt_info.offset,
+              opt_info.type, value)) {
+        return Status::OK();
+      }
+      switch (opt_info.verification) {
+        case OptionVerificationType::kByName:
+          return Status::NotSupported(
+              "Deserializing the specified CF option " + name +
+                  " is not supported");
+        case OptionVerificationType::kDeprecated:
+          return Status::OK();
+        default:
+          return Status::InvalidArgument(
+              "Unable to parse the specified CF option " + name);
+      }
     }
   } catch (const std::exception&) {
-    return false;
+    return Status::InvalidArgument(
+        "unable to parse the specified option " + name);
   }
-  return true;
+  return Status::OK();
 }
 
 bool SerializeSingleDBOption(std::string* opt_string,
@@ -1037,8 +1063,10 @@ Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
   return Status::OK();
 }
 
-bool ParseDBOption(const std::string& name, const std::string& org_value,
-                   DBOptions* new_options, bool input_strings_escaped = false) {
+Status ParseDBOption(const std::string& name,
+                     const std::string& org_value,
+                     DBOptions* new_options,
+                     bool input_strings_escaped = false) {
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   try {
@@ -1048,20 +1076,30 @@ bool ParseDBOption(const std::string& name, const std::string& org_value,
     } else {
       auto iter = db_options_type_info.find(name);
       if (iter == db_options_type_info.end()) {
-        return false;
+        return Status::InvalidArgument("Unrecognized option DBOptions:", name);
       }
       const auto& opt_info = iter->second;
-      if (opt_info.verification != OptionVerificationType::kByName &&
-          opt_info.verification != OptionVerificationType::kDeprecated) {
-        return ParseOptionHelper(
-            reinterpret_cast<char*>(new_options) + opt_info.offset,
-            opt_info.type, value);
+      if (ParseOptionHelper(
+              reinterpret_cast<char*>(new_options) + opt_info.offset,
+              opt_info.type, value)) {
+        return Status::OK();
+      }
+      switch (opt_info.verification) {
+        case OptionVerificationType::kByName:
+          return Status::NotSupported(
+              "Deserializing the specified DB option " + name +
+                  " is not supported");
+        case OptionVerificationType::kDeprecated:
+          return Status::OK();
+        default:
+          return Status::InvalidArgument(
+              "Unable to parse the specified DB option " + name);
       }
     }
   } catch (const std::exception&) {
-    return false;
+    return Status::InvalidArgument("Unable to parse DBOptions:", name);
   }
-  return true;
+  return Status::OK();
 }
 
 std::string ParseBlockBasedTableOption(const std::string& name,
@@ -1209,16 +1247,36 @@ Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options, bool input_strings_escaped) {
+  return GetColumnFamilyOptionsFromMapInternal(
+      base_options, opts_map, new_options, input_strings_escaped);
+}
+
+Status GetColumnFamilyOptionsFromMapInternal(
+    const ColumnFamilyOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    ColumnFamilyOptions* new_options, bool input_strings_escaped,
+    std::vector<std::string>* unsupported_options_names) {
   assert(new_options);
   *new_options = base_options;
+  if (unsupported_options_names) {
+    unsupported_options_names->clear();
+  }
   for (const auto& o : opts_map) {
-    if (!ParseColumnFamilyOption(o.first, o.second, new_options,
-                                 input_strings_escaped)) {
-      auto iter = cf_options_type_info.find(o.first);
-      if (iter == cf_options_type_info.end() ||
-          (iter->second.verification != OptionVerificationType::kByName &&
-           iter->second.verification != OptionVerificationType::kDeprecated)) {
-        return Status::InvalidArgument("Can't parse option " + o.first);
+    auto s = ParseColumnFamilyOption(o.first, o.second, new_options,
+                                 input_strings_escaped);
+    if (!s.ok()) {
+      if (s.IsNotSupported()) {
+        // If the deserialization of the specified option is not supported
+        // and an output vector of unsupported_options is provided, then
+        // we log the name of the unsupported option and proceed.
+        if (unsupported_options_names != nullptr) {
+          unsupported_options_names->push_back(o.first);
+        }
+        // Note that we still return Status::OK in such case to maintain
+        // the backward compatibility in the old public API defined in
+        // rocksdb/convenience.h
+      } else {
+        return s;
       }
     }
   }
@@ -1241,13 +1299,37 @@ Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options, bool input_strings_escaped) {
+  return GetDBOptionsFromMapInternal(
+      base_options, opts_map, new_options, input_strings_escaped);
+}
+
+Status GetDBOptionsFromMapInternal(
+    const DBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    DBOptions* new_options, bool input_strings_escaped,
+    std::vector<std::string>* unsupported_options_names) {
   assert(new_options);
   *new_options = base_options;
+  if (unsupported_options_names) {
+    unsupported_options_names->clear();
+  }
   for (const auto& o : opts_map) {
-    if (!ParseDBOption(o.first, o.second, new_options, input_strings_escaped)) {
-      // Note that options with kDeprecated validation will pass ParseDBOption
-      // and will not hit the below statement.
-      return Status::InvalidArgument("Can't parse option " + o.first);
+    auto s = ParseDBOption(o.first, o.second,
+                           new_options, input_strings_escaped);
+    if (!s.ok()) {
+      if (s.IsNotSupported()) {
+        // If the deserialization of the specified option is not supported
+        // and an output vector of unsupported_options is provided, then
+        // we log the name of the unsupported option and proceed.
+        if (unsupported_options_names != nullptr) {
+          unsupported_options_names->push_back(o.first);
+        }
+        // Note that we still return Status::OK in such case to maintain
+        // the backward compatibility in the old public API defined in
+        // rocksdb/convenience.h
+      } else {
+        return s;
+      }
     }
   }
   return Status::OK();
@@ -1275,8 +1357,9 @@ Status GetOptionsFromString(const Options& base_options,
   DBOptions new_db_options(base_options);
   ColumnFamilyOptions new_cf_options(base_options);
   for (const auto& o : opts_map) {
-    if (ParseDBOption(o.first, o.second, &new_db_options)) {
-    } else if (ParseColumnFamilyOption(o.first, o.second, &new_cf_options)) {
+    if (ParseDBOption(o.first, o.second, &new_db_options).ok()) {
+    } else if (ParseColumnFamilyOption(
+        o.first, o.second, &new_cf_options).ok()) {
     } else {
       return Status::InvalidArgument("Can't parse option " + o.first);
     }

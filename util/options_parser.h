@@ -80,9 +80,9 @@ class RocksDBOptionsParser {
       const std::unordered_map<std::string, std::string>* new_opt_map = nullptr,
       OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
 
-  static Status VerifyTableFactory(const TableFactory* base_tf,
-                                   const TableFactory* file_tf,
-                                   OptionsSanityCheckLevel sanity_check_level);
+  static Status VerifyTableFactory(
+      const TableFactory* base_tf, const TableFactory* file_tf,
+      OptionsSanityCheckLevel sanity_check_level = kSanityLevelExactMatch);
 
   static Status VerifyBlockBasedTableFactory(
       const BlockBasedTableFactory* base_tf,

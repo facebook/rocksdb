@@ -168,6 +168,8 @@ class PlainTableFactory : public TableFactory {
     return Status::OK();
   }
 
+  void* GetOptions() override { return &table_options_; }
+
  private:
   PlainTableOptions table_options_;
 };
