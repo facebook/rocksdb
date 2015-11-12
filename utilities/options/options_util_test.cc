@@ -80,6 +80,12 @@ TEST_F(OptionsUtilTest, SaveAndLoad) {
     ASSERT_NOK(RocksDBOptionsParser::VerifyCFOptions(
         cf_opts[i], loaded_cf_descs[i].options));
   }
+
+  for (size_t i = 0; i < kCFCount; ++i) {
+    if (cf_opts[i].compaction_filter) {
+      delete cf_opts[i].compaction_filter;
+    }
+  }
 }
 
 }  // namespace rocksdb
