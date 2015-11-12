@@ -239,9 +239,12 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   env_->random_file_open_counter_.store(0);
   Reopen(options);
 
-  // As stats-update is disabled, we expect a very low
-  // number of random file open.
-  ASSERT_LT(env_->random_file_open_counter_.load(), 5);
+  // As stats-update is disabled, we expect a very low number of
+  // random file open.
+  // Note that this number must be changed accordingly if we change
+  // the number of files needed to be opened in the DB::Open process.
+  const int kMaxFileOpenCount = 10;
+  ASSERT_LT(env_->random_file_open_counter_.load(), kMaxFileOpenCount);
 
   // Repeat the reopen process, but this time we enable
   // stats-update.
@@ -251,7 +254,7 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
 
   // Since we do a normal stats update on db-open, there
   // will be more random open files.
-  ASSERT_GT(env_->random_file_open_counter_.load(), 5);
+  ASSERT_GT(env_->random_file_open_counter_.load(), kMaxFileOpenCount);
 }
 
 TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
