@@ -140,6 +140,8 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   std::unique_ptr<Iterator> iterh(db_->NewIterator(read_options, handles_[1]));
   std::string value(1024, 'a');
   bool file_iters_deleted = false;
+  bool file_iters_renewed_null = false;
+  bool file_iters_renewed_copy = false;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::SeekInternal:Return", [&](void* arg) {
         ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
@@ -152,6 +154,12 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
         ASSERT_TRUE(!file_iters_deleted ||
                     fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
       });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ForwardIterator::RenewIterators:Null",
+      [&](void* arg) { file_iters_renewed_null = true; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ForwardIterator::RenewIterators:Copy",
+      [&](void* arg) { file_iters_renewed_copy = true; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   const int num_records = 1000;
   for (int i = 1; i < num_records; ++i) {
@@ -203,6 +211,8 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
     ASSERT_LE(num_iters, 1);
     file_iters_deleted = false;
   }
+  ASSERT_TRUE(file_iters_renewed_null);
+  ASSERT_TRUE(file_iters_renewed_copy);
   iter = 0;
   itern = 0;
   iterh = 0;

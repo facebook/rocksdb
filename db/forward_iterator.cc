@@ -144,6 +144,23 @@ ForwardIterator::~ForwardIterator() {
   Cleanup(true);
 }
 
+void ForwardIterator::SVCleanup() {
+  if (sv_ != nullptr && sv_->Unref()) {
+    // Job id == 0 means that this is not our background process, but rather
+    // user thread
+    JobContext job_context(0);
+    db_->mutex_.Lock();
+    sv_->Cleanup();
+    db_->FindObsoleteFiles(&job_context, false, true);
+    db_->mutex_.Unlock();
+    delete sv_;
+    if (job_context.HaveSomethingToDelete()) {
+      db_->PurgeObsoleteFiles(job_context);
+    }
+    job_context.Clean();
+  }
+}
+
 void ForwardIterator::Cleanup(bool release_sv) {
   if (mutable_iter_ != nullptr) {
     mutable_iter_->~InternalIterator();
@@ -162,20 +179,7 @@ void ForwardIterator::Cleanup(bool release_sv) {
   level_iters_.clear();
 
   if (release_sv) {
-    if (sv_ != nullptr && sv_->Unref()) {
-      // Job id == 0 means that this is not our background process, but rather
-      // user thread
-      JobContext job_context(0);
-      db_->mutex_.Lock();
-      sv_->Cleanup();
-      db_->FindObsoleteFiles(&job_context, false, true);
-      db_->mutex_.Unlock();
-      delete sv_;
-      if (job_context.HaveSomethingToDelete()) {
-        db_->PurgeObsoleteFiles(job_context);
-      }
-      job_context.Clean();
-    }
+    SVCleanup();
   }
 }
 
@@ -185,9 +189,10 @@ bool ForwardIterator::Valid() const {
 }
 
 void ForwardIterator::SeekToFirst() {
-  if (sv_ == nullptr ||
-      sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
+  if (sv_ == nullptr) {
     RebuildIterators(true);
+  } else if (sv_->version_number != cfd_->GetSuperVersionNumber()) {
+    RenewIterators();
   } else if (immutable_status_.IsIncomplete()) {
     ResetIncompleteIterators();
   }
@@ -205,9 +210,10 @@ void ForwardIterator::Seek(const Slice& internal_key) {
   if (IsOverUpperBound(internal_key)) {
     valid_ = false;
   }
-  if (sv_ == nullptr ||
-      sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
+  if (sv_ == nullptr) {
     RebuildIterators(true);
+  } else if (sv_->version_number != cfd_->GetSuperVersionNumber()) {
+    RenewIterators();
   } else if (immutable_status_.IsIncomplete()) {
     ResetIncompleteIterators();
   }
@@ -227,7 +233,9 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
   // an option to turn it off.
   if (seek_to_first || NeedToSeekImmutable(internal_key)) {
     immutable_status_ = Status::OK();
-    if (has_iter_trimmed_for_upper_bound_) {
+    if ((has_iter_trimmed_for_upper_bound_) &&
+        (cfd_->internal_comparator().InternalKeyComparator::Compare(
+             prev_key_.GetKey(), internal_key) > 0)) {
       // Some iterators are trimmed. Need to rebuild.
       RebuildIterators(true);
       // Already seeked mutable iter, so seek again
@@ -393,7 +401,11 @@ void ForwardIterator::Next() {
     std::string current_key = key().ToString();
     Slice old_key(current_key.data(), current_key.size());
 
-    RebuildIterators(true);
+    if (sv_ == nullptr) {
+      RebuildIterators(true);
+    } else {
+      RenewIterators();
+    }
     SeekInternal(old_key, false);
     if (!valid_ || key().compare(old_key) != 0) {
       return;
@@ -485,26 +497,93 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd));
   }
   level_iters_.reserve(vstorage->num_levels() - 1);
+  BuildLevelIterators(vstorage);
+  current_ = nullptr;
+  is_prev_set_ = false;
+}
+
+void ForwardIterator::RenewIterators() {
+  SuperVersion* svnew;
+  assert(sv_);
+  svnew = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
+
+  if (mutable_iter_ != nullptr) {
+    mutable_iter_->~InternalIterator();
+  }
+  for (auto* m : imm_iters_) {
+    m->~InternalIterator();
+  }
+  imm_iters_.clear();
+
+  mutable_iter_ = svnew->mem->NewIterator(read_options_, &arena_);
+  svnew->imm->AddIterators(read_options_, &imm_iters_, &arena_);
+
+  const auto* vstorage = sv_->current->storage_info();
+  const auto& l0_files = vstorage->LevelFiles(0);
+  const auto* vstorage_new = svnew->current->storage_info();
+  const auto& l0_files_new = vstorage_new->LevelFiles(0);
+  uint32_t iold, inew;
+  bool found;
+  std::vector<InternalIterator*> l0_iters_new;
+  l0_iters_new.reserve(l0_files_new.size());
+
+  for (inew = 0; inew < l0_files_new.size(); inew++) {
+    found = false;
+    for (iold = 0; iold < l0_files.size(); iold++) {
+      if (l0_files[iold] == l0_files_new[inew]) {
+        found = true;
+        break;
+      }
+    }
+    if (found) {
+      if (l0_iters_[iold] == nullptr) {
+        l0_iters_new.push_back(nullptr);
+        TEST_SYNC_POINT_CALLBACK("ForwardIterator::RenewIterators:Null", this);
+      } else {
+        l0_iters_new.push_back(l0_iters_[iold]);
+        l0_iters_[iold] = nullptr;
+        TEST_SYNC_POINT_CALLBACK("ForwardIterator::RenewIterators:Copy", this);
+      }
+      continue;
+    }
+    l0_iters_new.push_back(cfd_->table_cache()->NewIterator(
+        read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
+        l0_files_new[inew]->fd));
+  }
+
+  for (auto* f : l0_iters_) {
+    delete f;
+  }
+  l0_iters_.clear();
+  l0_iters_ = l0_iters_new;
+
+  for (auto* l : level_iters_) {
+    delete l;
+  }
+  BuildLevelIterators(vstorage_new);
+  current_ = nullptr;
+  is_prev_set_ = false;
+  SVCleanup();
+  sv_ = svnew;
+}
+
+void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
   for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
     const auto& level_files = vstorage->LevelFiles(level);
-
     if ((level_files.empty()) ||
         ((read_options_.iterate_upper_bound != nullptr) &&
          (user_comparator_->Compare(*read_options_.iterate_upper_bound,
                                     level_files[0]->smallest.user_key()) <
           0))) {
-      level_iters_.push_back(nullptr);
+      level_iters_[level - 1] = nullptr;
       if (!level_files.empty()) {
         has_iter_trimmed_for_upper_bound_ = true;
       }
     } else {
-      level_iters_.push_back(
-          new LevelIterator(cfd_, read_options_, level_files));
+      level_iters_[level - 1] =
+          new LevelIterator(cfd_, read_options_, level_files);
     }
   }
-
-  current_ = nullptr;
-  is_prev_set_ = false;
 }
 
 void ForwardIterator::ResetIncompleteIterators() {

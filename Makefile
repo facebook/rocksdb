@@ -337,7 +337,7 @@ TOOLS = \
 	rocksdb_dump \
 	rocksdb_undump
 
-BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
+BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench forward_iterator_bench
 
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
@@ -976,6 +976,9 @@ ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+forward_iterator_bench: db/forward_iterator_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

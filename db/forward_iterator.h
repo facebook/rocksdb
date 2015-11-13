@@ -24,6 +24,7 @@ class Env;
 struct SuperVersion;
 class ColumnFamilyData;
 class LevelIterator;
+class VersionStorageInfo;
 struct FileMetaData;
 
 class MinIterComparator {
@@ -74,7 +75,10 @@ class ForwardIterator : public InternalIterator {
 
  private:
   void Cleanup(bool release_sv);
+  void SVCleanup();
   void RebuildIterators(bool refresh_sv);
+  void RenewIterators();
+  void BuildLevelIterators(const VersionStorageInfo* vstorage);
   void ResetIncompleteIterators();
   void SeekInternal(const Slice& internal_key, bool seek_to_first);
   void UpdateCurrent();
