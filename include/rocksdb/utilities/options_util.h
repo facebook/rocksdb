@@ -61,5 +61,20 @@ Status LoadOptionsFromFile(const std::string& options_file_name, Env* env,
 Status GetLatestOptionsFileName(const std::string& dbpath, Env* env,
                                 std::string* options_file_name);
 
+// Returns Status::OK if the input DBOptions and ColumnFamilyDescriptors
+// are compatible with the latest options stored in the specified DB path.
+//
+// If the return status is non-ok, it means the specified RocksDB instance
+// might not be correctly opened with the input set of options.  Currently,
+// changing one of the following options will fail the compatibility check:
+//
+// * comparator
+// * prefix_extractor
+// * table_factory
+// * merge_operator
+Status CheckOptionsCompatibility(
+    const std::string& dbpath, Env* env, const DBOptions& db_options,
+    const std::vector<ColumnFamilyDescriptor>& cf_descs);
+
 }  // namespace rocksdb
 #endif  // !ROCKSDB_LITE

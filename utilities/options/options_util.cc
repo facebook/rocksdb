@@ -72,5 +72,28 @@ Status LoadLatestOptions(const std::string& dbpath, Env* env,
                              db_options, cf_descs);
 }
 
+Status CheckOptionsCompatibility(
+    const std::string& dbpath, Env* env, const DBOptions& db_options,
+    const std::vector<ColumnFamilyDescriptor>& cf_descs) {
+  std::string options_file_name;
+  Status s = GetLatestOptionsFileName(dbpath, env, &options_file_name);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::vector<std::string> cf_names;
+  std::vector<ColumnFamilyOptions> cf_opts;
+  for (const auto& cf_desc : cf_descs) {
+    cf_names.push_back(cf_desc.name);
+    cf_opts.push_back(cf_desc.options);
+  }
+
+  const OptionsSanityCheckLevel kDefaultLevel = kSanityLevelLooselyCompatible;
+
+  return RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+      db_options, cf_names, cf_opts, dbpath + "/" + options_file_name, env,
+      kDefaultLevel);
+}
+
 }  // namespace rocksdb
 #endif  // !ROCKSDB_LITE
