@@ -112,6 +112,44 @@ class DelayFilterFactory : public CompactionFilterFactory {
 };
 }  // namespace
 
+// Make sure we don't trigger a problem if the trigger conditon is given
+// to be 0, which is invalid.
+TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
+  Options options;
+  options = CurrentOptions(options);
+
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = num_levels_;
+  // Config universal compaction to always compact to one single sorted run.
+  options.level0_file_num_compaction_trigger = 0;
+  options.compaction_options_universal.size_ratio = 10;
+  options.compaction_options_universal.min_merge_width = 2;
+  options.compaction_options_universal.max_size_amplification_percent = 1;
+
+  options.write_buffer_size = 105 << 10;  // 105KB
+  options.arena_block_size = 4 << 10;
+  options.target_file_size_base = 32 << 10;  // 32KB
+  // trigger compaction if there are >= 4 files
+  KeepFilterFactory* filter = new KeepFilterFactory(true);
+  filter->expect_manual_compaction_.store(false);
+  options.compaction_filter_factory.reset(filter);
+
+  DestroyAndReopen(options);
+  ASSERT_EQ(1, db_->GetOptions().level0_file_num_compaction_trigger);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  filter->expect_full_compaction_.store(true);
+
+  for (int num = 0; num < 16; num++) {
+    // Write 100KB file. And immediately it should be compacted to one file.
+    GenerateNewFile(&rnd, &key_idx);
+    dbfull()->TEST_WaitForCompact();
+    ASSERT_EQ(NumSortedRuns(0), 1);
+  }
+}
+
 // TODO(kailiu) The tests on UniversalCompaction has some issues:
 //  1. A lot of magic numbers ("11" or "12").
 //  2. Made assumption on the memtable flush conditions, which may change from

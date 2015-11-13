@@ -175,6 +175,12 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
     result.level0_stop_writes_trigger = std::numeric_limits<int>::max();
   }
 
+  if (result.level0_file_num_compaction_trigger == 0) {
+    Warn(db_options.info_log.get(),
+         "level0_file_num_compaction_trigger cannot be 0");
+    result.level0_file_num_compaction_trigger = 1;
+  }
+
   if (result.level0_stop_writes_trigger <
           result.level0_slowdown_writes_trigger ||
       result.level0_slowdown_writes_trigger <

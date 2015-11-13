@@ -1248,8 +1248,9 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   std::vector<SortedRun> sorted_runs =
       CalculateSortedRuns(*vstorage, ioptions_);
 
-  if (sorted_runs.size() <
-      (unsigned int)mutable_cf_options.level0_file_num_compaction_trigger) {
+  if (sorted_runs.size() == 0 ||
+      sorted_runs.size() <
+          (unsigned int)mutable_cf_options.level0_file_num_compaction_trigger) {
     LogToBuffer(log_buffer, "[%s] Universal: nothing to do\n", cf_name.c_str());
     return nullptr;
   }
