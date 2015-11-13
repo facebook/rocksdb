@@ -1772,7 +1772,9 @@ Status DBImpl::CompactFilesImpl(
   c.reset(cfd->compaction_picker()->FormCompaction(
       compact_options, input_files, output_level, version->storage_info(),
       *cfd->GetLatestMutableCFOptions(), output_path_id));
-  assert(c);
+  if (!c) {
+    return Status::Aborted("Another Level 0 compaction is running");
+  }
   c->SetInputVersion(version);
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
@@ -1801,6 +1803,8 @@ Status DBImpl::CompactFilesImpl(
   compaction_job.Prepare();
 
   mutex_.Unlock();
+  TEST_SYNC_POINT("CompactFilesImpl:0");
+  TEST_SYNC_POINT("CompactFilesImpl:1");
   compaction_job.Run();
   mutex_.Lock();
 
@@ -2559,7 +2563,7 @@ void DBImpl::BackgroundCallFlush() {
 void DBImpl::BackgroundCallCompaction() {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
-
+  TEST_SYNC_POINT("BackgroundCallCompaction:0");
   MaybeDumpStats();
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
@@ -2571,6 +2575,7 @@ void DBImpl::BackgroundCallCompaction() {
 
     assert(bg_compaction_scheduled_);
     Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer);
+    TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (!s.ok() && !s.IsShutdownInProgress()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
