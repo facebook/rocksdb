@@ -583,7 +583,7 @@ class DBTestBase : public testing::Test {
 
   uint64_t SizeAtLevel(int level);
 
-  int TotalLiveFiles(int cf = 0);
+  size_t TotalLiveFiles(int cf = 0);
 
   size_t CountLiveFiles();
 #endif  // ROCKSDB_LITE
