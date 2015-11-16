@@ -12,7 +12,6 @@
 
 #include "port/win/win_logger.h"
 
-#include <stdint.h>
 #include <algorithm>
 #include <stdio.h>
 #include <time.h>
@@ -20,8 +19,6 @@
 #include <atomic>
 
 #include "rocksdb/env.h"
-
-#include <Windows.h>
 
 #include "port/sys_time.h"
 #include "util/iostats_context_imp.h"
