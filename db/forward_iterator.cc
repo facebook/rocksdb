@@ -575,8 +575,8 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
          (user_comparator_->Compare(*read_options_.iterate_upper_bound,
                                     level_files[0]->smallest.user_key()) <
           0))) {
-      level_iters_[level - 1] = nullptr;
       if (!level_files.empty()) {
+        level_iters_[level - 1] = nullptr;
         has_iter_trimmed_for_upper_bound_ = true;
       }
     } else {
