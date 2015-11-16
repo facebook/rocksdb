@@ -576,14 +576,14 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
                                     level_files[0]->smallest.user_key()) <
           0))) {
 
-      if (level_iters_.size() >= level) {
+      if (level_iters_.size() >= size_t(level)) {
         level_iters_[level - 1] = nullptr;
       }
       if (!level_files.empty()) {
         has_iter_trimmed_for_upper_bound_ = true;
       }
     } else {
-      if (level_iters_.size() < level) {
+      if (level_iters_.size() < size_t(level)) {
         level_iters_.resize(level);
       }
       level_iters_[level - 1] =
