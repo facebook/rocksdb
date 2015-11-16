@@ -129,19 +129,19 @@ struct BlockBasedTableOptions {
   bool whole_key_filtering = true;
 
   // If true, block will not be explictly flushed to disk during building
-  // a SstTable. Instead, buffer in WritableFileWriter will take 
-  // care of the flushing when it is full. 
+  // a SstTable. Instead, buffer in WritableFileWriter will take
+  // care of the flushing when it is full.
   //
-  // On Windows, this option helps a lot when unbuffered I/O 
-  // (allow_os_buffer = false) is used, since it avoids small 
-  // unbuffered disk write. 
+  // On Windows, this option helps a lot when unbuffered I/O
+  // (allow_os_buffer = false) is used, since it avoids small
+  // unbuffered disk write.
   //
-  // User may also adjust writable_file_max_buffer_size to optimize disk I/O 
-  // size. 
+  // User may also adjust writable_file_max_buffer_size to optimize disk I/O
+  // size.
   //
   // Default: false
   bool skip_table_builder_flush = false;
-  
+
   // We currently have three versions:
   // 0 -- This version is currently written out by all RocksDB's versions by
   // default.  Can be read by really old RocksDB's. Doesn't support changing

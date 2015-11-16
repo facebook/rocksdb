@@ -565,7 +565,7 @@ public interface DBOptionsInterface {
    *    are older than WAL_ttl_seconds will be deleted.</li>
    * <li>If both are not 0, WAL files will be checked every 10 min and both
    *    checks will be performed with ttl being first.</li>
-   * </ol> 
+   * </ol>
    *
    * @param sizeLimitMB size limit in mega-bytes.
    * @return the instance of the current Object.

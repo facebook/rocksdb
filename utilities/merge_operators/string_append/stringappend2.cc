@@ -110,4 +110,3 @@ MergeOperators::CreateStringAppendTESTOperator() {
 }
 
 } // namespace rocksdb
-

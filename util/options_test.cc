@@ -535,10 +535,11 @@ TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
              &new_opt));
 
   // unrecognized EncodingType
-  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
-             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-             "encoding_type=kPrefixXX",
-             &new_opt));  
+  ASSERT_NOK(GetPlainTableOptionsFromString(
+      table_opt,
+      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+      "encoding_type=kPrefixXX",
+      &new_opt));
 }
 #endif  // !ROCKSDB_LITE
 

@@ -1153,7 +1153,7 @@ std::string ParsePlainTableOptions(const std::string& name,
                                    const std::string& org_value,
                                    PlainTableOptions* new_option,
                                    bool input_strings_escaped = false) {
-  const std::string& value = 
+  const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   const auto iter = plain_table_type_info.find(name);
   if (iter == plain_table_type_info.end()) {
@@ -1239,7 +1239,7 @@ Status GetPlainTableOptionsFromString(
   if (!s.ok()) {
     return s;
   }
-  return GetPlainTableOptionsFromMap(table_options, opts_map, 
+  return GetPlainTableOptionsFromMap(table_options, opts_map,
                                      new_table_options);
 }
 
@@ -1384,8 +1384,8 @@ Status GetTableFactoryFromMap(
     return Status::OK();
   } else if (factory_name == PlainTableFactory().Name()) {
     PlainTableOptions pt_opt;
-    s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, 
-                                    &pt_opt, true);
+    s = GetPlainTableOptionsFromMap(PlainTableOptions(), opt_map, &pt_opt,
+                                    true);
     if (!s.ok()) {
       return s;
     }

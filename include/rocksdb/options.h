@@ -1090,8 +1090,8 @@ struct DBOptions {
   size_t random_access_max_buffer_size;
 
   // This is the maximum buffer size that is used by WritableFileWriter.
-  // On Windows, we need to maintain an aligned buffer for writes. 
-  // We allow the buffer to grow until it's size hits the limit. 
+  // On Windows, we need to maintain an aligned buffer for writes.
+  // We allow the buffer to grow until it's size hits the limit.
   //
   // Default: 1024 * 1024 (1 MB)
   size_t writable_file_max_buffer_size;

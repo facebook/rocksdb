@@ -231,7 +231,7 @@ public interface ColumnFamilyOptionsInterface {
 
 
   /**
-   * Same as fixed length prefix extractor, except that when slice is 
+   * Same as fixed length prefix extractor, except that when slice is
    * shorter than the fixed length, it will use the full key.
    *
    * @param n use the first n bytes of a key as its prefix.

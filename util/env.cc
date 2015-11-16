@@ -296,8 +296,8 @@ void AssignEnvOptions(EnvOptions* env_options, const DBOptions& options) {
   env_options->random_access_max_buffer_size =
       options.random_access_max_buffer_size;
   env_options->rate_limiter = options.rate_limiter.get();
-  env_options->writable_file_max_buffer_size = 
-                  options.writable_file_max_buffer_size;
+  env_options->writable_file_max_buffer_size =
+      options.writable_file_max_buffer_size;
   env_options->allow_fallocate = options.allow_fallocate;
 }
 

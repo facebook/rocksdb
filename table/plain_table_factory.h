@@ -151,7 +151,7 @@ class PlainTableFactory : public TableFactory {
                         unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size,
                         unique_ptr<TableReader>* table) const override;
-  
+
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;

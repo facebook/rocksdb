@@ -67,7 +67,7 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
   using namespace std::chrono;
 
   // MSVC++ library implements wait_until in terms of wait_for so
-  // we need to convert absoulte wait into relative wait.
+  // we need to convert absolute wait into relative wait.
   microseconds usAbsTime(abs_time_us);
 
   microseconds usNow(

@@ -610,7 +610,7 @@ class WinSequentialFile : public SequentialFile {
   HANDLE file_;
 
   // There is no equivalent of advising away buffered pages as in posix.
-  // To implement this flag we would need to do unbuffered reads which 
+  // To implement this flag we would need to do unbuffered reads which
   // will need to be aligned (not sure there is a guarantee that the buffer
   // passed in is aligned).
   // Hence we currently ignore this flag. It is used only in a few cases
@@ -970,8 +970,7 @@ class WinWritableFile : public WritableFile {
   virtual Status PositionedAppend(const Slice& data, uint64_t offset) override {
     Status s;
 
-    SSIZE_T ret = pwrite(hFile_, data.data(), 
-      data.size(), offset);
+    SSIZE_T ret = pwrite(hFile_, data.data(), data.size(), offset);
 
     // Error break
     if (ret < 0) {
