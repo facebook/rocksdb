@@ -2,17 +2,23 @@
 
 ## Unreleased
 ### New Features
-* Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions. 
-* Add GetAggregatedIntProperty(), which returns the sum of the GetIntProperty of all the column families. 
-* Add MemoryUtil in rocksdb/utilities/memory.h.  It currently offers a way to get the memory usage by type from a list rocksdb instances.
 * RocksDB will now persist options under the same directory as the RocksDB database on successful DB::Open, CreateColumnFamily, DropColumnFamily, and SetOptions.
 * Introduce LoadLatestOptions() in rocksdb/utilities/options_util.h.  This function can construct the latest DBOptions / ColumnFamilyOptions used by the specified RocksDB intance.
 * Introduce CheckOptionsCompatibility() in rocksdb/utilities/options_util.h.  This function checks whether the input set of options is able to open the specified DB successfully.
+
+### Public API Changes
+## 4.2.0 (11/9/2015)
+### New Features
+* Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions. 
+* Add GetAggregatedIntProperty(), which returns the sum of the GetIntProperty of all the column families. 
+* Add MemoryUtil in rocksdb/utilities/memory.h.  It currently offers a way to get the memory usage by type from a list rocksdb instances.
+
 ### Public API Changes
 * CompactionFilter::Context includes information of Column Family ID
 * The need-compaction hint given by TablePropertiesCollector::NeedCompact() will be persistent and recoverable after DB recovery. This introduces a breaking format change. If you use this experimental feature, including NewCompactOnDeletionCollectorFactory() in the new version, you may not be able to directly downgrade the DB back to version 4.0 or lower.
 * TablePropertiesCollectorFactory::CreateTablePropertiesCollector() now takes an option Context, containing the information of column family ID for the file being written.
 * Remove DefaultCompactionFilterFactory.
+
 
 ## 4.1.0 (10/8/2015)
 ### New Features
