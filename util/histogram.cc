@@ -74,7 +74,7 @@ namespace {
 }
 
 void HistogramImpl::Clear() {
-  min_ = bucketMapper.LastValue();
+  min_ = static_cast<double>(bucketMapper.LastValue());
   max_ = 0;
   num_ = 0;
   sum_ = 0;
@@ -87,8 +87,8 @@ bool HistogramImpl::Empty() { return num_ == 0; }
 void HistogramImpl::Add(uint64_t value) {
   const size_t index = bucketMapper.IndexForValue(value);
   buckets_[index] += 1;
-  if (min_ > value) min_ = value;
-  if (max_ < value) max_ = value;
+  if (min_ > value) min_ = static_cast<double>(value);
+  if (max_ < value) max_ = static_cast<double>(value);
   num_++;
   sum_ += value;
   sum_squares_ += (value * value);
@@ -116,8 +116,8 @@ double HistogramImpl::Percentile(double p) const {
     sum += buckets_[b];
     if (sum >= threshold) {
       // Scale linearly within this bucket
-      double left_point = (b == 0) ? 0 : bucketMapper.BucketLimit(b-1);
-      double right_point = bucketMapper.BucketLimit(b);
+      double left_point = static_cast<double>((b == 0) ? 0 : bucketMapper.BucketLimit(b-1));
+      double right_point = static_cast<double>(bucketMapper.BucketLimit(b));
       double left_sum = sum - buckets_[b];
       double right_sum = sum;
       double pos = 0;

@@ -755,7 +755,10 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
 
   if (num_samples_ < file_count) {
     // casting to avoid overflowing
-    return (est * static_cast<double>(file_count) / num_samples_);
+    return 
+      static_cast<uint64_t>(
+        (est * static_cast<double>(file_count) / num_samples_)
+      );
   } else {
     return est;
   }
