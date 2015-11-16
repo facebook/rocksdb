@@ -285,7 +285,6 @@ target_link_libraries(rocksdb${ARTIFACT_SUFFIX} ${LIBS})
 
 set(APPS
         db/db_bench.cc
-        db/forward_iterator_bench.cc
         db/memtablerep_bench.cc
         table/table_reader_bench.cc
         tools/db_stress.cc
