@@ -1850,6 +1850,9 @@ Status DBImpl::PauseBackgroundWork() {
 
 Status DBImpl::ContinueBackgroundWork() {
   InstrumentedMutexLock guard_lock(&mutex_);
+  if (bg_work_paused_ == 0) {
+    return Status::InvalidArgument();
+  }
   assert(bg_work_paused_ > 0);
   bg_work_paused_--;
   if (bg_work_paused_ == 0) {
