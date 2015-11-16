@@ -500,7 +500,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
                  &get_context);
     }
   }
-  float time_per_op = (env->NowMicros() - start_time) * 1.0 / num;
+  float time_per_op = (env->NowMicros() - start_time) * 1.0f / num;
   fprintf(stderr,
       "Time taken per op is %.3fus (%.1f Mqps) with batch size of %u\n",
       time_per_op, 1.0 / time_per_op, batch_size);

@@ -8,7 +8,10 @@
 namespace rocksdb {
 
 namespace {
-inline double SafeDivide(double a, double b) { return b == 0.0 ? 0 : a / b; }
+template<class T>
+inline T SafeDivide(T a, T b) {
+  return b == 0 ? 0 : a / b;
+}
 }  // namespace
 
 void EventHelpers::AppendCurrentTime(JSONWriter* jwriter) {

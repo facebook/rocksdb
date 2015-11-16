@@ -1166,15 +1166,15 @@ class ReporterAgent {
 class Stats {
  private:
   int id_;
-  double start_;
-  double finish_;
+  uint64_t start_;
+  uint64_t finish_;
   double seconds_;
-  int64_t done_;
-  int64_t last_report_done_;
-  int64_t next_report_;
-  int64_t bytes_;
-  double last_op_finish_;
-  double last_report_finish_;
+  uint64_t done_;
+  uint64_t last_report_done_;
+  uint64_t next_report_;
+  uint64_t bytes_;
+  uint64_t last_op_finish_;
+  uint64_t last_report_finish_;
   HistogramImpl hist_;
   std::string message_;
   bool exclude_from_merge_;
@@ -1266,11 +1266,11 @@ class Stats {
       reporter_agent_->ReportFinishedOps(num_ops);
     }
     if (FLAGS_histogram) {
-      double now = FLAGS_env->NowMicros();
-      double micros = now - last_op_finish_;
+      uint64_t now = FLAGS_env->NowMicros();
+      uint64_t micros = now - last_op_finish_;
       hist_.Add(micros);
       if (micros > 20000 && !FLAGS_stats_interval) {
-        fprintf(stderr, "long op: %.1f micros%30s\r", micros, "");
+        fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
         fflush(stderr);
       }
       last_op_finish_ = now;
@@ -1288,7 +1288,7 @@ class Stats {
         else                            next_report_ += 100000;
         fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
       } else {
-        double now = FLAGS_env->NowMicros();
+        uint64_t now = FLAGS_env->NowMicros();
         int64_t usecs_since_last = now - last_report_finish_;
 
         // Determine whether to print status where interval is either
@@ -1304,7 +1304,7 @@ class Stats {
           fprintf(stderr,
                   "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
                   "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
-                  FLAGS_env->TimeToString((uint64_t) now/1000000).c_str(),
+                  FLAGS_env->TimeToString(now/1000000).c_str(),
                   id_,
                   done_ - last_report_done_, done_,
                   (done_ - last_report_done_) /
@@ -1471,8 +1471,8 @@ class Duration {
     if (max_seconds_) {
       // Recheck every appx 1000 ops (exact iff increment is factor of 1000)
       if ((ops_/1000) != ((ops_-increment)/1000)) {
-        double now = FLAGS_env->NowMicros();
-        return ((now - start_at_) / 1000000.0) >= max_seconds_;
+        uint64_t now = FLAGS_env->NowMicros();
+        return ((now - start_at_) / 1000000) >= max_seconds_;
       } else {
         return false;
       }
@@ -1486,7 +1486,7 @@ class Duration {
   int64_t max_ops_;
   int64_t ops_per_stage_;
   int64_t ops_;
-  double start_at_;
+  uint64_t start_at_;
 };
 
 class Benchmark {
@@ -3173,7 +3173,7 @@ class Benchmark {
   void BGWriter(ThreadState* thread, enum PutOrMerge write_merge) {
     // Special thread that keeps writing until other threads are done.
     RandomGenerator gen;
-    double last = FLAGS_env->NowMicros();
+    uint64_t last = FLAGS_env->NowMicros();
     int writes_per_second_by_10 = 0;
     int num_writes = 0;
     int64_t bytes = 0;
@@ -3218,14 +3218,14 @@ class Benchmark {
 
       ++num_writes;
       if (writes_per_second_by_10 && num_writes >= writes_per_second_by_10) {
-        double now = FLAGS_env->NowMicros();
-        double usecs_since_last = now - last;
+        uint64_t now = FLAGS_env->NowMicros();
+        uint64_t usecs_since_last = now - last;
 
         num_writes = 0;
         last = now;
 
-        if (usecs_since_last < 100000.0) {
-          FLAGS_env->SleepForMicroseconds(100000.0 - usecs_since_last);
+        if (usecs_since_last < 100000) {
+          FLAGS_env->SleepForMicroseconds(static_cast<int>(100000 - usecs_since_last));
           last = FLAGS_env->NowMicros();
         }
       }

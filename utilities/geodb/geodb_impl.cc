@@ -352,8 +352,8 @@ Status GeoDBImpl::searchQuadIds(const GeoPosition& position,
   Pixel bottomRight =  PositionToPixel(bottomRightPos, Detail);
 
   // how many level of details to look for
-  int numberOfTilesAtMaxDepth = floor((bottomRight.x - topLeft.x) / 256);
-  int zoomLevelsToRise = floor(::log(numberOfTilesAtMaxDepth) / ::log(2));
+  int numberOfTilesAtMaxDepth = static_cast<int>(floor((bottomRight.x - topLeft.x) / 256));
+  int zoomLevelsToRise = static_cast<int>(floor(::log(numberOfTilesAtMaxDepth) / ::log(2)));
   zoomLevelsToRise++;
   int levels = std::max(0, Detail - zoomLevelsToRise);
 
@@ -408,8 +408,8 @@ GeoPosition GeoDBImpl::PixelToPosition(const Pixel& pixel, int levelOfDetail) {
 
 // Converts a Pixel to a Tile
 GeoDBImpl::Tile GeoDBImpl::PixelToTile(const Pixel& pixel) {
-  unsigned int tileX = floor(pixel.x / 256);
-  unsigned int tileY = floor(pixel.y / 256);
+  unsigned int tileX = static_cast<unsigned int>(floor(pixel.x / 256));
+  unsigned int tileY = static_cast<unsigned int>(floor(pixel.y / 256));
   return Tile(tileX, tileY);
 }
 

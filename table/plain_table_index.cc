@@ -117,7 +117,7 @@ void PlainTableIndexBuilder::AllocateIndex() {
     index_size_ = 1;
   } else {
     double hash_table_size_multipier = 1.0 / hash_table_ratio_;
-    index_size_ = num_prefixes_ * hash_table_size_multipier + 1;
+    index_size_ = static_cast<uint32_t>(num_prefixes_ * hash_table_size_multipier) + 1;
     assert(index_size_ > 0);
   }
 }
@@ -186,7 +186,7 @@ Slice PlainTableIndexBuilder::FillIndexes(
         index[i] = sub_index_offset | PlainTableIndex::kSubIndexMask;
         char* prev_ptr = &sub_index[sub_index_offset];
         char* cur_ptr = EncodeVarint32(prev_ptr, num_keys_for_bucket);
-        sub_index_offset += (cur_ptr - prev_ptr);
+        sub_index_offset += static_cast<uint32_t>(cur_ptr - prev_ptr);
         char* sub_index_pos = &sub_index[sub_index_offset];
         IndexRecord* record = hash_to_offsets[i];
         int j;
