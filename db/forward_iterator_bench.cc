@@ -35,8 +35,8 @@ int main() {
 
 const int MAX_SHARDS = 100000;
 
-DEFINE_int64(writers, 8, "");
-DEFINE_int64(readers, 8, "");
+DEFINE_int32(writers, 8, "");
+DEFINE_int32(readers, 8, "");
 DEFINE_int64(rate, 100000, "");
 DEFINE_int64(value_size, 300, "");
 DEFINE_int64(shards, 1000, "");
@@ -48,12 +48,12 @@ DEFINE_bool(cache_only_first, true, "");
 DEFINE_bool(iterate_upper_bound, true, "");
 
 struct Stats {
-  char pad1[128];
+  char pad1[128] __attribute__((__unused__));
   std::atomic<uint64_t> written{0};
-  char pad2[128];
+  char pad2[128] __attribute__((__unused__));
   std::atomic<uint64_t> read{0};
   std::atomic<uint64_t> cache_misses{0};
-  char pad3[128];
+  char pad3[128] __attribute__((__unused__));
 } stats;
 
 struct Key {
@@ -73,17 +73,17 @@ struct Reader;
 struct Writer;
 
 struct ShardState {
-  char pad1[128];
+  char pad1[128] __attribute__((__unused__));
   std::atomic<uint64_t> last_written{0};
   Writer* writer;
   Reader* reader;
-  char pad2[128];
+  char pad2[128] __attribute__((__unused__));
   std::atomic<uint64_t> last_read{0};
   std::unique_ptr<rocksdb::Iterator> it;
   std::unique_ptr<rocksdb::Iterator> it_cacheonly;
   Key upper_bound;
   rocksdb::Slice upper_bound_slice;
-  char pad3[128];
+  char pad3[128] __attribute__((__unused__));
 };
 
 struct Reader {
@@ -187,7 +187,7 @@ struct Reader {
   }
 
  private:
-  char pad1[128];
+  char pad1[128] __attribute__((__unused__));
   std::vector<ShardState>* shard_states_;
   rocksdb::DB* db_;
   std::thread thread_;
@@ -196,7 +196,7 @@ struct Reader {
   std::bitset<MAX_SHARDS + 1> shards_pending_set_;
   std::queue<uint64_t> shards_pending_queue_;
   std::atomic<bool> done_{false};
-  char pad2[128];
+  char pad2[128] __attribute__((__unused__));
 };
 
 struct Writer {
@@ -218,7 +218,8 @@ struct Writer {
     }
 
     std::mt19937 rng{std::random_device()()};
-    std::uniform_int_distribution<int> shard_dist(0, my_shards.size() - 1);
+    std::uniform_int_distribution<int> shard_dist(
+        0, static_cast<int>(my_shards.size()) - 1);
     std::string value(FLAGS_value_size, '*');
 
     while (1) {
@@ -256,11 +257,11 @@ struct Writer {
   ~Writer() { thread_.join(); }
 
  private:
-  char pad1[128];
+  char pad1[128] __attribute__((__unused__));
   std::vector<ShardState>* shard_states_;
   rocksdb::DB* db_;
   std::thread thread_;
-  char pad2[128];
+  char pad2[128] __attribute__((__unused__));
 };
 
 struct StatsThread {
