@@ -7,15 +7,13 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#ifndef GFLAGS
+#if !defined(GFLAGS) || defined(ROCKSDB_LITE)
 #include <cstdio>
 int main() {
   fprintf(stderr, "Please install gflags to run rocksdb tools\n");
   return 1;
 }
 #else
-
-#ifndef ROCKSDB_LITE
 #include <gflags/gflags.h>
 #include <semaphore.h>
 #include <atomic>
@@ -369,7 +367,4 @@ int main(int argc, char** argv) {
   writers.clear();
   readers.clear();
 }
-
-#endif  // ROCKSDB_LITE
-
-#endif  // GFLAGS
+#endif  // !defined(GFLAGS) || defined(ROCKSDB_LITE)
