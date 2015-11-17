@@ -5184,9 +5184,11 @@ class RecoveryTestHelper {
     test->Close();
 #endif
     if (trunc) {
-      ASSERT_EQ(0, truncate(fname.c_str(), static_cast<int64_t>(size * off)));
+      ASSERT_EQ(0, truncate(fname.c_str(),
+        static_cast<int64_t>(size * off)));
     } else {
-      InduceCorruption(fname, static_cast<size_t>(size * off), static_cast<size_t>(size * len));
+      InduceCorruption(fname, static_cast<size_t>(size * off),
+        static_cast<size_t>(size * len));
     }
   }
 

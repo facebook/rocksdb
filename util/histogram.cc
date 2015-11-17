@@ -116,8 +116,10 @@ double HistogramImpl::Percentile(double p) const {
     sum += buckets_[b];
     if (sum >= threshold) {
       // Scale linearly within this bucket
-      double left_point = static_cast<double>((b == 0) ? 0 : bucketMapper.BucketLimit(b-1));
-      double right_point = static_cast<double>(bucketMapper.BucketLimit(b));
+      double left_point = 
+        static_cast<double>((b == 0) ? 0 : bucketMapper.BucketLimit(b-1));
+      double right_point = 
+        static_cast<double>(bucketMapper.BucketLimit(b));
       double left_sum = sum - buckets_[b];
       double right_sum = sum;
       double pos = 0;

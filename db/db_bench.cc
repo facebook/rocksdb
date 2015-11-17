@@ -1454,7 +1454,7 @@ struct ThreadState {
 
 class Duration {
  public:
-  Duration(int max_seconds, int64_t max_ops, int64_t ops_per_stage = 0) {
+  Duration(uint64_t max_seconds, int64_t max_ops, int64_t ops_per_stage = 0) {
     max_seconds_ = max_seconds;
     max_ops_= max_ops;
     ops_per_stage_ = (ops_per_stage > 0) ? ops_per_stage : max_ops;
@@ -1482,7 +1482,7 @@ class Duration {
   }
 
  private:
-  int max_seconds_;
+  uint64_t max_seconds_;
   int64_t max_ops_;
   int64_t ops_per_stage_;
   int64_t ops_;
