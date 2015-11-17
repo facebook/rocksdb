@@ -327,15 +327,19 @@ class SpecialEnv : public EnvWrapper {
 
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
-    if (no_sleep_) {
+    if (no_sleep_ || time_elapse_only_sleep_) {
       addon_time_.fetch_add(micros);
-    } else {
+    }
+    if (!no_sleep_) {
       target()->SleepForMicroseconds(micros);
     }
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
-    Status s = target()->GetCurrentTime(unix_time);
+    Status s;
+    if (!time_elapse_only_sleep_) {
+      s = target()->GetCurrentTime(unix_time);
+    }
     if (s.ok()) {
       *unix_time += addon_time_.load();
     }
@@ -343,11 +347,13 @@ class SpecialEnv : public EnvWrapper {
   }
 
   virtual uint64_t NowNanos() override {
-    return target()->NowNanos() + addon_time_.load() * 1000;
+    return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
+           addon_time_.load() * 1000;
   }
 
   virtual uint64_t NowMicros() override {
-    return target()->NowMicros() + addon_time_.load();
+    return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
+           addon_time_.load();
   }
 
   Random rnd_;
@@ -399,6 +405,9 @@ class SpecialEnv : public EnvWrapper {
   std::function<void()>* table_write_callback_;
 
   std::atomic<int64_t> addon_time_;
+
+  bool time_elapse_only_sleep_;
+
   bool no_sleep_;
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};

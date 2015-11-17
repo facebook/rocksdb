@@ -8237,16 +8237,18 @@ TEST_F(DBTest, CloseSpeedup) {
   Destroy(options);
 }
 
-class DelayedMergeOperator : public AssociativeMergeOperator {
+class DelayedMergeOperator : public MergeOperator {
  private:
   DBTest* db_test_;
 
  public:
   explicit DelayedMergeOperator(DBTest* d) : db_test_(d) {}
-  virtual bool Merge(const Slice& key, const Slice* existing_value,
-                     const Slice& value, std::string* new_value,
-                     Logger* logger) const override {
+  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
+                         const std::deque<std::string>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const override {
     db_test_->env_->addon_time_.fetch_add(1000);
+    *new_value = "";
     return true;
   }
 
@@ -8262,6 +8264,8 @@ TEST_F(DBTest, MergeTestTime) {
   // Enable time profiling
   SetPerfLevel(kEnableTime);
   this->env_->addon_time_.store(0);
+  this->env_->time_elapse_only_sleep_ = true;
+  this->env_->no_sleep_ = true;
   Options options;
   options = CurrentOptions(options);
   options.statistics = rocksdb::CreateDBStatistics();
@@ -8282,11 +8286,7 @@ TEST_F(DBTest, MergeTestTime) {
   std::string result;
   db_->Get(opt, "foo", &result);
 
-  ASSERT_GT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 1200000);
-  // Counter upper bound depends on platform. Just check a conservative
-  // large value.
-  ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME),
-            1000000000);
+  ASSERT_EQ(1000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
 
   ReadOptions read_options;
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
@@ -8297,15 +8297,11 @@ TEST_F(DBTest, MergeTestTime) {
   }
 
   ASSERT_EQ(1, count);
-
-  ASSERT_GT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 3200000);
-  // Counter upper bound depends on platform. Just check a conservative
-  // large value.
-  ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME),
-            1000000000);
+  ASSERT_EQ(2000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
 #if ROCKSDB_USING_THREAD_STATUS
   ASSERT_GT(TestGetTickerCount(options, FLUSH_WRITE_BYTES), 0);
 #endif  // ROCKSDB_USING_THREAD_STATUS
+  this->env_->time_elapse_only_sleep_ = false;
 }
 
 #ifndef ROCKSDB_LITE
