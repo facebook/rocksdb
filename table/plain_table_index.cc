@@ -117,7 +117,8 @@ void PlainTableIndexBuilder::AllocateIndex() {
     index_size_ = 1;
   } else {
     double hash_table_size_multipier = 1.0 / hash_table_ratio_;
-    index_size_ = static_cast<uint32_t>(num_prefixes_ * hash_table_size_multipier) + 1;
+    index_size_ = 
+      static_cast<uint32_t>(num_prefixes_ * hash_table_size_multipier) + 1;
     assert(index_size_ > 0);
   }
 }

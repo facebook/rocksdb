@@ -40,7 +40,8 @@ void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   seconds secNow(duration_cast<seconds>(usNow));
 
   tv->tv_sec = static_cast<long>(secNow.count());
-  tv->tv_usec = static_cast<long>(usNow.count() - duration_cast<microseconds>(secNow).count());
+  tv->tv_usec = static_cast<long>(usNow.count() - 
+      duration_cast<microseconds>(secNow).count());
 }
 
 Mutex::~Mutex() {}

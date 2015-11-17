@@ -248,7 +248,8 @@ Status CuckooTableBuilder::Finish() {
   if (num_entries_ > 0) {
     // Calculate the real hash size if module hash is enabled.
     if (use_module_hash_) {
-      hash_table_size_ = static_cast<uint64_t>(num_entries_ / max_hash_table_ratio_);
+      hash_table_size_ = 
+        static_cast<uint64_t>(num_entries_ / max_hash_table_ratio_);
     }
     s = MakeHashTable(&buckets);
     if (!s.ok()) {
