@@ -63,6 +63,14 @@ ifeq ($(MAKECMDGOALS),rocksdbjavastatic)
 	DEBUG_LEVEL=0
 endif
 
+ifeq ($(MAKECMDGOALS),rocksdbjavastaticrelease)
+	DEBUG_LEVEL=0
+endif
+
+ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
+	DEBUG_LEVEL=0
+endif
+
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
 OPT += -O2 -fno-omit-frame-pointer
