@@ -13,6 +13,9 @@ int main() {
   fprintf(stderr, "Please install gflags to run rocksdb tools\n");
   return 1;
 }
+#elif defined(OS_MACOSX) || defined(OS_WIN)
+// Block forward_iterator_bench under MAC and Windows
+int main() { return 0; }
 #else
 #include <gflags/gflags.h>
 #include <semaphore.h>
