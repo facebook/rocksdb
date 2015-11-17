@@ -496,7 +496,6 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
     l0_iters_.push_back(cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd));
   }
-  level_iters_.reserve(vstorage->num_levels() - 1);
   BuildLevelIterators(vstorage);
   current_ = nullptr;
   is_prev_set_ = false;
@@ -560,6 +559,7 @@ void ForwardIterator::RenewIterators() {
   for (auto* l : level_iters_) {
     delete l;
   }
+  level_iters_.clear();
   BuildLevelIterators(vstorage_new);
   current_ = nullptr;
   is_prev_set_ = false;
@@ -568,6 +568,7 @@ void ForwardIterator::RenewIterators() {
 }
 
 void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
+  level_iters_.reserve(vstorage->num_levels() - 1);
   for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
     const auto& level_files = vstorage->LevelFiles(level);
     if ((level_files.empty()) ||
@@ -575,13 +576,13 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
          (user_comparator_->Compare(*read_options_.iterate_upper_bound,
                                     level_files[0]->smallest.user_key()) <
           0))) {
+      level_iters_.push_back(nullptr);
       if (!level_files.empty()) {
-        level_iters_[level - 1] = nullptr;
         has_iter_trimmed_for_upper_bound_ = true;
       }
     } else {
-      level_iters_[level - 1] =
-          new LevelIterator(cfd_, read_options_, level_files);
+      level_iters_.push_back(
+          new LevelIterator(cfd_, read_options_, level_files));
     }
   }
 }
