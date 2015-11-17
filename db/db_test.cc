@@ -8282,8 +8282,11 @@ TEST_F(DBTest, MergeTestTime) {
   std::string result;
   db_->Get(opt, "foo", &result);
 
-  ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 2800000);
   ASSERT_GT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 1200000);
+  // Counter upper bound depends on platform. Just check a conservative
+  // large value.
+  ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME),
+            1000000000);
 
   ReadOptions read_options;
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
@@ -8295,8 +8298,11 @@ TEST_F(DBTest, MergeTestTime) {
 
   ASSERT_EQ(1, count);
 
-  ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 6000000);
   ASSERT_GT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 3200000);
+  // Counter upper bound depends on platform. Just check a conservative
+  // large value.
+  ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME),
+            1000000000);
 #if ROCKSDB_USING_THREAD_STATUS
   ASSERT_GT(TestGetTickerCount(options, FLUSH_WRITE_BYTES), 0);
 #endif  // ROCKSDB_USING_THREAD_STATUS
