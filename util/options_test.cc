@@ -17,6 +17,7 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/convenience.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "util/options_helper.h"
 #include "util/options_parser.h"
@@ -448,6 +449,14 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
             &new_cf_opt));
   ASSERT_TRUE(new_cf_opt.table_factory != nullptr);
   ASSERT_EQ(std::string(new_cf_opt.table_factory->Name()), "PlainTable");
+
+  // memtable factory
+  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
+            "write_buffer_size=10;max_write_buffer_number=16;"
+            "memtable=skip_list:10;arena_block_size=1024",
+            &new_cf_opt));
+  ASSERT_TRUE(new_cf_opt.memtable_factory != nullptr);
+  ASSERT_EQ(std::string(new_cf_opt.memtable_factory->Name()), "SkipListFactory");
 }
 #endif  // !ROCKSDB_LITE
 
@@ -535,11 +544,49 @@ TEST_F(OptionsTest, GetPlainTableOptionsFromString) {
              &new_opt));
 
   // unrecognized EncodingType
-  ASSERT_NOK(GetPlainTableOptionsFromString(
-      table_opt,
-      "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
-      "encoding_type=kPrefixXX",
-      &new_opt));
+  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
+             "user_key_len=66;bloom_bits_per_key=20;hash_table_ratio=0.5;"
+             "encoding_type=kPrefixXX",
+             &new_opt));
+}
+#endif  // !ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE  // GetMemTableRepFactoryFromString is not supported
+TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
+  std::unique_ptr<MemTableRepFactory> new_mem_factory = nullptr;
+
+  ASSERT_OK(GetMemTableRepFactoryFromString("skip_list", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("skip_list:16", &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "SkipListFactory");
+  ASSERT_NOK(GetMemTableRepFactoryFromString("skip_list:16:invalid_opt",
+                                             &new_mem_factory));
+
+  ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("prefix_hash:1000",
+                                            &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "HashSkipListRepFactory");
+  ASSERT_NOK(GetMemTableRepFactoryFromString("prefix_hash:1000:invalid_opt",
+                                             &new_mem_factory));
+
+  ASSERT_OK(GetMemTableRepFactoryFromString("hash_linkedlist",
+                                            &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("hash_linkedlist:1000",
+                                            &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "HashLinkListRepFactory");
+  ASSERT_NOK(GetMemTableRepFactoryFromString("hash_linkedlist:1000:invalid_opt",
+                                             &new_mem_factory));
+
+  ASSERT_OK(GetMemTableRepFactoryFromString("vector", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("vector:1024", &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "VectorRepFactory");
+  ASSERT_NOK(GetMemTableRepFactoryFromString("vector:1024:invalid_opt",
+                                             &new_mem_factory));
+
+  ASSERT_NOK(GetMemTableRepFactoryFromString("cuckoo", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString("cuckoo:1024", &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "HashCuckooRepFactory");
+
+  ASSERT_NOK(GetMemTableRepFactoryFromString("bad_factory", &new_mem_factory));
 }
 #endif  // !ROCKSDB_LITE
 

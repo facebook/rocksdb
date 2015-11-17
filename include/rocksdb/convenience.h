@@ -85,6 +85,10 @@ Status GetPlainTableOptionsFromString(
     const std::string& opts_str,
     PlainTableOptions* new_table_options);
 
+Status GetMemTableRepFactoryFromString(
+    const std::string& opts_str,
+    std::unique_ptr<MemTableRepFactory>* new_mem_factory);
+
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options);
 
