@@ -449,7 +449,10 @@ void CompactorCommand::DoCommand() {
     end = new Slice(to_);
   }
 
-  db_->CompactRange(CompactRangeOptions(), begin, end);
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+
+  db_->CompactRange(cro, begin, end);
   exec_state_ = LDBCommandExecuteResult::Succeed("");
 
   delete begin;
