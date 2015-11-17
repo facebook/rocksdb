@@ -299,7 +299,7 @@ if($Rerun.Count -gt 0) {
     Write-Host "Rerunning " ($Rerun.Count) " tests sequentially"
     $success = $true
     $count = 0
-    RunJobs -TestToLog $Rerun -ConcurrencyVal $Concurrency -AddForRerun $false
+    RunJobs -TestToLog $Rerun -ConcurrencyVal 1 -AddForRerun $false
 }
 
 Get-Date
