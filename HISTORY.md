@@ -1,6 +1,6 @@
 # Rocksdb Change Log
 
-## Unreleased
+## 4.2.0 (11/9/2015)
 ### New Features
 * Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions. 
 * Add GetAggregatedIntProperty(), which returns the sum of the GetIntProperty of all the column families. 
