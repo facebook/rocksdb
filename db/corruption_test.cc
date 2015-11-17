@@ -137,7 +137,7 @@ class CorruptionTest : public testing::Test {
     delete iter;
 
     fprintf(stderr,
-      "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%" PRIu64 "\n",
+      "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%llu\n",
             min_expected, max_expected, correct, bad_keys, bad_values, missed);
     ASSERT_LE(min_expected, correct);
     ASSERT_GE(max_expected, correct);
