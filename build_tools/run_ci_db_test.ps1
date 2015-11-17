@@ -126,7 +126,7 @@ function Normalize-DbTests($HashTable) {
 function MakeAndAdd([string]$token, $HashTable) {
     $test_name = $token -replace '.exe$', ''
     $log_name =  -join ($test_name, ".log")
-    if(!$ExcludeTests.Contains($test)) {
+    if(!$ExcludeTests.Contains($test_name)) {
         $HashTable.Add($test_name, $log_name)
     } else {
         Write-Warning "Test $test_name is excluded"
