@@ -16,6 +16,9 @@
 
 #include "rocksdb/env.h"
 
+#include <stdint.h>
+#include <Windows.h>
+
 namespace rocksdb {
 
 class Env;
