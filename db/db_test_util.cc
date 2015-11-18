@@ -18,6 +18,7 @@ SpecialEnv::SpecialEnv(Env* base)
       rnd_(301),
       sleep_counter_(this),
       addon_time_(0),
+      time_elapse_only_sleep_(false),
       no_sleep_(false) {
   delay_sstable_sync_.store(false, std::memory_order_release);
   drop_writes_.store(false, std::memory_order_release);
