@@ -126,7 +126,7 @@ function Normalize-DbTests($HashTable) {
 function MakeAndAdd([string]$token, $HashTable) {
     $test_name = $token -replace '.exe$', ''
     $log_name =  -join ($test_name, ".log")
-    if(!$ExcludeTests.Contains($test)) {
+    if(!$ExcludeTests.Contains($test_name)) {
         $HashTable.Add($test_name, $log_name)
     } else {
         Write-Warning "Test $test_name is excluded"
@@ -299,7 +299,7 @@ if($Rerun.Count -gt 0) {
     Write-Host "Rerunning " ($Rerun.Count) " tests sequentially"
     $success = $true
     $count = 0
-    RunJobs -TestToLog $Rerun -ConcurrencyVal $Concurrency -AddForRerun $false
+    RunJobs -TestToLog $Rerun -ConcurrencyVal 1 -AddForRerun $false
 }
 
 Get-Date

@@ -10,6 +10,6 @@ build:
   verbosity: minimal
 test:
 test_script:
-- ps: build_tools\run_ci_db_test.ps1 -EnableRerun -Run db_test -Exclude DBTest.Randomized -Concurrency 16
+- ps: build_tools\run_ci_db_test.ps1 -EnableRerun -Run db_test -Exclude DBTest.Randomized,DBTest.FileCreationRandomFailure -Concurrency 18
 - ps: build_tools\run_ci_db_test.ps1 -Run env_test -Concurrency 1
 
