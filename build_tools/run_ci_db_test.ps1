@@ -114,9 +114,10 @@ function Normalize-DbTests($HashTable) {
 
         $test_log = $test -replace '[\./]','_'
         $test_log += ".log"
+        $log_path = -join ($LogFolder, $test_log)
 
         # Add to a hashtable
-        $HashTable.Add($test, $test_log);
+        $HashTable.Add($test, $log_path);
       }
     }
 }
@@ -126,8 +127,9 @@ function Normalize-DbTests($HashTable) {
 function MakeAndAdd([string]$token, $HashTable) {
     $test_name = $token -replace '.exe$', ''
     $log_name =  -join ($test_name, ".log")
+    $log_path = -join ($LogFolder, $log_name)
     if(!$ExcludeTests.Contains($test_name)) {
-        $HashTable.Add($test_name, $log_name)
+        $HashTable.Add($test_name, $log_path)
     } else {
         Write-Warning "Test $test_name is excluded"
     }
@@ -221,7 +223,7 @@ function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
             }
 
             Write-Host "Starting $k"
-            $log_path = -join ($LogFolder, ($TestToLog.$k))
+            $log_path = ($TestToLog.$k)
 
             if($Run -ceq "db_test") {
               $job = Start-Job -Name $k -ScriptBlock $InvokeTestCase -ArgumentList @($db_test,$k,$log_path)
@@ -280,7 +282,7 @@ function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
                 Write-Warning $message
                 $log_content | Write-Warning
                 if($AddForRerun) {
-                    MakeAndAdd -token $completed.Name -HashTable $Rerun
+                    $Rerun.Add($completed.Name, $log)
                 }
             } else {
                 Write-Host $message
