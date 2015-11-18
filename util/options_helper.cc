@@ -106,32 +106,28 @@ std::string trim(const std::string& str) {
   return std::string();
 }
 
-bool SerializeCompressionType(const CompressionType& type, std::string* value) {
-  switch (type) {
-    case kNoCompression:
-      *value = "kNoCompression";
-      return true;
-    case kSnappyCompression:
-      *value = "kSnappyCompression";
-      return true;
-    case kZlibCompression:
-      *value = "kZlibCompression";
-      return true;
-    case kBZip2Compression:
-      *value = "kBZip2Compression";
-      return true;
-    case kLZ4Compression:
-      *value = "kLZ4Compression";
-      return true;
-    case kLZ4HCCompression:
-      *value = "kLZ4HCCompression";
-      return true;
-    case kZSTDNotFinalCompression:
-      *value = "kZSTDNotFinalCompression";
-      return true;
-    default:
-      return false;
+template<typename T>
+bool ParseEnum(const std::unordered_map<std::string,T>& type_map,
+               const std::string& type, T* value) {
+
+  auto iter = type_map.find(type);
+  if (iter != type_map.end()) {
+    *value = iter->second;
+    return true;
   }
+  return false;
+}
+
+template<typename T>
+bool SerializeEnum(const std::unordered_map<std::string,T>& type_map,
+                   const T& type, std::string* value) {
+  for (const auto& pair : type_map) {
+    if (pair.second == type) {
+      *value = pair.first;
+      return true;
+    }
+  }
+  return false;
 }
 
 bool SerializeVectorCompressionType(const std::vector<CompressionType>& types,
@@ -143,7 +139,8 @@ bool SerializeVectorCompressionType(const std::vector<CompressionType>& types,
       ss << ':';
     }
     std::string string_type;
-    result = SerializeCompressionType(types[i], &string_type);
+    result = SerializeEnum<CompressionType>(compression_type_string_map,
+                types[i], &string_type);
     if (result == false) {
       return result;
     }
@@ -151,101 +148,6 @@ bool SerializeVectorCompressionType(const std::vector<CompressionType>& types,
   }
   *value = ss.str();
   return true;
-}
-
-bool ParseCompressionType(const std::string& string_value,
-                          CompressionType* type) {
-  if (string_value == "kNoCompression") {
-    *type = kNoCompression;
-  } else if (string_value == "kSnappyCompression") {
-    *type = kSnappyCompression;
-  } else if (string_value == "kZlibCompression") {
-    *type = kZlibCompression;
-  } else if (string_value == "kBZip2Compression") {
-    *type = kBZip2Compression;
-  } else if (string_value == "kLZ4Compression") {
-    *type = kLZ4Compression;
-  } else if (string_value == "kLZ4HCCompression") {
-    *type = kLZ4HCCompression;
-  } else if (string_value == "kZSTDNotFinalCompression") {
-    *type = kZSTDNotFinalCompression;
-  } else {
-    return false;
-  }
-  return true;
-}
-
-bool SerializeBlockBasedTableIndexType(
-    const BlockBasedTableOptions::IndexType& type, std::string* value) {
-  switch (type) {
-    case BlockBasedTableOptions::kBinarySearch:
-      *value = "kBinarySearch";
-      return true;
-    case BlockBasedTableOptions::kHashSearch:
-      *value = "kHashSearch";
-      return true;
-    default:
-      return false;
-  }
-}
-
-bool ParseBlockBasedTableIndexType(const std::string& type,
-                                   BlockBasedTableOptions::IndexType* value) {
-  if (type == "kBinarySearch") {
-    *value = BlockBasedTableOptions::kBinarySearch;
-  } else if (type == "kHashSearch") {
-    *value = BlockBasedTableOptions::kHashSearch;
-  } else {
-    return false;
-  }
-  return true;
-}
-
-bool SerializeEncodingType(
-  const EncodingType& type, std::string* value) {
-  switch (type) {
-    case EncodingType::kPlain:
-      *value = "kPlain";
-      return true;
-    case EncodingType::kPrefix:
-      *value = "kPrefix";
-      return true;
-    default:
-      return false;
-  }
-}
-
-bool PraseEncodingType(const std::string& type, EncodingType* value) {
-  if (type == "kPlain") {
-    *value = EncodingType::kPlain;
-  } else if (type == "kPrefix") {
-    *value = EncodingType::kPrefix;
-  } else {
-    return false;
-  }
-  return true;
-}
-
-static std::unordered_map<std::string, ChecksumType> checksum_type_map = {
-    {"kNoChecksum", kNoChecksum}, {"kCRC32c", kCRC32c}, {"kxxHash", kxxHash}};
-
-bool ParseChecksumType(const std::string& type, ChecksumType* value) {
-  auto iter = checksum_type_map.find(type);
-  if (iter != checksum_type_map.end()) {
-    *value = iter->second;
-    return true;
-  }
-  return false;
-}
-
-bool SerializeChecksumType(const ChecksumType& type, std::string* value) {
-  for (const auto& pair : checksum_type_map) {
-    if (pair.second == type) {
-      *value = pair.first;
-      return true;
-    }
-  }
-  return false;
 }
 
 bool ParseBoolean(const std::string& type, const std::string& value) {
@@ -325,28 +227,6 @@ double ParseDouble(const std::string& value) {
   return std::strtod(value.c_str(), 0);
 #endif
 }
-static const std::unordered_map<char, std::string>
-    compaction_style_to_string_map = {
-        {kCompactionStyleLevel, "kCompactionStyleLevel"},
-        {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
-        {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
-        {kCompactionStyleNone, "kCompactionStyleNone"}};
-
-CompactionStyle ParseCompactionStyle(const std::string& type) {
-  for (auto const& entry : compaction_style_to_string_map) {
-    if (entry.second == type) {
-      return static_cast<CompactionStyle>(entry.first);
-    }
-  }
-  throw std::invalid_argument("unknown compaction style: " + type);
-  return kCompactionStyleLevel;
-}
-
-std::string CompactionStyleToString(const CompactionStyle style) {
-  auto iter = compaction_style_to_string_map.find(style);
-  assert(iter != compaction_style_to_string_map.end());
-  return iter->second;
-}
 
 bool ParseVectorCompressionType(
     const std::string& value,
@@ -358,14 +238,16 @@ bool ParseVectorCompressionType(
     bool is_ok;
     CompressionType type;
     if (end == std::string::npos) {
-      is_ok = ParseCompressionType(value.substr(start), &type);
+      is_ok = ParseEnum<CompressionType>(compression_type_string_map, 
+                  value.substr(start), &type);
       if (!is_ok) {
         return false;
       }
       compression_per_level->emplace_back(type);
       break;
     } else {
-      is_ok = ParseCompressionType(value.substr(start, end - start), &type);
+      is_ok = ParseEnum<CompressionType>(compression_type_string_map,
+                  value.substr(start, end - start), &type);
       if (!is_ok) {
         return false;
       }
@@ -454,11 +336,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       *reinterpret_cast<double*>(opt_address) = ParseDouble(value);
       break;
     case OptionType::kCompactionStyle:
-      *reinterpret_cast<CompactionStyle*>(opt_address) =
-          ParseCompactionStyle(value);
-      break;
+      return ParseEnum<CompactionStyle>(compaction_style_string_map,
+          value, reinterpret_cast<CompactionStyle*>(opt_address));
     case OptionType::kCompressionType:
-      return ParseCompressionType(
+      return ParseEnum<CompressionType>(compression_type_string_map,
           value, reinterpret_cast<CompressionType*>(opt_address));
     case OptionType::kVectorCompressionType:
       return ParseVectorCompressionType(
@@ -468,16 +349,15 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
           value, reinterpret_cast<std::shared_ptr<const SliceTransform>*>(
                      opt_address));
     case OptionType::kChecksumType:
-      return ParseChecksumType(value,
+      return ParseEnum<ChecksumType>(checksum_type_string_map, value,
                                reinterpret_cast<ChecksumType*>(opt_address));
     case OptionType::kBlockBasedTableIndexType:
-      return ParseBlockBasedTableIndexType(
-          value,
-          reinterpret_cast<BlockBasedTableOptions::IndexType*>(opt_address));
+      return ParseEnum<BlockBasedTableOptions::IndexType>(
+                block_base_table_index_type_string_map, value,
+                reinterpret_cast<BlockBasedTableOptions::IndexType*>(opt_address));
     case OptionType::kEncodingType:
-      return PraseEncodingType(
-          value,
-          reinterpret_cast<EncodingType*>(opt_address));
+      return ParseEnum<EncodingType>(encoding_type_string_map, value,
+                  reinterpret_cast<EncodingType*>(opt_address));
     default:
       return false;
   }
@@ -518,11 +398,10 @@ bool SerializeSingleOptionHelper(const char* opt_address,
           *(reinterpret_cast<const std::string*>(opt_address)));
       break;
     case OptionType::kCompactionStyle:
-      *value = CompactionStyleToString(
-          *(reinterpret_cast<const CompactionStyle*>(opt_address)));
-      break;
+      return SerializeEnum<CompactionStyle>(compaction_style_string_map,
+          *(reinterpret_cast<const CompactionStyle*>(opt_address)), value);
     case OptionType::kCompressionType:
-      return SerializeCompressionType(
+      return SerializeEnum<CompressionType>(compression_type_string_map,
           *(reinterpret_cast<const CompressionType*>(opt_address)), value);
     case OptionType::kVectorCompressionType:
       return SerializeVectorCompressionType(
@@ -594,10 +473,11 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       break;
     }
     case OptionType::kChecksumType:
-      return SerializeChecksumType(
+      return SerializeEnum<ChecksumType>(checksum_type_string_map,
           *reinterpret_cast<const ChecksumType*>(opt_address), value);
     case OptionType::kBlockBasedTableIndexType:
-      return SerializeBlockBasedTableIndexType(
+      return SerializeEnum<BlockBasedTableOptions::IndexType>(
+          block_base_table_index_type_string_map,
           *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
               opt_address),
           value);
@@ -609,7 +489,7 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       break;
     }
     case OptionType::kEncodingType:
-      return SerializeEncodingType(
+      return SerializeEnum<EncodingType>(encoding_type_string_map,
           *reinterpret_cast<const EncodingType*>(opt_address), value);
     default:
       return false;
@@ -841,7 +721,7 @@ Status ParseColumnFamilyOption(const std::string& name,
       auto block_based_table_factory = dynamic_cast<BlockBasedTableFactory*>(
           new_options->table_factory.get());
       if (block_based_table_factory != nullptr) {
-        base_table_options = block_based_table_factory->GetTableOptions();
+        base_table_options = block_based_table_factory->table_options();
       }
       Status table_opt_s = GetBlockBasedTableOptionsFromString(
           base_table_options, value, &table_opt);
@@ -856,7 +736,7 @@ Status ParseColumnFamilyOption(const std::string& name,
       auto plain_table_factory = dynamic_cast<PlainTableFactory*>(
           new_options->table_factory.get());
       if (plain_table_factory != nullptr) {
-        base_table_options = plain_table_factory->GetTableOptions();
+        base_table_options = plain_table_factory->table_options();
       }
       Status table_opt_s = GetPlainTableOptionsFromString(
           base_table_options, value, &table_opt);
@@ -1057,7 +937,7 @@ Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
   opts_str->clear();
   if (bbtf != nullptr) {
     return GetStringFromBlockBasedTableOptions(
-        opts_str, bbtf->GetTableOptions(), delimiter);
+        opts_str, bbtf->table_options(), delimiter);
   }
 
   return Status::OK();

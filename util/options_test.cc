@@ -563,7 +563,7 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
   BlockBasedTableOptions new_block_based_table_options =
       dynamic_cast<BlockBasedTableFactory*>(new_options.table_factory.get())
-          ->GetTableOptions();
+          ->table_options();
   ASSERT_EQ(new_block_based_table_options.block_cache->GetCapacity(), 1U << 20);
   ASSERT_EQ(new_block_based_table_options.block_size, 4U);
   // don't overwrite block based table options
@@ -805,7 +805,7 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
 
   ASSERT_TRUE(table_factory.get() != nullptr);
 
-  const BlockBasedTableOptions table_opt = table_factory->GetTableOptions();
+  const BlockBasedTableOptions table_opt = table_factory->table_options();
 
   ASSERT_EQ(table_opt.block_cache->GetCapacity(), 8UL << 20);
   ASSERT_EQ(table_opt.block_size, leveldb_opt.block_size);

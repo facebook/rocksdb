@@ -158,7 +158,7 @@ class PlainTableFactory : public TableFactory {
 
   std::string GetPrintableTableOptions() const override;
 
-  const PlainTableOptions& GetTableOptions() const;
+  const PlainTableOptions& table_options() const;
 
   static const char kValueTypeSeqId0 = char(0xFF);
 

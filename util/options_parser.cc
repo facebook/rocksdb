@@ -738,8 +738,8 @@ Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
     return Status::OK();
   }
 
-  const auto& base_opt = base_tf->GetTableOptions();
-  const auto& file_opt = file_tf->GetTableOptions();
+  const auto& base_opt = base_tf->table_options();
+  const auto& file_opt = file_tf->table_options();
 
   for (auto& pair : block_based_table_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {

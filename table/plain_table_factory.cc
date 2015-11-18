@@ -75,7 +75,7 @@ std::string PlainTableFactory::GetPrintableTableOptions() const {
   return ret;
 }
 
-const PlainTableOptions& PlainTableFactory::GetTableOptions() const {
+const PlainTableOptions& PlainTableFactory::table_options() const {
   return table_options_;
 }
 
