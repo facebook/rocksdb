@@ -493,55 +493,52 @@ static std::unordered_map<std::string,
      {offsetof(struct BlockBasedTableOptions, format_version),
       OptionType::kUInt32T, OptionVerificationType::kNormal}}};
 
-static std::unordered_map<std::string, 
-                          OptionTypeInfo> plain_table_type_info = {
-      {"user_key_len", 
-       {offsetof(struct PlainTableOptions, user_key_len),
-        OptionType::kUInt32T, OptionVerificationType::kNormal}},
-      {"bloom_bits_per_key", 
-       {offsetof(struct PlainTableOptions, bloom_bits_per_key),
-        OptionType::kInt, OptionVerificationType::kNormal}},
-      {"hash_table_ratio", 
-       {offsetof(struct PlainTableOptions, hash_table_ratio),
-        OptionType::kDouble, OptionVerificationType::kNormal}},
-      {"index_sparseness", 
-       {offsetof(struct PlainTableOptions, index_sparseness),
-        OptionType::kSizeT, OptionVerificationType::kNormal}},
-      {"huge_page_tlb_size", 
-       {offsetof(struct PlainTableOptions, huge_page_tlb_size),
-        OptionType::kSizeT, OptionVerificationType::kNormal}},
-      {"encoding_type", 
-       {offsetof(struct PlainTableOptions, encoding_type),
-        OptionType::kEncodingType, OptionVerificationType::kByName}},
-      {"full_scan_mode", 
-       {offsetof(struct PlainTableOptions, full_scan_mode),
-        OptionType::kBoolean, OptionVerificationType::kNormal}},
-      {"store_index_in_file", 
-       {offsetof(struct PlainTableOptions, store_index_in_file),
-        OptionType::kBoolean, OptionVerificationType::kNormal}}};  
+static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
+    {"user_key_len",
+     {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
+      OptionVerificationType::kNormal}},
+    {"bloom_bits_per_key",
+     {offsetof(struct PlainTableOptions, bloom_bits_per_key), OptionType::kInt,
+      OptionVerificationType::kNormal}},
+    {"hash_table_ratio",
+     {offsetof(struct PlainTableOptions, hash_table_ratio), OptionType::kDouble,
+      OptionVerificationType::kNormal}},
+    {"index_sparseness",
+     {offsetof(struct PlainTableOptions, index_sparseness), OptionType::kSizeT,
+      OptionVerificationType::kNormal}},
+    {"huge_page_tlb_size",
+     {offsetof(struct PlainTableOptions, huge_page_tlb_size),
+      OptionType::kSizeT, OptionVerificationType::kNormal}},
+    {"encoding_type",
+     {offsetof(struct PlainTableOptions, encoding_type),
+      OptionType::kEncodingType, OptionVerificationType::kByName}},
+    {"full_scan_mode",
+     {offsetof(struct PlainTableOptions, full_scan_mode), OptionType::kBoolean,
+      OptionVerificationType::kNormal}},
+    {"store_index_in_file",
+     {offsetof(struct PlainTableOptions, store_index_in_file),
+      OptionType::kBoolean, OptionVerificationType::kNormal}}};
 
-static std::unordered_map<std::string, CompressionType> 
+static std::unordered_map<std::string, CompressionType>
     compression_type_string_map = {
-      {"kNoCompression", kNoCompression}, 
-      {"kSnappyCompression", kSnappyCompression},
-      {"kZlibCompression", kZlibCompression},
-      {"kBZip2Compression", kBZip2Compression},
-      {"kLZ4Compression", kLZ4Compression},
-      {"kLZ4HCCompression", kLZ4HCCompression},
-      {"kZSTDNotFinalCompression", kZSTDNotFinalCompression}
-};
+        {"kNoCompression", kNoCompression},
+        {"kSnappyCompression", kSnappyCompression},
+        {"kZlibCompression", kZlibCompression},
+        {"kBZip2Compression", kBZip2Compression},
+        {"kLZ4Compression", kLZ4Compression},
+        {"kLZ4HCCompression", kLZ4HCCompression},
+        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression}};
 
 static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
-    block_base_table_index_type_string_map = { 
+    block_base_table_index_type_string_map = {
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
         {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch}};
 
-static std::unordered_map<std::string, EncodingType> 
-    encoding_type_string_map = {{"kPlain", kPlain}, {"kPrefix", kPrefix}};
+static std::unordered_map<std::string, EncodingType> encoding_type_string_map =
+    {{"kPlain", kPlain}, {"kPrefix", kPrefix}};
 
-static std::unordered_map<std::string, ChecksumType> 
-    checksum_type_string_map = {
-      {"kNoChecksum", kNoChecksum}, {"kCRC32c", kCRC32c}, {"kxxHash", kxxHash}};
+static std::unordered_map<std::string, ChecksumType> checksum_type_string_map =
+    {{"kNoChecksum", kNoChecksum}, {"kCRC32c", kCRC32c}, {"kxxHash", kxxHash}};
 
 static std::unordered_map<std::string, CompactionStyle>
     compaction_style_string_map = {

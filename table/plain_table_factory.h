@@ -142,9 +142,9 @@ class PlainTableFactory : public TableFactory {
   // huge_page_tlb_size determines whether to allocate hash indexes from huge
   // page TLB and the page size if allocating from there. See comments of
   // Arena::AllocateAligned() for details.
-  explicit PlainTableFactory(const PlainTableOptions& table_options =
-                             PlainTableOptions())
-      : table_options_(table_options) {};
+  explicit PlainTableFactory(
+      const PlainTableOptions& _table_options = PlainTableOptions())
+      : table_options_(_table_options) {}
 
   const char* Name() const override { return "PlainTable"; }
   Status NewTableReader(const TableReaderOptions& table_reader_options,

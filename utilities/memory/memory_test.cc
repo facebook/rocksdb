@@ -46,7 +46,7 @@ class MemoryTest : public testing::Test {
     const BlockBasedTableFactory* bbtf =
         dynamic_cast<const BlockBasedTableFactory*>(factory);
     if (bbtf != nullptr) {
-      const auto bbt_opts = bbtf->GetTableOptions();
+      const auto bbt_opts = bbtf->table_options();
       cache_set->insert(bbt_opts.block_cache.get());
       cache_set->insert(bbt_opts.block_cache_compressed.get());
     }

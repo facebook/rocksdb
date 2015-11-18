@@ -24,8 +24,8 @@
 namespace rocksdb {
 
 BlockBasedTableFactory::BlockBasedTableFactory(
-    const BlockBasedTableOptions& table_options)
-    : table_options_(table_options) {
+    const BlockBasedTableOptions& _table_options)
+    : table_options_(_table_options) {
   if (table_options_.flush_block_policy_factory == nullptr) {
     table_options_.flush_block_policy_factory.reset(
         new FlushBlockBySizePolicyFactory());
@@ -167,8 +167,8 @@ const BlockBasedTableOptions& BlockBasedTableFactory::table_options() const {
 }
 
 TableFactory* NewBlockBasedTableFactory(
-    const BlockBasedTableOptions& table_options) {
-  return new BlockBasedTableFactory(table_options);
+    const BlockBasedTableOptions& _table_options) {
+  return new BlockBasedTableFactory(_table_options);
 }
 
 const std::string BlockBasedTablePropertyNames::kIndexType =

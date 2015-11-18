@@ -106,10 +106,9 @@ std::string trim(const std::string& str) {
   return std::string();
 }
 
-template<typename T>
-bool ParseEnum(const std::unordered_map<std::string,T>& type_map,
+template <typename T>
+bool ParseEnum(const std::unordered_map<std::string, T>& type_map,
                const std::string& type, T* value) {
-
   auto iter = type_map.find(type);
   if (iter != type_map.end()) {
     *value = iter->second;
@@ -118,8 +117,8 @@ bool ParseEnum(const std::unordered_map<std::string,T>& type_map,
   return false;
 }
 
-template<typename T>
-bool SerializeEnum(const std::unordered_map<std::string,T>& type_map,
+template <typename T>
+bool SerializeEnum(const std::unordered_map<std::string, T>& type_map,
                    const T& type, std::string* value) {
   for (const auto& pair : type_map) {
     if (pair.second == type) {
@@ -140,7 +139,7 @@ bool SerializeVectorCompressionType(const std::vector<CompressionType>& types,
     }
     std::string string_type;
     result = SerializeEnum<CompressionType>(compression_type_string_map,
-                types[i], &string_type);
+                                            types[i], &string_type);
     if (result == false) {
       return result;
     }
@@ -238,16 +237,16 @@ bool ParseVectorCompressionType(
     bool is_ok;
     CompressionType type;
     if (end == std::string::npos) {
-      is_ok = ParseEnum<CompressionType>(compression_type_string_map, 
-                  value.substr(start), &type);
+      is_ok = ParseEnum<CompressionType>(compression_type_string_map,
+                                         value.substr(start), &type);
       if (!is_ok) {
         return false;
       }
       compression_per_level->emplace_back(type);
       break;
     } else {
-      is_ok = ParseEnum<CompressionType>(compression_type_string_map,
-                  value.substr(start, end - start), &type);
+      is_ok = ParseEnum<CompressionType>(
+          compression_type_string_map, value.substr(start, end - start), &type);
       if (!is_ok) {
         return false;
       }
@@ -336,11 +335,13 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       *reinterpret_cast<double*>(opt_address) = ParseDouble(value);
       break;
     case OptionType::kCompactionStyle:
-      return ParseEnum<CompactionStyle>(compaction_style_string_map,
-          value, reinterpret_cast<CompactionStyle*>(opt_address));
+      return ParseEnum<CompactionStyle>(
+          compaction_style_string_map, value,
+          reinterpret_cast<CompactionStyle*>(opt_address));
     case OptionType::kCompressionType:
-      return ParseEnum<CompressionType>(compression_type_string_map,
-          value, reinterpret_cast<CompressionType*>(opt_address));
+      return ParseEnum<CompressionType>(
+          compression_type_string_map, value,
+          reinterpret_cast<CompressionType*>(opt_address));
     case OptionType::kVectorCompressionType:
       return ParseVectorCompressionType(
           value, reinterpret_cast<std::vector<CompressionType>*>(opt_address));
@@ -349,15 +350,17 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
           value, reinterpret_cast<std::shared_ptr<const SliceTransform>*>(
                      opt_address));
     case OptionType::kChecksumType:
-      return ParseEnum<ChecksumType>(checksum_type_string_map, value,
-                               reinterpret_cast<ChecksumType*>(opt_address));
+      return ParseEnum<ChecksumType>(
+          checksum_type_string_map, value,
+          reinterpret_cast<ChecksumType*>(opt_address));
     case OptionType::kBlockBasedTableIndexType:
       return ParseEnum<BlockBasedTableOptions::IndexType>(
-                block_base_table_index_type_string_map, value,
-                reinterpret_cast<BlockBasedTableOptions::IndexType*>(opt_address));
+          block_base_table_index_type_string_map, value,
+          reinterpret_cast<BlockBasedTableOptions::IndexType*>(opt_address));
     case OptionType::kEncodingType:
-      return ParseEnum<EncodingType>(encoding_type_string_map, value,
-                  reinterpret_cast<EncodingType*>(opt_address));
+      return ParseEnum<EncodingType>(
+          encoding_type_string_map, value,
+          reinterpret_cast<EncodingType*>(opt_address));
     default:
       return false;
   }
@@ -398,10 +401,12 @@ bool SerializeSingleOptionHelper(const char* opt_address,
           *(reinterpret_cast<const std::string*>(opt_address)));
       break;
     case OptionType::kCompactionStyle:
-      return SerializeEnum<CompactionStyle>(compaction_style_string_map,
+      return SerializeEnum<CompactionStyle>(
+          compaction_style_string_map,
           *(reinterpret_cast<const CompactionStyle*>(opt_address)), value);
     case OptionType::kCompressionType:
-      return SerializeEnum<CompressionType>(compression_type_string_map,
+      return SerializeEnum<CompressionType>(
+          compression_type_string_map,
           *(reinterpret_cast<const CompressionType*>(opt_address)), value);
     case OptionType::kVectorCompressionType:
       return SerializeVectorCompressionType(
@@ -473,7 +478,8 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       break;
     }
     case OptionType::kChecksumType:
-      return SerializeEnum<ChecksumType>(checksum_type_string_map,
+      return SerializeEnum<ChecksumType>(
+          checksum_type_string_map,
           *reinterpret_cast<const ChecksumType*>(opt_address), value);
     case OptionType::kBlockBasedTableIndexType:
       return SerializeEnum<BlockBasedTableOptions::IndexType>(
@@ -489,7 +495,8 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       break;
     }
     case OptionType::kEncodingType:
-      return SerializeEnum<EncodingType>(encoding_type_string_map,
+      return SerializeEnum<EncodingType>(
+          encoding_type_string_map,
           *reinterpret_cast<const EncodingType*>(opt_address), value);
     default:
       return false;
@@ -936,8 +943,8 @@ Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
   const auto* bbtf = dynamic_cast<const BlockBasedTableFactory*>(tf);
   opts_str->clear();
   if (bbtf != nullptr) {
-    return GetStringFromBlockBasedTableOptions(
-        opts_str, bbtf->table_options(), delimiter);
+    return GetStringFromBlockBasedTableOptions(opts_str, bbtf->table_options(),
+                                               delimiter);
   }
 
   return Status::OK();
