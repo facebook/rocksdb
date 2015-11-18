@@ -138,7 +138,8 @@ class CorruptionTest : public testing::Test {
 
     fprintf(stderr,
       "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%llu\n",
-            min_expected, max_expected, correct, bad_keys, bad_values, missed);
+            min_expected, max_expected, correct, bad_keys, bad_values,
+            static_cast<unsigned long long>(missed));
     ASSERT_LE(min_expected, correct);
     ASSERT_GE(max_expected, correct);
   }
