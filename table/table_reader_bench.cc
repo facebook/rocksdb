@@ -258,6 +258,7 @@ DEFINE_bool(iterator, false, "For test iterator");
 DEFINE_bool(through_db, false, "If enable, a DB instance will be created and "
             "the query will be against DB. Otherwise, will be directly against "
             "a table reader.");
+DEFINE_bool(mmap_read, true, "Whether use mmap read");
 DEFINE_string(table_factory, "block_based",
               "Table factory to use: `block_based` (default), `plain_table` or "
               "`cuckoo_hash`.");
@@ -283,8 +284,8 @@ int main(int argc, char** argv) {
 
   if (FLAGS_table_factory == "cuckoo_hash") {
 #ifndef ROCKSDB_LITE
-    options.allow_mmap_reads = true;
-    env_options.use_mmap_reads = true;
+    options.allow_mmap_reads = FLAGS_mmap_read;
+    env_options.use_mmap_reads = FLAGS_mmap_read;
     rocksdb::CuckooTableOptions table_options;
     table_options.hash_table_ratio = 0.75;
     tf.reset(rocksdb::NewCuckooTableFactory(table_options));
@@ -294,8 +295,8 @@ int main(int argc, char** argv) {
 #endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "plain_table") {
 #ifndef ROCKSDB_LITE
-    options.allow_mmap_reads = true;
-    env_options.use_mmap_reads = true;
+    options.allow_mmap_reads = FLAGS_mmap_read;
+    env_options.use_mmap_reads = FLAGS_mmap_read;
 
     rocksdb::PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 16;
