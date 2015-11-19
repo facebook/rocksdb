@@ -551,8 +551,9 @@ uint64_t EstimatedFileSize(
   const size_t kFooterSize = 512;
 
   uint64_t data_size =
-      static_cast<uint64_t>(num_records * (key_size + 
-         value_size * compression_ratio + kPerKeyOverhead));
+    static_cast<uint64_t>(
+      num_records * (key_size + value_size * compression_ratio +
+      kPerKeyOverhead));
 
   return data_size + kFooterSize
          + num_records * bloom_bits_per_key / 8      // filter block

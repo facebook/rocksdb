@@ -738,22 +738,22 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   // (2) keys are directly overwritten
   // (3) deletion on non-existing keys
   // (4) low number of samples
-  if (num_samples_ == 0) {
+  if (current_num_samples_ == 0) {
     return 0;
   }
 
-  if (accumulated_num_non_deletions_ <= accumulated_num_deletions_) {
+  if (current_num_non_deletions_ <= current_num_deletions_) {
     return 0;
   }
 
-  uint64_t est = accumulated_num_non_deletions_ - accumulated_num_deletions_;
+  uint64_t est = current_num_non_deletions_ - current_num_deletions_;
 
   uint64_t file_count = 0;
   for (int level = 0; level < num_levels_; ++level) {
     file_count += files_[level].size();
   }
 
-  if (num_samples_ < file_count) {
+  if (current_num_samples_ < file_count) {
     // casting to avoid overflowing
     return 
       static_cast<uint64_t>(
@@ -888,7 +888,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, this->env_, seq);
+      value, value_found, merge_context, this->env_);
 
   FilePicker fp(
       storage_info_.files_, user_key, ikey, &storage_info_.level_files_brief_,
