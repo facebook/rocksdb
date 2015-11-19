@@ -24,7 +24,8 @@ struct MutableCFOptions {
         filter_deletes(options.filter_deletes),
         inplace_update_num_locks(options.inplace_update_num_locks),
         disable_auto_compactions(options.disable_auto_compactions),
-        soft_rate_limit(options.soft_rate_limit),
+        soft_pending_compaction_bytes_limit(
+            options.soft_pending_compaction_bytes_limit),
         hard_pending_compaction_bytes_limit(
             options.hard_pending_compaction_bytes_limit),
         level0_file_num_compaction_trigger(
@@ -62,7 +63,7 @@ struct MutableCFOptions {
         filter_deletes(false),
         inplace_update_num_locks(0),
         disable_auto_compactions(false),
-        soft_rate_limit(0),
+        soft_pending_compaction_bytes_limit(0),
         hard_pending_compaction_bytes_limit(0),
         level0_file_num_compaction_trigger(0),
         level0_slowdown_writes_trigger(0),
@@ -114,7 +115,7 @@ struct MutableCFOptions {
 
   // Compaction related options
   bool disable_auto_compactions;
-  double soft_rate_limit;
+  uint64_t soft_pending_compaction_bytes_limit;
   uint64_t hard_pending_compaction_bytes_limit;
   int level0_file_num_compaction_trigger;
   int level0_slowdown_writes_trigger;

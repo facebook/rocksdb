@@ -505,6 +505,7 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int max_grandparent_overlap_factor;
 
+  // DEPRECATED -- this options is no longer used
   // Puts are delayed to options.delayed_write_rate when any level has a
   // compaction score that exceeds soft_rate_limit. This is ignored when == 0.0.
   //
@@ -513,8 +514,14 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   double soft_rate_limit;
 
-  // DEPRECATED -- this options is no longer usde
+  // DEPRECATED -- this options is no longer used
   double hard_rate_limit;
+
+  // All writes will be slowed down to at least delayed_write_rate if estimated
+  // bytes needed to be compaction exceed this threshold.
+  //
+  // Default: 0 (disabled)
+  uint64_t soft_pending_compaction_bytes_limit;
 
   // All writes are stopped if estimated bytes needed to be compaction exceed
   // this threshold.

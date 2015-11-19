@@ -146,12 +146,6 @@ class VersionStorageInfo {
 
   int MaxInputLevel() const;
 
-  // Returns the maxmimum compaction score for levels 1 to max
-  double max_compaction_score() const { return max_compaction_score_; }
-
-  // See field declaration
-  int max_compaction_score_level() const { return max_compaction_score_level_; }
-
   // Return level number that has idx'th highest score
   int CompactionScoreLevel(int idx) const { return compaction_level_[idx]; }
 
@@ -387,8 +381,6 @@ class VersionStorageInfo {
   // These are used to pick the best compaction level
   std::vector<double> compaction_score_;
   std::vector<int> compaction_level_;
-  double max_compaction_score_ = 0.0;   // max score in l1 to ln-1
-  int max_compaction_score_level_ = 0;  // level on which max score occurs
   int l0_delay_trigger_count_ = 0;  // Count used to trigger slow down and stop
                                     // for number of L0 files.
 

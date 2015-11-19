@@ -1,5 +1,10 @@
 # Rocksdb Change Log
 
+## Unreleased
+### Public API Changes
+* Change names in CompactionPri and add a new one.
+* Deprecate options.soft_rate_limit and add options.soft_pending_compaction_bytes_limit.
+
 ## 4.3.0 (12/8/2015)
 ### New Features
 * CompactionFilter has new member function called IgnoreSnapshots which allows CompactionFilter to be called even if there are snapshots later than the key.
@@ -9,7 +14,6 @@
 
 ### Public API Changes
 * When options.db_write_buffer_size triggers, only the column family with the largest column family size will be flushed, not all the column families.
-* Change names in CompactionPri and add a new one.
 
 ## 4.2.0 (11/9/2015)
 ### New Features

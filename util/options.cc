@@ -104,6 +104,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       max_grandparent_overlap_factor(10),
       soft_rate_limit(0.0),
       hard_rate_limit(0.0),
+      soft_pending_compaction_bytes_limit(0),
       hard_pending_compaction_bytes_limit(0),
       rate_limit_delay_max_milliseconds(1000),
       arena_block_size(0),
@@ -164,6 +165,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       source_compaction_factor(options.source_compaction_factor),
       max_grandparent_overlap_factor(options.max_grandparent_overlap_factor),
       soft_rate_limit(options.soft_rate_limit),
+      soft_pending_compaction_bytes_limit(
+          options.soft_pending_compaction_bytes_limit),
       hard_pending_compaction_bytes_limit(
           options.hard_pending_compaction_bytes_limit),
       rate_limit_delay_max_milliseconds(
@@ -515,8 +518,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Header(log,
          "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
          arena_block_size);
-    Header(log, "                      Options.soft_rate_limit: %.2f",
-        soft_rate_limit);
+    Header(log, "  Options.soft_pending_compaction_bytes_limit: %" PRIu64,
+           soft_pending_compaction_bytes_limit);
     Header(log, "  Options.hard_pending_compaction_bytes_limit: %" PRIu64,
          hard_pending_compaction_bytes_limit);
     Header(log, "      Options.rate_limit_delay_max_milliseconds: %u",

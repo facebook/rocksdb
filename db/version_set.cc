@@ -1156,9 +1156,6 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
 void VersionStorageInfo::ComputeCompactionScore(
     const MutableCFOptions& mutable_cf_options,
     const CompactionOptionsFIFO& compaction_options_fifo) {
-  double max_score = 0;
-  int max_score_level = 0;
-
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -1209,18 +1206,10 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
       score = static_cast<double>(level_bytes_no_compacting) /
               MaxBytesForLevel(level);
-      if (max_score < score) {
-        max_score = score;
-        max_score_level = level;
-      }
     }
     compaction_level_[level] = level;
     compaction_score_[level] = score;
   }
-
-  // update the max compaction score in levels 1 to n-1
-  max_compaction_score_ = max_score;
-  max_compaction_score_level_ = max_score_level;
 
   // sort all the levels based on their score. Higher scores get listed
   // first. Use bubble sort because the number of entries are small.

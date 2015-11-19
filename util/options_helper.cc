@@ -539,7 +539,10 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
   if (name == "disable_auto_compactions") {
     new_options->disable_auto_compactions = ParseBoolean(name, value);
   } else if (name == "soft_rate_limit") {
-    new_options->soft_rate_limit = ParseDouble(value);
+    // Deprecated options but still leave it here to avoid older options
+    // strings can be consumed.
+  } else if (name == "soft_pending_compaction_bytes_limit") {
+    new_options->soft_pending_compaction_bytes_limit = ParseUint64(value);
   } else if (name == "hard_pending_compaction_bytes_limit") {
     new_options->hard_pending_compaction_bytes_limit = ParseUint64(value);
   } else if (name == "hard_rate_limit") {
@@ -1386,7 +1389,6 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   // Compaction related options
   cf_opts.disable_auto_compactions =
       mutable_cf_options.disable_auto_compactions;
-  cf_opts.soft_rate_limit = mutable_cf_options.soft_rate_limit;
   cf_opts.level0_file_num_compaction_trigger =
       mutable_cf_options.level0_file_num_compaction_trigger;
   cf_opts.level0_slowdown_writes_trigger =

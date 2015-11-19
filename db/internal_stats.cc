@@ -35,8 +35,7 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
       "\n** Compaction Stats [%s] **\n"
       "Level    Files   Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
       "Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) "
-      "Comp(sec) Comp(cnt) Avg(sec) "
-      "Stall(cnt)  KeyIn KeyDrop\n"
+      "Comp(sec) Comp(cnt) Avg(sec) KeyIn KeyDrop\n"
       "--------------------------------------------------------------------"
       "-----------------------------------------------------------"
       "--------------------------------------\n",
@@ -44,9 +43,9 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
-    int num_files, int being_compacted, double total_file_size, double score,
-    double w_amp, uint64_t stalls,
-    const InternalStats::CompactionStats& stats) {
+                     int num_files, int being_compacted, double total_file_size,
+                     double score, double w_amp,
+                     const InternalStats::CompactionStats& stats) {
   uint64_t bytes_read =
       stats.bytes_read_non_output_levels + stats.bytes_read_output_level;
   int64_t bytes_new =
@@ -70,10 +69,8 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
            "%9.0f "                    /* Comp(sec) */
            "%9d "                      /* Comp(cnt) */
            "%8.3f "                    /* Avg(sec) */
-           "%10" PRIu64
-           " "      /* Stall(cnt) */
-           "%7s "   /* KeyIn */
-           "%6s\n", /* KeyDrop */
+           "%7s "                      /* KeyIn */
+           "%6s\n",                    /* KeyDrop */
            name.c_str(),
            num_files, being_compacted, total_file_size / kMB, score,
            bytes_read / kGB, stats.bytes_read_non_output_levels / kGB,
@@ -82,7 +79,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
            bytes_read / kMB / elapsed, stats.bytes_written / kMB / elapsed,
            stats.micros / kMicrosInSec, stats.count,
            stats.count == 0 ? 0 : stats.micros / kMicrosInSec / stats.count,
-           stalls, num_input_records.c_str(), num_dropped_records.c_str());
+           num_input_records.c_str(), num_dropped_records.c_str());
 }
 }
 
@@ -677,27 +674,13 @@ void InternalStats::DumpCFStats(std::string* value) {
   int total_files = 0;
   int total_files_being_compacted = 0;
   double total_file_size = 0;
-  uint64_t total_slowdown_count_soft = 0;
-  uint64_t total_slowdown_count_hard = 0;
-  uint64_t total_stall_count = 0;
   for (int level = 0; level < number_levels_; level++) {
     int files = vstorage->NumLevelFiles(level);
     total_files += files;
     total_files_being_compacted += files_being_compacted[level];
     if (comp_stats_[level].micros > 0 || files > 0) {
-      uint64_t stalls =
-          level == 0 ? (cf_stats_count_[LEVEL0_SLOWDOWN_TOTAL] +
-                        cf_stats_count_[LEVEL0_NUM_FILES_TOTAL] +
-                        cf_stats_count_[HARD_PENDING_COMPACTION_BYTES_LIMIT] +
-                        cf_stats_count_[MEMTABLE_COMPACTION])
-                     : (stall_leveln_slowdown_count_soft_[level] +
-                        stall_leveln_slowdown_count_hard_[level]);
-
       stats_sum.Add(comp_stats_[level]);
       total_file_size += vstorage->NumLevelBytes(level);
-      total_stall_count += stalls;
-      total_slowdown_count_soft += stall_leveln_slowdown_count_soft_[level];
-      total_slowdown_count_hard += stall_leveln_slowdown_count_hard_[level];
       double w_amp =
           (comp_stats_[level].bytes_read_non_output_levels == 0) ? 0.0
           : static_cast<double>(comp_stats_[level].bytes_written) /
@@ -705,17 +688,23 @@ void InternalStats::DumpCFStats(std::string* value) {
       PrintLevelStats(buf, sizeof(buf), "L" + ToString(level), files,
                       files_being_compacted[level],
                       vstorage->NumLevelBytes(level), compaction_score[level],
-                      w_amp, stalls, comp_stats_[level]);
+                      w_amp, comp_stats_[level]);
       value->append(buf);
     }
   }
   uint64_t curr_ingest = cf_stats_value_[BYTES_FLUSHED];
   // Cumulative summary
   double w_amp = stats_sum.bytes_written / static_cast<double>(curr_ingest + 1);
+  uint64_t total_stall_count =
+      cf_stats_count_[LEVEL0_SLOWDOWN_TOTAL] +
+      cf_stats_count_[LEVEL0_NUM_FILES_TOTAL] +
+      cf_stats_count_[SOFT_PENDING_COMPACTION_BYTES_LIMIT] +
+      cf_stats_count_[HARD_PENDING_COMPACTION_BYTES_LIMIT] +
+      cf_stats_count_[MEMTABLE_COMPACTION];
   // Stats summary across levels
   PrintLevelStats(buf, sizeof(buf), "Sum", total_files,
-      total_files_being_compacted, total_file_size, 0, w_amp,
-      total_stall_count, stats_sum);
+                  total_files_being_compacted, total_file_size, 0, w_amp,
+                  stats_sum);
   value->append(buf);
   // Interval summary
   uint64_t interval_ingest =
@@ -723,9 +712,7 @@ void InternalStats::DumpCFStats(std::string* value) {
   CompactionStats interval_stats(stats_sum);
   interval_stats.Subtract(cf_stats_snapshot_.comp_stats);
   w_amp = interval_stats.bytes_written / static_cast<double>(interval_ingest);
-  PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0,
-      w_amp, total_stall_count - cf_stats_snapshot_.stall_count,
-      interval_stats);
+  PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0, w_amp, interval_stats);
   value->append(buf);
 
   snprintf(buf, sizeof(buf),
@@ -742,19 +729,20 @@ void InternalStats::DumpCFStats(std::string* value) {
                              "%" PRIu64
                              " level0_numfiles_with_compaction, "
                              "%" PRIu64
-                             " pending_compaction_bytes, "
+                             " stop for pending_compaction_bytes, "
+                             "%" PRIu64
+                             " slowdown for pending_compaction_bytes, "
                              "%" PRIu64
                              " memtable_compaction, "
-                             "%" PRIu64
-                             " leveln_slowdown_soft, "
-                             "%" PRIu64 " leveln_slowdown_hard\n",
+                             "interval %" PRIu64 " total count\n",
            cf_stats_count_[LEVEL0_SLOWDOWN_TOTAL],
            cf_stats_count_[LEVEL0_SLOWDOWN_WITH_COMPACTION],
            cf_stats_count_[LEVEL0_NUM_FILES_TOTAL],
            cf_stats_count_[LEVEL0_NUM_FILES_WITH_COMPACTION],
            cf_stats_count_[HARD_PENDING_COMPACTION_BYTES_LIMIT],
-           cf_stats_count_[MEMTABLE_COMPACTION], total_slowdown_count_soft,
-           total_slowdown_count_hard);
+           cf_stats_count_[SOFT_PENDING_COMPACTION_BYTES_LIMIT],
+           cf_stats_count_[MEMTABLE_COMPACTION],
+           total_stall_count - cf_stats_snapshot_.stall_count);
   value->append(buf);
 
   cf_stats_snapshot_.ingest_bytes = curr_ingest;

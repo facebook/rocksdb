@@ -88,6 +88,7 @@ class InternalStats {
     MEMTABLE_COMPACTION,
     LEVEL0_NUM_FILES_TOTAL,
     LEVEL0_NUM_FILES_WITH_COMPACTION,
+    SOFT_PENDING_COMPACTION_BYTES_LIMIT,
     HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
@@ -111,8 +112,6 @@ class InternalStats {
         cf_stats_value_(INTERNAL_CF_STATS_ENUM_MAX),
         cf_stats_count_(INTERNAL_CF_STATS_ENUM_MAX),
         comp_stats_(num_levels),
-        stall_leveln_slowdown_count_hard_(num_levels),
-        stall_leveln_slowdown_count_soft_(num_levels),
         file_read_latency_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
@@ -125,10 +124,6 @@ class InternalStats {
     for (int i = 0; i< INTERNAL_CF_STATS_ENUM_MAX; ++i) {
       cf_stats_value_[i] = 0;
       cf_stats_count_[i] = 0;
-    }
-    for (int i = 0; i < num_levels; ++i) {
-      stall_leveln_slowdown_count_hard_[i] = 0;
-      stall_leveln_slowdown_count_soft_[i] = 0;
     }
   }
 
@@ -237,14 +232,6 @@ class InternalStats {
     comp_stats_[level].bytes_moved += amount;
   }
 
-  void RecordLevelNSlowdown(int level, bool soft) {
-    if (soft) {
-      ++stall_leveln_slowdown_count_soft_[level];
-    } else {
-      ++stall_leveln_slowdown_count_hard_[level];
-    }
-  }
-
   void AddCFStats(InternalCFStatsType type, uint64_t value) {
     cf_stats_value_[type] += value;
     ++cf_stats_count_[type];
@@ -282,9 +269,6 @@ class InternalStats {
   std::vector<uint64_t> cf_stats_count_;
   // Per-ColumnFamily/level compaction stats
   std::vector<CompactionStats> comp_stats_;
-  // These count the number of microseconds for which MakeRoomForWrite stalls.
-  std::vector<uint64_t> stall_leveln_slowdown_count_hard_;
-  std::vector<uint64_t> stall_leveln_slowdown_count_soft_;
   std::vector<HistogramImpl> file_read_latency_;
 
   // Used to compute per-interval statistics
@@ -361,6 +345,7 @@ class InternalStats {
     MEMTABLE_COMPACTION,
     LEVEL0_NUM_FILES_TOTAL,
     LEVEL0_NUM_FILES_WITH_COMPACTION,
+    SOFT_PENDING_COMPACTION_BYTES_LIMIT,
     HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
@@ -406,8 +391,6 @@ class InternalStats {
   void AddCompactionStats(int level, const CompactionStats& stats) {}
 
   void IncBytesMoved(int level, uint64_t amount) {}
-
-  void RecordLevelNSlowdown(int level, bool soft) {}
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 

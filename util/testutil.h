@@ -316,7 +316,7 @@ class SleepingBackgroundTask {
   }
   void WaitUntilSleeping() {
     MutexLock l(&mutex_);
-    while (!sleeping_) {
+    while (!sleeping_ || !should_sleep_) {
       bg_cv_.Wait();
     }
   }

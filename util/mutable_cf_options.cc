@@ -82,8 +82,8 @@ void MutableCFOptions::Dump(Logger* log) const {
       filter_deletes);
   Log(log, "                 disable_auto_compactions: %d",
       disable_auto_compactions);
-  Log(log, "                          soft_rate_limit: %lf",
-      soft_rate_limit);
+  Log(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
+      soft_pending_compaction_bytes_limit);
   Log(log, "      hard_pending_compaction_bytes_limit: %" PRIu64,
       hard_pending_compaction_bytes_limit);
   Log(log, "       level0_file_num_compaction_trigger: %d",

@@ -437,8 +437,6 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options) {
   if (current_ != nullptr) {
     auto* vstorage = current_->storage_info();
-    const double score = vstorage->max_compaction_score();
-    const int max_level = vstorage->max_compaction_score_level();
     auto write_controller = column_family_set_->write_controller_;
 
     if (imm()->NumNotFlushed() >= mutable_cf_options.max_write_buffer_number) {
@@ -467,8 +465,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       internal_stats_->AddCFStats(
           InternalStats::HARD_PENDING_COMPACTION_BYTES_LIMIT, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stopping writes because estimated pending compaction "
-          "bytes exceed %" PRIu64,
+          "[%s] Stopping writes because of estimated pending compaction "
+          "bytes %" PRIu64,
           name_.c_str(), vstorage->estimated_compaction_needed_bytes());
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                vstorage->l0_delay_trigger_count() >=
@@ -482,13 +480,16 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we have %d level-0 files",
           name_.c_str(), vstorage->l0_delay_trigger_count());
-    } else if (mutable_cf_options.soft_rate_limit > 0.0 &&
-               score > mutable_cf_options.soft_rate_limit) {
+    } else if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0 &&
+               vstorage->estimated_compaction_needed_bytes() >=
+                   mutable_cf_options.soft_pending_compaction_bytes_limit) {
       write_controller_token_ = write_controller->GetDelayToken();
-      internal_stats_->RecordLevelNSlowdown(max_level, true);
+      internal_stats_->AddCFStats(
+          InternalStats::SOFT_PENDING_COMPACTION_BYTES_LIMIT, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we hit soft limit on level %d",
-          name_.c_str(), max_level);
+          "[%s] Stalling writes because of estimated pending compaction "
+          "bytes %" PRIu64,
+          name_.c_str(), vstorage->estimated_compaction_needed_bytes());
     } else {
       write_controller_token_.reset();
     }

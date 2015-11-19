@@ -632,9 +632,12 @@ static bool ValidateRateLimit(const char* flagname, double value) {
   }
   return true;
 }
-DEFINE_double(soft_rate_limit, 0.0, "");
+DEFINE_double(soft_rate_limit, 0.0, "DEPRECATED");
 
 DEFINE_double(hard_rate_limit, 0.0, "DEPRECATED");
+
+DEFINE_uint64(soft_pending_compaction_bytes_limit, 64ull * 1024 * 1024 * 1024,
+              "Slowdown writes if pending compaction bytes exceed this number");
 
 DEFINE_uint64(hard_pending_compaction_bytes_limit, 128ull * 1024 * 1024 * 1024,
               "Stop writes if pending compaction bytes exceed this number");
