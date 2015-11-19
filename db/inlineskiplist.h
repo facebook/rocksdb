@@ -1,11 +1,22 @@
 //  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  LICENSE file in the root directory of this source tree. An additional
+//  grant of patent rights can be found in the PATENTS file in the same
+//  directory.
 //
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.  Use of
+// this source code is governed by a BSD-style license that can be found
+// in the LICENSE file. See the AUTHORS file for names of contributors.
+//
+// InlineSkipList is derived from SkipList (skiplist.h), but it optimizes
+// the memory layout by requiring that the key storage be allocated through
+// the skip list instance.  For the common case of SkipList<const char*,
+// Cmp> this saves 1 pointer per skip list node and gives better cache
+// locality, at the expense of wasted padding from using AllocateAligned
+// instead of Allocate for the keys.  The unused padding will be from
+// 0 to sizeof(void*)-1 bytes, and the space savings are sizeof(void*)
+// bytes, so despite the padding the space used is always less than
+// SkipList<const char*, ..>.
 //
 // Thread safety -------------
 //
@@ -30,8 +41,8 @@
 
 #pragma once
 #include <assert.h>
-#include <atomic>
 #include <stdlib.h>
+#include <atomic>
 #include "port/port.h"
 #include "util/allocator.h"
 #include "util/random.h"
@@ -52,10 +63,13 @@ class InlineSkipList {
                           int32_t max_height = 12,
                           int32_t branching_factor = 4);
 
-  // Allocates a key that can be passed to Insert.
+  // Allocates a key and a skip-list node, returning a pointer to the
+  // key portion of the node.
   char* AllocateKey(size_t key_size);
 
-  // Insert key into the list.
+  // Inserts a key allocated by AllocateKey, after the actual key value
+  // has been filled in.
+  //
   // REQUIRES: nothing that compares equal to key is currently in the list.
   void Insert(const char* key);
 
@@ -135,14 +149,16 @@ class InlineSkipList {
     return max_height_.load(std::memory_order_relaxed);
   }
 
-  Node* NewNode(const char* key, int height);
   int RandomHeight();
+
+  Node* AllocateNode(size_t key_size, int height);
 
   bool Equal(const char* a, const char* b) const {
     return (compare_(a, b) == 0);
   }
 
-  // Return true if key is greater than the data stored in "n"
+  // Return true if key is greater than the data stored in "n".  Null n
+  // is considered infinite.
   bool KeyIsAfterNode(const char* key, Node* n) const;
 
   // Returns the earliest node with a key >= key.
@@ -161,53 +177,68 @@ class InlineSkipList {
 
   // No copying allowed
   InlineSkipList(const InlineSkipList&);
-  void operator=(const InlineSkipList&);
+  InlineSkipList& operator=(const InlineSkipList&);
 };
 
 // Implementation details follow
+
+// The Node data type is more of a pointer into custom-managed memory than
+// a traditional C++ struct.  The key is stored in the bytes immediately
+// after the struct, and the next_ pointers for nodes with height > 1 are
+// stored immediately _before_ the struct.  This avoids the need to include
+// any pointer or sizing data, which reduces per-node memory overheads.
 template <class Comparator>
 struct InlineSkipList<Comparator>::Node {
-  explicit Node(const char* k) : key(k) {}
+  // Stores the height of the node in the memory location normally used for
+  // next_[0].  This is used for passing data from AllocateKey to Insert.
+  void StashHeight(const int height) {
+    assert(sizeof(int) <= sizeof(next_[0]));
+    memcpy(&next_[0], &height, sizeof(int));
+  }
 
-  const char* const key;
+  // Retrieves the value passed to StashHeight.  Undefined after a call
+  // to SetNext or NoBarrier_SetNext.
+  int UnstashHeight() const {
+    int rv;
+    memcpy(&rv, &next_[0], sizeof(int));
+    return rv;
+  }
 
-  // Accessors/mutators for links.  Wrapped in methods so we can
-  // add the appropriate barriers as necessary.
+  const char* Key() const { return reinterpret_cast<const char*>(&next_[1]); }
+
+  // Accessors/mutators for links.  Wrapped in methods so we can add
+  // the appropriate barriers as necessary, and perform the necessary
+  // addressing trickery for storing links below the Node in memory.
   Node* Next(int n) {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return (next_[n].load(std::memory_order_acquire));
+    return (next_[-n].load(std::memory_order_acquire));
   }
+
   void SetNext(int n, Node* x) {
     assert(n >= 0);
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
-    next_[n].store(x, std::memory_order_release);
+    next_[-n].store(x, std::memory_order_release);
   }
 
   // No-barrier variants that can be safely used in a few locations.
   Node* NoBarrier_Next(int n) {
     assert(n >= 0);
-    return next_[n].load(std::memory_order_relaxed);
+    return next_[-n].load(std::memory_order_relaxed);
   }
+
   void NoBarrier_SetNext(int n, Node* x) {
     assert(n >= 0);
-    next_[n].store(x, std::memory_order_relaxed);
+    next_[-n].store(x, std::memory_order_relaxed);
   }
 
  private:
-  // Array of length equal to the node height.  next_[0] is lowest level link.
+  // next_[0] is the lowest level link (level 0).  Higher levels are
+  // stored _earlier_, so level 1 is at next_[-1].
   std::atomic<Node*> next_[1];
 };
-
-template <class Comparator>
-typename InlineSkipList<Comparator>::Node* InlineSkipList<Comparator>::NewNode(
-    const char* key, int height) {
-  char* mem = allocator_->AllocateAligned(
-      sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
-  return new (mem) Node(key);
-}
 
 template <class Comparator>
 inline InlineSkipList<Comparator>::Iterator::Iterator(
@@ -230,7 +261,7 @@ inline bool InlineSkipList<Comparator>::Iterator::Valid() const {
 template <class Comparator>
 inline const char* InlineSkipList<Comparator>::Iterator::key() const {
   assert(Valid());
-  return node_->key;
+  return node_->Key();
 }
 
 template <class Comparator>
@@ -244,7 +275,7 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
   // Instead of using explicit "prev" links, we just search for the
   // last node that falls before key.
   assert(Valid());
-  node_ = list_->FindLessThan(node_->key);
+  node_ = list_->FindLessThan(node_->Key());
   if (node_ == list_->head_) {
     node_ = nullptr;
   }
@@ -286,7 +317,7 @@ template <class Comparator>
 bool InlineSkipList<Comparator>::KeyIsAfterNode(const char* key,
                                                 Node* n) const {
   // nullptr n is considered infinite
-  return (n != nullptr) && (compare_(n->key, key) < 0);
+  return (n != nullptr) && (compare_(n->Key(), key) < 0);
 }
 
 template <class Comparator>
@@ -303,11 +334,12 @@ InlineSkipList<Comparator>::FindGreaterOrEqual(const char* key) const {
   while (true) {
     Node* next = x->Next(level);
     // Make sure the lists are sorted
-    assert(x == head_ || next == nullptr || KeyIsAfterNode(next->key, x));
+    assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     // Make sure we haven't overshot during our search
     assert(x == head_ || KeyIsAfterNode(key, x));
-    int cmp =
-        (next == nullptr || next == last_bigger) ? 1 : compare_(next->key, key);
+    int cmp = (next == nullptr || next == last_bigger)
+                  ? 1
+                  : compare_(next->Key(), key);
     if (cmp == 0 || (cmp > 0 && level == 0)) {
       return next;
     } else if (cmp < 0) {
@@ -330,7 +362,7 @@ InlineSkipList<Comparator>::FindLessThan(const char* key, Node** prev) const {
   Node* last_not_after = nullptr;
   while (true) {
     Node* next = x->Next(level);
-    assert(x == head_ || next == nullptr || KeyIsAfterNode(next->key, x));
+    assert(x == head_ || next == nullptr || KeyIsAfterNode(next->Key(), x));
     assert(x == head_ || KeyIsAfterNode(key, x));
     if (next != last_not_after && KeyIsAfterNode(key, next)) {
       // Keep searching in this list
@@ -377,9 +409,9 @@ uint64_t InlineSkipList<Comparator>::EstimateCount(const char* key) const {
   Node* x = head_;
   int level = GetMaxHeight() - 1;
   while (true) {
-    assert(x == head_ || compare_(x->key, key) < 0);
+    assert(x == head_ || compare_(x->Key(), key) < 0);
     Node* next = x->Next(level);
-    if (next == nullptr || compare_(next->key, key) >= 0) {
+    if (next == nullptr || compare_(next->Key(), key) >= 0) {
       if (level == 0) {
         return count;
       } else {
@@ -404,7 +436,7 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
       compare_(cmp),
       allocator_(allocator),
-      head_(NewNode(0 /* any key will do */, max_height)),
+      head_(AllocateNode(0, max_height)),
       max_height_(1),
       prev_height_(1) {
   assert(max_height > 0 && kMaxHeight_ == static_cast<uint32_t>(max_height));
@@ -424,7 +456,31 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
 
 template <class Comparator>
 char* InlineSkipList<Comparator>::AllocateKey(size_t key_size) {
-  return allocator_->Allocate(key_size);
+  return const_cast<char*>(AllocateNode(key_size, RandomHeight())->Key());
+}
+
+template <class Comparator>
+typename InlineSkipList<Comparator>::Node*
+InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
+  auto prefix = sizeof(std::atomic<Node*>) * (height - 1);
+
+  // prefix is space for the height - 1 pointers that we store before
+  // the Node instance (next_[-(height - 1) .. -1]).  Node starts at
+  // raw + prefix, and holds the bottom-mode (level 0) skip list pointer
+  // next_[0].  key_size is the bytes for the key, which comes just after
+  // the Node.
+  char* raw = allocator_->AllocateAligned(prefix + sizeof(Node) + key_size);
+  Node* x = reinterpret_cast<Node*>(raw + prefix);
+
+  // Once we've linked the node into the skip list we don't actually need
+  // to know its height, because we can implicitly use the fact that we
+  // traversed into a node at level h to known that h is a valid level
+  // for that node.  We need to convey the height to the Insert step,
+  // however, so that it can perform the proper links.  Since we're not
+  // using the pointers at the moment, StashHeight temporarily borrow
+  // storage from next_[0] for that purpose.
+  x->StashHeight(height);
+  return x;
 }
 
 template <class Comparator>
@@ -449,14 +505,17 @@ void InlineSkipList<Comparator>::Insert(const char* key) {
   }
 
   // Our data structure does not allow duplicate insertion
-  assert(prev_[0]->Next(0) == nullptr || !Equal(key, prev_[0]->Next(0)->key));
+  assert(prev_[0]->Next(0) == nullptr || !Equal(key, prev_[0]->Next(0)->Key()));
 
-  int height = RandomHeight();
+  // Find the Node that we placed before the key in AllocateKey
+  Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
+  int height = x->UnstashHeight();
+  assert(height >= 1 && height <= kMaxHeight_);
+
   if (height > GetMaxHeight()) {
     for (int i = GetMaxHeight(); i < height; i++) {
       prev_[i] = head_;
     }
-    // fprintf(stderr, "Change height from %d to %d\n", max_height_, height);
 
     // It is ok to mutate max_height_ without any synchronization
     // with concurrent readers.  A concurrent reader that observes
@@ -468,7 +527,6 @@ void InlineSkipList<Comparator>::Insert(const char* key) {
     max_height_.store(height, std::memory_order_relaxed);
   }
 
-  Node* x = NewNode(key, height);
   for (int i = 0; i < height; i++) {
     // NoBarrier_SetNext() suffices since we will add a barrier when
     // we publish a pointer to "x" in prev[i].
@@ -482,7 +540,7 @@ void InlineSkipList<Comparator>::Insert(const char* key) {
 template <class Comparator>
 bool InlineSkipList<Comparator>::Contains(const char* key) const {
   Node* x = FindGreaterOrEqual(key);
-  if (x != nullptr && Equal(key, x->key)) {
+  if (x != nullptr && Equal(key, x->Key())) {
     return true;
   } else {
     return false;
