@@ -704,7 +704,8 @@ void InternalStats::DumpCFStats(std::string* value) {
             comp_stats_[level].bytes_read_non_output_levels;
       PrintLevelStats(buf, sizeof(buf), "L" + ToString(level), files,
                       files_being_compacted[level],
-                      vstorage->NumLevelBytes(level), compaction_score[level],
+                      static_cast<double>(vstorage->NumLevelBytes(level)),
+                        compaction_score[level],
                       w_amp, stalls, comp_stats_[level]);
       value->append(buf);
     }

@@ -248,7 +248,8 @@ Status CuckooTableBuilder::Finish() {
   if (num_entries_ > 0) {
     // Calculate the real hash size if module hash is enabled.
     if (use_module_hash_) {
-      hash_table_size_ = num_entries_ / max_hash_table_ratio_;
+      hash_table_size_ = 
+        static_cast<uint64_t>(num_entries_ / max_hash_table_ratio_);
     }
     s = MakeHashTable(&buckets);
     if (!s.ok()) {
@@ -404,7 +405,8 @@ uint64_t CuckooTableBuilder::FileSize() const {
   }
 
   if (use_module_hash_) {
-    return (key_size_ + value_size_) * num_entries_ / max_hash_table_ratio_;
+    return static_cast<uint64_t>((key_size_ + value_size_) *
+        num_entries_ / max_hash_table_ratio_);
   } else {
     // Account for buckets being a power of two.
     // As elements are added, file size remains constant for a while and

@@ -150,7 +150,7 @@ public:
 
       if (i + 1 >= len) {
         // if odd number of chars than we just hit end of string
-        parsed.push_back(p - hexas);
+        parsed.push_back(static_cast<char>(p - hexas));
         break;
       }
 
@@ -158,7 +158,7 @@ public:
       const char* q = std::lower_bound(hexas, hexas + 16, b);
       if (*q == b) {
         // pairwise compute decimal value from hex
-        parsed.push_back(((p - hexas) << 4) | (q - hexas));
+        parsed.push_back(static_cast<char>(((p - hexas) << 4) | (q - hexas)));
       } else {
         throw "Invalid hex value";
       }
