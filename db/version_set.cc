@@ -738,24 +738,27 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   // (2) keys are directly overwritten
   // (3) deletion on non-existing keys
   // (4) low number of samples
-  if (current_num_samples_ == 0) {
+  if (num_samples_ == 0) {
     return 0;
   }
 
-  if (current_num_non_deletions_ <= current_num_deletions_) {
+  if (accumulated_num_non_deletions_ <= accumulated_num_deletions_) {
     return 0;
   }
 
-  uint64_t est = current_num_non_deletions_ - current_num_deletions_;
+  uint64_t est = accumulated_num_non_deletions_ - accumulated_num_deletions_;
 
   uint64_t file_count = 0;
   for (int level = 0; level < num_levels_; ++level) {
     file_count += files_[level].size();
   }
 
-  if (current_num_samples_ < file_count) {
+  if (num_samples_ < file_count) {
     // casting to avoid overflowing
-    return (est * static_cast<double>(file_count) / current_num_samples_);
+    return 
+      static_cast<uint64_t>(
+        (est * static_cast<double>(file_count) / current_num_samples_);
+      );
   } else {
     return est;
   }
