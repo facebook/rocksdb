@@ -14,6 +14,7 @@
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
 #        sample command: cmake -G "Visual Studio 12 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 ..
+#        OR for VS Studio 15 cmake -G "Visual Studio 12 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m ot use all avail cores)
 #        msbuild rocksdb.sln

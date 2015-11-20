@@ -25,6 +25,7 @@
 #include <string>
 #include <string.h>
 #include <mutex>
+#include <limits>
 #include <condition_variable>
 
 #include <stdint.h>
@@ -57,8 +58,6 @@ typedef SSIZE_T ssize_t;
 #ifndef ROCKSDB_PRIszt
 #define ROCKSDB_PRIszt "Iu"
 #endif
-
-#define ROCKSDB_NOEXCEPT
 
 #define __attribute__(A)
 
@@ -96,16 +95,34 @@ std::string GetWindowsErrSz(DWORD err);
 
 namespace port {
 
+// VS 15
+#if (defined _MSC_VER) && (_MSC_VER >= 1900)
+
+#define ROCKSDB_NOEXCEPT noexcept
+
+// For use at db/file_indexer.h kLevelMaxIndex
+const int kMaxInt32 = std::numeric_limits<int>::max();
+const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
+
+const size_t kMaxSizet = std::numeric_limits<size_t>::max();
+
+#else //_MSC_VER
+
+#define ROCKSDB_NOEXCEPT
+// std::numeric_limits<size_t>::max() is not constexpr just yet
+// therefore, use the same limits
+
 // For use at db/file_indexer.h kLevelMaxIndex
 const int kMaxInt32 = INT32_MAX;
 const uint64_t kMaxUint64 = UINT64_MAX;
-// std::numeric_limits<size_t>::max() is not constexpr just yet
-// therefore, use the same limits
+
 #ifdef _WIN64
 const size_t kMaxSizet = UINT64_MAX;
 #else
 const size_t kMaxSizet = UINT_MAX;
 #endif
+
+#endif //_MSC_VER
 
 const bool kLittleEndian = true;
 
@@ -207,8 +224,23 @@ class CondVar {
   Mutex* mu_;
 };
 
-typedef std::once_flag OnceType;
-#define LEVELDB_ONCE_INIT std::once_flag::once_flag();
+
+// OnceInit type helps emulate
+// Posix semantics with initialization
+// adopted in the project
+struct OnceType {
+
+    struct Init {};
+
+    OnceType() {}
+    OnceType(const Init&) {}
+    OnceType(const OnceType&) = delete;
+    OnceType& operator=(const OnceType&) = delete;
+
+    std::once_flag flag_;
+};
+
+#define LEVELDB_ONCE_INIT port::OnceType::Init()
 extern void InitOnce(OnceType* once, void (*initializer)());
 
 #define CACHE_LINE_SIZE 64U
@@ -280,4 +312,4 @@ using port::truncate;
 
 }  // namespace rocksdb
 
-#endif  // STORAGE_LEVELDB_PORT_PORT_POSIX_H_
+#endif  // STORAGE_LEVELDB_PORT_PORT_WIN_H_

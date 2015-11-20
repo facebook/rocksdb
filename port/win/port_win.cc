@@ -100,7 +100,7 @@ void CondVar::Signal() { cv_.notify_one(); }
 void CondVar::SignalAll() { cv_.notify_all(); }
 
 void InitOnce(OnceType* once, void (*initializer)()) {
-  std::call_once(*once, initializer);
+  std::call_once(once->flag_, initializer);
 }
 
 // Private structure, exposed only by pointer

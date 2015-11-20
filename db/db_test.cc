@@ -8758,7 +8758,7 @@ TEST_F(DBTest, LargeBatchWithColumnFamilies) {
     for (int pass = 1; pass <= 3; pass++) {
       WriteBatch batch;
       size_t write_size = 1024 * 1024 * (5 + i);
-      fprintf(stderr, "prepare: %ld MB, pass:%d\n", (write_size / 1024 / 1024),
+      fprintf(stderr, "prepare: %" ROCKSDB_PRIszt " MB, pass:%d\n", (write_size / 1024 / 1024),
               pass);
       for (;;) {
         std::string data(3000, j++ % 127 + 20);
@@ -8768,7 +8768,7 @@ TEST_F(DBTest, LargeBatchWithColumnFamilies) {
           break;
         }
       }
-      fprintf(stderr, "write: %ld MB\n", (batch.GetDataSize() / 1024 / 1024));
+      fprintf(stderr, "write: %" ROCKSDB_PRIszt " MB\n", (batch.GetDataSize() / 1024 / 1024));
       ASSERT_OK(dbfull()->Write(WriteOptions(), &batch));
       fprintf(stderr, "done\n");
     }
