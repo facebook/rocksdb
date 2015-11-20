@@ -7466,8 +7466,14 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
 
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
+
+    if (i % 25 == 0) {
+      dbfull()->TEST_WaitForFlushMemTable();
+    }
   }
+
   Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
   dbfull()->TEST_WaitForCompact();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
