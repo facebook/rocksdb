@@ -8,6 +8,7 @@
 #include "utilities/transactions/transaction_db_impl.h"
 
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #include "db/db_impl.h"
@@ -77,28 +78,45 @@ Status TransactionDB::Open(
   DB* db;
 
   std::vector<ColumnFamilyDescriptor> column_families_copy = column_families;
+  std::vector<size_t> compaction_enabled_cf_indices;
 
   // Enable MemTable History if not already enabled
-  for (auto& column_family : column_families_copy) {
-    ColumnFamilyOptions* options = &column_family.options;
+  for (size_t i = 0; i < column_families_copy.size(); i++) {
+    ColumnFamilyOptions* options = &column_families_copy[i].options;
 
     if (options->max_write_buffer_number_to_maintain == 0) {
       // Setting to -1 will set the History size to max_write_buffer_number.
       options->max_write_buffer_number_to_maintain = -1;
     }
+
+    if (!options->disable_auto_compactions) {
+      // Disable compactions momentarily to prevent race with DB::Open
+      options->disable_auto_compactions = true;
+      compaction_enabled_cf_indices.push_back(i);
+    }
   }
 
-  s = DB::Open(db_options, dbname, column_families, handles, &db);
+  s = DB::Open(db_options, dbname, column_families_copy, handles, &db);
 
   if (s.ok()) {
     TransactionDBImpl* txn_db = new TransactionDBImpl(
         db, TransactionDBImpl::ValidateTxnDBOptions(txn_db_options));
+    *dbptr = txn_db;
 
     for (auto cf_ptr : *handles) {
       txn_db->AddColumnFamily(cf_ptr);
     }
 
-    *dbptr = txn_db;
+    // Re-enable compaction for the column families that initially had
+    // compaction enabled.
+    assert(column_families_copy.size() == (*handles).size());
+    std::vector<ColumnFamilyHandle*> compaction_enabled_cf_handles;
+    compaction_enabled_cf_handles.reserve(compaction_enabled_cf_indices.size());
+    for (auto index : compaction_enabled_cf_indices) {
+      compaction_enabled_cf_handles.push_back((*handles)[index]);
+    }
+
+    s = txn_db->EnableAutoCompaction(compaction_enabled_cf_handles);
   }
 
   return s;

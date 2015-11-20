@@ -2334,6 +2334,24 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd) {
   return s;
 }
 
+Status DBImpl::EnableAutoCompaction(
+    const std::vector<ColumnFamilyHandle*>& column_family_handles) {
+  Status s;
+  for (auto cf_ptr : column_family_handles) {
+    // check options here, enable only if didn't initially disable
+    if (s.ok()) {
+      s = this->SetOptions(cf_ptr, {{"disable_auto_compactions", "false"}});
+    }
+  }
+
+  if (s.ok()) {
+    InstrumentedMutexLock guard_lock(&mutex_);
+    MaybeScheduleFlushOrCompaction();
+  }
+
+  return s;
+}
+
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
   if (!opened_successfully_) {
@@ -5007,6 +5025,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   }
   TEST_SYNC_POINT("DBImpl::Open:Opened");
   if (s.ok()) {
+    *dbptr = impl;
     impl->opened_successfully_ = true;
     impl->MaybeScheduleFlushOrCompaction();
   }
@@ -5029,9 +5048,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
            persist_options_status.ToString().c_str());
     }
   }
-  if (s.ok()) {
-    *dbptr = impl;
-  } else {
+  if (!s.ok()) {
     for (auto* h : *handles) {
       delete h;
     }

@@ -558,6 +558,12 @@ class DB {
   virtual Status PauseBackgroundWork() = 0;
   virtual Status ContinueBackgroundWork() = 0;
 
+  // This function will enable automatic compactions for the given column
+  // families if they were previously disabled via the disable_auto_compactions
+  // option.
+  virtual Status EnableAutoCompaction(
+      const std::vector<ColumnFamilyHandle*>& column_family_handles) = 0;
+
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }

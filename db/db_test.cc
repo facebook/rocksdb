@@ -5850,6 +5850,11 @@ class ModelDB: public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
+  Status EnableAutoCompaction(
+      const std::vector<ColumnFamilyHandle*>& column_family_handles) override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return 1;

@@ -7,7 +7,9 @@
 
 #include <string>
 
+#include "db/db_impl.h"
 #include "rocksdb/db.h"
+#include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/logging.h"
@@ -2206,6 +2208,65 @@ TEST_F(TransactionTest, ClearSnapshotTest) {
   ASSERT_OK(s);
 
   delete txn;
+}
+
+TEST_F(TransactionTest, ToggleAutoCompactionTest) {
+  Status s;
+
+  TransactionOptions txn_options;
+  ColumnFamilyHandle *cfa, *cfb;
+  ColumnFamilyOptions cf_options;
+
+  // Create 2 new column families
+  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
+  ASSERT_OK(s);
+  s = db->CreateColumnFamily(cf_options, "CFB", &cfb);
+  ASSERT_OK(s);
+
+  delete cfa;
+  delete cfb;
+  delete db;
+
+  // open DB with three column families
+  std::vector<ColumnFamilyDescriptor> column_families;
+  // have to open default column family
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  // open the new column families
+  column_families.push_back(
+      ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
+  column_families.push_back(
+      ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
+
+  ColumnFamilyOptions* cf_opt_default = &column_families[0].options;
+  ColumnFamilyOptions* cf_opt_cfa = &column_families[1].options;
+  ColumnFamilyOptions* cf_opt_cfb = &column_families[2].options;
+  cf_opt_default->disable_auto_compactions = false;
+  cf_opt_cfa->disable_auto_compactions = true;
+  cf_opt_cfb->disable_auto_compactions = false;
+
+  std::vector<ColumnFamilyHandle*> handles;
+
+  s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
+                          &handles, &db);
+  ASSERT_OK(s);
+
+  auto cfh_default = reinterpret_cast<ColumnFamilyHandleImpl*>(handles[0]);
+  auto opt_default = *cfh_default->cfd()->GetLatestMutableCFOptions();
+
+  auto cfh_a = reinterpret_cast<ColumnFamilyHandleImpl*>(handles[1]);
+  auto opt_a = *cfh_a->cfd()->GetLatestMutableCFOptions();
+
+  auto cfh_b = reinterpret_cast<ColumnFamilyHandleImpl*>(handles[2]);
+  auto opt_b = *cfh_b->cfd()->GetLatestMutableCFOptions();
+
+  ASSERT_EQ(opt_default.disable_auto_compactions, false);
+  ASSERT_EQ(opt_a.disable_auto_compactions, true);
+  ASSERT_EQ(opt_b.disable_auto_compactions, false);
+
+  for (auto handle : handles) {
+    delete handle;
+  }
 }
 
 }  // namespace rocksdb

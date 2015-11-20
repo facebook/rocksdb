@@ -183,6 +183,11 @@ class StackableDB : public DB {
     return db_->ContinueBackgroundWork();
   }
 
+  virtual Status EnableAutoCompaction(
+      const std::vector<ColumnFamilyHandle*>& column_family_handles) override {
+    return db_->EnableAutoCompaction(column_family_handles);
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);
@@ -274,9 +279,10 @@ class StackableDB : public DB {
   }
 
   using DB::SetOptions;
-  virtual Status SetOptions(
-    const std::unordered_map<std::string, std::string>& new_options) override {
-    return db_->SetOptions(new_options);
+  virtual Status SetOptions(ColumnFamilyHandle* column_family_handle,
+                            const std::unordered_map<std::string, std::string>&
+                                new_options) override {
+    return db_->SetOptions(column_family_handle, new_options);
   }
 
   using DB::GetPropertiesOfAllTables;

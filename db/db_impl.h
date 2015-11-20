@@ -144,6 +144,9 @@ class DBImpl : public DB {
   virtual Status PauseBackgroundWork() override;
   virtual Status ContinueBackgroundWork() override;
 
+  virtual Status EnableAutoCompaction(
+      const std::vector<ColumnFamilyHandle*>& column_family_handles) override;
+
   using DB::SetOptions;
   Status SetOptions(
       ColumnFamilyHandle* column_family,
