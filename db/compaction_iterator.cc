@@ -42,6 +42,11 @@ CompactionIterator::CompactionIterator(
     earliest_snapshot_ = snapshots_->at(0);
     latest_snapshot_ = snapshots_->back();
   }
+  if (compaction_filter_ != nullptr && compaction_filter_->IgnoreSnapshots()) {
+    ignore_snapshots_ = true;
+  } else {
+    ignore_snapshots_ = false;
+  }
 }
 
 void CompactionIterator::ResetRecordCounts() {
@@ -140,7 +145,8 @@ void CompactionIterator::NextFromInput() {
       current_user_key_snapshot_ = 0;
       // apply the compaction filter to the first occurrence of the user key
       if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
-          (visible_at_tip_ || ikey_.sequence > latest_snapshot_)) {
+          (visible_at_tip_ || ikey_.sequence > latest_snapshot_ ||
+           ignore_snapshots_)) {
         // If the user has specified a compaction filter and the sequence
         // number is greater than any external snapshot, then invoke the
         // filter. If the return value of the compaction filter is true,
@@ -170,6 +176,9 @@ void CompactionIterator::NextFromInput() {
     } else {
       // Update the current key to reflect the new sequence number/type without
       // copying the user key.
+      // TODO(rven): Compaction filter does not process keys in this path
+      // Need to have the compaction filter process multiple versions
+      // if we have versions on both sides of a snapshot
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
       key_ = current_key_.GetKey();
       ikey_.user_key = current_key_.GetUserKey();

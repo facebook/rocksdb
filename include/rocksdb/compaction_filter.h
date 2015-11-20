@@ -98,6 +98,16 @@ class CompactionFilter {
     return false;
   }
 
+  // By default, compaction will only call Filter() on keys written after the
+  // most recent call to GetSnapshot(). However, if the compaction filter
+  // overrides IgnoreSnapshots to make it return false, the compaction filter
+  // will be called even if the keys were written before the last snapshot.
+  // This behavior is to be used only when we want to delete a set of keys
+  // irrespective of snapshots. In particular, care should be taken
+  // to understand that the values of thesekeys will change even if we are
+  // using a snapshot.
+  virtual bool IgnoreSnapshots() const { return false; }
+
   // Returns a name that identifies this compaction filter.
   // The name will be printed to LOG file on start up for diagnosis.
   virtual const char* Name() const = 0;

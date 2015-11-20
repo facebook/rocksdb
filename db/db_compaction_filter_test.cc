@@ -47,6 +47,24 @@ class DeleteFilter : public CompactionFilter {
   virtual const char* Name() const override { return "DeleteFilter"; }
 };
 
+class DeleteISFilter : public CompactionFilter {
+ public:
+  virtual bool Filter(int level, const Slice& key, const Slice& value,
+                      std::string* new_value,
+                      bool* value_changed) const override {
+    cfilter_count++;
+    int i = std::stoi(key.ToString());
+    if (i > 5 && i <= 105) {
+      return true;
+    }
+    return false;
+  }
+
+  virtual bool IgnoreSnapshots() const override { return true; }
+
+  virtual const char* Name() const override { return "DeleteFilter"; }
+};
+
 class DelayFilter : public CompactionFilter {
  public:
   explicit DelayFilter(DBTestBase* d) : db_test(d) {}
@@ -133,6 +151,21 @@ class DeleteFilterFactory : public CompactionFilterFactory {
       const CompactionFilter::Context& context) override {
     if (context.is_manual_compaction) {
       return std::unique_ptr<CompactionFilter>(new DeleteFilter());
+    } else {
+      return std::unique_ptr<CompactionFilter>(nullptr);
+    }
+  }
+
+  virtual const char* Name() const override { return "DeleteFilterFactory"; }
+};
+
+// Delete Filter Factory which ignores snapshots
+class DeleteISFilterFactory : public CompactionFilterFactory {
+ public:
+  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) override {
+    if (context.is_manual_compaction) {
+      return std::unique_ptr<CompactionFilter>(new DeleteISFilter());
     } else {
       return std::unique_ptr<CompactionFilter>(nullptr);
     }
@@ -619,6 +652,68 @@ TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
   db_->ReleaseSnapshot(snapshot);
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(0U, CountLiveFiles());
+}
+
+// Compaction filters should only be applied to records that are newer than the
+// latest snapshot. However, if the compaction filter asks to ignore snapshots
+// records newer than the snapshot will also be processed
+TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
+  std::string five = ToString(5);
+  Options options;
+  options.compaction_filter_factory = std::make_shared<DeleteISFilterFactory>();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  // Put some data.
+  const Snapshot* snapshot = nullptr;
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 10; ++i) {
+      Put(ToString(table * 100 + i), "val");
+    }
+    Flush();
+
+    if (table == 0) {
+      snapshot = db_->GetSnapshot();
+    }
+  }
+  assert(snapshot != nullptr);
+
+  cfilter_count = 0;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // The filter should delete 40 records.
+  ASSERT_EQ(40U, cfilter_count);
+
+  {
+    // Scan the entire database as of the snapshot to ensure
+    // that nothing is left
+    ReadOptions read_options;
+    read_options.snapshot = snapshot;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->SeekToFirst();
+    int count = 0;
+    while (iter->Valid()) {
+      count++;
+      iter->Next();
+    }
+    ASSERT_EQ(count, 6);
+    read_options.snapshot = 0;
+    std::unique_ptr<Iterator> iter1(db_->NewIterator(read_options));
+    iter1->SeekToFirst();
+    count = 0;
+    while (iter1->Valid()) {
+      count++;
+      iter1->Next();
+    }
+    // We have deleted 10 keys from 40 using the compaction filter
+    //  Keys 6-9 before the snapshot and 100-105 after the snapshot
+    ASSERT_EQ(count, 30);
+  }
+
+  // Release the snapshot and compact again -> now all records should be
+  // removed.
+  db_->ReleaseSnapshot(snapshot);
 }
 #endif  // ROCKSDB_LITE
 
