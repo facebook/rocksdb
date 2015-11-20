@@ -1762,7 +1762,6 @@ void ScanCommand::DoCommand() {
   for ( ;
         it->Valid() && (!end_key_specified_ || it->key().ToString() < end_key_);
         it->Next()) {
-    string key = ldb_options_.key_formatter->Format(it->key());
     if (is_db_ttl_) {
       TtlIterator* it_ttl = dynamic_cast<TtlIterator*>(it);
       assert(it_ttl);
@@ -1774,11 +1773,29 @@ void ScanCommand::DoCommand() {
         fprintf(stdout, "%s ", ReadableTime(rawtime).c_str());
       }
     }
-    string value = it->value().ToString();
-    fprintf(stdout, "%s : %s\n",
-            (is_key_hex_ ? "0x" + it->key().ToString(true) : key).c_str(),
-            (is_value_hex_ ? StringToHex(value) : value).c_str()
-        );
+
+    Slice key_slice = it->key();
+    Slice val_slice = it->value();
+
+    std::string formatted_key;
+    if (is_key_hex_) {
+      formatted_key = "0x" + key_slice.ToString(true /* hex */);
+      key_slice = formatted_key;
+    } else if (ldb_options_.key_formatter) {
+      formatted_key = ldb_options_.key_formatter->Format(key_slice);
+      key_slice = formatted_key;
+    }
+
+    std::string formatted_value;
+    if (is_value_hex_) {
+      formatted_value = "0x" + val_slice.ToString(true /* hex */);
+      val_slice = formatted_value;
+    }
+
+    fprintf(stdout, "%.*s : %.*s\n",
+        static_cast<int>(key_slice.size()), key_slice.data(),
+        static_cast<int>(val_slice.size()), val_slice.data());
+
     num_keys_scanned++;
     if (max_keys_scanned_ >= 0 && num_keys_scanned >= max_keys_scanned_) {
       break;

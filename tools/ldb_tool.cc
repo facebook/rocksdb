@@ -9,16 +9,7 @@
 
 namespace rocksdb {
 
-class DefaultSliceFormatter : public SliceFormatter {
- public:
-  virtual std::string Format(const Slice& s) const override {
-    return s.ToString();
-  }
-};
-
-LDBOptions::LDBOptions()
-    : key_formatter(new DefaultSliceFormatter()) {
-}
+LDBOptions::LDBOptions() {}
 
 class LDBCommandRunner {
 public:
