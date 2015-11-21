@@ -165,7 +165,9 @@ TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
     auto& p = *static_cast<Params*>(ptr);
 
     p.mu->Lock();
-    int own = ++(p.started);
+    // Size_T switches size along with the ptr size
+    // we want to cast to.
+    size_t own = ++(p.started);
     p.cv->SignalAll();
     while (p.started != p.total) {
       p.cv->Wait();
@@ -183,16 +185,16 @@ TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
     auto* env = Env::Default();
     auto start = env->NowMicros();
 
-    p.tls1.Reset(reinterpret_cast<int*>(own));
-    p.tls2->Reset(reinterpret_cast<int*>(own + 1));
+    p.tls1.Reset(reinterpret_cast<size_t*>(own));
+    p.tls2->Reset(reinterpret_cast<size_t*>(own + 1));
     // Loop for 1 second
     while (env->NowMicros() - start < 1000 * 1000) {
       for (int iter = 0; iter < 100000; ++iter) {
-        ASSERT_TRUE(p.tls1.Get() == reinterpret_cast<int*>(own));
-        ASSERT_TRUE(p.tls2->Get() == reinterpret_cast<int*>(own + 1));
+        ASSERT_TRUE(p.tls1.Get() == reinterpret_cast<size_t*>(own));
+        ASSERT_TRUE(p.tls2->Get() == reinterpret_cast<size_t*>(own + 1));
         if (p.doWrite) {
-          p.tls1.Reset(reinterpret_cast<int*>(own));
-          p.tls2->Reset(reinterpret_cast<int*>(own + 1));
+          p.tls1.Reset(reinterpret_cast<size_t*>(own));
+          p.tls2->Reset(reinterpret_cast<size_t*>(own + 1));
         }
       }
     }
