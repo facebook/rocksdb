@@ -243,11 +243,11 @@ class CompactionJobTest : public testing::Test {
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
     mutex_.Lock();
     EventLogger event_logger(db_options_.info_log.get());
-    CompactionJob compaction_job(0, &compaction, db_options_, env_options_,
-                                 versions_.get(), &shutting_down_, &log_buffer,
-                                 nullptr, nullptr, nullptr, snapshots,
-                                 table_cache_, &event_logger, false, false,
-                                 dbname_, &compaction_job_stats_);
+    CompactionJob compaction_job(
+        0, &compaction, db_options_, env_options_, versions_.get(),
+        &shutting_down_, &log_buffer, nullptr, nullptr, nullptr, snapshots,
+        kMaxSequenceNumber, table_cache_, &event_logger, false, false, dbname_,
+        &compaction_job_stats_);
 
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 

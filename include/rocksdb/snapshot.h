@@ -33,6 +33,9 @@ class ManagedSnapshot {
  public:
   explicit ManagedSnapshot(DB* db);
 
+  // Instead of creating a snapshot, take ownership of the input snapshot.
+  ManagedSnapshot(DB* db, const Snapshot* _snapshot);
+
   ~ManagedSnapshot();
 
   const Snapshot* snapshot();
