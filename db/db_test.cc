@@ -4936,7 +4936,7 @@ TEST_F(DBTest, SharedWriteBuffer) {
   options.write_buffer_size    = 500000;  // this is never hit
   CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
-  // Trigger a flush on every CF
+  // Trigger a flush on CF "nikitich"
   ASSERT_OK(Put(0, Key(1), DummyString(1)));
   ASSERT_OK(Put(1, Key(1), DummyString(1)));
   ASSERT_OK(Put(3, Key(1), DummyString(90000)));
@@ -4948,65 +4948,107 @@ TEST_F(DBTest, SharedWriteBuffer) {
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
               static_cast<uint64_t>(1));
   }
 
-  // Flush 'dobrynia' and 'nikitich'
-  ASSERT_OK(Put(2, Key(2), DummyString(50000)));
+  // "dobrynia": 20KB
+  // Flush 'dobrynia'
   ASSERT_OK(Put(3, Key(2), DummyString(40000)));
-  ASSERT_OK(Put(2, Key(3), DummyString(20000)));
-  ASSERT_OK(Put(3, Key(2), DummyString(40000)));
+  ASSERT_OK(Put(2, Key(2), DummyString(70000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(1));
   }
 
-  // Make 'dobrynia' and 'nikitich' both take up 40% of space
-  // When 'pikachu' puts us over 100%, all 3 flush.
+  // "nikitich" still has has data of 80KB
+  // Inserting Data in "dobrynia" triggers "nikitich" flushing.
+  ASSERT_OK(Put(3, Key(2), DummyString(40000)));
   ASSERT_OK(Put(2, Key(2), DummyString(40000)));
-  ASSERT_OK(Put(1, Key(2), DummyString(20000)));
   ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(3));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(3));
+              static_cast<uint64_t>(2));
   }
 
-  // Some remaining writes so 'default' and 'nikitich' flush on closure.
+  // "dobrynia" still has 40KB
+  ASSERT_OK(Put(1, Key(2), DummyString(20000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(10000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  // This should triggers no flush
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(2));
+  }
+
+  // "default": 10KB, "pikachu": 20KB, "dobrynia": 40KB
+  ASSERT_OK(Put(1, Key(2), DummyString(40000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  // This should triggers flush of "pikachu"
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(2));
+  }
+
+  // "default": 10KB, "dobrynia": 40KB
+  // Some remaining writes so 'default', 'dobrynia' and 'nikitich' flush on
+  // closure.
   ASSERT_OK(Put(3, Key(1), DummyString(1)));
   ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
                            options);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(3));
+              static_cast<uint64_t>(2));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(4));
+              static_cast<uint64_t>(3));
   }
 }
 #endif  // ROCKSDB_LITE

@@ -3920,25 +3920,36 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     MaybeScheduleFlushOrCompaction();
   } else if (UNLIKELY(write_buffer_.ShouldFlush())) {
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "Flushing all column families. Write buffer is using %" PRIu64
-        " bytes out of a total of %" PRIu64 ".",
+        "Flushing column family with largest mem table size. Write buffer is "
+        "using %" PRIu64 " bytes out of a total of %" PRIu64 ".",
         write_buffer_.memory_usage(), write_buffer_.buffer_size());
     // no need to refcount because drop is happening in write thread, so can't
     // happen while we're in the write thread
+    ColumnFamilyData* largest_cfd = nullptr;
+    size_t largest_cfd_size = 0;
+
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
         continue;
       }
       if (!cfd->mem()->IsEmpty()) {
-        status = SwitchMemtable(cfd, &context);
-        if (!status.ok()) {
-          break;
+        // We only consider active mem table, hoping immutable memtable is
+        // already in the process of flushing.
+        size_t cfd_size = cfd->mem()->ApproximateMemoryUsage();
+        if (largest_cfd == nullptr || cfd_size > largest_cfd_size) {
+          largest_cfd = cfd;
+          largest_cfd_size = cfd_size;
         }
-        cfd->imm()->FlushRequested();
-        SchedulePendingFlush(cfd);
       }
     }
-    MaybeScheduleFlushOrCompaction();
+    if (largest_cfd != nullptr) {
+      status = SwitchMemtable(largest_cfd, &context);
+      if (status.ok()) {
+        largest_cfd->imm()->FlushRequested();
+        SchedulePendingFlush(largest_cfd);
+        MaybeScheduleFlushOrCompaction();
+      }
+    }
   }
 
   if (UNLIKELY(status.ok() && !bg_error_.ok())) {
