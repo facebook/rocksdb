@@ -274,6 +274,7 @@ TESTS = \
 	block_based_filter_block_test \
 	full_filter_block_test \
 	histogram_test \
+	inlineskiplist_test \
 	log_test \
 	manual_compaction_test \
 	memenv_test \
@@ -607,7 +608,7 @@ asan_crash_test:
 	$(MAKE) clean
 
 valgrind_check: $(TESTS)
-	for t in $(filter-out skiplist_test,$(TESTS)); do \
+	for t in $(filter-out %skiplist_test,$(TESTS)); do \
 		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
 		ret_code=$$?; \
 		if [ $$ret_code -ne 0 ]; then \
@@ -862,6 +863,9 @@ table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+inlineskiplist_test: db/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 skiplist_test: db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)

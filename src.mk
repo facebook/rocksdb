@@ -201,6 +201,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/file_indexer_test.cc                                               \
   db/filename_test.cc                                                   \
   db/flush_job_test.cc                                                  \
+  db/inlineskiplist_test.cc                                             \
   db/listener_test.cc                                                   \
   db/log_and_apply_bench.cc                                             \
   db/log_test.cc                                                        \
