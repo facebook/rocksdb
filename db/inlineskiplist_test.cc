@@ -17,13 +17,24 @@
 
 namespace rocksdb {
 
+// Our test skip list stores 8-byte unsigned integers
 typedef uint64_t Key;
 
+static const char* Encode(const uint64_t* key) {
+  return reinterpret_cast<const char*>(key);
+}
+
+static Key Decode(const char* key) {
+  Key rv;
+  memcpy(&rv, key, sizeof(Key));
+  return rv;
+}
+
 struct TestComparator {
-  int operator()(const Key& a, const Key& b) const {
-    if (a < b) {
+  int operator()(const char* a, const char* b) const {
+    if (Decode(a) < Decode(b)) {
       return -1;
-    } else if (a > b) {
+    } else if (Decode(a) > Decode(b)) {
       return +1;
     } else {
       return 0;
@@ -36,14 +47,16 @@ class InlineSkipTest : public testing::Test {};
 TEST_F(InlineSkipTest, Empty) {
   Arena arena;
   TestComparator cmp;
-  InlineSkipList<Key, TestComparator> list(cmp, &arena);
-  ASSERT_TRUE(!list.Contains(10));
+  InlineSkipList<TestComparator> list(cmp, &arena);
+  Key key = 10;
+  ASSERT_TRUE(!list.Contains(Encode(&key)));
 
-  InlineSkipList<Key, TestComparator>::Iterator iter(&list);
+  InlineSkipList<TestComparator>::Iterator iter(&list);
   ASSERT_TRUE(!iter.Valid());
   iter.SeekToFirst();
   ASSERT_TRUE(!iter.Valid());
-  iter.Seek(100);
+  key = 100;
+  iter.Seek(Encode(&key));
   ASSERT_TRUE(!iter.Valid());
   iter.SeekToLast();
   ASSERT_TRUE(!iter.Valid());
@@ -56,16 +69,18 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
   std::set<Key> keys;
   Arena arena;
   TestComparator cmp;
-  InlineSkipList<Key, TestComparator> list(cmp, &arena);
+  InlineSkipList<TestComparator> list(cmp, &arena);
   for (int i = 0; i < N; i++) {
     Key key = rnd.Next() % R;
     if (keys.insert(key).second) {
-      list.Insert(key);
+      char* buf = list.AllocateKey(sizeof(Key));
+      memcpy(buf, &key, sizeof(Key));
+      list.Insert(buf);
     }
   }
 
-  for (int i = 0; i < R; i++) {
-    if (list.Contains(i)) {
+  for (Key i = 0; i < R; i++) {
+    if (list.Contains(Encode(&i))) {
       ASSERT_EQ(keys.count(i), 1U);
     } else {
       ASSERT_EQ(keys.count(i), 0U);
@@ -74,26 +89,27 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
 
   // Simple iterator tests
   {
-    InlineSkipList<Key, TestComparator>::Iterator iter(&list);
+    InlineSkipList<TestComparator>::Iterator iter(&list);
     ASSERT_TRUE(!iter.Valid());
 
-    iter.Seek(0);
+    uint64_t zero = 0;
+    iter.Seek(Encode(&zero));
     ASSERT_TRUE(iter.Valid());
-    ASSERT_EQ(*(keys.begin()), iter.key());
+    ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
 
     iter.SeekToFirst();
     ASSERT_TRUE(iter.Valid());
-    ASSERT_EQ(*(keys.begin()), iter.key());
+    ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
 
     iter.SeekToLast();
     ASSERT_TRUE(iter.Valid());
-    ASSERT_EQ(*(keys.rbegin()), iter.key());
+    ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
   }
 
   // Forward iteration test
-  for (int i = 0; i < R; i++) {
-    InlineSkipList<Key, TestComparator>::Iterator iter(&list);
-    iter.Seek(i);
+  for (Key i = 0; i < R; i++) {
+    InlineSkipList<TestComparator>::Iterator iter(&list);
+    iter.Seek(Encode(&i));
 
     // Compare against model iterator
     std::set<Key>::iterator model_iter = keys.lower_bound(i);
@@ -103,7 +119,7 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
         break;
       } else {
         ASSERT_TRUE(iter.Valid());
-        ASSERT_EQ(*model_iter, iter.key());
+        ASSERT_EQ(*model_iter, Decode(iter.key()));
         ++model_iter;
         iter.Next();
       }
@@ -112,14 +128,14 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
 
   // Backward iteration test
   {
-    InlineSkipList<Key, TestComparator>::Iterator iter(&list);
+    InlineSkipList<TestComparator>::Iterator iter(&list);
     iter.SeekToLast();
 
     // Compare against model iterator
     for (std::set<Key>::reverse_iterator model_iter = keys.rbegin();
          model_iter != keys.rend(); ++model_iter) {
       ASSERT_TRUE(iter.Valid());
-      ASSERT_EQ(*model_iter, iter.key());
+      ASSERT_EQ(*model_iter, Decode(iter.key()));
       iter.Prev();
     }
     ASSERT_TRUE(!iter.Valid());
@@ -210,7 +226,7 @@ class ConcurrentTest {
 
   // InlineSkipList is not protected by mu_.  We just use a single writer
   // thread to modify it.
-  InlineSkipList<Key, TestComparator> list_;
+  InlineSkipList<TestComparator> list_;
 
  public:
   ConcurrentTest() : list_(TestComparator(), &arena_) {}
@@ -220,7 +236,9 @@ class ConcurrentTest {
     const uint32_t k = rnd->Next() % K;
     const int g = current_.Get(k) + 1;
     const Key new_key = MakeKey(k, g);
-    list_.Insert(new_key);
+    char* buf = list_.AllocateKey(sizeof(Key));
+    memcpy(buf, &new_key, sizeof(Key));
+    list_.Insert(buf);
     current_.Set(k, g);
   }
 
@@ -232,14 +250,14 @@ class ConcurrentTest {
     }
 
     Key pos = RandomTarget(rnd);
-    InlineSkipList<Key, TestComparator>::Iterator iter(&list_);
-    iter.Seek(pos);
+    InlineSkipList<TestComparator>::Iterator iter(&list_);
+    iter.Seek(Encode(&pos));
     while (true) {
       Key current;
       if (!iter.Valid()) {
         current = MakeKey(K, 0);
       } else {
-        current = iter.key();
+        current = Decode(iter.key());
         ASSERT_TRUE(IsValidKey(current)) << current;
       }
       ASSERT_LE(pos, current) << "should not go backwards";
@@ -276,7 +294,7 @@ class ConcurrentTest {
         Key new_target = RandomTarget(rnd);
         if (new_target > pos) {
           pos = new_target;
-          iter.Seek(new_target);
+          iter.Seek(Encode(&new_target));
         }
       }
     }
