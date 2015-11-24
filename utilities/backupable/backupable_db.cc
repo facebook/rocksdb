@@ -180,7 +180,8 @@ class BackupEngineImpl : public BackupEngine {
       return files_;
     }
 
-    Status LoadFromFile(const std::string& backup_dir);
+    Status LoadFromFile(const std::string& backup_dir,
+                        bool use_size_in_file_name);
     Status StoreToFile(bool sync);
 
     std::string GetInfoString() {
@@ -542,7 +543,8 @@ Status BackupEngineImpl::Initialize() {
   } else {  // Load data from storage
     // load the backups if any
     for (auto& backup : backups_) {
-      Status s = backup.second->LoadFromFile(options_.backup_dir);
+      Status s = backup.second->LoadFromFile(
+          options_.backup_dir, options_.use_file_size_in_file_name);
       if (!s.ok()) {
         Log(options_.info_log, "Backup %u corrupted -- %s", backup.first,
             s.ToString().c_str());
@@ -1451,6 +1453,55 @@ Status BackupEngineImpl::BackupMeta::Delete(bool delete_meta) {
   return s;
 }
 
+namespace {
+bool ParseStrToUint64(const std::string& str, uint64_t* out) {
+  try {
+    unsigned long ul = std::stoul(str);
+    *out = static_cast<uint64_t>(ul);
+    return true;
+  } catch (const std::invalid_argument& e) {
+    return false;
+  } catch (const std::out_of_range& e) {
+    return false;
+  }
+}
+
+// Parse file name in the format of
+// "shared_checksum/<file_number>_<checksum>_<size>.sst, and fill `size` with
+// the parsed <size> part.
+// Will also accept only name part, or a file path in URL format.
+// if file name doesn't have the extension of "sst", or doesn't have '_' as a
+// part of the file name, or we can't parse a number from the sub string
+// between the last '_' and '.', return false.
+bool GetFileSizeFromBackupFileName(const std::string full_name,
+                                   uint64_t* size) {
+  auto dot_pos = full_name.find_last_of('.');
+  if (dot_pos == std::string::npos) {
+    return false;
+  }
+  if (full_name.substr(dot_pos + 1) != "sst") {
+    return false;
+  }
+  auto last_underscore_pos = full_name.find_last_of('_');
+  if (last_underscore_pos == std::string::npos) {
+    return false;
+  }
+  if (dot_pos <= last_underscore_pos + 2) {
+    return false;
+  }
+  return ParseStrToUint64(full_name.substr(last_underscore_pos + 1,
+                                           dot_pos - last_underscore_pos - 1),
+                          size);
+}
+}  // namespace
+
+namespace test {
+bool TEST_GetFileSizeFromBackupFileName(const std::string full_name,
+                                        uint64_t* size) {
+  return GetFileSizeFromBackupFileName(full_name, size);
+}
+}  // namespace test
+
 // each backup meta file is of the format:
 // <timestamp>
 // <seq number>
@@ -1458,8 +1509,8 @@ Status BackupEngineImpl::BackupMeta::Delete(bool delete_meta) {
 // <file1> <crc32(literal string)> <crc32_value>
 // <file2> <crc32(literal string)> <crc32_value>
 // ...
-Status BackupEngineImpl::BackupMeta::LoadFromFile(
-    const std::string& backup_dir) {
+Status BackupEngineImpl::BackupMeta::LoadFromFile(const std::string& backup_dir,
+                                                  bool use_size_in_file_name) {
   assert(Empty());
   Status s;
   unique_ptr<SequentialFile> backup_meta_file;
@@ -1501,9 +1552,12 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     if (file_info) {
       size = file_info->size;
     } else {
-      s = env_->GetFileSize(backup_dir + "/" + filename, &size);
-      if (!s.ok()) {
-        return s;
+      if (!use_size_in_file_name ||
+          !GetFileSizeFromBackupFileName(filename, &size)) {
+        s = env_->GetFileSize(backup_dir + "/" + filename, &size);
+        if (!s.ok()) {
+          return s;
+        }
       }
     }
 
