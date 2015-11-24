@@ -36,6 +36,19 @@ endif ()
 
 if (${USE_GFLAGS} EQUAL 1)
   message(STATUS "GFLAGS library is enabled")
+  
+  if(DEFINED ENV{GFLAGS_INCLUDE})
+    set(GFLAGS_INCLUDE $ENV{GFLAGS_INCLUDE})
+  endif()
+  
+  if(DEFINED ENV{GFLAGS_LIB_DEBUG})
+    set(GFLAGS_LIB_DEBUG $ENV{GFLAGS_LIB_DEBUG})
+  endif()
+
+  if(DEFINED ENV{GFLAGS_LIB_RELEASE})
+    set(GFLAGS_LIB_RELEASE $ENV{GFLAGS_LIB_RELEASE})
+  endif()
+  
   set(GFLAGS_CXX_FLAGS -DGFLAGS=gflags)
   set(GFLAGS_LIBS debug ${GFLAGS_LIB_DEBUG} optimized ${GFLAGS_LIB_RELEASE})
 
@@ -66,6 +79,19 @@ endif ()
 
 if (${USE_SNAPPY} EQUAL 1)
   message(STATUS "SNAPPY library is enabled")
+  
+  if(DEFINED ENV{SNAPPY_INCLUDE})
+    set(SNAPPY_INCLUDE $ENV{SNAPPY_INCLUDE})
+  endif()
+  
+  if(DEFINED ENV{SNAPPY_LIB_DEBUG})
+    set(SNAPPY_LIB_DEBUG $ENV{SNAPPY_LIB_DEBUG})
+  endif()
+
+  if(DEFINED ENV{SNAPPY_LIB_RELEASE})
+    set(SNAPPY_LIB_RELEASE $ENV{SNAPPY_LIB_RELEASE})
+  endif()
+  
   set(SNAPPY_CXX_FLAGS -DSNAPPY)
   set(SNAPPY_LIBS debug ${SNAPPY_LIB_DEBUG} optimized ${SNAPPY_LIB_RELEASE})
 
@@ -96,6 +122,19 @@ endif ()
 
 if (${USE_LZ4} EQUAL 1)
   message(STATUS "LZ4 library is enabled")
+  
+  if(DEFINED ENV{LZ4_INCLUDE})
+    set(LZ4_INCLUDE $ENV{LZ4_INCLUDE})
+  endif()
+  
+  if(DEFINED ENV{LZ4_LIB_DEBUG})
+    set(LZ4_LIB_DEBUG $ENV{LZ4_LIB_DEBUG})
+  endif()
+
+  if(DEFINED ENV{LZ4_LIB_RELEASE})
+    set(LZ4_LIB_RELEASE $ENV{LZ4_LIB_RELEASE})
+  endif()
+  
   set(LZ4_CXX_FLAGS -DLZ4)
   set(LZ4_LIBS debug ${LZ4_LIB_DEBUG} optimized ${LZ4_LIB_RELEASE})
 
@@ -126,6 +165,19 @@ endif ()
 
 if (${USE_ZLIB} EQUAL 1)
   message(STATUS "ZLIB library is enabled")
+
+  if(DEFINED ENV{ZLIB_INCLUDE})
+    set(ZLIB_INCLUDE $ENV{ZLIB_INCLUDE})
+  endif()
+  
+  if(DEFINED ENV{ZLIB_LIB_DEBUG})
+    set(ZLIB_LIB_DEBUG $ENV{ZLIB_LIB_DEBUG})
+  endif()
+
+  if(DEFINED ENV{ZLIB_LIB_RELEASE})
+    set(ZLIB_LIB_RELEASE $ENV{ZLIB_LIB_RELEASE})
+  endif()
+  
   set(ZLIB_CXX_FLAGS -DZLIB)
   set(ZLIB_LIBS debug ${ZLIB_LIB_DEBUG} optimized ${ZLIB_LIB_RELEASE})
 
@@ -157,6 +209,19 @@ endif ()
 if (${USE_JEMALLOC} EQUAL 1)
   message(STATUS "JEMALLOC library is enabled")
   set(JEMALLOC_CXX_FLAGS -DJEMALLOC)
+  
+  if(DEFINED ENV{JEMALLOC_INCLUDE})
+    set(JEMALLOC_INCLUDE $ENV{JEMALLOC_INCLUDE})
+  endif()
+  
+  if(DEFINED ENV{JEMALLOC_LIB_DEBUG})
+    set(JEMALLOC_LIB_DEBUG $ENV{JEMALLOC_LIB_DEBUG})
+  endif()
+
+  if(DEFINED ENV{JEMALLOC_LIB_RELEASE})
+    set(JEMALLOC_LIB_RELEASE $ENV{JEMALLOC_LIB_RELEASE})
+  endif()
+
   set(JEMALLOC_LIBS debug ${JEMALLOC_LIB_DEBUG} optimized ${JEMALLOC_LIB_RELEASE})
 
   add_definitions(${JEMALLOC_CXX_FLAGS})
