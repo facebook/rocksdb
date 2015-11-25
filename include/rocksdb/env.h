@@ -768,6 +768,12 @@ class EnvWrapper : public Env {
                          const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
   }
+  Status ReuseWritableFile(const std::string& fname,
+			   const std::string& old_fname,
+			   unique_ptr<WritableFile>* r,
+			   const EnvOptions& options) {
+    return target_->ReuseWritableFile(fname, old_fname, r, options);
+  }
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
