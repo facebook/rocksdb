@@ -7693,16 +7693,12 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   // Clean up memtable and L0. Block compaction threads. If continue to write
   // and flush memtables. We should see put stop after 8 memtable flushes
   // since level0_stop_writes_trigger = 8
+  dbfull()->TEST_FlushMemTable(true);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // Block compaction
   test::SleepingBackgroundTask sleeping_task_low;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
-
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::DelayWrite:Wait",
-      [&](void* arg) { sleeping_task_low.WakeUp(); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   int count = 0;
@@ -7710,11 +7706,12 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   WriteOptions wo;
   while (count < 64) {
     ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
-    if (sleeping_task_low.WokenUp()) {
-      break;
-    }
     dbfull()->TEST_FlushMemTable(true);
     count++;
+    if (dbfull()->TEST_write_controler().IsStopped()) {
+      sleeping_task_low.WakeUp();
+      break;
+    }
   }
   // Stop trigger = 8
   ASSERT_EQ(count, 8);
@@ -7727,6 +7724,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   ASSERT_OK(dbfull()->SetOptions({
     {"level0_stop_writes_trigger", "6"}
   }));
+  dbfull()->TEST_FlushMemTable(true);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
@@ -7737,11 +7735,12 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   count = 0;
   while (count < 64) {
     ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
-    if (sleeping_task_low.WokenUp()) {
-      break;
-    }
     dbfull()->TEST_FlushMemTable(true);
     count++;
+    if (dbfull()->TEST_write_controler().IsStopped()) {
+      sleeping_task_low.WakeUp();
+      break;
+    }
   }
   ASSERT_EQ(count, 6);
   // Unblock
@@ -7781,8 +7780,6 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   }
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0), 4);
-
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 #endif  // ROCKSDB_LITE
 
@@ -10658,7 +10655,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
   iter.reset(dbfull()->NewIterator(ReadOptions()));
 
-  // check SST bloom stats
+  // Check SST bloom stats
   iter->Seek(key1);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
