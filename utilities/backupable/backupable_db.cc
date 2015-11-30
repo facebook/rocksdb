@@ -1459,9 +1459,9 @@ bool ParseStrToUint64(const std::string& str, uint64_t* out) {
     unsigned long ul = std::stoul(str);
     *out = static_cast<uint64_t>(ul);
     return true;
-  } catch (const std::invalid_argument& e) {
+  } catch (const std::invalid_argument&) {
     return false;
-  } catch (const std::out_of_range& e) {
+  } catch (const std::out_of_range&) {
     return false;
   }
 }
