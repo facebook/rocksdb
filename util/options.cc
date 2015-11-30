@@ -260,6 +260,7 @@ DBOptions::DBOptions()
       delayed_write_rate(1024U * 1024U),
       skip_stats_update_on_db_open(false),
       wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords),
+      row_cache(nullptr),
 #ifndef ROCKSDB_LITE
       wal_filter(nullptr),
 #endif  // ROCKSDB_LITE
