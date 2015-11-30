@@ -8626,10 +8626,12 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   };
 
   Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
   options.compaction_style = kCompactionStyleLevel;
   options.compaction_filter_factory.reset(
       new CompactionFilterFactoryGetContext());
-  options.write_buffer_size = 100 << 10;
+  options.write_buffer_size = 200 << 10;
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = 4;
