@@ -461,12 +461,15 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
 
 
 TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
+  int kNumKeysPerFile = 100;
+
   Options options;
-  options.write_buffer_size = 110 << 10;  // 110KB
+  options.write_buffer_size = 200 << 10;
   options.arena_block_size = 4 << 10;
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
   options.max_subcompactions = max_subcompactions_;
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -476,10 +479,11 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
        num++) {
     std::vector<std::string> values;
     // Write 100KB (100 values, each 1K)
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < kNumKeysPerFile; i++) {
       values.push_back(RandomString(&rnd, 990));
       ASSERT_OK(Put(1, Key(i), values[i]));
     }
+    ASSERT_OK(Put(1, "", ""));
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), num + 1);
   }
