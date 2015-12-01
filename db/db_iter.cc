@@ -193,6 +193,7 @@ void DBIter::Next() {
     // If the current key is a merge, very likely iter already points
     // to the next internal position.
     iter_->Next();
+    PERF_COUNTER_ADD(internal_key_skipped_count, 1);
   }
 
   // Now we point to the next internal position, for both of merge and
