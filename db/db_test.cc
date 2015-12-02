@@ -8683,10 +8683,12 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
     dbfull()->TEST_WaitForCompact();
   }
 
-  ASSERT_EQ("0,0,13", FilesPerLevel(0));
+  // All files are compacted
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
 
   GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,0,13", FilesPerLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
   // nonoverlapping with the file on level 0
   Slice start("a"), end("b");
@@ -8694,7 +8696,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   dbfull()->TEST_WaitForCompact();
 
   // should not compact the level 0 file
-  ASSERT_EQ("1,0,13", FilesPerLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
   start = Slice("j");
   end = Slice("m");
@@ -8704,7 +8706,8 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
       options.compaction_filter_factory.get()));
 
   // now it should compact the level 0 file
-  ASSERT_EQ("0,1,13", FilesPerLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
 }
 
 TEST_F(DBTest, PromoteL0) {
