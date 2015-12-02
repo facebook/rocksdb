@@ -471,7 +471,6 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   options.max_subcompactions = max_subcompactions_;
   options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
   options = CurrentOptions(options);
-  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
   CreateAndReopenWithCF({"pikachu"}, options);
 
   Random rnd(301);
