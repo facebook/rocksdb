@@ -89,7 +89,9 @@ class HdfsEnv : public Env {
 
   virtual Status RenameFile(const std::string& src, const std::string& target);
 
-  virtual Status LinkFile(const std::string& src, const std::string& target);
+  virtual Status LinkFile(const std::string& src, const std::string& target) {
+    return Status::NotSupported(); // not supported
+  }
 
   virtual Status LockFile(const std::string& fname, FileLock** lock);
 
