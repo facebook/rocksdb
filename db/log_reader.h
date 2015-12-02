@@ -126,6 +126,10 @@ class Reader {
     kBadHeader = kMaxRecordType + 3,
     // Returned when we read an old record from a previous user of the log.
     kOldRecord = kMaxRecordType + 4,
+    // Returned when we get a bad record length
+    kBadRecordLen = kMaxRecordType + 5,
+    // Returned when we get a bad record checksum
+    kBadRecordChecksum = kMaxRecordType + 6,
   };
 
   // Skips all blocks that are completely before "initial_offset_".

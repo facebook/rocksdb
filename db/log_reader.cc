@@ -191,6 +191,24 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         }
         break;
 
+      case kBadRecordLen:
+        ReportCorruption(drop_size, "bad record length");
+        if (in_fragmented_record) {
+          ReportCorruption(scratch->size(), "error in middle of record");
+          in_fragmented_record = false;
+          scratch->clear();
+        }
+        break;
+
+      case kBadRecordChecksum:
+        ReportCorruption(drop_size, "checksum mismatch");
+        if (in_fragmented_record) {
+          ReportCorruption(scratch->size(), "error in middle of record");
+          in_fragmented_record = false;
+          scratch->clear();
+        }
+        break;
+
       default: {
         char buf[40];
         snprintf(buf, sizeof(buf), "unknown record type %u", record_type);
@@ -355,8 +373,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       *drop_size = buffer_.size();
       buffer_.clear();
       if (!eof_) {
-        ReportCorruption(*drop_size, "bad record length");
-        return kBadRecord;
+        return kBadRecordLen;
       }
       // If the end of the file has been reached without reading |length| bytes
       // of payload, assume the writer died in the middle of writing the record.
@@ -388,8 +405,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
         // like a valid log record.
         *drop_size = buffer_.size();
         buffer_.clear();
-        ReportCorruption(*drop_size, "checksum mismatch");
-        return kBadRecord;
+        return kBadRecordChecksum;
       }
     }
 
