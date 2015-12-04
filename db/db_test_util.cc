@@ -833,7 +833,7 @@ int DBTestBase::GetSstFileCount(std::string path) {
 // this will generate non-overlapping files since it keeps increasing key_idx
 void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
                                  bool nowait) {
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < KNumKeysByGenerateNewFile; i++) {
     ASSERT_OK(Put(cf, Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
@@ -845,7 +845,7 @@ void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
 
 // this will generate non-overlapping files since it keeps increasing key_idx
 void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < KNumKeysByGenerateNewFile; i++) {
     ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
