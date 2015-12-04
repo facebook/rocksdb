@@ -2163,6 +2163,65 @@ TEST_F(TransactionTest, DeferSnapshotSavePointTest) {
   delete txn1;
 }
 
+TEST_F(TransactionTest, SetSnapshotOnNextOperationWithNotification) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+
+  class Notifier : public TransactionNotifier {
+   private:
+    const Snapshot** snapshot_ptr_;
+
+   public:
+    explicit Notifier(const Snapshot** snapshot_ptr)
+        : snapshot_ptr_(snapshot_ptr) {}
+
+    void SnapshotCreated(const Snapshot* newSnapshot) {
+      *snapshot_ptr_ = newSnapshot;
+    }
+  };
+
+  std::shared_ptr<Notifier> notifier =
+      std::make_shared<Notifier>(&read_options.snapshot);
+  Status s;
+
+  s = db->Put(write_options, "B", "0");
+  ASSERT_OK(s);
+
+  Transaction* txn1 = db->BeginTransaction(write_options);
+
+  txn1->SetSnapshotOnNextOperation(notifier);
+  ASSERT_FALSE(read_options.snapshot);
+
+  s = db->Put(write_options, "B", "1");
+  ASSERT_OK(s);
+
+  // A Get does not generate the snapshot
+  s = txn1->Get(read_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_FALSE(read_options.snapshot);
+  ASSERT_EQ(value, "1");
+
+  // Any other operation does
+  s = txn1->Put("A", "0");
+  ASSERT_OK(s);
+
+  // Now change "B".
+  s = db->Put(write_options, "B", "2");
+  ASSERT_OK(s);
+
+  // The original value should still be read
+  s = txn1->Get(read_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_TRUE(read_options.snapshot);
+  ASSERT_EQ(value, "1");
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  delete txn1;
+}
+
 TEST_F(TransactionTest, ClearSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;

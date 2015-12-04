@@ -37,15 +37,22 @@ void TransactionBaseImpl::Clear() {
 void TransactionBaseImpl::SetSnapshot() {
   snapshot_.reset(new ManagedSnapshot(db_));
   snapshot_needed_ = false;
+  snapshot_notifier_ = nullptr;
 }
 
-void TransactionBaseImpl::SetSnapshotOnNextOperation() {
+void TransactionBaseImpl::SetSnapshotOnNextOperation(
+    std::shared_ptr<TransactionNotifier> notifier) {
   snapshot_needed_ = true;
+  snapshot_notifier_ = notifier;
 }
 
 void TransactionBaseImpl::SetSnapshotIfNeeded() {
   if (snapshot_needed_) {
+    std::shared_ptr<TransactionNotifier> notifier = snapshot_notifier_;
     SetSnapshot();
+    if (notifier != nullptr) {
+      notifier->SnapshotCreated(GetSnapshot());
+    }
   }
 }
 
@@ -70,8 +77,8 @@ void TransactionBaseImpl::SetSavePoint() {
   if (save_points_ == nullptr) {
     save_points_.reset(new std::stack<TransactionBaseImpl::SavePoint>());
   }
-  save_points_->emplace(snapshot_, snapshot_needed_, num_puts_, num_deletes_,
-                        num_merges_);
+  save_points_->emplace(snapshot_, snapshot_needed_, snapshot_notifier_,
+                        num_puts_, num_deletes_, num_merges_);
   write_batch_->SetSavePoint();
 }
 
@@ -81,6 +88,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
     TransactionBaseImpl::SavePoint& save_point = save_points_->top();
     snapshot_ = save_point.snapshot_;
     snapshot_needed_ = save_point.snapshot_needed_;
+    snapshot_notifier_ = save_point.snapshot_notifier_;
     num_puts_ = save_point.num_puts_;
     num_deletes_ = save_point.num_deletes_;
     num_merges_ = save_point.num_merges_;

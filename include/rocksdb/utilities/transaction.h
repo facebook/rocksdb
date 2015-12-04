@@ -20,6 +20,17 @@ class Iterator;
 class TransactionDB;
 class WriteBatchWithIndex;
 
+// Provides notification to the caller of SetSnapshotOnNextOperation when
+// the actual snapshot gets created
+class TransactionNotifier {
+ public:
+  virtual ~TransactionNotifier() {}
+
+  // Implement this method to receive notification when a snapshot is
+  // requested via SetSnapshotOnNextOperation.
+  virtual void SnapshotCreated(const Snapshot* newSnapshot) = 0;
+};
+
 // Provides BEGIN/COMMIT/ROLLBACK transactions.
 //
 // To use transactions, you must first create either an OptimisticTransactionDB
@@ -69,6 +80,9 @@ class Transaction {
   // Calling SetSnapshotOnNextOperation() will not affect what snapshot is
   // returned by GetSnapshot() until the next write/GetForUpdate is executed.
   //
+  // When the snapshot is created the notifier's SnapshotCreated method will
+  // be called so that the caller can get access to the snapshot.
+  //
   // This is an optimization to reduce the likelyhood of conflicts that
   // could occur in between the time SetSnapshot() is called and the first
   // write/GetForUpdate operation.  Eg, this prevents the following
@@ -78,7 +92,8 @@ class Transaction {
   //                             txn2->Put("A", ...);
   //                             txn2->Commit();
   //   txn1->GetForUpdate(opts, "A", ...);  // FAIL!
-  virtual void SetSnapshotOnNextOperation() = 0;
+  virtual void SetSnapshotOnNextOperation(
+      std::shared_ptr<TransactionNotifier> notifier = nullptr) = 0;
 
   // Returns the Snapshot created by the last call to SetSnapshot().
   //

@@ -169,11 +169,13 @@ class TransactionBaseImpl : public Transaction {
   }
 
   void SetSnapshot() override;
-  void SetSnapshotOnNextOperation() override;
+  void SetSnapshotOnNextOperation(
+      std::shared_ptr<TransactionNotifier> notifier = nullptr) override;
 
   void ClearSnapshot() override {
     snapshot_.reset();
     snapshot_needed_ = false;
+    snapshot_notifier_ = nullptr;
   }
 
   void DisableIndexing() override { indexing_enabled_ = false; }
@@ -228,6 +230,7 @@ class TransactionBaseImpl : public Transaction {
   struct SavePoint {
     std::shared_ptr<ManagedSnapshot> snapshot_;
     bool snapshot_needed_;
+    std::shared_ptr<TransactionNotifier> snapshot_notifier_;
     uint64_t num_puts_;
     uint64_t num_deletes_;
     uint64_t num_merges_;
@@ -236,9 +239,11 @@ class TransactionBaseImpl : public Transaction {
     TransactionKeyMap new_keys_;
 
     SavePoint(std::shared_ptr<ManagedSnapshot> snapshot, bool snapshot_needed,
+              std::shared_ptr<TransactionNotifier> snapshot_notifier,
               uint64_t num_puts, uint64_t num_deletes, uint64_t num_merges)
         : snapshot_(snapshot),
           snapshot_needed_(snapshot_needed),
+          snapshot_notifier_(snapshot_notifier),
           num_puts_(num_puts),
           num_deletes_(num_deletes),
           num_merges_(num_merges) {}
@@ -265,6 +270,10 @@ class TransactionBaseImpl : public Transaction {
   // SetSnapshotOnNextOperation() has been called and the snapshot has not yet
   // been reset.
   bool snapshot_needed_ = false;
+
+  // SetSnapshotOnNextOperation() has been called and the caller would like
+  // a notification through the TransactionNotifier interface
+  std::shared_ptr<TransactionNotifier> snapshot_notifier_ = nullptr;
 
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
                  bool untracked = false);
