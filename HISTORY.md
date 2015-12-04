@@ -8,6 +8,8 @@
 * Introduce CheckOptionsCompatibility() in rocksdb/utilities/options_util.h.  This function checks whether the input set of options is able to open the specified DB successfully.
 
 ### Public API Changes
+* When options.db_write_buffer_size triggers, only the column family with the largest column family size will be flushed, not all the column families.
+
 ## 4.2.0 (11/9/2015)
 ### New Features
 * Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions. 

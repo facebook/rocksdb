@@ -4936,7 +4936,7 @@ TEST_F(DBTest, SharedWriteBuffer) {
   options.write_buffer_size    = 500000;  // this is never hit
   CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
-  // Trigger a flush on every CF
+  // Trigger a flush on CF "nikitich"
   ASSERT_OK(Put(0, Key(1), DummyString(1)));
   ASSERT_OK(Put(1, Key(1), DummyString(1)));
   ASSERT_OK(Put(3, Key(1), DummyString(90000)));
@@ -4948,65 +4948,107 @@ TEST_F(DBTest, SharedWriteBuffer) {
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
               static_cast<uint64_t>(1));
   }
 
-  // Flush 'dobrynia' and 'nikitich'
-  ASSERT_OK(Put(2, Key(2), DummyString(50000)));
+  // "dobrynia": 20KB
+  // Flush 'dobrynia'
   ASSERT_OK(Put(3, Key(2), DummyString(40000)));
-  ASSERT_OK(Put(2, Key(3), DummyString(20000)));
-  ASSERT_OK(Put(3, Key(2), DummyString(40000)));
+  ASSERT_OK(Put(2, Key(2), DummyString(70000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(1));
   }
 
-  // Make 'dobrynia' and 'nikitich' both take up 40% of space
-  // When 'pikachu' puts us over 100%, all 3 flush.
+  // "nikitich" still has has data of 80KB
+  // Inserting Data in "dobrynia" triggers "nikitich" flushing.
+  ASSERT_OK(Put(3, Key(2), DummyString(40000)));
   ASSERT_OK(Put(2, Key(2), DummyString(40000)));
-  ASSERT_OK(Put(1, Key(2), DummyString(20000)));
   ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(1));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(0));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(3));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(3));
+              static_cast<uint64_t>(2));
   }
 
-  // Some remaining writes so 'default' and 'nikitich' flush on closure.
+  // "dobrynia" still has 40KB
+  ASSERT_OK(Put(1, Key(2), DummyString(20000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(10000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  // This should triggers no flush
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(2));
+  }
+
+  // "default": 10KB, "pikachu": 20KB, "dobrynia": 40KB
+  ASSERT_OK(Put(1, Key(2), DummyString(40000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  // This should triggers flush of "pikachu"
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(0));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(2));
+  }
+
+  // "default": 10KB, "dobrynia": 40KB
+  // Some remaining writes so 'default', 'dobrynia' and 'nikitich' flush on
+  // closure.
   ASSERT_OK(Put(3, Key(1), DummyString(1)));
   ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
                            options);
   {
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-              static_cast<uint64_t>(2));
+              static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
-              static_cast<uint64_t>(3));
+              static_cast<uint64_t>(2));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
-              static_cast<uint64_t>(4));
+              static_cast<uint64_t>(3));
   }
 }
 #endif  // ROCKSDB_LITE
@@ -7651,16 +7693,12 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   // Clean up memtable and L0. Block compaction threads. If continue to write
   // and flush memtables. We should see put stop after 8 memtable flushes
   // since level0_stop_writes_trigger = 8
+  dbfull()->TEST_FlushMemTable(true);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // Block compaction
   test::SleepingBackgroundTask sleeping_task_low;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
-
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::DelayWrite:Wait",
-      [&](void* arg) { sleeping_task_low.WakeUp(); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   int count = 0;
@@ -7668,11 +7706,12 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   WriteOptions wo;
   while (count < 64) {
     ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
-    if (sleeping_task_low.WokenUp()) {
-      break;
-    }
     dbfull()->TEST_FlushMemTable(true);
     count++;
+    if (dbfull()->TEST_write_controler().IsStopped()) {
+      sleeping_task_low.WakeUp();
+      break;
+    }
   }
   // Stop trigger = 8
   ASSERT_EQ(count, 8);
@@ -7685,6 +7724,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   ASSERT_OK(dbfull()->SetOptions({
     {"level0_stop_writes_trigger", "6"}
   }));
+  dbfull()->TEST_FlushMemTable(true);
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
@@ -7695,11 +7735,12 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   count = 0;
   while (count < 64) {
     ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
-    if (sleeping_task_low.WokenUp()) {
-      break;
-    }
     dbfull()->TEST_FlushMemTable(true);
     count++;
+    if (dbfull()->TEST_write_controler().IsStopped()) {
+      sleeping_task_low.WakeUp();
+      break;
+    }
   }
   ASSERT_EQ(count, 6);
   // Unblock
@@ -7739,8 +7780,6 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   }
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0), 4);
-
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 #endif  // ROCKSDB_LITE
 
@@ -8584,10 +8623,12 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   };
 
   Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
   options.compaction_style = kCompactionStyleLevel;
   options.compaction_filter_factory.reset(
       new CompactionFilterFactoryGetContext());
-  options.write_buffer_size = 100 << 10;
+  options.write_buffer_size = 200 << 10;
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = 4;
@@ -8642,10 +8683,12 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
     dbfull()->TEST_WaitForCompact();
   }
 
-  ASSERT_EQ("0,0,13", FilesPerLevel(0));
+  // All files are compacted
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(1));
 
   GenerateNewRandomFile(&rnd);
-  ASSERT_EQ("1,0,13", FilesPerLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
   // nonoverlapping with the file on level 0
   Slice start("a"), end("b");
@@ -8653,7 +8696,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   dbfull()->TEST_WaitForCompact();
 
   // should not compact the level 0 file
-  ASSERT_EQ("1,0,13", FilesPerLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
 
   start = Slice("j");
   end = Slice("m");
@@ -8663,7 +8706,8 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
       options.compaction_filter_factory.get()));
 
   // now it should compact the level 0 file
-  ASSERT_EQ("0,1,13", FilesPerLevel(0));
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_EQ(1, NumTableFilesAtLevel(1));
 }
 
 TEST_F(DBTest, PromoteL0) {
@@ -10614,7 +10658,7 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
 
   iter.reset(dbfull()->NewIterator(ReadOptions()));
 
-  // check SST bloom stats
+  // Check SST bloom stats
   iter->Seek(key1);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());

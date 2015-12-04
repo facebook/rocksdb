@@ -314,6 +314,10 @@ class DBImpl : public DB {
 
   Cache* TEST_table_cache() { return table_cache_.get(); }
 
+  const WriteController& TEST_write_controler() const {
+    return write_controller_;
+  }
+
 #endif  // NDEBUG
 
   // Returns the list of live files in 'live' and the list

@@ -118,6 +118,84 @@ struct OptionsOverride {
 
 }  // namespace anon
 
+// A hacky skip list mem table that triggers flush after number of entries.
+class SpecialMemTableRep : public MemTableRep {
+ public:
+  explicit SpecialMemTableRep(MemTableAllocator* allocator,
+                              MemTableRep* memtable, int num_entries_flush)
+      : MemTableRep(allocator),
+        memtable_(memtable),
+        num_entries_flush_(num_entries_flush),
+        num_entries_(0) {}
+
+  virtual KeyHandle Allocate(const size_t len, char** buf) override {
+    return memtable_->Allocate(len, buf);
+  }
+
+  // Insert key into the list.
+  // REQUIRES: nothing that compares equal to key is currently in the list.
+  virtual void Insert(KeyHandle handle) override {
+    memtable_->Insert(handle);
+    num_entries_++;
+  }
+
+  // Returns true iff an entry that compares equal to key is in the list.
+  virtual bool Contains(const char* key) const override {
+    return memtable_->Contains(key);
+  }
+
+  virtual size_t ApproximateMemoryUsage() override {
+    // Return a high memory usage when number of entries exceeds the threshold
+    // to trigger a flush.
+    return (num_entries_ < num_entries_flush_) ? 0 : 1024 * 1024 * 1024;
+  }
+
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg,
+                                         const char* entry)) override {
+    memtable_->Get(k, callback_args, callback_func);
+  }
+
+  uint64_t ApproximateNumEntries(const Slice& start_ikey,
+                                 const Slice& end_ikey) override {
+    return memtable_->ApproximateNumEntries(start_ikey, end_ikey);
+  }
+
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
+    return memtable_->GetIterator(arena);
+  }
+
+  virtual ~SpecialMemTableRep() override {}
+
+ private:
+  unique_ptr<MemTableRep> memtable_;
+  int num_entries_flush_;
+  int num_entries_;
+};
+
+// The factory for the hacky skip list mem table that triggers flush after
+// number of entries exceeds a threshold.
+class SpecialSkipListFactory : public MemTableRepFactory {
+ public:
+  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
+  // flush.
+  explicit SpecialSkipListFactory(int num_entries_flush)
+      : num_entries_flush_(num_entries_flush) {}
+
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+      const SliceTransform* transform, Logger* logger) override {
+    return new SpecialMemTableRep(
+        allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),
+        num_entries_flush_);
+  }
+  virtual const char* Name() const override { return "SkipListFactory"; }
+
+ private:
+  SkipListFactory factory_;
+  int num_entries_flush_;
+};
+
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
  public:
@@ -630,6 +708,8 @@ class DBTestBase : public testing::Test {
   void GenerateNewFile(Random* rnd, int* key_idx, bool nowait = false);
 
   void GenerateNewFile(int fd, Random* rnd, int* key_idx, bool nowait = false);
+
+  static const int kNumKeysByGenerateNewRandomFile;
 
   void GenerateNewRandomFile(Random* rnd, bool nowait = false);
 
