@@ -58,6 +58,10 @@ int main() {
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "port/port.h"
+
+
+#include "jemalloc/jemalloc.h"
+
 #include "port/stack_trace.h"
 #include "util/crc32c.h"
 #include "util/compression.h"
@@ -1288,6 +1292,34 @@ class Stats {
         else                            next_report_ += 100000;
         fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
       } else {
+
+        size_t mem_allocated, mem_active, mem_metadata, mem_resident, mem_mapped;
+        size_t sz = sizeof(size_t);
+        je_mallctl("stats.allocated", &mem_allocated, &sz, NULL, 0);
+        je_mallctl("stats.active", &mem_active, &sz, NULL, 0);
+        je_mallctl("stats.metadata", &mem_metadata, &sz, NULL, 0);
+        je_mallctl("stats.resident", &mem_resident, &sz, NULL, 0);
+        je_mallctl("stats.mapped", &mem_mapped, &sz, NULL, 0);
+
+        fprintf(stderr, "[JEMemory] Allocated: %" PRIu64 " Active: %" PRIu64 " Metadata: %" PRIu64 " Resident: %" PRIu64 " Mapped: %" PRIu64 "\n",
+          mem_allocated, mem_active, mem_metadata, mem_resident, mem_mapped);
+
+
+        // je_malloc_stats_print(nullptr, nullptr, "mablh");
+
+        // const char *fileName = "heap_info.out";
+        // je_mallctl("prof.dump", NULL, NULL, &fileName, sizeof(const char *));
+
+        // bool prof_enabled;
+        // size_t sz_bool = sizeof(bool);
+        // je_mallctl("config.prof", &prof_enabled, &sz_bool, NULL, 0);
+        // fprintf(stderr, "Enabled: %s\n", prof_enabled ? "ture" : "false");
+
+
+        // fprintf(stderr, "%s\n", je_malloc_conf);
+
+
+
         double now = FLAGS_env->NowMicros();
         int64_t usecs_since_last = now - last_report_finish_;
 
