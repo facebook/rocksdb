@@ -74,7 +74,7 @@ struct LRUHandle {
   void Free() {
     assert((refs == 1 && in_cache) || (refs == 0 && !in_cache));
     (*deleter)(key(), value);
-    free(this);
+    delete[] reinterpret_cast<char*>(this);
   }
 };
 
@@ -390,8 +390,8 @@ Cache::Handle* LRUCache::Insert(
   // Allocate the memory here outside of the mutex
   // If the cache is full, we'll have to release it
   // It shouldn't happen very often though.
-  LRUHandle* e =
-      reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
+  LRUHandle* e = reinterpret_cast<LRUHandle*>(
+                    new char[sizeof(LRUHandle) - 1 + key.size()]);
   autovector<LRUHandle*> last_reference_list;
 
   e->value = value;

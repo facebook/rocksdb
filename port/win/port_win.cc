@@ -235,6 +235,9 @@ namespace rocksdb {
 namespace port {
 
 __declspec(noinline) void WINAPI InitializeJemalloc() {
+
+  //je_malloc_conf = "prof:true,prof_prefix:jeprof.out";
+
   je_init();
   atexit(je_uninit);
 }
