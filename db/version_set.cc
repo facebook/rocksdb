@@ -1386,14 +1386,20 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
       num = temp.size();
     }
     switch (mutable_cf_options.compaction_pri) {
-      case kCompactionPriByCompensatedSize:
+      case kByCompensatedSize:
         std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
                           CompareCompensatedSizeDescending);
         break;
-      case kCompactionPriByLargestSeq:
+      case kOldestLargestSeqFirst:
         std::sort(temp.begin(), temp.end(),
                   [this](const Fsize& f1, const Fsize& f2) -> bool {
                     return f1.file->largest_seqno < f2.file->largest_seqno;
+                  });
+        break;
+      case kOldestSmallestSeqFirst:
+        std::sort(temp.begin(), temp.end(),
+                  [this](const Fsize& f1, const Fsize& f2) -> bool {
+                    return f1.file->smallest_seqno < f2.file->smallest_seqno;
                   });
         break;
       default:

@@ -82,9 +82,14 @@ enum CompactionStyle : char {
 
 enum CompactionPri : char {
   // Slightly Priotize larger files by size compensated by #deletes
-  kCompactionPriByCompensatedSize = 0x0,
-  // First compact files whose data is oldest.
-  kCompactionPriByLargestSeq = 0x1,
+  kByCompensatedSize = 0x0,
+  // First compact files whose data's latest update time is oldest.
+  // Try this if you only update some hot keys in small ranges.
+  kOldestLargestSeqFirst = 0x1,
+  // First compact files whose range hasn't been compacted to the next level
+  // for the longest. If your updates are random across the key space,
+  // write amplification is slightly better with this option.
+  kOldestSmallestSeqFirst = 0x2,
 };
 
 enum class WALRecoveryMode : char {

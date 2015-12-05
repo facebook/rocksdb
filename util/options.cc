@@ -110,7 +110,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       disable_auto_compactions(false),
       purge_redundant_kvs_while_flush(true),
       compaction_style(kCompactionStyleLevel),
-      compaction_pri(kCompactionPriByCompensatedSize),
+      compaction_pri(kByCompensatedSize),
       verify_checksums_in_compaction(true),
       filter_deletes(false),
       max_sequential_skip_in_iterations(8),

@@ -1868,6 +1868,53 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
                         ::testing::Values(1, 4));
+
+class CompactionPriTest : public DBTestBase,
+                          public testing::WithParamInterface<uint32_t> {
+ public:
+  CompactionPriTest() : DBTestBase("/compaction_pri_test") {
+    compaction_pri_ = GetParam();
+  }
+
+  // Required if inheriting from testing::WithParamInterface<>
+  static void SetUpTestCase() {}
+  static void TearDownTestCase() {}
+
+  uint32_t compaction_pri_;
+};
+
+TEST_P(CompactionPriTest, Test) {
+  Options options;
+  options.write_buffer_size = 16 * 1024;
+  options.compaction_pri = static_cast<CompactionPri>(compaction_pri_);
+  options.hard_pending_compaction_bytes_limit = 256 * 1024;
+  options.max_bytes_for_level_base = 64 * 1024;
+  options.max_bytes_for_level_multiplier = 4;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  const int kNKeys = 5000;
+  int keys[kNKeys];
+  for (int i = 0; i < kNKeys; i++) {
+    keys[i] = i;
+  }
+  std::random_shuffle(std::begin(keys), std::end(keys));
+
+  for (int i = 0; i < kNKeys; i++) {
+    ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 102)));
+  }
+
+  dbfull()->TEST_WaitForCompact();
+  for (int i = 0; i < kNKeys; i++) {
+    ASSERT_NE("NOT_FOUND", Get(Key(i)));
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(CompactionPriTest, CompactionPriTest,
+                        ::testing::Values(0, 1, 2));
+
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace rocksdb
 

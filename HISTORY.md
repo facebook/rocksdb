@@ -9,6 +9,7 @@
 
 ### Public API Changes
 * When options.db_write_buffer_size triggers, only the column family with the largest column family size will be flushed, not all the column families.
+* Change names in CompactionPri and add a new one.
 
 ## 4.2.0 (11/9/2015)
 ### New Features

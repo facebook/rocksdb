@@ -67,7 +67,7 @@ struct MutableCFOptions {
         level0_file_num_compaction_trigger(0),
         level0_slowdown_writes_trigger(0),
         level0_stop_writes_trigger(0),
-        compaction_pri(kCompactionPriByCompensatedSize),
+        compaction_pri(kByCompensatedSize),
         max_grandparent_overlap_factor(0),
         expanded_compaction_factor(0),
         source_compaction_factor(0),
