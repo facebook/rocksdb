@@ -2441,10 +2441,15 @@ TEST_F(DBTest, FlushEmptyColumnFamily) {
   options.max_write_buffer_number_to_maintain = 1;
   CreateAndReopenWithCF({"pikachu"}, options);
 
+  auto cfh = dbfull()->DefaultColumnFamily();
+  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+  ASSERT_EQ(0, cfd->imm()->NumNotFlushed());
+
   // Compaction can still go through even if no thread can flush the
   // mem table.
   ASSERT_OK(Flush(0));
   ASSERT_OK(Flush(1));
+  ASSERT_EQ(0, cfd->imm()->NumNotFlushed());
 
   // Insert can go through
   ASSERT_OK(dbfull()->Put(writeOpt, handles_[0], "foo", "v1"));
@@ -2453,12 +2458,34 @@ TEST_F(DBTest, FlushEmptyColumnFamily) {
   ASSERT_EQ("v1", Get(0, "foo"));
   ASSERT_EQ("v1", Get(1, "bar"));
 
+  // Compaction without waiting will go through even if no thread can
+  // flush the mem table, which will switch the mem table.
+  FlushOptions flush_options;
+  flush_options.wait = false;
+  ASSERT_OK(Flush(0, flush_options));
+  ASSERT_OK(Flush(1, flush_options));
+  ASSERT_EQ(1, cfd->imm()->NumNotFlushed());
+
+  // Compaction without waiting will go through even if no thread can
+  // flush the mem table, and no new compaction will be started.
+  ASSERT_OK(Flush(0, flush_options));
+  ASSERT_OK(Flush(1, flush_options));
+  ASSERT_EQ(1, cfd->imm()->NumNotFlushed());
+
+  // Insert can go through
+  ASSERT_OK(dbfull()->Put(writeOpt, handles_[0], "k1", "v1"));
+  ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k2", "v2"));
+
+  ASSERT_EQ("v1", Get(0, "k1"));
+  ASSERT_EQ("v2", Get(1, "k2"));
+
   sleeping_task_high.WakeUp();
   sleeping_task_high.WaitUntilDone();
 
   // Flush can still go through.
   ASSERT_OK(Flush(0));
   ASSERT_OK(Flush(1));
+  ASSERT_EQ(0, cfd->imm()->NumNotFlushed());
 
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();

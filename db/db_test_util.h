@@ -624,7 +624,7 @@ class DBTestBase : public testing::Test {
 
   Status TryReopen(const Options& options);
 
-  Status Flush(int cf = 0);
+  Status Flush(int cf = 0, const FlushOptions& options = FlushOptions());
 
   Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions());
 

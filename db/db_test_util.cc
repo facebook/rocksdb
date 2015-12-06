@@ -454,11 +454,11 @@ Status DBTestBase::TryReopen(const Options& options) {
   return DB::Open(options, dbname_, &db_);
 }
 
-Status DBTestBase::Flush(int cf) {
+Status DBTestBase::Flush(int cf, const FlushOptions& options) {
   if (cf == 0) {
-    return db_->Flush(FlushOptions());
+    return db_->Flush(options);
   } else {
-    return db_->Flush(FlushOptions(), handles_[cf]);
+    return db_->Flush(options, handles_[cf]);
   }
 }
 

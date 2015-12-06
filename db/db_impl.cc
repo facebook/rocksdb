@@ -2296,15 +2296,17 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       return Status::OK();
     }
 
-    WriteThread::Writer w;
-    write_thread_.EnterUnbatched(&w, &mutex_);
+    if (!cfd->mem()->IsEmpty()) {
+      WriteThread::Writer w;
+      write_thread_.EnterUnbatched(&w, &mutex_);
 
-    // SwitchMemtable() will release and reacquire mutex
-    // during execution
-    s = SwitchMemtable(cfd, &context);
-    write_thread_.ExitUnbatched(&w);
+      // SwitchMemtable() will release and reacquire mutex
+      // during execution
+      s = SwitchMemtable(cfd, &context);
+      write_thread_.ExitUnbatched(&w);
 
-    cfd->imm()->FlushRequested();
+      cfd->imm()->FlushRequested();
+    }
 
     // schedule flush
     SchedulePendingFlush(cfd);
