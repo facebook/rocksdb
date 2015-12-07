@@ -111,6 +111,9 @@ class VersionStorageInfo {
   // Update the accumulated stats from a file-meta.
   void UpdateAccumulatedStats(FileMetaData* file_meta);
 
+  // Decrease the current stat form a to-be-delected file-meta
+  void RemoveCurrentStats(FileMetaData* file_meta);
+
   void ComputeCompensatedSizes();
 
   // Updates internal structures that keep track of compaction scores
@@ -400,8 +403,12 @@ class VersionStorageInfo {
   uint64_t accumulated_num_non_deletions_;
   // total number of deletion entries
   uint64_t accumulated_num_deletions_;
-  // the number of samples
-  uint64_t num_samples_;
+  // current number of non_deletion entries
+  uint64_t current_num_non_deletions_;
+  // current number of delection entries
+  uint64_t current_num_deletions_;
+  // current number of file samples
+  uint64_t current_num_samples_;
   // Estimated bytes needed to be compacted until all levels' size is down to
   // target sizes.
   uint64_t estimated_compaction_needed_bytes_;

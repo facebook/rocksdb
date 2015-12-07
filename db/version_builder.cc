@@ -338,7 +338,8 @@ class VersionBuilder::Rep {
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
-      // File is deleted: do nothing
+      // f is to-be-delected table file
+      vstorage->RemoveCurrentStats(f);
     } else {
       vstorage->AddFile(level, f, info_log_);
     }
