@@ -13,14 +13,12 @@ namespace rocksdb {
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
-    SequenceNumber earliest_write_conflict_snapshot, Env* env,
-    bool expect_valid_internal_key, Compaction* compaction,
+    Env* env, bool expect_valid_internal_key, Compaction* compaction,
     const CompactionFilter* compaction_filter, LogBuffer* log_buffer)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
       snapshots_(snapshots),
-      earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       env_(env),
       expect_valid_internal_key_(expect_valid_internal_key),
       compaction_(compaction),
@@ -201,11 +199,6 @@ void CompactionIterator::NextFromInput() {
     if (ikey_.type == kTypeSingleDeletion) {
       ParsedInternalKey next_ikey;
       input_->Next();
-
-      if (earliest_write_conflict_snapshot_) {
-        // TODO(agiardullo): to be used in D50295
-        // adding this if statement to keep CLANG happy in the meantime
-      }
 
       // Check whether the current key is valid, not corrupt and the same
       // as the single delete.

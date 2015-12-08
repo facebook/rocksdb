@@ -39,8 +39,7 @@ class CompactionIterator {
  public:
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
-                     std::vector<SequenceNumber>* snapshots,
-                     SequenceNumber earliest_write_conflict_snapshot, Env* env,
+                     std::vector<SequenceNumber>* snapshots, Env* env,
                      bool expect_valid_internal_key,
                      Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
@@ -89,7 +88,6 @@ class CompactionIterator {
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
   const std::vector<SequenceNumber>* snapshots_;
-  const SequenceNumber earliest_write_conflict_snapshot_;
   Env* env_;
   bool expect_valid_internal_key_;
   Compaction* compaction_;

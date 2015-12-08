@@ -58,7 +58,6 @@ class CompactionJob {
                 Directory* db_directory, Directory* output_directory,
                 Statistics* stats,
                 std::vector<SequenceNumber> existing_snapshots,
-                SequenceNumber earliest_write_conflict_snapshot,
                 std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
                 bool paranoid_file_checks, bool measure_io_stats,
                 const std::string& dbname,
@@ -135,12 +134,6 @@ class CompactionJob {
   // entirely within s1 and s2, then the earlier version of k1 can be safely
   // deleted because that version is not visible in any snapshot.
   std::vector<SequenceNumber> existing_snapshots_;
-
-  // This is the earliest snapshot that could be used for write-conflict
-  // checking by a transaction.  For any user-key newer than this snapshot, we
-  // should make sure not to remove evidence that a write occured.
-  SequenceNumber earliest_write_conflict_snapshot_;
-
   std::shared_ptr<Cache> table_cache_;
 
   EventLogger* event_logger_;

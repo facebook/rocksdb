@@ -212,7 +212,6 @@ CompactionJob::CompactionJob(
     std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     std::vector<SequenceNumber> existing_snapshots,
-    SequenceNumber earliest_write_conflict_snapshot,
     std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
     bool paranoid_file_checks, bool measure_io_stats, const std::string& dbname,
     CompactionJobStats* compaction_job_stats)
@@ -231,7 +230,6 @@ CompactionJob::CompactionJob(
       output_directory_(output_directory),
       stats_(stats),
       existing_snapshots_(std::move(existing_snapshots)),
-      earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks),
@@ -640,8 +638,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   Status status;
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
-      &existing_snapshots_, earliest_write_conflict_snapshot_, env_, false,
-      sub_compact->compaction, compaction_filter));
+      &existing_snapshots_, env_, false, sub_compact->compaction,
+      compaction_filter));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   const auto& c_iter_stats = c_iter->iter_stats();

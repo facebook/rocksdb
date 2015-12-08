@@ -234,12 +234,6 @@ class DBImpl : public DB {
   Status GetLatestSequenceForKeyFromMemtable(SuperVersion* sv, const Slice& key,
                                              SequenceNumber* seq);
 
-  // Similar to GetSnapshot(), but also lets the db know that this snapshot
-  // will be used for transaction write-conflict checking.  The DB can then
-  // make sure not to compact any keys that would prevent a write-conflict from
-  // being detected.
-  const Snapshot* GetSnapshotForWriteConflictBoundary();
-
   using DB::AddFile;
   virtual Status AddFile(ColumnFamilyHandle* column_family,
                          const ExternalSstFileInfo* file_info,
@@ -565,8 +559,6 @@ class DBImpl : public DB {
 
   // helper function to call after some of the logs_ were synced
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
-
-  const Snapshot* GetSnapshotImpl(bool is_write_conflict_boundary);
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
