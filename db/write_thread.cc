@@ -4,7 +4,6 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "db/write_thread.h"
-#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -189,7 +188,6 @@ void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   LinkOne(w, &wait_needed);
   if (wait_needed) {
     mu->Unlock();
-    TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
     Await(w);
     mu->Lock();
   }

@@ -68,9 +68,7 @@ class ColumnFamilyTest : public testing::Test {
 
   void Close() {
     for (auto h : handles_) {
-      if (h) {
-        delete h;
-      }
+      delete h;
     }
     handles_.clear();
     names_.clear();
@@ -1256,81 +1254,6 @@ TEST_F(ColumnFamilyTest, FlushAndDropRaceCondition) {
   for (auto& t : threads) {
     t.join();
   }
-
-  Close();
-  Destroy();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-}
-
-namespace {
-std::atomic<int> test_stage(0);
-const int kMainThreadStartPersistingOptionsFile = 1;
-const int kChildThreadFinishDroppingColumnFamily = 2;
-const int kChildThreadWaitingMainThreadPersistOptions = 3;
-void DropSingleColumnFamily(ColumnFamilyTest* cf_test, int cf_id,
-                            std::vector<Comparator*> comparators) {
-  while (test_stage < kMainThreadStartPersistingOptionsFile) {
-    Env::Default()->SleepForMicroseconds(100);
-  }
-  cf_test->DropColumnFamilies({cf_id});
-  delete comparators[cf_id];
-  comparators[cf_id] = nullptr;
-  test_stage = kChildThreadFinishDroppingColumnFamily;
-}
-}  // namespace
-
-TEST_F(ColumnFamilyTest, CreateAndDropRace) {
-  const int kCfCount = 5;
-  std::vector<ColumnFamilyOptions> cf_opts;
-  std::vector<Comparator*> comparators;
-  for (int i = 0; i < kCfCount; ++i) {
-    cf_opts.emplace_back();
-    comparators.push_back(new test::SimpleSuffixReverseComparator());
-    cf_opts.back().comparator = comparators.back();
-  }
-  db_options_.create_if_missing = true;
-  db_options_.create_missing_column_families = true;
-
-  auto main_thread_id = std::this_thread::get_id();
-
-  rocksdb::SyncPoint::GetInstance()->SetCallBack("PersistRocksDBOptions:start",
-                                                 [&](void* arg) {
-    auto current_thread_id = std::this_thread::get_id();
-    // If it's the main thread hitting this sync-point, then it
-    // will be blocked until some other thread update the test_stage.
-    if (main_thread_id == current_thread_id) {
-      test_stage = kMainThreadStartPersistingOptionsFile;
-      while (test_stage < kChildThreadFinishDroppingColumnFamily) {
-        Env::Default()->SleepForMicroseconds(100);
-      }
-    }
-  });
-
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "WriteThread::EnterUnbatched:Wait", [&](void* arg) {
-        // This means a thread doing DropColumnFamily() is waiting for
-        // other thread to finish persisting options.
-        // In such case, we update the test_stage to unblock the main thread.
-        test_stage = kChildThreadWaitingMainThreadPersistOptions;
-
-        // Note that based on the test setting, this must not be the
-        // main thread.
-        ASSERT_NE(main_thread_id, std::this_thread::get_id());
-      });
-
-  // Create a database with four column families
-  Open({"default", "one", "two", "three"},
-       {cf_opts[0], cf_opts[1], cf_opts[2], cf_opts[3]});
-
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
-  // Start a thread that will drop the first column family
-  // and its comparator
-  std::thread drop_cf_thread(DropSingleColumnFamily, this, 1, comparators);
-
-  DropColumnFamilies({2});
-
-  drop_cf_thread.join();
 
   Close();
   Destroy();

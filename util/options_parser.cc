@@ -17,7 +17,6 @@
 #include "rocksdb/db.h"
 #include "util/options_helper.h"
 #include "util/string_util.h"
-#include "util/sync_point.h"
 
 #include "port/port.h"
 
@@ -35,7 +34,6 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, Env* env) {
-  TEST_SYNC_POINT("PersistRocksDBOptions:start");
   if (cf_names.size() != cf_opts.size()) {
     return Status::InvalidArgument(
         "cf_names.size() and cf_opts.size() must be the same");
