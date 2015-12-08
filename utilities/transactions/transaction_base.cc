@@ -7,6 +7,7 @@
 
 #include "utilities/transactions/transaction_base.h"
 
+#include "db/db_impl.h"
 #include "db/column_family.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -35,7 +36,11 @@ void TransactionBaseImpl::Clear() {
 }
 
 void TransactionBaseImpl::SetSnapshot() {
-  snapshot_.reset(new ManagedSnapshot(db_));
+  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
+  auto db_impl = reinterpret_cast<DBImpl*>(db_);
+
+  const Snapshot* snapshot = db_impl->GetSnapshotForWriteConflictBoundary();
+  snapshot_.reset(new ManagedSnapshot(db_, snapshot));
   snapshot_needed_ = false;
   snapshot_notifier_ = nullptr;
 }

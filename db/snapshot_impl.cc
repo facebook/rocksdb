@@ -12,6 +12,9 @@ namespace rocksdb {
 ManagedSnapshot::ManagedSnapshot(DB* db) : db_(db),
                                            snapshot_(db->GetSnapshot()) {}
 
+ManagedSnapshot::ManagedSnapshot(DB* db, const Snapshot* _snapshot)
+    : db_(db), snapshot_(_snapshot) {}
+
 ManagedSnapshot::~ManagedSnapshot() {
   if (snapshot_) {
     db_->ReleaseSnapshot(snapshot_);

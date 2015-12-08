@@ -1779,12 +1779,16 @@ Status DBImpl::CompactFilesImpl(
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
 
+  SequenceNumber earliest_write_conflict_snapshot;
+  std::vector<SequenceNumber> snapshot_seqs =
+      snapshots_.GetAll(&earliest_write_conflict_snapshot);
+
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), db_options_, env_options_, versions_.get(),
       &shutting_down_, log_buffer, directories_.GetDbDir(),
-      directories_.GetDataDir(c->output_path_id()), stats_, snapshots_.GetAll(),
-      table_cache_, &event_logger_,
+      directories_.GetDataDir(c->output_path_id()), stats_, snapshot_seqs,
+      earliest_write_conflict_snapshot, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
@@ -2868,12 +2872,17 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     int output_level  __attribute__((unused)) = c->output_level();
     TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
                              &output_level);
+
+    SequenceNumber earliest_write_conflict_snapshot;
+    std::vector<SequenceNumber> snapshot_seqs =
+        snapshots_.GetAll(&earliest_write_conflict_snapshot);
+
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), db_options_, env_options_,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
-        directories_.GetDataDir(c->output_path_id()), stats_,
-        snapshots_.GetAll(), table_cache_, &event_logger_,
+        directories_.GetDataDir(c->output_path_id()), stats_, snapshot_seqs,
+        earliest_write_conflict_snapshot, table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
         &compaction_job_stats);
@@ -3784,7 +3793,13 @@ Status DBImpl::NewIterators(
   return Status::OK();
 }
 
-const Snapshot* DBImpl::GetSnapshot() {
+const Snapshot* DBImpl::GetSnapshot() { return GetSnapshotImpl(false); }
+
+const Snapshot* DBImpl::GetSnapshotForWriteConflictBoundary() {
+  return GetSnapshotImpl(true);
+}
+
+const Snapshot* DBImpl::GetSnapshotImpl(bool is_write_conflict_boundary) {
   int64_t unix_time = 0;
   env_->GetCurrentTime(&unix_time);  // Ignore error
   SnapshotImpl* s = new SnapshotImpl;
@@ -3795,7 +3810,8 @@ const Snapshot* DBImpl::GetSnapshot() {
     delete s;
     return nullptr;
   }
-  return snapshots_.New(s, versions_->LastSequence(), unix_time);
+  return snapshots_.New(s, versions_->LastSequence(), unix_time,
+                        is_write_conflict_boundary);
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
