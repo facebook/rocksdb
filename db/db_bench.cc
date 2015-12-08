@@ -2267,12 +2267,19 @@ class Benchmark {
     while (ok && bytes < 1024 * 1048576) {
       char *uncompressed = nullptr;
       switch (FLAGS_compression_type_e) {
-      case rocksdb::kSnappyCompression:
-        // allocate here to make comparison fair
-        uncompressed = new char[input.size()];
-        ok = Snappy_Uncompress(compressed.data(), compressed.size(),
-                               uncompressed);
-        break;
+        case rocksdb::kSnappyCompression: {
+          // get size and allocate here to make comparison fair
+          size_t ulength = 0;
+          if (!Snappy_GetUncompressedLength(compressed.data(),
+                                            compressed.size(), &ulength)) {
+            ok = false;
+            break;
+          }
+          uncompressed = new char[ulength];
+          ok = Snappy_Uncompress(compressed.data(), compressed.size(),
+                                 uncompressed);
+          break;
+        }
       case rocksdb::kZlibCompression:
         uncompressed = Zlib_Uncompress(compressed.data(), compressed.size(),
                                        &decompress_size, 2);
