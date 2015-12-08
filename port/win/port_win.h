@@ -42,11 +42,6 @@
 #define strcasecmp _stricmp
 #endif
 
-// defined in stdio.h
-#ifndef snprintf
-#define snprintf _snprintf
-#endif
-
 #undef GetCurrentTime
 #undef DeleteFile
 
@@ -107,6 +102,9 @@ const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
 const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 
 #else //_MSC_VER
+
+// VS 15 has snprintf
+#define snprintf _snprintf
 
 #define ROCKSDB_NOEXCEPT
 // std::numeric_limits<size_t>::max() is not constexpr just yet
@@ -244,13 +242,6 @@ struct OnceType {
 extern void InitOnce(OnceType* once, void (*initializer)());
 
 #define CACHE_LINE_SIZE 64U
-
-#ifdef min
-#undef min
-#endif
-#ifdef max
-#undef max
-#endif
 
 // For Thread Local Storage abstraction
 typedef DWORD pthread_key_t;
