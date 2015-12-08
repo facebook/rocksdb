@@ -1010,13 +1010,15 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   int max_key1 = 200;
   int max_key2 = 600;
   int max_key3 = 800;
+  const int KNumKeysPerFile = 10;
 
   // Stage 1: open a DB with universal compaction, num_levels=1
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 1;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 200 << 10;  // 200KB
   options.level0_file_num_compaction_trigger = 3;
+  options.memtable_factory.reset(new SpecialSkipListFactory(KNumKeysPerFile));
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
