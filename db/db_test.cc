@@ -7704,7 +7704,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   test::SleepingBackgroundTask sleeping_task_low;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
-
+  sleeping_task_low.WaitUntilSleeping();
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   int count = 0;
   Random rnd(301);
@@ -7737,6 +7737,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   sleeping_task_low.Reset();
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
+  sleeping_task_low.WaitUntilSleeping();
   count = 0;
   while (count < 64) {
     ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));

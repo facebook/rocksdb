@@ -306,12 +306,19 @@ class SleepingBackgroundTask {
   void DoSleep() {
     MutexLock l(&mutex_);
     sleeping_ = true;
+    bg_cv_.SignalAll();
     while (should_sleep_) {
       bg_cv_.Wait();
     }
     sleeping_ = false;
     done_with_sleep_ = true;
     bg_cv_.SignalAll();
+  }
+  void WaitUntilSleeping() {
+    MutexLock l(&mutex_);
+    while (!sleeping_) {
+      bg_cv_.Wait();
+    }
   }
   void WakeUp() {
     MutexLock l(&mutex_);
