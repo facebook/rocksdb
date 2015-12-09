@@ -620,7 +620,7 @@ inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
   size_t compressBound = ZSTD_compressBound(length);
   output->resize(static_cast<size_t>(output_header_len + compressBound));
   size_t outlen = ZSTD_compress(&(*output)[output_header_len], compressBound,
-                                input, length);
+                                input, length, 1 /* level */);
   if (outlen == 0) {
     return false;
   }
