@@ -1,6 +1,6 @@
 # Rocksdb Change Log
 
-## Unreleased
+## 4.3.0 (12/8/2015)
 ### New Features
 * CompactionFilter has new member function called IgnoreSnapshots which allows CompactionFilter to be called even if there are snapshots later than the key.
 * RocksDB will now persist options under the same directory as the RocksDB database on successful DB::Open, CreateColumnFamily, DropColumnFamily, and SetOptions.
