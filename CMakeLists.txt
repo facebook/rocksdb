@@ -303,6 +303,7 @@ set(C_TESTS db/c_test.c)
 set(TESTS
         db/column_family_test.cc
         db/compact_files_test.cc
+        db/compaction_iterator_test.cc
         db/compaction_job_test.cc
         db/compaction_job_stats_test.cc
         db/compaction_picker_test.cc
@@ -365,6 +366,7 @@ set(TESTS
         util/cache_test.cc
         util/coding_test.cc
         util/crc32c_test.cc
+        util/delete_scheduler_test.cc
         util/dynamic_bloom_test.cc
         util/env_test.cc
         util/event_logger_test.cc
