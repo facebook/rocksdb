@@ -559,8 +559,14 @@ class DB {
   virtual Status ContinueBackgroundWork() = 0;
 
   // This function will enable automatic compactions for the given column
-  // families if they were previously disabled via the disable_auto_compactions
-  // option.
+  // families if they were previously disabled. The function will first set the
+  // disable_auto_compactions option for each column family to 'false', after
+  // which it will schedule a flush/compaction.
+  //
+  // NOTE: Setting disable_auto_compactions to 'false' through SetOptions() API
+  // does NOT schedule a flush/compaction afterwards, and only changes the
+  // parameter itself within the column family option.
+  //
   virtual Status EnableAutoCompaction(
       const std::vector<ColumnFamilyHandle*>& column_family_handles) = 0;
 

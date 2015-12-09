@@ -2393,15 +2393,17 @@ Status DBImpl::EnableAutoCompaction(
     const std::vector<ColumnFamilyHandle*>& column_family_handles) {
   Status s;
   for (auto cf_ptr : column_family_handles) {
-    // check options here, enable only if didn't initially disable
-    if (s.ok()) {
-      s = this->SetOptions(cf_ptr, {{"disable_auto_compactions", "false"}});
+    Status status =
+        this->SetOptions(cf_ptr, {{"disable_auto_compactions", "false"}});
+    if (status.ok()) {
+      ColumnFamilyData* cfd =
+          reinterpret_cast<ColumnFamilyHandleImpl*>(cf_ptr)->cfd();
+      InstrumentedMutexLock guard_lock(&mutex_);
+      delete this->InstallSuperVersionAndScheduleWork(
+          cfd, nullptr, *cfd->GetLatestMutableCFOptions());
+    } else {
+      s = status;
     }
-  }
-
-  if (s.ok()) {
-    InstrumentedMutexLock guard_lock(&mutex_);
-    MaybeScheduleFlushOrCompaction();
   }
 
   return s;
