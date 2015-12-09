@@ -33,9 +33,9 @@ LZ4_REV=6858fac689e0f92e584224d91bdb0e39f6c8320d
 LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/$LZ4_REV/r131/gcc-4.8.1-glibc-2.17/c3f970a/include"
 LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/$LZ4_REV/r131/gcc-4.8.1-glibc-2.17/c3f970a/lib/liblz4.a"
 
-ZSTD_REV=8df2d01673ae6afcc8c8d16fec862b2d67ecc1e9
-ZSTD_INCLUDE=" -I /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.1.1/gcc-4.8.1-glibc-2.17/c3f970a/include"
-ZSTD_LIBS=" /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.1.1/gcc-4.8.1-glibc-2.17/c3f970a/lib/libzstd.a"
+ZSTD_REV=810b81b4705def5243e998b54701f3c504e4009e
+ZSTD_INCLUDE=" -I /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.4.2/gcc-4.8.1-glibc-2.17/c3f970a/include"
+ZSTD_LIBS=" /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.4.2/gcc-4.8.1-glibc-2.17/c3f970a/lib/libzstd.a"
 
 # location of gflags headers and libraries
 GFLAGS_REV=c7275a4ceae0aca0929e56964a31dafc53c1ee96
