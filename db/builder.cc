@@ -96,8 +96,7 @@ Status BuildTable(
                       snapshots.empty() ? 0 : snapshots.back());
 
     CompactionIterator c_iter(iter, internal_comparator.user_comparator(),
-                              &merge, kMaxSequenceNumber, &snapshots,
-                              kMaxSequenceNumber, env,
+                              &merge, kMaxSequenceNumber, &snapshots, env,
                               true /* internal key corruption is not ok */);
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {

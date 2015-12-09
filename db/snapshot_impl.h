@@ -34,9 +34,6 @@ class SnapshotImpl : public Snapshot {
   SnapshotList* list_;                 // just for sanity checks
 
   int64_t unix_time_;
-
-  // Will this snapshot be used by a Transaction to do write-conflict checking?
-  bool is_write_conflict_boundary_;
 };
 
 class SnapshotList {
@@ -53,10 +50,9 @@ class SnapshotList {
   SnapshotImpl* newest() const { assert(!empty()); return list_.prev_; }
 
   const SnapshotImpl* New(SnapshotImpl* s, SequenceNumber seq,
-                          uint64_t unix_time, bool is_write_conflict_boundary) {
+                          uint64_t unix_time) {
     s->number_ = seq;
     s->unix_time_ = unix_time;
-    s->is_write_conflict_boundary_ = is_write_conflict_boundary;
     s->list_ = this;
     s->next_ = &list_;
     s->prev_ = list_.prev_;
@@ -75,29 +71,14 @@ class SnapshotList {
   }
 
   // retrieve all snapshot numbers. They are sorted in ascending order.
-  std::vector<SequenceNumber> GetAll(
-      SequenceNumber* oldest_write_conflict_snapshot = nullptr) {
+  std::vector<SequenceNumber> GetAll() {
     std::vector<SequenceNumber> ret;
-
-    if (oldest_write_conflict_snapshot != nullptr) {
-      *oldest_write_conflict_snapshot = kMaxSequenceNumber;
-    }
-
     if (empty()) {
       return ret;
     }
     SnapshotImpl* s = &list_;
     while (s->next_ != &list_) {
       ret.push_back(s->next_->number_);
-
-      if (oldest_write_conflict_snapshot != nullptr &&
-          *oldest_write_conflict_snapshot != kMaxSequenceNumber &&
-          s->next_->is_write_conflict_boundary_) {
-        // If this is the first write-conflict boundary snapshot in the list,
-        // it is the oldest
-        *oldest_write_conflict_snapshot = s->next_->number_;
-      }
-
       s = s->next_;
     }
     return ret;
