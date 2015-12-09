@@ -43,9 +43,9 @@ if test -z $PIC_BUILD; then
   LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/lib/liblz4.a"
   CFLAGS+=" -DLZ4"
 
-  ZSTD_REV=8df2d01673ae6afcc8c8d16fec862b2d67ecc1e9
-  ZSTD_INCLUDE=" -I /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.1.1/gcc-4.8.1-glibc-2.17/c3f970a/include"
-  ZSTD_LIBS=" /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.1.1/gcc-4.8.1-glibc-2.17/c3f970a/lib/libzstd.a"
+  ZSTD_REV=810b81b4705def5243e998b54701f3c504e4009e
+  ZSTD_INCLUDE=" -I /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.4.2/gcc-4.8.1-glibc-2.17/c3f970a/include"
+  ZSTD_LIBS=" /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.4.2/gcc-4.8.1-glibc-2.17/c3f970a/lib/libzstd.a"
   CFLAGS+=" -DZSTD"
 fi
 
