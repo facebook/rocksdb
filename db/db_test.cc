@@ -2172,7 +2172,7 @@ TEST_F(DBTest, RecoverWithTableHandle) {
 
     std::vector<std::vector<FileMetaData>> files;
     dbfull()->TEST_GetFilesMetaData(handles_[1], &files);
-    int total_files = 0;
+    size_t total_files = 0;
     for (const auto& level : files) {
       total_files += level.size();
     }

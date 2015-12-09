@@ -101,6 +101,7 @@ typedef std::unique_ptr<void, decltype(CloseHandleFunc)> UniqueCloseHandlePtr;
 // rely on the current file offset.
 SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
                uint64_t offset) {
+  assert(numBytes <= std::numeric_limits<DWORD>::max());
   OVERLAPPED overlapped = {0};
   ULARGE_INTEGER offsetUnion;
   offsetUnion.QuadPart = offset;
@@ -112,7 +113,8 @@ SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
 
   unsigned long bytesWritten = 0;
 
-  if (FALSE == WriteFile(hFile, src, numBytes, &bytesWritten, &overlapped)) {
+  if (FALSE == WriteFile(hFile, src, static_cast<DWORD>(numBytes), &bytesWritten,
+    &overlapped)) {
     result = -1;
   } else {
     result = bytesWritten;
@@ -123,6 +125,7 @@ SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
 
 // See comments for pwrite above
 SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset) {
+  assert(numBytes <= std::numeric_limits<DWORD>::max());
   OVERLAPPED overlapped = {0};
   ULARGE_INTEGER offsetUnion;
   offsetUnion.QuadPart = offset;
@@ -134,7 +137,8 @@ SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset) {
 
   unsigned long bytesRead = 0;
 
-  if (FALSE == ReadFile(hFile, src, numBytes, &bytesRead, &overlapped)) {
+  if (FALSE == ReadFile(hFile, src, static_cast<DWORD>(numBytes), &bytesRead,
+    &overlapped)) {
     return -1;
   } else {
     result = bytesRead;
@@ -948,13 +952,13 @@ class WinWritableFile : public WritableFile {
 
     // Used for buffered access ONLY
     assert(use_os_buffer_);
-    assert(data.size() < std::numeric_limits<int>::max());
+    assert(data.size() < std::numeric_limits<DWORD>::max());
 
     Status s;
 
     DWORD bytesWritten = 0;
     if (!WriteFile(hFile_, data.data(),
-        data.size(), &bytesWritten, NULL)) {
+        static_cast<DWORD>(data.size()), &bytesWritten, NULL)) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError(
         "Failed to WriteFile: " + filename_,

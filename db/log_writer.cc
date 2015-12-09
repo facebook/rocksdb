@@ -47,7 +47,7 @@ Status Writer::AddRecord(const Slice& slice) {
   Status s;
   bool begin = true;
   do {
-    const int leftover = kBlockSize - block_offset_;
+    const int64_t leftover = kBlockSize - block_offset_;
     assert(leftover >= 0);
     if (leftover < header_size) {
       // Switch to a new block
@@ -62,7 +62,7 @@ Status Writer::AddRecord(const Slice& slice) {
     }
 
     // Invariant: we never leave < header_size bytes in a block.
-    assert(static_cast<int>(kBlockSize) - block_offset_ >= header_size);
+    assert(static_cast<int64_t>(kBlockSize - block_offset_) >= header_size);
 
     const size_t avail = kBlockSize - block_offset_ - header_size;
     const size_t fragment_length = (left < avail) ? left : avail;

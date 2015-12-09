@@ -83,7 +83,7 @@ class Writer {
 
  private:
   unique_ptr<WritableFileWriter> dest_;
-  int block_offset_;       // Current offset in block
+  size_t block_offset_;       // Current offset in block
   uint64_t log_number_;
   bool recycle_log_files_;
 

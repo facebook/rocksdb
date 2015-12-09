@@ -124,7 +124,8 @@ void WinLogger::Logv(const char* format, va_list ap) {
     const size_t write_size = p - base;
 
     DWORD bytesWritten = 0;
-    BOOL ret = WriteFile(file_, base, write_size, &bytesWritten, NULL);
+    BOOL ret = WriteFile(file_, base, static_cast<DWORD>(write_size),
+      &bytesWritten, NULL);
     if (ret == FALSE) {
       std::string errSz = GetWindowsErrSz(GetLastError());
       fprintf(stderr, errSz.c_str());

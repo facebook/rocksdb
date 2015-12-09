@@ -160,7 +160,7 @@ const SstFileMetaData* PickFileRandomly(
       auto result = rand->Uniform(file_id);
       return &(level_meta.files[result]);
     }
-    file_id -= level_meta.files.size();
+    file_id -= static_cast<uint32_t>(level_meta.files.size());
   }
   assert(false);
   return nullptr;

@@ -661,14 +661,14 @@ uint64_t DBTestBase::SizeAtLevel(int level) {
   return sum;
 }
 
-int DBTestBase::TotalLiveFiles(int cf) {
+size_t DBTestBase::TotalLiveFiles(int cf) {
   ColumnFamilyMetaData cf_meta;
   if (cf == 0) {
     db_->GetColumnFamilyMetaData(&cf_meta);
   } else {
     db_->GetColumnFamilyMetaData(handles_[cf], &cf_meta);
   }
-  int num_files = 0;
+  size_t num_files = 0;
   for (auto& level : cf_meta.levels) {
     num_files += level.files.size();
   }

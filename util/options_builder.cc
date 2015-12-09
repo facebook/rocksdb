@@ -127,8 +127,8 @@ void OptimizeForLevel(int read_amplification_threshold,
   const int kMaxFileNumCompactionTrigger = 4;
   const int kMinLevel0StopTrigger = 3;
 
-  int file_num_buffer =
-      kInitialLevel0TotalSize / options->write_buffer_size + 1;
+  int file_num_buffer = static_cast<int>(
+      kInitialLevel0TotalSize / options->write_buffer_size + 1);
 
   if (level0_stop_writes_trigger > file_num_buffer) {
     // Have sufficient room for multiple level 0 files
