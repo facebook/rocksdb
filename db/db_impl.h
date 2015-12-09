@@ -411,10 +411,14 @@ class DBImpl : public DB {
                                         SuperVersion* super_version,
                                         Arena* arena);
 
-  // The following options file related functions should not be
-  // called while DB mutex is held.
+  // Except in DB::Open(), WriteOptionsFile can only be called when:
+  // 1. WriteThread::Writer::EnterUnbatched() is used.
+  // 2. db_mutex is held
   Status WriteOptionsFile();
-  Status WriteOptionsToTempFile(std::string* file_name);
+
+  // The following two functions can only be called when:
+  // 1. WriteThread::Writer::EnterUnbatched() is used.
+  // 2. db_mutex is NOT held
   Status RenameTempFileToOptionsFile(const std::string& file_name);
   Status DeleteObsoleteOptionsFiles();
 
