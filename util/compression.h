@@ -304,7 +304,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
         // compress_format_version == 2
         assert(compress_format_version != 2);
         size_t old_sz = output_len;
-        size_t output_len_delta = static_cast<size_t>(output_len * 0.2);
+        uint32_t output_len_delta = output_len/5;
         output_len += output_len_delta < 10 ? 10 : output_len_delta;
         char* tmp = new char[output_len];
         memcpy(tmp, output, old_sz);
