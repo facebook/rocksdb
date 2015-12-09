@@ -738,24 +738,24 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   // (2) keys are directly overwritten
   // (3) deletion on non-existing keys
   // (4) low number of samples
-  if (num_samples_ == 0) {
+  if (current_num_samples_ == 0) {
     return 0;
   }
 
-  if (accumulated_num_non_deletions_ <= accumulated_num_deletions_) {
+  if (current_num_non_deletions_ <= current_num_deletions_) {
     return 0;
   }
 
-  uint64_t est = accumulated_num_non_deletions_ - accumulated_num_deletions_;
+  uint64_t est = current_num_non_deletions_ - current_num_deletions_;
 
   uint64_t file_count = 0;
   for (int level = 0; level < num_levels_; ++level) {
     file_count += files_[level].size();
   }
 
-  if (num_samples_ < file_count) {
+  if (current_num_samples_ < file_count) {
     // casting to avoid overflowing
-    return (est * static_cast<double>(file_count) / num_samples_);
+    return (est * static_cast<double>(file_count) / current_num_samples_);
   } else {
     return est;
   }
@@ -826,7 +826,9 @@ VersionStorageInfo::VersionStorageInfo(
       accumulated_raw_value_size_(0),
       accumulated_num_non_deletions_(0),
       accumulated_num_deletions_(0),
-      num_samples_(0),
+      current_num_non_deletions_(0),
+      current_num_deletions_(0),
+      current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
       finalized_(false) {
   if (ref_vstorage != nullptr) {
@@ -836,7 +838,9 @@ VersionStorageInfo::VersionStorageInfo(
     accumulated_num_non_deletions_ =
         ref_vstorage->accumulated_num_non_deletions_;
     accumulated_num_deletions_ = ref_vstorage->accumulated_num_deletions_;
-    num_samples_ = ref_vstorage->num_samples_;
+    current_num_non_deletions_ = ref_vstorage->current_num_non_deletions_;
+    current_num_deletions_ = ref_vstorage->current_num_deletions_;
+    current_num_samples_ = ref_vstorage->current_num_samples_;
   }
 }
 
@@ -993,7 +997,20 @@ void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
   accumulated_num_non_deletions_ +=
       file_meta->num_entries - file_meta->num_deletions;
   accumulated_num_deletions_ += file_meta->num_deletions;
-  num_samples_++;
+
+  current_num_non_deletions_ +=
+      file_meta->num_entries - file_meta->num_deletions;
+  current_num_deletions_ += file_meta->num_deletions;
+  current_num_samples_++;
+}
+
+void VersionStorageInfo::RemoveCurrentStats(FileMetaData* file_meta) {
+  if (file_meta->init_stats_from_file) {
+    current_num_non_deletions_ -=
+        file_meta->num_entries - file_meta->num_deletions;
+    current_num_deletions_ -= file_meta->num_deletions;
+    current_num_samples_--;
+  }
 }
 
 void Version::UpdateAccumulatedStats(bool update_stats) {
