@@ -68,6 +68,32 @@ class OnFileDeletionListener : public EventListener {
   std::string expected_file_name_;
 };
 
+class FlushedFileCollector : public EventListener {
+ public:
+  FlushedFileCollector() {}
+  ~FlushedFileCollector() {}
+
+  virtual void OnFlushCompleted(DB* db, const FlushJobInfo& info) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    flushed_files_.push_back(info.file_path);
+  }
+
+  std::vector<std::string> GetFlushedFiles() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> result;
+    for (auto fname : flushed_files_) {
+      result.push_back(fname);
+    }
+    return result;
+  }
+
+  void ClearFlushedFiles() { flushed_files_.clear(); }
+
+ private:
+  std::vector<std::string> flushed_files_;
+  std::mutex mutex_;
+};
+
 static const int kCDTValueSize = 1000;
 static const int kCDTKeysPerBuffer = 4;
 static const int kCDTNumLevels = 8;
@@ -561,6 +587,60 @@ TEST_F(DBCompactionTest, MinorCompactionsHappen) {
       ASSERT_EQ(Key(i) + std::string(1000, 'v'), Get(1, Key(i)));
     }
   } while (ChangeCompactOptions());
+}
+
+TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
+  Options options;
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+
+  FlushedFileCollector* collector = new FlushedFileCollector();
+  options.listeners.emplace_back(collector);
+
+  // compaction options
+  CompactionOptions compact_opt;
+  compact_opt.compression = kNoCompression;
+  compact_opt.output_file_size_limit = 4096;
+  const int key_len = compact_opt.output_file_size_limit / 5;
+
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  std::vector<const Snapshot*> snaps;
+
+  // create first file and flush to l0
+  for (auto& key : {"1", "2", "3", "3", "3", "3"}) {
+    Put(key, std::string(key_len, 'A'));
+    snaps.push_back(dbfull()->GetSnapshot());
+  }
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  // create second file and flush to l0
+  for (auto& key : {"3", "4", "5", "6", "7", "8"}) {
+    Put(key, std::string(key_len, 'A'));
+    snaps.push_back(dbfull()->GetSnapshot());
+  }
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  // move both files down to l1
+  dbfull()->CompactFiles(compact_opt, collector->GetFlushedFiles(), 1);
+
+  // release snap so that first instance of key(3) can have seqId=0
+  for (auto snap : snaps) {
+    dbfull()->ReleaseSnapshot(snap);
+  }
+
+  // create 3 files in l0 so to trigger compaction
+  for (int i = 0; i < options.level0_file_num_compaction_trigger; i++) {
+    Put("2", std::string(1, 'A'));
+    Flush();
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_OK(Put("", ""));
 }
 
 // Check that writes done during a memtable compaction are recovered

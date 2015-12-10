@@ -218,6 +218,8 @@ class Compaction {
     output_table_properties_ = std::move(tp);
   }
 
+  Slice GetLargestUserKey() const { return largest_user_key_; }
+
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
@@ -284,6 +286,9 @@ class Compaction {
 
   // table properties of output files
   TablePropertiesCollection output_table_properties_;
+
+  // largest user keys in compaction
+  Slice largest_user_key_;
 };
 
 // Utility function

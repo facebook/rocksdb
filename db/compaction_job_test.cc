@@ -162,9 +162,12 @@ class CompactionJobTest : public testing::Test {
         auto key = ToString(i * kMatchingKeys + k);
         auto value = ToString(i * kKeysPerFile + k);
         InternalKey internal_key(key, ++sequence_number, kTypeValue);
+
         // This is how the key will look like once it's written in bottommost
         // file
-        InternalKey bottommost_internal_key(key, 0, kTypeValue);
+        InternalKey bottommost_internal_key(
+            key, (key == "9999") ? sequence_number : 0, kTypeValue);
+
         if (corrupt_id(k)) {
           test::CorruptKeyType(&internal_key);
           test::CorruptKeyType(&bottommost_internal_key);
@@ -348,7 +351,7 @@ TEST_F(CompactionJobTest, SimpleOverwrite) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "val2"},
-                          {KeyStr("b", 0U, kTypeValue), "val3"}});
+                          {KeyStr("b", 4U, kTypeValue), "val3"}});
 
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -401,7 +404,7 @@ TEST_F(CompactionJobTest, SimpleMerge) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "3,4,5"},
-                          {KeyStr("b", 0U, kTypeValue), "1,2"}});
+                          {KeyStr("b", 2U, kTypeValue), "1,2"}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -716,7 +719,7 @@ TEST_F(CompactionJobTest, SingleDeleteZeroSeq) {
   AddMockFile(file2);
 
   auto expected_results = mock::MakeMockFile({
-      {KeyStr("dummy", 0U, kTypeValue), "val2"},
+      {KeyStr("dummy", 5U, kTypeValue), "val2"},
   });
 
   SetLastSequence(22U);
@@ -900,7 +903,7 @@ TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
       mock::MakeMockFile({{test::KeyStr("A", 0U, kTypeValue), "val3"},
                           {test::KeyStr("a", 0U, kTypeValue, true), "val"},
                           {test::KeyStr("b", 0U, kTypeValue, true), "val"},
-                          {test::KeyStr("c", 0U, kTypeValue), "val2"}});
+                          {test::KeyStr("c", 1U, kTypeValue), "val2"}});
 
   SetLastSequence(6U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);

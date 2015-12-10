@@ -184,6 +184,9 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                                 &arena_);
     }
   }
+
+  Slice smallest_user_key;
+  GetBoundaryKeys(vstorage, inputs_, &smallest_user_key, &largest_user_key_);
 }
 
 Compaction::~Compaction() {

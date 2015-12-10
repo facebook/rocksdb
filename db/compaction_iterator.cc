@@ -406,12 +406,14 @@ void CompactionIterator::PrepareOutput() {
   // Zeroing out the sequence number leads to better compression.
   // If this is the bottommost level (no files in lower levels)
   // and the earliest snapshot is larger than this seqno
+  // and the userkey differs from the last userkey in compaction
   // then we can squash the seqno to zero.
 
   // This is safe for TransactionDB write-conflict checking since transactions
   // only care about sequence number larger than any active snapshots.
   if (bottommost_level_ && valid_ && ikey_.sequence < earliest_snapshot_ &&
-      ikey_.type != kTypeMerge) {
+      ikey_.type != kTypeMerge &&
+      !cmp_->Equal(compaction_->GetLargestUserKey(), ikey_.user_key)) {
     assert(ikey_.type != kTypeDeletion && ikey_.type != kTypeSingleDeletion);
     ikey_.sequence = 0;
     current_key_.UpdateInternalKey(0, ikey_.type);

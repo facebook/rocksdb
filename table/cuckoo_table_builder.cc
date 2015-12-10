@@ -109,8 +109,6 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     status_ = Status::NotSupported("all keys have to be the same size");
     return;
   }
-  // Even if one sequence number is non-zero, then it is not last level.
-  assert(!is_last_level_file_ || ikey.sequence == 0);
 
   if (ikey.type == kTypeValue) {
     if (!has_seen_first_value_) {

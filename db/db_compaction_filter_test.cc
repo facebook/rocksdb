@@ -583,7 +583,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
       iter->Next();
     }
     ASSERT_EQ(total, 700);
-    ASSERT_EQ(count, 1);
+    ASSERT_EQ(count, 2);
   }
 }
 #endif  // ROCKSDB_LITE
