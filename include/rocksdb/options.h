@@ -536,7 +536,7 @@ struct ColumnFamilyOptions {
   // If <= 0, a proper value is automatically calculated (usually 1/8 of
   // writer_buffer_size, rounded up to a multiple of 4KB).
   //
-  // There are two additonal restriction of the The specified size:
+  // There are two additional restriction of the The specified size:
   // (1) size should be in the range of [4096, 2 << 30] and
   // (2) be the multiple of the CPU word (which helps with the memory
   // alignment).
@@ -893,7 +893,7 @@ struct DBOptions {
   // If none of the paths has sufficient room to place a file, the file will
   // be placed to the last path anyway, despite to the target size.
   //
-  // Placing newer data to ealier paths is also best-efforts. User should
+  // Placing newer data to earlier paths is also best-efforts. User should
   // expect user files to be placed in higher levels in some extreme cases.
   //
   // If left empty, only one path will be used, which is db_name passed when

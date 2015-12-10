@@ -25,7 +25,7 @@ std::unique_ptr<WriteControllerToken> WriteController::GetDelayToken() {
 }
 
 bool WriteController::IsStopped() const { return total_stopped_ > 0; }
-// Tihs is inside DB mutex, so we can't sleep and need to minimize
+// This is inside DB mutex, so we can't sleep and need to minimize
 // frequency to get time.
 // If it turns out to be a performance issue, we can redesign the thread
 // synchronization model here.

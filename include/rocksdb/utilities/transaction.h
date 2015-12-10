@@ -83,7 +83,7 @@ class Transaction {
   // When the snapshot is created the notifier's SnapshotCreated method will
   // be called so that the caller can get access to the snapshot.
   //
-  // This is an optimization to reduce the likelyhood of conflicts that
+  // This is an optimization to reduce the likelihood of conflicts that
   // could occur in between the time SetSnapshot() is called and the first
   // write/GetForUpdate operation.  Eg, this prevents the following
   // race-condition:
@@ -225,7 +225,7 @@ class Transaction {
   // in this transaction do not yet belong to any snapshot and will be fetched
   // regardless).
   //
-  // Caller is reponsible for deleting the returned Iterator.
+  // Caller is responsible for deleting the returned Iterator.
   //
   // The returned iterator is only valid until Commit(), Rollback(), or
   // RollbackToSavePoint() is called.

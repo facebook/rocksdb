@@ -215,7 +215,7 @@
 * Support Multiple DB paths in universal style compactions
 * Add feature of storing plain table index and bloom filter in SST file.
 * CompactRange() will never output compacted files to level 0. This used to be the case when all the compaction input files were at level 0.
-* Added iterate_upper_bound to define the extent upto which the forward iterator will return entries. This will prevent iterating over delete markers and overwritten entries for edge cases where you want to break out the iterator anyways. This may improve perfomance in case there are a large number of delete markers or overwritten entries.
+* Added iterate_upper_bound to define the extent upto which the forward iterator will return entries. This will prevent iterating over delete markers and overwritten entries for edge cases where you want to break out the iterator anyways. This may improve performance in case there are a large number of delete markers or overwritten entries.
 
 ### Public API changes
 * DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size

@@ -50,7 +50,7 @@ struct TableFileDeletionInfo {
   std::string file_path;
   // The id of the job which deleted the file.
   int job_id;
-  // The status indicating whether the deletion was successfull or not.
+  // The status indicating whether the deletion was successful or not.
   Status status;
 };
 

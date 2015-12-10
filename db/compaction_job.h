@@ -138,7 +138,7 @@ class CompactionJob {
 
   // This is the earliest snapshot that could be used for write-conflict
   // checking by a transaction.  For any user-key newer than this snapshot, we
-  // should make sure not to remove evidence that a write occured.
+  // should make sure not to remove evidence that a write occurred.
   SequenceNumber earliest_write_conflict_snapshot_;
 
   std::shared_ptr<Cache> table_cache_;

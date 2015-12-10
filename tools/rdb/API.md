@@ -57,7 +57,7 @@
     #                          This argument can be left off for the default
     #                          column family
     #
-    # Returns true if an error occured while trying to delete the key in
+    # Returns true if an error occurred while trying to delete the key in
     # the database, or false otherwise. Note that this is NOT the same as
     # whether a value was deleted; in the case of a specified key not having
     # a value, this will still return true. Use the `get` method prior to

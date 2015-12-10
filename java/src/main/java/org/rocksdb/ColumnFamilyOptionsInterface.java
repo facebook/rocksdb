@@ -753,7 +753,7 @@ public interface ColumnFamilyOptionsInterface {
    * If &le; 0, a proper value is automatically calculated (usually 1/10 of
    * writer_buffer_size).
    *
-   * There are two additonal restriction of the The specified size:
+   * There are two additional restriction of the The specified size:
    * (1) size should be in the range of [4096, 2 &lt;&lt; 30] and
    * (2) be the multiple of the CPU word (which helps with the memory
    * alignment).
@@ -774,7 +774,7 @@ public interface ColumnFamilyOptionsInterface {
    * If &le; 0, a proper value is automatically calculated (usually 1/10 of
    * writer_buffer_size).
    *
-   * There are two additonal restriction of the The specified size:
+   * There are two additional restriction of the The specified size:
    * (1) size should be in the range of [4096, 2 &lt;&lt; 30] and
    * (2) be the multiple of the CPU word (which helps with the memory
    * alignment).

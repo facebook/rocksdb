@@ -54,7 +54,7 @@ class ThreadLocalPtr {
   void* Swap(void* ptr);
 
   // Atomically compare the stored value with expected. Set the new
-  // pointer value to thread local only if the comparision is true.
+  // pointer value to thread local only if the comparison is true.
   // Otherwise, expected returns the stored value.
   // Return true on success, false on failure
   bool CompareAndSwap(void* ptr, void*& expected);
@@ -98,7 +98,7 @@ class ThreadLocalPtr {
 
     // Return the next available Id
     uint32_t GetId();
-    // Return the next availabe Id without claiming it
+    // Return the next available Id without claiming it
     uint32_t PeekId() const;
     // Return the given Id back to the free pool. This also triggers
     // UnrefHandler for associated pointer value (if not NULL) for all threads.

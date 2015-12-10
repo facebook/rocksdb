@@ -1,5 +1,5 @@
 # This script enables you running RocksDB tests by running
-# All the tests in paralell and utilizing all the cores
+# All the tests in parallel and utilizing all the cores
 # For db_test the script first lists and parses the tests
 # and then fires them up in parallel using async PS Job functionality
 # Run the script from the enlistment
@@ -258,7 +258,7 @@ function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
             Write-Warning $message
             $log_content | Write-Warning
         } else {
-            # Scan the log. If we find PASSED and no occurence of FAILED
+            # Scan the log. If we find PASSED and no occurrence of FAILED
             # then it is a success
             [bool]$pass_found = $false
             ForEach($l in $log_content) {
