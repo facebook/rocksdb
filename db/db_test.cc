@@ -8927,7 +8927,7 @@ TEST_F(DBTest, DelayedWriteRate) {
     WriteOptions wo;
     Put(Key(i), std::string(entry_size, 'x'), wo);
     estimated_total_size += entry_size + 20;
-    // Ocassionally sleep a while
+    // Occasionally sleep a while
     if (rnd.Uniform(20) == 6) {
       env_->SleepForMicroseconds(2666);
     }
@@ -9363,7 +9363,7 @@ TEST_F(DBTest, DestroyDBWithRateLimitedDelete) {
   // We created 4 sst files in L0
   ASSERT_EQ("4", FilesPerLevel(0));
 
-  // Close DB and destory it using DeleteScheduler
+  // Close DB and destroy it using DeleteScheduler
   Close();
   std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec

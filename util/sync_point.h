@@ -56,7 +56,7 @@ namespace rocksdb {
 // In the unit test, 'Happens After' relationship among sync points could be
 // setup via SyncPoint::LoadDependency, to reproduce a desired interleave of
 // threads execution.
-// Refer to (DBTest,TransactionLogIteratorRace), for an exmaple use case.
+// Refer to (DBTest,TransactionLogIteratorRace), for an example use case.
 
 class SyncPoint {
  public:

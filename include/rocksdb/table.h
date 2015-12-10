@@ -128,7 +128,7 @@ struct BlockBasedTableOptions {
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
 
-  // If true, block will not be explictly flushed to disk during building
+  // If true, block will not be explicitly flushed to disk during building
   // a SstTable. Instead, buffer in WritableFileWriter will take
   // care of the flushing when it is full.
   //
