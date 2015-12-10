@@ -1270,13 +1270,15 @@ const int kMainThreadStartPersistingOptionsFile = 1;
 const int kChildThreadFinishDroppingColumnFamily = 2;
 const int kChildThreadWaitingMainThreadPersistOptions = 3;
 void DropSingleColumnFamily(ColumnFamilyTest* cf_test, int cf_id,
-                            std::vector<Comparator*> comparators) {
+                            std::vector<Comparator*>* comparators) {
   while (test_stage < kMainThreadStartPersistingOptionsFile) {
     Env::Default()->SleepForMicroseconds(100);
   }
   cf_test->DropColumnFamilies({cf_id});
-  delete comparators[cf_id];
-  comparators[cf_id] = nullptr;
+  if ((*comparators)[cf_id]) {
+    delete (*comparators)[cf_id];
+    (*comparators)[cf_id] = nullptr;
+  }
   test_stage = kChildThreadFinishDroppingColumnFamily;
 }
 }  // namespace
@@ -1328,15 +1330,19 @@ TEST_F(ColumnFamilyTest, CreateAndDropRace) {
 
   // Start a thread that will drop the first column family
   // and its comparator
-  std::thread drop_cf_thread(DropSingleColumnFamily, this, 1, comparators);
+  std::thread drop_cf_thread(DropSingleColumnFamily, this, 1, &comparators);
 
   DropColumnFamilies({2});
 
   drop_cf_thread.join();
-
   Close();
   Destroy();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  for (auto* comparator : comparators) {
+    if (comparator) {
+      delete comparator;
+    }
+  }
 }
 #endif  // !ROCKSDB_LITE
 
