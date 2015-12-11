@@ -805,6 +805,9 @@ json_document_test: utilities/document/json_document_test.o $(LIBOBJECTS) $(TEST
 spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+env_mirror_test: utilities/env_mirror_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
