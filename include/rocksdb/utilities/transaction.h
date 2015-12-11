@@ -350,6 +350,12 @@ class Transaction {
   // Has no effect on OptimisticTransactions.
   virtual void SetLockTimeout(int64_t timeout) = 0;
 
+  // Return the WriteOptions that will be used during Commit()
+  virtual const WriteOptions* GetWriteOptions() = 0;
+
+  // Reset the WriteOptions that will be used during Commit().
+  virtual void SetWriteOptions(const WriteOptions& write_options) = 0;
+
  protected:
   explicit Transaction(const TransactionDB* db) {}
   Transaction() {}

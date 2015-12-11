@@ -135,6 +135,24 @@ TEST_F(TransactionTest, FirstWriteTest2) {
   delete txn;
 }
 
+TEST_F(TransactionTest, WriteOptionsTest) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = true;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  ASSERT_TRUE(txn->GetWriteOptions()->sync);
+
+  write_options.sync = false;
+  txn->SetWriteOptions(write_options);
+  ASSERT_FALSE(txn->GetWriteOptions()->sync);
+  ASSERT_TRUE(txn->GetWriteOptions()->disableWAL);
+
+  delete txn;
+}
+
 TEST_F(TransactionTest, WriteConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options;

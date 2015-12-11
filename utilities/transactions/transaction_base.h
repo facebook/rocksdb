@@ -196,6 +196,12 @@ class TransactionBaseImpl : public Transaction {
   // with writes in other transactions.
   const TransactionKeyMap& GetTrackedKeys() const { return tracked_keys_; }
 
+  const WriteOptions* GetWriteOptions() override { return &write_options_; }
+
+  void SetWriteOptions(const WriteOptions& write_options) override {
+    write_options_ = write_options;
+  }
+
  protected:
   // Add a key to the list of tracked keys.
   // seqno is the earliest seqno this key was involved with this transaction.
@@ -208,7 +214,7 @@ class TransactionBaseImpl : public Transaction {
 
   DB* const db_;
 
-  const WriteOptions write_options_;
+  WriteOptions write_options_;
 
   const Comparator* cmp_;
 
