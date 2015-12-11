@@ -230,6 +230,49 @@ class StringSink: public WritableFile {
   size_t last_flush_;
 };
 
+// Like StringSink, this writes into a string.  Unlink StringSink, it
+// has some initial content and overwrites it, just like a recycled
+// log file.
+class OverwritingStringSink : public WritableFile {
+ public:
+  explicit OverwritingStringSink(Slice* reader_contents)
+      : WritableFile(),
+        contents_(""),
+        reader_contents_(reader_contents),
+        last_flush_(0) {}
+
+  const std::string& contents() const { return contents_; }
+
+  virtual Status Truncate(uint64_t size) override {
+    contents_.resize(static_cast<size_t>(size));
+    return Status::OK();
+  }
+  virtual Status Close() override { return Status::OK(); }
+  virtual Status Flush() override {
+    if (last_flush_ < contents_.size()) {
+      assert(reader_contents_->size() >= contents_.size());
+      memcpy((char*)reader_contents_->data() + last_flush_,
+             contents_.data() + last_flush_, contents_.size() - last_flush_);
+      last_flush_ = contents_.size();
+    }
+    return Status::OK();
+  }
+  virtual Status Sync() override { return Status::OK(); }
+  virtual Status Append(const Slice& slice) override {
+    contents_.append(slice.data(), slice.size());
+    return Status::OK();
+  }
+  void Drop(size_t bytes) {
+    contents_.resize(contents_.size() - bytes);
+    if (last_flush_ > contents_.size()) last_flush_ = contents_.size();
+  }
+
+ private:
+  std::string contents_;
+  Slice* reader_contents_;
+  size_t last_flush_;
+};
+
 class StringSource: public RandomAccessFile {
  public:
   explicit StringSource(const Slice& contents, uint64_t uniq_id = 0,
