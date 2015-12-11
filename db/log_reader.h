@@ -113,6 +113,9 @@ class Reader {
   // which log number this is
   uint64_t const log_number_;
 
+  // Whether this is a recycled log file
+  bool recycled_;
+
   // Extend record types with the following special values
   enum {
     kEof = kMaxRecordType + 1,
