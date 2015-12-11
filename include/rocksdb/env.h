@@ -615,6 +615,7 @@ class WritableFile {
 
  protected:
   friend class WritableFileWrapper;
+  friend class WritableFileMirror;
 
   Env::IOPriority io_priority_;
 };
