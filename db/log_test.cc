@@ -174,6 +174,8 @@ class LogTest : public ::testing::TestWithParam<int> {
                                              3 * header_size;
   }
 
+  Slice* get_reader_contents() { return &reader_contents_; }
+
   void Write(const std::string& msg) {
     writer_.AddRecord(Slice(msg));
   }
@@ -688,6 +690,29 @@ TEST_P(LogTest, ClearEofError2) {
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("read error"));
+}
+
+TEST_P(LogTest, Recycle) {
+  if (!GetParam()) {
+    return;  // test is only valid for recycled logs
+  }
+  Write("foo");
+  Write("bar");
+  Write("baz");
+  Write("bif");
+  Write("blitz");
+  while (get_reader_contents()->size() < log::kBlockSize * 2) {
+    Write("xxxxxxxxxxxxxxxx");
+  }
+  unique_ptr<WritableFileWriter> dest_holder(test::GetWritableFileWriter(
+      new test::OverwritingStringSink(get_reader_contents())));
+  Writer recycle_writer(std::move(dest_holder), 123, true);
+  recycle_writer.AddRecord(Slice("foooo"));
+  recycle_writer.AddRecord(Slice("bar"));
+  ASSERT_GE(get_reader_contents()->size(), log::kBlockSize * 2);
+  ASSERT_EQ("foooo", Read());
+  ASSERT_EQ("bar", Read());
+  ASSERT_EQ("EOF", Read());
 }
 
 INSTANTIATE_TEST_CASE_P(bool, LogTest, ::testing::Values(0, 2));
