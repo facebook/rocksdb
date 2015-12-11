@@ -45,7 +45,9 @@ class Cache {
   Cache() { }
 
   // Destroys all existing entries by calling the "deleter"
-  // function that was passed to the constructor.
+  // function that was passed via the Insert() function.
+  //
+  // @See Insert
   virtual ~Cache();
 
   // Opaque handle to an entry stored in the cache.
