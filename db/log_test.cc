@@ -447,9 +447,13 @@ TEST_P(LogTest, BadLength) {
   Write("foo");
   // Least significant size byte is stored in header[4].
   IncrementByte(4, 1);
-  ASSERT_EQ("foo", Read());
-  ASSERT_EQ(kBlockSize, DroppedBytes());
-  ASSERT_EQ("OK", MatchError("bad record length"));
+  if (!GetParam()) {
+    ASSERT_EQ("foo", Read());
+    ASSERT_EQ(kBlockSize, DroppedBytes());
+    ASSERT_EQ("OK", MatchError("bad record length"));
+  } else {
+    ASSERT_EQ("EOF", Read());
+  }
 }
 
 TEST_P(LogTest, BadLengthAtEndIsIgnored) {
@@ -472,8 +476,13 @@ TEST_P(LogTest, ChecksumMismatch) {
   Write("foooooo");
   IncrementByte(0, 14);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(14U + 4 * !!GetParam(), DroppedBytes());
-  ASSERT_EQ("OK", MatchError("checksum mismatch"));
+  if (!GetParam()) {
+    ASSERT_EQ(14U, DroppedBytes());
+    ASSERT_EQ("OK", MatchError("checksum mismatch"));
+  } else {
+    ASSERT_EQ(0U, DroppedBytes());
+    ASSERT_EQ("", ReportMessage());
+  }
 }
 
 TEST_P(LogTest, UnexpectedMiddleType) {
@@ -570,11 +579,15 @@ TEST_P(LogTest, ErrorJoinsRecords) {
     SetByte(offset, 'x');
   }
 
-  ASSERT_EQ("correct", Read());
-  ASSERT_EQ("EOF", Read());
-  size_t dropped = DroppedBytes();
-  ASSERT_LE(dropped, 2 * kBlockSize + 100);
-  ASSERT_GE(dropped, 2 * kBlockSize);
+  if (!GetParam()) {
+    ASSERT_EQ("correct", Read());
+    ASSERT_EQ("EOF", Read());
+    size_t dropped = DroppedBytes();
+    ASSERT_LE(dropped, 2 * kBlockSize + 100);
+    ASSERT_GE(dropped, 2 * kBlockSize);
+  } else {
+    ASSERT_EQ("EOF", Read());
+  }
 }
 
 TEST_P(LogTest, ReadStart) { CheckInitialOffsetRecord(0, 0); }

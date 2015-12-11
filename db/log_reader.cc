@@ -22,9 +22,8 @@ Reader::Reporter::~Reporter() {
 }
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
-	       unique_ptr<SequentialFileReader>&& _file,
-               Reporter* reporter, bool checksum, uint64_t initial_offset,
-               uint64_t log_num)
+               unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
+               bool checksum, uint64_t initial_offset, uint64_t log_num)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -37,7 +36,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       initial_offset_(initial_offset),
-      log_number_(log_num) {}
+      log_number_(log_num),
+      recycled_(false) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -192,6 +192,12 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       case kBadRecordLen:
+        if (recycled_ &&
+            wal_recovery_mode ==
+                WALRecoveryMode::kTolerateCorruptedTailRecords) {
+          scratch->clear();
+          return false;
+        }
         ReportCorruption(drop_size, "bad record length");
         if (in_fragmented_record) {
           ReportCorruption(scratch->size(), "error in middle of record");
@@ -201,6 +207,12 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       case kBadRecordChecksum:
+        if (recycled_ &&
+            wal_recovery_mode ==
+                WALRecoveryMode::kTolerateCorruptedTailRecords) {
+          scratch->clear();
+          return false;
+        }
         ReportCorruption(drop_size, "checksum mismatch");
         if (in_fragmented_record) {
           ReportCorruption(scratch->size(), "error in middle of record");
@@ -355,6 +367,9 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     const uint32_t length = a | (b << 8);
     int header_size = kHeaderSize;
     if (type >= kRecyclableFullType && type <= kRecyclableLastType) {
+      if (end_of_buffer_offset_ - buffer_.size() == 0) {
+        recycled_ = true;
+      }
       header_size = kRecyclableHeaderSize;
       // We need enough for the larger header
       if (buffer_.size() < (size_t)kRecyclableHeaderSize) {
