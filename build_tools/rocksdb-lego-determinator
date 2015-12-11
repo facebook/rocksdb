@@ -68,7 +68,7 @@ CLANG="USE_CLANG=1"
 LITE="OPT=-DROCKSDB_LITE"
 TSAN="COMPILE_WITH_TSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
-PARSER="'parser':'egrep \'Failure|^#|Abort\''"
+PARSER="'parser':'egrep \'Failure|^#|Abort|Expected|Actual|GoogleTestFailure|^==\''"
 
 ARTIFACTS=" 'artifacts': [
     {
