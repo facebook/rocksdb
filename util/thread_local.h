@@ -63,6 +63,15 @@ class ThreadLocalPtr {
   // data for all existing threads
   void Scrape(autovector<void*>* ptrs, void* const replacement);
 
+  // Initialize the static singletons of the ThreadLocalPtr.
+  //
+  // If this function is not called, then the singletons will be
+  // automatically initialized when they are used.
+  //
+  // Calling this function twice or after the singletons have been
+  // initialized will be no-op.
+  static void InitSingletons();
+
  protected:
   struct Entry {
     Entry() : ptr(nullptr) {}
@@ -121,6 +130,15 @@ class ThreadLocalPtr {
     // Register the UnrefHandler for id
     void SetHandler(uint32_t id, UnrefHandler handler);
 
+    // Initialize all the singletons associated with StaticMeta.
+    //
+    // If this function is not called, then the singletons will be
+    // automatically initialized when they are used.
+    //
+    // Calling this function twice or after the singletons have been
+    // initialized will be no-op.
+    static void InitSingletons();
+
    private:
     // Get UnrefHandler for id with acquiring mutex
     // REQUIRES: mutex locked
@@ -153,7 +171,22 @@ class ThreadLocalPtr {
 
     // protect inst, next_instance_id_, free_instance_ids_, head_,
     // ThreadData.entries
-    static port::Mutex mutex_;
+    //
+    // Note that here we prefer function static variable instead of the usual
+    // global static variable.  The reason is that c++ destruction order of
+    // static variables in the reverse order of their construction order.
+    // However, C++ does not guarantee any construction order when global
+    // static variables are defined in different files, while the function
+    // static variables are initialized when their function are first called.
+    // As a result, the construction order of the function static variables
+    // can be controlled by properly invoke their first function calls in
+    // the right order.
+    //
+    // For instance, the following function contains a function static
+    // variable.  We place a dummy function call of this inside
+    // Env::Default() to ensure the construction order of the construction
+    // order.
+    static port::Mutex* Mutex();
 #if ROCKSDB_SUPPORT_THREAD_LOCAL
     // Thread local storage
     static __thread ThreadData* tls_;

@@ -48,6 +48,7 @@
 #include "util/posix_logger.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
+#include "util/thread_local.h"
 #include "util/thread_status_updater.h"
 
 #if !defined(TMPFS_MAGIC)
@@ -761,6 +762,17 @@ std::string Env::GenerateUniqueId() {
 }
 
 Env* Env::Default() {
+  // The following function call initializes the singletons of ThreadLocalPtr
+  // right before the static default_env.  This guarantees default_env will
+  // always being destructed before the ThreadLocalPtr singletons get
+  // destructed as C++ guarantees that the destructions of static variables
+  // is in the reverse order of their constructions.
+  //
+  // Since static members are destructed in the reverse order
+  // of their construction, having this call here guarantees that
+  // the destructor of static PosixEnv will go first, then the
+  // the singletons of ThreadLocalPtr.
+  ThreadLocalPtr::InitSingletons();
   static PosixEnv default_env;
   return &default_env;
 }
