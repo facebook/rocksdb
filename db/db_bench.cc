@@ -3214,7 +3214,6 @@ class Benchmark {
     if (thread->tid > 0) {
       ReadRandom(thread);
     } else {
-      BGWriter(thread, kPut);
       BGWriter(thread, kWrite);
     }
   }

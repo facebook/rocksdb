@@ -60,7 +60,7 @@ class GenericRateLimiter : public RateLimiter {
  private:
   void Refill();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec) {
-    return static_cast<int64_t>(rate_bytes_per_sec * refill_period_us_ / 1000000.0);
+    return rate_bytes_per_sec * refill_period_us_ / 1000000;
   }
 
   // This mutex guard all internal states
