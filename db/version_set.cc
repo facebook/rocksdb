@@ -871,19 +871,16 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       refs_(0),
       version_number_(version_number) {}
 
-void Version::Get(const ReadOptions& read_options, const LookupKey& k,
-                  std::string* value, Status* status,
-                  MergeContext* merge_context, bool* value_found,
-                  bool* key_exists, SequenceNumber* seq) {
+void Version::Get(const ReadOptions& read_options,
+                  const LookupKey& k,
+                  std::string* value,
+                  Status* status,
+                  MergeContext* merge_context,
+                  bool* value_found) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
   assert(status->ok() || status->IsMergeInProgress());
-
-  if (key_exists != nullptr) {
-    // will falsify below if not found
-    *key_exists = true;
-  }
 
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,

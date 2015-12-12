@@ -5243,11 +5243,11 @@ class RecoveryTestHelper {
     int fd = open(filename.c_str(), O_RDWR);
 
     ASSERT_GT(fd, 0);
-    ASSERT_EQ(offset, lseek(fd, offset, SEEK_SET));
+    ASSERT_EQ(offset, lseek(fd, static_cast<long>(offset), SEEK_SET));
 
     void* buf = alloca(len);
     memset(buf, 'a', len);
-    ASSERT_EQ(len, write(fd, buf, len));
+    ASSERT_EQ(len, write(fd, buf, static_cast<unsigned int>(len)));
 
     close(fd);
   }
