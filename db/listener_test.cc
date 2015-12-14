@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "db/db_impl.h"
+#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "db/version_set.h"
@@ -37,119 +38,11 @@
 
 namespace rocksdb {
 
-class EventListenerTest : public testing::Test {
+class EventListenerTest : public DBTestBase {
  public:
-  EventListenerTest() {
-    dbname_ = test::TmpDir() + "/listener_test";
-    EXPECT_OK(DestroyDB(dbname_, Options()));
-    db_ = nullptr;
-    Reopen();
-  }
-
-  ~EventListenerTest() {
-    Close();
-    Options options;
-    options.db_paths.emplace_back(dbname_, 0);
-    options.db_paths.emplace_back(dbname_ + "_2", 0);
-    options.db_paths.emplace_back(dbname_ + "_3", 0);
-    options.db_paths.emplace_back(dbname_ + "_4", 0);
-    EXPECT_OK(DestroyDB(dbname_, options));
-  }
-
-  void CreateColumnFamilies(const std::vector<std::string>& cfs,
-                            const ColumnFamilyOptions* options = nullptr) {
-    ColumnFamilyOptions cf_opts;
-    cf_opts = ColumnFamilyOptions(Options());
-    size_t cfi = handles_.size();
-    handles_.resize(cfi + cfs.size());
-    for (auto cf : cfs) {
-      ASSERT_OK(db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]));
-    }
-  }
-
-  void Close() {
-    for (auto h : handles_) {
-      delete h;
-    }
-    handles_.clear();
-    delete db_;
-    db_ = nullptr;
-  }
-
-  void ReopenWithColumnFamilies(const std::vector<std::string>& cfs,
-                                const Options* options = nullptr) {
-    ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
-  }
-
-  Status TryReopenWithColumnFamilies(const std::vector<std::string>& cfs,
-                                     const Options* options = nullptr) {
-    Close();
-    Options opts = (options == nullptr) ? Options() : *options;
-    std::vector<const Options*> v_opts(cfs.size(), &opts);
-    return TryReopenWithColumnFamilies(cfs, v_opts);
-  }
-
-  Status TryReopenWithColumnFamilies(
-      const std::vector<std::string>& cfs,
-      const std::vector<const Options*>& options) {
-    Close();
-    EXPECT_EQ(cfs.size(), options.size());
-    std::vector<ColumnFamilyDescriptor> column_families;
-    for (size_t i = 0; i < cfs.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(cfs[i], *options[i]));
-    }
-    DBOptions db_opts = DBOptions(*options[0]);
-    return DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
-  }
-
-  Status TryReopen(Options* options = nullptr) {
-    Close();
-    Options opts;
-    if (options != nullptr) {
-      opts = *options;
-    } else {
-      opts.create_if_missing = true;
-    }
-
-    return DB::Open(opts, dbname_, &db_);
-  }
-
-  void Reopen(Options* options = nullptr) {
-    ASSERT_OK(TryReopen(options));
-  }
-
-  void CreateAndReopenWithCF(const std::vector<std::string>& cfs,
-                             const Options* options = nullptr) {
-    CreateColumnFamilies(cfs, options);
-    std::vector<std::string> cfs_plus_default = cfs;
-    cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
-    ReopenWithColumnFamilies(cfs_plus_default, options);
-  }
-
-  DBImpl* dbfull() {
-    return reinterpret_cast<DBImpl*>(db_);
-  }
-
-  Status Put(int cf, const Slice& k, const Slice& v,
-             WriteOptions wo = WriteOptions()) {
-    return db_->Put(wo, handles_[cf], k, v);
-  }
-
-  Status Flush(size_t cf = 0) {
-    FlushOptions opt = FlushOptions();
-    opt.wait = true;
-    if (cf == 0) {
-      return db_->Flush(opt);
-    } else {
-      return db_->Flush(opt, handles_[cf]);
-    }
-  }
+  EventListenerTest() : DBTestBase("listener_test") {}
 
   const size_t k110KB = 110 << 10;
-
-  DB* db_;
-  std::string dbname_;
-  std::vector<ColumnFamilyHandle*> handles_;
 };
 
 struct TestPropertiesCollector : public rocksdb::TablePropertiesCollector {
@@ -238,7 +131,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
       "nikitich", "alyosha", "popovich"};
-  CreateAndReopenWithCF(cf_names, &options);
+  CreateAndReopenWithCF(cf_names, options);
   ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
   ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
   ASSERT_OK(Put(3, "muromec", std::string(90000, 'm')));
@@ -246,12 +139,12 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
   ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
-  for (size_t i = 1; i < 8; ++i) {
+  for (int i = 1; i < 8; ++i) {
     ASSERT_OK(Flush(i));
-    const Slice kStart = "a";
-    const Slice kEnd = "z";
+    const Slice kRangeStart = "a";
+    const Slice kRangeEnd = "z";
     ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[i],
-                                     &kStart, &kEnd));
+                                     &kRangeStart, &kRangeEnd));
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }
@@ -349,7 +242,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
       "nikitich", "alyosha", "popovich"};
   options.table_properties_collector_factories.push_back(
       std::make_shared<TestPropertiesCollectorFactory>());
-  CreateAndReopenWithCF(cf_names, &options);
+  CreateAndReopenWithCF(cf_names, options);
 
   ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
   ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
@@ -358,7 +251,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
   ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
-  for (size_t i = 1; i < 8; ++i) {
+  for (int i = 1; i < 8; ++i) {
     ASSERT_OK(Flush(i));
     dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
@@ -385,7 +278,7 @@ TEST_F(EventListenerTest, MultiCF) {
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
       "nikitich", "alyosha", "popovich"};
-  CreateAndReopenWithCF(cf_names, &options);
+  CreateAndReopenWithCF(cf_names, options);
 
   ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
   ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
@@ -394,7 +287,7 @@ TEST_F(EventListenerTest, MultiCF) {
   ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
   ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
-  for (size_t i = 1; i < 8; ++i) {
+  for (int i = 1; i < 8; ++i) {
     ASSERT_OK(Flush(i));
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
@@ -511,7 +404,7 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   options.table_properties_collector_factories.push_back(
       std::make_shared<TestPropertiesCollectorFactory>());
 
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
 

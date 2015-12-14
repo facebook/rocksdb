@@ -934,7 +934,7 @@ cuckoo_table_reader_test: table/cuckoo_table_reader_test.o $(LIBOBJECTS) $(TESTH
 cuckoo_table_db_test: db/cuckoo_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-listener_test: db/listener_test.o $(LIBOBJECTS) $(TESTHARNESS)
+listener_test: db/listener_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
