@@ -322,7 +322,8 @@ class HdfsEnv : public Env {
   }
 
   virtual void Schedule(void (*function)(void* arg), void* arg,
-                        Priority pri = LOW, void* tag = nullptr) override {}
+                        Priority pri = LOW, void* tag = nullptr,
+                        void (*unschedFunction)(void* arg) = 0) override {}
 
   virtual int UnSchedule(void* tag, Priority pri) override { return 0; }
 

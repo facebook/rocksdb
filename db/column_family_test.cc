@@ -184,11 +184,17 @@ class ColumnFamilyTest : public testing::Test {
     }
   }
 
-  void PutRandomData(int cf, int num, int key_value_size) {
+  void PutRandomData(int cf, int num, int key_value_size, bool save = false) {
     for (int i = 0; i < num; ++i) {
       // 10 bytes for key, rest is value
-      ASSERT_OK(Put(cf, test::RandomKey(&rnd_, 10),
-                    RandomString(&rnd_, key_value_size - 10)));
+      if (!save) {
+        ASSERT_OK(Put(cf, test::RandomKey(&rnd_, 11),
+                      RandomString(&rnd_, key_value_size - 10)));
+      } else {
+        std::string key = test::RandomKey(&rnd_, 11);
+        keys_.insert(key);
+        ASSERT_OK(Put(cf, key, RandomString(&rnd_, key_value_size - 10)));
+      }
     }
   }
 
@@ -378,6 +384,7 @@ class ColumnFamilyTest : public testing::Test {
 
   std::vector<ColumnFamilyHandle*> handles_;
   std::vector<std::string> names_;
+  std::set<std::string> keys_;
   ColumnFamilyOptions column_family_options_;
   DBOptions db_options_;
   std::string dbname_;
@@ -920,6 +927,682 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
 
   Close();
 }
+
+#ifndef ROCKSDB_LITE
+// Sync points not supported in RocksDB Lite
+
+TEST_F(ColumnFamilyTest, MultipleManualCompactions) {
+  Open();
+  CreateColumnFamilies({"one", "two"});
+  ColumnFamilyOptions default_cf, one, two;
+  db_options_.max_open_files = 20;  // only 10 files in file cache
+  db_options_.disableDataSync = true;
+  db_options_.max_background_compactions = 3;
+
+  default_cf.compaction_style = kCompactionStyleLevel;
+  default_cf.num_levels = 3;
+  default_cf.write_buffer_size = 64 << 10;  // 64KB
+  default_cf.target_file_size_base = 30 << 10;
+  default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  one.compaction_style = kCompactionStyleUniversal;
+
+  one.num_levels = 1;
+  // trigger compaction if there are >= 4 files
+  one.level0_file_num_compaction_trigger = 4;
+  one.write_buffer_size = 120000;
+
+  two.compaction_style = kCompactionStyleLevel;
+  two.num_levels = 4;
+  two.level0_file_num_compaction_trigger = 3;
+  two.write_buffer_size = 100000;
+
+  Reopen({default_cf, one, two});
+
+  // SETUP column family "one" -- universal style
+  for (int i = 0; i < one.level0_file_num_compaction_trigger - 2; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(i + 1), 1);
+  }
+  bool cf_1_1 = true;
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"ColumnFamilyTest::MultiManual:4", "ColumnFamilyTest::MultiManual:1"},
+       {"ColumnFamilyTest::MultiManual:2", "ColumnFamilyTest::MultiManual:5"},
+       {"ColumnFamilyTest::MultiManual:2", "ColumnFamilyTest::MultiManual:3"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
+        if (cf_1_1) {
+          TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:4");
+          cf_1_1 = false;
+          TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:3");
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  std::vector<std::thread> threads;
+  threads.emplace_back([&] {
+    CompactRangeOptions compact_options;
+    compact_options.exclusive_manual_compaction = false;
+    ASSERT_OK(
+        db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
+  });
+
+  // SETUP column family "two" -- level style with 4 levels
+  for (int i = 0; i < two.level0_file_num_compaction_trigger - 2; ++i) {
+    PutRandomData(2, 10, 12000);
+    PutRandomData(2, 1, 10);
+    WaitForFlush(2);
+    AssertFilesPerLevel(ToString(i + 1), 2);
+  }
+  threads.emplace_back([&] {
+    TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:1");
+    CompactRangeOptions compact_options;
+    compact_options.exclusive_manual_compaction = false;
+    ASSERT_OK(
+        db_->CompactRange(compact_options, handles_[2], nullptr, nullptr));
+    TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:2");
+  });
+
+  TEST_SYNC_POINT("ColumnFamilyTest::MultiManual:5");
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  // VERIFY compaction "one"
+  AssertFilesPerLevel("1", 1);
+
+  // VERIFY compaction "two"
+  AssertFilesPerLevel("0,1", 2);
+  CompactAll(2);
+  AssertFilesPerLevel("0,1", 2);
+  // Compare against saved keys
+  std::set<std::string>::iterator key_iter = keys_.begin();
+  while (key_iter != keys_.end()) {
+    ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
+    key_iter++;
+  }
+  Close();
+}
+
+TEST_F(ColumnFamilyTest, AutomaticAndManualCompactions) {
+  Open();
+  CreateColumnFamilies({"one", "two"});
+  ColumnFamilyOptions default_cf, one, two;
+  db_options_.max_open_files = 20;  // only 10 files in file cache
+  db_options_.disableDataSync = true;
+  db_options_.max_background_compactions = 3;
+
+  default_cf.compaction_style = kCompactionStyleLevel;
+  default_cf.num_levels = 3;
+  default_cf.write_buffer_size = 64 << 10;  // 64KB
+  default_cf.target_file_size_base = 30 << 10;
+  default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  one.compaction_style = kCompactionStyleUniversal;
+
+  one.num_levels = 1;
+  // trigger compaction if there are >= 4 files
+  one.level0_file_num_compaction_trigger = 4;
+  one.write_buffer_size = 120000;
+
+  two.compaction_style = kCompactionStyleLevel;
+  two.num_levels = 4;
+  two.level0_file_num_compaction_trigger = 3;
+  two.write_buffer_size = 100000;
+
+  Reopen({default_cf, one, two});
+
+  bool cf_1_1 = true;
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:1"},
+       {"ColumnFamilyTest::AutoManual:2", "ColumnFamilyTest::AutoManual:5"},
+       {"ColumnFamilyTest::AutoManual:2", "ColumnFamilyTest::AutoManual:3"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
+        if (cf_1_1) {
+          cf_1_1 = false;
+          TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:4");
+          TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:3");
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  // SETUP column family "one" -- universal style
+  for (int i = 0; i < one.level0_file_num_compaction_trigger; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(i + 1), 1);
+  }
+
+  TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:1");
+
+  // SETUP column family "two" -- level style with 4 levels
+  for (int i = 0; i < two.level0_file_num_compaction_trigger - 2; ++i) {
+    PutRandomData(2, 10, 12000);
+    PutRandomData(2, 1, 10);
+    WaitForFlush(2);
+    AssertFilesPerLevel(ToString(i + 1), 2);
+  }
+  std::thread threads([&] {
+    CompactRangeOptions compact_options;
+    compact_options.exclusive_manual_compaction = false;
+    ASSERT_OK(
+        db_->CompactRange(compact_options, handles_[2], nullptr, nullptr));
+    TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:2");
+  });
+
+  TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:5");
+  threads.join();
+
+  // WAIT for compactions
+  WaitForCompaction();
+
+  // VERIFY compaction "one"
+  AssertFilesPerLevel("1", 1);
+
+  // VERIFY compaction "two"
+  AssertFilesPerLevel("0,1", 2);
+  CompactAll(2);
+  AssertFilesPerLevel("0,1", 2);
+  // Compare against saved keys
+  std::set<std::string>::iterator key_iter = keys_.begin();
+  while (key_iter != keys_.end()) {
+    ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
+    key_iter++;
+  }
+  Close();
+}
+
+TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
+  Open();
+  CreateColumnFamilies({"one", "two"});
+  ColumnFamilyOptions default_cf, one, two;
+  db_options_.max_open_files = 20;  // only 10 files in file cache
+  db_options_.disableDataSync = true;
+  db_options_.max_background_compactions = 3;
+
+  default_cf.compaction_style = kCompactionStyleLevel;
+  default_cf.num_levels = 3;
+  default_cf.write_buffer_size = 64 << 10;  // 64KB
+  default_cf.target_file_size_base = 30 << 10;
+  default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  one.compaction_style = kCompactionStyleUniversal;
+
+  one.num_levels = 1;
+  // trigger compaction if there are >= 4 files
+  one.level0_file_num_compaction_trigger = 4;
+  one.write_buffer_size = 120000;
+
+  two.compaction_style = kCompactionStyleLevel;
+  two.num_levels = 4;
+  two.level0_file_num_compaction_trigger = 3;
+  two.write_buffer_size = 100000;
+
+  Reopen({default_cf, one, two});
+
+  // SETUP column family "one" -- universal style
+  for (int i = 0; i < one.level0_file_num_compaction_trigger - 2; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(i + 1), 1);
+  }
+  bool cf_1_1 = true;
+  bool cf_1_2 = true;
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:1"},
+       {"ColumnFamilyTest::ManualAuto:5", "ColumnFamilyTest::ManualAuto:2"},
+       {"ColumnFamilyTest::ManualAuto:2", "ColumnFamilyTest::ManualAuto:3"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
+        if (cf_1_1) {
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
+          cf_1_1 = false;
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
+        } else if (cf_1_2) {
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
+          cf_1_2 = false;
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  std::thread threads([&] {
+    CompactRangeOptions compact_options;
+    compact_options.exclusive_manual_compaction = false;
+    ASSERT_OK(
+        db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
+  });
+
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:1");
+
+  // SETUP column family "two" -- level style with 4 levels
+  for (int i = 0; i < two.level0_file_num_compaction_trigger; ++i) {
+    PutRandomData(2, 10, 12000);
+    PutRandomData(2, 1, 10);
+    WaitForFlush(2);
+    AssertFilesPerLevel(ToString(i + 1), 2);
+  }
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:5");
+  threads.join();
+
+  // WAIT for compactions
+  WaitForCompaction();
+
+  // VERIFY compaction "one"
+  AssertFilesPerLevel("1", 1);
+
+  // VERIFY compaction "two"
+  AssertFilesPerLevel("0,1", 2);
+  CompactAll(2);
+  AssertFilesPerLevel("0,1", 2);
+  // Compare against saved keys
+  std::set<std::string>::iterator key_iter = keys_.begin();
+  while (key_iter != keys_.end()) {
+    ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
+    key_iter++;
+  }
+  Close();
+}
+
+TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
+  Open();
+  CreateColumnFamilies({"one"});
+  ColumnFamilyOptions default_cf, one;
+  db_options_.max_open_files = 20;  // only 10 files in file cache
+  db_options_.disableDataSync = true;
+  db_options_.max_background_compactions = 3;
+
+  default_cf.compaction_style = kCompactionStyleLevel;
+  default_cf.num_levels = 3;
+  default_cf.write_buffer_size = 64 << 10;  // 64KB
+  default_cf.target_file_size_base = 30 << 10;
+  default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  one.compaction_style = kCompactionStyleUniversal;
+
+  one.num_levels = 1;
+  // trigger compaction if there are >= 4 files
+  one.level0_file_num_compaction_trigger = 4;
+  one.write_buffer_size = 120000;
+
+  Reopen({default_cf, one});
+
+  // SETUP column family "one" -- universal style
+  for (int i = 0; i < one.level0_file_num_compaction_trigger - 2; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(i + 1), 1);
+  }
+  bool cf_1_1 = true;
+  bool cf_1_2 = true;
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:2"},
+       {"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:5"},
+       {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:2"},
+       {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
+        if (cf_1_1) {
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
+          cf_1_1 = false;
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
+        } else if (cf_1_2) {
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
+          cf_1_2 = false;
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  std::thread threads([&] {
+    CompactRangeOptions compact_options;
+    compact_options.exclusive_manual_compaction = false;
+    ASSERT_OK(
+        db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
+  });
+
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:5");
+
+  WaitForFlush(1);
+
+  // Add more L0 files and force automatic compaction
+  for (int i = 0; i < one.level0_file_num_compaction_trigger; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
+                        1);
+  }
+
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:1");
+
+  threads.join();
+  WaitForCompaction();
+  // VERIFY compaction "one"
+  ASSERT_LE(NumTableFilesAtLevel(0, 1), 2);
+
+  // Compare against saved keys
+  std::set<std::string>::iterator key_iter = keys_.begin();
+  while (key_iter != keys_.end()) {
+    ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
+    key_iter++;
+  }
+  Close();
+}
+
+TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
+  Open();
+  CreateColumnFamilies({"one"});
+  ColumnFamilyOptions default_cf, one;
+  db_options_.max_open_files = 20;  // only 10 files in file cache
+  db_options_.disableDataSync = true;
+  db_options_.max_background_compactions = 3;
+
+  default_cf.compaction_style = kCompactionStyleLevel;
+  default_cf.num_levels = 3;
+  default_cf.write_buffer_size = 64 << 10;  // 64KB
+  default_cf.target_file_size_base = 30 << 10;
+  default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  one.compaction_style = kCompactionStyleLevel;
+
+  one.num_levels = 1;
+  // trigger compaction if there are >= 4 files
+  one.level0_file_num_compaction_trigger = 4;
+  one.write_buffer_size = 120000;
+
+  Reopen({default_cf, one});
+
+  // SETUP column family "one" -- level style
+  for (int i = 0; i < one.level0_file_num_compaction_trigger - 2; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(i + 1), 1);
+  }
+  bool cf_1_1 = true;
+  bool cf_1_2 = true;
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:2"},
+       {"ColumnFamilyTest::ManualAuto:4", "ColumnFamilyTest::ManualAuto:5"},
+       {"ColumnFamilyTest::ManualAuto:3", "ColumnFamilyTest::ManualAuto:2"},
+       {"LevelCompactionPicker::PickCompactionBySize:0",
+        "ColumnFamilyTest::ManualAuto:3"},
+       {"ColumnFamilyTest::ManualAuto:1", "ColumnFamilyTest::ManualAuto:3"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
+        if (cf_1_1) {
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:4");
+          cf_1_1 = false;
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:3");
+        } else if (cf_1_2) {
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:2");
+          cf_1_2 = false;
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  std::thread threads([&] {
+    CompactRangeOptions compact_options;
+    compact_options.exclusive_manual_compaction = false;
+    ASSERT_OK(
+        db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
+  });
+
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:5");
+
+  // Add more L0 files and force automatic compaction
+  for (int i = 0; i < one.level0_file_num_compaction_trigger; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
+                        1);
+  }
+
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAuto:1");
+
+  threads.join();
+  WaitForCompaction();
+  // VERIFY compaction "one"
+  AssertFilesPerLevel("0,1", 1);
+
+  // Compare against saved keys
+  std::set<std::string>::iterator key_iter = keys_.begin();
+  while (key_iter != keys_.end()) {
+    ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
+    key_iter++;
+  }
+  Close();
+}
+
+// This test checks for automatic getting a conflict if there is a
+// manual which has not yet been scheduled.
+// The manual compaction waits in NotScheduled
+// We generate more files and then trigger an automatic compaction
+// This will wait because there is an unscheduled manual compaction.
+// Once the conflict is hit, the manual compaction starts and ends
+// Then another automatic will start and end.
+TEST_F(ColumnFamilyTest, SameCFManualAutomaticConflict) {
+  Open();
+  CreateColumnFamilies({"one"});
+  ColumnFamilyOptions default_cf, one;
+  db_options_.max_open_files = 20;  // only 10 files in file cache
+  db_options_.disableDataSync = true;
+  db_options_.max_background_compactions = 3;
+
+  default_cf.compaction_style = kCompactionStyleLevel;
+  default_cf.num_levels = 3;
+  default_cf.write_buffer_size = 64 << 10;  // 64KB
+  default_cf.target_file_size_base = 30 << 10;
+  default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  one.compaction_style = kCompactionStyleUniversal;
+
+  one.num_levels = 1;
+  // trigger compaction if there are >= 4 files
+  one.level0_file_num_compaction_trigger = 4;
+  one.write_buffer_size = 120000;
+
+  Reopen({default_cf, one});
+
+  // SETUP column family "one" -- universal style
+  for (int i = 0; i < one.level0_file_num_compaction_trigger - 2; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(i + 1), 1);
+  }
+  bool cf_1_1 = true;
+  bool cf_1_2 = true;
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BackgroundCompaction()::Conflict",
+        "ColumnFamilyTest::ManualAutoCon:7"},
+       {"ColumnFamilyTest::ManualAutoCon:9",
+        "ColumnFamilyTest::ManualAutoCon:8"},
+       {"ColumnFamilyTest::ManualAutoCon:2",
+        "ColumnFamilyTest::ManualAutoCon:6"},
+       {"ColumnFamilyTest::ManualAutoCon:4",
+        "ColumnFamilyTest::ManualAutoCon:5"},
+       {"ColumnFamilyTest::ManualAutoCon:1",
+        "ColumnFamilyTest::ManualAutoCon:2"},
+       {"ColumnFamilyTest::ManualAutoCon:1",
+        "ColumnFamilyTest::ManualAutoCon:3"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
+        if (cf_1_1) {
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:4");
+          cf_1_1 = false;
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:3");
+        } else if (cf_1_2) {
+          cf_1_2 = false;
+          TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:2");
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::RunManualCompaction:NotScheduled", [&](void* arg) {
+        InstrumentedMutex* mutex = static_cast<InstrumentedMutex*>(arg);
+        mutex->Unlock();
+        TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:9");
+        TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:7");
+        mutex->Lock();
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  std::thread threads([&] {
+    CompactRangeOptions compact_options;
+    compact_options.exclusive_manual_compaction = false;
+    ASSERT_OK(
+        db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
+    TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:6");
+  });
+
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:8");
+  WaitForFlush(1);
+
+  // Add more L0 files and force automatic compaction
+  for (int i = 0; i < one.level0_file_num_compaction_trigger; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(one.level0_file_num_compaction_trigger + i),
+                        1);
+  }
+
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:5");
+  // Add more L0 files and force automatic compaction
+  for (int i = 0; i < one.level0_file_num_compaction_trigger; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+  }
+  TEST_SYNC_POINT("ColumnFamilyTest::ManualAutoCon:1");
+
+  threads.join();
+  WaitForCompaction();
+  // VERIFY compaction "one"
+  ASSERT_LE(NumTableFilesAtLevel(0, 1), 3);
+
+  // Compare against saved keys
+  std::set<std::string>::iterator key_iter = keys_.begin();
+  while (key_iter != keys_.end()) {
+    ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
+    key_iter++;
+  }
+
+  Close();
+}
+
+// In this test, we generate enough files to trigger automatic compactions.
+// The automatic compaction waits in NonTrivial:AfterRun
+// We generate more files and then trigger an automatic compaction
+// This will wait because the automatic compaction has files it needs.
+// Once the conflict is hit, the automatic compaction starts and ends
+// Then the manual will run and end.
+TEST_F(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
+  Open();
+  CreateColumnFamilies({"one"});
+  ColumnFamilyOptions default_cf, one;
+  db_options_.max_open_files = 20;  // only 10 files in file cache
+  db_options_.disableDataSync = true;
+  db_options_.max_background_compactions = 3;
+
+  default_cf.compaction_style = kCompactionStyleLevel;
+  default_cf.num_levels = 3;
+  default_cf.write_buffer_size = 64 << 10;  // 64KB
+  default_cf.target_file_size_base = 30 << 10;
+  default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  one.compaction_style = kCompactionStyleUniversal;
+
+  one.num_levels = 1;
+  // trigger compaction if there are >= 4 files
+  one.level0_file_num_compaction_trigger = 4;
+  one.write_buffer_size = 120000;
+
+  Reopen({default_cf, one});
+
+  bool cf_1_1 = true;
+  bool cf_1_2 = true;
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:2"},
+       {"ColumnFamilyTest::AutoManual:4", "ColumnFamilyTest::AutoManual:5"},
+       {"CompactionPicker::CompactRange:Conflict",
+        "ColumnFamilyTest::AutoManual:3"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
+        if (cf_1_1) {
+          TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:4");
+          cf_1_1 = false;
+          TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:3");
+        } else if (cf_1_2) {
+          TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:2");
+          cf_1_2 = false;
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // SETUP column family "one" -- universal style
+  for (int i = 0; i < one.level0_file_num_compaction_trigger; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+    AssertFilesPerLevel(ToString(i + 1), 1);
+  }
+
+  TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:5");
+
+  // Add another L0 file and force automatic compaction
+  for (int i = 0; i < one.level0_file_num_compaction_trigger - 2; ++i) {
+    PutRandomData(1, 10, 12000, true);
+    PutRandomData(1, 1, 10, true);
+    WaitForFlush(1);
+  }
+
+  CompactRangeOptions compact_options;
+  compact_options.exclusive_manual_compaction = false;
+  ASSERT_OK(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr));
+
+  TEST_SYNC_POINT("ColumnFamilyTest::AutoManual:1");
+
+  WaitForCompaction();
+  // VERIFY compaction "one"
+  AssertFilesPerLevel("1", 1);
+  // Compare against saved keys
+  std::set<std::string>::iterator key_iter = keys_.begin();
+  while (key_iter != keys_.end()) {
+    ASSERT_NE("NOT_FOUND", Get(1, *key_iter));
+    key_iter++;
+  }
+
+  Close();
+}
+#endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // Tailing interator not supported
 namespace {

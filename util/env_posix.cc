@@ -443,7 +443,8 @@ class PosixEnv : public Env {
   }
 
   virtual void Schedule(void (*function)(void* arg1), void* arg,
-                        Priority pri = LOW, void* tag = nullptr) override;
+                        Priority pri = LOW, void* tag = nullptr,
+                        void (*unschedFunction)(void* arg) = 0) override;
 
   virtual int UnSchedule(void* arg, Priority pri) override;
 
@@ -689,9 +690,9 @@ PosixEnv::PosixEnv()
 }
 
 void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,
-                        void* tag) {
+                        void* tag, void (*unschedFunction)(void* arg)) {
   assert(pri >= Priority::LOW && pri <= Priority::HIGH);
-  thread_pools_[pri].Schedule(function, arg, tag);
+  thread_pools_[pri].Schedule(function, arg, tag, unschedFunction);
 }
 
 int PosixEnv::UnSchedule(void* arg, Priority pri) {

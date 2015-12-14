@@ -24,7 +24,8 @@ class ThreadPool {
   void IncBackgroundThreadsIfNeeded(int num);
   void SetBackgroundThreads(int num);
   void StartBGThreads();
-  void Schedule(void (*function)(void* arg1), void* arg, void* tag);
+  void Schedule(void (*function)(void* arg1), void* arg, void* tag,
+                void (*unschedFunction)(void* arg));
   int UnSchedule(void* arg);
 
   unsigned int GetQueueLen() const {
@@ -66,6 +67,7 @@ class ThreadPool {
     void* arg;
     void (*function)(void*);
     void* tag;
+    void (*unschedFunction)(void*);
   };
   typedef std::deque<BGItem> BGQueue;
 

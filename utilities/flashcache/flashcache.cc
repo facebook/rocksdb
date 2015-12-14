@@ -3,9 +3,9 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-#include "rocksdb/utilities/flashcache.h"
-
 #include "utilities/flashcache/flashcache.h"
+
+#include "rocksdb/utilities/flashcache.h"
 
 #ifdef OS_LINUX
 #include <fcntl.h>
@@ -91,7 +91,7 @@ class FlashcacheAwareEnv : public EnvWrapper {
   }
 
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
-                void* tag = nullptr) override {
+                void* tag = nullptr, void (*u)(void* arg) = 0) override {
     EnvWrapper::Schedule(&BgThreadWrapper, new Arg(f, a, cachedev_fd_), pri,
                          tag);
   }

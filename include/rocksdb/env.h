@@ -245,7 +245,8 @@ class Env {
   // I.e., the caller may not assume that background work items are
   // serialized.
   virtual void Schedule(void (*function)(void* arg), void* arg,
-                        Priority pri = LOW, void* tag = nullptr) = 0;
+                        Priority pri = LOW, void* tag = nullptr,
+                        void (*unschedFunction)(void* arg) = 0) = 0;
 
   // Arrange to remove jobs for given arg from the queue_ if they are not
   // already scheduled. Caller is expected to have exclusive lock on arg.
@@ -822,8 +823,8 @@ class EnvWrapper : public Env {
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
 
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
-                void* tag = nullptr) override {
-    return target_->Schedule(f, a, pri, tag);
+                void* tag = nullptr, void (*u)(void* arg) = 0) override {
+    return target_->Schedule(f, a, pri, tag, u);
   }
 
   int UnSchedule(void* tag, Priority pri) override {

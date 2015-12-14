@@ -249,11 +249,11 @@ class ColumnFamilyData {
   // A flag to tell a manual compaction's output is base level.
   static const int kCompactToBaseLevel;
   // REQUIRES: DB mutex held
-  Compaction* CompactRange(
-      const MutableCFOptions& mutable_cf_options,
-      int input_level, int output_level, uint32_t output_path_id,
-      const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end);
+  Compaction* CompactRange(const MutableCFOptions& mutable_cf_options,
+                           int input_level, int output_level,
+                           uint32_t output_path_id, const InternalKey* begin,
+                           const InternalKey* end, InternalKey** compaction_end,
+                           bool* manual_conflict);
 
   CompactionPicker* compaction_picker() { return compaction_picker_.get(); }
   // thread-safe

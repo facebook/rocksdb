@@ -455,7 +455,7 @@ Compaction* CompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, int input_level, int output_level,
     uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
-    InternalKey** compaction_end) {
+    InternalKey** compaction_end, bool* manual_conflict) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
 
@@ -481,6 +481,12 @@ Compaction* CompactionPicker::CompactRange(
       return nullptr;
     }
 
+    if ((start_level == 0) && (!level0_compactions_in_progress_.empty())) {
+      *manual_conflict = true;
+      // Only one level 0 compaction allowed
+      return nullptr;
+    }
+
     std::vector<CompactionInputFiles> inputs(vstorage->num_levels() -
                                              start_level);
     for (int level = start_level; level < vstorage->num_levels(); level++) {
@@ -489,13 +495,21 @@ Compaction* CompactionPicker::CompactRange(
       for (FileMetaData* f : vstorage->LevelFiles(level)) {
         files.push_back(f);
       }
+      if (FilesInCompaction(files)) {
+        *manual_conflict = true;
+        return nullptr;
+      }
     }
-    return new Compaction(
+    Compaction* c = new Compaction(
         vstorage, mutable_cf_options, std::move(inputs), output_level,
         mutable_cf_options.MaxFileSizeForLevel(output_level),
         /* max_grandparent_overlap_bytes */ LLONG_MAX, output_path_id,
         GetCompressionType(ioptions_, output_level, 1),
         /* grandparents */ {}, /* is manual */ true);
+    if (start_level == 0) {
+      level0_compactions_in_progress_.insert(c);
+    }
+    return c;
   }
 
   CompactionInputFiles inputs;
@@ -511,6 +525,13 @@ Compaction* CompactionPicker::CompactRange(
 
   vstorage->GetOverlappingInputs(input_level, begin, end, &inputs.files);
   if (inputs.empty()) {
+    return nullptr;
+  }
+
+  if ((input_level == 0) && (!level0_compactions_in_progress_.empty())) {
+    // Only one level 0 compaction allowed
+    TEST_SYNC_POINT("CompactionPicker::CompactRange:Conflict");
+    *manual_conflict = true;
     return nullptr;
   }
 
@@ -536,9 +557,10 @@ Compaction* CompactionPicker::CompactRange(
   assert(output_path_id < static_cast<uint32_t>(ioptions_.db_paths.size()));
 
   if (ExpandWhileOverlapping(cf_name, vstorage, &inputs) == false) {
-    // manual compaction is currently single-threaded, so it should never
+    // manual compaction is now multi-threaded, so it can
     // happen that ExpandWhileOverlapping fails
-    assert(false);
+    // we handle it higher in RunManualCompaction
+    *manual_conflict = true;
     return nullptr;
   }
 
@@ -557,9 +579,10 @@ Compaction* CompactionPicker::CompactRange(
     int parent_index = -1;
     if (!SetupOtherInputs(cf_name, mutable_cf_options, vstorage, &inputs,
                           &output_level_inputs, &parent_index, -1)) {
-      // manual compaction is currently single-threaded, so it should never
+      // manual compaction is now multi-threaded, so it can
       // happen that SetupOtherInputs fails
-      assert(false);
+      // we handle it higher in RunManualCompaction
+      *manual_conflict = true;
       return nullptr;
     }
   }
@@ -567,6 +590,12 @@ Compaction* CompactionPicker::CompactRange(
   std::vector<CompactionInputFiles> compaction_inputs({inputs});
   if (!output_level_inputs.empty()) {
     compaction_inputs.push_back(output_level_inputs);
+  }
+  for (size_t i = 0; i < compaction_inputs.size(); i++) {
+    if (FilesInCompaction(compaction_inputs[i].files)) {
+      *manual_conflict = true;
+      return nullptr;
+    }
   }
 
   std::vector<FileMetaData*> grandparents;
@@ -580,6 +609,9 @@ Compaction* CompactionPicker::CompactRange(
       std::move(grandparents), /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
+  if (input_level == 0) {
+    level0_compactions_in_progress_.insert(compaction);
+  }
   return compaction;
 }
 
@@ -1033,6 +1065,7 @@ bool LevelCompactionPicker::PickCompactionBySize(VersionStorageInfo* vstorage,
   // could be made better by looking at key-ranges that are
   // being compacted at level 0.
   if (level == 0 && !level0_compactions_in_progress_.empty()) {
+    TEST_SYNC_POINT("LevelCompactionPicker::PickCompactionBySize:0");
     return false;
   }
 
@@ -1751,7 +1784,7 @@ Compaction* FIFOCompactionPicker::CompactRange(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, int input_level, int output_level,
     uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
-    InternalKey** compaction_end) {
+    InternalKey** compaction_end, bool* manual_conflict) {
   assert(input_level == 0);
   assert(output_level == 0);
   *compaction_end = nullptr;

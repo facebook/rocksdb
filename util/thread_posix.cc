@@ -7,8 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <atomic>
 #include "util/thread_posix.h"
+#include <atomic>
 #include <unistd.h>
 #ifdef OS_LINUX
 #include <sys/syscall.h>
@@ -197,7 +197,8 @@ void ThreadPool::StartBGThreads() {
   }
 }
 
-void ThreadPool::Schedule(void (*function)(void* arg1), void* arg, void* tag) {
+void ThreadPool::Schedule(void (*function)(void* arg1), void* arg, void* tag,
+                          void (*unschedFunction)(void* arg)) {
   PthreadCall("lock", pthread_mutex_lock(&mu_));
 
   if (exit_all_threads_) {
@@ -212,6 +213,7 @@ void ThreadPool::Schedule(void (*function)(void* arg1), void* arg, void* tag) {
   queue_.back().function = function;
   queue_.back().arg = arg;
   queue_.back().tag = tag;
+  queue_.back().unschedFunction = unschedFunction;
   queue_len_.store(static_cast<unsigned int>(queue_.size()),
                    std::memory_order_relaxed);
 
@@ -235,6 +237,11 @@ int ThreadPool::UnSchedule(void* arg) {
   BGQueue::iterator it = queue_.begin();
   while (it != queue_.end()) {
     if (arg == (*it).tag) {
+      void (*unschedFunction)(void*) = (*it).unschedFunction;
+      void* arg1 = (*it).arg;
+      if (unschedFunction != nullptr) {
+        (*unschedFunction)(arg1);
+      }
       it = queue_.erase(it);
       count++;
     } else {

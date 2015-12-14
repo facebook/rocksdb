@@ -102,16 +102,21 @@ class DBTest : public DBTestBase {
   DBTest() : DBTestBase("/db_test") {}
 };
 
-class DBTestWithParam : public DBTest,
-                        public testing::WithParamInterface<uint32_t> {
+class DBTestWithParam
+    : public DBTest,
+      public testing::WithParamInterface<std::tuple<uint32_t, bool>> {
  public:
-  DBTestWithParam() { max_subcompactions_ = GetParam(); }
+  DBTestWithParam() {
+    max_subcompactions_ = std::get<0>(GetParam());
+    exclusive_manual_compaction_ = std::get<1>(GetParam());
+  }
 
   // Required if inheriting from testing::WithParamInterface<>
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
   uint32_t max_subcompactions_;
+  bool exclusive_manual_compaction_;
 };
 
 #ifndef ROCKSDB_LITE
@@ -6389,7 +6394,9 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
     if (iter == 0) {
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
     } else {
-      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      CompactRangeOptions cro;
+      cro.exclusive_manual_compaction = exclusive_manual_compaction_;
+      ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
     }
     // only 5 files should survive
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
@@ -8397,7 +8404,9 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
     Flush();
   }
 
-  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = exclusive_manual_compaction_;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_EQ(0U, CountLiveFiles());
 
   Reopen(options);
@@ -8800,6 +8809,36 @@ TEST_F(DBTest, HugeNumberOfLevels) {
   }
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+}
+
+TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 2 * 1024 * 1024;         // 2MB
+  options.max_bytes_for_level_base = 2 * 1024 * 1024;  // 2MB
+  options.num_levels = 12;
+  options.max_background_compactions = 10;
+  options.max_bytes_for_level_multiplier = 2;
+  options.level_compaction_dynamic_level_bytes = true;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 300000; ++i) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+
+  std::atomic<int> callback_count(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction()::Conflict",
+      [&](void* arg) { callback_count.fetch_add(1); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  CompactRangeOptions croptions;
+  croptions.exclusive_manual_compaction = false;
+  ASSERT_OK(db_->CompactRange(croptions, nullptr, nullptr));
+  ASSERT_GE(callback_count.load(), 1);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  for (int i = 0; i < 300000; ++i) {
+    ASSERT_NE("NOT_FOUND", Get(Key(i)));
+  }
 }
 
 // Github issue #595
@@ -10105,7 +10144,8 @@ TEST_F(DBTest, SSTsWithLdbSuffixHandling) {
 }
 
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
-                        ::testing::Values(1, 4));
+                        ::testing::Combine(::testing::Values(1, 4),
+                                           ::testing::Bool()));
 
 TEST_F(DBTest, PauseBackgroundWorkTest) {
   Options options;

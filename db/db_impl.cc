@@ -253,10 +253,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       unscheduled_compactions_(0),
       bg_compaction_scheduled_(0),
       num_running_compactions_(0),
-      bg_manual_only_(0),
       bg_flush_scheduled_(0),
       num_running_flushes_(0),
-      manual_compaction_(nullptr),
       disable_delete_obsolete_files_(0),
       delete_obsolete_files_next_run_(
           options.env->NowMicros() +
@@ -1561,6 +1559,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+  bool exclusive = options.exclusive_manual_compaction;
 
   Status s = FlushMemTable(cfd, FlushOptions());
   if (!s.ok()) {
@@ -1586,7 +1585,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     // Always compact all files together.
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             cfd->NumberLevels() - 1, options.target_path_id,
-                            begin, end);
+                            begin, end, exclusive);
     final_output_level = cfd->NumberLevels() - 1;
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
@@ -1621,7 +1620,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         }
       }
       s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
-                              begin, end);
+                              begin, end, exclusive);
       if (!s.ok()) {
         break;
       }
@@ -2205,12 +2204,15 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                                    int output_level, uint32_t output_path_id,
                                    const Slice* begin, const Slice* end,
-                                   bool disallow_trivial_move) {
+                                   bool exclusive, bool disallow_trivial_move) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
   InternalKey begin_storage, end_storage;
+  CompactionArg* ca;
 
+  bool scheduled = false;
+  bool manual_conflict = false;
   ManualCompaction manual;
   manual.cfd = cfd;
   manual.input_level = input_level;
@@ -2218,6 +2220,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   manual.output_path_id = output_path_id;
   manual.done = false;
   manual.in_progress = false;
+  manual.incomplete = false;
+  manual.exclusive = exclusive;
   manual.disallow_trivial_move = disallow_trivial_move;
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
@@ -2245,7 +2249,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   // jobs drops to zero. This is needed to ensure that this manual compaction
   // can compact any range of keys/files.
   //
-  // bg_manual_only_ is non-zero when at least one thread is inside
+  // HasPendingManualCompaction() is true when at least one thread is inside
   // RunManualCompaction(), i.e. during that time no other compaction will
   // get scheduled (see MaybeScheduleFlushOrCompaction).
   //
@@ -2254,13 +2258,16 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   // However, only one of them will actually schedule compaction, while
   // others will wait on a condition variable until it completes.
 
-  ++bg_manual_only_;
-  while (bg_compaction_scheduled_ > 0) {
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "[%s] Manual compaction waiting for all other scheduled background "
-        "compactions to finish",
-        cfd->GetName().c_str());
-    bg_cv_.Wait();
+  AddManualCompaction(&manual);
+  TEST_SYNC_POINT_CALLBACK("DBImpl::RunManualCompaction:NotScheduled", &mutex_);
+  if (exclusive) {
+    while (bg_compaction_scheduled_ > 0) {
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+          "[%s] Manual compaction waiting for all other scheduled background "
+          "compactions to finish",
+          cfd->GetName().c_str());
+      bg_cv_.Wait();
+    }
   }
 
   Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
@@ -2271,20 +2278,47 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   // the compaction will set manual.status to bg_error_ and set manual.done to
   // true.
   while (!manual.done) {
-    assert(bg_manual_only_ > 0);
-    if (manual_compaction_ != nullptr) {
+    assert(HasPendingManualCompaction());
+    manual_conflict = false;
+    if (ShouldRunManualCompaction(&manual) || (manual.in_progress == true) ||
+        scheduled ||
+        ((manual.manual_end = &manual.tmp_storage1)&&(
+             (manual.compaction = manual.cfd->CompactRange(
+                  *manual.cfd->GetLatestMutableCFOptions(), manual.input_level,
+                  manual.output_level, manual.output_path_id, manual.begin,
+                  manual.end, &manual.manual_end, &manual_conflict)) ==
+             nullptr) &&
+         manual_conflict)) {
+      // exclusive manual compactions should not see a conflict during
+      // CompactRange
+      assert(!exclusive || !manual_conflict);
       // Running either this or some other manual compaction
       bg_cv_.Wait();
-    } else {
-      manual_compaction_ = &manual;
+      if (scheduled && manual.incomplete == true) {
+        assert(!manual.in_progress);
+        scheduled = false;
+        manual.incomplete = false;
+      }
+    } else if (!scheduled) {
+      if (manual.compaction == nullptr) {
+        manual.done = true;
+        bg_cv_.SignalAll();
+        continue;
+      }
+      ca = new CompactionArg;
+      ca->db = this;
+      ca->m = &manual;
+      manual.incomplete = false;
       bg_compaction_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW, this);
+      env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
+                     &DBImpl::UnscheduleCallback);
+      scheduled = true;
     }
   }
 
   assert(!manual.in_progress);
-  assert(bg_manual_only_ > 0);
-  --bg_manual_only_;
+  assert(HasPendingManualCompaction());
+  RemoveManualCompaction(&manual);
   return manual.status;
 }
 
@@ -2406,7 +2440,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     }
   }
 
-  if (bg_manual_only_) {
+  if (HasExclusiveManualCompaction()) {
     // only manual compactions are allowed to run. don't schedule automatic
     // compactions
     return;
@@ -2414,9 +2448,13 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 
   while (bg_compaction_scheduled_ < db_options_.max_background_compactions &&
          unscheduled_compactions_ > 0) {
+    CompactionArg* ca = new CompactionArg;
+    ca->db = this;
+    ca->m = nullptr;
     bg_compaction_scheduled_++;
     unscheduled_compactions_--;
-    env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW, this);
+    env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
+                   &DBImpl::UnscheduleCallback);
   }
 }
 
@@ -2478,10 +2516,21 @@ void DBImpl::BGWorkFlush(void* db) {
   TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
-void DBImpl::BGWorkCompaction(void* db) {
+void DBImpl::BGWorkCompaction(void* arg) {
+  CompactionArg ca = *(reinterpret_cast<CompactionArg*>(arg));
+  delete reinterpret_cast<CompactionArg*>(arg);
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
   TEST_SYNC_POINT("DBImpl::BGWorkCompaction");
-  reinterpret_cast<DBImpl*>(db)->BackgroundCallCompaction();
+  reinterpret_cast<DBImpl*>(ca.db)->BackgroundCallCompaction(ca.m);
+}
+
+void DBImpl::UnscheduleCallback(void* arg) {
+  CompactionArg ca = *(reinterpret_cast<CompactionArg*>(arg));
+  delete reinterpret_cast<CompactionArg*>(arg);
+  if ((ca.m != nullptr) && (ca.m->compaction != nullptr)) {
+    delete ca.m->compaction;
+  }
+  TEST_SYNC_POINT("DBImpl::UnscheduleCallback");
 }
 
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
@@ -2602,8 +2651,9 @@ void DBImpl::BackgroundCallFlush() {
   }
 }
 
-void DBImpl::BackgroundCallCompaction() {
+void DBImpl::BackgroundCallCompaction(void* arg) {
   bool made_progress = false;
+  ManualCompaction* m = reinterpret_cast<ManualCompaction*>(arg);
   JobContext job_context(next_job_id_.fetch_add(1), true);
   TEST_SYNC_POINT("BackgroundCallCompaction:0");
   MaybeDumpStats();
@@ -2616,7 +2666,8 @@ void DBImpl::BackgroundCallCompaction() {
         CaptureCurrentFileNumberInPendingOutputs();
 
     assert(bg_compaction_scheduled_);
-    Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer);
+    Status s =
+        BackgroundCompaction(&made_progress, &job_context, &log_buffer, m);
     TEST_SYNC_POINT("BackgroundCallCompaction:1");
     if (!s.ok() && !s.IsShutdownInProgress()) {
       // Wait a little bit before retrying background compaction in
@@ -2668,11 +2719,12 @@ void DBImpl::BackgroundCallCompaction() {
 
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
-    if (made_progress || bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
+    if (made_progress || bg_compaction_scheduled_ == 0 ||
+        HasPendingManualCompaction()) {
       // signal if
       // * made_progress -- need to wakeup DelayWrite
       // * bg_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
-      // * bg_manual_only_ > 0 -- need to wakeup RunManualCompaction
+      // * HasPendingManualCompaction -- need to wakeup RunManualCompaction
       // If none of this is true, there is no need to signal since nobody is
       // waiting for it
       bg_cv_.SignalAll();
@@ -2686,14 +2738,17 @@ void DBImpl::BackgroundCallCompaction() {
 
 Status DBImpl::BackgroundCompaction(bool* made_progress,
                                     JobContext* job_context,
-                                    LogBuffer* log_buffer) {
+                                    LogBuffer* log_buffer, void* arg) {
+  ManualCompaction* manual_compaction =
+      reinterpret_cast<ManualCompaction*>(arg);
   *made_progress = false;
   mutex_.AssertHeld();
 
-  bool is_manual = (manual_compaction_ != nullptr) &&
-                   (manual_compaction_->in_progress == false);
-  bool trivial_move_disallowed = is_manual &&
-                                 manual_compaction_->disallow_trivial_move;
+  bool is_manual = (manual_compaction != nullptr);
+
+  // (manual_compaction->in_progress == false);
+  bool trivial_move_disallowed =
+      is_manual && manual_compaction->disallow_trivial_move;
 
   CompactionJobStats compaction_job_stats;
   Status status = bg_error_;
@@ -2703,34 +2758,30 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
 
   if (!status.ok()) {
     if (is_manual) {
-      manual_compaction_->status = status;
-      manual_compaction_->done = true;
-      manual_compaction_->in_progress = false;
-      manual_compaction_ = nullptr;
+      manual_compaction->status = status;
+      manual_compaction->done = true;
+      manual_compaction->in_progress = false;
+      delete manual_compaction->compaction;
+      manual_compaction = nullptr;
     }
     return status;
   }
 
   if (is_manual) {
     // another thread cannot pick up the same work
-    manual_compaction_->in_progress = true;
-  } else if (manual_compaction_ != nullptr) {
-    // there should be no automatic compactions running when manual compaction
-    // is running
-    return Status::OK();
+    manual_compaction->in_progress = true;
   }
 
   unique_ptr<Compaction> c;
-  InternalKey manual_end_storage;
-  InternalKey* manual_end = &manual_end_storage;
+  // InternalKey manual_end_storage;
+  // InternalKey* manual_end = &manual_end_storage;
   if (is_manual) {
-    ManualCompaction* m = manual_compaction_;
+    ManualCompaction* m = manual_compaction;
     assert(m->in_progress);
-    c.reset(m->cfd->CompactRange(
-          *m->cfd->GetLatestMutableCFOptions(), m->input_level, m->output_level,
-          m->output_path_id, m->begin, m->end, &manual_end));
+    c.reset(std::move(m->compaction));
     if (!c) {
       m->done = true;
+      m->manual_end = nullptr;
       LogToBuffer(log_buffer,
                   "[%s] Manual compaction from level-%d from %s .. "
                   "%s; nothing to do\n",
@@ -2744,9 +2795,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                   m->cfd->GetName().c_str(), m->input_level, c->output_level(),
                   (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
                   (m->end ? m->end->DebugString().c_str() : "(end)"),
-                  ((m->done || manual_end == nullptr)
+                  ((m->done || m->manual_end == nullptr)
                        ? "(end)"
-                       : manual_end->DebugString().c_str()));
+                       : m->manual_end->DebugString().c_str()));
     }
   } else if (!compaction_queue_.empty()) {
     // cfd is referenced here
@@ -2760,6 +2811,12 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       delete cfd;
       // This was the last reference of the column family, so no need to
       // compact.
+      return Status::OK();
+    }
+
+    if (HaveManualCompaction(cfd)) {
+      // Can't compact right now, but try again later
+      TEST_SYNC_POINT("DBImpl::BackgroundCompaction()::Conflict");
       return Status::OK();
     }
 
@@ -2940,7 +2997,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
   }
 
   if (is_manual) {
-    ManualCompaction* m = manual_compaction_;
+    ManualCompaction* m = manual_compaction;
     if (!status.ok()) {
       m->status = status;
       m->done = true;
@@ -2958,7 +3015,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     // Stop the compaction if manual_end points to nullptr -- this means
     // that we compacted the whole range. manual_end should always point
     // to nullptr in case of universal compaction
-    if (manual_end == nullptr) {
+    if (m->manual_end == nullptr) {
       m->done = true;
     }
     if (!m->done) {
@@ -2969,13 +3026,100 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
                  kCompactionStyleUniversal ||
              m->cfd->ioptions()->num_levels > 1);
       assert(m->cfd->ioptions()->compaction_style != kCompactionStyleFIFO);
-      m->tmp_storage = *manual_end;
+      m->tmp_storage = *m->manual_end;
       m->begin = &m->tmp_storage;
+      m->incomplete = true;
     }
     m->in_progress = false; // not being processed anymore
-    manual_compaction_ = nullptr;
   }
   return status;
+}
+
+bool DBImpl::HasPendingManualCompaction() {
+  return (!manual_compaction_dequeue_.empty());
+}
+
+void DBImpl::AddManualCompaction(DBImpl::ManualCompaction* m) {
+  manual_compaction_dequeue_.push_back(m);
+}
+
+void DBImpl::RemoveManualCompaction(DBImpl::ManualCompaction* m) {
+  // Remove from queue
+  std::deque<ManualCompaction*>::iterator it =
+      manual_compaction_dequeue_.begin();
+  while (it != manual_compaction_dequeue_.end()) {
+    if (m == (*it)) {
+      it = manual_compaction_dequeue_.erase(it);
+      return;
+    }
+    it++;
+  }
+  assert(false);
+  return;
+}
+
+bool DBImpl::ShouldRunManualCompaction(ManualCompaction* m) {
+  if ((m->exclusive) && (bg_compaction_scheduled_ > 0)) {
+    return true;
+  }
+  std::deque<ManualCompaction*>::iterator it =
+      manual_compaction_dequeue_.begin();
+  bool seen = false;
+  while (it != manual_compaction_dequeue_.end()) {
+    if (m == (*it)) {
+      it++;
+      seen = true;
+      continue;
+    } else if (MCOverlap(m, (*it)) && (!seen && !(*it)->in_progress)) {
+      // Consider the other manual compaction *it, conflicts if:
+      // overlaps with m
+      // and (*it) is ahead in the queue and is not yet in progress
+      return true;
+    }
+    it++;
+  }
+  return false;
+}
+
+bool DBImpl::HaveManualCompaction(ColumnFamilyData* cfd) {
+  // Remove from priority queue
+  std::deque<ManualCompaction*>::iterator it =
+      manual_compaction_dequeue_.begin();
+  while (it != manual_compaction_dequeue_.end()) {
+    if ((*it)->exclusive) {
+      return true;
+    }
+    if ((cfd == (*it)->cfd) && (!((*it)->in_progress || (*it)->done))) {
+      // Allow automatic compaction if manual compaction is
+      // is in progress
+      return true;
+    }
+    it++;
+  }
+  return false;
+}
+
+bool DBImpl::HasExclusiveManualCompaction() {
+  // Remove from priority queue
+  std::deque<ManualCompaction*>::iterator it =
+      manual_compaction_dequeue_.begin();
+  while (it != manual_compaction_dequeue_.end()) {
+    if ((*it)->exclusive) {
+      return true;
+    }
+    it++;
+  }
+  return false;
+}
+
+bool DBImpl::MCOverlap(ManualCompaction* m, ManualCompaction* m1) {
+  if ((m->exclusive) || (m1->exclusive)) {
+    return true;
+  }
+  if (m->cfd != m1->cfd) {
+    return false;
+  }
+  return true;
 }
 
 namespace {

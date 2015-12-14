@@ -22,12 +22,16 @@ static std::string CompressibleString(Random* rnd, int len) {
 
 class DBTestUniversalCompactionBase
     : public DBTestBase,
-      public ::testing::WithParamInterface<int> {
+      public ::testing::WithParamInterface<std::tuple<int, bool>> {
  public:
   explicit DBTestUniversalCompactionBase(
       const std::string& path) : DBTestBase(path) {}
-  virtual void SetUp() override { num_levels_ = GetParam(); }
+  virtual void SetUp() override {
+    num_levels_ = std::get<0>(GetParam());
+    exclusive_manual_compaction_ = std::get<1>(GetParam());
+  }
   int num_levels_;
+  bool exclusive_manual_compaction_;
 };
 
 class DBTestUniversalCompaction : public DBTestUniversalCompactionBase {
@@ -406,6 +410,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTargetLevel) {
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 4;
+  compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
   db_->CompactRange(compact_options, nullptr, nullptr);
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
 }
@@ -498,7 +503,8 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
 
 INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionMultiLevels,
                         DBTestUniversalCompactionMultiLevels,
-                        ::testing::Values(3, 20));
+                        ::testing::Combine(::testing::Values(3, 20),
+                                           ::testing::Bool()));
 
 class DBTestUniversalCompactionParallel :
     public DBTestUniversalCompactionBase {
@@ -571,7 +577,8 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
 
 INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionParallel,
                         DBTestUniversalCompactionParallel,
-                        ::testing::Values(1, 10));
+                        ::testing::Combine(::testing::Values(1, 10),
+                                           ::testing::Bool()));
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   Options options;
@@ -1063,6 +1070,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 0;
+  compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
   dbfull()->CompactRange(compact_options, handles_[1], nullptr, nullptr);
   // Need to restart it once to remove higher level records in manifest.
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
@@ -1186,7 +1194,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
 }
 
 INSTANTIATE_TEST_CASE_P(UniversalCompactionNumLevels, DBTestUniversalCompaction,
-                        ::testing::Values(1, 3, 5));
+                        ::testing::Combine(::testing::Values(1, 3, 5),
+                                           ::testing::Bool()));
 
 class DBTestUniversalManualCompactionOutputPathId
     : public DBTestUniversalCompactionBase {
@@ -1218,6 +1227,7 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
   // Full compaction to DB path 0
   CompactRangeOptions compact_options;
   compact_options.target_path_id = 1;
+  compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
   db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
   ASSERT_EQ(1, TotalLiveFiles(1));
   ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
@@ -1240,6 +1250,7 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
 
   // Full compaction to DB path 0
   compact_options.target_path_id = 0;
+  compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
   db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
   ASSERT_EQ(1, TotalLiveFiles(1));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
@@ -1247,13 +1258,15 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
 
   // Fail when compacting to an invalid path ID
   compact_options.target_path_id = 2;
+  compact_options.exclusive_manual_compaction = exclusive_manual_compaction_;
   ASSERT_TRUE(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr)
                   .IsInvalidArgument());
 }
 
 INSTANTIATE_TEST_CASE_P(DBTestUniversalManualCompactionOutputPathId,
                         DBTestUniversalManualCompactionOutputPathId,
-                        ::testing::Values(1, 8));
+                        ::testing::Combine(::testing::Values(1, 8),
+                                           ::testing::Bool()));
 
 }  // namespace rocksdb
 

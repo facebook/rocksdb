@@ -1549,7 +1549,8 @@ class WinEnv : public Env {
   }
 
   virtual void Schedule(void (*function)(void*), void* arg, Priority pri = LOW,
-                        void* tag = nullptr) override;
+                        void* tag = nullptr,
+                        void (*unschedFunction)(void* arg) = 0) override;
 
   virtual int UnSchedule(void* arg, Priority pri) override;
 
@@ -1978,7 +1979,8 @@ class WinEnv : public Env {
       }
     }
 
-    void Schedule(void (*function)(void* arg1), void* arg, void* tag) {
+    void Schedule(void (*function)(void* arg1), void* arg, void* tag,
+                  void (*unschedFunction)(void* arg)) {
       std::lock_guard<std::mutex> lg(mu_);
 
       if (exit_all_threads_) {
@@ -1992,6 +1994,7 @@ class WinEnv : public Env {
       queue_.back().function = function;
       queue_.back().arg = arg;
       queue_.back().tag = tag;
+      queue_.back().unschedFunction = unschedFunction;
       queue_len_.store(queue_.size(), std::memory_order_relaxed);
 
       if (!HasExcessiveThread()) {
@@ -2013,6 +2016,11 @@ class WinEnv : public Env {
       BGQueue::iterator it = queue_.begin();
       while (it != queue_.end()) {
         if (arg == (*it).tag) {
+          void (*unschedFunction)(void*) = (*it).unschedFunction;
+          void* arg1 = (*it).arg;
+          if (unschedFunction != nullptr) {
+            (*unschedFunction)(arg1);
+          }
           it = queue_.erase(it);
           count++;
         } else {
@@ -2036,6 +2044,7 @@ class WinEnv : public Env {
       void* arg;
       void (*function)(void*);
       void* tag;
+      void (*unschedFunction)(void*);
     };
 
     typedef std::deque<BGItem> BGQueue;
@@ -2094,9 +2103,9 @@ WinEnv::WinEnv()
 }
 
 void WinEnv::Schedule(void (*function)(void*), void* arg, Priority pri,
-                      void* tag) {
+                      void* tag, void (*unschedFunction)(void* arg)) {
   assert(pri >= Priority::LOW && pri <= Priority::HIGH);
-  thread_pools_[pri].Schedule(function, arg, tag);
+  thread_pools_[pri].Schedule(function, arg, tag, unschedFunction);
 }
 
 int WinEnv::UnSchedule(void* arg, Priority pri) {

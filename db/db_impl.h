@@ -275,6 +275,7 @@ class DBImpl : public DB {
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
                              const Slice* begin, const Slice* end,
+                             bool exclusive,
                              bool disallow_trivial_move = false);
 
   // Return an internal iterator over the current state of the database.
@@ -554,12 +555,13 @@ class DBImpl : public DB {
   void MaybeScheduleFlushOrCompaction();
   void SchedulePendingFlush(ColumnFamilyData* cfd);
   void SchedulePendingCompaction(ColumnFamilyData* cfd);
-  static void BGWorkCompaction(void* db);
+  static void BGWorkCompaction(void* arg);
   static void BGWorkFlush(void* db);
-  void BackgroundCallCompaction();
+  static void UnscheduleCallback(void* arg);
+  void BackgroundCallCompaction(void* arg);
   void BackgroundCallFlush();
   Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
-                              LogBuffer* log_buffer);
+                              LogBuffer* log_buffer, void* m = 0);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
 
@@ -605,7 +607,7 @@ class DBImpl : public DB {
   std::atomic<bool> shutting_down_;
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
-  // * if bg_manual_only_ > 0, whenever a compaction finishes, even if it hasn't
+  // * if AnyManualCompaction, whenever a compaction finishes, even if it hasn't
   // made any progress
   // * whenever a compaction made any progress
   // * whenever bg_flush_scheduled_ value decreases (i.e. whenever a flush is
@@ -763,11 +765,6 @@ class DBImpl : public DB {
   // stores the number of compactions are currently running
   int num_running_compactions_;
 
-  // If non-zero, MaybeScheduleFlushOrCompaction() will only schedule manual
-  // compactions (if manual_compaction_ is not null). This mechanism enables
-  // manual compactions to wait until all other compactions are finished.
-  int bg_manual_only_;
-
   // number of background memtable flush jobs, submitted to the HIGH pool
   int bg_flush_scheduled_;
 
@@ -780,15 +777,25 @@ class DBImpl : public DB {
     int input_level;
     int output_level;
     uint32_t output_path_id;
-    bool done;
     Status status;
+    bool done;
     bool in_progress;             // compaction request being processed?
+    bool incomplete;              // only part of requested range compacted
+    bool exclusive;               // current behavior of only one manual
+    bool disallow_trivial_move;   // Force actual compaction to run
     const InternalKey* begin;     // nullptr means beginning of key range
     const InternalKey* end;       // nullptr means end of key range
+    InternalKey* manual_end;      // how far we are compacting
     InternalKey tmp_storage;      // Used to keep track of compaction progress
-    bool disallow_trivial_move;   // Force actual compaction to run
+    InternalKey tmp_storage1;     // Used to keep track of compaction progress
+    Compaction* compaction;
   };
-  ManualCompaction* manual_compaction_;
+  std::deque<ManualCompaction*> manual_compaction_dequeue_;
+
+  struct CompactionArg {
+    DBImpl* db;
+    ManualCompaction* m;
+  };
 
   // Have we encountered a background error in paranoid mode?
   Status bg_error_;
@@ -885,6 +892,14 @@ class DBImpl : public DB {
                               DBPropertyType property_type,
                               bool need_out_of_mutex, bool is_locked,
                               uint64_t* value);
+
+  bool HasPendingManualCompaction();
+  bool HasExclusiveManualCompaction();
+  void AddManualCompaction(ManualCompaction* m);
+  void RemoveManualCompaction(ManualCompaction* m);
+  bool ShouldRunManualCompaction(ManualCompaction* m);
+  bool HaveManualCompaction(ColumnFamilyData* cfd);
+  bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if
