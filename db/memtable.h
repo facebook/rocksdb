@@ -189,7 +189,7 @@ class MemTable {
               const Slice& key,
               const Slice& value);
 
-  // If prev_value for key exits, attempts to update it inplace.
+  // If prev_value for key exists, attempts to update it inplace.
   // else returns false
   // Pseudocode
   //   if key exists in current memtable && prev_value is of type kTypeValue
