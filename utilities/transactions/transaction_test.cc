@@ -436,7 +436,7 @@ TEST_F(TransactionTest, FlushTest2) {
 
     s = txn->Delete("S");
     // Should fail after encountering a write to S in SST file
-    fprintf(stderr, "%lu %s\n", n, s.ToString().c_str());
+    fprintf(stderr, "%" ROCKSDB_PRIszt " %s\n", n, s.ToString().c_str());
     ASSERT_TRUE(s.IsBusy());
 
     // Write a bunch of keys to db to force a compaction
