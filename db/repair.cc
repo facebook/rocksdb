@@ -165,7 +165,7 @@ class Repairer {
   Status FindFiles() {
     std::vector<std::string> filenames;
     bool found_file = false;
-    for (uint32_t path_id = 0; path_id < options_.db_paths.size(); path_id++) {
+    for (size_t path_id = 0; path_id < options_.db_paths.size(); path_id++) {
       Status status =
           env_->GetChildren(options_.db_paths[path_id].path, &filenames);
       if (!status.ok()) {

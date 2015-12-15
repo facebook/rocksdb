@@ -645,16 +645,15 @@ class FaultInjectionTest : public testing::Test,
     return test::RandomString(&r, kValueSize, storage);
   }
 
-  Status OpenDB() {
-    delete db_;
-    db_ = NULL;
-    env_->ResetState();
-    return DB::Open(options_, dbname_, &db_);
-  }
-
   void CloseDB() {
     delete db_;
     db_ = NULL;
+  }
+
+  Status OpenDB() {
+    CloseDB();
+    env_->ResetState();
+    return DB::Open(options_, dbname_, &db_);
   }
 
   void DeleteAllData() {

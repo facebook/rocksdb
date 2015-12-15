@@ -4577,7 +4577,7 @@ TEST_F(DBTest, SnapshotFiles) {
     std::string snapdir = dbname_ + ".snapdir/";
     ASSERT_OK(env_->CreateDirIfMissing(snapdir));
 
-    for (unsigned int i = 0; i < files.size(); i++) {
+    for (size_t i = 0; i < files.size(); i++) {
       // our clients require that GetLiveFiles returns
       // files with "/" as first character!
       ASSERT_EQ(files[i][0], '/');
@@ -4646,7 +4646,7 @@ TEST_F(DBTest, SnapshotFiles) {
     // the same one as in the previous snapshot. But its size should be
     // larger because we added an extra key after taking the
     // previous shapshot.
-    for (unsigned int i = 0; i < newfiles.size(); i++) {
+    for (size_t i = 0; i < newfiles.size(); i++) {
       std::string src = dbname_ + "/" + newfiles[i];
       // record the lognumber and the size of the
       // latest manifest file
@@ -10124,7 +10124,7 @@ TEST_F(DBTest, SSTsWithLdbSuffixHandling) {
   std::vector<std::string> filenames;
   GetSstFiles(dbname_, &filenames);
   int num_ldb_files = 0;
-  for (unsigned int i = 0; i < filenames.size(); ++i) {
+  for (size_t i = 0; i < filenames.size(); ++i) {
     if (i & 1) {
       continue;
     }

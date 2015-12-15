@@ -568,8 +568,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   versions_->AddLiveFiles(&job_context->sst_live);
   if (doing_the_full_scan) {
-    for (uint32_t path_id = 0; path_id < db_options_.db_paths.size();
-         path_id++) {
+    for (size_t path_id = 0; path_id < db_options_.db_paths.size(); path_id++) {
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;

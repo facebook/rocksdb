@@ -46,7 +46,7 @@ void Compaction::GetBoundaryKeys(
     Slice* largest_user_key) {
   bool initialized = false;
   const Comparator* ucmp = vstorage->InternalComparator()->user_comparator();
-  for (uint32_t i = 0; i < inputs.size(); ++i) {
+  for (size_t i = 0; i < inputs.size(); ++i) {
     if (inputs[i].files.empty()) {
       continue;
     }
@@ -311,7 +311,7 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
   for (size_t i = 0; i < num_input_levels(); i++) {
-    for (unsigned int j = 0; j < inputs_[i].size(); j++) {
+    for (size_t j = 0; j < inputs_[i].size(); j++) {
       assert(mark_as_compacted ? !inputs_[i][j]->being_compacted :
                                   inputs_[i][j]->being_compacted);
       inputs_[i][j]->being_compacted = mark_as_compacted;
@@ -371,7 +371,7 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
                  int len) {
   *output = '\0';
   int write = 0;
-  for (unsigned int i = 0; i < files.size(); i++) {
+  for (size_t i = 0; i < files.size(); i++) {
     int sz = len - write;
     int ret;
     char sztxt[16];

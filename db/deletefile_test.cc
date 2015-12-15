@@ -74,6 +74,7 @@ class DeleteFileTest : public testing::Test {
 
   void CloseDB() {
     delete db_;
+    db_ = nullptr;
   }
 
   void AddKeys(int numkeys, int startkey = 0) {

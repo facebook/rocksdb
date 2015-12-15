@@ -1708,7 +1708,11 @@ class Benchmark {
 
 #if defined(__linux)
     time_t now = time(nullptr);
-    fprintf(stderr, "Date:       %s", ctime(&now));  // ctime() adds newline
+    char buf[52];
+    // Lint complains about ctime() usage, so replace it with ctime_r(). The
+    // requirement is to provide a buffer which is at least 26 bytes.
+    fprintf(stderr, "Date:       %s",
+            ctime_r(&now, buf));  // ctime_r() adds newline
 
     FILE* cpuinfo = fopen("/proc/cpuinfo", "r");
     if (cpuinfo != nullptr) {
@@ -1789,7 +1793,7 @@ class Benchmark {
 
     std::vector<std::string> files;
     FLAGS_env->GetChildren(FLAGS_db, &files);
-    for (unsigned int i = 0; i < files.size(); i++) {
+    for (size_t i = 0; i < files.size(); i++) {
       if (Slice(files[i]).starts_with("heap-")) {
         FLAGS_env->DeleteFile(FLAGS_db + "/" + files[i]);
       }
@@ -3880,12 +3884,8 @@ class Benchmark {
         }
       }
 
-      if (txn) {
-        delete txn;
-      }
-      if (batch) {
-        delete batch;
-      }
+      delete txn;
+      delete batch;
 
       if (!failed) {
         thread->stats.FinishedOps(nullptr, db, 1, kOthers);
@@ -4067,7 +4067,7 @@ int main(int argc, char** argv) {
 
   std::vector<std::string> fanout = rocksdb::StringSplit(
       FLAGS_max_bytes_for_level_multiplier_additional, ',');
-  for (unsigned int j= 0; j < fanout.size(); j++) {
+  for (size_t j = 0; j < fanout.size(); j++) {
     FLAGS_max_bytes_for_level_multiplier_additional_v.push_back(
 #ifndef CYGWIN
         std::stoi(fanout[j]));

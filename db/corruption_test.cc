@@ -183,7 +183,7 @@ class CorruptionTest : public testing::Test {
     FileType type;
     std::string fname;
     int picked_number = -1;
-    for (unsigned int i = 0; i < filenames.size(); i++) {
+    for (size_t i = 0; i < filenames.size(); i++) {
       if (ParseFileName(filenames[i], &number, &type) &&
           type == filetype &&
           static_cast<int>(number) > picked_number) {  // Pick latest file

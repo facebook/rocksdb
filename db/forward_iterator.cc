@@ -262,7 +262,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
     }
     const VersionStorageInfo* vstorage = sv_->current->storage_info();
     const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
-    for (uint32_t i = 0; i < l0.size(); ++i) {
+    for (size_t i = 0; i < l0.size(); ++i) {
       if (!l0_iters_[i]) {
         continue;
       }
@@ -521,7 +521,7 @@ void ForwardIterator::RenewIterators() {
   const auto& l0_files = vstorage->LevelFiles(0);
   const auto* vstorage_new = svnew->current->storage_info();
   const auto& l0_files_new = vstorage_new->LevelFiles(0);
-  uint32_t iold, inew;
+  size_t iold, inew;
   bool found;
   std::vector<InternalIterator*> l0_iters_new;
   l0_iters_new.reserve(l0_files_new.size());
@@ -589,7 +589,7 @@ void ForwardIterator::BuildLevelIterators(const VersionStorageInfo* vstorage) {
 
 void ForwardIterator::ResetIncompleteIterators() {
   const auto& l0_files = sv_->current->storage_info()->LevelFiles(0);
-  for (uint32_t i = 0; i < l0_iters_.size(); ++i) {
+  for (size_t i = 0; i < l0_iters_.size(); ++i) {
     assert(i < l0_files.size());
     if (!l0_iters_[i] || !l0_iters_[i]->status().IsIncomplete()) {
       continue;
@@ -680,7 +680,7 @@ bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
 void ForwardIterator::DeleteCurrentIter() {
   const VersionStorageInfo* vstorage = sv_->current->storage_info();
   const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
-  for (uint32_t i = 0; i < l0.size(); ++i) {
+  for (size_t i = 0; i < l0.size(); ++i) {
     if (!l0_iters_[i]) {
       continue;
     }
@@ -712,7 +712,7 @@ bool ForwardIterator::TEST_CheckDeletedIters(int* pdeleted_iters,
 
   const VersionStorageInfo* vstorage = sv_->current->storage_info();
   const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
-  for (uint32_t i = 0; i < l0.size(); ++i) {
+  for (size_t i = 0; i < l0.size(); ++i) {
     if (!l0_iters_[i]) {
       retval = true;
       deleted_iters++;

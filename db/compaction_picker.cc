@@ -243,7 +243,7 @@ bool CompactionPicker::ExpandWhileOverlapping(const std::string& cf_name,
 // Returns true if any one of specified files are being compacted
 bool CompactionPicker::FilesInCompaction(
     const std::vector<FileMetaData*>& files) {
-  for (unsigned int i = 0; i < files.size(); i++) {
+  for (size_t i = 0; i < files.size(); i++) {
     if (files[i]->being_compacted) {
       return true;
     }
@@ -1142,18 +1142,19 @@ void UniversalCompactionPicker::SortedRun::Dump(char* out_buf,
 }
 
 void UniversalCompactionPicker::SortedRun::DumpSizeInfo(
-    char* out_buf, size_t out_buf_size, int sorted_run_count) const {
+    char* out_buf, size_t out_buf_size, size_t sorted_run_count) const {
   if (level == 0) {
     assert(file != nullptr);
     snprintf(out_buf, out_buf_size,
-             "file %" PRIu64
-             "[%d] "
+             "file %" PRIu64 "[%" ROCKSDB_PRIszt
+             "] "
              "with size %" PRIu64 " (compensated size %" PRIu64 ")",
              file->fd.GetNumber(), sorted_run_count, file->fd.GetFileSize(),
              file->compensated_file_size);
   } else {
     snprintf(out_buf, out_buf_size,
-             "level %d[%d] "
+             "level %d[%" ROCKSDB_PRIszt
+             "] "
              "with size %" PRIu64 " (compensated size %" PRIu64 ")",
              level, sorted_run_count, size, compensated_file_size);
   }
@@ -1435,16 +1436,21 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
 
   const SortedRun* sr = nullptr;
   bool done = false;
-  int start_index = 0;
+  size_t start_index = 0;
   unsigned int candidate_count = 0;
 
   unsigned int max_files_to_compact = std::min(max_merge_width,
                                        max_number_of_files_to_compact);
   min_merge_width = std::max(min_merge_width, 2U);
 
+  // Caller checks the size before executing this function. This invariant is
+  // important because otherwise we may have a possible integer underflow when
+  // dealing with unsigned types.
+  assert(sorted_runs.size() > 0);
+
   // Considers a candidate file only if it is smaller than the
   // total size accumulated so far.
-  for (unsigned int loop = 0; loop < sorted_runs.size(); loop++) {
+  for (size_t loop = 0; loop < sorted_runs.size(); loop++) {
     candidate_count = 0;
 
     // Skip files that are already being compacted
@@ -1476,7 +1482,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
     }
 
     // Check if the succeeding files need compaction.
-    for (unsigned int i = loop + 1;
+    for (size_t i = loop + 1;
          candidate_count < max_files_to_compact && i < sorted_runs.size();
          i++) {
       const SortedRun* succeeding_sr = &sorted_runs[i];
@@ -1518,7 +1524,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       done = true;
       break;
     } else {
-      for (unsigned int i = loop;
+      for (size_t i = loop;
            i < loop + candidate_count && i < sorted_runs.size(); i++) {
         const SortedRun* skipping_sr = &sorted_runs[i];
         char file_num_buf[256];
@@ -1531,7 +1537,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   if (!done || candidate_count <= 1) {
     return nullptr;
   }
-  unsigned int first_index_after = start_index + candidate_count;
+  size_t first_index_after = start_index + candidate_count;
   // Compression is enabled if files compacted earlier already reached
   // size ratio of compression.
   bool enable_compression = true;
@@ -1572,7 +1578,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   for (size_t i = 0; i < inputs.size(); ++i) {
     inputs[i].level = start_level + static_cast<int>(i);
   }
-  for (unsigned int i = start_index; i < first_index_after; i++) {
+  for (size_t i = start_index; i < first_index_after; i++) {
     auto& picking_sr = sorted_runs[i];
     if (picking_sr.level == 0) {
       FileMetaData* picking_file = picking_sr.file;
@@ -1612,11 +1618,11 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
 
   unsigned int candidate_count = 0;
   uint64_t candidate_size = 0;
-  unsigned int start_index = 0;
+  size_t start_index = 0;
   const SortedRun* sr = nullptr;
 
   // Skip files that are already being compacted
-  for (unsigned int loop = 0; loop < sorted_runs.size() - 1; loop++) {
+  for (size_t loop = 0; loop < sorted_runs.size() - 1; loop++) {
     sr = &sorted_runs[loop];
     if (!sr->being_compacted) {
       start_index = loop;         // Consider this as the first candidate.
@@ -1636,13 +1642,14 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   {
     char file_num_buf[kFormatFileNumberBufSize];
     sr->Dump(file_num_buf, sizeof(file_num_buf), true);
-    LogToBuffer(log_buffer, "[%s] Universal: First candidate %s[%d] %s",
+    LogToBuffer(log_buffer,
+                "[%s] Universal: First candidate %s[%" ROCKSDB_PRIszt "] %s",
                 cf_name.c_str(), file_num_buf, start_index,
                 " to reduce size amp.\n");
   }
 
   // keep adding up all the remaining files
-  for (unsigned int loop = start_index; loop < sorted_runs.size() - 1; loop++) {
+  for (size_t loop = start_index; loop < sorted_runs.size() - 1; loop++) {
     sr = &sorted_runs[loop];
     if (sr->being_compacted) {
       char file_num_buf[kFormatFileNumberBufSize];
@@ -1682,7 +1689,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
 
   // Estimate total file size
   uint64_t estimated_total_size = 0;
-  for (unsigned int loop = start_index; loop < sorted_runs.size(); loop++) {
+  for (size_t loop = start_index; loop < sorted_runs.size(); loop++) {
     estimated_total_size += sorted_runs[loop].size;
   }
   uint32_t path_id = GetPathId(ioptions_, estimated_total_size);
@@ -1693,7 +1700,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
     inputs[i].level = start_level + static_cast<int>(i);
   }
   // We always compact all the files, so always compress.
-  for (unsigned int loop = start_index; loop < sorted_runs.size(); loop++) {
+  for (size_t loop = start_index; loop < sorted_runs.size(); loop++) {
     auto& picking_sr = sorted_runs[loop];
     if (picking_sr.level == 0) {
       FileMetaData* f = picking_sr.file;

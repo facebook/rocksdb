@@ -676,7 +676,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
 
   Random rnd(301);
   std::map<int32_t, std::string> values;
-  for (uint32_t i = 0; i < ranges.size(); i++) {
+  for (size_t i = 0; i < ranges.size(); i++) {
     for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
       values[j] = RandomString(&rnd, value_size);
       ASSERT_OK(Put(Key(j), values[j]));
@@ -698,7 +698,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 0) /* level1_files */, level0_files);
 
-  for (uint32_t i = 0; i < ranges.size(); i++) {
+  for (size_t i = 0; i < ranges.size(); i++) {
     for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
       ASSERT_EQ(Get(Key(j)), values[j]);
     }
@@ -722,7 +722,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
     {500, 560},  // this range overlap with the next one
     {551, 599},
   };
-  for (uint32_t i = 0; i < ranges.size(); i++) {
+  for (size_t i = 0; i < ranges.size(); i++) {
     for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
       values[j] = RandomString(&rnd, value_size);
       ASSERT_OK(Put(Key(j), values[j]));
@@ -732,7 +732,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
 
   db_->CompactRange(cro, nullptr, nullptr);
 
-  for (uint32_t i = 0; i < ranges.size(); i++) {
+  for (size_t i = 0; i < ranges.size(); i++) {
     for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
       ASSERT_EQ(Get(Key(j)), values[j]);
     }

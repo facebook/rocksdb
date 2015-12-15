@@ -251,7 +251,7 @@ class UniversalCompactionPicker : public CompactionPicker {
 
     // sorted_run_count is added into the string to print
     void DumpSizeInfo(char* out_buf, size_t out_buf_size,
-                      int sorted_run_count) const;
+                      size_t sorted_run_count) const;
 
     int level;
     // `file` Will be null for level > 0. For level = 0, the sorted run is

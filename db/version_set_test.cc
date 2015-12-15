@@ -23,7 +23,7 @@ class GenerateLevelFilesBriefTest : public testing::Test {
   GenerateLevelFilesBriefTest() { }
 
   ~GenerateLevelFilesBriefTest() {
-    for (unsigned int i = 0; i < files_.size(); i++) {
+    for (size_t i = 0; i < files_.size(); i++) {
       delete files_[i];
     }
   }

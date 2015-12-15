@@ -165,7 +165,7 @@ class VersionBuilder::Rep {
     for (int l = 0; !found && l < base_vstorage_->num_levels(); l++) {
       const std::vector<FileMetaData*>& base_files =
           base_vstorage_->LevelFiles(l);
-      for (unsigned int i = 0; i < base_files.size(); i++) {
+      for (size_t i = 0; i < base_files.size(); i++) {
         FileMetaData* f = base_files[i];
         if (f->fd.GetNumber() == number) {
           found = true;

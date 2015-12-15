@@ -129,11 +129,7 @@ WriteBatch& WriteBatch::operator=(WriteBatch&& src) {
   return *this;
 }
 
-WriteBatch::~WriteBatch() {
-  if (save_points_ != nullptr) {
-    delete save_points_;
-  }
-}
+WriteBatch::~WriteBatch() { delete save_points_; }
 
 WriteBatch::Handler::~Handler() { }
 

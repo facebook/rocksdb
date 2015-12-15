@@ -1262,7 +1262,7 @@ namespace {
 
 // used to sort files by size
 struct Fsize {
-  int index;
+  size_t index;
   FileMetaData* file;
 };
 
@@ -1370,7 +1370,7 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
 
     // populate a temp vector for sorting based on size
     std::vector<Fsize> temp(files.size());
-    for (unsigned int i = 0; i < files.size(); i++) {
+    for (size_t i = 0; i < files.size(); i++) {
       temp[i].index = i;
       temp[i].file = files[i];
     }
@@ -1403,8 +1403,8 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
     assert(temp.size() == files.size());
 
     // initialize files_by_compaction_pri_
-    for (unsigned int i = 0; i < temp.size(); i++) {
-      files_by_compaction_pri.push_back(temp[i].index);
+    for (size_t i = 0; i < temp.size(); i++) {
+      files_by_compaction_pri.push_back(static_cast<int>(temp[i].index));
     }
     next_file_to_compact_by_size_[level] = 0;
     assert(files_[level].size() == files_by_compaction_pri_[level].size());
@@ -3316,7 +3316,7 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
     for (size_t i = 0; i < c->num_input_files(input); ++i) {
       uint64_t number = c->input(input, i)->fd.GetNumber();
       bool found = false;
-      for (unsigned int j = 0; j < vstorage->files_[level].size(); j++) {
+      for (size_t j = 0; j < vstorage->files_[level].size(); j++) {
         FileMetaData* f = vstorage->files_[level][j];
         if (f->fd.GetNumber() == number) {
           found = true;
