@@ -40,7 +40,7 @@ namespace rocksdb {
 
 class EventListenerTest : public DBTestBase {
  public:
-  EventListenerTest() : DBTestBase("listener_test") {}
+  EventListenerTest() : DBTestBase("/listener_test") {}
 
   const size_t k110KB = 110 << 10;
 };

@@ -151,6 +151,18 @@ class BlockIter : public InternalIterator {
 
   virtual void SeekToLast() override;
 
+  virtual Status PinData() override {
+    // block data is always pinned.
+    return Status::OK();
+  }
+
+  virtual Status ReleasePinnedData() override {
+    // block data is always pinned.
+    return Status::OK();
+  }
+
+  virtual bool IsKeyPinned() const override { return key_.IsKeyPinned(); }
+
  private:
   const Comparator* comparator_;
   const char* data_;       // underlying block contents

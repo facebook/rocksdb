@@ -95,6 +95,15 @@ class Iterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
+  // If true, this means that the Slice returned by key() is valid as long
+  // as the iterator is not deleted and ReleasePinnedData() is not called.
+  //
+  // IsKeyPinned() is guaranteed to always return true if
+  //  - Iterator created with ReadOptions::pin_data = true
+  //  - DB tables were created with BlockBasedTableOptions::use_delta_encoding
+  //    set to false.
+  virtual bool IsKeyPinned() const { return false; }
+
  private:
   // No copying allowed
   Iterator(const Iterator&);

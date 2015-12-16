@@ -119,6 +119,12 @@ struct BlockBasedTableOptions {
   // leave this parameter alone.
   int block_restart_interval = 16;
 
+  // Use delta encoding to compress keys in blocks.
+  // Iterator::PinData() requires this option to be disabled.
+  //
+  // Default: true
+  bool use_delta_encoding = true;
+
   // If non-nullptr, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of
   // NewBloomFilterPolicy() here.

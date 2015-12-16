@@ -1325,6 +1325,13 @@ struct ReadOptions {
   // Default: false
   bool prefix_same_as_start;
 
+  // Keep the blocks loaded by the iterator pinned in memory as long as the
+  // iterator is not deleted, If used when reading from tables created with
+  // BlockBasedTableOptions::use_delta_encoding = false, Iterator::IsKeyPinned()
+  // is guaranteed to return true.
+  // Default: false
+  bool pin_data;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

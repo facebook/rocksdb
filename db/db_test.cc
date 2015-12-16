@@ -118,7 +118,6 @@ class DBTestWithParam
   uint32_t max_subcompactions_;
   bool exclusive_manual_compaction_;
 };
-
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, Empty) {
   do {
@@ -10141,6 +10140,321 @@ TEST_F(DBTest, SSTsWithLdbSuffixHandling) {
     ASSERT_NE("NOT_FOUND", Get(Key(k)));
   }
   Destroy(options);
+}
+
+TEST_F(DBTest, PinnedDataIteratorRandomized) {
+  enum TestConfig {
+    NORMAL,
+    CLOSE_AND_OPEN,
+    COMPACT_BEFORE_READ,
+    FLUSH_EVERY_1000,
+    MAX
+  };
+
+  // Generate Random data
+  Random rnd(301);
+
+  int puts = 100000;
+  int key_pool = puts * 0.7;
+  int key_size = 100;
+  int val_size = 1000;
+  int seeks_percentage = 20;   // 20% of keys will be used to test seek()
+  int delete_percentage = 20;  // 20% of keys will be deleted
+  int merge_percentage = 20;   // 20% of keys will be added using Merge()
+
+  for (int run_config = 0; run_config < TestConfig::MAX; run_config++) {
+    Options options = CurrentOptions();
+    BlockBasedTableOptions table_options;
+    table_options.use_delta_encoding = false;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    options.merge_operator = MergeOperators::CreatePutOperator();
+    DestroyAndReopen(options);
+
+    std::vector<std::string> generated_keys(key_pool);
+    for (int i = 0; i < key_pool; i++) {
+      generated_keys[i] = RandomString(&rnd, key_size);
+    }
+
+    std::map<std::string, std::string> true_data;
+    std::vector<std::string> random_keys;
+    std::vector<std::string> deleted_keys;
+    for (int i = 0; i < puts; i++) {
+      auto& k = generated_keys[rnd.Next() % key_pool];
+      auto v = RandomString(&rnd, val_size);
+
+      // Insert data to true_data map and to DB
+      true_data[k] = v;
+      if (rnd.OneIn(100.0 / merge_percentage)) {
+        ASSERT_OK(db_->Merge(WriteOptions(), k, v));
+      } else {
+        ASSERT_OK(Put(k, v));
+      }
+
+      // Pick random keys to be used to test Seek()
+      if (rnd.OneIn(100.0 / seeks_percentage)) {
+        random_keys.push_back(k);
+      }
+
+      // Delete some random keys
+      if (rnd.OneIn(100.0 / delete_percentage)) {
+        deleted_keys.push_back(k);
+        true_data.erase(k);
+        ASSERT_OK(Delete(k));
+      }
+
+      if (run_config == TestConfig::FLUSH_EVERY_1000) {
+        if (i && i % 1000 == 0) {
+          Flush();
+        }
+      }
+    }
+
+    if (run_config == TestConfig::CLOSE_AND_OPEN) {
+      Close();
+      Reopen(options);
+    } else if (run_config == TestConfig::COMPACT_BEFORE_READ) {
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    }
+
+    ReadOptions ro;
+    ro.pin_data = true;
+    auto iter = db_->NewIterator(ro);
+
+    {
+      // Test Seek to random keys
+      printf("Testing seek on %zu keys\n", random_keys.size());
+      std::vector<Slice> keys_slices;
+      std::vector<std::string> true_keys;
+      for (auto& k : random_keys) {
+        iter->Seek(k);
+        if (!iter->Valid()) {
+          ASSERT_EQ(true_data.lower_bound(k), true_data.end());
+          continue;
+        }
+        ASSERT_TRUE(iter->IsKeyPinned());
+        keys_slices.push_back(iter->key());
+        true_keys.push_back(true_data.lower_bound(k)->first);
+      }
+
+      for (size_t i = 0; i < keys_slices.size(); i++) {
+        ASSERT_EQ(keys_slices[i].ToString(), true_keys[i]);
+      }
+    }
+
+    {
+      // Test iterating all data forward
+      printf("Testing iterating forward on all keys\n");
+      std::vector<Slice> all_keys;
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        ASSERT_TRUE(iter->IsKeyPinned());
+        all_keys.push_back(iter->key());
+      }
+      ASSERT_EQ(all_keys.size(), true_data.size());
+
+      // Verify that all keys slices are valid
+      auto data_iter = true_data.begin();
+      for (size_t i = 0; i < all_keys.size(); i++) {
+        ASSERT_EQ(all_keys[i].ToString(), data_iter->first);
+        data_iter++;
+      }
+    }
+
+    {
+      // Test iterating all data backward
+      printf("Testing iterating backward on all keys\n");
+      std::vector<Slice> all_keys;
+      for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+        ASSERT_TRUE(iter->IsKeyPinned());
+        all_keys.push_back(iter->key());
+      }
+      ASSERT_EQ(all_keys.size(), true_data.size());
+
+      // Verify that all keys slices are valid (backward)
+      auto data_iter = true_data.rbegin();
+      for (size_t i = 0; i < all_keys.size(); i++) {
+        ASSERT_EQ(all_keys[i].ToString(), data_iter->first);
+        data_iter++;
+      }
+    }
+
+    delete iter;
+  }
+}
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest, PinnedDataIteratorMultipleFiles) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.use_delta_encoding = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 1024 * 1024 * 10;  // 10 Mb
+  DestroyAndReopen(options);
+
+  std::map<std::string, std::string> true_data;
+
+  // Generate 4 sst files in L2
+  Random rnd(301);
+  for (int i = 1; i <= 1000; i++) {
+    std::string k = Key(i * 3);
+    std::string v = RandomString(&rnd, 100);
+    ASSERT_OK(Put(k, v));
+    true_data[k] = v;
+    if (i % 250 == 0) {
+      ASSERT_OK(Flush());
+    }
+  }
+  ASSERT_EQ(FilesPerLevel(0), "4");
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(FilesPerLevel(0), "0,4");
+
+  // Generate 4 sst files in L0
+  for (int i = 1; i <= 1000; i++) {
+    std::string k = Key(i * 2);
+    std::string v = RandomString(&rnd, 100);
+    ASSERT_OK(Put(k, v));
+    true_data[k] = v;
+    if (i % 250 == 0) {
+      ASSERT_OK(Flush());
+    }
+  }
+  ASSERT_EQ(FilesPerLevel(0), "4,4");
+
+  // Add some keys/values in memtables
+  for (int i = 1; i <= 1000; i++) {
+    std::string k = Key(i);
+    std::string v = RandomString(&rnd, 100);
+    ASSERT_OK(Put(k, v));
+    true_data[k] = v;
+  }
+  ASSERT_EQ(FilesPerLevel(0), "4,4");
+
+  ReadOptions ro;
+  ro.pin_data = true;
+  auto iter = db_->NewIterator(ro);
+
+  std::vector<std::pair<Slice, std::string>> results;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_TRUE(iter->IsKeyPinned());
+    results.emplace_back(iter->key(), iter->value().ToString());
+  }
+
+  ASSERT_EQ(results.size(), true_data.size());
+  auto data_iter = true_data.begin();
+  for (size_t i = 0; i < results.size(); i++, data_iter++) {
+    auto& kv = results[i];
+    ASSERT_EQ(kv.first, data_iter->first);
+    ASSERT_EQ(kv.second, data_iter->second);
+  }
+
+  delete iter;
+}
+#endif
+
+TEST_F(DBTest, PinnedDataIteratorMergeOperator) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.use_delta_encoding = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  DestroyAndReopen(options);
+
+  std::string numbers[7];
+  for (int val = 0; val <= 6; val++) {
+    PutFixed64(numbers + val, val);
+  }
+
+  // +1 all keys in range [ 0 => 999]
+  for (int i = 0; i < 1000; i++) {
+    WriteOptions wo;
+    ASSERT_OK(db_->Merge(wo, Key(i), numbers[1]));
+  }
+
+  // +2 all keys divisible by 2 in range [ 0 => 999]
+  for (int i = 0; i < 1000; i += 2) {
+    WriteOptions wo;
+    ASSERT_OK(db_->Merge(wo, Key(i), numbers[2]));
+  }
+
+  // +3 all keys divisible by 5 in range [ 0 => 999]
+  for (int i = 0; i < 1000; i += 5) {
+    WriteOptions wo;
+    ASSERT_OK(db_->Merge(wo, Key(i), numbers[3]));
+  }
+
+  ReadOptions ro;
+  ro.pin_data = true;
+  auto iter = db_->NewIterator(ro);
+
+  std::vector<std::pair<Slice, std::string>> results;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_TRUE(iter->IsKeyPinned());
+    results.emplace_back(iter->key(), iter->value().ToString());
+  }
+
+  ASSERT_EQ(results.size(), 1000);
+  for (size_t i = 0; i < results.size(); i++) {
+    auto& kv = results[i];
+    ASSERT_EQ(kv.first, Key(static_cast<int>(i)));
+    int expected_val = 1;
+    if (i % 2 == 0) {
+      expected_val += 2;
+    }
+    if (i % 5 == 0) {
+      expected_val += 3;
+    }
+    ASSERT_EQ(kv.second, numbers[expected_val]);
+  }
+
+  delete iter;
+}
+
+TEST_F(DBTest, PinnedDataIteratorReadAfterUpdate) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.use_delta_encoding = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.write_buffer_size = 100000;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  std::map<std::string, std::string> true_data;
+  for (int i = 0; i < 1000; i++) {
+    std::string k = RandomString(&rnd, 10);
+    std::string v = RandomString(&rnd, 1000);
+    ASSERT_OK(Put(k, v));
+    true_data[k] = v;
+  }
+
+  ReadOptions ro;
+  ro.pin_data = true;
+  auto iter = db_->NewIterator(ro);
+
+  // Delete 50% of the keys and update the other 50%
+  for (auto& kv : true_data) {
+    if (rnd.OneIn(2)) {
+      ASSERT_OK(Delete(kv.first));
+    } else {
+      std::string new_val = RandomString(&rnd, 1000);
+      ASSERT_OK(Put(kv.first, new_val));
+    }
+  }
+
+  std::vector<std::pair<Slice, std::string>> results;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_TRUE(iter->IsKeyPinned());
+    results.emplace_back(iter->key(), iter->value().ToString());
+  }
+
+  auto data_iter = true_data.begin();
+  for (size_t i = 0; i < results.size(); i++, data_iter++) {
+    auto& kv = results[i];
+    ASSERT_EQ(kv.first, data_iter->first);
+    ASSERT_EQ(kv.second, data_iter->second);
+  }
+
+  delete iter;
 }
 
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,

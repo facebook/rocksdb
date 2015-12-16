@@ -720,7 +720,8 @@ ReadOptions::ReadOptions()
       tailing(false),
       managed(false),
       total_order_seek(false),
-      prefix_same_as_start(false) {
+      prefix_same_as_start(false),
+      pin_data(false) {
   XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
              reinterpret_cast<ReadOptions*>(this));
 }
@@ -734,7 +735,8 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       tailing(false),
       managed(false),
       total_order_seek(false),
-      prefix_same_as_start(false) {
+      prefix_same_as_start(false),
+      pin_data(false) {
   XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
              reinterpret_cast<ReadOptions*>(this));
 }

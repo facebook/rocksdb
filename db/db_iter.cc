@@ -76,7 +76,8 @@ class DBIter: public Iterator {
         current_entry_is_merged_(false),
         statistics_(ioptions.statistics),
         iterate_upper_bound_(iterate_upper_bound),
-        prefix_same_as_start_(prefix_same_as_start) {
+        prefix_same_as_start_(prefix_same_as_start),
+        iter_pinned_(false) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = ioptions.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
@@ -92,6 +93,9 @@ class DBIter: public Iterator {
   virtual void SetIter(InternalIterator* iter) {
     assert(iter_ == nullptr);
     iter_ = iter;
+    if (iter_ && iter_pinned_) {
+      iter_->PinData();
+    }
   }
   virtual bool Valid() const override { return valid_; }
   virtual Slice key() const override {
@@ -109,6 +113,32 @@ class DBIter: public Iterator {
     } else {
       return status_;
     }
+  }
+  virtual Status PinData() {
+    Status s;
+    if (iter_) {
+      s = iter_->PinData();
+    }
+    if (s.ok()) {
+      // Even if iter_ is nullptr, we set iter_pinned_ to true so that when
+      // iter_ is updated using SetIter, we Pin it.
+      iter_pinned_ = true;
+    }
+    return s;
+  }
+  virtual Status ReleasePinnedData() {
+    Status s;
+    if (iter_) {
+      s = iter_->ReleasePinnedData();
+    }
+    if (s.ok()) {
+      iter_pinned_ = false;
+    }
+    return s;
+  }
+  virtual bool IsKeyPinned() const override {
+    assert(valid_);
+    return iter_pinned_ && saved_key_.IsKeyPinned();
   }
 
   virtual void Next() override;
@@ -159,6 +189,7 @@ class DBIter: public Iterator {
   const Slice* iterate_upper_bound_;
   IterKey prefix_start_;
   bool prefix_same_as_start_;
+  bool iter_pinned_;
 
   // No copying allowed
   DBIter(const DBIter&);
@@ -257,18 +288,21 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
             case kTypeSingleDeletion:
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
-              saved_key_.SetKey(ikey.user_key);
+              saved_key_.SetKey(ikey.user_key,
+                                !iter_->IsKeyPinned() /* copy */);
               skipping = true;
               num_skipped = 0;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               break;
             case kTypeValue:
               valid_ = true;
-              saved_key_.SetKey(ikey.user_key);
+              saved_key_.SetKey(ikey.user_key,
+                                !iter_->IsKeyPinned() /* copy */);
               return;
             case kTypeMerge:
               // By now, we are sure the current ikey is going to yield a value
-              saved_key_.SetKey(ikey.user_key);
+              saved_key_.SetKey(ikey.user_key,
+                                !iter_->IsKeyPinned() /* copy */);
               current_entry_is_merged_ = true;
               valid_ = true;
               MergeValuesNewToOld();  // Go to a different state machine
@@ -428,7 +462,8 @@ void DBIter::PrevInternal() {
   ParsedInternalKey ikey;
 
   while (iter_->Valid()) {
-    saved_key_.SetKey(ExtractUserKey(iter_->key()));
+    saved_key_.SetKey(ExtractUserKey(iter_->key()),
+                      !iter_->IsKeyPinned() /* copy */);
     if (FindValueForCurrentKey()) {
       valid_ = true;
       if (!iter_->Valid()) {
@@ -744,7 +779,7 @@ void DBIter::SeekToLast() {
   // it will seek to the last key before the
   // ReadOptions.iterate_upper_bound
   if (iter_->Valid() && iterate_upper_bound_ != nullptr) {
-    saved_key_.SetKey(*iterate_upper_bound_);
+    saved_key_.SetKey(*iterate_upper_bound_, false /* copy */);
     std::string last_key;
     AppendInternalKey(&last_key,
                       ParsedInternalKey(saved_key_.GetKey(), kMaxSequenceNumber,
@@ -781,10 +816,15 @@ Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
                         const Slice* iterate_upper_bound,
-                        bool prefix_same_as_start) {
-  return new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
-                    false, max_sequential_skip_in_iterations,
-                    iterate_upper_bound, prefix_same_as_start);
+                        bool prefix_same_as_start, bool pin_data) {
+  DBIter* db_iter =
+      new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
+                 false, max_sequential_skip_in_iterations, iterate_upper_bound,
+                 prefix_same_as_start);
+  if (pin_data) {
+    db_iter->PinData();
+  }
+  return db_iter;
 }
 
 ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
@@ -806,6 +846,13 @@ inline void ArenaWrappedDBIter::Prev() { db_iter_->Prev(); }
 inline Slice ArenaWrappedDBIter::key() const { return db_iter_->key(); }
 inline Slice ArenaWrappedDBIter::value() const { return db_iter_->value(); }
 inline Status ArenaWrappedDBIter::status() const { return db_iter_->status(); }
+inline Status ArenaWrappedDBIter::PinData() { return db_iter_->PinData(); }
+inline Status ArenaWrappedDBIter::ReleasePinnedData() {
+  return db_iter_->ReleasePinnedData();
+}
+inline bool ArenaWrappedDBIter::IsKeyPinned() const {
+  return db_iter_->IsKeyPinned();
+}
 void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
                                          void* arg2) {
   db_iter_->RegisterCleanup(function, arg1, arg2);
@@ -815,7 +862,8 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ImmutableCFOptions& ioptions,
     const Comparator* user_key_comparator, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations,
-    const Slice* iterate_upper_bound, bool prefix_same_as_start) {
+    const Slice* iterate_upper_bound, bool prefix_same_as_start,
+    bool pin_data) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
@@ -825,6 +873,9 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
                        iterate_upper_bound, prefix_same_as_start);
 
   iter->SetDBIter(db_iter);
+  if (pin_data) {
+    iter->PinData();
+  }
 
   return iter;
 }

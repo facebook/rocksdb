@@ -60,6 +60,24 @@ class InternalIterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
+  // Make sure that all current and future data blocks used by this iterator
+  // will be pinned in memory and will not be released except when
+  // ReleasePinnedData() is called or the iterator is deleted.
+  virtual Status PinData() { return Status::NotSupported(""); }
+
+  // Release all blocks that were pinned because of PinData() and no future
+  // blocks will be pinned.
+  virtual Status ReleasePinnedData() { return Status::NotSupported(""); }
+
+  // If true, this means that the Slice returned by key() is valid as long
+  // as the iterator is not deleted and ReleasePinnedData() is not called.
+  //
+  // IsKeyPinned() is guaranteed to always return true if
+  //  - PinData() is called
+  //  - DB tables were created with BlockBasedTableOptions::use_delta_encoding
+  //    set to false.
+  virtual bool IsKeyPinned() const { return false; }
+
  private:
   // No copying allowed
   InternalIterator(const InternalIterator&) = delete;

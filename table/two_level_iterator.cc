@@ -61,6 +61,13 @@ class TwoLevelIterator : public InternalIterator {
       return status_;
     }
   }
+  virtual Status PinData() override { return second_level_iter_.PinData(); }
+  virtual Status ReleasePinnedData() override {
+    return second_level_iter_.ReleasePinnedData();
+  }
+  virtual bool IsKeyPinned() const override {
+    return second_level_iter_.iter() ? second_level_iter_.IsKeyPinned() : false;
+  }
 
  private:
   void SaveError(const Status& s) {

@@ -1807,6 +1807,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
     iter->Next();
   }
   ASSERT_OK(iter->status());
+  iter.release();
 
   const ImmutableCFOptions ioptions1(opt);
   ASSERT_OK(c.Reopen(ioptions1));

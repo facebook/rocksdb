@@ -274,6 +274,21 @@ class MemTableIterator : public InternalIterator {
 
   virtual Status status() const override { return Status::OK(); }
 
+  virtual Status PinData() override {
+    // memtable data is always pinned
+    return Status::OK();
+  }
+
+  virtual Status ReleasePinnedData() override {
+    // memtable data is always pinned
+    return Status::OK();
+  }
+
+  virtual bool IsKeyPinned() const override {
+    // memtable data is always pinned
+    return true;
+  }
+
  private:
   DynamicBloom* bloom_;
   const SliceTransform* const prefix_extractor_;

@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <set>
+
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
@@ -19,31 +21,95 @@ namespace rocksdb {
 // cache locality.
 class IteratorWrapper {
  public:
-  IteratorWrapper(): iter_(nullptr), valid_(false) { }
-  explicit IteratorWrapper(InternalIterator* _iter) : iter_(nullptr) {
+  IteratorWrapper() : iter_(nullptr), iters_pinned_(false), valid_(false) {}
+  explicit IteratorWrapper(InternalIterator* _iter)
+      : iter_(nullptr), iters_pinned_(false) {
     Set(_iter);
   }
   ~IteratorWrapper() {}
   InternalIterator* iter() const { return iter_; }
 
-  // Takes ownership of "iter" and will delete it when destroyed, or
-  // when Set() is invoked again.
+  // Takes the ownership of "_iter" and will delete it when destroyed.
+  // Next call to Set() will destroy "_iter" except if PinData() was called.
   void Set(InternalIterator* _iter) {
-    delete iter_;
+    if (iters_pinned_ && iter_) {
+      // keep old iterator until ReleasePinnedData() is called
+      pinned_iters_.insert(iter_);
+    } else {
+      delete iter_;
+    }
+
     iter_ = _iter;
     if (iter_ == nullptr) {
       valid_ = false;
     } else {
       Update();
+      if (iters_pinned_) {
+        // Pin new iterator
+        Status s = iter_->PinData();
+        assert(s.ok());
+      }
     }
   }
 
-  void DeleteIter(bool is_arena_mode) {
-    if (!is_arena_mode) {
-      delete iter_;
-    } else {
-      iter_->~InternalIterator();
+  Status PinData() {
+    Status s;
+    if (iters_pinned_) {
+      return s;
     }
+
+    if (iter_) {
+      s = iter_->PinData();
+    }
+
+    if (s.ok()) {
+      iters_pinned_ = true;
+    }
+
+    return s;
+  }
+
+  Status ReleasePinnedData() {
+    Status s;
+    if (!iters_pinned_) {
+      return s;
+    }
+
+    if (iter_) {
+      s = iter_->ReleasePinnedData();
+    }
+
+    if (s.ok()) {
+      iters_pinned_ = false;
+      // No need to call ReleasePinnedData() for pinned_iters_
+      // since we will delete them
+      DeletePinnedIterators(false);
+    }
+
+    return s;
+  }
+
+  bool IsKeyPinned() const {
+    assert(iter_);
+    return iters_pinned_ && iter_->IsKeyPinned();
+  }
+
+  void DeletePinnedIterators(bool is_arena_mode) {
+    for (auto it : pinned_iters_) {
+      if (!is_arena_mode) {
+        delete it;
+      } else {
+        it->~InternalIterator();
+      }
+    }
+    pinned_iters_.clear();
+  }
+
+  void DeleteIter(bool is_arena_mode) {
+    if (iter_) {
+      pinned_iters_.insert(iter_);
+    }
+    DeletePinnedIterators(is_arena_mode);
   }
 
   // Iterator interface methods
@@ -67,6 +133,12 @@ class IteratorWrapper {
   }
 
   InternalIterator* iter_;
+  // If set to true, current and future iterators wont be deleted.
+  bool iters_pinned_;
+  // List of past iterators that are pinned and wont be deleted as long as
+  // iters_pinned_ is true. When we are pinning iterators this set will contain
+  // iterators of previous data blocks to keep them from being deleted.
+  std::set<InternalIterator*> pinned_iters_;
   bool valid_;
   Slice key_;
 };

@@ -37,7 +37,8 @@ class MergingIterator : public InternalIterator {
  public:
   MergingIterator(const Comparator* comparator, InternalIterator** children,
                   int n, bool is_arena_mode)
-      : is_arena_mode_(is_arena_mode),
+      : data_pinned_(false),
+        is_arena_mode_(is_arena_mode),
         comparator_(comparator),
         current_(nullptr),
         direction_(kForward),
@@ -57,6 +58,10 @@ class MergingIterator : public InternalIterator {
   virtual void AddIterator(InternalIterator* iter) {
     assert(direction_ == kForward);
     children_.emplace_back(iter);
+    if (data_pinned_) {
+      Status s = iter->PinData();
+      assert(s.ok());
+    }
     auto new_wrapper = children_.back();
     if (new_wrapper.Valid()) {
       minHeap_.push(&new_wrapper);
@@ -238,7 +243,50 @@ class MergingIterator : public InternalIterator {
     return s;
   }
 
+  virtual Status PinData() override {
+    Status s;
+    if (data_pinned_) {
+      return s;
+    }
+
+    for (size_t i = 0; i < children_.size(); i++) {
+      s = children_[i].PinData();
+      if (!s.ok()) {
+        // We failed to pin an iterator, clean up
+        for (size_t j = 0; j < i; j++) {
+          children_[j].ReleasePinnedData();
+        }
+        break;
+      }
+    }
+    data_pinned_ = s.ok();
+    return s;
+  }
+
+  virtual Status ReleasePinnedData() override {
+    Status s;
+    if (!data_pinned_) {
+      return s;
+    }
+
+    for (auto& child : children_) {
+      Status release_status = child.ReleasePinnedData();
+      if (s.ok() && !release_status.ok()) {
+        s = release_status;
+      }
+    }
+    data_pinned_ = false;
+
+    return s;
+  }
+
+  virtual bool IsKeyPinned() const override {
+    assert(Valid());
+    return current_->IsKeyPinned();
+  }
+
  private:
+  bool data_pinned_;
   // Clears heaps for both directions, used when changing direction or seeking
   void ClearHeaps();
   // Ensures that maxHeap_ is initialized when starting to go in the reverse

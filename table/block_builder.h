@@ -20,7 +20,8 @@ class BlockBuilder {
   BlockBuilder(const BlockBuilder&) = delete;
   void operator=(const BlockBuilder&) = delete;
 
-  explicit BlockBuilder(int block_restart_interval);
+  explicit BlockBuilder(int block_restart_interval,
+                        bool use_delta_encoding = true);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
@@ -48,6 +49,7 @@ class BlockBuilder {
 
  private:
   const int          block_restart_interval_;
+  const bool         use_delta_encoding_;
 
   std::string           buffer_;    // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
