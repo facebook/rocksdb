@@ -2099,7 +2099,7 @@ class Benchmark {
       }
     }
     if (FLAGS_statistics) {
-     fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
+      fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
     }
   }
 

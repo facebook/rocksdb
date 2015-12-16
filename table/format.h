@@ -16,6 +16,7 @@
 #include "rocksdb/table.h"
 
 #include "port/port.h" // noexcept
+#include "table/persistent_cache_helper.h"
 
 namespace rocksdb {
 
@@ -208,13 +209,13 @@ struct BlockContents {
 
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
-extern Status ReadBlockContents(RandomAccessFileReader* file,
-                                const Footer& footer,
-                                const ReadOptions& options,
-                                const BlockHandle& handle,
-                                BlockContents* contents, Env* env,
-                                bool do_uncompress,
-                                const Slice& compression_dict = Slice());
+extern Status ReadBlockContents(
+    RandomAccessFileReader* file, const Footer& footer,
+    const ReadOptions& options, const BlockHandle& handle,
+    BlockContents* contents, Env* env, bool do_uncompress = true,
+    const Slice& compression_dict = Slice(),
+    const PersistentCacheOptions& cache_options = PersistentCacheOptions(),
+    Logger* info_log = nullptr);
 
 // The 'data' points to the raw block contents read in from file.
 // This method allocates a new heap buffer and the raw block

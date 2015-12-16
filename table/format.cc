@@ -14,6 +14,8 @@
 
 #include "rocksdb/env.h"
 #include "table/block.h"
+#include "table/block_based_table_reader.h"
+#include "table/persistent_cache_helper.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -294,10 +296,12 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
 }  // namespace
 
 Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
-                         const ReadOptions& options, const BlockHandle& handle,
-                         BlockContents* contents, Env* env,
-                         bool decompression_requested,
-                         const Slice& compression_dict) {
+                         const ReadOptions& read_options,
+                         const BlockHandle& handle, BlockContents* contents,
+                         Env* env, bool decompression_requested,
+                         const Slice& compression_dict,
+                         const PersistentCacheOptions& cache_options,
+                         Logger* info_log) {
   Status status;
   Slice slice;
   size_t n = static_cast<size_t>(handle.size());
@@ -306,17 +310,63 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
   char* used_buf = nullptr;
   rocksdb::CompressionType compression_type;
 
-  if (decompression_requested &&
-      n + kBlockTrailerSize < DefaultStackBufferSize) {
-    // If we've got a small enough hunk of data, read it in to the
-    // trivially allocated stack buffer instead of needing a full malloc()
-    used_buf = &stack_buf[0];
-  } else {
-    heap_buf = std::unique_ptr<char[]>(new char[n + kBlockTrailerSize]);
-    used_buf = heap_buf.get();
+  if (cache_options.persistent_cache &&
+      !cache_options.persistent_cache->IsCompressed()) {
+    status = PersistentCacheHelper::LookupUncompressedPage(cache_options,
+                                                           handle, contents);
+    if (status.ok()) {
+      // uncompressed page is found for the block handle
+      return status;
+    } else {
+      // uncompressed page is not found
+      if (info_log && !status.IsNotFound()) {
+        assert(!status.ok());
+        Log(InfoLogLevel::INFO_LEVEL, info_log,
+            "Error reading from persistent cache. %s",
+            status.ToString().c_str());
+      }
+    }
   }
 
-  status = ReadBlock(file, footer, options, handle, &slice, used_buf);
+  if (cache_options.persistent_cache &&
+      cache_options.persistent_cache->IsCompressed()) {
+    // lookup uncompressed cache mode p-cache
+    status = PersistentCacheHelper::LookupRawPage(
+        cache_options, handle, &heap_buf, n + kBlockTrailerSize);
+  } else {
+    status = Status::NotFound();
+  }
+
+  if (status.ok()) {
+    // cache hit
+    used_buf = heap_buf.get();
+    slice = Slice(heap_buf.get(), n);
+  } else {
+    if (info_log && !status.IsNotFound()) {
+      assert(!status.ok());
+      Log(InfoLogLevel::INFO_LEVEL, info_log,
+          "Error reading from persistent cache. %s", status.ToString().c_str());
+    }
+    // cache miss read from device
+    if (decompression_requested &&
+        n + kBlockTrailerSize < DefaultStackBufferSize) {
+      // If we've got a small enough hunk of data, read it in to the
+      // trivially allocated stack buffer instead of needing a full malloc()
+      used_buf = &stack_buf[0];
+    } else {
+      heap_buf = std::unique_ptr<char[]>(new char[n + kBlockTrailerSize]);
+      used_buf = heap_buf.get();
+    }
+
+    status = ReadBlock(file, footer, read_options, handle, &slice, used_buf);
+    if (status.ok() && read_options.fill_cache &&
+        cache_options.persistent_cache &&
+        cache_options.persistent_cache->IsCompressed()) {
+      // insert to raw cache
+      PersistentCacheHelper::InsertRawPage(cache_options, handle, used_buf,
+                                           n + kBlockTrailerSize);
+    }
+  }
 
   if (!status.ok()) {
     return status;
@@ -327,21 +377,29 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
   compression_type = static_cast<rocksdb::CompressionType>(slice.data()[n]);
 
   if (decompression_requested && compression_type != kNoCompression) {
-    return UncompressBlockContents(slice.data(), n, contents, footer.version(),
-                                   compression_dict);
-  }
-
-  if (slice.data() != used_buf) {
+    // compressed page, uncompress, update cache
+    status = UncompressBlockContents(slice.data(), n, contents,
+                                     footer.version(), compression_dict);
+  } else if (slice.data() != used_buf) {
+    // the slice content is not the buffer provided
     *contents = BlockContents(Slice(slice.data(), n), false, compression_type);
-    return status;
+  } else {
+    // page is uncompressed, the buffer either stack or heap provided
+    if (used_buf == &stack_buf[0]) {
+      heap_buf = std::unique_ptr<char[]>(new char[n]);
+      memcpy(heap_buf.get(), stack_buf, n);
+    }
+    *contents = BlockContents(std::move(heap_buf), n, true, compression_type);
   }
 
-  if (used_buf == &stack_buf[0]) {
-    heap_buf = std::unique_ptr<char[]>(new char[n]);
-    memcpy(heap_buf.get(), stack_buf, n);
+  if (status.ok() && read_options.fill_cache &&
+      cache_options.persistent_cache &&
+      !cache_options.persistent_cache->IsCompressed()) {
+    // insert to uncompressed cache
+    PersistentCacheHelper::InsertUncompressedPage(cache_options, handle,
+                                                  *contents);
   }
 
-  *contents = BlockContents(std::move(heap_buf), n, true, compression_type);
   return status;
 }
 
@@ -447,6 +505,7 @@ Status UncompressBlockContents(const char* data, size_t n,
     default:
       return Status::Corruption("bad block type");
   }
+
   return Status::OK();
 }
 

@@ -15,11 +15,12 @@
 #include <string>
 
 #include "rocksdb/options.h"
+#include "rocksdb/persistent_cache.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "table/table_reader.h"
 #include "table/table_properties_internal.h"
+#include "table/table_reader.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 
@@ -54,6 +55,9 @@ class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
   static const std::string kFullFilterBlockPrefix;
+  // The longest prefix of the cache key used to identify blocks.
+  // For Posix files the unique ID is three varints.
+  static const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length * 3 + 1;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -127,6 +131,10 @@ class BlockBasedTable : public TableReader {
   bool TEST_index_reader_preloaded() const;
   // Implementation of IndexReader will be exposed to internal cc file only.
   class IndexReader;
+
+  static Slice GetCacheKey(const char* cache_key_prefix,
+                           size_t cache_key_prefix_size,
+                           const BlockHandle& handle, char* cache_key);
 
  private:
   template <class TValue>
@@ -228,10 +236,6 @@ class BlockBasedTable : public TableReader {
     RandomAccessFile* file, char* buffer, size_t* size);
   static void GenerateCachePrefix(Cache* cc,
     WritableFile* file, char* buffer, size_t* size);
-
-  // The longest prefix of the cache key used to identify blocks.
-  // For Posix files the unique ID is three varints.
-  static const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
 
   // Helper functions for DumpTable()
   Status DumpIndexBlock(WritableFile* out_file);

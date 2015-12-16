@@ -7,8 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <cstdlib>
+
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
 
 namespace rocksdb {
@@ -1024,7 +1026,131 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 
 INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
                         PinL0IndexAndFilterBlocksTest, ::testing::Bool());
+#ifndef ROCKSDB_LITE
+static void UniqueIdCallback(void* arg) {
+  int* result = reinterpret_cast<int*>(arg);
+  if (*result == -1) {
+    *result = 0;
+  }
 
+  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
+}
+
+class MockPersistentCache : public PersistentCache {
+ public:
+  explicit MockPersistentCache(const bool is_compressed, const size_t max_size)
+      : is_compressed_(is_compressed), max_size_(max_size) {
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
+  }
+
+  virtual ~MockPersistentCache() {}
+
+  Status Insert(const Slice& page_key, const char* data,
+                const size_t size) override {
+    MutexLock _(&lock_);
+
+    if (size_ > max_size_) {
+      size_ -= data_.begin()->second.size();
+      data_.erase(data_.begin());
+    }
+
+    data_.insert(std::make_pair(page_key.ToString(), std::string(data, size)));
+    size_ += size;
+    return Status::OK();
+  }
+
+  Status Lookup(const Slice& page_key, std::unique_ptr<char[]>* data,
+                size_t* size) override {
+    MutexLock _(&lock_);
+    auto it = data_.find(page_key.ToString());
+    if (it == data_.end()) {
+      return Status::NotFound();
+    }
+
+    assert(page_key.ToString() == it->first);
+    data->reset(new char[it->second.size()]);
+    memcpy(data->get(), it->second.c_str(), it->second.size());
+    *size = it->second.size();
+    return Status::OK();
+  }
+
+  bool IsCompressed() override { return is_compressed_; }
+
+  port::Mutex lock_;
+  std::map<std::string, std::string> data_;
+  const bool is_compressed_ = true;
+  size_t size_ = 0;
+  const size_t max_size_ = 10 * 1024;  // 10KiB
+};
+
+TEST_F(DBTest2, PersistentCache) {
+  int num_iter = 80;
+
+  Options options;
+  options.write_buffer_size = 64 * 1024;  // small write buffer
+  options.statistics = rocksdb::CreateDBStatistics();
+  options = CurrentOptions(options);
+
+  auto bsizes = {/*no block cache*/ 0, /*1M*/ 1 * 1024 * 1024};
+  auto types = {/*compressed*/ 1, /*uncompressed*/ 0};
+  for (auto bsize : bsizes) {
+    for (auto type : types) {
+      BlockBasedTableOptions table_options;
+      table_options.persistent_cache.reset(
+          new MockPersistentCache(type, 10 * 1024));
+      table_options.no_block_cache = true;
+      table_options.block_cache = bsize ? NewLRUCache(bsize) : nullptr;
+      table_options.block_cache_compressed = nullptr;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+      DestroyAndReopen(options);
+      CreateAndReopenWithCF({"pikachu"}, options);
+      // default column family doesn't have block cache
+      Options no_block_cache_opts;
+      no_block_cache_opts.statistics = options.statistics;
+      no_block_cache_opts = CurrentOptions(no_block_cache_opts);
+      BlockBasedTableOptions table_options_no_bc;
+      table_options_no_bc.no_block_cache = true;
+      no_block_cache_opts.table_factory.reset(
+          NewBlockBasedTableFactory(table_options_no_bc));
+      ReopenWithColumnFamilies(
+          {"default", "pikachu"},
+          std::vector<Options>({no_block_cache_opts, options}));
+
+      Random rnd(301);
+
+      // Write 8MB (80 values, each 100K)
+      ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
+      std::vector<std::string> values;
+      std::string str;
+      for (int i = 0; i < num_iter; i++) {
+        if (i % 4 == 0) {  // high compression ratio
+          str = RandomString(&rnd, 1000);
+        }
+        values.push_back(str);
+        ASSERT_OK(Put(1, Key(i), values[i]));
+      }
+
+      // flush all data from memtable so that reads are from block cache
+      ASSERT_OK(Flush(1));
+
+      for (int i = 0; i < num_iter; i++) {
+        ASSERT_EQ(Get(1, Key(i)), values[i]);
+      }
+
+      auto hit = options.statistics->getTickerCount(PERSISTENT_CACHE_HIT);
+      auto miss = options.statistics->getTickerCount(PERSISTENT_CACHE_MISS);
+
+      ASSERT_GT(hit, 0);
+      ASSERT_GT(miss, 0);
+    }
+  }
+}
+#endif
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

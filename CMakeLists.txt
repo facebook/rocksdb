@@ -183,6 +183,7 @@ set(SOURCES
         table/plain_table_index.cc
         table/plain_table_key_coding.cc
         table/plain_table_reader.cc
+        persistent_cache_helper.cc
         table/table_properties.cc
         table/two_level_iterator.cc
         tools/sst_dump_tool.cc

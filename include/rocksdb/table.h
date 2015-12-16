@@ -21,15 +21,16 @@
 #include <unordered_map>
 
 #include "rocksdb/env.h"
+#include "rocksdb/immutable_options.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
-#include "rocksdb/immutable_options.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
 
 // -- Block-based Table
 class FlushBlockPolicyFactory;
+class PersistentCache;
 class RandomAccessFile;
 struct TableReaderOptions;
 struct TableBuilderOptions;
@@ -102,6 +103,10 @@ struct BlockBasedTableOptions {
   // If non-NULL use the specified cache for blocks.
   // If NULL, rocksdb will automatically create and use an 8MB internal cache.
   std::shared_ptr<Cache> block_cache = nullptr;
+
+  // If non-NULL use the specified cache for pages read from device
+  // IF NULL, no page cache is used
+  std::shared_ptr<PersistentCache> persistent_cache = nullptr;
 
   // If non-NULL use the specified cache for compressed blocks.
   // If NULL, rocksdb will not use a compressed block cache.

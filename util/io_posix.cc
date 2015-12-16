@@ -119,6 +119,7 @@ static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 
   long version = 0;
   result = ioctl(fd, FS_IOC_GETVERSION, &version);
+  TEST_SYNC_POINT_CALLBACK("GetUniqueIdFromFile:FS_IOC_GETVERSION", &result);
   if (result == -1) {
     return 0;
   }
