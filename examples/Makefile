@@ -35,4 +35,4 @@ clean:
 	rm -rf ./simple_example ./column_families_example ./compact_files_example ./compaction_filter_example ./c_simple_example c_simple_example.o ./optimistic_transaction_example ./transaction_example
 
 librocksdb:
-	cd .. && $(MAKE) librocksdb.a
+	cd .. && $(MAKE) static_lib
