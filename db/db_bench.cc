@@ -1633,9 +1633,8 @@ class Benchmark {
 #endif
     }
 
-    const char* compression =
-        CompressionTypeToString(FLAGS_compression_type_e).c_str();
-    fprintf(stdout, "Compression: %s\n", compression);
+    auto compression = CompressionTypeToString(FLAGS_compression_type_e);
+    fprintf(stdout, "Compression: %s\n", compression.c_str());
 
     switch (FLAGS_rep_factory) {
       case kPrefixHash:
@@ -1656,7 +1655,7 @@ class Benchmark {
     }
     fprintf(stdout, "Perf Level: %d\n", FLAGS_perf_level);
 
-    PrintWarnings(compression);
+    PrintWarnings(compression.c_str());
     fprintf(stdout, "------------------------------------------------\n");
   }
 
