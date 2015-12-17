@@ -244,6 +244,8 @@ class Env {
   // added to the same Env may run concurrently in different threads.
   // I.e., the caller may not assume that background work items are
   // serialized.
+  // When the UnSchedule function is called, the unschedFunction
+  // registered at the time of Schedule is invoked with arg as a parameter.
   virtual void Schedule(void (*function)(void* arg), void* arg,
                         Priority pri = LOW, void* tag = nullptr,
                         void (*unschedFunction)(void* arg) = 0) = 0;
