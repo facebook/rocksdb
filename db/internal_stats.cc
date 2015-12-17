@@ -700,7 +700,7 @@ void InternalStats::DumpCFStats(std::string* value) {
       cf_stats_count_[LEVEL0_NUM_FILES_TOTAL] +
       cf_stats_count_[SOFT_PENDING_COMPACTION_BYTES_LIMIT] +
       cf_stats_count_[HARD_PENDING_COMPACTION_BYTES_LIMIT] +
-      cf_stats_count_[MEMTABLE_COMPACTION];
+      cf_stats_count_[MEMTABLE_COMPACTION] + cf_stats_count_[MEMTABLE_SLOWDOWN];
   // Stats summary across levels
   PrintLevelStats(buf, sizeof(buf), "Sum", total_files,
                   total_files_being_compacted, total_file_size, 0, w_amp,
@@ -734,6 +734,8 @@ void InternalStats::DumpCFStats(std::string* value) {
                              " slowdown for pending_compaction_bytes, "
                              "%" PRIu64
                              " memtable_compaction, "
+                             "%" PRIu64
+                             " memtable_slowdown, "
                              "interval %" PRIu64 " total count\n",
            cf_stats_count_[LEVEL0_SLOWDOWN_TOTAL],
            cf_stats_count_[LEVEL0_SLOWDOWN_WITH_COMPACTION],
@@ -742,6 +744,7 @@ void InternalStats::DumpCFStats(std::string* value) {
            cf_stats_count_[HARD_PENDING_COMPACTION_BYTES_LIMIT],
            cf_stats_count_[SOFT_PENDING_COMPACTION_BYTES_LIMIT],
            cf_stats_count_[MEMTABLE_COMPACTION],
+           cf_stats_count_[MEMTABLE_SLOWDOWN],
            total_stall_count - cf_stats_snapshot_.stall_count);
   value->append(buf);
 

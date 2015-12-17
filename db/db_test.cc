@@ -9144,6 +9144,42 @@ TEST_F(DBTest, SoftLimit) {
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
 }
+
+TEST_F(DBTest, LastWriteBufferDelay) {
+  Options options;
+  options.env = env_;
+  options = CurrentOptions(options);
+  options.write_buffer_size = 100000;
+  options.max_write_buffer_number = 4;
+  options.delayed_write_rate = 20000;
+  options.compression = kNoCompression;
+  options.disable_auto_compactions = true;
+  int kNumKeysPerMemtable = 3;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(kNumKeysPerMemtable));
+
+  Reopen(options);
+  test::SleepingBackgroundTask sleeping_task;
+  // Block flushes
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+  sleeping_task.WaitUntilSleeping();
+
+  // Create 3 L0 files, making score of L0 to be 3.
+  for (int i = 0; i < 3; i++) {
+    // Fill one mem table
+    for (int j = 0; j < kNumKeysPerMemtable; j++) {
+      Put(Key(j), "");
+    }
+    ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
+  }
+  // Inserting a new entry would create a new mem table, triggering slow down.
+  Put(Key(0), "");
+  ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+}
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {

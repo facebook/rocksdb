@@ -256,6 +256,9 @@ struct ColumnFamilyOptions {
   // The default and the minimum number is 2, so that when 1 write buffer
   // is being flushed to storage, new writes can continue to the other
   // write buffer.
+  // If max_write_buffer_number > 3, writing will be slowed down to
+  // options.delayed_write_rate if we are writing to the last write buffer
+  // allowed.
   //
   // Default: 2
   //
