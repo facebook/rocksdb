@@ -1162,9 +1162,12 @@ struct DBOptions {
   // Default: false
   bool enable_thread_tracking;
 
-  // The limited write rate to DB if soft_rate_limit or
-  // level0_slowdown_writes_trigger is triggered. It is calculated using
-  // size of user write requests before compression.
+  // The limited write rate to DB if soft_pending_compaction_bytes_limit or
+  // level0_slowdown_writes_trigger is triggered, or we are writing to the
+  // last mem table allowed and we allow more than 3 mem tables. It is
+  // calculated using size of user write requests before compression.
+  // RocksDB may decide to slow down more if the compaction still
+  // gets behind further.
   // Unit: byte per second.
   //
   // Default: 1MB/s

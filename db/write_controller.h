@@ -20,12 +20,12 @@ class WriteControllerToken;
 // to be called while holding DB mutex
 class WriteController {
  public:
-  explicit WriteController(uint64_t delayed_write_rate = 1024u * 1024u * 32u)
+  explicit WriteController(uint64_t _delayed_write_rate = 1024u * 1024u * 32u)
       : total_stopped_(0),
         total_delayed_(0),
         bytes_left_(0),
         last_refill_time_(0) {
-    set_delayed_write_rate(delayed_write_rate);
+    set_delayed_write_rate(_delayed_write_rate);
   }
   ~WriteController() = default;
 
@@ -36,7 +36,8 @@ class WriteController {
   // writes to the DB will be controlled under the delayed write rate. Every
   // write needs to call GetDelay() with number of bytes writing to the DB,
   // which returns number of microseconds to sleep.
-  std::unique_ptr<WriteControllerToken> GetDelayToken();
+  std::unique_ptr<WriteControllerToken> GetDelayToken(
+      uint64_t delayed_write_rate);
 
   // these two metods are querying the state of the WriteController
   bool IsStopped() const;
@@ -45,13 +46,14 @@ class WriteController {
   // num_bytes: how many number of bytes to put into the DB.
   // Prerequisite: DB mutex held.
   uint64_t GetDelay(Env* env, uint64_t num_bytes);
-  void set_delayed_write_rate(uint64_t delayed_write_rate) {
-    delayed_write_rate_ = delayed_write_rate;
-    if (delayed_write_rate_ == 0) {
-      // avoid divide 0
-      delayed_write_rate_ = 1U;
+  void set_delayed_write_rate(uint64_t write_rate) {
+    // avoid divide 0
+    if (write_rate == 0) {
+      write_rate = 1u;
     }
+    delayed_write_rate_ = write_rate;
   }
+  uint64_t delayed_write_rate() const { return delayed_write_rate_; }
 
  private:
   friend class WriteControllerToken;

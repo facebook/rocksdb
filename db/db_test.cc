@@ -9042,19 +9042,30 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
 }
 
 TEST_F(DBTest, DelayedWriteRate) {
+  const int kEntriesPerMemTable = 100;
+  const int kTotalFlushes = 20;
+
   Options options;
+  env_->SetBackgroundThreads(1, Env::LOW);
   options.env = env_;
   env_->no_sleep_ = true;
   options = CurrentOptions(options);
-  options.write_buffer_size = 100000;  // Small write buffer
+  options.write_buffer_size = 100000000;
   options.max_write_buffer_number = 256;
-  options.disable_auto_compactions = true;
+  options.max_background_compactions = 1;
   options.level0_file_num_compaction_trigger = 3;
   options.level0_slowdown_writes_trigger = 3;
   options.level0_stop_writes_trigger = 999999;
-  options.delayed_write_rate = 200000;  // About 200KB/s limited rate
+  options.delayed_write_rate = 20000000;  // Start with 200MB/s
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(kEntriesPerMemTable));
 
   CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Block compactions
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
 
   for (int i = 0; i < 3; i++) {
     Put(Key(i), std::string(10000, 'x'));
@@ -9062,27 +9073,37 @@ TEST_F(DBTest, DelayedWriteRate) {
   }
 
   // These writes will be slowed down to 1KB/s
-  size_t estimated_total_size = 0;
+  uint64_t estimated_sleep_time = 0;
   Random rnd(301);
-  for (int i = 0; i < 3000; i++) {
-    auto rand_num = rnd.Uniform(20);
-    // Spread the size range to more.
-    size_t entry_size = rand_num * rand_num * rand_num;
-    WriteOptions wo;
-    Put(Key(i), std::string(entry_size, 'x'), wo);
-    estimated_total_size += entry_size + 20;
-    // Occasionally sleep a while
-    if (rnd.Uniform(20) == 6) {
-      env_->SleepForMicroseconds(2666);
+  Put("", "");
+  uint64_t cur_rate = options.delayed_write_rate;
+  for (int i = 0; i < kTotalFlushes; i++) {
+    uint64_t size_memtable = 0;
+    for (int j = 0; j < kEntriesPerMemTable; j++) {
+      auto rand_num = rnd.Uniform(20);
+      // Spread the size range to more.
+      size_t entry_size = rand_num * rand_num * rand_num;
+      WriteOptions wo;
+      Put(Key(i), std::string(entry_size, 'x'), wo);
+      size_memtable += entry_size + 18;
+      // Occasionally sleep a while
+      if (rnd.Uniform(20) == 6) {
+        env_->SleepForMicroseconds(2666);
+      }
     }
+    dbfull()->TEST_WaitForFlushMemTable();
+    estimated_sleep_time += size_memtable * 1000000u / cur_rate;
+    // Slow down twice. One for memtable switch and one for flush finishes.
+    cur_rate /= kSlowdownRatio * kSlowdownRatio;
   }
-  uint64_t estimated_sleep_time =
-      estimated_total_size / options.delayed_write_rate * 1000000U;
-  ASSERT_GT(env_->addon_time_.load(), estimated_sleep_time * 0.8);
-  ASSERT_LT(env_->addon_time_.load(), estimated_sleep_time * 1.1);
+  // Estimate the total sleep time fall into the rough range.
+  ASSERT_GT(env_->addon_time_.load(), estimated_sleep_time / 2);
+  ASSERT_LT(env_->addon_time_.load(), estimated_sleep_time * 2);
 
   env_->no_sleep_ = false;
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 }
 
 TEST_F(DBTest, HardLimit) {

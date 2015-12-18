@@ -51,6 +51,7 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
       info_log(options.info_log.get()),
       statistics(options.statistics.get()),
       env(options.env),
+      delayed_write_rate(options.delayed_write_rate),
       allow_mmap_reads(options.allow_mmap_reads),
       allow_mmap_writes(options.allow_mmap_writes),
       db_paths(options.db_paths),

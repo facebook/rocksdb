@@ -1119,6 +1119,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
     const MutableCFOptions& mutable_cf_options) {
   // Only implemented for level-based compaction
   if (compaction_style_ != kCompactionStyleLevel) {
+    estimated_compaction_needed_bytes_ = 0;
     return;
   }
 

@@ -44,6 +44,8 @@ class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
 
+extern const double kSlowdownRatio;
+
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
 // is done using the column family
@@ -305,6 +307,14 @@ class ColumnFamilyData {
   bool pending_flush() { return pending_flush_; }
   bool pending_compaction() { return pending_compaction_; }
 
+  // Recalculate some small conditions, which are changed only during
+  // compaction, adding new memtable and/or
+  // recalculation of compaction score. These values are used in
+  // DBImpl::MakeRoomForWrite function to decide, if it need to make
+  // a write stall
+  void RecalculateWriteStallConditions(
+      const MutableCFOptions& mutable_cf_options);
+
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
@@ -313,14 +323,6 @@ class ColumnFamilyData {
                    const ColumnFamilyOptions& options,
                    const DBOptions* db_options, const EnvOptions& env_options,
                    ColumnFamilySet* column_family_set);
-
-  // Recalculate some small conditions, which are changed only during
-  // compaction, adding new memtable and/or
-  // recalculation of compaction score. These values are used in
-  // DBImpl::MakeRoomForWrite function to decide, if it need to make
-  // a write stall
-  void RecalculateWriteStallConditions(
-      const MutableCFOptions& mutable_cf_options);
 
   uint32_t id_;
   const std::string name_;
@@ -382,6 +384,8 @@ class ColumnFamilyData {
   // If true --> this ColumnFamily is currently present in
   // DBImpl::compaction_queue_
   bool pending_compaction_;
+
+  uint64_t prev_compaction_needed_bytes_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

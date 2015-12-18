@@ -16,11 +16,13 @@ std::unique_ptr<WriteControllerToken> WriteController::GetStopToken() {
   return std::unique_ptr<WriteControllerToken>(new StopWriteToken(this));
 }
 
-std::unique_ptr<WriteControllerToken> WriteController::GetDelayToken() {
-  if (total_delayed_++ == 0) {
-    last_refill_time_ = 0;
-    bytes_left_ = 0;
-  }
+std::unique_ptr<WriteControllerToken> WriteController::GetDelayToken(
+    uint64_t write_rate) {
+  total_delayed_++;
+  // Reset counters.
+  last_refill_time_ = 0;
+  bytes_left_ = 0;
+  set_delayed_write_rate(write_rate);
   return std::unique_ptr<WriteControllerToken>(new DelayWriteToken(this));
 }
 

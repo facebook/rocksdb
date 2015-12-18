@@ -325,6 +325,10 @@ class VersionStorageInfo {
     return estimated_compaction_needed_bytes_;
   }
 
+  void TEST_set_estimated_compaction_needed_bytes(uint64_t v) {
+    estimated_compaction_needed_bytes_ = v;
+  }
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;

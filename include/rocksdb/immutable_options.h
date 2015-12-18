@@ -50,6 +50,8 @@ struct ImmutableCFOptions {
 
   Env* env;
 
+  uint64_t delayed_write_rate;
+
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
 
