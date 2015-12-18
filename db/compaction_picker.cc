@@ -1712,7 +1712,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
       }
     }
     char file_num_buf[256];
-    sr->DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
+    picking_sr.DumpSizeInfo(file_num_buf, sizeof(file_num_buf), loop);
     LogToBuffer(log_buffer, "[%s] Universal: size amp picking %s",
                 cf_name.c_str(), file_num_buf);
   }
