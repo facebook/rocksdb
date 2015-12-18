@@ -897,7 +897,7 @@ class DBImpl : public DB {
   bool HasExclusiveManualCompaction();
   void AddManualCompaction(ManualCompaction* m);
   void RemoveManualCompaction(ManualCompaction* m);
-  bool ShouldRunManualCompaction(ManualCompaction* m);
+  bool ShouldntRunManualCompaction(ManualCompaction* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);
 };

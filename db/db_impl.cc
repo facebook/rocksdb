@@ -2279,7 +2279,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   while (!manual.done) {
     assert(HasPendingManualCompaction());
     manual_conflict = false;
-    if (ShouldRunManualCompaction(&manual) || (manual.in_progress == true) ||
+    if (ShouldntRunManualCompaction(&manual) || (manual.in_progress == true) ||
         scheduled ||
         ((manual.manual_end = &manual.tmp_storage1)&&(
              (manual.compaction = manual.cfd->CompactRange(
@@ -2318,6 +2318,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   assert(!manual.in_progress);
   assert(HasPendingManualCompaction());
   RemoveManualCompaction(&manual);
+  bg_cv_.SignalAll();
   return manual.status;
 }
 
@@ -3057,9 +3058,9 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompaction* m) {
   return;
 }
 
-bool DBImpl::ShouldRunManualCompaction(ManualCompaction* m) {
-  if ((m->exclusive) && (bg_compaction_scheduled_ > 0)) {
-    return true;
+bool DBImpl::ShouldntRunManualCompaction(ManualCompaction* m) {
+  if (m->exclusive) {
+    return (bg_compaction_scheduled_ > 0);
   }
   std::deque<ManualCompaction*>::iterator it =
       manual_compaction_dequeue_.begin();
