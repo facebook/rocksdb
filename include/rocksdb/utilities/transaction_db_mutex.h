@@ -27,7 +27,7 @@ class TransactionDBMutex {
   // If returned status is OK, TransactionDB will eventually call UnLock().
   virtual Status Lock() = 0;
 
-  // Attempt to acquire lock.  If timeout is non-negative, operation should be
+  // Attempt to acquire lock.  If timeout is non-negative, operation may be
   // failed after this many microseconds.
   // Returns OK on success,
   //         TimedOut if timed out,
