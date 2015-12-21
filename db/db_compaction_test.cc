@@ -601,7 +601,8 @@ TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
   CompactionOptions compact_opt;
   compact_opt.compression = kNoCompression;
   compact_opt.output_file_size_limit = 4096;
-  const int key_len = compact_opt.output_file_size_limit / 5;
+  const size_t key_len =
+    static_cast<size_t>(compact_opt.output_file_size_limit) / 5;
 
   options = CurrentOptions(options);
   DestroyAndReopen(options);
