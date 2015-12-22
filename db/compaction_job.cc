@@ -430,12 +430,12 @@ void CompactionJob::GenSubcompactionBoundaries() {
     // sizes becomes >= the expected mean size of a subcompaction
     sum = 0;
     for (size_t i = 0; i < ranges.size() - 1; i++) {
+      sum += ranges[i].size;
       if (subcompactions == 1) {
         // If there's only one left to schedule then it goes to the end so no
         // need to put an end boundary
-        break;
+        continue;
       }
-      sum += ranges[i].size;
       if (sum >= mean) {
         boundaries_.emplace_back(ExtractUserKey(ranges[i].range.limit));
         sizes_.emplace_back(sum);
