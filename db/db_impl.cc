@@ -5686,7 +5686,6 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool cache_only, SequenceNumber* seq,
                                        bool* found_record_for_key) {
   Status s;
-  std::string value;
   MergeContext merge_context;
 
   SequenceNumber current_seq = versions_->LastSequence();
@@ -5695,11 +5694,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   *seq = kMaxSequenceNumber;
   *found_record_for_key = false;
 
-  // TODO(agiardullo): Should optimize all the Get() functions below to not
-  // return a value since we do not use it.
-
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, &value, &s, &merge_context, seq);
+  sv->mem->Get(lkey, nullptr, &s, &merge_context, seq);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -5717,7 +5713,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, &value, &s, &merge_context, seq);
+  sv->imm->Get(lkey, nullptr, &s, &merge_context, seq);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -5735,7 +5731,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->GetFromHistory(lkey, &value, &s, &merge_context, seq);
+  sv->imm->GetFromHistory(lkey, nullptr, &s, &merge_context, seq);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -5758,7 +5754,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     // Check tables
     ReadOptions read_options;
 
-    sv->current->Get(read_options, lkey, &value, &s, &merge_context,
+    sv->current->Get(read_options, lkey, nullptr, &s, &merge_context,
                      nullptr /* value_found */, found_record_for_key, seq);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {

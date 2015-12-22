@@ -500,7 +500,7 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) =
                 Status::Corruption("Error: Could not perform merge.");
           }
-        } else {
+        } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
         if (s->inplace_update_support) {

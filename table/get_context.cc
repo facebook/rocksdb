@@ -70,7 +70,9 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   appendToReplayLog(replay_log_, kTypeValue, value);
 
   state_ = kFound;
-  value_->assign(value.data(), value.size());
+  if (value_ != nullptr) {
+    value_->assign(value.data(), value.size());
+  }
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
@@ -93,23 +95,27 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
           state_ = kFound;
-          value_->assign(value.data(), value.size());
+          if (value_ != nullptr) {
+            value_->assign(value.data(), value.size());
+          }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
-          bool merge_success = false;
-          {
-            StopWatchNano timer(env_, statistics_ != nullptr);
-            PERF_TIMER_GUARD(merge_operator_time_nanos);
-            merge_success = merge_operator_->FullMerge(
-                user_key_, &value, merge_context_->GetOperands(), value_,
-                logger_);
-            RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
-                       timer.ElapsedNanosSafe());
-          }
-          if (!merge_success) {
-            RecordTick(statistics_, NUMBER_MERGE_FAILURES);
-            state_ = kCorrupt;
+          if (value_ != nullptr) {
+            bool merge_success = false;
+            {
+              StopWatchNano timer(env_, statistics_ != nullptr);
+              PERF_TIMER_GUARD(merge_operator_time_nanos);
+              merge_success = merge_operator_->FullMerge(
+                  user_key_, &value, merge_context_->GetOperands(), value_,
+                  logger_);
+              RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
+                         timer.ElapsedNanosSafe());
+            }
+            if (!merge_success) {
+              RecordTick(statistics_, NUMBER_MERGE_FAILURES);
+              state_ = kCorrupt;
+            }
           }
         }
         return false;
@@ -123,19 +129,21 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kDeleted;
         } else if (kMerge == state_) {
           state_ = kFound;
-          bool merge_success = false;
-          {
-            StopWatchNano timer(env_, statistics_ != nullptr);
-            PERF_TIMER_GUARD(merge_operator_time_nanos);
-            merge_success = merge_operator_->FullMerge(
-                user_key_, nullptr, merge_context_->GetOperands(), value_,
-                logger_);
-            RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
-                       timer.ElapsedNanosSafe());
-          }
-          if (!merge_success) {
-            RecordTick(statistics_, NUMBER_MERGE_FAILURES);
-            state_ = kCorrupt;
+          if (value_ != nullptr) {
+            bool merge_success = false;
+            {
+              StopWatchNano timer(env_, statistics_ != nullptr);
+              PERF_TIMER_GUARD(merge_operator_time_nanos);
+              merge_success = merge_operator_->FullMerge(
+                  user_key_, nullptr, merge_context_->GetOperands(), value_,
+                  logger_);
+              RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
+                         timer.ElapsedNanosSafe());
+            }
+            if (!merge_success) {
+              RecordTick(statistics_, NUMBER_MERGE_FAILURES);
+              state_ = kCorrupt;
+            }
           }
         }
         return false;
