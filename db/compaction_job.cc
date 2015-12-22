@@ -334,11 +334,6 @@ struct RangeWithSize {
       : range(a, b), size(s) {}
 };
 
-bool SliceCompare(const Comparator* cmp, const Slice& a, const Slice& b) {
-  // Returns true if a < b
-  return cmp->Compare(ExtractUserKey(a), ExtractUserKey(b)) < 0;
-}
-
 // Generates a histogram representing potential divisions of key ranges from
 // the input. It adds the starting and/or ending keys of certain input files
 // to the working set and then finds the approximate size of data in between
@@ -347,14 +342,13 @@ bool SliceCompare(const Comparator* cmp, const Slice& a, const Slice& b) {
 void CompactionJob::GenSubcompactionBoundaries() {
   auto* c = compact_->compaction;
   auto* cfd = c->column_family_data();
-  std::set<Slice, std::function<bool(const Slice& a, const Slice& b)> > bounds(
-      std::bind(&SliceCompare, cfd->user_comparator(), std::placeholders::_1,
-                std::placeholders::_2));
+  const Comparator* cfd_comparator = cfd->user_comparator();
+  std::vector<Slice> bounds;
   int start_lvl = c->start_level();
   int out_lvl = c->output_level();
 
   // Add the starting and/or ending key of certain input files as a potential
-  // boundary (because we're inserting into a set, it avoids duplicates)
+  // boundary
   for (size_t lvl_idx = 0; lvl_idx < c->num_input_levels(); lvl_idx++) {
     int lvl = c->level(lvl_idx);
     if (lvl >= start_lvl && lvl <= out_lvl) {
@@ -369,26 +363,36 @@ void CompactionJob::GenSubcompactionBoundaries() {
         // For level 0 add the starting and ending key of each file since the
         // files may have greatly differing key ranges (not range-partitioned)
         for (size_t i = 0; i < num_files; i++) {
-          bounds.emplace(flevel->files[i].smallest_key);
-          bounds.emplace(flevel->files[i].largest_key);
+          bounds.emplace_back(flevel->files[i].smallest_key);
+          bounds.emplace_back(flevel->files[i].largest_key);
         }
       } else {
         // For all other levels add the smallest/largest key in the level to
         // encompass the range covered by that level
-        bounds.emplace(flevel->files[0].smallest_key);
-        bounds.emplace(flevel->files[num_files - 1].largest_key);
+        bounds.emplace_back(flevel->files[0].smallest_key);
+        bounds.emplace_back(flevel->files[num_files - 1].largest_key);
         if (lvl == out_lvl) {
           // For the last level include the starting keys of all files since
           // the last level is the largest and probably has the widest key
           // range. Since it's range partitioned, the ending key of one file
           // and the starting key of the next are very close (or identical).
           for (size_t i = 1; i < num_files; i++) {
-            bounds.emplace(flevel->files[i].smallest_key);
+            bounds.emplace_back(flevel->files[i].smallest_key);
           }
         }
       }
     }
   }
+
+  std::sort(bounds.begin(), bounds.end(),
+    [cfd_comparator] (const Slice& a, const Slice& b) -> bool {
+      return cfd_comparator->Compare(ExtractUserKey(a), ExtractUserKey(b)) < 0;
+    });
+  // Remove duplicated entries from bounds
+  bounds.erase(std::unique(bounds.begin(), bounds.end(),
+    [cfd_comparator] (const Slice& a, const Slice& b) -> bool {
+      return cfd_comparator->Compare(ExtractUserKey(a), ExtractUserKey(b)) == 0;
+    }), bounds.end());
 
   // Combine consecutive pairs of boundaries into ranges with an approximate
   // size of data covered by keys in that range
