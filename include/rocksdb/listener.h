@@ -81,6 +81,26 @@ struct FlushJobInfo {
   TableProperties table_properties;
 };
 
+enum class CompactionReason {
+  kUnknown,
+  // [Level] number of L0 files > level0_file_num_compaction_trigger
+  kLevelL0FilesNum,
+  // [Level] total size of level > MaxBytesForLevel()
+  kLevelMaxLevelSize,
+  // [Universal] Compacting for size amplification
+  kUniversalSizeAmplification,
+  // [Universal] Compacting for size ratio
+  kUniversalSizeRatio,
+  // [Universal] number of sorted runs > level0_file_num_compaction_trigger
+  kUniversalSortedRunNum,
+  // [FIFO] total size > max_table_files_size
+  kFIFOMaxSize,
+  // Manual compaction
+  kManualCompaction,
+  // DB::SuggestCompactRange() marked files for compaction
+  kFilesMarkedForCompaction,
+};
+
 struct CompactionJobInfo {
   CompactionJobInfo() = default;
   explicit CompactionJobInfo(const CompactionJobStats& _stats) :
@@ -106,6 +126,9 @@ struct CompactionJobInfo {
   // Table properties for input and output tables.
   // The map is keyed by values from input_files and output_files.
   TablePropertiesCollection table_properties;
+
+  // Reason to run the compaction
+  CompactionReason compaction_reason;
 
   // If non-null, this variable stores detailed information
   // about this compaction.

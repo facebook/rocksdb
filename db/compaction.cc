@@ -147,7 +147,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        uint32_t _output_path_id, CompressionType _compression,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
-                       bool _deletion_compaction)
+                       bool _deletion_compaction,
+                       CompactionReason _compaction_reason)
     : start_level_(_inputs[0].level),
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
@@ -167,8 +168,12 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       score_(_score),
       bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
-      is_manual_compaction_(_manual_compaction) {
+      is_manual_compaction_(_manual_compaction),
+      compaction_reason_(_compaction_reason) {
   MarkFilesBeingCompacted(true);
+  if (is_manual_compaction_) {
+    compaction_reason_ = CompactionReason::kManualCompaction;
+  }
 
 #ifndef NDEBUG
   for (size_t i = 1; i < inputs_.size(); ++i) {

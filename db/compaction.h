@@ -41,7 +41,8 @@ class Compaction {
              uint32_t output_path_id, CompressionType compression,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
-             bool deletion_compaction = false);
+             bool deletion_compaction = false,
+             CompactionReason compaction_reason = CompactionReason::kUnknown);
 
   // No copying allowed
   Compaction(const Compaction&) = delete;
@@ -220,6 +221,8 @@ class Compaction {
 
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
+  CompactionReason compaction_reason() { return compaction_reason_; }
+
  private:
   // mark (or clear) all files that are being compacted
   void MarkFilesBeingCompacted(bool mark_as_compacted);
@@ -289,6 +292,9 @@ class Compaction {
 
   // largest user keys in compaction
   Slice largest_user_key_;
+
+  // Reason for compaction
+  CompactionReason compaction_reason_;
 };
 
 // Utility function

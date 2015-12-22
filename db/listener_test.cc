@@ -418,6 +418,167 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
 }
 
+class TestCompactionReasonListener : public EventListener {
+ public:
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    compaction_reasons_.push_back(ci.compaction_reason);
+  }
+
+  std::vector<CompactionReason> compaction_reasons_;
+  std::mutex mutex_;
+};
+
+TEST_F(EventListenerTest, CompactionReasonLevel) {
+  Options options;
+  options.create_if_missing = true;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+
+  TestCompactionReasonListener* listener = new TestCompactionReasonListener();
+  options.listeners.emplace_back(listener);
+
+  options.level0_file_num_compaction_trigger = 4;
+  options.compaction_style = kCompactionStyleLevel;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Write 4 files in L0
+  for (int i = 0; i < 4; i++) {
+    GenerateNewRandomFile(&rnd);
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ(listener->compaction_reasons_.size(), 1);
+  ASSERT_EQ(listener->compaction_reasons_[0],
+            CompactionReason::kLevelL0FilesNum);
+
+  DestroyAndReopen(options);
+
+  // Write 3 non-overlapping files in L0
+  for (int k = 1; k <= 30; k++) {
+    ASSERT_OK(Put(Key(k), Key(k)));
+    if (k % 10 == 0) {
+      Flush();
+    }
+  }
+
+  // Do a trivial move from L0 -> L1
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  options.max_bytes_for_level_base = 1;
+  Close();
+  listener->compaction_reasons_.clear();
+  Reopen(options);
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_GT(listener->compaction_reasons_.size(), 1);
+
+  for (auto compaction_reason : listener->compaction_reasons_) {
+    ASSERT_EQ(compaction_reason, CompactionReason::kLevelMaxLevelSize);
+  }
+
+  options.disable_auto_compactions = true;
+  Close();
+  listener->compaction_reasons_.clear();
+  Reopen(options);
+
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_GT(listener->compaction_reasons_.size(), 0);
+  for (auto compaction_reason : listener->compaction_reasons_) {
+    ASSERT_EQ(compaction_reason, CompactionReason::kManualCompaction);
+  }
+}
+
+TEST_F(EventListenerTest, CompactionReasonUniversal) {
+  Options options;
+  options.create_if_missing = true;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+
+  TestCompactionReasonListener* listener = new TestCompactionReasonListener();
+  options.listeners.emplace_back(listener);
+
+  options.compaction_style = kCompactionStyleUniversal;
+
+  Random rnd(301);
+
+  options.level0_file_num_compaction_trigger = 8;
+  options.compaction_options_universal.max_size_amplification_percent = 100000;
+  options.compaction_options_universal.size_ratio = 100000;
+  DestroyAndReopen(options);
+  listener->compaction_reasons_.clear();
+
+  // Write 8 files in L0
+  for (int i = 0; i < 8; i++) {
+    GenerateNewRandomFile(&rnd);
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_GT(listener->compaction_reasons_.size(), 0);
+  for (auto compaction_reason : listener->compaction_reasons_) {
+    ASSERT_EQ(compaction_reason, CompactionReason::kUniversalSortedRunNum);
+  }
+
+  options.level0_file_num_compaction_trigger = 8;
+  options.compaction_options_universal.max_size_amplification_percent = 1;
+  options.compaction_options_universal.size_ratio = 100000;
+
+  DestroyAndReopen(options);
+  listener->compaction_reasons_.clear();
+
+  // Write 8 files in L0
+  for (int i = 0; i < 8; i++) {
+    GenerateNewRandomFile(&rnd);
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_GT(listener->compaction_reasons_.size(), 0);
+  for (auto compaction_reason : listener->compaction_reasons_) {
+    ASSERT_EQ(compaction_reason, CompactionReason::kUniversalSizeAmplification);
+  }
+
+  options.disable_auto_compactions = true;
+  Close();
+  listener->compaction_reasons_.clear();
+  Reopen(options);
+
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  ASSERT_GT(listener->compaction_reasons_.size(), 0);
+  for (auto compaction_reason : listener->compaction_reasons_) {
+    ASSERT_EQ(compaction_reason, CompactionReason::kManualCompaction);
+  }
+}
+
+TEST_F(EventListenerTest, CompactionReasonFIFO) {
+  Options options;
+  options.create_if_missing = true;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+
+  TestCompactionReasonListener* listener = new TestCompactionReasonListener();
+  options.listeners.emplace_back(listener);
+
+  options.level0_file_num_compaction_trigger = 4;
+  options.compaction_style = kCompactionStyleFIFO;
+  options.compaction_options_fifo.max_table_files_size = 1;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  // Write 4 files in L0
+  for (int i = 0; i < 4; i++) {
+    GenerateNewRandomFile(&rnd);
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_GT(listener->compaction_reasons_.size(), 0);
+  for (auto compaction_reason : listener->compaction_reasons_) {
+    ASSERT_EQ(compaction_reason, CompactionReason::kFIFOMaxSize);
+  }
+}
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

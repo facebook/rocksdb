@@ -1897,6 +1897,7 @@ void DBImpl::NotifyOnCompactionCompleted(
     info.output_level = c->output_level();
     info.stats = compaction_job_stats;
     info.table_properties = c->GetOutputTableProperties();
+    info.compaction_reason = c->compaction_reason();
     for (size_t i = 0; i < c->num_input_levels(); ++i) {
       for (const auto fmd : *c->inputs(i)) {
         auto fn = TableFileName(db_options_.db_paths, fmd->fd.GetNumber(),
