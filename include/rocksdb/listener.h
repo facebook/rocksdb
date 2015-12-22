@@ -40,6 +40,25 @@ struct TableFileCreationInfo {
   TableProperties table_properties;
 };
 
+enum class CompactionReason {
+  kUnknown,
+  // [Level] number of L0 files > level0_file_num_compaction_trigger
+  kLevelL0FilesNum,
+  // [Level] total size of level > MaxBytesForLevel()
+  kLevelMaxLevelSize,
+  // [Universal] Compacting for size amplification
+  kUniversalSizeAmplification,
+  // [Universal] Compacting for size ratio
+  kUniversalSizeRatio,
+  // [Universal] number of sorted runs > level0_file_num_compaction_trigger
+  kUniversalSortedRunNum,
+  // [FIFO] total size > max_table_files_size
+  kFIFOMaxSize,
+  // Manual compaction
+  kManualCompaction,
+  // DB::SuggestCompactRange() marked files for compaction
+  kFilesMarkedForCompaction,
+};
 
 #ifndef ROCKSDB_LITE
 
@@ -79,26 +98,6 @@ struct FlushJobInfo {
   SequenceNumber largest_seqno;
   // Table properties of the table being flushed
   TableProperties table_properties;
-};
-
-enum class CompactionReason {
-  kUnknown,
-  // [Level] number of L0 files > level0_file_num_compaction_trigger
-  kLevelL0FilesNum,
-  // [Level] total size of level > MaxBytesForLevel()
-  kLevelMaxLevelSize,
-  // [Universal] Compacting for size amplification
-  kUniversalSizeAmplification,
-  // [Universal] Compacting for size ratio
-  kUniversalSizeRatio,
-  // [Universal] number of sorted runs > level0_file_num_compaction_trigger
-  kUniversalSortedRunNum,
-  // [FIFO] total size > max_table_files_size
-  kFIFOMaxSize,
-  // Manual compaction
-  kManualCompaction,
-  // DB::SuggestCompactRange() marked files for compaction
-  kFilesMarkedForCompaction,
 };
 
 struct CompactionJobInfo {
