@@ -261,7 +261,7 @@ DBOptions::DBOptions()
       wal_bytes_per_sync(0),
       listeners(),
       enable_thread_tracking(false),
-      delayed_write_rate(1024U * 1024U),
+      delayed_write_rate(2 * 1024U * 1024U),
       skip_stats_update_on_db_open(false),
       wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords),
       row_cache(nullptr),

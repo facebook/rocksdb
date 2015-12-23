@@ -642,7 +642,7 @@ DEFINE_uint64(soft_pending_compaction_bytes_limit, 64ull * 1024 * 1024 * 1024,
 DEFINE_uint64(hard_pending_compaction_bytes_limit, 128ull * 1024 * 1024 * 1024,
               "Stop writes if pending compaction bytes exceed this number");
 
-DEFINE_uint64(delayed_write_rate, 2097152u,
+DEFINE_uint64(delayed_write_rate, 8388608u,
               "Limited bytes allowed to DB when soft_rate_limit or "
               "level0_slowdown_writes_trigger triggers");
 

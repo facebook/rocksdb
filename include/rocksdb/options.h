@@ -1170,7 +1170,7 @@ struct DBOptions {
   // gets behind further.
   // Unit: byte per second.
   //
-  // Default: 1MB/s
+  // Default: 2MB/s
   uint64_t delayed_write_rate;
 
   // If true, then DB::Open() will not update the statistics used to optimize

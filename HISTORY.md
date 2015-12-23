@@ -7,6 +7,7 @@
 * If options.max_write_buffer_number > 3, writes will be slowed down when writing to the last write buffer to delay a full stop.
 * Introduce CompactionJobInfo::compaction_reason, this field include the reason to trigger the compaction.
 * After slow down is triggered, if estimated pending compaction bytes keep increasing, slowdown more.
+* Increase default options.delayed_write_rate to 2MB/s.
 
 ## 4.3.0 (12/8/2015)
 ### New Features
