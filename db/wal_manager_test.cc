@@ -95,7 +95,7 @@ class WalManagerTest : public testing::Test {
     Status status = wal_manager_->GetUpdatesSince(
         seq, &iter, TransactionLogIterator::ReadOptions(), versions_.get());
     EXPECT_OK(status);
-    return std::move(iter);
+    return iter;
   }
 
   std::unique_ptr<MockEnv> env_;
@@ -184,7 +184,7 @@ std::vector<std::uint64_t> ListSpecificFiles(
       }
     }
   }
-  return std::move(file_numbers);
+  return file_numbers;
 }
 
 int CountRecords(TransactionLogIterator* iter) {
