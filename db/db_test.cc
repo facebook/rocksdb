@@ -4777,7 +4777,7 @@ std::vector<std::uint64_t> ListSpecificFiles(
       }
     }
   }
-  return std::move(file_numbers);
+  return file_numbers;
 }
 
 std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path) {
