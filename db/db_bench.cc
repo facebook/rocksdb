@@ -2488,8 +2488,6 @@ class Benchmark {
     }
     options.soft_rate_limit = FLAGS_soft_rate_limit;
     options.hard_rate_limit = FLAGS_hard_rate_limit;
-    options.soft_pending_compaction_bytes_limit =
-        FLAGS_soft_pending_compaction_bytes_limit;
     options.hard_pending_compaction_bytes_limit =
         FLAGS_hard_pending_compaction_bytes_limit;
     options.delayed_write_rate = FLAGS_delayed_write_rate;
