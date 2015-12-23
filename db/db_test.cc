@@ -8056,7 +8056,7 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
   MoveFilesToLevel(7 /* level */, 1 /* column family index */);
 
   std::string value = Get(1, Key(0));
-  int prev_cache_filter_hits =
+  long prev_cache_filter_hits =
       TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
   value = Get(1, Key(0));
   ASSERT_EQ(prev_cache_filter_hits + 1,
@@ -8085,7 +8085,7 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
 
   ReopenWithColumnFamilies({"default", "mypikachu"}, options);
 
-  int prev_cache_filter_misses =
+  long prev_cache_filter_misses =
       TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
   prev_cache_filter_hits = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
   Get(1, Key(0));
