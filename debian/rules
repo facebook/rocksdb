@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) shared_lib
+
+override_dh_auto_install:
+	$(MAKE) install-shared DESTDIR=$$(pwd)/debian/tmp INSTALL_PATH=/usr
+
+override_dh_auto_test:
+
+override_dh_auto_clean:
+	$(MAKE) clean
+	rm -rf debian/tmp

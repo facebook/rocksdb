@@ -999,30 +999,30 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 INSTALL_PATH ?= /usr/local
 
 uninstall:
-	rm -rf $(INSTALL_PATH)/include/rocksdb \
-	  $(INSTALL_PATH)/lib/$(LIBRARY) \
-	  $(INSTALL_PATH)/lib/$(SHARED4) \
-	  $(INSTALL_PATH)/lib/$(SHARED3) \
-	  $(INSTALL_PATH)/lib/$(SHARED2) \
-	  $(INSTALL_PATH)/lib/$(SHARED1)
+	rm -rf $(DESTDIR)$(INSTALL_PATH)/include/rocksdb \
+	  $(DESTDIR)$(INSTALL_PATH)/lib/$(LIBRARY) \
+	  $(DESTDIR)$(INSTALL_PATH)/lib/$(SHARED4) \
+	  $(DESTDIR)$(INSTALL_PATH)/lib/$(SHARED3) \
+	  $(DESTDIR)$(INSTALL_PATH)/lib/$(SHARED2) \
+	  $(DESTDIR)$(INSTALL_PATH)/lib/$(SHARED1)
 
 install-headers:
-	install -d $(INSTALL_PATH)/lib
+	install -d $(DESTDIR)$(INSTALL_PATH)/lib
 	for header_dir in `find "include/rocksdb" -type d`; do \
-		install -d $(INSTALL_PATH)/$$header_dir; \
+		install -d $(DESTDIR)$(INSTALL_PATH)/$$header_dir; \
 	done
 	for header in `find "include/rocksdb" -type f -name *.h`; do \
-		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
+		install -C -m 644 $$header $(DESTDIR)$(INSTALL_PATH)/$$header; \
 	done
 
 install-static: install-headers $(LIBRARY)
-	install -C -m 755 $(LIBRARY) $(INSTALL_PATH)/lib
+	install -C -m 755 $(LIBRARY) $(DESTDIR)$(INSTALL_PATH)/lib
 
 install-shared: install-headers $(SHARED4)
-	install -C -m 755 $(SHARED4) $(INSTALL_PATH)/lib && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED3) && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED2) && \
-		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED1)
+	install -C -m 755 $(SHARED4) $(DESTDIR)$(INSTALL_PATH)/lib && \
+		ln -fs $(SHARED4) $(DESTDIR)$(INSTALL_PATH)/lib/$(SHARED3) && \
+		ln -fs $(SHARED4) $(DESTDIR)$(INSTALL_PATH)/lib/$(SHARED2) && \
+		ln -fs $(SHARED4) $(DESTDIR)$(INSTALL_PATH)/lib/$(SHARED1)
 
 # install static by default + install shared if it exists
 install: install-static

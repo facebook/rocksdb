@@ -1,0 +1,5 @@
+rocksdb (4.4.0~git) UNRELEASED; urgency=medium
+
+  * Initial release.
+
+ -- G. B. Versiani <guibv@yahoo.com>  Wed, 23 Dec 2015 10:42:04 -0200
