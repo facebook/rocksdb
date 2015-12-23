@@ -57,7 +57,8 @@ Status BlockBasedTableFactory::NewTableReader(
   return BlockBasedTable::Open(
       table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, prefetch_enabled);
+      file_size, table_reader, prefetch_enabled,
+      table_reader_options.skip_filters);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(

@@ -522,6 +522,12 @@ class Version {
                       InternalIterator* level_iter,
                       const Slice& internal_prefix) const;
 
+  // Returns true if the filter blocks in the specified level will not be
+  // checked during read operations. In certain cases (trivial move or preload),
+  // the filter block may already be cached, but we still do not access it such
+  // that it eventually expires from the cache.
+  bool IsFilterSkipped(int level);
+
   // The helper function of UpdateAccumulatedStats, which may fill the missing
   // fields of file_mata from its associated TableProperties.
   // Returns true if it does initialize FileMetaData.

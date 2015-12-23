@@ -188,7 +188,8 @@ void PlainTableReader::SetupForCompaction() {
 }
 
 InternalIterator* PlainTableReader::NewIterator(const ReadOptions& options,
-                                                Arena* arena) {
+                                                Arena* arena,
+                                                bool skip_filters) {
   if (options.total_order_seek && !IsTotalOrderMode()) {
     return NewErrorInternalIterator(
         Status::InvalidArgument("total_order_seek not supported"), arena);
@@ -531,7 +532,7 @@ void PlainTableReader::Prepare(const Slice& target) {
 }
 
 Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
-                             GetContext* get_context) {
+                             GetContext* get_context, bool skip_filters) {
   // Check bloom filter first.
   Slice prefix_slice;
   uint32_t prefix_hash;

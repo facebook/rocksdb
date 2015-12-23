@@ -7986,6 +7986,7 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
   options.compaction_style = kCompactionStyleLevel;
   options.level_compaction_dynamic_level_bytes = true;
   BlockBasedTableOptions bbto;
+  bbto.cache_index_and_filter_blocks = true;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, true));
   bbto.whole_key_filtering = true;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
@@ -8034,13 +8035,118 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 
   // Now we have three sorted run, L0, L5 and L6 with most files in L6 have
-  // no blooom filter. Most keys be checked bloom filters twice.
+  // no bloom filter. Most keys be checked bloom filters twice.
   ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 65000 * 2);
   ASSERT_LT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 120000 * 2);
 
   for (int i = 0; i < numkeys; i += 2) {
     ASSERT_EQ(Get(1, Key(i)), "val");
   }
+
+  // Part 2 (read path): rewrite last level with blooms, then verify they get
+  // cached only if !optimize_filters_for_hits
+  options.disable_auto_compactions = true;
+  options.num_levels = 9;
+  options.optimize_filters_for_hits = false;
+  options.statistics = CreateDBStatistics();
+  bbto.block_cache.reset();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  ReopenWithColumnFamilies({"default", "mypikachu"}, options);
+  MoveFilesToLevel(7 /* level */, 1 /* column family index */);
+
+  std::string value = Get(1, Key(0));
+  int prev_cache_filter_hits =
+      TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  value = Get(1, Key(0));
+  ASSERT_EQ(prev_cache_filter_hits + 1,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+
+  // Now that we know the filter blocks exist in the last level files, see if
+  // filter caching is skipped for this optimization
+  options.optimize_filters_for_hits = true;
+  options.statistics = CreateDBStatistics();
+  bbto.block_cache.reset();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  ReopenWithColumnFamilies({"default", "mypikachu"}, options);
+
+  value = Get(1, Key(0));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(2 /* index and data block */,
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  // Check filter block ignored for files preloaded during DB::Open()
+  options.max_open_files = -1;
+  options.statistics = CreateDBStatistics();
+  bbto.block_cache.reset();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  ReopenWithColumnFamilies({"default", "mypikachu"}, options);
+
+  int prev_cache_filter_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+  prev_cache_filter_hits = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  Get(1, Key(0));
+  ASSERT_EQ(prev_cache_filter_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(prev_cache_filter_hits,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+
+  // Check filter block ignored for file trivially-moved to bottom level
+  bbto.block_cache.reset();
+  options.max_open_files = 100;  // setting > -1 makes it not preload all files
+  options.statistics = CreateDBStatistics();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  ReopenWithColumnFamilies({"default", "mypikachu"}, options);
+
+  ASSERT_OK(Put(1, Key(numkeys + 1), "val"));
+  ASSERT_OK(Flush(1));
+
+  int32_t trivial_move = 0;
+  int32_t non_trivial_move = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  CompactRangeOptions compact_options;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kSkip;
+  compact_options.change_level = true;
+  compact_options.target_level = 7;
+  db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
+
+  ASSERT_EQ(trivial_move, 1);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  prev_cache_filter_hits = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  prev_cache_filter_misses =
+      TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+  value = Get(1, Key(numkeys + 1));
+  ASSERT_EQ(prev_cache_filter_hits,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(prev_cache_filter_misses,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+
+  // Check filter block not cached for iterator
+  bbto.block_cache.reset();
+  options.statistics = CreateDBStatistics();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  ReopenWithColumnFamilies({"default", "mypikachu"}, options);
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions(), handles_[1]));
+  iter->SeekToFirst();
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(2 /* index and data block */,
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
 }
 #endif  // ROCKSDB_LITE
 

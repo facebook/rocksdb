@@ -338,11 +338,11 @@ class HashIndexReader : public IndexReader {
 struct BlockBasedTable::Rep {
   Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
       const BlockBasedTableOptions& _table_opt,
-      const InternalKeyComparator& _internal_comparator)
+      const InternalKeyComparator& _internal_comparator, bool skip_filters)
       : ioptions(_ioptions),
         env_options(_env_options),
         table_options(_table_opt),
-        filter_policy(_table_opt.filter_policy.get()),
+        filter_policy(skip_filters ? nullptr : _table_opt.filter_policy.get()),
         internal_comparator(_internal_comparator),
         filter_type(FilterType::kNoFilter),
         whole_key_filtering(_table_opt.whole_key_filtering),
@@ -486,7 +486,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              unique_ptr<RandomAccessFileReader>&& file,
                              uint64_t file_size,
                              unique_ptr<TableReader>* table_reader,
-                             const bool prefetch_index_and_filter) {
+                             const bool prefetch_index_and_filter,
+                             const bool skip_filters) {
   table_reader->reset();
 
   Footer footer;
@@ -503,8 +504,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   // We've successfully read the footer and the index block: we're
   // ready to serve requests.
-  Rep* rep = new BlockBasedTable::Rep(
-      ioptions, env_options, table_options, internal_comparator);
+  Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
+                                      internal_comparator, skip_filters);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
@@ -1076,18 +1077,19 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
 class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
  public:
   BlockEntryIteratorState(BlockBasedTable* table,
-                          const ReadOptions& read_options)
-      : TwoLevelIteratorState(
-          table->rep_->ioptions.prefix_extractor != nullptr),
+                          const ReadOptions& read_options, bool skip_filters)
+      : TwoLevelIteratorState(table->rep_->ioptions.prefix_extractor !=
+                              nullptr),
         table_(table),
-        read_options_(read_options) {}
+        read_options_(read_options),
+        skip_filters_(skip_filters) {}
 
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override {
     return NewDataBlockIterator(table_->rep_, read_options_, index_value);
   }
 
   bool PrefixMayMatch(const Slice& internal_key) override {
-    if (read_options_.total_order_seek) {
+    if (read_options_.total_order_seek || skip_filters_) {
       return true;
     }
     return table_->PrefixMayMatch(internal_key);
@@ -1097,6 +1099,7 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   // Don't own table_
   BlockBasedTable* table_;
   const ReadOptions read_options_;
+  bool skip_filters_;
 };
 
 // This will be broken if the user specifies an unusual implementation
@@ -1187,9 +1190,11 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
 }
 
 InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
-                                               Arena* arena) {
-  return NewTwoLevelIterator(new BlockEntryIteratorState(this, read_options),
-                             NewIndexIterator(read_options), arena);
+                                               Arena* arena,
+                                               bool skip_filters) {
+  return NewTwoLevelIterator(
+      new BlockEntryIteratorState(this, read_options, skip_filters),
+      NewIndexIterator(read_options), arena);
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(FilterBlockReader* filter,
@@ -1209,11 +1214,13 @@ bool BlockBasedTable::FullFilterKeyMayMatch(FilterBlockReader* filter,
   return true;
 }
 
-Status BlockBasedTable::Get(
-    const ReadOptions& read_options, const Slice& key,
-    GetContext* get_context) {
+Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
+                            GetContext* get_context, bool skip_filters) {
   Status s;
-  auto filter_entry = GetFilter(read_options.read_tier == kBlockCacheTier);
+  CachableEntry<FilterBlockReader> filter_entry;
+  if (!skip_filters) {
+    filter_entry = GetFilter(read_options.read_tier == kBlockCacheTier);
+  }
   FilterBlockReader* filter = filter_entry.value;
 
   // First check the full filter

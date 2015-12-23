@@ -91,7 +91,8 @@ Status SstFileReader::NewTableReader(
 
   if (block_table_factory) {
     return block_table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, soptions_, internal_comparator_),
+        TableReaderOptions(ioptions_, soptions_, internal_comparator_,
+                           /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 

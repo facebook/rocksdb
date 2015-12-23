@@ -475,19 +475,21 @@ class LevelFileNumIterator : public InternalIterator {
 
 class LevelFileIteratorState : public TwoLevelIteratorState {
  public:
+  // @param skip_filters Disables loading/accessing the filter block
   LevelFileIteratorState(TableCache* table_cache,
                          const ReadOptions& read_options,
                          const EnvOptions& env_options,
                          const InternalKeyComparator& icomparator,
                          HistogramImpl* file_read_hist, bool for_compaction,
-                         bool prefix_enabled)
+                         bool prefix_enabled, bool skip_filters)
       : TwoLevelIteratorState(prefix_enabled),
         table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
         icomparator_(icomparator),
         file_read_hist_(file_read_hist),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction),
+        skip_filters_(skip_filters) {}
 
   InternalIterator* NewSecondaryIterator(const Slice& meta_handle) override {
     if (meta_handle.size() != sizeof(FileDescriptor)) {
@@ -499,7 +501,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
       return table_cache_->NewIterator(
           read_options_, env_options_, icomparator_, *fd,
           nullptr /* don't need reference to table*/, file_read_hist_,
-          for_compaction_);
+          for_compaction_, nullptr /* arena */, skip_filters_);
     }
   }
 
@@ -514,6 +516,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
   const InternalKeyComparator& icomparator_;
   HistogramImpl* file_read_hist_;
   bool for_compaction_;
+  bool skip_filters_;
 };
 
 // A wrapper of version builder which references the current version in
@@ -792,7 +795,8 @@ void Version::AddIterators(const ReadOptions& read_options,
                                  cfd_->internal_comparator(),
                                  cfd_->internal_stats()->GetFileReadHist(level),
                                  false /* for_compaction */,
-                                 cfd_->ioptions()->prefix_extractor != nullptr);
+                                 cfd_->ioptions()->prefix_extractor != nullptr,
+                                 IsFilterSkipped(level));
       mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
       auto* first_level_iter = new (mem) LevelFileNumIterator(
           cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
@@ -895,7 +899,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   while (f != nullptr) {
     *status = table_cache_->Get(
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
-        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()));
+        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
+        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel())));
     // TODO: examine the behavior for corrupted key
     if (!status->ok()) {
       return;
@@ -950,6 +955,13 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     *status = Status::NotFound(); // Use an empty error message for speed
   }
+}
+
+bool Version::IsFilterSkipped(int level) {
+  // Reaching the bottom level implies misses at all upper levels, so we'll
+  // skip checking the filters when we predict a hit.
+  return cfd_->ioptions()->optimize_filters_for_hits &&
+         level == storage_info_.num_non_empty_levels() - 1;
 }
 
 void VersionStorageInfo::GenerateLevelFilesBrief() {
@@ -2124,7 +2136,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
       builder_guard->version_builder()->LoadTableHandlers(
-          column_family_data->internal_stats());
+          column_family_data->internal_stats(),
+          column_family_data->ioptions()->optimize_filters_for_hits);
     }
 
     // This is fine because everything inside of this block is serialized --
@@ -3270,7 +3283,8 @@ InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
                 cfd->table_cache(), read_options, env_options_,
                 cfd->internal_comparator(),
                 nullptr /* no per level latency histogram */,
-                true /* for_compaction */, false /* prefix enabled */),
+                true /* for_compaction */, false /* prefix enabled */,
+                false /* skip_filters */),
             new LevelFileNumIterator(cfd->internal_comparator(),
                                      c->input_levels(which)));
       }

@@ -64,27 +64,32 @@ class BlockBasedTable : public TableReader {
   // If there was an error while initializing the table, sets "*table_reader"
   // to nullptr and returns a non-ok status.
   //
-  // *file must remain live while this Table is in use.
-  // *prefetch_blocks can be used to disable prefetching of index and filter
-  //  blocks at statup
+  // @param file must remain live while this Table is in use.
+  // @param prefetch_index_and_filter can be used to disable prefetching of
+  //    index and filter blocks at startup
+  // @param skip_filters Disables loading/accessing the filter block. Overrides
+  //    prefetch_index_and_filter, so filter will be skipped if both are set.
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFileReader>&& file,
                      uint64_t file_size, unique_ptr<TableReader>* table_reader,
-                     bool prefetch_index_and_filter = true);
+                     bool prefetch_index_and_filter = true,
+                     bool skip_filters = false);
 
   bool PrefixMayMatch(const Slice& internal_key);
 
   // Returns a new iterator over the table contents.
   // The result of NewIterator() is initially invalid (caller must
   // call one of the Seek methods on the iterator before using it).
-  InternalIterator* NewIterator(const ReadOptions&,
-                                Arena* arena = nullptr) override;
+  // @param skip_filters Disables loading/accessing the filter block
+  InternalIterator* NewIterator(const ReadOptions&, Arena* arena = nullptr,
+                                bool skip_filters = false) override;
 
+  // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
-             GetContext* get_context) override;
+             GetContext* get_context, bool skip_filters = false) override;
 
   // Pre-fetch the disk blocks that correspond to the key range specified by
   // (kbegin, kend). The call will return return error status in the event of
