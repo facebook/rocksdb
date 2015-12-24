@@ -947,6 +947,10 @@ class WritableFileWrapper : public WritableFile {
 // *base_env must remain live while the result is in use.
 Env* NewMemEnv(Env* base_env);
 
+// Returns a new environment that is used for HDFS environment.
+// This is a factory method for HdfsEnv declared in hdfs/env_hdfs.h
+Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname);
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_ENV_H_
