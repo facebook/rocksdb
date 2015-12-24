@@ -147,8 +147,7 @@ class WritableFileMirror : public WritableFile {
   }
   bool IsSyncThreadSafe() const override {
     bool as = a_->IsSyncThreadSafe();
-    bool bs = b_->IsSyncThreadSafe();
-    assert(as == bs);
+    assert(as == b_->IsSyncThreadSafe());
     return as;
   }
   void SetIOPriority(Env::IOPriority pri) override {
@@ -161,8 +160,7 @@ class WritableFileMirror : public WritableFile {
   }
   uint64_t GetFileSize() override {
     uint64_t as = a_->GetFileSize();
-    uint64_t bs = b_->GetFileSize();
-    assert(as == bs);
+    assert(as == b_->GetFileSize());
     return as;
   }
   void GetPreallocationStatus(size_t* block_size,
