@@ -9124,6 +9124,8 @@ TEST_F(DBTest, HardLimit) {
   options.hard_pending_compaction_bytes_limit = 800 << 10;
   options.max_bytes_for_level_base = 10000000000u;
   options.max_background_compactions = 1;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
 
   env_->SetBackgroundThreads(1, Env::LOW);
   test::SleepingBackgroundTask sleeping_task_low;
