@@ -43,9 +43,9 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
-                     int num_files, int being_compacted, double total_file_size,
-                     double score, double w_amp,
-                     const InternalStats::CompactionStats& stats) {
+  int num_files, int being_compacted, double total_file_size,
+  double score, double w_amp,
+  const InternalStats::CompactionStats& stats) {
   uint64_t bytes_read =
       stats.bytes_read_non_output_levels + stats.bytes_read_output_level;
   int64_t bytes_new =
@@ -69,8 +69,8 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
            "%9.0f "                    /* Comp(sec) */
            "%9d "                      /* Comp(cnt) */
            "%8.3f "                    /* Avg(sec) */
-           "%7s "                      /* KeyIn */
-           "%6s\n",                    /* KeyDrop */
+           "%7s "   /* KeyIn */
+           "%6s\n", /* KeyDrop */
            name.c_str(),
            num_files, being_compacted, total_file_size / kMB, score,
            bytes_read / kGB, stats.bytes_read_non_output_levels / kGB,
@@ -687,7 +687,8 @@ void InternalStats::DumpCFStats(std::string* value) {
             comp_stats_[level].bytes_read_non_output_levels;
       PrintLevelStats(buf, sizeof(buf), "L" + ToString(level), files,
                       files_being_compacted[level],
-                      vstorage->NumLevelBytes(level), compaction_score[level],
+                      static_cast<double>(vstorage->NumLevelBytes(level)),
+                      compaction_score[level],
                       w_amp, comp_stats_[level]);
       value->append(buf);
     }

@@ -1684,7 +1684,9 @@ class WinEnv : public Env {
 
   virtual Status GetHostName(char* name, uint64_t len) override {
     Status s;
-    DWORD nSize = len;
+    DWORD nSize = 
+      static_cast<DWORD>(std::min<uint64_t>(len,
+            std::numeric_limits<DWORD>::max()));
 
     if (!::GetComputerNameA(name, &nSize)) {
       auto lastError = GetLastError();

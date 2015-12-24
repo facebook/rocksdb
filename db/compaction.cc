@@ -436,7 +436,7 @@ uint64_t Compaction::OutputFilePreallocationSize() {
   }
   // Over-estimate slightly so we don't end up just barely crossing
   // the threshold
-  return preallocation_size * 1.1;
+  return preallocation_size + (preallocation_size / 10);
 }
 
 std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {

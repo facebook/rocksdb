@@ -73,7 +73,7 @@
 
 namespace rocksdb {
 
-static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
+static uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
   return options.statistics->getTickerCount(ticker_type);
 }
 
@@ -1235,8 +1235,8 @@ TEST_F(DBTest, KeyMayExist) {
     ASSERT_OK(Flush(1));
     value.clear();
 
-    long numopen = TestGetTickerCount(options, NO_FILE_OPENS);
-    long cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
+    uint64_t numopen = TestGetTickerCount(options, NO_FILE_OPENS);
+    uint64_t cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     ASSERT_TRUE(
         db_->KeyMayExist(ropts, handles_[1], "a", &value, &value_found));
     ASSERT_TRUE(!value_found);
@@ -1304,8 +1304,8 @@ TEST_F(DBTest, NonBlockingIteration) {
 
     // verify that a non-blocking iterator does not find any
     // kvs. Neither does it do any IOs to storage.
-    long numopen = TestGetTickerCount(options, NO_FILE_OPENS);
-    long cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
+    uint64_t numopen = TestGetTickerCount(options, NO_FILE_OPENS);
+    uint64_t cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
     iter = db_->NewIterator(non_blocking_opts, handles_[1]);
     count = 0;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -5231,25 +5231,27 @@ class RecoveryTestHelper {
     test->Close();
 #endif
     if (trunc) {
-      ASSERT_EQ(0, truncate(fname.c_str(), size * off));
+      ASSERT_EQ(0, truncate(fname.c_str(),
+        static_cast<int64_t>(size * off)));
     } else {
-      InduceCorruption(fname, size * off, size * len);
+      InduceCorruption(fname, static_cast<size_t>(size * off),
+        static_cast<size_t>(size * len));
     }
   }
 
   // Overwrite data with 'a' from offset for length len
-  static void InduceCorruption(const std::string& filename, uint32_t offset,
-                               uint32_t len) {
+  static void InduceCorruption(const std::string& filename, size_t offset,
+                               size_t len) {
     ASSERT_GT(len, 0U);
 
     int fd = open(filename.c_str(), O_RDWR);
 
     ASSERT_GT(fd, 0);
-    ASSERT_EQ(offset, lseek(fd, offset, SEEK_SET));
+    ASSERT_EQ(offset, lseek(fd, static_cast<long>(offset), SEEK_SET));
 
     void* buf = alloca(len);
     memset(buf, 'a', len);
-    ASSERT_EQ(len, write(fd, buf, len));
+    ASSERT_EQ(len, write(fd, buf, static_cast<unsigned int>(len)));
 
     close(fd);
   }
@@ -6445,7 +6447,7 @@ TEST_F(DBTest, RateLimitingTest) {
                   RandomString(&rnd, (1 << 10) + 1), wo));
   }
   uint64_t elapsed = env_->NowMicros() - start;
-  double raw_rate = env_->bytes_written_ * 1000000 / elapsed;
+  double raw_rate = env_->bytes_written_ * 1000000.0 / elapsed;
   Close();
 
   // # rate limiting with 0.7 x threshold
@@ -8238,7 +8240,7 @@ TEST_F(DBTest, MutexWaitStats) {
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
   CreateAndReopenWithCF({"pikachu"}, options);
-  const int64_t kMutexWaitDelay = 100;
+  const uint64_t kMutexWaitDelay = 100;
   ThreadStatusUtil::TEST_SetStateDelay(
       ThreadStatus::STATE_MUTEX_WAIT, kMutexWaitDelay);
   ASSERT_OK(Put("hello", "rocksdb"));

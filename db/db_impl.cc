@@ -4466,8 +4466,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
-        lfile->SetPreallocationBlockSize(1.1 *
-                                         mutable_cf_options.write_buffer_size);
+        lfile->SetPreallocationBlockSize(
+            mutable_cf_options.write_buffer_size / 10 +
+            mutable_cf_options.write_buffer_size);
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
         new_log = new log::Writer(std::move(file_writer), new_log_number,
@@ -5144,7 +5145,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                         LogFileName(impl->db_options_.wal_dir, new_log_number),
                         &lfile, opt_env_options);
     if (s.ok()) {
-      lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
+      lfile->SetPreallocationBlockSize((max_write_buffer_size / 10) + max_write_buffer_size);
       impl->logfile_number_ = new_log_number;
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(lfile), opt_env_options));
