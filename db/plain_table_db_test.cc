@@ -29,6 +29,7 @@
 #include "table/bloom_block.h"
 #include "table/table_builder.h"
 #include "table/plain_table_factory.h"
+#include "table/plain_table_key_coding.h"
 #include "table/plain_table_reader.h"
 #include "util/hash.h"
 #include "util/logging.h"
@@ -41,6 +42,59 @@
 using std::unique_ptr;
 
 namespace rocksdb {
+class PlainTableKeyDecoderTest : public testing::Test {};
+
+TEST_F(PlainTableKeyDecoderTest, ReadNonMmap) {
+  std::string tmp;
+  Random rnd(301);
+  const uint32_t kLength = 2222;
+  Slice contents = test::RandomString(&rnd, kLength, &tmp);
+  test::StringSource* string_source =
+      new test::StringSource(contents, 0, false);
+
+  unique_ptr<RandomAccessFileReader> file_reader(
+      test::GetRandomAccessFileReader(string_source));
+  unique_ptr<PlainTableReaderFileInfo> file_info(new PlainTableReaderFileInfo(
+      std::move(file_reader), EnvOptions(), kLength));
+
+  {
+    PlainTableFileReader reader(file_info.get());
+
+    const uint32_t kReadSize = 77;
+    for (uint32_t pos = 0; pos < kLength; pos += kReadSize) {
+      uint32_t read_size = std::min(kLength - pos, kReadSize);
+      Slice out;
+      ASSERT_TRUE(reader.Read(pos, read_size, &out));
+      ASSERT_EQ(0, out.compare(tmp.substr(pos, read_size)));
+    }
+
+    ASSERT_LT(string_source->total_reads(), kLength / kReadSize / 2);
+  }
+
+  std::vector<std::vector<std::pair<uint32_t, uint32_t>>> reads = {
+      {{600, 30}, {590, 30}, {600, 20}, {600, 40}},
+      {{800, 20}, {100, 20}, {500, 20}, {1500, 20}, {100, 20}, {80, 20}},
+      {{1000, 20}, {500, 20}, {1000, 50}},
+      {{1000, 20}, {500, 20}, {500, 20}},
+      {{1000, 20}, {500, 20}, {200, 20}, {500, 20}},
+      {{1000, 20}, {500, 20}, {200, 20}, {1000, 50}},
+      {{600, 500}, {610, 20}, {100, 20}},
+      {{500, 100}, {490, 100}, {550, 50}},
+  };
+
+  std::vector<int> num_file_reads = {2, 6, 2, 2, 4, 3, 2, 2};
+
+  for (size_t i = 0; i < reads.size(); i++) {
+    string_source->set_total_reads(0);
+    PlainTableFileReader reader(file_info.get());
+    for (auto p : reads[i]) {
+      Slice out;
+      ASSERT_TRUE(reader.Read(p.first, p.second, &out));
+      ASSERT_EQ(0, out.compare(tmp.substr(p.first, p.second)));
+    }
+    ASSERT_EQ(num_file_reads[i], string_source->total_reads());
+  }
+}
 
 class PlainTableDBTest : public testing::Test,
                          public testing::WithParamInterface<bool> {

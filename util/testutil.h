@@ -237,7 +237,8 @@ class StringSource: public RandomAccessFile {
                         bool mmap = false)
       : contents_(contents.data(), contents.size()),
         uniq_id_(uniq_id),
-        mmap_(mmap) {}
+        mmap_(mmap),
+        total_reads_(0) {}
 
   virtual ~StringSource() { }
 
@@ -245,6 +246,7 @@ class StringSource: public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
       char* scratch) const override {
+    total_reads_++;
     if (offset > contents_.size()) {
       return Status::InvalidArgument("invalid Read offset");
     }
@@ -271,10 +273,15 @@ class StringSource: public RandomAccessFile {
     return static_cast<size_t>(rid-id);
   }
 
+  int total_reads() const { return total_reads_; }
+
+  void set_total_reads(int tr) { total_reads_ = tr; }
+
  private:
   std::string contents_;
   uint64_t uniq_id_;
   bool mmap_;
+  mutable int total_reads_;
 };
 
 class NullLogger : public Logger {

@@ -204,7 +204,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             }
             // verify key;
             total_time += Now(env, measured_by_nanosecond) - start_time;
-            assert(Slice(MakeKey(r1, r2 + count, through_db)) == iter->key());
+            assert(Slice(MakeKey(r1, r2 + count, through_db)) ==
+                   (through_db ? iter->key() : iiter->key()));
             start_time = Now(env, measured_by_nanosecond);
             if (++count >= r2_len) {
               break;
