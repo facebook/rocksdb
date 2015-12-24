@@ -9097,8 +9097,10 @@ TEST_F(DBTest, DelayedWriteRate) {
     cur_rate /= kSlowdownRatio * kSlowdownRatio;
   }
   // Estimate the total sleep time fall into the rough range.
-  ASSERT_GT(env_->addon_time_.load(), estimated_sleep_time / 2);
-  ASSERT_LT(env_->addon_time_.load(), estimated_sleep_time * 2);
+  ASSERT_GT(env_->addon_time_.load(),
+            static_cast<int64_t>(estimated_sleep_time / 2));
+  ASSERT_LT(env_->addon_time_.load(),
+            static_cast<int64_t>(estimated_sleep_time * 2));
 
   env_->no_sleep_ = false;
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
