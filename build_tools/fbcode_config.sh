@@ -39,8 +39,8 @@ if test -z $PIC_BUILD; then
   BZIP_LIBS=" /mnt/gvfs/third-party2/bzip2/af004cceebb2dfd173ca29933ea5915e727aad2f/1.0.6/gcc-4.9-glibc-2.20/4230243/lib/libbz2.a"
   CFLAGS+=" -DBZIP2"
 
-  LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/include/"
-  LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/lib/liblz4.a"
+  LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/6858fac689e0f92e584224d91bdb0e39f6c8320d/r131/gcc-4.9-glibc-2.20/e9936bf/include/"
+  LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/6858fac689e0f92e584224d91bdb0e39f6c8320d/r131/gcc-4.9-glibc-2.20/e9936bf/lib/liblz4.a"
   CFLAGS+=" -DLZ4"
 
   ZSTD_REV=810b81b4705def5243e998b54701f3c504e4009e
