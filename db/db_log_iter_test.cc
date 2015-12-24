@@ -27,7 +27,7 @@ class DBTestXactLogIterator : public DBTestBase {
     Status status = dbfull()->GetUpdatesSince(seq, &iter);
     EXPECT_OK(status);
     EXPECT_TRUE(iter->Valid());
-    return std::move(iter);
+    return iter;
   }
 };
 

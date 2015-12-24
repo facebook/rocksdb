@@ -307,7 +307,7 @@ JSONDocument JSONDocument::operator[](const std::string& key) const {
   assert(foundValue != nullptr);
   // No need to save paths in const objects
   JSONDocument ans(foundValue, false);
-  return std::move(ans);
+  return ans;
 }
 
 size_t JSONDocument::Count() const {
@@ -330,7 +330,7 @@ JSONDocument JSONDocument::operator[](size_t i) const {
   auto arrayVal = reinterpret_cast<fbson::ArrayVal*>(value_);
   auto foundValue = arrayVal->get(static_cast<int>(i));
   JSONDocument ans(foundValue, false);
-  return std::move(ans);
+  return ans;
 }
 
 bool JSONDocument::IsNull() const {

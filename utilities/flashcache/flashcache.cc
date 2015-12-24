@@ -103,7 +103,7 @@ class FlashcacheAwareEnv : public EnvWrapper {
 std::unique_ptr<Env> NewFlashcacheAwareEnv(Env* base,
                                            const int cachedev_fd) {
   std::unique_ptr<Env> ret(new FlashcacheAwareEnv(base, cachedev_fd));
-  return std::move(ret);
+  return ret;
 }
 
 int FlashcacheBlacklistCurrentThread(Env* flashcache_aware_env) {
