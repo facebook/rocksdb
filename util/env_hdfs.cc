@@ -614,7 +614,7 @@ namespace rocksdb {
  }
 
  Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
-	 return Status::NotSupported("Not compiled with hdfs support");
+   return Status::NotSupported("Not compiled with hdfs support");
  }
 
 }
