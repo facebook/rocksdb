@@ -63,6 +63,8 @@ class ColumnFamilyTest : public testing::Test {
   }
 
   ~ColumnFamilyTest() {
+    Close();
+    Destroy();
     delete env_;
   }
 
@@ -133,13 +135,7 @@ class ColumnFamilyTest : public testing::Test {
   }
 
   void Destroy() {
-    for (auto h : handles_) {
-      delete h;
-    }
-    handles_.clear();
-    names_.clear();
-    delete db_;
-    db_ = nullptr;
+    Close();
     ASSERT_OK(DestroyDB(dbname_, Options(db_options_, column_family_options_)));
   }
 
@@ -2311,7 +2307,6 @@ TEST_F(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
   ASSERT_EQ(kBaseRate / 1.2,
             dbfull()->TEST_write_controler().delayed_write_rate());
-  Close();
 }
 
 TEST_F(ColumnFamilyTest, WriteStallTwoColumnFamilies) {
