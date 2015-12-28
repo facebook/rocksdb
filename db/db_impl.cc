@@ -580,8 +580,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
                         &files);  // Ignore errors
       for (std::string file : files) {
         // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
-        job_context->full_scan_candidate_files.emplace_back("/" + file,
-                                                            path_id);
+        job_context->full_scan_candidate_files.emplace_back(
+            "/" + file, static_cast<uint32_t>(path_id));
       }
     }
 
