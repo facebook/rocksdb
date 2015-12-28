@@ -420,7 +420,6 @@ void WriteThread::ExitAsBatchGroupLeader(Writer* leader, Writer* last_writer,
 
 void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   static AdaptationContext ctx{"EnterUnbatched"};
-  static std::atomic<uint32_t> adaptation_history{};
 
   assert(w->batch == nullptr);
   bool linked_as_leader;

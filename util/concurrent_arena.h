@@ -78,7 +78,7 @@ class ConcurrentArena : public Allocator {
 
  private:
   struct Shard {
-    char padding[40];
+    char padding[40] __attribute__((__unused__));
     mutable SpinMutex mutex;
     char* free_begin_;
     std::atomic<size_t> allocated_and_unused_;
@@ -92,7 +92,7 @@ class ConcurrentArena : public Allocator {
   enum ZeroFirstEnum : uint32_t { tls_cpuid = 0 };
 #endif
 
-  char padding0[56];
+  char padding0[56] __attribute__((__unused__));
 
   size_t shard_block_size_;
 
@@ -106,7 +106,7 @@ class ConcurrentArena : public Allocator {
   std::atomic<size_t> memory_allocated_bytes_;
   std::atomic<size_t> irregular_block_num_;
 
-  char padding1[56];
+  char padding1[56] __attribute__((__unused__));
 
   Shard* Repick();
 

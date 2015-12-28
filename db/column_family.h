@@ -229,7 +229,7 @@ class ColumnFamilyData {
   MemTable* mem() { return mem_; }
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
-  void SetCurrent(Version* current);
+  void SetCurrent(Version* _current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
   uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
@@ -531,7 +531,7 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   // Cannot be called while another thread is calling Seek().
   // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
   //           under a DB mutex OR from a write thread
-  virtual ColumnFamilyData* current() { return current_; }
+  virtual ColumnFamilyData* current() override { return current_; }
 
  private:
   ColumnFamilySet* column_family_set_;

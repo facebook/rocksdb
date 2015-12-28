@@ -36,12 +36,13 @@ ConcurrentArena::Shard* ConcurrentArena::Repick() {
   int cpuid = port::PhysicalCoreID();
   if (UNLIKELY(cpuid < 0)) {
     // cpu id unavailable, just pick randomly
-    cpuid = Random::GetTLSInstance()->Uniform(index_mask_ + 1);
+    cpuid =
+        Random::GetTLSInstance()->Uniform(static_cast<int>(index_mask_) + 1);
   }
 #if ROCKSDB_SUPPORT_THREAD_LOCAL
   // even if we are cpu 0, use a non-zero tls_cpuid so we can tell we
   // have repicked
-  tls_cpuid = cpuid | (index_mask_ + 1);
+  tls_cpuid = cpuid | (static_cast<int>(index_mask_) + 1);
 #endif
   return &shards_[cpuid & index_mask_];
 }

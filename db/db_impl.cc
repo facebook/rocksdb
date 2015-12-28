@@ -4387,7 +4387,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         pg.leader = &w;
         pg.last_writer = last_writer;
         pg.early_exit_allowed = !need_log_sync;
-        pg.running.store(write_batch_group.size(), std::memory_order_relaxed);
+        pg.running.store(static_cast<uint32_t>(write_batch_group.size()),
+                         std::memory_order_relaxed);
         write_thread_.LaunchParallelFollowers(&pg, current_sequence);
 
         ColumnFamilyMemTablesImpl column_family_memtables(
