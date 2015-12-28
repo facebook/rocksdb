@@ -10,7 +10,7 @@ Homepage: http://rocksdb.org
 
 Package: librocksdb4-dev
 Architecture: any
-Depends: ${devlibs:Depends}, ${misc:Depends}, librocksdb (= ${binary:Version})
+Depends: ${devlibs:Depends}, ${misc:Depends}, librocksdb4 (= ${binary:Version})
 Section: libdevel
 Provides: librocksdb-dev
 Conflicts: librocksdb-dev
