@@ -481,7 +481,8 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
     // because of hitting the max write buffer number.
     if (prev_compaction_neeed_bytes > 0 &&
         prev_compaction_neeed_bytes <= compaction_needed_bytes) {
-      write_rate /= kSlowdownRatio;
+      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) /
+                                         kSlowdownRatio);
       if (write_rate < kMinWriteRate) {
         write_rate = kMinWriteRate;
       }
@@ -489,7 +490,8 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
       // We are speeding up by ratio of kSlowdownRatio when we have paid
       // compaction debt. But we'll never speed up to faster than the write rate
       // given by users.
-      write_rate *= kSlowdownRatio;
+      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
+                                         kSlowdownRatio);
       if (write_rate > max_write_rate) {
         write_rate = max_write_rate;
       }

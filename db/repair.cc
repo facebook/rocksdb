@@ -190,7 +190,8 @@ class Repairer {
               assert(path_id == 0);
               logs_.push_back(number);
             } else if (type == kTableFile) {
-              table_fds_.emplace_back(number, path_id, 0);
+              table_fds_.emplace_back(number, static_cast<uint32_t>(path_id),
+                                      0);
             } else {
               // Ignore other files
             }

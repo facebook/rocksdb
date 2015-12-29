@@ -8058,7 +8058,7 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
   MoveFilesToLevel(7 /* level */, 1 /* column family index */);
 
   std::string value = Get(1, Key(0));
-  long prev_cache_filter_hits =
+  uint64_t prev_cache_filter_hits =
       TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
   value = Get(1, Key(0));
   ASSERT_EQ(prev_cache_filter_hits + 1,
@@ -8087,7 +8087,7 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
 
   ReopenWithColumnFamilies({"default", "mypikachu"}, options);
 
-  long prev_cache_filter_misses =
+  uint64_t prev_cache_filter_misses =
       TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
   prev_cache_filter_hits = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
   Get(1, Key(0));
@@ -9096,7 +9096,8 @@ TEST_F(DBTest, DelayedWriteRate) {
     dbfull()->TEST_WaitForFlushMemTable();
     estimated_sleep_time += size_memtable * 1000000u / cur_rate;
     // Slow down twice. One for memtable switch and one for flush finishes.
-    cur_rate /= kSlowdownRatio * kSlowdownRatio;
+    cur_rate = static_cast<uint64_t>(static_cast<double>(cur_rate) /
+                                     kSlowdownRatio / kSlowdownRatio);
   }
   // Estimate the total sleep time fall into the rough range.
   ASSERT_GT(env_->addon_time_.load(),
@@ -10324,7 +10325,7 @@ TEST_F(DBTest, PinnedDataIteratorRandomized) {
   Random rnd(301);
 
   int puts = 100000;
-  int key_pool = puts * 0.7;
+  int key_pool = static_cast<int>(puts * 0.7);
   int key_size = 100;
   int val_size = 1000;
   int seeks_percentage = 20;   // 20% of keys will be used to test seek()
@@ -10353,19 +10354,19 @@ TEST_F(DBTest, PinnedDataIteratorRandomized) {
 
       // Insert data to true_data map and to DB
       true_data[k] = v;
-      if (rnd.OneIn(100.0 / merge_percentage)) {
+      if (rnd.OneIn(static_cast<int>(100.0 / merge_percentage))) {
         ASSERT_OK(db_->Merge(WriteOptions(), k, v));
       } else {
         ASSERT_OK(Put(k, v));
       }
 
       // Pick random keys to be used to test Seek()
-      if (rnd.OneIn(100.0 / seeks_percentage)) {
+      if (rnd.OneIn(static_cast<int>(100.0 / seeks_percentage))) {
         random_keys.push_back(k);
       }
 
       // Delete some random keys
-      if (rnd.OneIn(100.0 / delete_percentage)) {
+      if (rnd.OneIn(static_cast<int>(100.0 / delete_percentage))) {
         deleted_keys.push_back(k);
         true_data.erase(k);
         ASSERT_OK(Delete(k));
