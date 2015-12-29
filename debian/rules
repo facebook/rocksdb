@@ -5,7 +5,7 @@
 	dh $@
 
 override_dh_auto_build:
-	$(MAKE) shared_lib
+	PORTABLE=1 $(MAKE) shared_lib
 
 override_dh_auto_install:
 	$(MAKE) install-shared DESTDIR=$$(pwd)/debian/tmp INSTALL_PATH=/usr

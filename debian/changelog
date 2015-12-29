@@ -1,4 +1,4 @@
-rocksdb (4.4.0~git) UNRELEASED; urgency=medium
+rocksdb (4.4.0~git) unstable; urgency=medium
 
   * Initial release.
 
