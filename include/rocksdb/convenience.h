@@ -7,6 +7,7 @@
 
 #include <unordered_map>
 #include <string>
+#include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
@@ -92,8 +93,15 @@ Status GetMemTableRepFactoryFromString(
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options);
 
-/// Request stopping background work, if wait is true wait until it's done
+// Request stopping background work, if wait is true wait until it's done
 void CancelAllBackgroundWork(DB* db, bool wait = false);
+
+// Delete files which are entirely in the given range
+// Could leave some keys in the range which are in files which are not
+// entirely in the range.
+// Snapshots before the delete might not see the data in the given range.
+Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
+                          const Slice* begin, const Slice* end);
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

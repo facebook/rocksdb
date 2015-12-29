@@ -10,6 +10,7 @@
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/utilities/convenience.h"
 #include "util/sync_point.h"
 namespace rocksdb {
 
@@ -1138,6 +1139,112 @@ TEST_F(DBCompactionTest, ManualPartialFill) {
   for (int32_t i = 0; i < 4300; i++) {
     ASSERT_EQ(Get(Key(i)), values[i]);
   }
+}
+
+TEST_F(DBCompactionTest, DeleteFileRange) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 10 * 1024 * 1024;
+  options.max_bytes_for_level_multiplier = 2;
+  options.num_levels = 4;
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_background_compactions = 3;
+
+  DestroyAndReopen(options);
+  int32_t value_size = 10 * 1024;  // 10 KB
+
+  // Add 2 non-overlapping files
+  Random rnd(301);
+  std::map<int32_t, std::string> values;
+
+  // file 1 [0 => 100]
+  for (int32_t i = 0; i < 100; i++) {
+    values[i] = RandomString(&rnd, value_size);
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  // file 2 [100 => 300]
+  for (int32_t i = 100; i < 300; i++) {
+    values[i] = RandomString(&rnd, value_size);
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  // 2 files in L0
+  ASSERT_EQ("2", FilesPerLevel(0));
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 2;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  // 2 files in L2
+  ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+  // file 3 [ 0 => 200]
+  for (int32_t i = 0; i < 200; i++) {
+    values[i] = RandomString(&rnd, value_size);
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  // Many files 4 [300 => 4300)
+  for (int32_t i = 0; i <= 5; i++) {
+    for (int32_t j = 300; j < 4300; j++) {
+      if (j == 2300) {
+        ASSERT_OK(Flush());
+        dbfull()->TEST_WaitForFlushMemTable();
+      }
+      values[j] = RandomString(&rnd, value_size);
+      ASSERT_OK(Put(Key(j), values[j]));
+    }
+  }
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+
+  // Verify level sizes
+  uint64_t target_size = 4 * options.max_bytes_for_level_base;
+  for (int32_t i = 1; i < options.num_levels; i++) {
+    ASSERT_LE(SizeAtLevel(i), target_size);
+    target_size *= options.max_bytes_for_level_multiplier;
+  }
+
+  int32_t old_num_files = CountFiles();
+  std::string begin_string = Key(1000);
+  std::string end_string = Key(2000);
+  Slice begin(begin_string);
+  Slice end(end_string);
+  ASSERT_OK(DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin, &end));
+
+  int32_t deleted_count = 0;
+  for (int32_t i = 0; i < 4300; i++) {
+    if (i < 1000 || i > 2000) {
+      ASSERT_EQ(Get(Key(i)), values[i]);
+    } else {
+      ReadOptions roptions;
+      std::string result;
+      Status s = db_->Get(roptions, Key(i), &result);
+      ASSERT_TRUE(s.IsNotFound() || s.ok());
+      if (s.IsNotFound()) {
+        deleted_count++;
+      }
+    }
+  }
+  ASSERT_GT(deleted_count, 0);
+
+  ASSERT_OK(
+      DeleteFilesInRange(db_, db_->DefaultColumnFamily(), nullptr, nullptr));
+
+  int32_t deleted_count2 = 0;
+  for (int32_t i = 0; i < 4300; i++) {
+    ReadOptions roptions;
+    std::string result;
+    Status s = db_->Get(roptions, Key(i), &result);
+    ASSERT_TRUE(s.IsNotFound());
+    deleted_count2++;
+  }
+  ASSERT_GT(deleted_count2, deleted_count);
+  int32_t new_num_files = CountFiles();
+  ASSERT_GT(old_num_files, new_num_files);
 }
 
 TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {

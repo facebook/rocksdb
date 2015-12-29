@@ -5007,6 +5007,76 @@ Status DBImpl::DeleteFile(std::string name) {
   return status;
 }
 
+Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
+                                  const Slice* begin, const Slice* end) {
+  Status status;
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+  VersionEdit edit;
+  JobContext job_context(next_job_id_.fetch_add(1), true);
+  {
+    InstrumentedMutexLock l(&mutex_);
+
+    auto* vstorage = cfd->current()->storage_info();
+    for (int i = 0; i < cfd->NumberLevels(); i++) {
+      if (vstorage->LevelFiles(i).empty() ||
+          !vstorage->OverlapInLevel(i, begin, end)) {
+        continue;
+      }
+      std::vector<FileMetaData*> level_files;
+      InternalKey begin_storage, end_storage, *begin_key, *end_key;
+      if (begin == nullptr) {
+        begin_key = nullptr;
+      } else {
+        begin_storage.SetMaxPossibleForUserKey(*begin);
+        begin_key = &begin_storage;
+      }
+      if (end == nullptr) {
+        end_key = nullptr;
+      } else {
+        end_storage.SetMinPossibleForUserKey(*end);
+        end_key = &end_storage;
+      }
+
+      vstorage->GetOverlappingInputs(i, begin_key, end_key, &level_files, -1,
+                                     nullptr, false);
+      for (const auto* level_file : level_files) {
+        if (((begin == nullptr) ||
+             (cfd->internal_comparator().user_comparator()->Compare(
+                  level_file->smallest.user_key(), *begin) >= 0)) &&
+            ((end == nullptr) ||
+             (cfd->internal_comparator().user_comparator()->Compare(
+                  level_file->largest.user_key(), *end) <= 0))) {
+          if (level_file->being_compacted) {
+            continue;
+          }
+          edit.SetColumnFamily(cfd->GetID());
+          edit.DeleteFile(i, level_file->fd.GetNumber());
+        }
+      }
+    }
+    if (edit.GetDeletedFiles().empty()) {
+      return Status::OK();
+    }
+    status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
+                                    &edit, &mutex_, directories_.GetDbDir());
+    if (status.ok()) {
+      InstallSuperVersionAndScheduleWorkWrapper(
+          cfd, &job_context, *cfd->GetLatestMutableCFOptions());
+    }
+    FindObsoleteFiles(&job_context, false);
+  }  // lock released here
+
+  LogFlush(db_options_.info_log);
+  // remove files outside the db-lock
+  if (job_context.HaveSomethingToDelete()) {
+    // Call PurgeObsoleteFiles() without holding mutex.
+    PurgeObsoleteFiles(job_context);
+  }
+  job_context.Clean();
+  return status;
+}
+
 void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   InstrumentedMutexLock l(&mutex_);
   versions_->GetLiveFilesMetaData(metadata);
