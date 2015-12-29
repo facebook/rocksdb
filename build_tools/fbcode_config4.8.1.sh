@@ -77,10 +77,10 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
   # clang 
-  CLANG_BASE="/mnt/gvfs/third-party2/clang/ab054e9a490a8fd4537c0b6ec56e5c91c0f81c91/3.4"
-  CLANG_INCLUDE="$CLANG_BASE/gcc-4.8.1-glibc-2.17/fb0f730/lib/clang/3.4/include"
-  CC="$CLANG_BASE/centos6-native/9cefd8a/bin/clang"
-  CXX="$CLANG_BASE/centos6-native/9cefd8a/bin/clang++"
+  CLANG_BASE="/mnt/gvfs/third-party2/clang/ab054e9a490a8fd4537c0b6ec56e5c91c0f81c91/3.7"
+  CLANG_INCLUDE="$CLANG_BASE/gcc-4.8.1-glibc-2.17/ee9b060/lib/clang/3.7/include"
+  CC="$CLANG_BASE/centos6-native/b2feaee/bin/clang"
+  CXX="$CLANG_BASE/centos6-native/b2feaee/bin/clang++"
 
   KERNEL_HEADERS_INCLUDE="/mnt/gvfs/third-party2/kernel-headers/1a48835975c66d30e47770ec419758ed3b9ba010/3.10.62-62_fbk17_03959_ge29cc63/gcc-4.8.1-glibc-2.17/da39a3e/include/"
 

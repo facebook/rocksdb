@@ -2392,8 +2392,7 @@ class Benchmark {
         fprintf(stderr, "Open flash device failed\n");
         exit(1);
       }
-      flashcache_aware_env_ =
-          std::move(NewFlashcacheAwareEnv(FLAGS_env, cachedev_fd_));
+      flashcache_aware_env_ = NewFlashcacheAwareEnv(FLAGS_env, cachedev_fd_);
       if (flashcache_aware_env_.get() == nullptr) {
         fprintf(stderr, "Failed to open flashcache device at %s\n",
                 FLAGS_flashcache_dev.c_str());
@@ -3053,7 +3052,7 @@ class Benchmark {
     std::vector<std::unique_ptr<const char[]> > key_guards;
     std::vector<std::string> values(entries_per_batch_);
     while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
-      key_guards.push_back(std::move(std::unique_ptr<const char[]>()));
+      key_guards.push_back(std::unique_ptr<const char[]>());
       keys.push_back(AllocateKey(&key_guards.back()));
     }
 
