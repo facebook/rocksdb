@@ -255,16 +255,13 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
 
       timer.Start();
 
-      auto adder = [&](size_t t) {
+      std::function<void(size_t)> adder = [&](size_t t) {
         for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
           std_bloom.AddConcurrently(
               Slice(reinterpret_cast<const char*>(&i), 8));
         }
       };
       for (size_t t = 0; t < num_threads; ++t) {
-        // TSAN currently complains of a race between an allocation
-        // made bythis race and the eventual shutdown of the thread.
-        // It is a false positive.
         threads.emplace_back(adder, t);
       }
       while (threads.size() > 0) {
@@ -279,7 +276,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
 
       timer.Start();
 
-      auto hitter = [&](size_t t) {
+      std::function<void(size_t)> hitter = [&](size_t t) {
         for (uint64_t i = 1 + t; i <= num_keys; i += num_threads) {
           bool f =
               std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8));
@@ -302,7 +299,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
       timer.Start();
 
       std::atomic<uint32_t> false_positives(0);
-      auto misser = [&](size_t t) {
+      std::function<void(size_t)> misser = [&](size_t t) {
         for (uint64_t i = num_keys + 1 + t; i <= 2 * num_keys;
              i += num_threads) {
           bool f =
