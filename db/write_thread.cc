@@ -213,7 +213,7 @@ void WriteThread::CreateMissingNewerLinks(Writer* head) {
 }
 
 void WriteThread::JoinBatchGroup(Writer* w) {
-  static AdaptationContext ctx{"JoinBatchGroup"};
+  static AdaptationContext ctx("JoinBatchGroup");
 
   assert(w->batch != nullptr);
   bool linked_as_leader;
@@ -323,7 +323,7 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
 }
 
 bool WriteThread::CompleteParallelWorker(Writer* w) {
-  static AdaptationContext ctx{"CompleteParallelWorker"};
+  static AdaptationContext ctx("CompleteParallelWorker");
 
   auto* pg = w->parallel_group;
   if (!w->status.ok()) {
@@ -419,7 +419,7 @@ void WriteThread::ExitAsBatchGroupLeader(Writer* leader, Writer* last_writer,
 }
 
 void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
-  static AdaptationContext ctx{"EnterUnbatched"};
+  static AdaptationContext ctx("EnterUnbatched");
 
   assert(w->batch == nullptr);
   bool linked_as_leader;

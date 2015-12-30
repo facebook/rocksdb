@@ -5653,7 +5653,7 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_TRUE(!itr->Valid());
     delete itr;
 
-    HistogramData hist_data = {0};
+    HistogramData hist_data = {0, 0, 0, 0, 0};
     options.statistics->histogramData(DB_WRITE, &hist_data);
     ASSERT_GT(hist_data.average, 0.0);
   } while (ChangeOptions(kSkipNoSeekToLast));

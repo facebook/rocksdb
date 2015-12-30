@@ -207,6 +207,8 @@ class WriteThread {
   struct AdaptationContext {
     const char* name;
     std::atomic<int32_t> value;
+
+    explicit AdaptationContext(const char* name0) : name(name0), value(0) {}
   };
 
  private:

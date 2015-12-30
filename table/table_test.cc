@@ -1998,7 +1998,7 @@ TEST_F(HarnessTest, Randomized) {
 #ifndef ROCKSDB_LITE
 TEST_F(HarnessTest, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
-  TestArgs args = { DB_TEST, false, 16, kNoCompression, 0 };
+  TestArgs args = {DB_TEST, false, 16, kNoCompression, 0, false};
   Init(args);
   int num_entries = 100000;
   for (int e = 0; e < num_entries; e++) {

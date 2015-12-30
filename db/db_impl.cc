@@ -4383,7 +4383,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             &flush_scheduler_, write_options.ignore_missing_column_families,
             0 /*log_number*/, this, false /*dont_filter_deletes*/);
       } else {
-        WriteThread::ParallelGroup pg{};
+        WriteThread::ParallelGroup pg;
         pg.leader = &w;
         pg.last_writer = last_writer;
         pg.early_exit_allowed = !need_log_sync;

@@ -1990,10 +1990,10 @@ TEST_F(ColumnFamilyTest, FlushAndDropRaceCondition) {
   Reopen({options, options});
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"VersionSet::LogAndApply::ColumnFamilyDrop:1"
+      {{"VersionSet::LogAndApply::ColumnFamilyDrop:1",
         "FlushJob::InstallResults"},
        {"FlushJob::InstallResults",
-        "VersionSet::LogAndApply::ColumnFamilyDrop:2", }});
+        "VersionSet::LogAndApply::ColumnFamilyDrop:2"}});
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   test::SleepingBackgroundTask sleeping_task;
