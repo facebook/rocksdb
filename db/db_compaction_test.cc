@@ -1208,7 +1208,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
     target_size *= options.max_bytes_for_level_multiplier;
   }
 
-  int32_t old_num_files = CountFiles();
+  size_t old_num_files = CountFiles();
   std::string begin_string = Key(1000);
   std::string end_string = Key(2000);
   Slice begin(begin_string);
@@ -1243,7 +1243,7 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
     deleted_count2++;
   }
   ASSERT_GT(deleted_count2, deleted_count);
-  int32_t new_num_files = CountFiles();
+  size_t new_num_files = CountFiles();
   ASSERT_GT(old_num_files, new_num_files);
 }
 
