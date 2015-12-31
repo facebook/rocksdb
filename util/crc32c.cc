@@ -315,8 +315,15 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
 
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifdef __SSE4_2__
+#ifdef __L64__
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
   *p += 8;
+#else
+  *l = _mm_crc32_u32(*l, LE_LOAD32(*p));
+  *p += 4;
+  *l = _mm_crc32_u32(*l, LE_LOAD32(*p));
+  *p += 4;
+#endif
 #else
   Slow_CRC32(l, p);
 #endif
