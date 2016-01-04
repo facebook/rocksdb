@@ -39,6 +39,9 @@ BlockBasedTableFactory::BlockBasedTableFactory(
       table_options_.block_size_deviation > 100) {
     table_options_.block_size_deviation = 0;
   }
+  if (table_options_.block_restart_interval < 1) {
+    table_options_.block_restart_interval = 1;
+  }
 }
 
 Status BlockBasedTableFactory::NewTableReader(

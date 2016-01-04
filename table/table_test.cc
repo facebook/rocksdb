@@ -1698,6 +1698,50 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   props.AssertFilterBlockStat(0, 0);
 }
 
+void ValidateBlockSizeDeviation(int value, int expected) {
+  BlockBasedTableOptions table_options;
+  table_options.block_size_deviation = value;
+  BlockBasedTableFactory* factory = new BlockBasedTableFactory(table_options);
+
+  const BlockBasedTableOptions* normalized_table_options =
+      (const BlockBasedTableOptions*)factory->GetOptions();
+  ASSERT_EQ(normalized_table_options->block_size_deviation, expected);
+
+  delete factory;
+}
+
+void ValidateBlockRestartInterval(int value, int expected) {
+  BlockBasedTableOptions table_options;
+  table_options.block_restart_interval = value;
+  BlockBasedTableFactory* factory = new BlockBasedTableFactory(table_options);
+
+  const BlockBasedTableOptions* normalized_table_options =
+      (const BlockBasedTableOptions*)factory->GetOptions();
+  ASSERT_EQ(normalized_table_options->block_restart_interval, expected);
+
+  delete factory;
+}
+
+TEST_F(BlockBasedTableTest, InvalidOptions) {
+  // invalid values for block_size_deviation (<0 or >100) are silently set to 0
+  ValidateBlockSizeDeviation(-10, 0);
+  ValidateBlockSizeDeviation(-1, 0);
+  ValidateBlockSizeDeviation(0, 0);
+  ValidateBlockSizeDeviation(1, 1);
+  ValidateBlockSizeDeviation(99, 99);
+  ValidateBlockSizeDeviation(100, 100);
+  ValidateBlockSizeDeviation(101, 0);
+  ValidateBlockSizeDeviation(1000, 0);
+
+  // invalid values for block_restart_interval (<1) are silently set to 1
+  ValidateBlockRestartInterval(-10, 1);
+  ValidateBlockRestartInterval(-1, 1);
+  ValidateBlockRestartInterval(0, 1);
+  ValidateBlockRestartInterval(1, 1);
+  ValidateBlockRestartInterval(2, 2);
+  ValidateBlockRestartInterval(1000, 1000);
+}
+
 TEST_F(BlockBasedTableTest, BlockReadCountTest) {
   // bloom_filter_type = 0 -- block-based filter
   // bloom_filter_type = 0 -- full filter

@@ -116,7 +116,8 @@ struct BlockBasedTableOptions {
 
   // Number of keys between restart points for delta encoding of keys.
   // This parameter can be changed dynamically.  Most clients should
-  // leave this parameter alone.
+  // leave this parameter alone.  The minimum value allowed is 1.  Any smaller
+  // value will be silently overwritten with 1.
   int block_restart_interval = 16;
 
   // Use delta encoding to compress keys in blocks.
