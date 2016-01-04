@@ -23,9 +23,13 @@
 #
 # The environment variables are also optional. The variables are:
 #   NKEYS         - number of key/value pairs to load
-#   NWRITESPERSEC - the writes/second rate limit for the *whilewriting* tests.
+#   BG_MBWRITEPERSEC - write rate limit in MB/second for tests in which
+#                   there is one thread doing writes and stats are
+#                   reported for read threads. "BG" stands for background.
 #                   If this is too large then the non-writer threads can get
-#                   starved.
+#                   starved. This is used for the "readwhile" tests.
+#   FG_MBWRITEPERSEC - write rate limit in MB/second for tests like overwrite
+#                   where stats are reported for the write threads.
 #   NSECONDS      - number of seconds for which to run each test in steps 2,
 #                   3 and 4. There are currently 15 tests in those steps and
 #                   they are repeated for each entry in list-of-threads so
@@ -57,7 +61,10 @@ M=$((1024 * K))
 G=$((1024 * M))
 
 num_keys=${NKEYS:-$((1 * G))}
-wps=${NWRITESPERSEC:-$((10 * K))}
+# write rate for readwhile... tests
+bg_mbwps=${BG_MBWRITEPERSEC:-4}
+# write rate for tests other than readwhile, 0 means no limit
+fg_mbwps=${FG_MBWRITEPERSEC:-0}
 duration=${NSECONDS:-$((60 * 60))}
 nps=${RANGE_LIMIT:-10}
 vs=${VAL_SIZE:-400}
@@ -178,29 +185,30 @@ done
 
 for num_thr in "${nthreads[@]}" ; do
   # Test 7: overwrite with sync=0
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr DB_BENCH_NO_SYNC=1 \
-    ./tools/benchmark.sh overwrite
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$fg_mbwps \
+    DB_BENCH_NO_SYNC=1 ./tools/benchmark.sh overwrite
 
   # Test 8: overwrite with sync=1
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr ./tools/benchmark.sh overwrite
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$fg_mbwps \
+    ./tools/benchmark.sh overwrite
 
   # Test 9: random update with sync=0
   env $ARGS DURATION=$duration NUM_THREADS=$num_thr DB_BENCH_NO_SYNC=1 \
-    ./tools/benchmark.sh updaterandom
+      ./tools/benchmark.sh updaterandom
 
   # Test 10: random update with sync=1
   env $ARGS DURATION=$duration NUM_THREADS=$num_thr ./tools/benchmark.sh updaterandom
 
   # Test 11: random read while writing
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$bg_mbwps \
     DB_BENCH_NO_SYNC=1 ./tools/benchmark.sh readwhilewriting
 
   # Test 12: range scan while writing
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$bg_mbwps \
     DB_BENCH_NO_SYNC=1 NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh fwdrangewhilewriting
 
   # Test 13: reverse range scan while writing
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$bg_mbwps \
     DB_BENCH_NO_SYNC=1 NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh revrangewhilewriting
 done
 
@@ -208,22 +216,23 @@ done
 
 for num_thr in "${nthreads[@]}" ; do
   # Test 14: random merge with sync=0
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr DB_BENCH_NO_SYNC=1 \
-    ./tools/benchmark.sh mergerandom
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$fg_mbwps \
+    DB_BENCH_NO_SYNC=1 ./tools/benchmark.sh mergerandom
 
   # Test 15: random merge with sync=1
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr ./tools/benchmark.sh mergerandom
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$fg_mbwps \
+    ./tools/benchmark.sh mergerandom
 
   # Test 16: random read while merging 
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$bg_mbwps \
     DB_BENCH_NO_SYNC=1 ./tools/benchmark.sh readwhilemerging
 
   # Test 17: range scan while merging 
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$bg_mbwps \
     DB_BENCH_NO_SYNC=1 NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh fwdrangewhilemerging
 
   # Test 18: reverse range scan while merging 
-  env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
+  env $ARGS DURATION=$duration NUM_THREADS=$num_thr MB_WRITE_PER_SEC=$bg_mbwps \
     DB_BENCH_NO_SYNC=1 NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh revrangewhilemerging
 done
 

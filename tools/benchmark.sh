@@ -37,8 +37,7 @@ if [ ! -z $DB_BENCH_NO_SYNC ]; then
 fi
 
 num_threads=${NUM_THREADS:-16}
-# Only for *whilewriting, *whilemerging
-writes_per_second=${WRITES_PER_SECOND:-$((10 * K))}
+mb_written_per_sec=${MB_WRITE_PER_SEC:-0}
 # Only for tests that do range scans
 num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}
 cache_size=${CACHE_SIZE:-$((1 * G))}
@@ -67,6 +66,7 @@ const_params="
   --level_compaction_dynamic_level_bytes=true \
   --bytes_per_sync=$((8 * M)) \
   --cache_index_and_filter_blocks=0 \
+  --benchmark_write_rate_limit=$(( 1024 * 1024 * $mb_written_per_sec )) \
   \
   --hard_rate_limit=3 \
   --rate_limit_delay_max_milliseconds=1000000 \
@@ -231,7 +231,6 @@ function run_readwhile {
        --sync=$syncval \
        $params_w \
        --threads=$num_threads \
-       --writes_per_second=$writes_per_second \
        --merge_operator=\"put\" \
        --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/${out_name}"
@@ -251,7 +250,6 @@ function run_rangewhile {
        --sync=$syncval \
        $params_w \
        --threads=$num_threads \
-       --writes_per_second=$writes_per_second \
        --merge_operator=\"put\" \
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
