@@ -760,6 +760,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_filterpolicy_destroy(
 
 extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
 rocksdb_filterpolicy_create_bloom(int bits_per_key);
+extern ROCKSDB_LIBRARY_API rocksdb_filterpolicy_t*
+rocksdb_filterpolicy_create_bloom_full(int bits_per_key);
 
 /* Merge Operator */
 

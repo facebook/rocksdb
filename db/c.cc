@@ -1965,7 +1965,7 @@ void rocksdb_filterpolicy_destroy(rocksdb_filterpolicy_t* filter) {
   delete filter;
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_key, bool original_format) {
   // Make a rocksdb_filterpolicy_t, but override all of its methods so
   // they delegate to a NewBloomFilterPolicy() instead of user
   // supplied C functions.
@@ -1983,11 +1983,19 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
     static void DoNothing(void*) { }
   };
   Wrapper* wrapper = new Wrapper;
-  wrapper->rep_ = NewBloomFilterPolicy(bits_per_key);
+  wrapper->rep_ = NewBloomFilterPolicy(bits_per_key, original_format);
   wrapper->state_ = nullptr;
   wrapper->delete_filter_ = nullptr;
   wrapper->destructor_ = &Wrapper::DoNothing;
   return wrapper;
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_full(int bits_per_key) {
+  return rocksdb_filterpolicy_create_bloom_format(bits_per_key, false);
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
+  return rocksdb_filterpolicy_create_bloom_format(bits_per_key, true);
 }
 
 rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(
