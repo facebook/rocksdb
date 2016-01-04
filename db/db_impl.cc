@@ -5056,6 +5056,7 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
       }
     }
     if (edit.GetDeletedFiles().empty()) {
+      job_context.Clean();
       return Status::OK();
     }
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),

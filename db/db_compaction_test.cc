@@ -1230,6 +1230,13 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
     }
   }
   ASSERT_GT(deleted_count, 0);
+  begin_string = Key(5000);
+  end_string = Key(6000);
+  Slice begin1(begin_string);
+  Slice end1(end_string);
+  // Try deleting files in range which contain no keys
+  ASSERT_OK(
+      DeleteFilesInRange(db_, db_->DefaultColumnFamily(), &begin1, &end1));
 
   ASSERT_OK(
       DeleteFilesInRange(db_, db_->DefaultColumnFamily(), nullptr, nullptr));
