@@ -37,3 +37,9 @@ Check out our RocksDB Protobuf merge operator at: https://github.com/vladb38/roc
 
 ## Santanader UK/Cloudera Profession Services
 Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santanders-near-real-time-data-ingest-architecture/
+
+## Airbnb
+Airbnb is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
+
+## Pinterest
+Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
