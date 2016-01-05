@@ -132,7 +132,7 @@ void WinLogger::Logv(const char* format, va_list ap) {
     }
 
     flush_pending_ = true;
-    assert(bytesWritten == write_size);
+    assert((bytesWritten == write_size) || (ret == FALSE));
     if (bytesWritten > 0) {
       log_size_ += write_size;
     }
