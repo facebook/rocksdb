@@ -9158,6 +9158,7 @@ TEST_F(DBTest, HardLimit) {
   ASSERT_GE(callback_count.load(), 1);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  sleeping_task_low.WaitUntilDone();
 }
 
 #ifndef ROCKSDB_LITE
