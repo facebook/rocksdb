@@ -783,6 +783,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   // Block the job queue to prevent flush job from running.
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::HIGH);
+  sleeping_task_low.WaitUntilSleeping();
 
   WriteOptions write_options;
   write_options.sync = false;
@@ -866,6 +867,7 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   // Block the job queue to prevent flush job from running.
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::HIGH);
+  sleeping_task_low.WaitUntilSleeping();
 
   WriteOptions write_options;
   write_options.sync = false;
