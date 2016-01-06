@@ -408,6 +408,12 @@ class LDBTestCase(unittest.TestCase):
     def getManifests(self, directory):
         return glob.glob(directory + "/MANIFEST-*")
 
+    def getSSTFiles(self, directory):
+        return glob.glob(directory + "/*.sst")
+
+    def getWALFiles(self, directory):
+        return glob.glob(directory + "/*.log")
+
     def copyManifests(self, src, dest):
         return 0 == run_err_null("cp " + src + " " + dest)
 
@@ -437,6 +443,53 @@ class LDBTestCase(unittest.TestCase):
         # Running it with the copy we just created should pass.
         self.assertRunOKFull((cmd + " --path=%s")
                              % (dbPath, manifest_files[1]),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+        # Make sure that using the dump with --path will result in identical
+        # output as just using manifest_dump.
+        cmd = "dump --path=%s"
+        self.assertRunOKFull((cmd)
+                             % (manifest_files[1]),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+
+    def testSSTDump(self):
+        print "Running testSSTDump..."
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put sst1 sst1_val --create_if_missing", "OK")
+        self.assertRunOK("put sst2 sst2_val", "OK")
+        self.assertRunOK("get sst1", "sst1_val")
+
+        # Pattern to expect from SST dump.
+        regex = ".*Sst file format:.*"
+        expected_pattern = re.compile(regex)
+
+        sst_files = self.getSSTFiles(dbPath)
+        self.assertTrue(len(sst_files) >= 1)
+        cmd = "dump --path=%s"
+        self.assertRunOKFull((cmd)
+                             % (sst_files[0]),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+
+    def testWALDump(self):
+        print "Running testWALDump..."
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put wal1 wal1_val --create_if_missing", "OK")
+        self.assertRunOK("put wal2 wal2_val", "OK")
+        self.assertRunOK("get wal1", "wal1_val")
+
+        # Pattern to expect from WAL dump.
+        regex = "^Sequence,Count,ByteSize,Physical Offset,Key\(s\).*"
+        expected_pattern = re.compile(regex)
+
+        wal_files = self.getWALFiles(dbPath)
+        self.assertTrue(len(wal_files) >= 1)
+        cmd = "dump --path=%s"
+        self.assertRunOKFull((cmd)
+                             % (wal_files[0]),
                              expected_pattern, unexpected=False,
                              isPattern=True)
 

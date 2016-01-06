@@ -8,6 +8,7 @@
 * Introduce CompactionJobInfo::compaction_reason, this field include the reason to trigger the compaction.
 * After slow down is triggered, if estimated pending compaction bytes keep increasing, slowdown more.
 * Increase default options.delayed_write_rate to 2MB/s.
+* Added a new parameter --path to ldb tool. --path accepts the name of either MANIFEST, SST or a WAL file. Either --db or --path can be used when calling ldb.
 
 ## 4.3.0 (12/8/2015)
 ### New Features
@@ -21,8 +22,8 @@
 
 ## 4.2.0 (11/9/2015)
 ### New Features
-* Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions. 
-* Add GetAggregatedIntProperty(), which returns the sum of the GetIntProperty of all the column families. 
+* Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions.
+* Add GetAggregatedIntProperty(), which returns the sum of the GetIntProperty of all the column families.
 * Add MemoryUtil in rocksdb/utilities/memory.h.  It currently offers a way to get the memory usage by type from a list rocksdb instances.
 
 ### Public API Changes

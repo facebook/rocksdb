@@ -40,6 +40,7 @@ public:
 
   // Command-line arguments
   static const string ARG_DB;
+  static const string ARG_PATH;
   static const string ARG_HEX;
   static const string ARG_KEY_HEX;
   static const string ARG_VALUE_HEX;
@@ -90,10 +91,8 @@ public:
   }
 
   virtual ~LDBCommand() {
-    if (db_ != nullptr) {
-      delete db_;
-      db_ = nullptr;
-    }
+    delete db_;
+    db_ = nullptr;
   }
 
   /* Run the command, and return the execute result. */
@@ -104,12 +103,12 @@ public:
 
     if (db_ == nullptr && !NoDBOpen()) {
       OpenDB();
-      if (!exec_state_.IsNotStarted()) {
-        return;
-      }
     }
 
+    // We'll intentionally proceed even if the DB can't be opened because users
+    // can also specify a filename, not just a directory.
     DoCommand();
+
     if (exec_state_.IsNotStarted()) {
       exec_state_ = LDBCommandExecuteResult::Succeed("");
     }
@@ -441,6 +440,22 @@ public:
   virtual void DoCommand() override;
 
 private:
+  /**
+   * Extract file name from the full path. We handle both the forward slash (/)
+   * and backslash (\) to make sure that different OS-s are supported.
+  */
+  static string GetFileNameFromPath(const string& s) {
+    std::size_t n = s.find_last_of("/\\");
+
+    if (std::string::npos == n) {
+      return s;
+    } else {
+      return s.substr(n + 1);
+    }
+  }
+
+  void DoDumpCommand();
+
   bool null_from_;
   string from_;
   bool null_to_;
@@ -450,6 +465,7 @@ private:
   bool count_only_;
   bool count_delim_;
   bool print_stats_;
+  string path_;
 
   static const string ARG_COUNT_ONLY;
   static const string ARG_COUNT_DELIM;

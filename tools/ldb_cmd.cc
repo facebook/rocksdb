@@ -40,6 +40,7 @@ namespace rocksdb {
 using namespace std;
 
 const string LDBCommand::ARG_DB = "db";
+const string LDBCommand::ARG_PATH = "path";
 const string LDBCommand::ARG_HEX = "hex";
 const string LDBCommand::ARG_KEY_HEX = "key_hex";
 const string LDBCommand::ARG_VALUE_HEX = "value_hex";
@@ -61,6 +62,14 @@ const string LDBCommand::ARG_FILE_SIZE = "file_size";
 const string LDBCommand::ARG_CREATE_IF_MISSING = "create_if_missing";
 
 const char* LDBCommand::DELIM = " ==> ";
+
+namespace {
+
+void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
+                 LDBCommandExecuteResult* exec_state);
+
+void DumpSstFile(std::string filename, bool output_hex, bool show_properties);
+};
 
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
   int argc,
@@ -394,8 +403,10 @@ bool LDBCommand::ValidateCmdLineOptions() {
     }
   }
 
-  if (!NoDBOpen() && option_map_.find(ARG_DB) == option_map_.end()) {
-    fprintf(stderr, "%s must be specified\n", ARG_DB.c_str());
+  if (!NoDBOpen() && option_map_.find(ARG_DB) == option_map_.end() &&
+      option_map_.find(ARG_PATH) == option_map_.end()) {
+    fprintf(stderr, "Either %s or %s must be specified.\n", ARG_DB.c_str(),
+            ARG_PATH.c_str());
     return false;
   }
 
@@ -733,21 +744,20 @@ const string InternalDumpCommand::ARG_INPUT_KEY_HEX = "input_key_hex";
 
 InternalDumpCommand::InternalDumpCommand(const vector<string>& params,
                                          const map<string, string>& options,
-                                         const vector<string>& flags) :
-    LDBCommand(options, flags, true,
-               BuildCmdLineOptions({ ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX,
-                                     ARG_FROM, ARG_TO, ARG_MAX_KEYS,
-                                     ARG_COUNT_ONLY, ARG_COUNT_DELIM, ARG_STATS,
-                                     ARG_INPUT_KEY_HEX})),
-    has_from_(false),
-    has_to_(false),
-    max_keys_(-1),
-    delim_("."),
-    count_only_(false),
-    count_delim_(false),
-    print_stats_(false),
-    is_input_key_hex_(false) {
-
+                                         const vector<string>& flags)
+    : LDBCommand(
+          options, flags, true,
+          BuildCmdLineOptions({ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
+                               ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY,
+                               ARG_COUNT_DELIM, ARG_STATS, ARG_INPUT_KEY_HEX})),
+      has_from_(false),
+      has_to_(false),
+      max_keys_(-1),
+      delim_("."),
+      count_only_(false),
+      count_delim_(false),
+      print_stats_(false),
+      is_input_key_hex_(false) {
   has_from_ = ParseStringOption(options, ARG_FROM, &from_);
   has_to_ = ParseStringOption(options, ARG_TO, &to_);
 
@@ -891,21 +901,20 @@ const string DBDumperCommand::ARG_STATS = "stats";
 const string DBDumperCommand::ARG_TTL_BUCKET = "bucket";
 
 DBDumperCommand::DBDumperCommand(const vector<string>& params,
-      const map<string, string>& options, const vector<string>& flags) :
-    LDBCommand(options, flags, true,
-               BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX,
-                                    ARG_VALUE_HEX, ARG_FROM, ARG_TO,
-                                    ARG_MAX_KEYS, ARG_COUNT_ONLY,
-                                    ARG_COUNT_DELIM, ARG_STATS, ARG_TTL_START,
-                                    ARG_TTL_END, ARG_TTL_BUCKET,
-                                    ARG_TIMESTAMP})),
-    null_from_(true),
-    null_to_(true),
-    max_keys_(-1),
-    count_only_(false),
-    count_delim_(false),
-    print_stats_(false) {
-
+                                 const map<string, string>& options,
+                                 const vector<string>& flags)
+    : LDBCommand(options, flags, true,
+                 BuildCmdLineOptions(
+                     {ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_VALUE_HEX, ARG_FROM,
+                      ARG_TO, ARG_MAX_KEYS, ARG_COUNT_ONLY, ARG_COUNT_DELIM,
+                      ARG_STATS, ARG_TTL_START, ARG_TTL_END, ARG_TTL_BUCKET,
+                      ARG_TIMESTAMP, ARG_PATH})),
+      null_from_(true),
+      null_to_(true),
+      max_keys_(-1),
+      count_only_(false),
+      count_delim_(false),
+      print_stats_(false) {
   map<string, string>::const_iterator itr = options.find(ARG_FROM);
   if (itr != options.end()) {
     null_from_ = false;
@@ -954,6 +963,11 @@ DBDumperCommand::DBDumperCommand(const vector<string>& params,
       to_ = HexToString(to_);
     }
   }
+
+  itr = options.find(ARG_PATH);
+  if (itr != options.end()) {
+    path_ = itr->second;
+  }
 }
 
 void DBDumperCommand::Help(string& ret) {
@@ -969,13 +983,63 @@ void DBDumperCommand::Help(string& ret) {
   ret.append(" [--" + ARG_TTL_BUCKET + "=<N>]");
   ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
+  ret.append(" [--" + ARG_PATH + "=<path_to_a_file>]");
   ret.append("\n");
 }
 
+/**
+ * Handles two separate cases:
+ *
+ * 1) --db is specified - just dump the database.
+ *
+ * 2) --path is specified - determine based on file extension what dumping
+ *    function to call. Please note that we intentionally use the extension
+ *    and avoid probing the file contents under the assumption that renaming
+ *    the files is not a supported scenario.
+ *
+ */
 void DBDumperCommand::DoCommand() {
   if (!db_) {
-    return;
+    assert(!path_.empty());
+    string fileName = GetFileNameFromPath(path_);
+    uint64_t number;
+    FileType type;
+
+    exec_state_ = LDBCommandExecuteResult::Succeed("");
+
+    if (!ParseFileName(fileName, &number, &type)) {
+      exec_state_ =
+          LDBCommandExecuteResult::Failed("Can't parse file type: " + path_);
+      return;
+    }
+
+    switch (type) {
+      case kLogFile:
+        DumpWalFile(path_, /* print_header_ */ true, /* print_values_ */ true,
+                    &exec_state_);
+        break;
+      case kTableFile:
+        DumpSstFile(path_, is_key_hex_, /* show_properties */ true);
+        break;
+      case kDescriptorFile:
+        DumpManifestFile(path_, /* verbose_ */ false, is_key_hex_,
+                         /*  json_ */ false);
+        break;
+      default:
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            "File type not supported: " + path_);
+        break;
+    }
+
+  } else {
+    DoDumpCommand();
   }
+}
+
+void DBDumperCommand::DoDumpCommand() {
+  assert(nullptr != db_);
+  assert(path_.empty());
+
   // Parse command line args
   uint64_t count = 0;
   if (print_stats_) {
