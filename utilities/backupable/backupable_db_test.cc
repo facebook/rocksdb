@@ -1313,6 +1313,16 @@ TEST_F(BackupableDBTest, EnvFailures) {
     delete backup_engine;
   }
 }
+
+// see https://github.com/facebook/rocksdb/issues/921
+TEST_F(BackupableDBTest, Issue921Test) {
+  BackupEngine* backup_engine;
+  backupable_options_->share_table_files = false;
+  backupable_options_->backup_dir += "/new_dir";
+
+  ASSERT_OK(BackupEngine::Open(env_, *backupable_options_, &backup_engine));
+}
+
 }  // anon namespace
 
 } //  namespace rocksdb

@@ -1344,27 +1344,29 @@ Status BackupEngineImpl::GarbageCollect() {
   assert(!read_only_);
   Log(options_.info_log, "Starting garbage collection");
 
-  // delete obsolete shared files
-  std::vector<std::string> shared_children;
-  {
-    auto s = backup_env_->GetChildren(GetAbsolutePath(GetSharedFileRel()),
-                                      &shared_children);
-    if (!s.ok()) {
-      return s;
+  if (options_.share_table_files) {
+    // delete obsolete shared files
+    std::vector<std::string> shared_children;
+    {
+      auto s = backup_env_->GetChildren(GetAbsolutePath(GetSharedFileRel()),
+                                        &shared_children);
+      if (!s.ok()) {
+        return s;
+      }
     }
-  }
-  for (auto& child : shared_children) {
-    std::string rel_fname = GetSharedFileRel(child);
-    auto child_itr = backuped_file_infos_.find(rel_fname);
-    // if it's not refcounted, delete it
-    if (child_itr == backuped_file_infos_.end() ||
-        child_itr->second->refs == 0) {
-      // this might be a directory, but DeleteFile will just fail in that
-      // case, so we're good
-      Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
-      Log(options_.info_log, "Deleting %s -- %s", rel_fname.c_str(),
-          s.ToString().c_str());
-      backuped_file_infos_.erase(rel_fname);
+    for (auto& child : shared_children) {
+      std::string rel_fname = GetSharedFileRel(child);
+      auto child_itr = backuped_file_infos_.find(rel_fname);
+      // if it's not refcounted, delete it
+      if (child_itr == backuped_file_infos_.end() ||
+          child_itr->second->refs == 0) {
+        // this might be a directory, but DeleteFile will just fail in that
+        // case, so we're good
+        Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
+        Log(options_.info_log, "Deleting %s -- %s", rel_fname.c_str(),
+            s.ToString().c_str());
+        backuped_file_infos_.erase(rel_fname);
+      }
     }
   }
 
