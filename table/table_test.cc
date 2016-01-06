@@ -1242,6 +1242,40 @@ TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
   }
 }
 
+TEST_F(BlockBasedTableTest, NoopTransformSeek) {
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+
+  Options options;
+  options.comparator = BytewiseComparator();
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewNoopTransform());
+
+  TableConstructor c(options.comparator);
+  // To tickle the PrefixMayMatch bug it is important that the
+  // user-key is a single byte so that the index key exactly matches
+  // the user-key.
+  InternalKey key("a", 1, kTypeValue);
+  c.Add(key.Encode().ToString(), "b");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableCFOptions ioptions(options);
+  c.Finish(options, ioptions, table_options,
+           InternalKeyComparator(options.comparator), &keys, &kvmap);
+
+  auto* reader = c.GetTableReader();
+  for (int i = 0; i < 2; ++i) {
+    ReadOptions ro;
+    ro.total_order_seek = (i == 0);
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(ro));
+
+    iter->Seek(key.Encode());
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a", ExtractUserKey(iter->key()).ToString());
+  }
+}
+
 static std::string RandomString(Random* rnd, int len) {
   std::string r;
   test::RandomString(rnd, len, &r);
