@@ -1234,8 +1234,9 @@ TEST_F(BlockBasedTableTest, NoopTransformSeek) {
   std::vector<std::string> keys;
   stl_wrappers::KVMap kvmap;
   const ImmutableCFOptions ioptions(options);
-  c.Finish(options, ioptions, table_options,
-           InternalKeyComparator(options.comparator), &keys, &kvmap);
+  const InternalKeyComparator internal_comparator(options.comparator);
+  c.Finish(options, ioptions, table_options, internal_comparator, &keys,
+           &kvmap);
 
   auto* reader = c.GetTableReader();
   for (int i = 0; i < 2; ++i) {
