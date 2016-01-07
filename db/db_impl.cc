@@ -5013,12 +5013,14 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
   VersionEdit edit;
+  std::vector<FileMetaData*> deleted_files;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   {
     InstrumentedMutexLock l(&mutex_);
+    Version* input_version = cfd->current();
 
-    auto* vstorage = cfd->current()->storage_info();
-    for (int i = 0; i < cfd->NumberLevels(); i++) {
+    auto* vstorage = input_version->storage_info();
+    for (int i = 1; i < cfd->NumberLevels(); i++) {
       if (vstorage->LevelFiles(i).empty() ||
           !vstorage->OverlapInLevel(i, begin, end)) {
         continue;
@@ -5040,7 +5042,9 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
 
       vstorage->GetOverlappingInputs(i, begin_key, end_key, &level_files, -1,
                                      nullptr, false);
-      for (const auto* level_file : level_files) {
+      FileMetaData* level_file;
+      for (uint32_t j = 0; j < level_files.size(); j++) {
+        level_file = level_files[j];
         if (((begin == nullptr) ||
              (cfd->internal_comparator().user_comparator()->Compare(
                   level_file->smallest.user_key(), *begin) >= 0)) &&
@@ -5052,6 +5056,8 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
           }
           edit.SetColumnFamily(cfd->GetID());
           edit.DeleteFile(i, level_file->fd.GetNumber());
+          deleted_files.push_back(level_file);
+          level_file->being_compacted = true;
         }
       }
     }
@@ -5059,12 +5065,17 @@ Status DBImpl::DeleteFilesInRange(ColumnFamilyHandle* column_family,
       job_context.Clean();
       return Status::OK();
     }
+    input_version->Ref();
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWorkWrapper(
           cfd, &job_context, *cfd->GetLatestMutableCFOptions());
     }
+    for (auto* deleted_file : deleted_files) {
+      deleted_file->being_compacted = false;
+    }
+    input_version->Unref();
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
 
