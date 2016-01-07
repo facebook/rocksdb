@@ -55,12 +55,9 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   const SliceTransform* prefix_extractor_;
   bool whole_key_filtering_;
 
-  size_t prev_prefix_start_;        // the position of the last appended prefix
-                                    // to "entries_".
-  size_t prev_prefix_size_;         // the length of the last appended prefix to
-                                    // "entries_".
   std::string entries_;             // Flattened entry contents
   std::vector<size_t> start_;       // Starting index in entries_ of each entry
+  uint32_t added_to_start_;         // To indicate if key is added
   std::string result_;              // Filter data computed so far
   std::vector<Slice> tmp_entries_;  // policy_->CreateFilter() argument
   std::vector<uint32_t> filter_offsets_;

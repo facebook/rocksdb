@@ -19,6 +19,18 @@
 namespace rocksdb {
 
 namespace {
+bool SamePrefix(const SliceTransform* prefix_extractor, const Slice& key1,
+                const Slice& key2) {
+  if (!prefix_extractor->InDomain(key1) && !prefix_extractor->InDomain(key2)) {
+    return true;
+  } else if (!prefix_extractor->InDomain(key1) ||
+             !prefix_extractor->InDomain(key2)) {
+    return false;
+  } else {
+    return (prefix_extractor->Transform(key1) ==
+            prefix_extractor->Transform(key2));
+  }
+}
 
 void AppendItem(std::string* props, const std::string& key,
                 const std::string& value) {
@@ -65,9 +77,7 @@ BlockBasedFilterBlockBuilder::BlockBasedFilterBlockBuilder(
     const BlockBasedTableOptions& table_opt)
     : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(prefix_extractor),
-      whole_key_filtering_(table_opt.whole_key_filtering),
-      prev_prefix_start_(0),
-      prev_prefix_size_(0) {
+      whole_key_filtering_(table_opt.whole_key_filtering) {
   assert(policy_);
 }
 
@@ -80,12 +90,13 @@ void BlockBasedFilterBlockBuilder::StartBlock(uint64_t block_offset) {
 }
 
 void BlockBasedFilterBlockBuilder::Add(const Slice& key) {
-  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
-    AddPrefix(key);
-  }
-
+  added_to_start_ = 0;
   if (whole_key_filtering_) {
     AddKey(key);
+    added_to_start_ = 1;
+  }
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
+    AddPrefix(key);
   }
 }
 
@@ -99,16 +110,19 @@ inline void BlockBasedFilterBlockBuilder::AddKey(const Slice& key) {
 inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   // get slice for most recently added entry
   Slice prev;
-  if (prev_prefix_size_ > 0) {
-    prev = Slice(entries_.data() + prev_prefix_start_, prev_prefix_size_);
+  if (start_.size() > added_to_start_) {
+    size_t prev_start = start_[start_.size() - 1 - added_to_start_];
+    const char* base = entries_.data() + prev_start;
+    size_t length = entries_.size() - prev_start;
+    prev = Slice(base, length);
   }
 
-  Slice prefix = prefix_extractor_->Transform(key);
-  // insert prefix only when it's different from the previous prefix.
-  if (prev.size() == 0 || prefix != prev) {
+  // this assumes prefix(prefix(key)) == prefix(key), as the last
+  // entry in entries_ may be either a key or prefix, and we use
+  // prefix(last entry) to get the prefix of the last key.
+  if (prev.size() == 0 || !SamePrefix(prefix_extractor_, key, prev)) {
+    Slice prefix = prefix_extractor_->Transform(key);
     start_.push_back(entries_.size());
-    prev_prefix_start_ = entries_.size();
-    prev_prefix_size_ = prefix.size();
     entries_.append(prefix.data(), prefix.size());
   }
 }
@@ -154,8 +168,6 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
   tmp_entries_.clear();
   entries_.clear();
   start_.clear();
-  prev_prefix_start_ = 0;
-  prev_prefix_size_ = 0;
 }
 
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
