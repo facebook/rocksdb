@@ -1321,6 +1321,8 @@ TEST_F(BackupableDBTest, Issue921Test) {
   backupable_options_->backup_dir += "/new_dir";
 
   ASSERT_OK(BackupEngine::Open(env_, *backupable_options_, &backup_engine));
+
+  delete backup_engine;
 }
 
 }  // anon namespace
