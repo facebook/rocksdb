@@ -50,14 +50,7 @@ class EventListener;
 
 using std::unique_ptr;
 
-class ColumnFamilyHandle {
- public:
-  virtual ~ColumnFamilyHandle() {}
-  virtual const std::string& GetName() const = 0;
-  virtual uint32_t GetID() const = 0;
-};
 extern const std::string kDefaultColumnFamilyName;
-
 struct ColumnFamilyDescriptor {
   std::string name;
   ColumnFamilyOptions options;
@@ -66,6 +59,23 @@ struct ColumnFamilyDescriptor {
   ColumnFamilyDescriptor(const std::string& _name,
                          const ColumnFamilyOptions& _options)
       : name(_name), options(_options) {}
+};
+
+class ColumnFamilyHandle {
+ public:
+  virtual ~ColumnFamilyHandle() {}
+  // Returns the name of the column family associated with the current handle.
+  virtual const std::string& GetName() const = 0;
+  // Returns the ID of the column family associated with the current handle.
+  virtual uint32_t GetID() const = 0;
+  // Fills "*desc" with the up-to-date descriptor of the column family
+  // associated with this handle. Since it fills "*desc" with the up-to-date
+  // information, this call might internally lock and release DB mutex to
+  // access the up-to-date CF options.  In addition, all the pointer-typed
+  // options cannot be referenced any longer than the original options exist.
+  //
+  // Note that this function is not supported in RocksDBLite.
+  virtual Status GetDescriptor(ColumnFamilyDescriptor* desc) = 0;
 };
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;

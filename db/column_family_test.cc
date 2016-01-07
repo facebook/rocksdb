@@ -16,11 +16,12 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
+#include "util/coding.h"
+#include "util/options_parser.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/coding.h"
-#include "util/sync_point.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -146,10 +147,18 @@ class ColumnFamilyTest : public testing::Test {
     handles_.resize(cfi + cfs.size());
     names_.resize(cfi + cfs.size());
     for (size_t i = 0; i < cfs.size(); ++i) {
-      ASSERT_OK(db_->CreateColumnFamily(
-          options.size() == 0 ? column_family_options_ : options[i], cfs[i],
-          &handles_[cfi]));
+      const auto& current_cf_opt =
+          options.size() == 0 ? column_family_options_ : options[i];
+      ASSERT_OK(
+          db_->CreateColumnFamily(current_cf_opt, cfs[i], &handles_[cfi]));
       names_[cfi] = cfs[i];
+
+#ifndef ROCKSDB_LITE  // RocksDBLite does not support GetDescriptor
+      // Verify the CF options of the returned CF handle.
+      ColumnFamilyDescriptor desc;
+      ASSERT_OK(handles_[cfi]->GetDescriptor(&desc));
+      RocksDBOptionsParser::VerifyCFOptions(desc.options, current_cf_opt);
+#endif  // !ROCKSDB_LITE
       cfi++;
     }
   }

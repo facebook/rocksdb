@@ -59,6 +59,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
 
   virtual uint32_t GetID() const override;
   virtual const std::string& GetName() const override;
+  virtual Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
 
  private:
   ColumnFamilyData* cfd_;

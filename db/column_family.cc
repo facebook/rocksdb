@@ -68,6 +68,20 @@ const std::string& ColumnFamilyHandleImpl::GetName() const {
   return cfd()->GetName();
 }
 
+Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
+#ifndef ROCKSDB_LITE
+  // accessing mutable cf-options requires db mutex.
+  InstrumentedMutexLock l(mutex_);
+  *desc = ColumnFamilyDescriptor(
+      cfd()->GetName(),
+      BuildColumnFamilyOptions(*cfd()->options(),
+                               *cfd()->GetLatestMutableCFOptions()));
+  return Status::OK();
+#else
+  return Status::NotSupported();
+#endif  // !ROCKSDB_LITE
+}
+
 const Comparator* ColumnFamilyHandleImpl::user_comparator() const {
   return cfd()->user_comparator();
 }
