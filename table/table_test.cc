@@ -2281,6 +2281,88 @@ TEST_F(HarnessTest, FooterTests) {
   }
 }
 
+class PrefixTest : public testing::Test {
+ public:
+  PrefixTest() : testing::Test() {}
+  ~PrefixTest() {}
+};
+
+namespace {
+// A simple PrefixExtractor that only works for test PrefixAndWholeKeyTest
+class TestPrefixExtractor : public rocksdb::SliceTransform {
+ public:
+  ~TestPrefixExtractor() override{};
+  const char* Name() const override { return "TestPrefixExtractor"; }
+
+  rocksdb::Slice Transform(const rocksdb::Slice& src) const override {
+    assert(IsValid(src));
+    return rocksdb::Slice(src.data(), 3);
+  }
+
+  bool InDomain(const rocksdb::Slice& src) const override {
+    assert(IsValid(src));
+    return true;
+  }
+
+  bool InRange(const rocksdb::Slice& dst) const override { return true; }
+
+  bool IsValid(const rocksdb::Slice& src) const {
+    if (src.size() != 4) {
+      return false;
+    }
+    if (src[0] != '[') {
+      return false;
+    }
+    if (src[1] < '0' || src[1] > '9') {
+      return false;
+    }
+    if (src[2] != ']') {
+      return false;
+    }
+    if (src[3] < '0' || src[3] > '9') {
+      return false;
+    }
+    return true;
+  }
+};
+}  // namespace
+
+TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
+  rocksdb::Options options;
+  options.compaction_style = rocksdb::kCompactionStyleUniversal;
+  options.num_levels = 20;
+  options.create_if_missing = true;
+  options.optimize_filters_for_hits = false;
+  options.target_file_size_base = 268435456;
+  options.prefix_extractor = std::make_shared<TestPrefixExtractor>();
+  rocksdb::BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
+  bbto.block_size = 262144;
+
+  bbto.whole_key_filtering = true;
+
+  const std::string kDBPath = test::TmpDir() + "/prefix_test";
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyDB(kDBPath, options);
+  rocksdb::DB* db;
+  ASSERT_OK(rocksdb::DB::Open(options, kDBPath, &db));
+
+  // Create a bunch of keys with 10 filters.
+  for (int i = 0; i < 10; i++) {
+    std::string prefix = "[" + std::to_string(i) + "]";
+    for (int j = 0; j < 10; j++) {
+      std::string key = prefix + std::to_string(j);
+      db->Put(rocksdb::WriteOptions(), key, "1");
+    }
+  }
+
+  // Trigger compaction.
+  db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  delete db;
+  // In the second round, turn whole_key_filtering off and expect
+  // rocksdb still works.
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
