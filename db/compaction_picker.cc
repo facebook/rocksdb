@@ -919,11 +919,18 @@ Compaction* LevelCompactionPicker::PickCompaction(
   CompactionReason compaction_reason = CompactionReason::kUnknown;
 
   // Find the compactions by size on all levels.
+  bool skipped_l0 = false;
   for (int i = 0; i < NumberLevels() - 1; i++) {
     score = vstorage->CompactionScore(i);
     level = vstorage->CompactionScoreLevel(i);
     assert(i == 0 || score <= vstorage->CompactionScore(i - 1));
     if (score >= 1) {
+      if (skipped_l0 && level == vstorage->base_level()) {
+        // If L0->base_level compaction is pending, don't schedule further
+        // compaction from base level. Otherwise L0->base_level compaction
+        // may starve.
+        continue;
+      }
       output_level = (level == 0) ? vstorage->base_level() : level + 1;
       if (PickCompactionBySize(vstorage, level, output_level, &inputs,
                                &parent_index, &base_index) &&
@@ -940,6 +947,9 @@ Compaction* LevelCompactionPicker::PickCompaction(
       } else {
         // didn't find the compaction, clear the inputs
         inputs.clear();
+        if (level == 0) {
+          skipped_l0 = true;
+        }
       }
     }
   }
