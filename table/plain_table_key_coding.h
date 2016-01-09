@@ -6,6 +6,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <array>
 #include "rocksdb/slice.h"
 #include "db/dbformat.h"
 #include "table/plain_table_reader.h"
