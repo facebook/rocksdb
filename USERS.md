@@ -43,3 +43,6 @@ Airbnb is using RocksDB as a storage engine for their personalized search servic
 
 ## Pinterest
 Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
+
+## Smyte
+[Smyte](https://www.smyte.com/) uses RocksDB as the storage layer for their core key-value storage, high-performance counters and time-windowed HyperLogLog services.
