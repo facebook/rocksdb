@@ -60,6 +60,7 @@ const string LDBCommand::ARG_DB_WRITE_BUFFER_SIZE = "db_write_buffer_size";
 const string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
 const string LDBCommand::ARG_FILE_SIZE = "file_size";
 const string LDBCommand::ARG_CREATE_IF_MISSING = "create_if_missing";
+const string LDBCommand::ARG_NO_VALUE = "no_value";
 
 const char* LDBCommand::DELIM = " ==> ";
 
@@ -1743,12 +1744,13 @@ Options BatchPutCommand::PrepareOptionsForOpenDB() {
 ScanCommand::ScanCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, true,
-               BuildCmdLineOptions({ARG_TTL, ARG_HEX, ARG_KEY_HEX, ARG_TO,
+               BuildCmdLineOptions({ARG_TTL, ARG_NO_VALUE, ARG_HEX, ARG_KEY_HEX, ARG_TO,
                                     ARG_VALUE_HEX, ARG_FROM, ARG_TIMESTAMP,
                                     ARG_MAX_KEYS, ARG_TTL_START, ARG_TTL_END})),
     start_key_specified_(false),
     end_key_specified_(false),
-    max_keys_scanned_(-1) {
+    max_keys_scanned_(-1),
+    no_value_(false) {
 
   map<string, string>::const_iterator itr = options.find(ARG_FROM);
   if (itr != options.end()) {
@@ -1765,6 +1767,11 @@ ScanCommand::ScanCommand(const vector<string>& params,
       end_key_ = HexToString(end_key_);
     }
     end_key_specified_ = true;
+  }
+
+  vector<string>::const_iterator vitr = std::find(flags.begin(), flags.end(), ARG_NO_VALUE);
+  if (vitr != flags.end()) {
+    no_value_ = true;
   }
 
   itr = options.find(ARG_MAX_KEYS);
@@ -1794,6 +1801,7 @@ void ScanCommand::Help(string& ret) {
   ret.append(" [--" + ARG_MAX_KEYS + "=<N>q] ");
   ret.append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
   ret.append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
+  ret.append(" [--" + ARG_NO_VALUE + "]");
   ret.append("\n");
 }
 
@@ -1850,16 +1858,21 @@ void ScanCommand::DoCommand() {
       key_slice = formatted_key;
     }
 
-    std::string formatted_value;
-    if (is_value_hex_) {
-      formatted_value = "0x" + val_slice.ToString(true /* hex */);
-      val_slice = formatted_value;
+    if (no_value_) {
+        fprintf(stdout, "%.*s\n",
+            static_cast<int>(key_slice.size()), key_slice.data());
+    } else {
+        Slice val_slice = it->value();
+        std::string formatted_value;
+        if (is_value_hex_) {
+          formatted_value = "0x" + val_slice.ToString(true /* hex */);
+          val_slice = formatted_value;
+        }
+        fprintf(stdout, "%.*s : %.*s\n",
+            static_cast<int>(key_slice.size()), key_slice.data(),
+            static_cast<int>(val_slice.size()), val_slice.data());
     }
-
-    fprintf(stdout, "%.*s : %.*s\n",
-        static_cast<int>(key_slice.size()), key_slice.data(),
-        static_cast<int>(val_slice.size()), val_slice.data());
-
+    
     num_keys_scanned++;
     if (max_keys_scanned_ >= 0 && num_keys_scanned >= max_keys_scanned_) {
       break;

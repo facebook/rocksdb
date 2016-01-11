@@ -60,6 +60,7 @@ public:
   static const string ARG_WRITE_BUFFER_SIZE;
   static const string ARG_FILE_SIZE;
   static const string ARG_CREATE_IF_MISSING;
+  static const string ARG_NO_VALUE;
 
   static LDBCommand* InitFromCmdLineArgs(
     const vector<string>& args,
@@ -377,7 +378,7 @@ private:
    */
   bool StringToBool(string val) {
     std::transform(val.begin(), val.end(), val.begin(),
-                   [](char ch) -> char { return ::tolower(ch); });
+                   [](char ch) -> char { return (char)::tolower(ch); });
 
     if (val == "true") {
       return true;
@@ -709,6 +710,7 @@ private:
   bool start_key_specified_;
   bool end_key_specified_;
   int max_keys_scanned_;
+  bool no_value_;
 };
 
 class DeleteCommand : public LDBCommand {
