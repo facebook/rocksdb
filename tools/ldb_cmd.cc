@@ -1847,7 +1847,6 @@ void ScanCommand::DoCommand() {
     }
 
     Slice key_slice = it->key();
-    Slice val_slice = it->value();
 
     std::string formatted_key;
     if (is_key_hex_) {
