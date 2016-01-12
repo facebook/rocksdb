@@ -94,20 +94,9 @@ class IteratorWrapper {
     return iters_pinned_ && iter_->IsKeyPinned();
   }
 
-  void DeletePinnedIterators(bool is_arena_mode) {
-    for (auto it : pinned_iters_) {
-      if (!is_arena_mode) {
-        delete it;
-      } else {
-        it->~InternalIterator();
-      }
-    }
-    pinned_iters_.clear();
-  }
-
   void DeleteIter(bool is_arena_mode) {
-    if (iter_) {
-      pinned_iters_.insert(iter_);
+    if (iter_ && pinned_iters_.find(iter_) == pinned_iters_.end()) {
+      DestroyIterator(iter_, is_arena_mode);
     }
     DeletePinnedIterators(is_arena_mode);
   }
@@ -129,6 +118,21 @@ class IteratorWrapper {
     valid_ = iter_->Valid();
     if (valid_) {
       key_ = iter_->key();
+    }
+  }
+
+  void DeletePinnedIterators(bool is_arena_mode) {
+    for (auto it : pinned_iters_) {
+      DestroyIterator(it, is_arena_mode);
+    }
+    pinned_iters_.clear();
+  }
+
+  inline void DestroyIterator(InternalIterator* it, bool is_arena_mode) {
+    if (!is_arena_mode) {
+      delete it;
+    } else {
+      it->~InternalIterator();
     }
   }
 
