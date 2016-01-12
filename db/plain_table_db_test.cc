@@ -68,7 +68,7 @@ TEST_F(PlainTableKeyDecoderTest, ReadNonMmap) {
       ASSERT_EQ(0, out.compare(tmp.substr(pos, read_size)));
     }
 
-    ASSERT_LT(string_source->total_reads(), kLength / kReadSize / 2);
+    ASSERT_LT(uint32_t(string_source->total_reads()), kLength / kReadSize / 2);
   }
 
   std::vector<std::vector<std::pair<uint32_t, uint32_t>>> reads = {
