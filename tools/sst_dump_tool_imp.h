@@ -7,33 +7,10 @@
 
 #include "rocksdb/sst_dump_tool.h"
 
-#include <map>
-#include <sstream>
+#include <memory>
 #include <string>
-#include <vector>
-
 #include "db/dbformat.h"
-#include "db/memtable.h"
-#include "db/write_batch_internal.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/immutable_options.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/slice_transform.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table_properties.h"
-#include "table/block.h"
-#include "table/block_based_table_builder.h"
-#include "table/block_based_table_factory.h"
-#include "table/block_builder.h"
-#include "table/format.h"
-#include "table/meta_blocks.h"
-#include "table/plain_table_factory.h"
-#include "tools/ldb_cmd.h"
 #include "util/file_reader_writer.h"
-#include "util/random.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 
