@@ -1161,11 +1161,10 @@ jtest: rocksdbjava
 jdb_bench:
 	cd java;$(MAKE) db_bench;
 
-commit-prereq:
-	$(MAKE) clean && $(MAKE) all check;
+commit_prereq: build_tools/rocksdb-lego-determinator \
+               build_tools/precommit_checker.py
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
-	$(MAKE) clean && USE_CLANG=1 $(MAKE) all;
-	$(MAKE) clean && OPT=-DROCKSDB_LITE $(MAKE) static_lib;
+	build_tools/precommit_checker.py unit uint_481 clang_unit tsan asan lite
 
 xfunc:
 	for xftest in $(XFUNC_TESTS); do \
