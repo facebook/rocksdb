@@ -16,6 +16,8 @@
 // in fact, we could use that one
 #define ROCKSDB_PRIszt "zu"
 
+#define __declspec(S)
+
 #define ROCKSDB_NOEXCEPT noexcept
 
 #undef PLATFORM_IS_LITTLE_ENDIAN

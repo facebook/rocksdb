@@ -245,7 +245,7 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 static inline void AsmVolatilePause() {
 #if defined(_M_IX86) || defined(_M_X64)
-  ::_mm_pause();
+  YieldProcessor();
 #endif
   // it would be nice to get "wfe" on ARM here
 }
