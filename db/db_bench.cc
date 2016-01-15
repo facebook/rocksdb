@@ -2262,6 +2262,7 @@ class Benchmark {
 
     // Compress 1G
     while (ok && bytes < int64_t(1) << 30) {
+      compressed.clear();
       ok = CompressSlice(input, &compressed);
       produced += compressed.size();
       bytes += input.size();
