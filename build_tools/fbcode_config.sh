@@ -43,9 +43,9 @@ if test -z $PIC_BUILD; then
   LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/6858fac689e0f92e584224d91bdb0e39f6c8320d/r131/gcc-4.9-glibc-2.20/e9936bf/lib/liblz4.a"
   CFLAGS+=" -DLZ4"
 
-  ZSTD_REV=810b81b4705def5243e998b54701f3c504e4009e
-  ZSTD_INCLUDE=" -I /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.4.2/gcc-4.8.1-glibc-2.17/c3f970a/include"
-  ZSTD_LIBS=" /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.4.2/gcc-4.8.1-glibc-2.17/c3f970a/lib/libzstd.a"
+  ZSTD_REV=d4ac2c5f9be76d57a6cbd3eb1011e97574a56cde
+  ZSTD_INCLUDE=" -I /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.4.5/gcc-4.8.1-glibc-2.17/c3f970a/include"
+  ZSTD_LIBS=" /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.4.5/gcc-4.8.1-glibc-2.17/c3f970a/lib/libzstd.a"
   CFLAGS+=" -DZSTD"
 fi
 
@@ -92,12 +92,12 @@ if [ -z "$USE_CLANG" ]; then
   # gcc
   CC="$GCC_BASE/bin/gcc"
   CXX="$GCC_BASE/bin/g++"
-  
+
   CFLAGS+=" -B$BINUTILS/gold"
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
-  # clang 
+  # clang
   CLANG_INCLUDE="$CLANG_BASE/gcc-4.9-glibc-2.20/74c386f/lib/clang/dev/include/"
   CC="$CLANG_BIN/clang"
   CXX="$CLANG_BIN/clang++"
