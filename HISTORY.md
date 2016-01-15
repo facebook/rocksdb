@@ -1,6 +1,6 @@
 # Rocksdb Change Log
 
-## Unreleased
+## 4.4.0 (1/14/2016)
 ### Public API Changes
 * Change names in CompactionPri and add a new one.
 * Deprecate options.soft_rate_limit and add options.soft_pending_compaction_bytes_limit.
