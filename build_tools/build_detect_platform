@@ -322,6 +322,18 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
     fi
+
+    # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <pthread.h>
+      int main() {
+        int x = PTHREAD_MUTEX_ADAPTIVE_NP;
+        return 0;
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_PTHREAD_ADAPTIVE_MUTEX"
+    fi
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
