@@ -84,8 +84,10 @@ endif
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
 OPT += -O2 -fno-omit-frame-pointer
-ifneq ($(MACHINE),ppc64) # ppc64 doesn't support -momit-leaf-frame-pointer
+ifneq ($(MACHINE),ppc64) # ppc64 and armv7l doesn't support -momit-leaf-frame-pointer
+ifneq ($(MACHINE),armv7l)
 OPT += -momit-leaf-frame-pointer
+endif
 endif
 endif
 
