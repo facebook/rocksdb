@@ -46,3 +46,6 @@ Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtub
 
 ## Smyte
 [Smyte](https://www.smyte.com/) uses RocksDB as the storage layer for their core key-value storage, high-performance counters and time-windowed HyperLogLog services.
+
+## Rakuten Marketing
+[Rakuten Marketing](https://marketing.rakuten.com/) uses RocksDB as the disk cache layer for the real-time bidding service in their Performance DSP.
