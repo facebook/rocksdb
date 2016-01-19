@@ -359,7 +359,13 @@ if test "$USE_SSE"; then
   # if Intel SSE instruction set is supported, set USE_SSE=1
   COMMON_FLAGS="$COMMON_FLAGS -msse -msse4.2 "
 elif test -z "$PORTABLE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -march=native "
+  if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
+    # Tune for this POWER processor, treating '+' models as base models
+    POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
+    COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
+  else
+    COMMON_FLAGS="$COMMON_FLAGS -march=native "
+  fi
 fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
