@@ -12,6 +12,7 @@
 #endif
 
 #include <cctype>
+#include <cstring>
 #include <unordered_map>
 #include <inttypes.h>
 
@@ -1474,6 +1475,112 @@ TEST_F(OptionsParserTest, EscapeOptionString) {
             "Escape \\# and");
 }
 
+// Only run OptionsParserTest.BlockBasedTableOptionsAdded on limited platforms
+// as it depends on behavior of compilers.
+#ifdef OS_LINUX
+const char kSpecialChar = 'R';
+// Items in the form of <offset, size>. Need to be in ascending order
+// and not overlapping. Need to updated if new pointer-option is added.
+const std::vector<std::pair<int, size_t>> kBbtoBlacklist = {
+    {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
+     sizeof(std::shared_ptr<FlushBlockPolicyFactory>)},
+    {offsetof(struct BlockBasedTableOptions, block_cache),
+     sizeof(std::shared_ptr<Cache>)},
+    {offsetof(struct BlockBasedTableOptions, block_cache_compressed),
+     sizeof(std::shared_ptr<Cache>)},
+    {offsetof(struct BlockBasedTableOptions, filter_policy),
+     sizeof(std::shared_ptr<const FilterPolicy>)},
+};
+
+void FillWithSpecialChar(char* start_ptr) {
+  int offset = 0;
+  for (auto& pair : kBbtoBlacklist) {
+    std::memset(start_ptr + offset, kSpecialChar, pair.first - offset);
+    offset = pair.first + pair.second;
+  }
+  std::memset(start_ptr + offset, kSpecialChar,
+              sizeof(BlockBasedTableOptions) - offset);
+}
+
+int NumUnsetBytes(char* start_ptr) {
+  int total_unset_bytes_base = 0;
+
+  int offset = 0;
+  for (auto& pair : kBbtoBlacklist) {
+    for (char* ptr = start_ptr + offset; ptr < start_ptr + pair.first; ptr++) {
+      if (*ptr == kSpecialChar) {
+        total_unset_bytes_base++;
+      }
+      offset = pair.first + pair.second;
+    }
+  }
+  for (char* ptr = start_ptr + offset;
+       ptr < start_ptr + sizeof(BlockBasedTableOptions); ptr++) {
+    if (*ptr == kSpecialChar) {
+      total_unset_bytes_base++;
+    }
+  }
+  return total_unset_bytes_base;
+}
+
+TEST_F(OptionsParserTest, BlockBasedTableOptionsAllFieldsSettable) {
+  // In this test, we catch a new option of BlockBasedTableOptions that is not
+  // settable through GetBlockBasedTableOptionsFromString().
+  // We count padding bytes of the option struct, and assert it to be the same
+  // as unset bytes of an option struct initialized by
+  // GetBlockBasedTableOptionsFromString().
+
+  char* bbto_ptr = new char[sizeof(BlockBasedTableOptions)];
+
+  // Count padding bytes by setting all bytes in the memory to a special char,
+  // copy a well constructed struct to this memory and see how many special
+  // bytes left.
+  BlockBasedTableOptions* bbto = new (bbto_ptr) BlockBasedTableOptions();
+  FillWithSpecialChar(bbto_ptr);
+  // It based on the behavior of compiler that padding bytes are not changed
+  // when copying the struct. It's prone to failure when compiler behavior
+  // changes. We verify there is unset bytes to detect the case.
+  *bbto = BlockBasedTableOptions();
+  int unset_bytes_base = NumUnsetBytes(bbto_ptr);
+  ASSERT_GT(unset_bytes_base, 0);
+  bbto->~BlockBasedTableOptions();
+
+  // Construct the base option passed into
+  // GetBlockBasedTableOptionsFromString().
+  FillWithSpecialChar(bbto_ptr);
+  // This option is not setable:
+  bbto->use_delta_encoding = true;
+
+  char* new_bbto_ptr = new char[sizeof(BlockBasedTableOptions)];
+  BlockBasedTableOptions* new_bbto =
+      new (new_bbto_ptr) BlockBasedTableOptions();
+  FillWithSpecialChar(new_bbto_ptr);
+
+  // Need to update the option string if a new option is added.
+  GetBlockBasedTableOptionsFromString(
+      *bbto,
+      "cache_index_and_filter_blocks=1;index_type=kHashSearch;"
+      "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
+      "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
+      "block_size_deviation=8;block_restart_interval=4;"
+      "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
+      "skip_table_builder_flush=1;format_version=1;"
+      "hash_index_allow_collision=false;",
+      new_bbto);
+
+  ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_bbto_ptr));
+
+  ASSERT_TRUE(new_bbto->block_cache.get() != nullptr);
+  ASSERT_TRUE(new_bbto->block_cache_compressed.get() != nullptr);
+  ASSERT_TRUE(new_bbto->filter_policy.get() != nullptr);
+
+  bbto->~BlockBasedTableOptions();
+  new_bbto->~BlockBasedTableOptions();
+
+  delete[] bbto_ptr;
+  delete[] new_bbto_ptr;
+}
+#endif  // OS_LINUX
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
