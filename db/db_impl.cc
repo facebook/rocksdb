@@ -15,6 +15,7 @@
 
 #include <inttypes.h>
 #include <stdint.h>
+#include <alloca.h>
 
 #include <algorithm>
 #include <climits>

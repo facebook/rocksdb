@@ -7,6 +7,8 @@
 #include <algorithm>
 #include "rocksdb/options.h"
 
+using std::log;
+
 namespace rocksdb {
 
 namespace {

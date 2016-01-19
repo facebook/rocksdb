@@ -20,6 +20,7 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+#include <alloca.h>
 
 #include "db/filename.h"
 #include "db/dbformat.h"

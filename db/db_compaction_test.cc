@@ -1898,7 +1898,7 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
     std::set<std::string> overlapping_file_names;
     std::vector<std::string> compaction_input_file_names;
     for (int f = 0; f < file_picked; ++f) {
-      int level;
+      int level = 0;
       auto file_meta = PickFileRandomly(cf_meta, &rnd, &level);
       compaction_input_file_names.push_back(file_meta->name);
       GetOverlappingFileNumbersForLevelCompaction(

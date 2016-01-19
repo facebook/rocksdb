@@ -143,6 +143,9 @@ else
 OPT += -DNDEBUG
 endif
 
+ifeq ($(PLATFORM), OS_SOLARIS)
+	PLATFORM_CXXFLAGS += -D _GLIBCXX_USE_C99
+endif
 ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	# found
 	CFLAGS += -fno-exceptions
@@ -1036,7 +1039,11 @@ install: install-static
 # ---------------------------------------------------------------------------
 
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
-ARCH := $(shell getconf LONG_BIT)
+ifeq ($(PLATFORM), OS_SOLARIS)
+	ARCH := $(shell isainfo -b)
+else
+	ARCH := $(shell getconf LONG_BIT)
+endif
 ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
@@ -1044,13 +1051,18 @@ ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PA
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
 
 ifeq ($(PLATFORM), OS_MACOSX)
-ROCKSDBJNILIB = librocksdbjni-osx.jnilib
-ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
+	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I $(JAVA_HOME)/include/darwin
 else
 	JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
+endif
+ifeq ($(PLATFORM), OS_SOLARIS)
+	ROCKSDBJNILIB = librocksdbjni-solaris$(ARCH).so
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
 endif
 
 libz.a:

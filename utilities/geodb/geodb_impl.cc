@@ -19,6 +19,9 @@
 #include "util/coding.h"
 #include "util/string_util.h"
 
+using std::log;
+using std::floor;
+
 //
 // There are two types of keys. The first type of key-values
 // maps a geo location to the set of object ids and their values.
