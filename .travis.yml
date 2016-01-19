@@ -38,6 +38,4 @@ script:
 
 notifications:
     email:
-      - leveldb@fb.com
-    webhooks:
-      - https://buildtimetrend.herokuapp.com/travis
+      - davidbernard@optushome.com.au
