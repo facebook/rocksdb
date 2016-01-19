@@ -758,7 +758,7 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
 
   if (current_num_samples_ < file_count) {
     // casting to avoid overflowing
-    return 
+    return
       static_cast<uint64_t>(
         (est * static_cast<double>(file_count) / current_num_samples_)
       );
@@ -2282,7 +2282,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
         "Error in committing version %lu to [%s]",
         (unsigned long)v->GetVersionNumber(),
-        column_family_data->GetName().c_str());
+        column_family_data ? column_family_data->GetName().c_str()
+                           : "<null>");
     delete v;
     if (new_descriptor_log) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
