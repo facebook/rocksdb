@@ -236,7 +236,7 @@ def whitebox_crash_main(args):
 
     total_check_mode = 4
     check_mode = 0
-    kill_random_test = 97
+    kill_random_test = 888887
     kill_mode = 0
 
     while time.time() < exit_time:
@@ -255,13 +255,13 @@ def whitebox_crash_main(args):
                 })
             elif kill_mode == 1:
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 2 + 1),
+                    "kill_random_test": (kill_random_test / 10 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     + "WritableFileWriter::WriteBuffered",
                 })
             elif kill_mode == 2:
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 4 + 1),
+                    "kill_random_test": (kill_random_test / 5000 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     "WritableFileWriter::WriteBuffered,"
                     "PosixMmapFile::Allocate,WritableFileWriter::Flush",
