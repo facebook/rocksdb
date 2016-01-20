@@ -18,6 +18,10 @@ public class Environment {
         OS.contains("aix"));
   }
 
+  public static boolean isSolaris() {
+     return OS.contains("sunos");
+  }
+
   public static boolean is64Bit() {
     return (ARCH.indexOf("64") > 0);
   }
@@ -36,7 +40,9 @@ public class Environment {
       return String.format("%sjni-linux%s", name, arch);
     } else if (isMac()) {
       return String.format("%sjni-osx", name);
-    }
+    } else if (isSolaris()) {
+      return String.format("%sjni-solaris%d", name, is64Bit() ? 64 : 32);
+    } 
     throw new UnsupportedOperationException();
   }
 
@@ -45,7 +51,7 @@ public class Environment {
   }
 
   private static String appendLibOsSuffix(final String libraryFileName, final boolean shared) {
-    if (isUnix()) {
+    if (isUnix() || isSolaris()) {
       return libraryFileName + ".so";
     } else if (isMac()) {
       return libraryFileName + (shared ? ".dylib" : ".jnilib");

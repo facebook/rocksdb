@@ -15,6 +15,9 @@
 
 #include <inttypes.h>
 #include <stdint.h>
+#ifdef OS_SOLARIS
+#include <alloca.h>
+#endif
 
 #include <algorithm>
 #include <climits>

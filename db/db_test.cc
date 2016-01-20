@@ -20,6 +20,9 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+#ifdef OS_SOLARIS
+#include <alloca.h>
+#endif
 
 #include "db/filename.h"
 #include "db/dbformat.h"
