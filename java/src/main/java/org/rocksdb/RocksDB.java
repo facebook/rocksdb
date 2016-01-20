@@ -179,9 +179,7 @@ public class RocksDB extends RocksObject {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
-    RocksDB db = new RocksDB();
-    db.open(options.nativeHandle_, path);
-
+    final RocksDB db = new RocksDB(open(options.nativeHandle_, path));
     db.storeOptionsInstance(options);
     return db;
   }
@@ -225,13 +223,23 @@ public class RocksDB extends RocksObject {
       final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       final List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
-    RocksDB db = new RocksDB();
-    List<Long> cfReferences = db.open(options.nativeHandle_, path,
-        columnFamilyDescriptors, columnFamilyDescriptors.size());
+
+    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
+    final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(db, cfReferences.get(i)));
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
+      cfNames[i] = cfDescriptor.columnFamilyName();
+      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
     }
+
+    final long[] handles = open(options.nativeHandle_, path, cfNames, cfOptionHandles);
+    final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
+
+    for (int i = 1; i < handles.length; i++) {
+      columnFamilyHandles.add(new ColumnFamilyHandle(db, handles[i]));
+    }
+
     return db;
   }
 
@@ -276,7 +284,7 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
-    DBOptions options = new DBOptions();
+    final DBOptions options = new DBOptions();
     return openReadOnly(options, path, columnFamilyDescriptors,
         columnFamilyHandles);
   }
@@ -303,9 +311,7 @@ public class RocksDB extends RocksObject {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
-    RocksDB db = new RocksDB();
-    db.openROnly(options.nativeHandle_, path);
-
+    final RocksDB db = new RocksDB(openROnly(options.nativeHandle_, path));
     db.storeOptionsInstance(options);
     return db;
   }
@@ -339,14 +345,23 @@ public class RocksDB extends RocksObject {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
-    RocksDB db = new RocksDB();
-    List<Long> cfReferences = db.openROnly(options.nativeHandle_, path,
-        columnFamilyDescriptors, columnFamilyDescriptors.size());
-    for (int i=0; i<columnFamilyDescriptors.size(); i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(db, cfReferences.get(i)));
+
+    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
+    final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
+      cfNames[i] = cfDescriptor.columnFamilyName();
+      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
     }
 
+    final long[] handles = openROnly(options.nativeHandle_, path, cfNames, cfOptionHandles);
+    final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
+
+    for (int i = 1; i < handles.length; i++) {
+      columnFamilyHandles.add(new ColumnFamilyHandle(db, handles[i]));
+    }
+
     return db;
   }
   /**
@@ -367,13 +382,6 @@ public class RocksDB extends RocksObject {
 
   private void storeOptionsInstance(DBOptionsInterface options) {
     options_ = options;
-  }
-
-  @Override protected void disposeInternal() {
-    synchronized (this) {
-      assert (isInitialized());
-      disposeInternal(nativeHandle_);
-    }
   }
 
   /**
@@ -1310,7 +1318,7 @@ public class RocksDB extends RocksObject {
     // throws RocksDBException if something goes wrong
     dropColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_);
     // After the drop the native handle is not valid anymore
-    columnFamilyHandle.nativeHandle_ = 0;
+    columnFamilyHandle.disOwnNativeHandle();
   }
 
   /**
@@ -1672,26 +1680,53 @@ public class RocksDB extends RocksObject {
 
   /**
    * Private constructor.
+   *
+   * @param nativeHandle The native handle of the C++ RocksDB object
    */
-  protected RocksDB() {
-    super();
+  protected RocksDB(final long nativeHandle) {
+    super(nativeHandle);
   }
 
   // native methods
-  protected native void open(
-      long optionsHandle, String path) throws RocksDBException;
-  protected native List<Long> open(long optionsHandle, String path,
-      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      int columnFamilyDescriptorsLength)
-      throws RocksDBException;
+  protected native static long open(final long optionsHandle,
+      final String path) throws RocksDBException;
+
+  /**
+   * @param optionsHandle Native handle pointing to an Options object
+   * @param path The directory path for the database files
+   * @param columnFamilyNames An array of column family names
+   * @param columnFamilyOptions An array of native handles pointing to ColumnFamilyOptions objects
+   *
+   * @return An array of native handles, [0] is the handle of the RocksDB object
+   *   [1..1+n] are handles of the ColumnFamilyReferences
+   *
+   * @throws RocksDBException thrown if the database could not be opened
+   */
+  protected native static long[] open(final long optionsHandle,
+      final String path, final byte[][] columnFamilyNames,
+      final long[] columnFamilyOptions) throws RocksDBException;
+
+  protected native static long openROnly(final long optionsHandle,
+      final String path) throws RocksDBException;
+
+  /**
+   * @param optionsHandle Native handle pointing to an Options object
+   * @param path The directory path for the database files
+   * @param columnFamilyNames An array of column family names
+   * @param columnFamilyOptions An array of native handles pointing to ColumnFamilyOptions objects
+   *
+   * @return An array of native handles, [0] is the handle of the RocksDB object
+   *   [1..1+n] are handles of the ColumnFamilyReferences
+   *
+   * @throws RocksDBException thrown if the database could not be opened
+   */
+  protected native static long[] openROnly(final long optionsHandle,
+      final String path, final byte[][] columnFamilyNames,
+      final long[] columnFamilyOptions
+  ) throws RocksDBException;
+
   protected native static List<byte[]> listColumnFamilies(
       long optionsHandle, String path) throws RocksDBException;
-  protected native void openROnly(
-      long optionsHandle, String path) throws RocksDBException;
-  protected native List<Long> openROnly(
-      long optionsHandle, String path,
-      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      int columnFamilyDescriptorsLength) throws RocksDBException;
   protected native void put(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
@@ -1793,7 +1828,7 @@ public class RocksDB extends RocksObject {
   protected native long getSnapshot(long nativeHandle);
   protected native void releaseSnapshot(
       long nativeHandle, long snapshotHandle);
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
   private native long getDefaultColumnFamily(long handle);
   private native long createColumnFamily(long handle,
       ColumnFamilyDescriptor columnFamilyDescriptor) throws RocksDBException;

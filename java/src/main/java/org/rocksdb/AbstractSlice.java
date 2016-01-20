@@ -24,7 +24,15 @@ package org.rocksdb;
  *   C++ BaseComparatorJniCallback subclass, which in turn destroys the
  *   Java @see org.rocksdb.AbstractSlice subclass Objects.
  */
-abstract class AbstractSlice<T> extends RocksObject {
+abstract class AbstractSlice<T> extends RocksMutableObject {
+
+  protected AbstractSlice() {
+    super();
+  }
+
+  protected AbstractSlice(final long nativeHandle) {
+    super(nativeHandle);
+  }
 
   /**
    * Returns the data of the slice.
@@ -34,7 +42,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    *   @see org.rocksdb.AbstractSlice#data0(long)
    */
   public T data() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     return data0(nativeHandle_);
   }
 
@@ -56,7 +64,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    * @return The length in bytes.
    */
   public int size() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     return size0(nativeHandle_);
   }
 
@@ -67,7 +75,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    * @return true if there is no data, false otherwise.
    */
   public boolean empty() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     return empty0(nativeHandle_);
   }
 
@@ -80,7 +88,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    * @return The string representation of the data.
    */
   public String toString(final boolean hex) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     return toString0(nativeHandle_, hex);
   }
 
@@ -101,7 +109,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    */
   public int compare(final AbstractSlice<?> other) {
     assert (other != null);
-    assert (isInitialized());
+    assert (isOwningHandle());
     return compare0(nativeHandle_, other.nativeHandle_);
   }
 
@@ -141,12 +149,19 @@ abstract class AbstractSlice<T> extends RocksObject {
    */
   public boolean startsWith(final AbstractSlice<?> prefix) {
     if (prefix != null) {
-      assert (isInitialized());
+      assert (isOwningHandle());
       return startsWith0(nativeHandle_, prefix.nativeHandle_);
     } else {
       return false;
     }
   }
+
+  protected native static long createNewSliceFromString(final String str);
+  private native int size0(long handle);
+  private native boolean empty0(long handle);
+  private native String toString0(long handle, boolean hex);
+  private native int compare0(long handle, long otherHandle);
+  private native boolean startsWith0(long handle, long otherHandle);
 
   /**
    * Deletes underlying C++ slice pointer.
@@ -155,17 +170,6 @@ abstract class AbstractSlice<T> extends RocksObject {
    * Otherwise an undefined behavior will occur.
    */
   @Override
-  protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  protected native void createNewSliceFromString(String str);
-  private native int size0(long handle);
-  private native boolean empty0(long handle);
-  private native String toString0(long handle, boolean hex);
-  private native int compare0(long handle, long otherHandle);
-  private native boolean startsWith0(long handle, long otherHandle);
-  private native void disposeInternal(long handle);
+  protected final native void disposeInternal(final long handle);
 
 }

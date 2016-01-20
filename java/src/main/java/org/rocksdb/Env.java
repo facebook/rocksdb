@@ -70,8 +70,8 @@ public abstract class Env extends RocksObject {
   }
 
 
-  protected Env() {
-    super();
+  protected Env(final long nativeHandle) {
+    super(nativeHandle);
   }
 
   static {

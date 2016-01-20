@@ -13,6 +13,10 @@ package org.rocksdb;
 public abstract class AbstractCompactionFilter<T extends AbstractSlice<?>>
     extends RocksObject {
 
+  protected AbstractCompactionFilter(final long nativeHandle) {
+    super(nativeHandle);
+  }
+
   /**
    * Deletes underlying C++ comparator pointer.
    *
@@ -20,10 +24,6 @@ public abstract class AbstractCompactionFilter<T extends AbstractSlice<?>>
    * RocksDB instances referencing the comparator are closed.
    * Otherwise an undefined behavior will occur.
    */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  private native void disposeInternal(long handle);
+  @Override
+  protected final native void disposeInternal(final long handle);
 }

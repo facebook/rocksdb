@@ -12,14 +12,13 @@ package org.rocksdb;
 public class ColumnFamilyHandle extends RocksObject {
   ColumnFamilyHandle(final RocksDB rocksDB,
       final long nativeHandle) {
-    super();
-    nativeHandle_ = nativeHandle;
+    super(nativeHandle);
     // rocksDB must point to a valid RocksDB instance;
     assert(rocksDB != null);
     // ColumnFamilyHandle must hold a reference to the related RocksDB instance
     // to guarantee that while a GC cycle starts ColumnFamilyHandle instances
     // are freed prior to RocksDB instances.
-    rocksDB_ = rocksDB;
+    this.rocksDB_ = rocksDB;
   }
 
   /**
@@ -30,16 +29,14 @@ public class ColumnFamilyHandle extends RocksObject {
    * Therefore {@code disposeInternal()} checks if the RocksDB is initialized
    * before freeing the native handle.</p>
    */
-  @Override protected void disposeInternal() {
-    synchronized (rocksDB_) {
-      assert (isInitialized());
-      if (rocksDB_.isInitialized()) {
-        disposeInternal(nativeHandle_);
-      }
+  @Override
+  protected void disposeInternal() {
+    if(rocksDB_.isOwningHandle()) {
+      disposeInternal(nativeHandle_);
     }
   }
 
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
 
   private final RocksDB rocksDB_;
 }

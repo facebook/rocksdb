@@ -27,14 +27,13 @@
 /*
  * Class:     org_rocksdb_WriteBatch
  * Method:    newWriteBatch
- * Signature: (I)V
+ * Signature: (I)J
  */
-void Java_org_rocksdb_WriteBatch_newWriteBatch(
-    JNIEnv* env, jobject jobj, jint jreserved_bytes) {
+jlong Java_org_rocksdb_WriteBatch_newWriteBatch(
+    JNIEnv* env, jclass jcls, jint jreserved_bytes) {
   rocksdb::WriteBatch* wb = new rocksdb::WriteBatch(
       static_cast<size_t>(jreserved_bytes));
-
-  rocksdb::WriteBatchJni::setHandle(env, jobj, wb);
+  return reinterpret_cast<jlong>(wb);
 }
 
 /*
@@ -218,13 +217,13 @@ void Java_org_rocksdb_WriteBatch_disposeInternal(
 /*
  * Class:     org_rocksdb_WriteBatch_Handler
  * Method:    createNewHandler0
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(
+jlong Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(
     JNIEnv* env, jobject jobj) {
   const rocksdb::WriteBatchHandlerJniCallback* h =
     new rocksdb::WriteBatchHandlerJniCallback(env, jobj);
-  rocksdb::WriteBatchHandlerJni::setHandle(env, jobj, h);
+  return reinterpret_cast<jlong>(h);
 }
 
 /*

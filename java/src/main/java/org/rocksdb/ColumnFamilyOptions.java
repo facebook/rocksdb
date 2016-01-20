@@ -29,8 +29,7 @@ public class ColumnFamilyOptions extends RocksObject
    * an {@code rocksdb::DBOptions} in the c++ side.
    */
   public ColumnFamilyOptions() {
-    super();
-    newColumnFamilyOptions();
+    super(newColumnFamilyOptions());
   }
 
   /**
@@ -114,7 +113,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setComparator(final BuiltinComparator builtinComparator) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setComparatorHandle(nativeHandle_, builtinComparator.ordinal());
     return this;
   }
@@ -122,15 +121,15 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
-    assert (isInitialized());
-    setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
+    assert (isOwningHandle());
+    setComparatorHandle(nativeHandle_, comparator.getNativeHandle());
     comparator_ = comparator;
     return this;
   }
 
   @Override
   public ColumnFamilyOptions setMergeOperatorName(final String name) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     if (name == null) {
       throw new IllegalArgumentException(
           "Merge operator name must not be null.");
@@ -154,28 +153,28 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
     return this;
   }
 
   @Override
   public long writeBufferSize()  {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return writeBufferSize(nativeHandle_);
   }
 
   @Override
   public ColumnFamilyOptions setMaxWriteBufferNumber(
       final int maxWriteBufferNumber) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxWriteBufferNumber(nativeHandle_, maxWriteBufferNumber);
     return this;
   }
 
   @Override
   public int maxWriteBufferNumber() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxWriteBufferNumber(nativeHandle_);
   }
 
@@ -193,14 +192,14 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions useFixedLengthPrefixExtractor(final int n) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     useFixedLengthPrefixExtractor(nativeHandle_, n);
     return this;
   }
 
   @Override
   public ColumnFamilyOptions useCappedPrefixExtractor(final int n) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     useCappedPrefixExtractor(nativeHandle_, n);
     return this;
   }
@@ -485,7 +484,7 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions setMaxTableFilesSizeFIFO(
       final long maxTableFilesSize) {
     assert(maxTableFilesSize > 0); // unsigned native type
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxTableFilesSizeFIFO(nativeHandle_, maxTableFilesSize);
     return this;
   }
@@ -542,7 +541,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public String memTableFactoryName() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return memTableFactoryName(nativeHandle_);
   }
 
@@ -556,7 +555,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public String tableFactoryName() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return tableFactoryName(nativeHandle_);
   }
 
@@ -656,30 +655,20 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
-   * Release the memory allocated for the current instance
-   * in the c++ side.
-   */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  /**
    * <p>Private constructor to be used by
    * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
    *
    * @param handle native handle to ColumnFamilyOptions instance.
    */
   private ColumnFamilyOptions(final long handle) {
-    super();
-    nativeHandle_ = handle;
+    super(handle);
   }
 
   private static native long getColumnFamilyOptionsFromProps(
       String optString);
 
-  private native void newColumnFamilyOptions();
-  private native void disposeInternal(long handle);
+  private static native long newColumnFamilyOptions();
+  @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);

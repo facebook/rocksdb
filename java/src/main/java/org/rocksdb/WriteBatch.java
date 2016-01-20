@@ -27,8 +27,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * Constructs a WriteBatch instance.
    */
   public WriteBatch() {
-    super();
-    newWriteBatch(0);
+    this(0);
   }
 
   /**
@@ -37,8 +36,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @param reserved_bytes reserved size for WriteBatch
    */
   public WriteBatch(final int reserved_bytes) {
-    nativeHandle_ = 0;
-    newWriteBatch(reserved_bytes);
+    super(newWriteBatch(reserved_bytes));
   }
 
   /**
@@ -61,12 +59,11 @@ public class WriteBatch extends AbstractWriteBatch {
    * @param nativeHandle address of native instance.
    */
   WriteBatch(final long nativeHandle) {
-    super();
+    super(nativeHandle);
     disOwnNativeHandle();
-    nativeHandle_ = nativeHandle;
   }
 
-  @Override final native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
   @Override final native int count0();
   @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen);
   @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen,
@@ -79,17 +76,18 @@ public class WriteBatch extends AbstractWriteBatch {
   @Override final native void putLogData(byte[] blob, int blobLen);
   @Override final native void clear0();
 
-  private native void newWriteBatch(int reserved_bytes);
+  private native static long newWriteBatch(int reserved_bytes);
   private native void iterate(long handlerHandle) throws RocksDBException;
 
 
   /**
    * Handler callback for iterating over the contents of a batch.
    */
-  public static abstract class Handler extends RocksObject {
+  public static abstract class Handler extends NativeReference {
+    private final long nativeHandle_;
     public Handler() {
-      super();
-      createNewHandler0();
+      super(true);
+      this.nativeHandle_ = createNewHandler0();
     }
 
     public abstract void put(byte[] key, byte[] value);
@@ -116,11 +114,10 @@ public class WriteBatch extends AbstractWriteBatch {
      */
     @Override
     protected void disposeInternal() {
-      assert(isInitialized());
       disposeInternal(nativeHandle_);
     }
 
-    private native void createNewHandler0();
-    private native void disposeInternal(long handle);
+    private native long createNewHandler0();
+    private native void disposeInternal(final long handle);
   }
 }

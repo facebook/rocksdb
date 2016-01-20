@@ -23,19 +23,9 @@ public class RestoreOptions extends RocksObject {
    *     Default: false
    */
   public RestoreOptions(final boolean keepLogFiles) {
-    super();
-    nativeHandle_ = newRestoreOptions(keepLogFiles);
+    super(newRestoreOptions(keepLogFiles));
   }
 
-  /**
-   * Release the memory allocated for the current instance
-   * in the c++ side.
-   */
-  @Override public synchronized void disposeInternal() {
-    assert(isInitialized());
-    dispose(nativeHandle_);
-  }
-
-  private native long newRestoreOptions(boolean keepLogFiles);
-  private native void dispose(long handle);
+  private native static long newRestoreOptions(boolean keepLogFiles);
+  @Override protected final native void disposeInternal(final long handle);
 }

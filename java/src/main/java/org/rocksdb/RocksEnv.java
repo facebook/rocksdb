@@ -24,8 +24,7 @@ public class RocksEnv extends Env {
    * {@code dispose()} of the created RocksEnv will be no-op.</p>
    */
   RocksEnv(final long handle) {
-    super();
-    nativeHandle_ = handle;
+    super(handle);
     disOwnNativeHandle();
   }
 
@@ -38,6 +37,7 @@ public class RocksEnv extends Env {
    * RocksEnv with RocksJava. The default env allocation is managed
    * by C++.</p>
    */
-  @Override protected void disposeInternal() {
+  @Override
+  protected final void disposeInternal(final long handle) {
   }
 }

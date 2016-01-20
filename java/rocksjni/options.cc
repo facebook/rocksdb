@@ -36,25 +36,25 @@
 /*
  * Class:     org_rocksdb_Options
  * Method:    newOptions
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_Options_newOptions__(JNIEnv* env, jobject jobj) {
+jlong Java_org_rocksdb_Options_newOptions__(JNIEnv* env, jclass jcls) {
   rocksdb::Options* op = new rocksdb::Options();
-  rocksdb::OptionsJni::setHandle(env, jobj, op);
+  return reinterpret_cast<jlong>(op);
 }
 
 /*
  * Class:     org_rocksdb_Options
  * Method:    newOptions
- * Signature: (JJ)V
+ * Signature: (JJ)J
  */
-void Java_org_rocksdb_Options_newOptions__JJ(JNIEnv* env, jobject jobj,
+jlong Java_org_rocksdb_Options_newOptions__JJ(JNIEnv* env, jclass jcls,
     jlong jdboptions, jlong jcfoptions) {
-  auto dbOpt = reinterpret_cast<const rocksdb::DBOptions*>(jdboptions);
-  auto cfOpt = reinterpret_cast<const rocksdb::ColumnFamilyOptions*>(
+  auto* dbOpt = reinterpret_cast<const rocksdb::DBOptions*>(jdboptions);
+  auto* cfOpt = reinterpret_cast<const rocksdb::ColumnFamilyOptions*>(
       jcfoptions);
   rocksdb::Options* op = new rocksdb::Options(*dbOpt, *cfOpt);
-  rocksdb::OptionsJni::setHandle(env, jobj, op);
+  return reinterpret_cast<jlong>(op);
 }
 
 /*
@@ -1932,12 +1932,12 @@ void Java_org_rocksdb_Options_prepareForBulkLoad(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    newColumnFamilyOptions
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
-    JNIEnv* env, jobject jobj) {
+jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
+    JNIEnv* env, jclass jcls) {
   rocksdb::ColumnFamilyOptions* op = new rocksdb::ColumnFamilyOptions();
-  rocksdb::ColumnFamilyOptionsJni::setHandle(env, jobj, op);
+  return reinterpret_cast<jlong>(op);
 }
 
 /*
@@ -3072,12 +3072,12 @@ void Java_org_rocksdb_ColumnFamilyOptions_setOptimizeFiltersForHits(
 /*
  * Class:     org_rocksdb_DBOptions
  * Method:    newDBOptions
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* env,
-    jobject jobj) {
+jlong Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* env,
+    jclass jcls) {
   rocksdb::DBOptions* dbop = new rocksdb::DBOptions();
-  rocksdb::DBOptionsJni::setHandle(env, jobj, dbop);
+  return reinterpret_cast<jlong>(dbop);
 }
 
 /*
@@ -3872,12 +3872,12 @@ jlong Java_org_rocksdb_DBOptions_bytesPerSync(
 /*
  * Class:     org_rocksdb_WriteOptions
  * Method:    newWriteOptions
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_WriteOptions_newWriteOptions(
-    JNIEnv* env, jobject jwrite_options) {
+jlong Java_org_rocksdb_WriteOptions_newWriteOptions(
+    JNIEnv* env, jclass jcls) {
   rocksdb::WriteOptions* op = new rocksdb::WriteOptions();
-  rocksdb::WriteOptionsJni::setHandle(env, jwrite_options, op);
+  return reinterpret_cast<jlong>(op);
 }
 
 /*
@@ -3889,8 +3889,6 @@ void Java_org_rocksdb_WriteOptions_disposeInternal(
     JNIEnv* env, jobject jwrite_options, jlong jhandle) {
   auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(jhandle);
   delete write_options;
-
-  rocksdb::WriteOptionsJni::setHandle(env, jwrite_options, nullptr);
 }
 
 /*
@@ -3939,12 +3937,12 @@ jboolean Java_org_rocksdb_WriteOptions_disableWAL(
 /*
  * Class:     org_rocksdb_ReadOptions
  * Method:    newReadOptions
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_ReadOptions_newReadOptions(
-    JNIEnv* env, jobject jobj) {
+jlong Java_org_rocksdb_ReadOptions_newReadOptions(
+    JNIEnv* env, jclass jcls) {
   auto read_opt = new rocksdb::ReadOptions();
-  rocksdb::ReadOptionsJni::setHandle(env, jobj, read_opt);
+  return reinterpret_cast<jlong>(read_opt);
 }
 
 /*
@@ -3955,7 +3953,6 @@ void Java_org_rocksdb_ReadOptions_newReadOptions(
 void Java_org_rocksdb_ReadOptions_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   delete reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
-  rocksdb::ReadOptionsJni::setHandle(env, jobj, nullptr);
 }
 
 /*
@@ -4052,12 +4049,12 @@ jlong Java_org_rocksdb_ReadOptions_snapshot(
 /*
  * Class:     org_rocksdb_ComparatorOptions
  * Method:    newComparatorOptions
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
-    JNIEnv* env, jobject jobj) {
+jlong Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
+    JNIEnv* env, jclass jcls) {
   auto comparator_opt = new rocksdb::ComparatorJniCallbackOptions();
-  rocksdb::ComparatorOptionsJni::setHandle(env, jobj, comparator_opt);
+  return reinterpret_cast<jlong>(comparator_opt);
 }
 
 /*
@@ -4090,7 +4087,6 @@ void Java_org_rocksdb_ComparatorOptions_setUseAdaptiveMutex(
 void Java_org_rocksdb_ComparatorOptions_disposeInternal(
     JNIEnv * env, jobject jobj, jlong jhandle) {
   delete reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
-  rocksdb::ComparatorOptionsJni::setHandle(env, jobj, nullptr);
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -4099,12 +4095,12 @@ void Java_org_rocksdb_ComparatorOptions_disposeInternal(
 /*
  * Class:     org_rocksdb_FlushOptions
  * Method:    newFlushOptions
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_FlushOptions_newFlushOptions(
-    JNIEnv* env, jobject jobj) {
+jlong Java_org_rocksdb_FlushOptions_newFlushOptions(
+    JNIEnv* env, jclass jcls) {
   auto flush_opt = new rocksdb::FlushOptions();
-  rocksdb::FlushOptionsJni::setHandle(env, jobj, flush_opt);
+  return reinterpret_cast<jlong>(flush_opt);
 }
 
 /*
@@ -4137,5 +4133,4 @@ jboolean Java_org_rocksdb_FlushOptions_waitForFlush(
 void Java_org_rocksdb_FlushOptions_disposeInternal(
     JNIEnv * env, jobject jobj, jlong jhandle) {
   delete reinterpret_cast<rocksdb::FlushOptions*>(jhandle);
-  rocksdb::FlushOptionsJni::setHandle(env, jobj, nullptr);
 }

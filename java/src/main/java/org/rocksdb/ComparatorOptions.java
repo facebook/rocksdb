@@ -10,8 +10,7 @@ package org.rocksdb;
  */
 public class ComparatorOptions extends RocksObject {
   public ComparatorOptions() {
-    super();
-    newComparatorOptions();
+    super(newComparatorOptions());
   }
 
   /**
@@ -24,7 +23,7 @@ public class ComparatorOptions extends RocksObject {
    * @return true if adaptive mutex is used.
    */
   public boolean useAdaptiveMutex() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return useAdaptiveMutex(nativeHandle_);
   }
 
@@ -39,19 +38,14 @@ public class ComparatorOptions extends RocksObject {
    * @return the reference to the current comparator options.
    */
   public ComparatorOptions setUseAdaptiveMutex(final boolean useAdaptiveMutex) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     setUseAdaptiveMutex(nativeHandle_, useAdaptiveMutex);
     return this;
   }
 
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  private native void newComparatorOptions();
+  private native static long newComparatorOptions();
   private native boolean useAdaptiveMutex(final long handle);
   private native void setUseAdaptiveMutex(final long handle,
       final boolean useAdaptiveMutex);
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
 }

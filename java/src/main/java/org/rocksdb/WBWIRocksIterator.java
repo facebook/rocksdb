@@ -23,13 +23,13 @@ public class WBWIRocksIterator extends AbstractRocksIterator<WriteBatchWithIndex
    * @return The WriteEntry of the current entry
    */
   public WriteEntry entry() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     assert(entry != null);
     entry1(nativeHandle_, entry);
     return entry;
   }
 
-  @Override final native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
   @Override final native boolean isValid0(long handle);
   @Override final native void seekToFirst0(long handle);
   @Override final native void seekToLast0(long handle);
@@ -110,7 +110,7 @@ public class WBWIRocksIterator extends AbstractRocksIterator<WriteBatchWithIndex
      * no value
      */
     public DirectSlice getValue() {
-      if(!value.isInitialized()) {
+      if(!value.isOwningHandle()) {
         return null; //TODO(AR) migrate to JDK8 java.util.Optional#empty()
       } else {
         return value;
@@ -139,8 +139,8 @@ public class WBWIRocksIterator extends AbstractRocksIterator<WriteBatchWithIndex
         final WriteEntry otherWriteEntry = (WriteEntry)other;
         return type.equals(otherWriteEntry.type)
             && key.equals(otherWriteEntry.key)
-            && (value.isInitialized() ? value.equals(otherWriteEntry.value)
-                : !otherWriteEntry.value.isInitialized());
+            && (value.isOwningHandle() ? value.equals(otherWriteEntry.value)
+                : !otherWriteEntry.value.isOwningHandle());
       } else {
         return false;
       }

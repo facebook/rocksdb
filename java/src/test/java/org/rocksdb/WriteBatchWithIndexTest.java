@@ -209,7 +209,9 @@ public class WriteBatchWithIndexTest {
 
         it.seek(key);
         assertThat(it.isValid()).isTrue();
-        assertThat(it.entry().equals(expected[testOffset])).isTrue();
+
+        final WBWIRocksIterator.WriteEntry entry = it.entry();
+        assertThat(entry.equals(expected[testOffset])).isTrue();
       }
 
       //forward iterative access

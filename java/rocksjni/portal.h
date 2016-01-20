@@ -64,11 +64,15 @@ template<class PTR, class DERIVED> class RocksDBNativeClass {
     return reinterpret_cast<PTR>(
         env->GetLongField(jobj, getHandleFieldID(env)));
   }
+};
 
+// Native class template for sub-classes of RocksMutableObject
+template<class PTR, class DERIVED> class NativeRocksMutableObject : public RocksDBNativeClass<PTR, DERIVED> {
+ public:
   // Pass the pointer to the java side.
   static void setHandle(JNIEnv* env, jobject jdb, PTR ptr) {
     env->SetLongField(
-        jdb, getHandleFieldID(env),
+        jdb, RocksDBNativeClass<PTR, DERIVED>::getHandleFieldID(env),
         reinterpret_cast<jlong>(ptr));
   }
 };
@@ -407,7 +411,7 @@ class AbstractComparatorJni : public RocksDBNativeClass<
 };
 
 // The portal class for org.rocksdb.AbstractSlice
-class AbstractSliceJni : public RocksDBNativeClass<
+class AbstractSliceJni : public NativeRocksMutableObject<
     const rocksdb::Slice*, AbstractSliceJni> {
  public:
   static jclass getJClass(JNIEnv* env) {

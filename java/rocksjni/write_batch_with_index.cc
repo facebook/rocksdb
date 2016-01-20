@@ -15,40 +15,40 @@
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    newWriteBatchWithIndex
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__(
-    JNIEnv* env, jobject jobj) {
+jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__(
+    JNIEnv* env, jclass jcls) {
   rocksdb::WriteBatchWithIndex* wbwi = new rocksdb::WriteBatchWithIndex();
-  rocksdb::WriteBatchWithIndexJni::setHandle(env, jobj, wbwi);
+  return reinterpret_cast<jlong>(wbwi);
 }
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    newWriteBatchWithIndex
- * Signature: (Z)V
+ * Signature: (Z)J
  */
-void Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__Z(
-    JNIEnv* env, jobject jobj, jboolean joverwrite_key) {
+jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__Z(
+    JNIEnv* env, jclass jcls, jboolean joverwrite_key) {
   rocksdb::WriteBatchWithIndex* wbwi =
       new rocksdb::WriteBatchWithIndex(rocksdb::BytewiseComparator(), 0,
       static_cast<bool>(joverwrite_key));
-  rocksdb::WriteBatchWithIndexJni::setHandle(env, jobj, wbwi);
+  return reinterpret_cast<jlong>(wbwi);
 }
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    newWriteBatchWithIndex
- * Signature: (JIZ)V
+ * Signature: (JIZ)J
  */
-void Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JIZ(
-    JNIEnv* env, jobject jobj, jlong jfallback_index_comparator_handle,
+jlong Java_org_rocksdb_WriteBatchWithIndex_newWriteBatchWithIndex__JIZ(
+    JNIEnv* env, jclass jcls, jlong jfallback_index_comparator_handle,
     jint jreserved_bytes, jboolean joverwrite_key) {
   rocksdb::WriteBatchWithIndex* wbwi =
       new rocksdb::WriteBatchWithIndex(
       reinterpret_cast<rocksdb::Comparator*>(jfallback_index_comparator_handle),
       static_cast<size_t>(jreserved_bytes), static_cast<bool>(joverwrite_key));
-  rocksdb::WriteBatchWithIndexJni::setHandle(env, jobj, wbwi);
+  return reinterpret_cast<jlong>(wbwi);
 }
 
 /*

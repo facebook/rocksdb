@@ -25,8 +25,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * and duplicate keys operations are retained
    */
   public WriteBatchWithIndex() {
-    super();
-    newWriteBatchWithIndex();
+    super(newWriteBatchWithIndex());
   }
 
 
@@ -41,8 +40,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *   show two entries with the same key.
    */
   public WriteBatchWithIndex(final boolean overwriteKey) {
-    super();
-    newWriteBatchWithIndex(overwriteKey);
+    super(newWriteBatchWithIndex(overwriteKey));
   }
 
   /**
@@ -60,8 +58,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    */
   public WriteBatchWithIndex(final AbstractComparator<? extends AbstractSlice<?>>
       fallbackIndexComparator, final int reservedBytes, final boolean overwriteKey) {
-    super();
-    newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_, reservedBytes, overwriteKey);
+    super(newWriteBatchWithIndex(fallbackIndexComparator.getNativeHandle(), reservedBytes, overwriteKey));
   }
 
   /**
@@ -126,7 +123,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
     return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
   }
 
-  @Override final native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
   @Override final native int count0();
   @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen);
   @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen,
@@ -139,10 +136,11 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void putLogData(byte[] blob, int blobLen);
   @Override final native void clear0();
 
-  private native void newWriteBatchWithIndex();
-  private native void newWriteBatchWithIndex(boolean overwriteKey);
-  private native void newWriteBatchWithIndex(long fallbackIndexComparatorHandle, int reservedBytes,
-      boolean overwriteKey);
+  private native static long newWriteBatchWithIndex();
+  private native static long newWriteBatchWithIndex(final boolean overwriteKey);
+  private native static long newWriteBatchWithIndex(
+      final long fallbackIndexComparatorHandle, final int reservedBytes,
+      final boolean overwriteKey);
   private native long iterator0();
   private native long iterator1(long cfHandle);
   private native long iteratorWithBase(long baseIteratorHandle, long cfHandle);

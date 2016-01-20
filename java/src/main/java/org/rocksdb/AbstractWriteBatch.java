@@ -7,70 +7,63 @@ package org.rocksdb;
 
 public abstract class AbstractWriteBatch extends RocksObject implements WriteBatchInterface {
 
+  protected AbstractWriteBatch(final long nativeHandle) {
+    super(nativeHandle);
+  }
+
   @Override
   public int count() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     return count0();
   }
 
   @Override
   public void put(byte[] key, byte[] value) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     put(key, key.length, value, value.length);
   }
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     put(key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void merge(byte[] key, byte[] value) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     merge(key, key.length, value, value.length);
   }
 
   @Override
   public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     merge(key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void remove(byte[] key) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     remove(key, key.length);
   }
 
   @Override
   public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     remove(key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void putLogData(byte[] blob) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     putLogData(blob, blob.length);
   }
 
   @Override
   public void clear() {
-    assert (isInitialized());
+    assert (isOwningHandle());
     clear0();
   }
-
-  /**
-   * Delete the c++ side pointer.
-   */
-  @Override
-  protected void disposeInternal() {
-    assert (isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  abstract void disposeInternal(long handle);
 
   abstract int count0();
 
