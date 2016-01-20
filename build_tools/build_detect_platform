@@ -346,6 +346,20 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+    else
+        # Test whether execinfo library is installed
+        $CXX $CFLAGS -lexecinfo -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <execinfo.h>
+          int main() {
+            void* frames[1];
+            backtrace_symbols(frames, backtrace(frames, 1));
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lexecinfo"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lexecinfo"
+        fi
     fi
 fi
 
