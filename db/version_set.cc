@@ -2193,27 +2193,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       if (!s.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
             "MANIFEST write: %s\n", s.ToString().c_str());
-        bool all_records_in = true;
-        for (auto& e : batch_edits) {
-          std::string record;
-          if (!e->EncodeTo(&record)) {
-            s = Status::Corruption(
-                "Unable to Encode VersionEdit:" + e->DebugString(true));
-            all_records_in = false;
-            break;
-          }
-          if (!ManifestContains(pending_manifest_file_number_, record)) {
-            all_records_in = false;
-            break;
-          }
-        }
-        if (all_records_in) {
-          Log(InfoLogLevel::WARN_LEVEL, db_options_->info_log,
-              "MANIFEST contains log record despite error; advancing to new "
-              "version to prevent mismatch between in-memory and logged state"
-              " If paranoid is set, then the db is now in readonly mode.");
-          s = Status::OK();
-        }
       }
     }
 
@@ -3065,45 +3044,6 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   }
 
   return Status::OK();
-}
-
-// Opens the mainfest file and reads all records
-// till it finds the record we are looking for.
-bool VersionSet::ManifestContains(uint64_t manifest_file_num,
-                                  const std::string& record) const {
-  std::string fname = DescriptorFileName(dbname_, manifest_file_num);
-  Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-      "ManifestContains: checking %s\n", fname.c_str());
-
-  unique_ptr<SequentialFileReader> file_reader;
-  Status s;
-  {
-    unique_ptr<SequentialFile> file;
-    s = env_->NewSequentialFile(fname, &file, env_options_);
-    if (!s.ok()) {
-      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-          "ManifestContains: %s\n", s.ToString().c_str());
-      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-          "ManifestContains: is unable to reopen the manifest file  %s",
-          fname.c_str());
-      return false;
-    }
-    file_reader.reset(new SequentialFileReader(std::move(file)));
-  }
-  log::Reader reader(NULL, std::move(file_reader), nullptr,
-                     true /*checksum*/, 0, 0);
-  Slice r;
-  std::string scratch;
-  bool result = false;
-  while (reader.ReadRecord(&r, &scratch)) {
-    if (r == Slice(record)) {
-      result = true;
-      break;
-    }
-  }
-  Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-      "ManifestContains: result = %d\n", result ? 1 : 0);
-  return result;
 }
 
 // TODO(aekmekji): in CompactionJob::GenSubcompactionBoundaries(), this

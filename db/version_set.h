@@ -731,9 +731,6 @@ class VersionSet {
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
-  bool ManifestContains(uint64_t manifest_file_number,
-                        const std::string& record) const;
-
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        VersionEdit* edit);
 
