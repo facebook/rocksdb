@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "db/db_impl.h"
-#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "memtable/hash_linklist_rep.h"
