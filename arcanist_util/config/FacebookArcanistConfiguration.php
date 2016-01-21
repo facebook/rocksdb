@@ -17,7 +17,33 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
 
   //////////////////////////////////////////////////////////////////////
   /*  Run tests in sandcastle */
-  function getSteps($diffID, $username) {
+  function postURL($diffID, $url) {
+    $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
+           . '"name":"click here for sandcastle tests for D' . $diffID . '", '
+           . '"link":"' . $url . '"}\' | '
+           . 'http_proxy=fwdproxy.any.facebook.com:8080 '
+           . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
+           . 'differential.updateunitresults';
+
+    shell_exec($cmd);
+  }
+
+  function updateTestCommand($diffID, $test, $status) {
+    $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
+           . '"name":"' . $test . '", '
+           . '"result":"' . $status . '"}\' | '
+           . 'http_proxy=fwdproxy.any.facebook.com:8080 '
+           . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
+           . 'differential.updateunitresults';
+    return $cmd;
+  }
+
+  function updateTest($diffID, $test) {
+    shell_exec($this->updateTestCommand($diffID, $test, "waiting"));
+  }
+
+
+  function getSteps($diffID, $username, $test) {
     $arcrc_content = exec("cat ~/.arcrc | base64 -w0");
 
     $setup = array(
@@ -41,7 +67,7 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     $patch = array(
       "name" => "Patch " . $diffID,
       "shell" => "HTTPS_PROXY=fwdproxy:8080 arc --arcrc-file ~/.arcrc "
-                  . "patch D" . $diffID . " || rm -f ~/.arcrc",
+                  . "patch --diff " . $diffID,
       "user" => "root"
     );
 
@@ -55,23 +81,24 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     $steps[] = $fix_permission;
     $steps[] = $fix_git_ignore;
     $steps[] = $patch;
-    $steps[] = $cleanup;
 
-    $tests = array(
-      "unit", "clang_unit", "tsan", "asan", "valgrind"
+    $this->updateTest($diffID, $test);
+    $cmd = $this->updateTestCommand($diffID, $test, "running") . ";"
+           . "(./build_tools/precommit_checker.py " . $test
+           . "&& "
+           . $this->updateTestCommand($diffID, $test, "pass") . ")"
+           . "|| " . $this->updateTestCommand($diffID, $test, "fail")
+           . "; cat /tmp/precommit-check.log"
+           . "; for f in `ls t/log-*`; do echo \$f; cat \$f; done";
+
+    $run_test = array(
+      "name" => "Run " . $test,
+      "shell" => $cmd,
+      "user" => "root",
     );
 
-    foreach ($tests as $test) {
-      $run_test = array(
-        "name" => "Run " . $test,
-        "shell" => "EMAIL=" . $username . "@fb.com "
-                    . "./build_tools/rocksdb-lego-determinator " . $test,
-        "user" => "root",
-        "determinator" => true
-      );
-
-      $steps[] = $run_test;
-    }
+    $steps[] = $run_test;
+    $steps[] = $cleanup;
 
     return $steps;
   }
@@ -84,16 +111,36 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
       return;
     }
 
-    $arg = array(
-      "name" => "RocksDB diff D" . $diffID . "testing for " . $username,
-      "steps" => $this->getSteps($diffID, $username)
+    $tests = array(
+      "unit", "unit_481", "clang_unit", "tsan", "asan", "lite"
+    );
+
+    foreach ($tests as $test) {
+      $arg[] = array(
+        "name" => "RocksDB diff " . $diffID . " test " . $test,
+        "steps" => $this->getSteps($diffID, $username, $test)
+      );
+    }
+
+    $arg_encoded = base64_encode(json_encode($arg));
+
+    $command = array(
+      "name" => "Run diff " . $diffID . "for user " . $username,
+      "steps" => array()
+    );
+
+    $command["steps"][] = array(
+      "name" => "Generate determinator",
+      "shell" => "echo " . $arg_encoded . " | base64 --decode",
+      "determinator" => true,
+      "user" => "root"
     );
 
     $url = 'https://interngraph.intern.facebook.com/sandcastle/generate?'
             .'command=SandcastleUniversalCommand'
             .'&vcs=rocksdb-git&revision=origin%2Fmaster&type=lego'
-            .'&user=krad&alias=ci-util'
-            .'&command-args=' . urlencode(json_encode($arg));
+            .'&user=krad&alias=rocksdb-precommit'
+            .'&command-args=' . urlencode(json_encode($command));
 
     $cmd = 'https_proxy= HTTPS_PROXY= curl -s -k -F app=659387027470559 '
             . '-F token=AeO_3f2Ya3TujjnxGD4 "' . $url . '"';
@@ -104,13 +151,16 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     echo "Please follow the URL for details on the job. \n";
     echo "An email will be sent to " . $username . "@fb.com on failure. \n";
     echo "\n";
-    echo "Job details: \n";
 
     $output = shell_exec($cmd);
 
-    echo $output;
+    preg_match('/url": "(.+)"/', $output, $sandcastle_url);
 
-    echo "\n====================================================== \n";
+    echo "url: " . $sandcastle_url[1] . "\n";
+
+    $this->postURL($diffID, $sandcastle_url[1]);
+
+    echo "====================================================== \n";
   }
 
   //////////////////////////////////////////////////////////////////////
