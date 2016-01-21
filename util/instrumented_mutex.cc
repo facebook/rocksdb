@@ -9,8 +9,8 @@
 
 namespace rocksdb {
 void InstrumentedMutex::Lock() {
-  PERF_CONDITIONAL_TIMER_GUARD(db_mutex_lock_nanos,
-                               stats_code_ == DB_MUTEX_WAIT_MICROS);
+  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(db_mutex_lock_nanos,
+                                         stats_code_ == DB_MUTEX_WAIT_MICROS);
   uint64_t wait_time_micros = 0;
   if (env_ != nullptr && stats_ != nullptr) {
     {
@@ -31,8 +31,8 @@ void InstrumentedMutex::LockInternal() {
 }
 
 void InstrumentedCondVar::Wait() {
-  PERF_CONDITIONAL_TIMER_GUARD(db_condition_wait_nanos,
-                               stats_code_ == DB_MUTEX_WAIT_MICROS);
+  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(db_condition_wait_nanos,
+                                         stats_code_ == DB_MUTEX_WAIT_MICROS);
   uint64_t wait_time_micros = 0;
   if (env_ != nullptr && stats_ != nullptr) {
     {
@@ -53,8 +53,8 @@ void InstrumentedCondVar::WaitInternal() {
 }
 
 bool InstrumentedCondVar::TimedWait(uint64_t abs_time_us) {
-  PERF_CONDITIONAL_TIMER_GUARD(db_condition_wait_nanos,
-                               stats_code_ == DB_MUTEX_WAIT_MICROS);
+  PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(db_condition_wait_nanos,
+                                         stats_code_ == DB_MUTEX_WAIT_MICROS);
   uint64_t wait_time_micros = 0;
   bool result = false;
   if (env_ != nullptr && stats_ != nullptr) {

@@ -1,5 +1,9 @@
 # Rocksdb Change Log
 
+## Unreleased
+### Public API Changes
+* Add a new perf context level between kEnableCount and kEnableTime. Level 2 now doesn't include timers for mutexes.
+
 ## 4.4.0 (1/14/2016)
 ### Public API Changes
 * Change names in CompactionPri and add a new one.

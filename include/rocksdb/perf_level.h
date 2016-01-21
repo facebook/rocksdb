@@ -14,9 +14,11 @@ namespace rocksdb {
 // How much perf stats to collect. Affects perf_context and iostats_context.
 
 enum PerfLevel {
-  kDisable        = 0,  // disable perf stats
-  kEnableCount    = 1,  // enable only count stats
-  kEnableTime     = 2   // enable time stats too
+  kDisable = 0,                   // disable perf stats
+  kEnableCount = 1,               // enable only count stats
+  kEnableTimeExceptForMutex = 2,  // Other than count stats, also enable time
+                                  // stats except for mutexes
+  kEnableTime = 3                 // enable count and time stats
 };
 
 // set the perf stats level for current thread

@@ -33,10 +33,10 @@ namespace rocksdb {
   PerfStepTimer perf_step_timer_ ## metric(&(perf_context.metric));   \
   perf_step_timer_ ## metric.Start();
 
-#define PERF_CONDITIONAL_TIMER_GUARD(metric, condition)           \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric)); \
-  if ((condition)) {                                              \
-    perf_step_timer_##metric.Start();                             \
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)       \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true); \
+  if ((condition)) {                                                    \
+    perf_step_timer_##metric.Start();                                   \
   }
 
 // Update metric with time elapsed since last START. start time is reset
