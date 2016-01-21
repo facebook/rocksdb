@@ -1478,6 +1478,7 @@ TEST_F(OptionsParserTest, EscapeOptionString) {
 // Only run OptionsParserTest.BlockBasedTableOptionsAdded on limited platforms
 // as it depends on behavior of compilers.
 #ifdef OS_LINUX
+#ifndef __clang__
 const char kSpecialChar = 'R';
 // Items in the form of <offset, size>. Need to be in ascending order
 // and not overlapping. Need to updated if new pointer-option is added.
@@ -1493,7 +1494,7 @@ const std::vector<std::pair<int, size_t>> kBbtoBlacklist = {
 };
 
 void FillWithSpecialChar(char* start_ptr) {
-  int offset = 0;
+  size_t offset = 0;
   for (auto& pair : kBbtoBlacklist) {
     std::memset(start_ptr + offset, kSpecialChar, pair.first - offset);
     offset = pair.first + pair.second;
@@ -1505,7 +1506,7 @@ void FillWithSpecialChar(char* start_ptr) {
 int NumUnsetBytes(char* start_ptr) {
   int total_unset_bytes_base = 0;
 
-  int offset = 0;
+  size_t offset = 0;
   for (auto& pair : kBbtoBlacklist) {
     for (char* ptr = start_ptr + offset; ptr < start_ptr + pair.first; ptr++) {
       if (*ptr == kSpecialChar) {
@@ -1580,6 +1581,7 @@ TEST_F(OptionsParserTest, BlockBasedTableOptionsAllFieldsSettable) {
   delete[] bbto_ptr;
   delete[] new_bbto_ptr;
 }
+#endif  // !__clang__
 #endif  // OS_LINUX
 #endif  // !ROCKSDB_LITE
 
