@@ -428,7 +428,7 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    options.max_write_buffer_number_to_maintain = 0;
+    options.max_write_buffer_number_to_maintain = 4;
     options.write_buffer_size = 1000000;
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -440,6 +440,9 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k1", big_value));
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
                                       "rocksdb.num-immutable-mem-table", &num));
+    ASSERT_EQ(num, "0");
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], DB::Properties::kNumImmutableMemTableFlushed, &num));
     ASSERT_EQ(num, "0");
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], "rocksdb.num-entries-active-mem-table", &num));
@@ -492,6 +495,9 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     ASSERT_TRUE(dbfull()->GetProperty(handles_[1],
                                       "rocksdb.num-immutable-mem-table", &num));
     ASSERT_EQ(num, "0");
+    ASSERT_TRUE(dbfull()->GetProperty(
+        handles_[1], DB::Properties::kNumImmutableMemTableFlushed, &num));
+    ASSERT_EQ(num, "3");
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], "rocksdb.cur-size-active-mem-table", &num));
     // "192" is the size of the metadata of an empty skiplist, this would

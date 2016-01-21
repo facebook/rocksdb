@@ -136,8 +136,11 @@ const std::string DB::Properties::kStats = rocksdb_prefix + allstats;
 const std::string DB::Properties::kSSTables = rocksdb_prefix + sstables;
 const std::string DB::Properties::kCFStats = rocksdb_prefix + cfstats;
 const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
+const std::string DB::Properties::kLevelStats = rocksdb_prefix + levelstats;
 const std::string DB::Properties::kNumImmutableMemTable =
                       rocksdb_prefix + num_immutable_mem_table;
+const std::string DB::Properties::kNumImmutableMemTableFlushed =
+                      rocksdb_prefix + num_immutable_mem_table_flushed;
 const std::string DB::Properties::kMemTableFlushPending =
                       rocksdb_prefix + mem_table_flush_pending;
 const std::string DB::Properties::kCompactionPending =

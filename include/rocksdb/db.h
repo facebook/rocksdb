@@ -343,11 +343,14 @@ class DB {
   //     of the sstables that make up the db contents.
   //  "rocksdb.cfstats"
   //  "rocksdb.dbstats"
+  //  "rocksdb.levelstats"
   //  "rocksdb.num-immutable-mem-table"
   //  "rocksdb.mem-table-flush-pending"
+  //  "rocksdb.num-immutable-mem-table-flushed"
   //  "rocksdb.compaction-pending" - 1 if at least one compaction is pending
   //  "rocksdb.background-errors" - accumulated number of background errors
   //  "rocksdb.cur-size-active-mem-table"
+  //  "rocksdb.cur-size-all-mem-tables"
   //  "rocksdb.size-all-mem-tables"
   //  "rocksdb.num-entries-active-mem-table"
   //  "rocksdb.num-entries-imm-mem-tables"
@@ -386,7 +389,9 @@ class DB {
     static const std::string kSSTables;
     static const std::string kCFStats;
     static const std::string kDBStats;
+    static const std::string kLevelStats;
     static const std::string kNumImmutableMemTable;
+    static const std::string kNumImmutableMemTableFlushed;
     static const std::string kMemTableFlushPending;
     static const std::string kNumRunningFlushes;
     static const std::string kCompactionPending;
