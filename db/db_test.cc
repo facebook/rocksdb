@@ -3289,6 +3289,7 @@ TEST_F(DBTest, ManifestWriteError) {
     options.env = env_;
     options.create_if_missing = true;
     options.error_if_exists = false;
+    options.paranoid_checks = true;
     DestroyAndReopen(options);
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_EQ("bar", Get("foo"));
@@ -3305,10 +3306,33 @@ TEST_F(DBTest, ManifestWriteError) {
     dbfull()->TEST_CompactRange(last, nullptr, nullptr);  // Should fail
     ASSERT_EQ("bar", Get("foo"));
 
+    error_type->store(false, std::memory_order_release);
+
+    // Since paranoid_checks=true, writes should fail
+    ASSERT_NOK(Put("foo2", "bar2"));
+
+    // Recovery: should not lose data
+    ASSERT_EQ("bar", Get("foo"));
+
+    // Try again with paranoid_checks=false
+    Close();
+    options.paranoid_checks = false;
+    Reopen(options);
+
+    // Merging compaction (will fail)
+    error_type->store(true, std::memory_order_release);
+    dbfull()->TEST_CompactRange(last, nullptr, nullptr);  // Should fail
+    ASSERT_EQ("bar", Get("foo"));
+
     // Recovery: should not lose data
     error_type->store(false, std::memory_order_release);
     Reopen(options);
     ASSERT_EQ("bar", Get("foo"));
+
+    // Since paranoid_checks=false, writes should succeed
+    ASSERT_OK(Put("foo2", "bar2"));
+    ASSERT_EQ("bar", Get("foo"));
+    ASSERT_EQ("bar2", Get("foo2"));
   }
 }
 #endif  // ROCKSDB_LITE
