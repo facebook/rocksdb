@@ -73,63 +73,68 @@ DBTestBase::~DBTestBase() {
   delete env_;
 }
 
-// Switch to a fresh database with the next option configuration to
-// test.  Return false if there are no more configurations to test.
-bool DBTestBase::ChangeOptions(int skip_mask) {
-  for (option_config_++; option_config_ < kEnd; option_config_++) {
+bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
 #ifdef ROCKSDB_LITE
     // These options are not supported in ROCKSDB_LITE
-    if (option_config_ == kHashSkipList ||
-        option_config_ == kPlainTableFirstBytePrefix ||
-        option_config_ == kPlainTableCappedPrefix ||
-        option_config_ == kPlainTableCappedPrefixNonMmap ||
-        option_config_ == kPlainTableAllBytesPrefix ||
-        option_config_ == kVectorRep || option_config_ == kHashLinkList ||
-        option_config_ == kHashCuckoo ||
-        option_config_ == kUniversalCompaction ||
-        option_config_ == kUniversalCompactionMultiLevel ||
-        option_config_ == kUniversalSubcompactions ||
-        option_config_ == kFIFOCompaction) {
-      continue;
+  if (option_config == kHashSkipList ||
+      option_config == kPlainTableFirstBytePrefix ||
+      option_config == kPlainTableCappedPrefix ||
+      option_config == kPlainTableCappedPrefixNonMmap ||
+      option_config == kPlainTableAllBytesPrefix ||
+      option_config == kVectorRep || option_config == kHashLinkList ||
+      option_config == kHashCuckoo || option_config == kUniversalCompaction ||
+      option_config == kUniversalCompactionMultiLevel ||
+      option_config == kUniversalSubcompactions ||
+      option_config == kFIFOCompaction) {
+    return true;
     }
 #endif
 
     if ((skip_mask & kSkipDeletesFilterFirst) &&
-        option_config_ == kDeletesFilterFirst) {
-      continue;
+        option_config == kDeletesFilterFirst) {
+      return true;
     }
     if ((skip_mask & kSkipUniversalCompaction) &&
-        (option_config_ == kUniversalCompaction ||
-         option_config_ == kUniversalCompactionMultiLevel)) {
-      continue;
+        (option_config == kUniversalCompaction ||
+         option_config == kUniversalCompactionMultiLevel)) {
+      return true;
     }
-    if ((skip_mask & kSkipMergePut) && option_config_ == kMergePut) {
-      continue;
+    if ((skip_mask & kSkipMergePut) && option_config == kMergePut) {
+      return true;
     }
     if ((skip_mask & kSkipNoSeekToLast) &&
-        (option_config_ == kHashLinkList || option_config_ == kHashSkipList)) {
-      continue;
+        (option_config == kHashLinkList || option_config == kHashSkipList)) {
+      return true;
     }
     if ((skip_mask & kSkipPlainTable) &&
-        (option_config_ == kPlainTableAllBytesPrefix ||
-         option_config_ == kPlainTableFirstBytePrefix ||
-         option_config_ == kPlainTableCappedPrefix ||
-         option_config_ == kPlainTableCappedPrefixNonMmap)) {
-      continue;
+        (option_config == kPlainTableAllBytesPrefix ||
+         option_config == kPlainTableFirstBytePrefix ||
+         option_config == kPlainTableCappedPrefix ||
+         option_config == kPlainTableCappedPrefixNonMmap)) {
+      return true;
     }
     if ((skip_mask & kSkipHashIndex) &&
-        (option_config_ == kBlockBasedTableWithPrefixHashIndex ||
-         option_config_ == kBlockBasedTableWithWholeKeyHashIndex)) {
-      continue;
+        (option_config == kBlockBasedTableWithPrefixHashIndex ||
+         option_config == kBlockBasedTableWithWholeKeyHashIndex)) {
+      return true;
     }
-    if ((skip_mask & kSkipHashCuckoo) && (option_config_ == kHashCuckoo)) {
-      continue;
+    if ((skip_mask & kSkipHashCuckoo) && (option_config == kHashCuckoo)) {
+      return true;
     }
-    if ((skip_mask & kSkipFIFOCompaction) &&
-        option_config_ == kFIFOCompaction) {
-      continue;
+    if ((skip_mask & kSkipFIFOCompaction) && option_config == kFIFOCompaction) {
+      return true;
     }
-    if ((skip_mask & kSkipMmapReads) && option_config_ == kWalDirAndMmapReads) {
+    if ((skip_mask & kSkipMmapReads) && option_config == kWalDirAndMmapReads) {
+      return true;
+    }
+    return false;
+}
+
+// Switch to a fresh database with the next option configuration to
+// test.  Return false if there are no more configurations to test.
+bool DBTestBase::ChangeOptions(int skip_mask) {
+  for (option_config_++; option_config_ < kEnd; option_config_++) {
+    if (ShouldSkipOptions(option_config_, skip_mask)) {
       continue;
     }
     break;

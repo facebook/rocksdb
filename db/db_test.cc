@@ -5097,12 +5097,37 @@ static bool CompareIterators(int step,
   return ok;
 }
 
-TEST_F(DBTest, Randomized) {
+class DBTestRandomized : public DBTest,
+                         public ::testing::WithParamInterface<int> {
+ public:
+  virtual void SetUp() override { option_config_ = GetParam(); }
+
+  static std::vector<int> GenerateOptionConfigs() {
+    std::vector<int> option_configs;
+    // skip cuckoo hash as it does not support snapshot.
+    for (int option_config = kDefault; option_config < kEnd; ++option_config) {
+      if (!ShouldSkipOptions(option_config, kSkipDeletesFilterFirst |
+                                                kSkipNoSeekToLast |
+                                                kSkipHashCuckoo)) {
+        option_configs.push_back(option_config);
+      }
+    }
+    return option_configs;
+  }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    DBTestRandomized, DBTestRandomized,
+    ::testing::ValuesIn(DBTestRandomized::GenerateOptionConfigs()));
+
+TEST_P(DBTestRandomized, Randomized) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
-  Random rnd(test::RandomSeed());
-  do {
-    ModelDB model(CurrentOptions(options_override));
+  Options options = CurrentOptions(options_override);
+  DestroyAndReopen(options);
+
+  Random rnd(test::RandomSeed() + GetParam());
+  ModelDB model(options);
     const int N = 10000;
     const Snapshot* model_snap = nullptr;
     const Snapshot* db_snap = nullptr;
@@ -5127,13 +5152,10 @@ TEST_F(DBTest, Randomized) {
                          : rnd.Uniform(8));
         ASSERT_OK(model.Put(WriteOptions(), k, v));
         ASSERT_OK(db_->Put(WriteOptions(), k, v));
-
       } else if (p < 90) {                        // Delete
         k = RandomKey(&rnd, minimum);
         ASSERT_OK(model.Delete(WriteOptions(), k));
         ASSERT_OK(db_->Delete(WriteOptions(), k));
-
-
       } else {                                    // Multi-element batch
         WriteBatch b;
         const int num = rnd.Uniform(8);
@@ -5171,26 +5193,15 @@ TEST_F(DBTest, Randomized) {
         if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
         if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 
-
-        auto options = CurrentOptions(options_override);
         Reopen(options);
         ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
 
         model_snap = model.GetSnapshot();
         db_snap = db_->GetSnapshot();
       }
-
-      if ((step % 2000) == 0) {
-        fprintf(stderr,
-                "DBTest.Randomized, option ID: %d, step: %d out of %d\n",
-                option_config_, step, N);
-      }
     }
     if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
     if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
-    // skip cuckoo hash as it does not support snapshot.
-  } while (ChangeOptions(kSkipDeletesFilterFirst | kSkipNoSeekToLast |
-                         kSkipHashCuckoo));
 }
 
 TEST_F(DBTest, MultiGetSimple) {

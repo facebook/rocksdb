@@ -572,6 +572,8 @@ class DBTestBase : public testing::Test {
     return std::string(buf);
   }
 
+  static bool ShouldSkipOptions(int option_config, int skip_mask = kNoSkip);
+
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions(int skip_mask = kNoSkip);
