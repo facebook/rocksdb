@@ -1,8 +1,10 @@
 # Rocksdb Change Log
-
 ## Unreleased
 ### Public API Changes
 * Add a new perf context level between kEnableCount and kEnableTime. Level 2 now doesn't include timers for mutexes.
+
+### New Features
+* ldb tool now supports operations to non-default column families.
 
 ## 4.4.0 (1/14/2016)
 ### Public API Changes

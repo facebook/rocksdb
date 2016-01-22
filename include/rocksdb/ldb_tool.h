@@ -5,6 +5,8 @@
 #ifndef ROCKSDB_LITE
 #pragma once
 #include <string>
+#include <vector>
+#include "rocksdb/db.h"
 #include "rocksdb/options.h"
 
 namespace rocksdb {
@@ -28,8 +30,10 @@ struct LDBOptions {
 
 class LDBTool {
  public:
-  void Run(int argc, char** argv, Options db_options= Options(),
-           const LDBOptions& ldb_options = LDBOptions());
+  void Run(
+      int argc, char** argv, Options db_options = Options(),
+      const LDBOptions& ldb_options = LDBOptions(),
+      const std::vector<ColumnFamilyDescriptor>* column_families = nullptr);
 };
 
 } // namespace rocksdb
