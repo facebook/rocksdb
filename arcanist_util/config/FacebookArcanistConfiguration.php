@@ -24,7 +24,6 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
            . 'http_proxy=fwdproxy.any.facebook.com:8080 '
            . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
            . 'differential.updateunitresults';
-
     shell_exec($cmd);
   }
 
@@ -42,28 +41,33 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     shell_exec($this->updateTestCommand($diffID, $test, "waiting"));
   }
 
-
   function getSteps($diffID, $username, $test) {
     $arcrc_content = exec("cat ~/.arcrc | base64 -w0");
 
+    // Sandcastle machines don't have arc setup. We copy the user certificate
+    // and authenticate using that in sandcastle
     $setup = array(
       "name" => "Setup arcrc",
       "shell" => "echo " . $arcrc_content . " | base64 --decode > ~/.arcrc",
       "user" => "root"
     );
 
+    // arc demands certain permission on its config
     $fix_permission = array(
       "name" => "Fix environment",
       "shell" => "chmod 600 ~/.arcrc",
       "user" => "root"
     );
 
+    // fbcode is a sub-repo. We cannot patch until we add it to ignore otherwise
+    // git thinks it is uncommited change
     $fix_git_ignore = array(
       "name" => "Fix git ignore",
       "shell" => "echo fbcode >> .git/info/exclude",
       "user" => "root"
     );
 
+    // Patch the code (keep your fingures crossed)
     $patch = array(
       "name" => "Patch " . $diffID,
       "shell" => "HTTPS_PROXY=fwdproxy:8080 arc --arcrc-file ~/.arcrc "
@@ -71,17 +75,20 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
       "user" => "root"
     );
 
+    // Clean up the user arc config we are using
     $cleanup = array(
       "name" => "Arc cleanup",
       "shell" => "rm -f ~/.arcrc",
       "user" => "root"
     );
 
+    // Construct the steps in the order of execution
     $steps[] = $setup;
     $steps[] = $fix_permission;
     $steps[] = $fix_git_ignore;
     $steps[] = $patch;
 
+    // Run the actual command
     $this->updateTest($diffID, $test);
     $cmd = $this->updateTestCommand($diffID, $test, "running") . ";"
            . "(./build_tools/precommit_checker.py " . $test
@@ -104,17 +111,22 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
   }
 
   function startTestsInSandcastle($workflow) {
+    // extract information we need from workflow or CLI
     $diffID = $workflow->getDiffId();
     $username = exec("whoami");
 
     if ($diffID == null || $username == null) {
+      // there is no diff and we can't extract username
+      // we cannot schedule sandcasstle job
       return;
     }
 
+    // list of tests we want to run in sandcastle
     $tests = array(
       "unit", "unit_481", "clang_unit", "tsan", "asan", "lite"
     );
 
+    // construct a job definition for each test and add it to the master plan
     foreach ($tests as $test) {
       $arg[] = array(
         "name" => "RocksDB diff " . $diffID . " test " . $test,
@@ -122,6 +134,10 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
       );
     }
 
+    // we cannot submit the parallel execution master plan to sandcastle
+    // we need supply the job plan as a determinator
+    // so we construct a small job that will spit out the master job plan
+    // which sandcastle will parse and execute
     $arg_encoded = base64_encode(json_encode($arg));
 
     $command = array(
@@ -136,6 +152,7 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
       "user" => "root"
     );
 
+    // submit to sandcastle
     $url = 'https://interngraph.intern.facebook.com/sandcastle/generate?'
             .'command=SandcastleUniversalCommand'
             .'&vcs=rocksdb-git&revision=origin%2Fmaster&type=lego'
@@ -145,22 +162,15 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     $cmd = 'https_proxy= HTTPS_PROXY= curl -s -k -F app=659387027470559 '
             . '-F token=AeO_3f2Ya3TujjnxGD4 "' . $url . '"';
 
-    echo "\n====================================================== \n";
-    echo "Scheduling sandcastle job for D" . $diffID . " for " . $username;
-    echo "\n";
-    echo "Please follow the URL for details on the job. \n";
-    echo "An email will be sent to " . $username . "@fb.com on failure. \n";
-    echo "\n";
-
     $output = shell_exec($cmd);
 
+    // extract sandcastle URL from the response
     preg_match('/url": "(.+)"/', $output, $sandcastle_url);
 
-    echo "url: " . $sandcastle_url[1] . "\n";
+    echo "\nSandcastle URL: " . $sandcastle_url[1] . "\n";
 
+    // Ask phabricator to display it on the diff UI
     $this->postURL($diffID, $sandcastle_url[1]);
-
-    echo "====================================================== \n";
   }
 
   //////////////////////////////////////////////////////////////////////
@@ -180,5 +190,4 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
                ."buildWithParameters?token=AUTH&DIFF_ID=$diffID";
     system("curl --noproxy '*' \"$url\" > /dev/null 2>&1");
   }
-
 }
