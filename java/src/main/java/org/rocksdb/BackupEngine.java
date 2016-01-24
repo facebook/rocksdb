@@ -30,6 +30,7 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    * @param options Any options for the backup engine
    *
    * @return A new BackupEngine instance
+   * @throws RocksDBException thrown if the backup engine could not be opened
    */
   public static BackupEngine open(final Env env,
       final BackupableDBOptions options) throws RocksDBException {
@@ -45,6 +46,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    * @param db The database to backup
    *
    * Note - This method is not thread safe
+   *
+   * @throws RocksDBException thrown if a new backup could not be created
    */
   public void createNewBackup(final RocksDB db) throws RocksDBException {
     createNewBackup(db, false);
@@ -68,6 +71,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    *                          parameter.
    *
    * Note - This method is not thread safe
+   *
+   * @throws RocksDBException thrown if a new backup could not be created
    */
   public void createNewBackup(
       final RocksDB db, final boolean flushBeforeBackup)
@@ -116,6 +121,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    * Deletes old backups, keeping just the latest numBackupsToKeep
    *
    * @param numBackupsToKeep The latest n backups to keep
+   *
+   * @throws RocksDBException thrown if the old backups could not be deleted
    */
   public void purgeOldBackups(
       final int numBackupsToKeep) throws RocksDBException {
@@ -127,6 +134,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    * Deletes a backup
    *
    * @param backupId The id of the backup to delete
+   *
+   * @throws RocksDBException thrown if the backup could not be deleted
    */
   public void deleteBackup(final int backupId) throws RocksDBException {
     assert (isOwningHandle());
@@ -152,6 +161,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    * @param walDir The location of the log files for your database,
    *               often the same as dbDir
    * @param restoreOptions Options for controlling the restore
+   *
+   * @throws RocksDBException thrown if the database could not be restored
    */
   public void restoreDbFromBackup(
       final int backupId, final String dbDir, final String walDir,
@@ -167,6 +178,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
    * @param dbDir The directory to restore the backup to, i.e. where your database is
    * @param walDir The location of the log files for your database, often the same as dbDir
    * @param restoreOptions Options for controlling the restore
+   *
+   * @throws RocksDBException thrown if the database could not be restored
    */
   public void restoreDbFromLatestBackup(
       final String dbDir, final String walDir,
@@ -178,6 +191,8 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
 
   /**
    * Close the Backup Engine
+   *
+   * @throws RocksDBException thrown if the backup engine could not be closed
    */
   @Override
   public void close() throws RocksDBException {
