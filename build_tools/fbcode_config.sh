@@ -7,9 +7,8 @@
 # PIC_BUILD -- if true, it will only take pic versions of libraries from fbcode. libraries that don't have pic variant will not be included
 
 
-source "$PWD/build_tools/dependencies.sh"
-
-TP2_LATEST="/mnt/vol/engshare/fbcode/third-party2"
+BASEDIR=`dirname $BASH_SOURCE`
+source "$BASEDIR/dependencies.sh"
 
 CFLAGS=""
 
@@ -76,16 +75,19 @@ fi
 # use Intel SSE support for checksum calculations
 export USE_SSE=1
 
-BINUTILS="$TP2_LATEST/binutils/2.25/centos6-native/*/bin"
+BINUTILS="$BINUTILS_BASE/bin"
 AR="$BINUTILS/ar"
 
 DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE"
 
 STDLIBS="-L $GCC_BASE/lib64"
 
-CLANG_BIN="$CLANG_BASE/centos6-native/*/bin"
+CLANG_BIN="$CLANG_BASE/bin"
+CLANG_LIB="$CLANG_BASE/lib"
+CLANG_SRC="$CLANG_BASE/../../src"
+
 CLANG_ANALYZER="$CLANG_BIN/clang++"
-CLANG_SCAN_BUILD="$CLANG_BASE/src/clang/tools/scan-build/scan-build"
+CLANG_SCAN_BUILD="$CLANG_SRC/clang/tools/scan-build/scan-build"
 
 if [ -z "$USE_CLANG" ]; then
   # gcc
@@ -97,11 +99,11 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
   # clang
-  CLANG_INCLUDE="$CLANG_BASE/centos6-native/*/lib/clang/*/include"
+  CLANG_INCLUDE="$CLANG_LIB/clang/*/include"
   CC="$CLANG_BIN/clang"
   CXX="$CLANG_BIN/clang++"
 
-  KERNEL_HEADERS_INCLUDE="$TP2_LATEST/kernel-headers/3.2.18_70_fbk11_00129_gc8882d0/gcc-4.9-glibc-2.20/*/include"
+  KERNEL_HEADERS_INCLUDE="$KERNEL_HEADERS_BASE/include"
 
   CFLAGS+=" -B$BINUTILS/gold -nostdinc -nostdlib"
   CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.9.x "
@@ -127,6 +129,6 @@ PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS $STDLIBS -lgcc -lstdc++"
 
 EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS"
 
-VALGRIND_VER="$TP2_LATEST/valgrind/3.10.0/gcc-4.9-glibc-2.20/*/bin/"
+VALGRIND_VER="$VALGRIND_BASE/bin/"
 
 export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD

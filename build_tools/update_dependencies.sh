@@ -3,10 +3,7 @@
 # Update dependencies.sh file with the latest avaliable versions
 
 BASEDIR=$(dirname $0)
-OUTPUT="$BASEDIR/dependencies.sh"
-
-rm -f "$OUTPUT"
-touch "$OUTPUT"
+OUTPUT=""
 
 function log_variable()
 {
@@ -29,7 +26,7 @@ function get_lib_base()
   local result="$TP2_LATEST/$lib_name/"
   
   # Lib Version
-  if [ -z "$lib_version" ]; then
+  if [ -z "$lib_version" ] || [ "$lib_version" = "LATEST" ]; then
     # version is not provided, use latest
     result=`ls -dr1v $result/*/ | head -n1`
   else
@@ -44,36 +41,46 @@ function get_lib_base()
     result="$result/$lib_platform/"
   fi
   
-  result="$result/*/"
+  result=`ls -1d $result/*/ | head -n1`
   
   # lib_name => LIB_NAME_BASE
   local __res_var=${lib_name^^}"_BASE"
+  __res_var=`echo $__res_var | tr - _`
   # LIB_NAME_BASE=$result
   eval $__res_var=`readlink -f $result`
   
   log_variable $__res_var
 }
 
+OUTPUT="$BASEDIR/dependencies.sh"
+
+rm -f "$OUTPUT"
+touch "$OUTPUT"
+
 echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
-GCC_BASE="$TP2_LATEST/gcc/4.9.x/centos6-native/*"
-CLANG_BASE="$TP2_LATEST/clang/3.7.1"
+GCC_BASE=`ls -d1 $TP2_LATEST/gcc/4.9.x/centos6-native/*/ | head -n1`
+CLANG_BASE=`ls -d1 $TP2_LATEST/clang/3.7.1/centos6-native/*/ | head -n1`
 
 log_variable GCC_BASE
 log_variable CLANG_BASE
 
 # Libraries locations
-get_lib_base libgcc
-get_lib_base glibc 2.20 gcc-4.9-glibc-2.20
-get_lib_base snappy
-get_lib_base zlib
-get_lib_base bzip2
-get_lib_base lz4
-get_lib_base zstd
-get_lib_base gflags
-get_lib_base jemalloc
-get_lib_base numa
-get_lib_base libunwind
+get_lib_base libgcc     4.9.x
+get_lib_base glibc      2.20 
+get_lib_base snappy     LATEST
+get_lib_base zlib       LATEST
+get_lib_base bzip2      LATEST
+get_lib_base lz4        LATEST
+get_lib_base zstd       LATEST
+get_lib_base gflags     LATEST
+get_lib_base jemalloc   LATEST
+get_lib_base numa       LATEST
+get_lib_base libunwind  LATEST
+
+get_lib_base kernel-headers LATEST 
+get_lib_base binutils   LATEST centos6-native 
+get_lib_base valgrind   LATEST
 
 git diff $OUTPUT
