@@ -361,6 +361,16 @@ EOF
             JAVA_LDFLAGS="$JAVA_LDFLAGS -lexecinfo"
         fi
     fi
+
+    # Test if -pg is supported
+    $CXX $CFLAGS -pg -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      int main() {
+        return 0;
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        PROFILING_FLAGS=-pg
+    fi
 fi
 
 # TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
@@ -439,3 +449,5 @@ echo "ROCKSDB_MINOR=$ROCKSDB_MINOR" >> "$OUTPUT"
 echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
+echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
+

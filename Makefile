@@ -170,9 +170,7 @@ ifdef COMPILE_WITH_TSAN
 	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
         # Turn off -pg when enabling TSAN testing, because that induces
         # a link failure.  TODO: find the root cause
-	pg =
-else
-	pg = -pg
+	PROFILING_FLAGS =
 endif
 
 ifndef DISABLE_JEMALLOC
@@ -825,7 +823,7 @@ db_table_properties_test: db/db_table_properties_test.o db/db_test_util.o $(LIBO
 	$(AM_LINK)
 
 log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK) $(pg)
+	$(AM_LINK) $(PROFILING_FLAGS)
 
 plain_table_db_test: db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
@@ -834,7 +832,7 @@ comparator_db_test: db/comparator_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK) $(pg)
+	$(AM_LINK) $(PROFILING_FLAGS)
 
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
