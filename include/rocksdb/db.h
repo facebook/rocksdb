@@ -327,97 +327,154 @@ class DB {
   // use "snapshot" after this call.
   virtual void ReleaseSnapshot(const Snapshot* snapshot) = 0;
 
-  // DB implementations can export properties about their state
-  // via this method.  If "property" is a valid property understood by this
-  // DB implementation, fills "*value" with its current value and returns
-  // true.  Otherwise returns false.
-  //
-  //
-  // Valid property names include:
-  //
-  //  "rocksdb.num-files-at-level<N>" - return the number of files at level <N>,
-  //     where <N> is an ASCII representation of a level number (e.g. "0").
-  //  "rocksdb.stats" - returns a multi-line string that describes statistics
-  //     about the internal operation of the DB.
-  //  "rocksdb.sstables" - returns a multi-line string that describes all
-  //     of the sstables that make up the db contents.
-  //  "rocksdb.cfstats"
-  //  "rocksdb.dbstats"
-  //  "rocksdb.levelstats"
-  //  "rocksdb.num-immutable-mem-table"
-  //  "rocksdb.mem-table-flush-pending"
-  //  "rocksdb.num-immutable-mem-table-flushed"
-  //  "rocksdb.compaction-pending" - 1 if at least one compaction is pending
-  //  "rocksdb.background-errors" - accumulated number of background errors
-  //  "rocksdb.cur-size-active-mem-table"
-  //  "rocksdb.cur-size-all-mem-tables"
-  //  "rocksdb.size-all-mem-tables"
-  //  "rocksdb.num-entries-active-mem-table"
-  //  "rocksdb.num-entries-imm-mem-tables"
-  //  "rocksdb.num-deletes-active-mem-table"
-  //  "rocksdb.num-deletes-imm-mem-tables"
-  //  "rocksdb.estimate-num-keys" - estimated keys in the column family
-  //  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
-  //      SST tables, that is not counted as a part of block cache.
-  //  "rocksdb.is-file-deletions-enabled"
-  //  "rocksdb.num-snapshots"
-  //  "rocksdb.oldest-snapshot-time"
-  //  "rocksdb.num-live-versions" - `version` is an internal data structure.
-  //      See version_set.h for details. More live versions often mean more SST
-  //      files are held from being deleted, by iterators or unfinished
-  //      compactions.
-  //  "rocksdb.estimate-live-data-size"
-  //  "rocksdb.total-sst-files-size" - total size of all used sst files, this
-  //      may slow down online queries if there are too many files.
-  //  "rocksdb.base-level"
-  //  "rocksdb.estimate-pending-compaction-bytes" - estimated total number of
-  //      bytes compaction needs to rewrite the data to get all levels down
-  //      to under target size. Not valid for other compactions than
-  //      level-based.
-  //  "rocksdb.aggregated-table-properties" - returns a string representation
-  //      of the aggregated table properties of the target column family.
-  //  "rocksdb.aggregated-table-properties-at-level<N>", same as the previous
-  //      one but only returns the aggregated table properties of the specified
-  //      level "N" at the target column family.
-  //  "rocksdb.num-running-compactions" - the number of currently running
-  //      compacitons.
-  //  "rocksdb.num-running-flushes" - the number of currently running flushes.
 #ifndef ROCKSDB_LITE
+  // Contains all valid property arguments for GetProperty().
   struct Properties {
+    //  "rocksdb.num-files-at-level<N>" - returns string containing the number
+    //      of files at level <N>, where <N> is an ASCII representation of a
+    //      level number (e.g., "0").
     static const std::string kNumFilesAtLevelPrefix;
+
+    //  "rocksdb.stats" - returns a multi-line string containing the data
+    //      described by kCFStats followed by the data described by kDBStats.
     static const std::string kStats;
+
+    //  "rocksdb.sstables" - returns a multi-line string summarizing current
+    //      SST files.
     static const std::string kSSTables;
+
+    //  "rocksdb.cfstats" - returns a multi-line string with general column
+    //      family stats per-level over db's lifetime ("L<n>"), aggregated over
+    //      db's lifetime ("Sum"), and aggregated over the interval since the
+    //      last retrieval ("Int").
     static const std::string kCFStats;
+
+    //  "rocksdb.dbstats" - returns a multi-line string with general database
+    //      stats, both cumulative (over the db's lifetime) and interval (since
+    //      the last retrieval of kDBStats).
     static const std::string kDBStats;
+
+    //  "rocksdb.levelstats" - returns multi-line string containing the number
+    //      of files per level and total size of each level (MB).
     static const std::string kLevelStats;
+
+    //  "rocksdb.num-immutable-mem-table" - returns number of immutable
+    //      memtables that have not yet been flushed.
     static const std::string kNumImmutableMemTable;
+
+    //  "rocksdb.num-immutable-mem-table-flushed" - returns number of immutable
+    //      memtables that have already been flushed.
     static const std::string kNumImmutableMemTableFlushed;
+
+    //  "rocksdb.mem-table-flush-pending" - returns 1 if a memtable flush is
+    //      pending; otherwise, returns 0.
     static const std::string kMemTableFlushPending;
+
+    //  "rocksdb.num-running-flushes" - returns the number of currently running
+    //      flushes.
     static const std::string kNumRunningFlushes;
+
+    //  "rocksdb.compaction-pending" - returns 1 if at least one compaction is
+    //      pending; otherwise, returns 0.
     static const std::string kCompactionPending;
+
+    //  "rocksdb.num-running-compactions" - returns the number of currently
+    //      running compactions.
     static const std::string kNumRunningCompactions;
+
+    //  "rocksdb.background-errors" - returns accumulated number of background
+    //      errors.
     static const std::string kBackgroundErrors;
+
+    //  "rocksdb.cur-size-active-mem-table" - returns approximate size of active
+    //      memtable (bytes).
     static const std::string kCurSizeActiveMemTable;
+
+    //  "rocksdb.cur-size-all-mem-tables" - returns approximate size of active
+    //      and unflushed immutable memtables (bytes).
     static const std::string kCurSizeAllMemTables;
+
+    //  "rocksdb.size-all-mem-tables" - returns approximate size of active,
+    //      unflushed immutable, and pinned immutable memtables (bytes).
     static const std::string kSizeAllMemTables;
+
+    //  "rocksdb.num-entries-active-mem-table" - returns total number of entries
+    //      in the active memtable.
     static const std::string kNumEntriesActiveMemTable;
+
+    //  "rocksdb.num-entries-imm-mem-tables" - returns total number of entries
+    //      in the unflushed immutable memtables.
     static const std::string kNumEntriesImmMemTables;
+
+    //  "rocksdb.num-deletes-active-mem-table" - returns total number of delete
+    //      entries in the active memtable.
     static const std::string kNumDeletesActiveMemTable;
+
+    //  "rocksdb.num-deletes-imm-mem-tables" - returns total number of delete
+    //      entries in the unflushed immutable memtables.
     static const std::string kNumDeletesImmMemTables;
+
+    //  "rocksdb.estimate-num-keys" - returns estimated number of total keys in
+    //      the active and unflushed immutable memtables.
     static const std::string kEstimateNumKeys;
+
+    //  "rocksdb.estimate-table-readers-mem" - returns estimated memory used for
+    //      reading SST tables, excluding memory used in block cache (e.g.,
+    //      filter and index blocks).
     static const std::string kEstimateTableReadersMem;
+
+    //  "rocksdb.is-file-deletions-enabled" - returns 0 if deletion of obsolete
+    //      files is enabled; otherwise, returns a non-zero number.
     static const std::string kIsFileDeletionsEnabled;
+
+    //  "rocksdb.num-snapshots" - returns number of unreleased snapshots of the
+    //      database.
     static const std::string kNumSnapshots;
+
+    //  "rocksdb.oldest-snapshot-time" - returns number representing unix
+    //      timestamp of oldest unreleased snapshot.
     static const std::string kOldestSnapshotTime;
+
+    //  "rocksdb.num-live-versions" - returns number of live versions. `Version`
+    //      is an internal data structure. See version_set.h for details. More
+    //      live versions often mean more SST files are held from being deleted,
+    //      by iterators or unfinished compactions.
     static const std::string kNumLiveVersions;
+
+    //  "rocksdb.estimate-live-data-size" - returns an estimate of the amount of
+    //      live data in bytes.
     static const std::string kEstimateLiveDataSize;
+
+    //  "rocksdb.total-sst-files-size" - returns total size (bytes) of all SST
+    //      files.
+    //  WARNING: may slow down online queries if there are too many files.
     static const std::string kTotalSstFilesSize;
+
+    //  "rocksdb.base-level" - returns number of level to which L0 data will be
+    //      compacted.
+    static const std::string kBaseLevel;
+
+    //  "rocksdb.estimate-pending-compaction-bytes" - returns estimated total
+    //      number of bytes compaction needs to rewrite to get all levels down
+    //      to under target size. Not valid for other compactions than level-
+    //      based.
     static const std::string kEstimatePendingCompactionBytes;
+
+    //  "rocksdb.aggregated-table-properties" - returns a string representation
+    //      of the aggregated table properties of the target column family.
     static const std::string kAggregatedTableProperties;
+
+    //  "rocksdb.aggregated-table-properties-at-level<N>", same as the previous
+    //      one but only returns the aggregated table properties of the
+    //      specified level "N" at the target column family.
     static const std::string kAggregatedTablePropertiesAtLevel;
   };
 #endif /* ROCKSDB_LITE */
 
+  // DB implementations can export properties about their state via this method.
+  // If "property" is a valid property understood by this DB implementation (see
+  // Properties struct above for valid options), fills "*value" with its current
+  // value and returns true.  Otherwise, returns false.
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
