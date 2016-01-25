@@ -8801,6 +8801,12 @@ TEST_F(DBTest, AddExternalSstFile) {
     ASSERT_EQ(file5_info.smallest_key, Key(400));
     ASSERT_EQ(file5_info.largest_key, Key(499));
 
+    // Cannot create an empty sst file
+    std::string file_empty = sst_files_folder + "file_empty.sst";
+    ExternalSstFileInfo file_empty_info;
+    s = sst_file_writer.Finish(&file_empty_info);
+    ASSERT_NOK(s);
+
     DestroyAndReopen(options);
     // Add file using file path
     s = db_->AddFile(file1);

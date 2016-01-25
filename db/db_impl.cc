@@ -3502,6 +3502,9 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
 
+  if (file_info->num_entries == 0) {
+    return Status::InvalidArgument("File contain no entries");
+  }
   if (file_info->version != 1) {
     return Status::InvalidArgument("Generated table version is not supported");
   }

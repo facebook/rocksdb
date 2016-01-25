@@ -163,6 +163,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   if (!r->builder) {
     return Status::InvalidArgument("File is not opened");
   }
+  if (r->file_info.num_entries == 0) {
+    return Status::InvalidArgument("Cannot create sst file with no entries");
+  }
 
   Status s = r->builder->Finish();
   if (s.ok()) {
