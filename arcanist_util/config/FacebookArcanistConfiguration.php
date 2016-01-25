@@ -123,7 +123,7 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
 
     // list of tests we want to run in sandcastle
     $tests = array(
-      "unit", "unit_481", "clang_unit", "tsan", "asan", "lite"
+      "unit", "unit_481", "clang_unit", "tsan", "asan", "lite", "valgrind"
     );
 
     // construct a job definition for each test and add it to the master plan
