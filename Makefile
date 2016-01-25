@@ -464,7 +464,7 @@ test_names = \
       -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
       -e 'print qq! $$p$$2!'
 
-ifeq ($(MAKECMDGOALS),check)
+ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
 # and create a randomly-named rocksdb.XXXX directory therein.
 # We'll use that directory in the "make check" rules.
@@ -619,6 +619,48 @@ valgrind_check: $(TESTS)
 			exit $$ret_code; \
 		fi; \
 	done
+
+
+ifneq ($(PAR_TEST),)
+parloop:
+	ret_bad=0;							\
+	for t in $(PAR_TEST); do		\
+		echo "===== Running $$t in parallel $(NUM_PAR)";\
+		if [ $(db_test) -eq 1 ]; then \
+			seq $(J) | v="$$t" parallel --gnu 's=$(TMPD)/rdb-{};  export TEST_TMPDIR=$$s;' \
+				'timeout 2m ./db_test --gtest_filter=$$v >> $$s/log-{} 2>1'; \
+		else\
+			seq $(J) | v="./$$t" parallel --gnu 's=$(TMPD)/rdb-{};' \
+			     'export TEST_TMPDIR=$$s; timeout 10m $$v >> $$s/log-{} 2>1'; \
+		fi; \
+		ret_code=$$?; \
+		if [ $$ret_code -ne 0 ]; then \
+			ret_bad=$$ret_code; \
+			echo $$t exited with $$ret_code; \
+		fi; \
+	done; \
+	exit $$ret_bad;
+endif
+
+all_tests:=$(shell $(test_names))
+
+parallel_check: $(TESTS)
+	$(AM_V_GEN)if test "$(J)" > 1                                  \
+	    && (parallel --gnu --help 2>/dev/null) |                    \
+	        grep -q 'GNU Parallel';                                 \
+	then                                                            \
+	    echo Running in parallel $(J);			\
+	else                                                            \
+	    echo "Need to have GNU Parallel and J > 1"; exit 1;		\
+	fi;								\
+	ret_bad=0;							\
+	echo $(J);\
+	echo Test Dir: $(TMPD); \
+        seq $(J) | parallel --gnu 's=$(TMPD)/rdb-{}; rm -rf $$s; mkdir $$s'; \
+	$(MAKE)  PAR_TEST="$(all_tests)" TMPD=$(TMPD) \
+		J=$(J) db_test=1 parloop; \
+	$(MAKE) PAR_TEST="$(filter-out db_test, $(TESTS))" \
+		TMPD=$(TMPD) J=$(J) db_test=0 parloop;
 
 analyze: clean
 	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
