@@ -54,6 +54,7 @@
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
 #include "db/writebuffer.h"
+#include "db/xfunc_test_points.h"
 #include "memtable/hash_linklist_rep.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "port/likely.h"

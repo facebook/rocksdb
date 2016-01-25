@@ -5,6 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "db/managed_iterator.h"
+
 #include <limits>
 #include <string>
 #include <utility>
@@ -13,7 +15,7 @@
 #include "db/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
-#include "db/managed_iterator.h"
+#include "db/xfunc_test_points.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
