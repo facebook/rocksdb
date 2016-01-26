@@ -2218,6 +2218,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     }
 
     if (edit->is_column_family_drop_) {
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:0");
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
     }

@@ -270,6 +270,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
     if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }
+    TEST_SYNC_POINT("FlushJob::WriteLevel0Table");
     db_mutex_->Lock();
   }
   base->Unref();

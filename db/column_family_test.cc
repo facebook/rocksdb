@@ -1999,7 +1999,9 @@ TEST_F(ColumnFamilyTest, FlushAndDropRaceCondition) {
   Reopen({options, options});
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"VersionSet::LogAndApply::ColumnFamilyDrop:1",
+      {{"VersionSet::LogAndApply::ColumnFamilyDrop:0",
+        "FlushJob::WriteLevel0Table"},
+       {"VersionSet::LogAndApply::ColumnFamilyDrop:1",
         "FlushJob::InstallResults"},
        {"FlushJob::InstallResults",
         "VersionSet::LogAndApply::ColumnFamilyDrop:2"}});
