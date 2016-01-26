@@ -10554,6 +10554,7 @@ class SliceTransformLimitedDomain : public SliceTransform {
 
 TEST_F(DBTest, PrefixExtractorFullFilter) {
   BlockBasedTableOptions bbto;
+  // Full Filter Block
   bbto.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
   bbto.whole_key_filtering = false;
 
@@ -10578,6 +10579,39 @@ TEST_F(DBTest, PrefixExtractorFullFilter) {
   ASSERT_EQ(Get("x1114_AAAA"), "val4");
   // Was not added to filter but rocksdb will try to read it from the filter
   ASSERT_EQ(Get("zzzzz_AAAA"), "val5");
+}
+
+TEST_F(DBTest, PrefixExtractorBlockFilter) {
+  BlockBasedTableOptions bbto;
+  // Block Filter Block
+  bbto.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, true));
+
+  Options options = CurrentOptions();
+  options.prefix_extractor = std::make_shared<SliceTransformLimitedDomain>();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("x1113_AAAA", "val3"));
+  ASSERT_OK(Put("x1114_AAAA", "val4"));
+  // Not in domain, wont be added to filter
+  ASSERT_OK(Put("zzzzz_AAAA", "val1"));
+  ASSERT_OK(Put("zzzzz_AAAB", "val2"));
+  ASSERT_OK(Put("zzzzz_AAAC", "val3"));
+  ASSERT_OK(Put("zzzzz_AAAD", "val4"));
+
+  ASSERT_OK(Flush());
+
+  std::vector<std::string> iter_res;
+  auto iter = db_->NewIterator(ReadOptions());
+  // Seek to a key that was not in Domain
+  for (iter->Seek("zzzzz_AAAA"); iter->Valid(); iter->Next()) {
+    iter_res.emplace_back(iter->value().ToString());
+  }
+
+  std::vector<std::string> expected_res = {"val1", "val2", "val3", "val4"};
+  ASSERT_EQ(iter_res, expected_res);
+  delete iter;
 }
 
 #ifndef ROCKSDB_LITE
