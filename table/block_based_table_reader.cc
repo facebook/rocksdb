@@ -1107,8 +1107,11 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
   }
 
   assert(rep_->ioptions.prefix_extractor != nullptr);
-  auto prefix = rep_->ioptions.prefix_extractor->Transform(
-      ExtractUserKey(internal_key));
+  auto user_key = ExtractUserKey(internal_key);
+  if (!rep_->ioptions.prefix_extractor->InDomain(user_key)) {
+    return true;
+  }
+  auto prefix = rep_->ioptions.prefix_extractor->Transform(user_key);
   InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
   auto internal_prefix = internal_key_prefix.Encode();
 
