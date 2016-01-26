@@ -7,6 +7,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include "db/db_info_dumper.h"
+
 #include <inttypes.h>
 #include <stdio.h>
 #include <string>
@@ -16,7 +18,6 @@
 #include "db/filename.h"
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
-#include "util/db_info_dumper.h"
 
 namespace rocksdb {
 

@@ -10,8 +10,8 @@
 #include <fstream>
 #include <iterator>
 #include <algorithm>
+#include "db/auto_roll_logger.h"
 #include "util/testharness.h"
-#include "util/auto_roll_logger.h"
 #include "rocksdb/db.h"
 #include <sys/stat.h>
 #include <errno.h>

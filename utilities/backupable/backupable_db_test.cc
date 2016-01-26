@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <iostream>
 
+#include "db/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/types.h"
@@ -24,7 +25,6 @@
 #include "util/mutexlock.h"
 #include "util/string_util.h"
 #include "util/testutil.h"
-#include "util/auto_roll_logger.h"
 #include "util/mock_env.h"
 #include "utilities/backupable/backupable_db_testutil.h"
 

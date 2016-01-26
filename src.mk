@@ -1,5 +1,6 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
+  db/auto_roll_logger.cc                                        \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -15,6 +16,7 @@ LIB_SOURCES =                                                   \
   db/db_impl_debug.cc                                           \
   db/db_impl_readonly.cc                                        \
   db/db_impl_experimental.cc                                    \
+  db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
   db/experimental.cc                                            \
   db/event_helpers.cc                                           \
@@ -50,6 +52,8 @@ LIB_SOURCES =                                                   \
   memtable/hash_cuckoo_rep.cc                                   \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
+  memtable/skiplistrep.cc                                       \
+  memtable/vectorrep.cc                                         \
   port/stack_trace.cc                                           \
   port/port_posix.cc                                            \
   table/adaptive_table_factory.cc                               \
@@ -82,7 +86,6 @@ LIB_SOURCES =                                                   \
   table/two_level_iterator.cc                                   \
   tools/dump/db_dump_tool.cc                                    \
   util/arena.cc                                                 \
-  util/auto_roll_logger.cc                                      \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/cache.cc                                                 \
@@ -91,7 +94,6 @@ LIB_SOURCES =                                                   \
   util/compaction_job_stats_impl.cc                             \
   util/concurrent_arena.cc                                      \
   util/crc32c.cc                                                \
-  util/db_info_dumper.cc                                        \
   util/delete_scheduler_impl.cc                                 \
   util/dynamic_bloom.cc                                         \
   util/env.cc                                                   \
@@ -152,7 +154,6 @@ LIB_SOURCES =                                                   \
   util/perf_level.cc                                            \
   util/random.cc                                                \
   util/rate_limiter.cc                                          \
-  util/skiplistrep.cc                                           \
   util/slice.cc                                                 \
   util/statistics.cc                                            \
   util/status.cc                                                \
@@ -165,7 +166,6 @@ LIB_SOURCES =                                                   \
   util/thread_status_updater_debug.cc                           \
   util/thread_status_util.cc                                    \
   util/thread_status_util_debug.cc                              \
-  util/vectorrep.cc                                             \
   util/xfunc.cc                                                 \
   util/xxhash.cc                                                \
 
@@ -180,6 +180,7 @@ MOCK_SOURCES = \
 
 TEST_BENCH_SOURCES =                                                    \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
+  db/auto_roll_logger_test.cc                                           \
   db/column_family_test.cc                                              \
   db/compaction_job_test.cc                                             \
   db/compaction_job_stats_test.cc                                       \
@@ -240,7 +241,6 @@ TEST_BENCH_SOURCES =                                                    \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
   util/arena_test.cc                                                    \
-  util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
   util/benchharness.cc                                                  \
   util/benchharness_test.cc                                             \

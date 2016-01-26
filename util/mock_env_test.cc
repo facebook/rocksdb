@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 #include "util/mock_env.h"
-#include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/testharness.h"
@@ -219,52 +218,6 @@ TEST_F(MockEnvTest, Corrupt) {
   ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(),
             &result, &(scratch[0])));
   ASSERT_NE(result.compare(kCorrupted), 0);
-}
-
-TEST_F(MockEnvTest, DBTest) {
-  Options options;
-  options.create_if_missing = true;
-  options.env = env_;
-  DB* db;
-
-  const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
-  const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
-
-  ASSERT_OK(DB::Open(options, "/dir/db", &db));
-  for (size_t i = 0; i < 3; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), keys[i], vals[i]));
-  }
-
-  for (size_t i = 0; i < 3; ++i) {
-    std::string res;
-    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
-    ASSERT_TRUE(res == vals[i]);
-  }
-
-  Iterator* iterator = db->NewIterator(ReadOptions());
-  iterator->SeekToFirst();
-  for (size_t i = 0; i < 3; ++i) {
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_TRUE(keys[i] == iterator->key());
-    ASSERT_TRUE(vals[i] == iterator->value());
-    iterator->Next();
-  }
-  ASSERT_TRUE(!iterator->Valid());
-  delete iterator;
-
-  // TEST_FlushMemTable() is not supported in ROCKSDB_LITE
-  #ifndef ROCKSDB_LITE
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
-  ASSERT_OK(dbi->TEST_FlushMemTable());
-
-  for (size_t i = 0; i < 3; ++i) {
-    std::string res;
-    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
-    ASSERT_TRUE(res == vals[i]);
-  }
-  #endif  // ROCKSDB_LITE
-
-  delete db;
 }
 
 TEST_F(MockEnvTest, FakeSleeping) {

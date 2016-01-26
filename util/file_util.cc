@@ -11,7 +11,6 @@
 #include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "db/filename.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {

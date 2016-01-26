@@ -31,8 +31,10 @@
 #include <utility>
 #include <vector>
 
+#include "db/auto_roll_logger.h"
 #include "db/builder.h"
 #include "db/compaction_job.h"
+#include "db/db_info_dumper.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
@@ -76,13 +78,11 @@
 #include "table/merger.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
-#include "util/auto_roll_logger.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
-#include "util/db_info_dumper.h"
 #include "util/file_reader_writer.h"
 #include "util/file_util.h"
 #include "util/iostats_context_imp.h"

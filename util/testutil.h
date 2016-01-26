@@ -13,7 +13,6 @@
 #include <string>
 #include <vector>
 
-#include "db/dbformat.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"

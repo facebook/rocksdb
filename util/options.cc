@@ -17,7 +17,6 @@
 #include <inttypes.h>
 #include <limits>
 
-#include "db/writebuffer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"

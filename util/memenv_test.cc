@@ -4,7 +4,6 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/testharness.h"
@@ -181,58 +180,6 @@ TEST_F(MemEnvTest, LargeWrite) {
   }
   ASSERT_TRUE(write_data == read_data);
   delete [] scratch;
-}
-
-TEST_F(MemEnvTest, DBTest) {
-  Options options;
-  options.create_if_missing = true;
-  options.env = env_;
-  DB* db;
-
-  const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
-  const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
-
-  ASSERT_OK(DB::Open(options, "/dir/db", &db));
-  for (size_t i = 0; i < 3; ++i) {
-    ASSERT_OK(db->Put(WriteOptions(), keys[i], vals[i]));
-  }
-
-  for (size_t i = 0; i < 3; ++i) {
-    std::string res;
-    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
-    ASSERT_TRUE(res == vals[i]);
-  }
-
-  Iterator* iterator = db->NewIterator(ReadOptions());
-  iterator->SeekToFirst();
-  for (size_t i = 0; i < 3; ++i) {
-    ASSERT_TRUE(iterator->Valid());
-    ASSERT_TRUE(keys[i] == iterator->key());
-    ASSERT_TRUE(vals[i] == iterator->value());
-    iterator->Next();
-  }
-  ASSERT_TRUE(!iterator->Valid());
-  delete iterator;
-
-  DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
-  ASSERT_OK(dbi->TEST_FlushMemTable());
-
-  for (size_t i = 0; i < 3; ++i) {
-    std::string res;
-    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
-    ASSERT_TRUE(res == vals[i]);
-  }
-
-  delete db;
-
-  options.create_if_missing = false;
-  ASSERT_OK(DB::Open(options, "/dir/db", &db));
-  for (size_t i = 0; i < 3; ++i) {
-    std::string res;
-    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
-    ASSERT_TRUE(res == vals[i]);
-  }
-  delete db;
 }
 
 }  // namespace rocksdb

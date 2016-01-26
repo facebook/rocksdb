@@ -99,6 +99,7 @@ add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
 
 # Main library source code
 set(SOURCES
+        db/auto_roll_logger.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -114,6 +115,7 @@ set(SOURCES
         db/db_impl_debug.cc
         db/db_impl_experimental.cc
         db/db_impl_readonly.cc
+        db/db_info_dumper.cc
         db/db_iter.cc
         db/event_helpers.cc
         db/experimental.cc
@@ -149,6 +151,8 @@ set(SOURCES
         memtable/hash_cuckoo_rep.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
+        memtable/skiplistrep.cc
+        memtable/vectorrep.cc
         port/stack_trace.cc
         port/win/env_win.cc
         port/win/port_win.cc
@@ -194,7 +198,6 @@ set(SOURCES
         util/comparator.cc
         util/concurrent_arena.cc
         util/crc32c.cc
-        util/db_info_dumper.cc
         util/delete_scheduler_impl.cc
         util/dynamic_bloom.cc
         util/env.cc
@@ -224,7 +227,6 @@ set(SOURCES
         util/perf_level.cc
         util/random.cc
         util/rate_limiter.cc
-        util/skiplistrep.cc
         util/slice.cc
         util/statistics.cc
         util/status.cc
@@ -238,7 +240,6 @@ set(SOURCES
         util/thread_status_updater.cc
         util/thread_status_util.cc
         util/thread_status_util_debug.cc
-        util/vectorrep.cc
         util/xfunc.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
@@ -304,6 +305,7 @@ set(APPS
 set(C_TESTS db/c_test.c)
 
 set(TESTS
+        db/auto_roll_logger_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
         db/compaction_iterator_test.cc
@@ -365,7 +367,6 @@ set(TESTS
         tools/sst_dump_test.cc
         util/arena_test.cc
         util/autovector_test.cc
-        util/auto_roll_logger_test.cc
         util/bloom_test.cc
         util/cache_test.cc
         util/coding_test.cc

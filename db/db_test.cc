@@ -122,6 +122,106 @@ class DBTestWithParam
   bool exclusive_manual_compaction_;
 };
 
+TEST_F(DBTest, MockEnvTest) {
+  unique_ptr<MockEnv> env{new MockEnv(Env::Default())};
+  Options options;
+  options.create_if_missing = true;
+  options.env = env.get();
+  DB* db;
+
+  const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
+  const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
+
+  ASSERT_OK(DB::Open(options, "/dir/db", &db));
+  for (size_t i = 0; i < 3; ++i) {
+    ASSERT_OK(db->Put(WriteOptions(), keys[i], vals[i]));
+  }
+
+  for (size_t i = 0; i < 3; ++i) {
+    std::string res;
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
+    ASSERT_TRUE(res == vals[i]);
+  }
+
+  Iterator* iterator = db->NewIterator(ReadOptions());
+  iterator->SeekToFirst();
+  for (size_t i = 0; i < 3; ++i) {
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_TRUE(keys[i] == iterator->key());
+    ASSERT_TRUE(vals[i] == iterator->value());
+    iterator->Next();
+  }
+  ASSERT_TRUE(!iterator->Valid());
+  delete iterator;
+
+  // TEST_FlushMemTable() is not supported in ROCKSDB_LITE
+  #ifndef ROCKSDB_LITE
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+
+  for (size_t i = 0; i < 3; ++i) {
+    std::string res;
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
+    ASSERT_TRUE(res == vals[i]);
+  }
+  #endif  // ROCKSDB_LITE
+
+  delete db;
+}
+
+TEST_F(DBTest, MemEnvTest) {
+  unique_ptr<Env> env{NewMemEnv(Env::Default())};
+  Options options;
+  options.create_if_missing = true;
+  options.env = env.get();
+  DB* db;
+
+  const Slice keys[] = {Slice("aaa"), Slice("bbb"), Slice("ccc")};
+  const Slice vals[] = {Slice("foo"), Slice("bar"), Slice("baz")};
+
+  ASSERT_OK(DB::Open(options, "/dir/db", &db));
+  for (size_t i = 0; i < 3; ++i) {
+    ASSERT_OK(db->Put(WriteOptions(), keys[i], vals[i]));
+  }
+
+  for (size_t i = 0; i < 3; ++i) {
+    std::string res;
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
+    ASSERT_TRUE(res == vals[i]);
+  }
+
+  Iterator* iterator = db->NewIterator(ReadOptions());
+  iterator->SeekToFirst();
+  for (size_t i = 0; i < 3; ++i) {
+    ASSERT_TRUE(iterator->Valid());
+    ASSERT_TRUE(keys[i] == iterator->key());
+    ASSERT_TRUE(vals[i] == iterator->value());
+    iterator->Next();
+  }
+  ASSERT_TRUE(!iterator->Valid());
+  delete iterator;
+
+  DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
+  ASSERT_OK(dbi->TEST_FlushMemTable());
+
+  for (size_t i = 0; i < 3; ++i) {
+    std::string res;
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
+    ASSERT_TRUE(res == vals[i]);
+  }
+
+  delete db;
+
+  options.create_if_missing = false;
+  ASSERT_OK(DB::Open(options, "/dir/db", &db));
+  for (size_t i = 0; i < 3; ++i) {
+    std::string res;
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
+    ASSERT_TRUE(res == vals[i]);
+  }
+  delete db;
+}
+
 TEST_F(DBTest, WriteEmptyBatch) {
   Options options;
   options.env = env_;
