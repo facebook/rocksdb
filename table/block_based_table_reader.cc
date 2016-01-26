@@ -1202,6 +1202,7 @@ bool BlockBasedTable::FullFilterKeyMayMatch(FilterBlockReader* filter,
     return false;
   }
   if (rep_->ioptions.prefix_extractor &&
+      rep_->ioptions.prefix_extractor->InDomain(user_key) &&
       !filter->PrefixMayMatch(
           rep_->ioptions.prefix_extractor->Transform(user_key))) {
     return false;

@@ -10534,6 +10534,52 @@ TEST_F(DBTest, WalFilterTestWithChangeBatchExtraKeys) {
 
 #endif  // ROCKSDB_LITE
 
+class SliceTransformLimitedDomain : public SliceTransform {
+  const char* Name() const override { return "SliceTransformLimitedDomain"; }
+
+  Slice Transform(const Slice& src) const override {
+    return Slice(src.data(), 5);
+  }
+
+  bool InDomain(const Slice& src) const override {
+    // prefix will be x????
+    return src.size() >= 5 && src[0] == 'x';
+  }
+
+  bool InRange(const Slice& dst) const override {
+    // prefix will be x????
+    return dst.size() == 5 && dst[0] == 'x';
+  }
+};
+
+TEST_F(DBTest, PrefixExtractorFullFilter) {
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+
+  Options options = CurrentOptions();
+  options.prefix_extractor = std::make_shared<SliceTransformLimitedDomain>();
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("x1111_AAAA", "val1"));
+  ASSERT_OK(Put("x1112_AAAA", "val2"));
+  ASSERT_OK(Put("x1113_AAAA", "val3"));
+  ASSERT_OK(Put("x1114_AAAA", "val4"));
+  // Not in domain, wont be added to filter
+  ASSERT_OK(Put("zzzzz_AAAA", "val5"));
+
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(Get("x1111_AAAA"), "val1");
+  ASSERT_EQ(Get("x1112_AAAA"), "val2");
+  ASSERT_EQ(Get("x1113_AAAA"), "val3");
+  ASSERT_EQ(Get("x1114_AAAA"), "val4");
+  // Was not added to filter but rocksdb will try to read it from the filter
+  ASSERT_EQ(Get("zzzzz_AAAA"), "val5");
+}
+
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBTest,
