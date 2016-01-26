@@ -42,13 +42,14 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
   }
 
   function getSteps($diffID, $username, $test) {
-    $arcrc_content = exec("cat ~/.arcrc | base64 -w0");
+    $arcrc_content = exec("cat ~/.arcrc | gzip -f | base64 -w0");
 
     // Sandcastle machines don't have arc setup. We copy the user certificate
     // and authenticate using that in sandcastle
     $setup = array(
       "name" => "Setup arcrc",
-      "shell" => "echo " . $arcrc_content . " | base64 --decode > ~/.arcrc",
+      "shell" => "echo " . $arcrc_content . " | base64 --decode"
+                 . " | gzip -d > ~/.arcrc",
       "user" => "root"
     );
 
@@ -121,10 +122,17 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
       return;
     }
 
-    // list of tests we want to run in sandcastle
-    $tests = array(
-      "unit", "unit_481", "clang_unit", "tsan", "asan", "lite", "valgrind"
-    );
+    if (strcmp(getenv("ROCKSDB_CHECK_ALL"), 1) == 0) {
+      // extract all tests from the CI definition
+      $output = file_get_contents("build_tools/rocksdb-lego-determinator");
+      preg_match_all('/[ ]{2}([a-zA-Z0-9_]+)[\)]{1}/', $output, $matches);
+      $tests = $matches[1];
+    } else {
+      // manually list of tests we want to run in sandcastle
+      $tests = array(
+        "unit", "unit_481", "clang_unit", "tsan", "asan", "lite", "valgrind"
+      );
+    }
 
     // construct a job definition for each test and add it to the master plan
     foreach ($tests as $test) {
@@ -138,7 +146,10 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     // we need supply the job plan as a determinator
     // so we construct a small job that will spit out the master job plan
     // which sandcastle will parse and execute
-    $arg_encoded = base64_encode(json_encode($arg));
+    // Why compress ? Otherwise we run over the max string size.
+    $cmd = "echo " . base64_encode(json_encode($arg))
+           . " | gzip -f | base64 -w0";
+    $arg_encoded = shell_exec($cmd);
 
     $command = array(
       "name" => "Run diff " . $diffID . "for user " . $username,
@@ -147,7 +158,8 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
 
     $command["steps"][] = array(
       "name" => "Generate determinator",
-      "shell" => "echo " . $arg_encoded . " | base64 --decode",
+      "shell" => "echo " . $arg_encoded . " | base64 --decode | gzip -d"
+                 . " | base64 --decode",
       "determinator" => true,
       "user" => "root"
     );
