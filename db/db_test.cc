@@ -169,6 +169,9 @@ TEST_F(DBTest, MockEnvTest) {
   delete db;
 }
 
+// NewMemEnv returns nullptr in ROCKSDB_LITE since class InMemoryEnv isn't
+// defined.
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest, MemEnvTest) {
   unique_ptr<Env> env{NewMemEnv(Env::Default())};
   Options options;
@@ -221,6 +224,7 @@ TEST_F(DBTest, MemEnvTest) {
   }
   delete db;
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, WriteEmptyBatch) {
   Options options;
