@@ -107,6 +107,7 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
       break;
     }
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   delete db;
 }
 
