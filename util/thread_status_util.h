@@ -5,14 +5,16 @@
 
 #pragma once
 
-#include "db/column_family.h"
+#include <string>
+
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/thread_status.h"
 #include "util/thread_status_updater.h"
 
 namespace rocksdb {
-class ColumnFamilyData;
 
+class ColumnFamilyData;
 
 // The static utility class for updating thread-local status.
 //
@@ -37,8 +39,8 @@ class ThreadStatusUtil {
   // Create an entry in the global ColumnFamilyInfo table for the
   // specified column family.  This function should be called only
   // when the current thread does not hold db_mutex.
-  static void NewColumnFamilyInfo(
-      const DB* db, const ColumnFamilyData* cfd);
+  static void NewColumnFamilyInfo(const DB* db, const ColumnFamilyData* cfd,
+                                  const std::string& cf_name, const Env* env);
 
   // Erase the ConstantColumnFamilyInfo that is associated with the
   // specified ColumnFamilyData.  This function should be called only
@@ -52,7 +54,8 @@ class ThreadStatusUtil {
 
   // Update the thread status to indicate the current thread is doing
   // something related to the specified column family.
-  static void SetColumnFamily(const ColumnFamilyData* cfd);
+  static void SetColumnFamily(const ColumnFamilyData* cfd, const Env* env,
+                              bool enable_thread_tracking);
 
   static void SetThreadOperation(ThreadStatus::OperationType type);
 

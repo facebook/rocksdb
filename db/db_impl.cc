@@ -2898,7 +2898,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:TrivialMove");
     // Instrument for event update
     // TODO(yhchiang): add op details for showing trivial-move.
-    ThreadStatusUtil::SetColumnFamily(c->column_family_data());
+    ThreadStatusUtil::SetColumnFamily(
+        c->column_family_data(), c->column_family_data()->ioptions()->env,
+        c->column_family_data()->options()->enable_thread_tracking);
     ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
 
     compaction_job_stats.num_input_files = c->num_input_files(0);
@@ -5640,7 +5642,8 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
 void DBImpl::NewThreadStatusCfInfo(
     ColumnFamilyData* cfd) const {
   if (db_options_.enable_thread_tracking) {
-    ThreadStatusUtil::NewColumnFamilyInfo(this, cfd);
+    ThreadStatusUtil::NewColumnFamilyInfo(this, cfd, cfd->GetName(),
+                                          cfd->ioptions()->env);
   }
 }
 

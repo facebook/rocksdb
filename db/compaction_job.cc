@@ -237,7 +237,9 @@ CompactionJob::CompactionJob(
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats) {
   assert(log_buffer_ != nullptr);
-  ThreadStatusUtil::SetColumnFamily(compact_->compaction->column_family_data());
+  const auto* cfd = compact_->compaction->column_family_data();
+  ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
+                                    cfd->options()->enable_thread_tracking);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
   ReportStartedCompaction(compaction);
 }
@@ -249,8 +251,9 @@ CompactionJob::~CompactionJob() {
 
 void CompactionJob::ReportStartedCompaction(
     Compaction* compaction) {
-  ThreadStatusUtil::SetColumnFamily(
-      compact_->compaction->column_family_data());
+  const auto* cfd = compact_->compaction->column_family_data();
+  ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
+                                    cfd->options()->enable_thread_tracking);
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_JOB_ID,
@@ -415,12 +418,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
 
   // Group the ranges into subcompactions
   const double min_file_fill_percent = 4.0 / 5;
-  uint64_t max_output_files = 
-    static_cast<uint64_t>(
-        std::ceil(
-          sum / min_file_fill_percent /
-          cfd->GetCurrentMutableCFOptions()->MaxFileSizeForLevel(out_lvl))
-          );
+  uint64_t max_output_files = static_cast<uint64_t>(std::ceil(
+      sum / min_file_fill_percent /
+      cfd->GetCurrentMutableCFOptions()->MaxFileSizeForLevel(out_lvl)));
   uint64_t subcompactions =
       std::min({static_cast<uint64_t>(ranges.size()),
                 static_cast<uint64_t>(db_options_.max_subcompactions),

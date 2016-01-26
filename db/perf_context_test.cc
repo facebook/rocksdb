@@ -13,6 +13,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
 #include "util/histogram.h"
+#include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"
 #include "util/thread_status_util.h"

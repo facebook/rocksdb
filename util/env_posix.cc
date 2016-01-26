@@ -46,6 +46,7 @@
 #include "util/iostats_context_imp.h"
 #include "util/logging.h"
 #include "util/posix_logger.h"
+#include "util/random.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/thread_local.h"
