@@ -109,6 +109,7 @@ enum Tickers : uint32_t {
   // Writer has to wait for compaction or flush to finish.
   STALL_MICROS,
   // The wait time for db mutex.
+  // Disabled by default. To enable it set stats level to kAll
   DB_MUTEX_WAIT_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
   NO_ITERATORS,  // number of iterators currently open
@@ -316,6 +317,16 @@ struct HistogramData {
   double standard_deviation;
 };
 
+enum StatsLevel {
+  // Collect all stats except the counters requiring to get time inside the
+  // mutex lock.
+  kExceptTimeForMutex,
+  // Collect all stats, including measuring duration of mutex operations.
+  // If getting time is expensive on the platform to run, it can
+  // reduce scalability to more threads, especialy for writes.
+  kAll,
+};
+
 // Analyze the performance of a db
 class Statistics {
  public:
@@ -339,6 +350,8 @@ class Statistics {
   virtual bool HistEnabledForType(uint32_t type) const {
     return type < HISTOGRAM_ENUM_MAX;
   }
+
+  StatsLevel stats_level_ = kExceptTimeForMutex;
 };
 
 // Create a concrete DBStatistics object
