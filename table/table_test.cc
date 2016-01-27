@@ -1242,7 +1242,7 @@ TEST_F(BlockBasedTableTest, NoopTransformSeek) {
   for (int i = 0; i < 2; ++i) {
     ReadOptions ro;
     ro.total_order_seek = (i == 0);
-    std::unique_ptr<InternalIterator> iter(reader->NewIterator(ro));
+    std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
 
     iter->Seek(key.Encode());
     ASSERT_OK(iter->status());
