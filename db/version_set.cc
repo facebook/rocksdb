@@ -963,7 +963,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
 bool Version::IsFilterSkipped(int level) {
   // Reaching the bottom level implies misses at all upper levels, so we'll
   // skip checking the filters when we predict a hit.
-  return cfd_->ioptions()->optimize_filters_for_hits &&
+  return cfd_->ioptions()->optimize_filters_for_hits && level > 0 &&
          level == storage_info_.num_non_empty_levels() - 1;
 }
 

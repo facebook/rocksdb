@@ -14,6 +14,11 @@
 
 namespace rocksdb {
 
+static uint64_t TestGetTickerCount(const Options& options,
+                                   Tickers ticker_type) {
+  return options.statistics->getTickerCount(ticker_type);
+}
+
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
   test::CompressibleString(rnd, 0.8, len, &r);
@@ -152,6 +157,63 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
     dbfull()->TEST_WaitForCompact();
     ASSERT_EQ(NumSortedRuns(0), 1);
   }
+}
+
+TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
+  Options options;
+  options = CurrentOptions(options);
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.size_ratio = 5;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 105 << 10;  // 105KB
+  options.arena_block_size = 4 << 10;
+  options.target_file_size_base = 32 << 10;  // 32KB
+  // trigger compaction if there are >= 4 files
+  options.level0_file_num_compaction_trigger = 4;
+  BlockBasedTableOptions bbto;
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.optimize_filters_for_hits = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.memtable_factory.reset(new SpecialSkipListFactory(3));
+
+  DestroyAndReopen(options);
+
+  // block compaction from happening
+  env_->SetBackgroundThreads(1, Env::LOW);
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  Put("", "");
+  for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
+    Put(Key(num * 10), "val");
+    Put(Key(30 + num * 10), "val");
+    Put(Key(60 + num * 10), "val");
+
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+
+  // Query set of non existing keys
+  for (int i = 5; i < 90; i += 10) {
+    ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+  }
+
+  // Make sure bloom filter is used at least once.
+  ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+  auto prev_counter = TestGetTickerCount(options, BLOOM_FILTER_USEFUL);
+
+  // Unblock compaction and wait it for happening.
+  sleeping_task_low.WakeUp();
+  dbfull()->TEST_WaitForCompact();
+
+  // The same queries will not trigger bloom filter
+  for (int i = 5; i < 90; i += 10) {
+    ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+  }
+  ASSERT_EQ(prev_counter, TestGetTickerCount(options, BLOOM_FILTER_USEFUL));
 }
 
 // TODO(kailiu) The tests on UniversalCompaction has some issues:
