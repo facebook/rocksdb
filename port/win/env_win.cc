@@ -1138,6 +1138,8 @@ void WinthreadCall(const char* label, std::error_code result) {
 }
 }
 
+typedef VOID(WINAPI * FnGetSystemTimePreciseAsFileTime)(LPFILETIME);
+
 class WinEnv : public Env {
  public:
   WinEnv();
@@ -1676,25 +1678,29 @@ class WinEnv : public Env {
   }
 
   virtual uint64_t NowMicros() override {
-    // all std::chrono clocks on windows proved to return
-    // values that may repeat that is not good enough for some uses.
-    const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
-    const int64_t c_FtToMicroSec = 10;
+    if (GetSystemTimePreciseAsFileTime_ != NULL) {
+      // all std::chrono clocks on windows proved to return
+      // values that may repeat that is not good enough for some uses.
+      const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
+      const int64_t c_FtToMicroSec = 10;
 
-    // This interface needs to return system time and not
-    // just any microseconds because it is often used as an argument
-    // to TimedWait() on condition variable
-    FILETIME ftSystemTime;
-    GetSystemTimePreciseAsFileTime(&ftSystemTime);
+      // This interface needs to return system time and not
+      // just any microseconds because it is often used as an argument
+      // to TimedWait() on condition variable
+      FILETIME ftSystemTime;
+      GetSystemTimePreciseAsFileTime_(&ftSystemTime);
 
-    LARGE_INTEGER li;
-    li.LowPart = ftSystemTime.dwLowDateTime;
-    li.HighPart = ftSystemTime.dwHighDateTime;
-    // Subtract unix epoch start
-    li.QuadPart -= c_UnixEpochStartTicks;
-    // Convert to microsecs
-    li.QuadPart /= c_FtToMicroSec;
-    return li.QuadPart;
+      LARGE_INTEGER li;
+      li.LowPart = ftSystemTime.dwLowDateTime;
+      li.HighPart = ftSystemTime.dwHighDateTime;
+      // Subtract unix epoch start
+      li.QuadPart -= c_UnixEpochStartTicks;
+      // Convert to microsecs
+      li.QuadPart /= c_FtToMicroSec;
+      return li.QuadPart;
+    }
+    using namespace std::chrono;
+    return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
   }
 
   virtual uint64_t NowNanos() override {
@@ -2104,7 +2110,12 @@ class WinEnv : public Env {
   std::vector<ThreadPool> thread_pools_;
   mutable std::mutex mu_;
   std::vector<std::thread> threads_to_join_;
+  static FnGetSystemTimePreciseAsFileTime GetSystemTimePreciseAsFileTime_;
+  static bool GetSystemTimePreciseAsFileTimeInitialized_;
 };
+
+FnGetSystemTimePreciseAsFileTime WinEnv::GetSystemTimePreciseAsFileTime_ = NULL;
+bool WinEnv::GetSystemTimePreciseAsFileTimeInitialized_ = false;
 
 WinEnv::WinEnv()
     : checkedDiskForMmap_(false),
@@ -2113,6 +2124,16 @@ WinEnv::WinEnv()
       allocation_granularity_(page_size_),
       perf_counter_frequency_(0),
       thread_pools_(Priority::TOTAL) {
+
+  if (!GetSystemTimePreciseAsFileTimeInitialized_) {
+    HMODULE module = GetModuleHandle("kernel32.dll");
+    if (module != NULL) {
+      GetSystemTimePreciseAsFileTime_ = (FnGetSystemTimePreciseAsFileTime)GetProcAddress(
+        module, "GetSystemTimePreciseAsFileTime");
+    }
+    GetSystemTimePreciseAsFileTimeInitialized_ = true;
+  }
+
   SYSTEM_INFO sinfo;
   GetSystemInfo(&sinfo);
 

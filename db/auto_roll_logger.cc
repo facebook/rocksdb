@@ -32,8 +32,17 @@ Status AutoRollLogger::ResetLogger() {
 }
 
 void AutoRollLogger::RollLogFile() {
-  std::string old_fname = OldInfoLogFileName(
-      dbname_, env_->NowMicros(), db_absolute_path_, db_log_dir_);
+  uint64_t now = env_->NowMicros();
+  std::string old_fname;
+  // Try to check target name only 10 times at most
+  for (int i = 0; i < 10; i++) {
+    old_fname = OldInfoLogFileName(
+      dbname_, now, db_absolute_path_, db_log_dir_);
+    if (!env_->FileExists(old_fname).ok()) {
+      break;
+    }
+    now++;
+  };
   env_->RenameFile(log_fname_, old_fname);
 }
 
