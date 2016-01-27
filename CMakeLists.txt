@@ -188,7 +188,6 @@ set(SOURCES
         tools/sst_dump_tool.cc
         tools/dump/db_dump_tool.cc
         util/arena.cc
-        util/auto_roll_logger.cc
         util/bloom.cc
         util/build_version.cc
         util/cache.cc
