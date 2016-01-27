@@ -514,7 +514,7 @@ class IoctlFriendlyTmpdir {
         } else {
           // Diagnose ioctl-related failure only if this is the
           // directory specified via that envvar.
-          if (tmp == d) {
+          if (tmp && tmp == d) {
             fprintf(stderr, "TEST_IOCTL_FRIENDLY_TMPDIR-specified directory is "
                     "not suitable: %s\n", d.c_str());
           }
