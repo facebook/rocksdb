@@ -49,3 +49,6 @@ Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtub
 
 ## Rakuten Marketing
 [Rakuten Marketing](https://marketing.rakuten.com/) uses RocksDB as the disk cache layer for the real-time bidding service in their Performance DSP.
+
+## VWO, Wingify
+[VWO's](https://vwo.com/) Smart Code checker and URL helper uses RocksDB to store all the URLs where VWO's Smart Code is installed.
