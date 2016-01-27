@@ -2110,12 +2110,8 @@ class WinEnv : public Env {
   std::vector<ThreadPool> thread_pools_;
   mutable std::mutex mu_;
   std::vector<std::thread> threads_to_join_;
-  static FnGetSystemTimePreciseAsFileTime GetSystemTimePreciseAsFileTime_;
-  static bool GetSystemTimePreciseAsFileTimeInitialized_;
+  FnGetSystemTimePreciseAsFileTime GetSystemTimePreciseAsFileTime_;
 };
-
-FnGetSystemTimePreciseAsFileTime WinEnv::GetSystemTimePreciseAsFileTime_ = NULL;
-bool WinEnv::GetSystemTimePreciseAsFileTimeInitialized_ = false;
 
 WinEnv::WinEnv()
     : checkedDiskForMmap_(false),
@@ -2123,15 +2119,13 @@ WinEnv::WinEnv()
       page_size_(4 * 1012),
       allocation_granularity_(page_size_),
       perf_counter_frequency_(0),
-      thread_pools_(Priority::TOTAL) {
+      thread_pools_(Priority::TOTAL),
+      GetSystemTimePreciseAsFileTime_(NULL) {
 
-  if (!GetSystemTimePreciseAsFileTimeInitialized_) {
-    HMODULE module = GetModuleHandle("kernel32.dll");
-    if (module != NULL) {
-      GetSystemTimePreciseAsFileTime_ = (FnGetSystemTimePreciseAsFileTime)GetProcAddress(
-        module, "GetSystemTimePreciseAsFileTime");
-    }
-    GetSystemTimePreciseAsFileTimeInitialized_ = true;
+  HMODULE module = GetModuleHandle("kernel32.dll");
+  if (module != NULL) {
+    GetSystemTimePreciseAsFileTime_ = (FnGetSystemTimePreciseAsFileTime)GetProcAddress(
+      module, "GetSystemTimePreciseAsFileTime");
   }
 
   SYSTEM_INFO sinfo;

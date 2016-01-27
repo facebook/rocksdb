@@ -32,9 +32,11 @@ Status AutoRollLogger::ResetLogger() {
 }
 
 void AutoRollLogger::RollLogFile() {
+  // This function is called when log is rotating. Two rotations
+  // can happen quickly (NowMicro returns same value). To not overwrite
+  // previous log file we increment by one micro second and try again.
   uint64_t now = env_->NowMicros();
   std::string old_fname;
-  // Try to check target name only 10 times at most
   for (int i = 0; i < 10; i++) {
     old_fname = OldInfoLogFileName(
       dbname_, now, db_absolute_path_, db_log_dir_);
