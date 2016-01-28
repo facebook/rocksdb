@@ -13,8 +13,8 @@
 #        cd build
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 12 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 ..
-#        OR for VS Studio 15 cmake -G "Visual Studio 14 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 ..
+#        sample command: cmake -G "Visual Studio 12 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 -DJNI=1 ..
+#        OR for VS Studio 15 cmake -G "Visual Studio 14 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 -DJNI=1 ..
 # 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
 #                                          or simply /m ot use all avail cores)
 #        msbuild rocksdb.sln
@@ -243,6 +243,7 @@ set(SOURCES
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/checkpoint/checkpoint.cc
+        utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/document/document_db.cc
         utilities/document/json_document.cc
         utilities/document/json_document_builder.cc
@@ -287,6 +288,17 @@ add_library(rocksdb${ARTIFACT_SUFFIX} SHARED ${SOURCES})
 set_target_properties(rocksdb${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb${ARTIFACT_SUFFIX}.pdb")
 add_dependencies(rocksdb${ARTIFACT_SUFFIX} GenerateBuildVersion)
 target_link_libraries(rocksdb${ARTIFACT_SUFFIX} ${LIBS})
+
+if (DEFINED JNI)
+  if (${JNI} EQUAL 1)
+    message(STATUS "JNI library is enabled")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/java)
+  else()
+    message(STATUS "JNI library is disabled")
+  endif()
+else()
+  message(STATUS "JNI library is disabled")
+endif()
 
 set(APPS
         db/db_bench.cc

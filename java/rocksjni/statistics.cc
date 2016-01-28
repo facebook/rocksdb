@@ -20,7 +20,7 @@
  * Signature: (IJ)J
  */
 jlong Java_org_rocksdb_Statistics_getTickerCount0(
-    JNIEnv* env, jobject jobj, int tickerType, jlong handle) {
+    JNIEnv* env, jobject jobj, jint tickerType, jlong handle) {
   auto st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);
 
@@ -33,7 +33,7 @@ jlong Java_org_rocksdb_Statistics_getTickerCount0(
  * Signature: (IJ)Lorg/rocksdb/HistogramData;
  */
 jobject Java_org_rocksdb_Statistics_geHistogramData0(
-  JNIEnv* env, jobject jobj, int histogramType, jlong handle) {
+    JNIEnv* env, jobject jobj, jint histogramType, jlong handle) {
   auto st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);
 

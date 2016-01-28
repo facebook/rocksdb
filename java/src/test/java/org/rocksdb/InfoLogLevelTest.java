@@ -4,6 +4,7 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.rocksdb.util.Environment;
 
 import java.io.IOException;
 
@@ -113,7 +114,7 @@ public class InfoLogLevelTest {
    * @throws IOException if file is not found.
    */
   private String getLogContentsWithoutHeader() throws IOException {
-    final String separator = System.getProperty("line.separator");
+    final String separator = Environment.isWindows() ? "\n" : System.getProperty("line.separator");
     final String[] lines = new String(readAllBytes(get(
         dbFolder.getRoot().getAbsolutePath()+ "/LOG"))).split(separator);
 

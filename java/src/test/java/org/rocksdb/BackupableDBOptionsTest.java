@@ -5,18 +5,18 @@
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.Random;
+
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 public class BackupableDBOptionsTest {
 
-  private final static String ARBITRARY_PATH = "/tmp";
+  private final static String ARBITRARY_PATH = System.getProperty("java.io.tmpdir");
 
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =

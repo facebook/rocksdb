@@ -42,7 +42,9 @@ public class Environment {
       return String.format("%sjni-osx", name);
     } else if (isSolaris()) {
       return String.format("%sjni-solaris%d", name, is64Bit() ? 64 : 32);
-    } 
+    } else if (isWindows() && is64Bit()) {
+      return String.format("%sjni-win64", name);
+    }
     throw new UnsupportedOperationException();
   }
 
@@ -55,11 +57,16 @@ public class Environment {
       return libraryFileName + ".so";
     } else if (isMac()) {
       return libraryFileName + (shared ? ".dylib" : ".jnilib");
+    } else if (isWindows()) {
+      return libraryFileName + ".dll";
     }
     throw new UnsupportedOperationException();
   }
 
   public static String getJniLibraryExtension() {
+    if (isWindows()) {
+      return ".dll";
+    }
     return (isMac()) ? ".jnilib" : ".so";
   }
 }
