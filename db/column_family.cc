@@ -531,21 +531,6 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "(waiting for flush), max_write_buffer_number is set to %d",
           name_.c_str(), imm()->NumNotFlushed(),
           mutable_cf_options.max_write_buffer_number);
-    } else if (mutable_cf_options.max_write_buffer_number > 3 &&
-               imm()->NumNotFlushed() >=
-                   mutable_cf_options.max_write_buffer_number - 1) {
-      write_controller_token_ =
-          SetupDelay(ioptions_.delayed_write_rate, write_controller,
-                     compaction_needed_bytes, prev_compaction_needed_bytes_,
-                     mutable_cf_options.disable_auto_compactions);
-      internal_stats_->AddCFStats(InternalStats::MEMTABLE_SLOWDOWN, 1);
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we have %d immutable memtables "
-          "(waiting for flush), max_write_buffer_number is set to %d "
-          "rate %" PRIu64,
-          name_.c_str(), imm()->NumNotFlushed(),
-          mutable_cf_options.max_write_buffer_number,
-          write_controller->delayed_write_rate());
     } else if (vstorage->l0_delay_trigger_count() >=
                mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();
@@ -567,6 +552,21 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "[%s] Stopping writes because of estimated pending compaction "
           "bytes %" PRIu64,
           name_.c_str(), compaction_needed_bytes);
+    } else if (mutable_cf_options.max_write_buffer_number > 3 &&
+               imm()->NumNotFlushed() >=
+                   mutable_cf_options.max_write_buffer_number - 1) {
+      write_controller_token_ =
+          SetupDelay(ioptions_.delayed_write_rate, write_controller,
+                     compaction_needed_bytes, prev_compaction_needed_bytes_,
+                     mutable_cf_options.disable_auto_compactions);
+      internal_stats_->AddCFStats(InternalStats::MEMTABLE_SLOWDOWN, 1);
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+          "[%s] Stalling writes because we have %d immutable memtables "
+          "(waiting for flush), max_write_buffer_number is set to %d "
+          "rate %" PRIu64,
+          name_.c_str(), imm()->NumNotFlushed(),
+          mutable_cf_options.max_write_buffer_number,
+          write_controller->delayed_write_rate());
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
