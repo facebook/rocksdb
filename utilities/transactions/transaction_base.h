@@ -165,7 +165,7 @@ class TransactionBaseImpl : public Transaction {
   }
 
   const Snapshot* GetSnapshot() const override {
-    return snapshot_ ? snapshot_->snapshot() : nullptr;
+    return snapshot_ ? snapshot_.get() : nullptr;
   }
 
   void SetSnapshot() override;
@@ -202,6 +202,9 @@ class TransactionBaseImpl : public Transaction {
     write_options_ = write_options;
   }
 
+  // Used for memory management for snapshot_
+  void ReleaseSnapshot(const Snapshot* snapshot, DB* db);
+
  protected:
   // Add a key to the list of tracked keys.
   // seqno is the earliest seqno this key was involved with this transaction.
@@ -218,15 +221,12 @@ class TransactionBaseImpl : public Transaction {
 
   const Comparator* cmp_;
 
-  // Records writes pending in this transaction
-  std::unique_ptr<WriteBatchWithIndex> write_batch_;
-
   // Stores that time the txn was constructed, in microseconds.
   const uint64_t start_time_;
 
   // Stores the current snapshot that was was set by SetSnapshot or null if
   // no snapshot is currently set.
-  std::shared_ptr<ManagedSnapshot> snapshot_;
+  std::shared_ptr<const Snapshot> snapshot_;
 
   // Count of various operations pending in this transaction
   uint64_t num_puts_ = 0;
@@ -234,7 +234,7 @@ class TransactionBaseImpl : public Transaction {
   uint64_t num_merges_ = 0;
 
   struct SavePoint {
-    std::shared_ptr<ManagedSnapshot> snapshot_;
+    std::shared_ptr<const Snapshot> snapshot_;
     bool snapshot_needed_;
     std::shared_ptr<TransactionNotifier> snapshot_notifier_;
     uint64_t num_puts_;
@@ -244,7 +244,7 @@ class TransactionBaseImpl : public Transaction {
     // Record all keys tracked since the last savepoint
     TransactionKeyMap new_keys_;
 
-    SavePoint(std::shared_ptr<ManagedSnapshot> snapshot, bool snapshot_needed,
+    SavePoint(std::shared_ptr<const Snapshot> snapshot, bool snapshot_needed,
               std::shared_ptr<TransactionNotifier> snapshot_notifier,
               uint64_t num_puts, uint64_t num_deletes, uint64_t num_merges)
         : snapshot_(snapshot),
@@ -256,6 +256,9 @@ class TransactionBaseImpl : public Transaction {
   };
 
  private:
+  // Records writes pending in this transaction
+  WriteBatchWithIndex write_batch_;
+
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.
   std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint>> save_points_;

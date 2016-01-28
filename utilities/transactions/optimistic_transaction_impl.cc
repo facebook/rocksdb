@@ -54,7 +54,7 @@ Status OptimisticTransactionImpl::Commit() {
   }
 
   Status s = db_impl->WriteWithCallback(
-      write_options_, write_batch_->GetWriteBatch(), &callback);
+      write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
 
   if (s.ok()) {
     Clear();
@@ -77,7 +77,7 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   SequenceNumber seq;
   if (snapshot_) {
-    seq = snapshot_->snapshot()->GetSequenceNumber();
+    seq = snapshot_->GetSequenceNumber();
   } else {
     seq = db_->GetLatestSequenceNumber();
   }

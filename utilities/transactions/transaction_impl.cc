@@ -92,7 +92,7 @@ Status TransactionImpl::CommitBatch(WriteBatch* batch) {
 }
 
 Status TransactionImpl::Commit() {
-  Status s = DoCommit(write_batch_->GetWriteBatch());
+  Status s = DoCommit(GetWriteBatch()->GetWriteBatch());
 
   Clear();
 
@@ -295,7 +295,7 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
                                          SequenceNumber* new_seqno) {
   assert(snapshot_);
 
-  SequenceNumber seq = snapshot_->snapshot()->GetSequenceNumber();
+  SequenceNumber seq = snapshot_->GetSequenceNumber();
   if (prev_seqno <= seq) {
     // If the key has been previous validated at a sequence number earlier
     // than the curent snapshot's sequence number, we already know it has not
@@ -311,9 +311,9 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl->DefaultColumnFamily();
 
-  return TransactionUtil::CheckKeyForConflicts(
-      db_impl, cfh, key.ToString(), snapshot_->snapshot()->GetSequenceNumber(),
-      false /* cache_only */);
+  return TransactionUtil::CheckKeyForConflicts(db_impl, cfh, key.ToString(),
+                                               snapshot_->GetSequenceNumber(),
+                                               false /* cache_only */);
 }
 
 }  // namespace rocksdb
