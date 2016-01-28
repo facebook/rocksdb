@@ -229,6 +229,7 @@ DBOptions::DBOptions()
       db_log_dir(""),
       wal_dir(""),
       delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000),
+      base_background_compactions(-1),
       max_background_compactions(1),
       max_subcompactions(1),
       max_background_flushes(1),
@@ -295,6 +296,7 @@ DBOptions::DBOptions(const Options& options)
       wal_dir(options.wal_dir),
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
+      base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
       max_background_flushes(options.max_background_flushes),
@@ -383,6 +385,8 @@ void DBOptions::Dump(Logger* log) const {
         table_cache_numshardbits);
     Header(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
         delete_obsolete_files_period_micros);
+    Header(log, "             Options.base_background_compactions: %d",
+           base_background_compactions);
     Header(log, "             Options.max_background_compactions: %d",
         max_background_compactions);
     Header(log, "                     Options.max_subcompactions: %" PRIu32,
@@ -652,6 +656,7 @@ Options::PrepareForBulkLoad()
   // to L1. This is helpful so that all files that are
   // input to the manual compaction are all at L0.
   max_background_compactions = 2;
+  base_background_compactions = 2;
 
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;

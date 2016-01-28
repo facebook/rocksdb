@@ -26,6 +26,13 @@ std::unique_ptr<WriteControllerToken> WriteController::GetDelayToken(
   return std::unique_ptr<WriteControllerToken>(new DelayWriteToken(this));
 }
 
+std::unique_ptr<WriteControllerToken>
+WriteController::GetCompactionPressureToken() {
+  ++total_compaction_pressure_;
+  return std::unique_ptr<WriteControllerToken>(
+      new CompactionPressureToken(this));
+}
+
 bool WriteController::IsStopped() const { return total_stopped_ > 0; }
 // This is inside DB mutex, so we can't sleep and need to minimize
 // frequency to get time.
@@ -104,6 +111,11 @@ StopWriteToken::~StopWriteToken() {
 DelayWriteToken::~DelayWriteToken() {
   controller_->total_delayed_--;
   assert(controller_->total_delayed_ >= 0);
+}
+
+CompactionPressureToken::~CompactionPressureToken() {
+  controller_->total_compaction_pressure_--;
+  assert(controller_->total_compaction_pressure_ >= 0);
 }
 
 }  // namespace rocksdb
