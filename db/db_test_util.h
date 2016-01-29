@@ -19,6 +19,7 @@
 #endif
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -750,6 +751,8 @@ class DBTestBase : public testing::Test {
 
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
+
+  std::unordered_map<std::string, uint64_t> GetAllSSTFiles();
 };
 
 }  // namespace rocksdb

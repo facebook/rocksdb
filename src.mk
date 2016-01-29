@@ -94,13 +94,14 @@ LIB_SOURCES =                                                   \
   util/compaction_job_stats_impl.cc                             \
   util/concurrent_arena.cc                                      \
   util/crc32c.cc                                                \
-  util/delete_scheduler_impl.cc                                 \
+  util/delete_scheduler.cc                                      \
   util/dynamic_bloom.cc                                         \
   util/env.cc                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
   util/io_posix.cc                                              \
   util/thread_posix.cc                                          \
+  util/sst_file_manager_impl.cc                                     \
   util/file_util.cc                                             \
   util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \

@@ -16,7 +16,7 @@ namespace rocksdb {
 extern Status CopyFile(Env* env, const std::string& source,
                        const std::string& destination, uint64_t size = 0);
 
-extern Status DeleteOrMoveToTrash(const DBOptions* db_options,
-                                  const std::string& fname);
+extern Status DeleteSSTFile(const DBOptions* db_options,
+                            const std::string& fname, uint32_t path_id);
 
 }  // namespace rocksdb

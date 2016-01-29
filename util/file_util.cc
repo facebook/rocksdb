@@ -8,9 +8,9 @@
 #include <string>
 #include <algorithm>
 
-#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
@@ -66,12 +66,15 @@ Status CopyFile(Env* env, const std::string& source,
   return Status::OK();
 }
 
-Status DeleteOrMoveToTrash(const DBOptions* db_options,
-                           const std::string& fname) {
-  if (db_options->delete_scheduler == nullptr) {
-    return db_options->env->DeleteFile(fname);
+Status DeleteSSTFile(const DBOptions* db_options, const std::string& fname,
+                     uint32_t path_id) {
+  // TODO(tec): support sst_file_manager for multiple path_ids
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
+  if (sfm && path_id == 0) {
+    return sfm->ScheduleFileDeletion(fname);
   } else {
-    return db_options->delete_scheduler->DeleteFile(fname);
+    return db_options->env->DeleteFile(fname);
   }
 }
 

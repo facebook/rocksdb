@@ -64,7 +64,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
-#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/sst_file_writer.h"
@@ -89,6 +88,7 @@
 #include "util/log_buffer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/options_helper.h"
 #include "util/options_parser.h"
 #include "util/perf_context_imp.h"
@@ -786,8 +786,8 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
     }
 #endif  // !ROCKSDB_LITE
     Status file_deletion_status;
-    if (type == kTableFile && path_id == 0) {
-      file_deletion_status = DeleteOrMoveToTrash(&db_options_, fname);
+    if (type == kTableFile) {
+      file_deletion_status = DeleteSSTFile(&db_options_, fname, path_id);
     } else {
       file_deletion_status = env_->DeleteFile(fname);
     }
@@ -1509,6 +1509,14 @@ Status DBImpl::FlushMemTableToOutputFile(
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
                            job_context->job_id, flush_job.GetTableProperties());
+    auto sfm =
+        static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+    if (sfm) {
+      // Notify sst_file_manager that a new file was added
+      std::string file_path = MakeTableFileName(db_options_.db_paths[0].path,
+                                                file_meta.fd.GetNumber());
+      sfm->OnAddFile(file_path);
+    }
   }
 #endif  // ROCKSDB_LITE
   return s;
@@ -5406,6 +5414,25 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   }
   impl->mutex_.Unlock();
 
+  auto sfm = static_cast<SstFileManagerImpl*>(
+      impl->db_options_.sst_file_manager.get());
+  if (s.ok() && sfm) {
+    // Notify SstFileManager about all sst files that already exist in
+    // db_paths[0] when the DB is opened.
+    auto& db_path = impl->db_options_.db_paths[0];
+    std::vector<std::string> existing_files;
+    impl->db_options_.env->GetChildren(db_path.path, &existing_files);
+    for (auto& file_name : existing_files) {
+      uint64_t file_number;
+      FileType file_type;
+      std::string file_path = db_path.path + "/" + file_name;
+      if (ParseFileName(file_name, &file_number, &file_type) &&
+          file_type == kTableFile) {
+        sfm->OnAddFile(file_path);
+      }
+    }
+  }
+
   if (s.ok()) {
     Log(InfoLogLevel::INFO_LEVEL, impl->db_options_.info_log, "DB pointer %p",
         impl);
@@ -5465,7 +5492,7 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         if (type == kMetaDatabase) {
           del = DestroyDB(path_to_delete, options);
         } else if (type == kTableFile) {
-          del = DeleteOrMoveToTrash(&options, path_to_delete);
+          del = DeleteSSTFile(&options, path_to_delete, 0);
         } else {
           del = env->DeleteFile(path_to_delete);
         }
@@ -5481,13 +5508,9 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end
-          Status del;
           std::string table_path = db_path.path + "/" + filenames[i];
-          if (path_id == 0) {
-            del = DeleteOrMoveToTrash(&options, table_path);
-          } else {
-            del = env->DeleteFile(table_path);
-          }
+          Status del = DeleteSSTFile(&options, table_path,
+                                     static_cast<uint32_t>(path_id));
           if (result.ok() && !del.ok()) {
             result = del;
           }

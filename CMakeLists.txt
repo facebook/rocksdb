@@ -196,13 +196,14 @@ set(SOURCES
         util/comparator.cc
         util/concurrent_arena.cc
         util/crc32c.cc
-        util/delete_scheduler_impl.cc
+        util/delete_scheduler.cc
         util/dynamic_bloom.cc
         util/env.cc
         util/env_hdfs.cc
         util/event_logger.cc
         util/file_util.cc
         util/file_reader_writer.cc
+        util/sst_file_manager_impl.cc
         util/filter_policy.cc
         util/hash.cc
         util/histogram.cc

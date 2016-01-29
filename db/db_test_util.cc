@@ -1005,4 +1005,22 @@ void DBTestBase::CopyFile(const std::string& source,
   ASSERT_OK(destfile->Close());
 }
 
+std::unordered_map<std::string, uint64_t> DBTestBase::GetAllSSTFiles() {
+  std::unordered_map<std::string, uint64_t> res;
+
+  std::vector<std::string> files;
+  env_->GetChildren(dbname_, &files);
+  for (auto& file_name : files) {
+    uint64_t number;
+    FileType type;
+    std::string file_path = dbname_ + "/" + file_name;
+    if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
+      uint64_t file_size = 0;
+      env_->GetFileSize(file_path, &file_size);
+      res[file_path] = file_size;
+    }
+  }
+  return res;
+}
+
 }  // namespace rocksdb

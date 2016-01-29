@@ -51,6 +51,7 @@
 #include "util/iostats_context_imp.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
@@ -498,11 +499,16 @@ Status CompactionJob::Run() {
   }
 
   TablePropertiesCollection tp;
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.outputs) {
       auto fn = TableFileName(db_options_.db_paths, output.meta.fd.GetNumber(),
                               output.meta.fd.GetPathId());
       tp[fn] = output.table_properties;
+      if (sfm && output.meta.fd.GetPathId() == 0) {
+        sfm->OnAddFile(fn);
+      }
     }
   }
   compact_->compaction->SetOutputTableProperties(std::move(tp));

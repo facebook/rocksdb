@@ -37,9 +37,9 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
-#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/experimental.h"
+#include "rocksdb/sst_file_manager.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
@@ -65,9 +65,10 @@
 #include "util/compression.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/statistics.h"
-#include "util/testharness.h"
 #include "util/sync_point.h"
+#include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/mock_env.h"
 #include "util/string_util.h"
@@ -8431,15 +8432,78 @@ TEST_F(DBTest, DeletingOldWalAfterDrop) {
 }
 
 #ifndef ROCKSDB_LITE
+TEST_F(DBTest, DBWithSstFileManager) {
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+  int files_added = 0;
+  int files_deleted = 0;
+  int files_moved = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::OnAddFile", [&](void* arg) { files_added++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::OnDeleteFile", [&](void* arg) { files_deleted++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileManagerImpl::OnMoveFile", [&](void* arg) { files_moved++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.sst_file_manager = sst_file_manager;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 25; i++) {
+    GenerateNewRandomFile(&rnd);
+    ASSERT_OK(Flush());
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    // Verify that we are tracking all sst files in dbname_
+    ASSERT_EQ(sfm->GetTrackedFiles(), GetAllSSTFiles());
+  }
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  auto files_in_db = GetAllSSTFiles();
+  // Verify that we are tracking all sst files in dbname_
+  ASSERT_EQ(sfm->GetTrackedFiles(), files_in_db);
+  // Verify the total files size
+  uint64_t total_files_size = 0;
+  for (auto& file_to_size : files_in_db) {
+    total_files_size += file_to_size.second;
+  }
+  ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
+  // We flushed at least 25 files
+  ASSERT_GE(files_added, 25);
+  // Compaction must have deleted some files
+  ASSERT_GT(files_deleted, 0);
+  // No files were moved
+  ASSERT_EQ(files_moved, 0);
+
+  Close();
+  Reopen(options);
+  ASSERT_EQ(sfm->GetTrackedFiles(), files_in_db);
+  ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
+
+  // Verify that we track all the files again after the DB is closed and opened
+  Close();
+  sst_file_manager.reset(NewSstFileManager(env_));
+  options.sst_file_manager = sst_file_manager;
+  sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+  Reopen(options);
+  ASSERT_EQ(sfm->GetTrackedFiles(), files_in_db);
+  ASSERT_EQ(sfm->GetTotalSize(), total_files_size);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest, RateLimitedDelete) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"DBTest::RateLimitedDelete:1",
-       "DeleteSchedulerImpl::BackgroundEmptyTrash"},
+      {"DBTest::RateLimitedDelete:1", "DeleteScheduler::BackgroundEmptyTrash"},
   });
 
   std::vector<uint64_t> penalties;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::BackgroundEmptyTrash:Wait",
+      "DeleteScheduler::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
@@ -8450,9 +8514,10 @@ TEST_F(DBTest, RateLimitedDelete) {
   std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
-  options.delete_scheduler.reset(NewDeleteScheduler(
-      env_, trash_dir, rate_bytes_per_sec, nullptr, false, &s));
+  options.sst_file_manager.reset(NewSstFileManager(
+      env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
   ASSERT_OK(s);
+  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   Destroy(last_options_);
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -8479,7 +8544,7 @@ TEST_F(DBTest, RateLimitedDelete) {
   uint64_t delete_start_time = env_->NowMicros();
   // Hold BackgroundEmptyTrash
   TEST_SYNC_POINT("DBTest::RateLimitedDelete:1");
-  options.delete_scheduler->WaitForEmptyTrash();
+  sfm->WaitForEmptyTrash();
   uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
   uint64_t total_files_size = 0;
@@ -8502,7 +8567,7 @@ TEST_F(DBTest, RateLimitedDelete) {
 TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -8515,9 +8580,10 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
   Status s;
-  options.delete_scheduler.reset(NewDeleteScheduler(
-      env_, trash_dir, rate_bytes_per_sec, nullptr, false, &s));
+  options.sst_file_manager.reset(NewSstFileManager(
+      env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
   ASSERT_OK(s);
+  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   DestroyAndReopen(options);
 
@@ -8551,7 +8617,7 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
   ASSERT_EQ("0,2", FilesPerLevel(0));
 
-  options.delete_scheduler->WaitForEmptyTrash();
+  sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
   compact_options.bottommost_level_compaction =
@@ -8559,7 +8625,7 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
-  options.delete_scheduler->WaitForEmptyTrash();
+  sfm->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -8568,7 +8634,7 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
 TEST_F(DBTest, DestroyDBWithRateLimitedDelete) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -8590,12 +8656,13 @@ TEST_F(DBTest, DestroyDBWithRateLimitedDelete) {
   std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
   Status s;
-  options.delete_scheduler.reset(NewDeleteScheduler(
-      env_, trash_dir, rate_bytes_per_sec, nullptr, false, &s));
+  options.sst_file_manager.reset(NewSstFileManager(
+      env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
   ASSERT_OK(s);
   ASSERT_OK(DestroyDB(dbname_, options));
 
-  options.delete_scheduler->WaitForEmptyTrash();
+  auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
+  sfm->WaitForEmptyTrash();
   // We have deleted the 4 sst files in the delete_scheduler
   ASSERT_EQ(bg_delete_file, 4);
 }
@@ -10073,7 +10140,6 @@ TEST_F(DBTest, WalFilterTestWithChangeBatchExtraKeys) {
 
   ValidateKeyExistence(db_, keys_must_exist, keys_must_not_exist);
 }
-
 #endif  // ROCKSDB_LITE
 
 class SliceTransformLimitedDomain : public SliceTransform {

@@ -3,9 +3,11 @@
 ### Public API Changes
 * Add a new perf context level between kEnableCount and kEnableTime. Level 2 now doesn't include timers for mutexes.
 * Statistics of mutex operation durations will not be measured by default. If you want to have them enabled, you need to set Statistics::stats_level_ to kAll.
+* DBOptions::delete_scheduler and NewDeleteScheduler() are removed, please use DBOptions::sst_file_manager and NewSstFileManager() instead
 
 ### New Features
 * ldb tool now supports operations to non-default column families.
+* Add DBOptions::sst_file_manager. Use NewSstFileManager() in include/rocksdb/sst_file_manager.h to create a SstFileManager that can be used to track the total size of SST files and control the SST files deletion rate.  
 
 ## 4.4.0 (1/14/2016)
 ### Public API Changes
