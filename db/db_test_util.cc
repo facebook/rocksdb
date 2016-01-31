@@ -89,7 +89,8 @@ bool DBTestBase::ChangeOptions(int skip_mask) {
         option_config_ == kUniversalCompaction ||
         option_config_ == kUniversalCompactionMultiLevel ||
         option_config_ == kUniversalSubcompactions ||
-        option_config_ == kFIFOCompaction) {
+        option_config_ == kFIFOCompaction) ||
+        option_config == kConcurrentSkipList) {
       continue;
     }
 #endif
@@ -354,6 +355,11 @@ Options DBTestBase::CurrentOptions(
       options.compaction_style = kCompactionStyleUniversal;
       options.num_levels = 8;
       options.max_subcompactions = 4;
+      break;
+    }
+    case kConcurrentSkipList: {
+      options.allow_concurrent_memtable_write = true;
+      options.enable_write_thread_adaptive_yield = true;
       break;
     }
 
