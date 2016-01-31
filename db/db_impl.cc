@@ -4137,7 +4137,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     if (write_thread_.CompleteParallelWorker(&w)) {
       // we're responsible for early exit
-      auto last_sequence = w.parallel_group->last_writer->sequence;
+      auto last_sequence =
+          w.parallel_group->last_writer->sequence +
+          WriteBatchInternal::Count(w.parallel_group->last_writer->batch) - 1;
       SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
       versions_->SetLastSequence(last_sequence);
       write_thread_.EarlyExitParallelGroup(&w);
@@ -4437,7 +4439,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             this, true /*dont_filter_deletes*/,
             true /*concurrent_memtable_writes*/);
 
-        assert(last_writer->sequence == last_sequence);
+        assert(last_writer->sequence +
+                   WriteBatchInternal::Count(last_writer->batch) - 1 ==
+               last_sequence);
         // CompleteParallelWorker returns true if this thread should
         // handle exit, false means somebody else did
         exit_completed_early = !write_thread_.CompleteParallelWorker(&w);
