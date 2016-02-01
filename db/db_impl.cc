@@ -3327,6 +3327,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     RecordTick(stats_, BYTES_READ, value->size());
+    MeasureTime(stats_, BYTES_PER_READ, value->size());
   }
   return s;
 }
@@ -3437,6 +3438,7 @@ std::vector<Status> DBImpl::MultiGet(
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
   RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
+  MeasureTime(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
 
   return stat_list;
@@ -4321,6 +4323,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // Record statistics
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
     RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
+    MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     if (write_options.disableWAL) {
