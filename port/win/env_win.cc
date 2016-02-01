@@ -766,6 +766,18 @@ class WinRandomAccessFile : public RandomAccessFile {
     return read;
   }
 
+  void CalculateReadParameters(uint64_t offset, size_t bytes_requested,
+                                size_t& actual_bytes_toread,
+                                uint64_t& first_page_start) const {
+
+    const size_t alignment = buffer_.Alignment();
+
+    first_page_start = TruncateToPageBoundary(alignment, offset);
+    const uint64_t last_page_start =
+      TruncateToPageBoundary(alignment, offset + bytes_requested - 1);
+    actual_bytes_toread = (last_page_start - first_page_start) + alignment;
+  }
+
  public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
                       const EnvOptions& options)
@@ -797,66 +809,87 @@ class WinRandomAccessFile : public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
+
     Status s;
     SSIZE_T r = -1;
     size_t left = n;
     char* dest = scratch;
 
+    if (n == 0) {
+      *result = Slice(scratch, 0);
+      return s;
+    }
+
     // When in unbuffered mode we need to do the following changes:
     // - use our own aligned buffer
     // - always read at the offset of that is a multiple of alignment
     if (!use_os_buffer_) {
-      std::unique_lock<std::mutex> lock(buffer_mut_);
 
-      // Let's see if at least some of the requested data is already
-      // in the buffer
-      if (offset >= buffered_start_ &&
+      uint64_t first_page_start = 0;
+      size_t actual_bytes_toread = 0;
+      size_t bytes_requested = left;
+
+      if (!read_ahead_ && random_access_max_buffer_size_ == 0) {
+        CalculateReadParameters(offset, bytes_requested, actual_bytes_toread,
+          first_page_start);
+
+        assert(actual_bytes_toread > 0);
+
+        r = ReadIntoOneShotBuffer(offset, first_page_start,
+          actual_bytes_toread, left, dest);
+      } else {
+
+        std::unique_lock<std::mutex> lock(buffer_mut_);
+
+        // Let's see if at least some of the requested data is already
+        // in the buffer
+        if (offset >= buffered_start_ &&
           offset < (buffered_start_ + buffer_.CurrentSize())) {
-        size_t buffer_offset = offset - buffered_start_;
-        r = buffer_.Read(dest, buffer_offset, left);
-        assert(r >= 0);
+          size_t buffer_offset = offset - buffered_start_;
+          r = buffer_.Read(dest, buffer_offset, left);
+          assert(r >= 0);
 
-        left -= size_t(r);
-        offset += r;
-        dest += r;
-      }
-
-      // Still some left or none was buffered
-      if (left > 0) {
-        // Figure out the start/end offset for reading and amount to read
-        const size_t alignment = buffer_.Alignment();
-        const size_t first_page_start =
-            TruncateToPageBoundary(alignment, offset);
-
-        size_t bytes_requested = left;
-        if (read_ahead_ && bytes_requested < compaction_readahead_size_) {
-          bytes_requested = compaction_readahead_size_;
+          left -= size_t(r);
+          offset += r;
+          dest += r;
         }
 
-        const size_t last_page_start =
-            TruncateToPageBoundary(alignment, offset + bytes_requested - 1);
-        const size_t actual_bytes_toread =
-            (last_page_start - first_page_start) + alignment;
+        // Still some left or none was buffered
+        if (left > 0) {
+          // Figure out the start/end offset for reading and amount to read
+          bytes_requested = left;
 
-        if (buffer_.Capacity() < actual_bytes_toread) {
-          // If we are in read-ahead mode or the requested size
-          // exceeds max buffer size then use one-shot
-          // big buffer otherwise reallocate main buffer
-          if (read_ahead_ ||
-              (actual_bytes_toread > random_access_max_buffer_size_)) {
-            // Unlock the mutex since we are not using instance buffer
-            lock.unlock();
-            r = ReadIntoOneShotBuffer(offset, first_page_start,
-                                      actual_bytes_toread, left, dest);
-          } else {
-            buffer_.AllocateNewBuffer(actual_bytes_toread);
-            r = ReadIntoInstanceBuffer(offset, first_page_start,
-                                       actual_bytes_toread, left, dest);
+          if (read_ahead_ && bytes_requested < compaction_readahead_size_) {
+            bytes_requested = compaction_readahead_size_;
           }
-        } else {
-          buffer_.Clear();
-          r = ReadIntoInstanceBuffer(offset, first_page_start,
-                                     actual_bytes_toread, left, dest);
+
+          CalculateReadParameters(offset, bytes_requested, actual_bytes_toread,
+            first_page_start);
+
+          assert(actual_bytes_toread > 0);
+
+          if (buffer_.Capacity() < actual_bytes_toread) {
+            // If we are in read-ahead mode or the requested size
+            // exceeds max buffer size then use one-shot
+            // big buffer otherwise reallocate main buffer
+            if (read_ahead_ ||
+              (actual_bytes_toread > random_access_max_buffer_size_)) {
+              // Unlock the mutex since we are not using instance buffer
+              lock.unlock();
+              r = ReadIntoOneShotBuffer(offset, first_page_start,
+                actual_bytes_toread, left, dest);
+            }
+            else {
+              buffer_.AllocateNewBuffer(actual_bytes_toread);
+              r = ReadIntoInstanceBuffer(offset, first_page_start,
+                actual_bytes_toread, left, dest);
+            }
+          }
+          else {
+            buffer_.Clear();
+            r = ReadIntoInstanceBuffer(offset, first_page_start,
+              actual_bytes_toread, left, dest);
+          }
         }
       }
     } else {
