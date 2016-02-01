@@ -589,6 +589,19 @@ TEST_F(PerfContextTest, FalseDBMutexWait) {
     }
   }
 }
+
+TEST_F(PerfContextTest, ToString) {
+  perf_context.Reset();
+  perf_context.block_read_count = 12345;
+
+  std::string zero_included = perf_context.ToString();
+  ASSERT_NE(std::string::npos, zero_included.find("= 0"));
+  ASSERT_NE(std::string::npos, zero_included.find("= 12345"));
+
+  std::string zero_excluded = perf_context.ToString(true);
+  ASSERT_EQ(std::string::npos, zero_excluded.find("= 0"));
+  ASSERT_NE(std::string::npos, zero_excluded.find("= 12345"));
+}
 }
 
 int main(int argc, char** argv) {
