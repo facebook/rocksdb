@@ -187,14 +187,16 @@ TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
 
-  Put("", "");
   for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
     Put(Key(num * 10), "val");
+    if (num) {
+      dbfull()->TEST_WaitForFlushMemTable();
+    }
     Put(Key(30 + num * 10), "val");
     Put(Key(60 + num * 10), "val");
-
-    dbfull()->TEST_WaitForFlushMemTable();
   }
+  Put("", "");
+  dbfull()->TEST_WaitForFlushMemTable();
 
   // Query set of non existing keys
   for (int i = 5; i < 90; i += 10) {
@@ -204,6 +206,13 @@ TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
   // Make sure bloom filter is used at least once.
   ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
   auto prev_counter = TestGetTickerCount(options, BLOOM_FILTER_USEFUL);
+
+  // Make sure bloom filter is used for all but the last L0 file when looking
+  // up a non-existent key that's in the range of all L0 files.
+  ASSERT_EQ(Get(Key(35)), "NOT_FOUND");
+  ASSERT_EQ(prev_counter + NumTableFilesAtLevel(0) - 1,
+            TestGetTickerCount(options, BLOOM_FILTER_USEFUL));
+  prev_counter = TestGetTickerCount(options, BLOOM_FILTER_USEFUL);
 
   // Unblock compaction and wait it for happening.
   sleeping_task_low.WakeUp();

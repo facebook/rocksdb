@@ -530,7 +530,7 @@ class Version {
   // checked during read operations. In certain cases (trivial move or preload),
   // the filter block may already be cached, but we still do not access it such
   // that it eventually expires from the cache.
-  bool IsFilterSkipped(int level);
+  bool IsFilterSkipped(int level, bool is_file_last_in_level = false);
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
   // fields of file_mata from its associated TableProperties.
