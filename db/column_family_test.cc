@@ -65,6 +65,7 @@ class ColumnFamilyTest : public testing::Test {
 
   ~ColumnFamilyTest() {
     Close();
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     Destroy();
     delete env_;
   }
@@ -2047,7 +2048,6 @@ TEST_F(ColumnFamilyTest, FlushAndDropRaceCondition) {
 
   Close();
   Destroy();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 #ifndef ROCKSDB_LITE
@@ -2125,7 +2125,6 @@ TEST_F(ColumnFamilyTest, CreateAndDropRace) {
   drop_cf_thread.join();
   Close();
   Destroy();
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   for (auto* comparator : comparators) {
     if (comparator) {
       delete comparator;
