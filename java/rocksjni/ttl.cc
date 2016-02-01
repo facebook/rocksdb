@@ -113,33 +113,24 @@ jlongArray
 /*
  * Class:     org_rocksdb_TtlDB
  * Method:    createColumnFamilyWithTtl
- * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;I)J;
+ * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;[BJI)J;
  */
 jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
     JNIEnv* env, jobject jobj, jlong jdb_handle,
-    jobject jcf_descriptor, jint jttl) {
+    jbyteArray jcolumn_name, jlong jcolumn_options, jint jttl) {
   rocksdb::ColumnFamilyHandle* handle;
   auto* db_handle = reinterpret_cast<rocksdb::DBWithTTL*>(jdb_handle);
 
-  // get ColumnFamilyName
-  jbyteArray byteArray = static_cast<jbyteArray>(env->CallObjectMethod(
-      jcf_descriptor,
-      rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
-          env)));
-  // get CF Options
-  jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
-      rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
-      env));
-  rocksdb::ColumnFamilyOptions* cfOptions =
-      rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
+  jbyte* cfname = env->GetByteArrayElements(jcolumn_name, 0);
+  const int len = env->GetArrayLength(jcolumn_name);
 
-  jbyte* cfname = env->GetByteArrayElements(byteArray, 0);
-  const int len = env->GetArrayLength(byteArray);
+  auto* cfOptions =
+      reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jcolumn_options);
 
   rocksdb::Status s = db_handle->CreateColumnFamilyWithTtl(
       *cfOptions, std::string(reinterpret_cast<char *>(cfname),
           len), &handle, jttl);
-  env->ReleaseByteArrayElements(byteArray, cfname, 0);
+  env->ReleaseByteArrayElements(jcolumn_name, cfname, 0);
 
   if (s.ok()) {
     return reinterpret_cast<jlong>(handle);

@@ -383,9 +383,7 @@ public class ColumnFamilyTest {
       db.put(columnFamilyHandleList.get(0), "key".getBytes(), "value".getBytes());
       db.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(), "value".getBytes());
 
-      List<byte[]> keys = new ArrayList<>();
-      keys.add("key".getBytes());
-      keys.add("newcfkey".getBytes());
+      List<byte[]> keys = Arrays.asList(new byte[][]{"key".getBytes(), "newcfkey".getBytes()});
       Map<byte[], byte[]> retValues = db.multiGet(columnFamilyHandleList, keys);
       assertThat(retValues.size()).isEqualTo(2);
       assertThat(new String(retValues.get(keys.get(0))))

@@ -58,12 +58,6 @@ template<class PTR, class DERIVED> class RocksDBNativeClass {
     assert(fid != nullptr);
     return fid;
   }
-
-  // Get the pointer from Java
-  static PTR getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<PTR>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
 };
 
 // Native class template for sub-classes of RocksMutableObject

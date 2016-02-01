@@ -109,7 +109,11 @@ public class WriteBatchTest {
                .equals(new String(getContents(batch), "US-ASCII")));
   }
 
-  static native byte[] getContents(WriteBatch batch);
+  static byte[] getContents(final WriteBatch wb) {
+    return getContents(wb.nativeHandle_);
+  }
+
+  private static native byte[] getContents(final long writeBatchHandle);
 }
 
 /**
@@ -117,7 +121,19 @@ public class WriteBatchTest {
  * c++ WriteBatchInternal.
  */
 class WriteBatchTestInternalHelper {
-  static native void setSequence(WriteBatch batch, long sn);
-  static native long sequence(WriteBatch batch);
-  static native void append(WriteBatch b1, WriteBatch b2);
+  static void setSequence(final WriteBatch wb, final long sn) {
+    setSequence(wb.nativeHandle_, sn);
+  }
+
+  static long sequence(final WriteBatch wb) {
+    return sequence(wb.nativeHandle_);
+  }
+
+  static void append(final WriteBatch wb1, final WriteBatch wb2) {
+    append(wb1.nativeHandle_, wb2.nativeHandle_);
+  }
+
+  private static native void setSequence(final long writeBatchHandle, final long sn);
+  private static native long sequence(final long writeBatchHandle);
+  private static native void append(final long writeBatchHandle1, final long writeBatchHandle2);
 }

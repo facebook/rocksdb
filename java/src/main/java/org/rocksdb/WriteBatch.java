@@ -48,7 +48,7 @@ public class WriteBatch extends AbstractWriteBatch {
    * @throws RocksDBException If we cannot iterate over the batch
    */
   public void iterate(final Handler handler) throws RocksDBException {
-    iterate(handler.nativeHandle_);
+    iterate(nativeHandle_, handler.nativeHandle_);
   }
 
   /**
@@ -64,20 +64,27 @@ public class WriteBatch extends AbstractWriteBatch {
   }
 
   @Override protected final native void disposeInternal(final long handle);
-  @Override final native int count0();
-  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen);
-  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen,
-      long cfHandle);
-  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen);
-  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen,
-      long cfHandle);
-  @Override final native void remove(byte[] key, int keyLen);
-  @Override final native void remove(byte[] key, int keyLen, long cfHandle);
-  @Override final native void putLogData(byte[] blob, int blobLen);
-  @Override final native void clear0();
+  @Override final native int count0(final long handle);
+  @Override final native void put(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen);
+  @Override final native void put(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen,
+      final long cfHandle);
+  @Override final native void merge(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen);
+  @Override final native void merge(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen,
+      final long cfHandle);
+  @Override final native void remove(final long handle, final byte[] key,
+      final int keyLen);
+  @Override final native void remove(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle);
+  @Override final native void putLogData(final long handle,
+      final byte[] blob, final int blobLen);
+  @Override final native void clear0(final long handle);
 
-  private native static long newWriteBatch(int reserved_bytes);
-  private native void iterate(long handlerHandle) throws RocksDBException;
+  private native static long newWriteBatch(final int reserved_bytes);
+  private native void iterate(final long handle, final long handlerHandle) throws RocksDBException;
 
 
   /**

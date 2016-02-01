@@ -73,7 +73,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @return An iterator for the Write Batch contents, restricted to the column family
    */
   public WBWIRocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle) {
-    return new WBWIRocksIterator(this, iterator1(columnFamilyHandle.nativeHandle_));
+    return new WBWIRocksIterator(this, iterator1(nativeHandle_,
+            columnFamilyHandle.nativeHandle_));
   }
 
   /**
@@ -87,7 +88,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @return An iterator for the Write Batch contents
    */
   public WBWIRocksIterator newIterator() {
-    return new WBWIRocksIterator(this, iterator0());
+    return new WBWIRocksIterator(this, iterator0(nativeHandle_));
   }
 
   /**
@@ -104,7 +105,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final RocksIterator baseIterator) {
     RocksIterator iterator = new RocksIterator(
         baseIterator.parent_,
-        iteratorWithBase(columnFamilyHandle.nativeHandle_, baseIterator.nativeHandle_));
+        iteratorWithBase(nativeHandle_,
+                columnFamilyHandle.nativeHandle_,
+                baseIterator.nativeHandle_));
     //when the iterator is deleted it will also delete the baseIterator
     baseIterator.disOwnNativeHandle();
     return iterator;
@@ -124,24 +127,31 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   }
 
   @Override protected final native void disposeInternal(final long handle);
-  @Override final native int count0();
-  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen);
-  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen,
-      long cfHandle);
-  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen);
-  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen,
-      long cfHandle);
-  @Override final native void remove(byte[] key, int keyLen);
-  @Override final native void remove(byte[] key, int keyLen, long cfHandle);
-  @Override final native void putLogData(byte[] blob, int blobLen);
-  @Override final native void clear0();
+  @Override final native int count0(final long handle);
+  @Override final native void put(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen);
+  @Override final native void put(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen,
+      final long cfHandle);
+  @Override final native void merge(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen);
+  @Override final native void merge(final long handle, final byte[] key,
+      final int keyLen, final byte[] value, final int valueLen,
+      final long cfHandle);
+  @Override final native void remove(final long handle, final byte[] key,
+      final int keyLen);
+  @Override final native void remove(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle);
+  @Override final native void putLogData(final long handle, final byte[] blob,
+      final int blobLen);
+  @Override final native void clear0(final long handle);
 
   private native static long newWriteBatchWithIndex();
   private native static long newWriteBatchWithIndex(final boolean overwriteKey);
   private native static long newWriteBatchWithIndex(
       final long fallbackIndexComparatorHandle, final int reservedBytes,
       final boolean overwriteKey);
-  private native long iterator0();
-  private native long iterator1(long cfHandle);
-  private native long iteratorWithBase(long baseIteratorHandle, long cfHandle);
+  private native long iterator0(final long handle);
+  private native long iterator1(final long handle, final long cfHandle);
+  private native long iteratorWithBase(final long handle, final long baseIteratorHandle, final long cfHandle);
 }

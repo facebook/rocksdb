@@ -14,72 +14,79 @@ public abstract class AbstractWriteBatch extends RocksObject implements WriteBat
   @Override
   public int count() {
     assert (isOwningHandle());
-    return count0();
+    return count0(nativeHandle_);
   }
 
   @Override
   public void put(byte[] key, byte[] value) {
     assert (isOwningHandle());
-    put(key, key.length, value, value.length);
+    put(nativeHandle_, key, key.length, value, value.length);
   }
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) {
     assert (isOwningHandle());
-    put(key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
+    put(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void merge(byte[] key, byte[] value) {
     assert (isOwningHandle());
-    merge(key, key.length, value, value.length);
+    merge(nativeHandle_, key, key.length, value, value.length);
   }
 
   @Override
   public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) {
     assert (isOwningHandle());
-    merge(key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
+    merge(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void remove(byte[] key) {
     assert (isOwningHandle());
-    remove(key, key.length);
+    remove(nativeHandle_, key, key.length);
   }
 
   @Override
   public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
     assert (isOwningHandle());
-    remove(key, key.length, columnFamilyHandle.nativeHandle_);
+    remove(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void putLogData(byte[] blob) {
     assert (isOwningHandle());
-    putLogData(blob, blob.length);
+    putLogData(nativeHandle_, blob, blob.length);
   }
 
   @Override
   public void clear() {
     assert (isOwningHandle());
-    clear0();
+    clear0(nativeHandle_);
   }
 
-  abstract int count0();
+  abstract int count0(final long handle);
 
-  abstract void put(byte[] key, int keyLen, byte[] value, int valueLen);
+  abstract void put(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen);
 
-  abstract void put(byte[] key, int keyLen, byte[] value, int valueLen, long cfHandle);
+  abstract void put(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen, final long cfHandle);
 
-  abstract void merge(byte[] key, int keyLen, byte[] value, int valueLen);
+  abstract void merge(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen);
 
-  abstract void merge(byte[] key, int keyLen, byte[] value, int valueLen, long cfHandle);
+  abstract void merge(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen, final long cfHandle);
 
-  abstract void remove(byte[] key, int keyLen);
+  abstract void remove(final long handle, final byte[] key,
+      final int keyLen);
 
-  abstract void remove(byte[] key, int keyLen, long cfHandle);
+  abstract void remove(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle);
 
-  abstract void putLogData(byte[] blob, int blobLen);
+  abstract void putLogData(final long handle, final byte[] blob,
+      final int blobLen);
 
-  abstract void clear0();
+  abstract void clear0(final long handle);
 }

@@ -9,10 +9,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -174,7 +171,7 @@ public class RocksDBTest {
   }
 
   @Test
-  public void multiGet() throws RocksDBException {
+  public void multiGet() throws RocksDBException, InterruptedException {
     RocksDB db = null;
     ReadOptions rOpt = null;
     try {
@@ -182,10 +179,9 @@ public class RocksDBTest {
       rOpt = new ReadOptions();
       db.put("key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
-      List<byte[]> lookupKeys = new ArrayList<byte[]>() {{
-        add("key1".getBytes());
-        add("key2".getBytes());
-      }};
+      List<byte[]> lookupKeys = new ArrayList<>();
+      lookupKeys.add("key1".getBytes());
+      lookupKeys.add("key2".getBytes());
       Map<byte[], byte[]> results = db.multiGet(lookupKeys);
       assertThat(results).isNotNull();
       assertThat(results.values()).isNotNull();
