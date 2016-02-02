@@ -66,11 +66,16 @@ class TransactionImpl : public TransactionBaseImpl {
     lock_timeout_ = timeout * 1000;
   }
 
+  // Returns true if locks were stolen successfully, false otherwise.
+  bool TryStealingLocks();
+
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool untracked = false) override;
 
  private:
+  enum ExecutionStatus { STARTED, COMMITTING, LOCKS_STOLEN };
+
   TransactionDBImpl* txn_db_impl_;
 
   // Used to create unique ids for transactions.
@@ -86,6 +91,9 @@ class TransactionImpl : public TransactionBaseImpl {
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
 
+  // Execution status of the transaction.
+  std::atomic<ExecutionStatus> exec_status_;
+
   void Clear() override;
 
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
@@ -100,24 +108,6 @@ class TransactionImpl : public TransactionBaseImpl {
   // No copying allowed
   TransactionImpl(const TransactionImpl&);
   void operator=(const TransactionImpl&);
-};
-
-// Used at commit time to check whether transaction is committing before its
-// expiration time.
-class TransactionCallback : public WriteCallback {
- public:
-  explicit TransactionCallback(TransactionImpl* txn) : txn_(txn) {}
-
-  Status Callback(DB* db) override {
-    if (txn_->IsExpired()) {
-      return Status::Expired();
-    } else {
-      return Status::OK();
-    }
-  }
-
- private:
-  TransactionImpl* txn_;
 };
 
 }  // namespace rocksdb

@@ -6,7 +6,9 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <mutex>
 #include <string>
+#include <unordered_map>
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -66,6 +68,15 @@ class TransactionDBImpl : public TransactionDB {
     return txn_db_options_;
   }
 
+  void InsertExpirableTransaction(TransactionID tx_id, TransactionImpl* tx);
+  void RemoveExpirableTransaction(TransactionID tx_id);
+
+  // If transaction is no longer available, locks can be stolen
+  // If transaction is available, try stealing locks directly from transaction
+  // It is the caller's responsibility to ensure that the referred transaction
+  // is expirable (GetExpirationTime() > 0) and that it is expired.
+  bool TryStealingExpiredTransactionLocks(TransactionID tx_id);
+
  private:
   const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
@@ -74,6 +85,13 @@ class TransactionDBImpl : public TransactionDB {
   InstrumentedMutex column_family_mutex_;
   Transaction* BeginInternalTransaction(const WriteOptions& options);
   Status WriteHelper(WriteBatch* updates, TransactionImpl* txn_impl);
+
+  // Used to ensure that no locks are stolen from an expirable transaction
+  // that has started a commit. Only transactions with an expiration time
+  // should be in this map.
+  std::mutex map_mutex_;
+  std::unordered_map<TransactionID, TransactionImpl*>
+      expirable_transactions_map_;
 };
 
 }  //  namespace rocksdb

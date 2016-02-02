@@ -14,6 +14,7 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
 #include "util/logging.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
@@ -2481,6 +2482,51 @@ TEST_F(TransactionTest, ToggleAutoCompactionTest) {
   for (auto handle : handles) {
     delete handle;
   }
+}
+
+TEST_F(TransactionTest, ExpiredTransactionDataRace1) {
+  // In this test, txn1 should succeed committing,
+  // as the callback is called after txn1 starts committing.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"TransactionTest::ExpirableTransactionDataRace:1"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TransactionTest::ExpirableTransactionDataRace:1", [&](void* arg) {
+        WriteOptions write_options;
+        TransactionOptions txn_options;
+
+        // Force txn1 to expire
+        /* sleep override */
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+        Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+        Status s;
+        s = txn2->Put("X", "2");
+        ASSERT_TRUE(s.IsTimedOut());
+        s = txn2->Commit();
+        ASSERT_OK(s);
+        delete txn2;
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+
+  txn_options.expiration = 100;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  Status s;
+  s = txn1->Put("X", "1");
+  ASSERT_OK(s);
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  string value;
+  s = db->Get(read_options, "X", &value);
+  ASSERT_EQ("1", value);
+
+  delete txn1;
 }
 
 }  // namespace rocksdb

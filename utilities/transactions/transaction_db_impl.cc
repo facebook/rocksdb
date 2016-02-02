@@ -24,7 +24,7 @@ TransactionDBImpl::TransactionDBImpl(DB* db,
                                      const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
       txn_db_options_(txn_db_options),
-      lock_mgr_(txn_db_options_.num_stripes, txn_db_options.max_num_locks,
+      lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
                 txn_db_options_.custom_mutex_factory
                     ? txn_db_options_.custom_mutex_factory
                     : std::shared_ptr<TransactionDBMutexFactory>(
@@ -276,6 +276,30 @@ Status TransactionDBImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
   delete txn;
 
   return s;
+}
+
+void TransactionDBImpl::InsertExpirableTransaction(TransactionID tx_id,
+                                                   TransactionImpl* tx) {
+  assert(tx->GetExpirationTime() > 0);
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  expirable_transactions_map_.insert({tx_id, tx});
+}
+
+void TransactionDBImpl::RemoveExpirableTransaction(TransactionID tx_id) {
+  std::lock_guard<std::mutex> lock(map_mutex_);
+  expirable_transactions_map_.erase(tx_id);
+}
+
+bool TransactionDBImpl::TryStealingExpiredTransactionLocks(
+    TransactionID tx_id) {
+  std::lock_guard<std::mutex> lock(map_mutex_);
+
+  auto tx_it = expirable_transactions_map_.find(tx_id);
+  if (tx_it == expirable_transactions_map_.end()) {
+    return true;
+  }
+  TransactionImpl& tx = *(tx_it->second);
+  return tx.TryStealingLocks();
 }
 
 }  //  namespace rocksdb
