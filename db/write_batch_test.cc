@@ -313,8 +313,8 @@ TEST_F(WriteBatchTest, Blob) {
 // Not all platform can run it. Also it runs a long time. So disable it.
 TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
   // Insert key and value of 3GB and push total batch size to 12GB.
-  const size_t kKeyValueSize = 4u;
-  const uint32_t kNumUpdates = 3 << 30;
+  static const size_t kKeyValueSize = 4u;
+  static const uint32_t kNumUpdates = 3 << 30;
   std::string raw(kKeyValueSize, 'A');
   WriteBatch batch(kNumUpdates * (4 + kKeyValueSize * 2) + 1024u);
   char c = 'A';
@@ -375,7 +375,7 @@ TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
 // allocation of more than 12GB. Not all the platform can run it. So disable it.
 TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
   // Insert key and value of 3GB and push total batch size to 12GB.
-  const size_t kKeyValueSize = 3221225472u;
+  static const size_t kKeyValueSize = 3221225472u;
   std::string raw(kKeyValueSize, 'A');
   WriteBatch batch(12884901888u + 1024u);
   for (char i = 0; i < 2; i++) {
