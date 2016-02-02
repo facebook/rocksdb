@@ -1121,6 +1121,9 @@ struct DBOptions {
   // This option is currently honored only on Windows
   //
   // Default: 1 Mb
+  //
+  // Special value: 0 - means do not maintain per instance buffer. Allocate
+  //                per request buffer and avoid locking.
   size_t random_access_max_buffer_size;
 
   // This is the maximum buffer size that is used by WritableFileWriter.
