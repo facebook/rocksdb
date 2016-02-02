@@ -34,7 +34,7 @@ before_script:
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
 script:
   - if [[ "${TRAVIS_OS_NAME}" == 'linux' ]]; then OPT=-DTRAVIS CLANG_FORMAT_DIFF=/tmp/clang-format-diff.py make format || true; fi
-  - OPT=-DTRAVIS V=1 make -j4 check && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest && make clean && OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 check
+  - OPT=-DTRAVIS V=1 make -j4 check && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest && make clean && OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib
 
 notifications:
     email:
