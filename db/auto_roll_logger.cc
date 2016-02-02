@@ -37,14 +37,11 @@ void AutoRollLogger::RollLogFile() {
   // previous log file we increment by one micro second and try again.
   uint64_t now = env_->NowMicros();
   std::string old_fname;
-  for (int i = 0; i < 10; i++) {
+  do {
     old_fname = OldInfoLogFileName(
       dbname_, now, db_absolute_path_, db_log_dir_);
-    if (!env_->FileExists(old_fname).ok()) {
-      break;
-    }
     now++;
-  };
+  } while (env_->FileExists(old_fname).ok());
   env_->RenameFile(log_fname_, old_fname);
 }
 
