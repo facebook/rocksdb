@@ -525,8 +525,8 @@ class DBTestBase : public testing::Test {
     kOptimizeFiltersForHits = 27,
     kRowCache = 28,
     kRecycleLogFiles = 29,
+    kEnd = 30,
     kConcurrentSkipList = 30,
-    kEnd = 31,
     kLevelSubcompactions = 31,
     kUniversalSubcompactions = 32,
   };
