@@ -84,15 +84,11 @@ int FindFileInRange(const InternalKeyComparator& icmp,
 // are MergeInProgress).
 class FilePicker {
  public:
-  FilePicker(
-      std::vector<FileMetaData*>* files,
-      const Slice& user_key,
-      const Slice& ikey,
-      autovector<LevelFilesBrief>* file_levels,
-      unsigned int num_levels,
-      FileIndexer* file_indexer,
-      const Comparator* user_comparator,
-      const InternalKeyComparator* internal_comparator)
+  FilePicker(std::vector<FileMetaData*>* files, const Slice& user_key,
+             const Slice& ikey, autovector<LevelFilesBrief>* file_levels,
+             unsigned int num_levels, FileIndexer* file_indexer,
+             const Comparator* user_comparator,
+             const InternalKeyComparator* internal_comparator)
       : num_levels_(num_levels),
         curr_level_(-1),
         hit_file_level_(-1),
@@ -102,6 +98,7 @@ class FilePicker {
         files_(files),
 #endif
         level_files_brief_(file_levels),
+        is_hit_file_last_in_level_(false),
         user_key_(user_key),
         ikey_(ikey),
         file_indexer_(file_indexer),
@@ -126,6 +123,8 @@ class FilePicker {
         // Loops over all files in current level.
         FdWithKeyRange* f = &curr_file_level_->files[curr_index_in_curr_level_];
         hit_file_level_ = curr_level_;
+        is_hit_file_last_in_level_ =
+            curr_index_in_curr_level_ == curr_file_level_->num_files - 1;
         int cmp_largest = -1;
 
         // Do key range filtering of files or/and fractional cascading if:
@@ -209,6 +208,10 @@ class FilePicker {
   // for GET_HIT_L0, GET_HIT_L1 & GET_HIT_L2_AND_UP counts
   unsigned int GetHitFileLevel() { return hit_file_level_; }
 
+  // Returns true if the most recent "hit file" (i.e., one returned by
+  // GetNextFile()) is at the last index in its level.
+  bool IsHitFileLastInLevel() { return is_hit_file_last_in_level_; }
+
  private:
   unsigned int num_levels_;
   unsigned int curr_level_;
@@ -220,6 +223,7 @@ class FilePicker {
 #endif
   autovector<LevelFilesBrief>* level_files_brief_;
   bool search_ended_;
+  bool is_hit_file_last_in_level_;
   LevelFilesBrief* curr_file_level_;
   unsigned int curr_index_in_curr_level_;
   unsigned int start_index_in_curr_level_;
@@ -903,7 +907,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     *status = table_cache_->Get(
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
-        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel())));
+        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+                        fp.IsHitFileLastInLevel()));
     // TODO: examine the behavior for corrupted key
     if (!status->ok()) {
       return;
@@ -960,10 +965,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   }
 }
 
-bool Version::IsFilterSkipped(int level) {
+bool Version::IsFilterSkipped(int level, bool is_file_last_in_level) {
   // Reaching the bottom level implies misses at all upper levels, so we'll
   // skip checking the filters when we predict a hit.
-  return cfd_->ioptions()->optimize_filters_for_hits && level > 0 &&
+  return cfd_->ioptions()->optimize_filters_for_hits &&
+         (level > 0 || is_file_last_in_level) &&
          level == storage_info_.num_non_empty_levels() - 1;
 }
 

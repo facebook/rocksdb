@@ -700,7 +700,7 @@ clean:
 
 tags:
 	ctags * -R
-	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
+	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
 
 format:
 	build_tools/format-diff.sh

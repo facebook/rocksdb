@@ -933,8 +933,19 @@ struct DBOptions {
   // regardless of this setting
   uint64_t delete_obsolete_files_period_micros;
 
+  // Suggested number of concurrent background compaction jobs, submitted to
+  // the default LOW priority thread pool.
+  //
+  // Default: max_background_compactions
+  int base_background_compactions;
+
   // Maximum number of concurrent background compaction jobs, submitted to
   // the default LOW priority thread pool.
+  // We first try to schedule compactions based on
+  // `base_background_compactions`. If the compaction cannot catch up , we
+  // will increase number of compaction threads up to
+  // `max_background_compactions`.
+  //
   // If you're increasing this, also consider increasing number of threads in
   // LOW priority thread pool. For more information, see
   // Env::SetBackgroundThreads
@@ -1110,6 +1121,9 @@ struct DBOptions {
   // This option is currently honored only on Windows
   //
   // Default: 1 Mb
+  //
+  // Special value: 0 - means do not maintain per instance buffer. Allocate
+  //                per request buffer and avoid locking.
   size_t random_access_max_buffer_size;
 
   // This is the maximum buffer size that is used by WritableFileWriter.

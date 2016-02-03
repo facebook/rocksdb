@@ -146,6 +146,12 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
       result.info_log = nullptr;
     }
   }
+  if (result.base_background_compactions == -1) {
+    result.base_background_compactions = result.max_background_compactions;
+  }
+  if (result.base_background_compactions > result.max_background_compactions) {
+    result.base_background_compactions = result.max_background_compactions;
+  }
   result.env->IncBackgroundThreadsIfNeeded(src.max_background_compactions,
                                            Env::Priority::LOW);
   result.env->IncBackgroundThreadsIfNeeded(src.max_background_flushes,
@@ -2448,12 +2454,14 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
 
+  auto bg_compactions_allowed = BGCompactionsAllowed();
+
   // special case -- if max_background_flushes == 0, then schedule flush on a
   // compaction thread
   if (db_options_.max_background_flushes == 0) {
     while (unscheduled_flushes_ > 0 &&
            bg_flush_scheduled_ + bg_compaction_scheduled_ <
-               db_options_.max_background_compactions) {
+               bg_compactions_allowed) {
       unscheduled_flushes_--;
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
@@ -2466,7 +2474,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     return;
   }
 
-  while (bg_compaction_scheduled_ < db_options_.max_background_compactions &&
+  while (bg_compaction_scheduled_ < bg_compactions_allowed &&
          unscheduled_compactions_ > 0) {
     CompactionArg* ca = new CompactionArg;
     ca->db = this;
@@ -2475,6 +2483,14 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     unscheduled_compactions_--;
     env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
                    &DBImpl::UnscheduleCallback);
+  }
+}
+
+int DBImpl::BGCompactionsAllowed() const {
+  if (write_controller_.NeedSpeedupCompaction()) {
+    return db_options_.max_background_compactions;
+  } else {
+    return db_options_.base_background_compactions;
   }
 }
 
@@ -2590,10 +2606,10 @@ Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
     LogToBuffer(
         log_buffer,
         "Calling FlushMemTableToOutputFile with column "
-        "family [%s], flush slots available %d, compaction slots available %d",
-        cfd->GetName().c_str(),
-        db_options_.max_background_flushes - bg_flush_scheduled_,
-        db_options_.max_background_compactions - bg_compaction_scheduled_);
+        "family [%s], flush slots available %d, compaction slots allowed %d, "
+        "compaction slots scheduled %d",
+        cfd->GetName().c_str(), db_options_.max_background_flushes,
+        bg_flush_scheduled_, BGCompactionsAllowed() - bg_compaction_scheduled_);
     status = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
                                        job_context, log_buffer);
     if (cfd->Unref()) {
@@ -3311,6 +3327,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
 
     RecordTick(stats_, NUMBER_KEYS_READ);
     RecordTick(stats_, BYTES_READ, value->size());
+    MeasureTime(stats_, BYTES_PER_READ, value->size());
   }
   return s;
 }
@@ -3421,6 +3438,7 @@ std::vector<Status> DBImpl::MultiGet(
   RecordTick(stats_, NUMBER_MULTIGET_CALLS);
   RecordTick(stats_, NUMBER_MULTIGET_KEYS_READ, num_keys);
   RecordTick(stats_, NUMBER_MULTIGET_BYTES_READ, bytes_read);
+  MeasureTime(stats_, BYTES_PER_MULTIGET, bytes_read);
   PERF_TIMER_STOP(get_post_process_time);
 
   return stat_list;
@@ -4119,7 +4137,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
     if (write_thread_.CompleteParallelWorker(&w)) {
       // we're responsible for early exit
-      auto last_sequence = w.parallel_group->last_writer->sequence;
+      auto last_sequence =
+          w.parallel_group->last_writer->sequence +
+          WriteBatchInternal::Count(w.parallel_group->last_writer->batch) - 1;
       SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
       versions_->SetLastSequence(last_sequence);
       write_thread_.EarlyExitParallelGroup(&w);
@@ -4305,6 +4325,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // Record statistics
     RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
     RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
+    MeasureTime(stats_, BYTES_PER_WRITE, total_byte_size);
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     if (write_options.disableWAL) {
@@ -4418,7 +4439,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
             this, true /*dont_filter_deletes*/,
             true /*concurrent_memtable_writes*/);
 
-        assert(last_writer->sequence == last_sequence);
+        assert(last_writer->sequence +
+                   WriteBatchInternal::Count(last_writer->batch) - 1 ==
+               last_sequence);
         // CompleteParallelWorker returns true if this thread should
         // handle exit, false means somebody else did
         exit_completed_early = !write_thread_.CompleteParallelWorker(&w);

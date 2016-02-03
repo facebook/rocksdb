@@ -606,6 +606,61 @@ TEST_F(DBTest, EmptyFlush) {
                          kSkipUniversalCompaction | kSkipMergePut));
 }
 
+// Disable because not all platform can run it.
+// It requires more than 9GB memory to run it, With single allocation
+// of more than 3GB.
+TEST_F(DBTest, DISABLED_VeryLargeValue) {
+  const size_t kValueSize = 3221225472u;  // 3GB value
+  const size_t kKeySize = 8388608u;       // 8MB key
+  std::string raw(kValueSize, 'v');
+  std::string key1(kKeySize, 'c');
+  std::string key2(kKeySize, 'd');
+
+  Options options;
+  options.env = env_;
+  options.write_buffer_size = 100000;  // Small write buffer
+  options.paranoid_checks = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("boo", "v1"));
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put(key1, raw));
+  raw[0] = 'w';
+  ASSERT_OK(Put(key2, raw));
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  std::string value;
+  Status s = db_->Get(ReadOptions(), key1, &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(kValueSize, value.size());
+  ASSERT_EQ('v', value[0]);
+
+  s = db_->Get(ReadOptions(), key2, &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(kValueSize, value.size());
+  ASSERT_EQ('w', value[0]);
+
+  // Compact all files.
+  Flush();
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+
+  // Check DB is not in read-only state.
+  ASSERT_OK(Put("boo", "v1"));
+
+  s = db_->Get(ReadOptions(), key1, &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(kValueSize, value.size());
+  ASSERT_EQ('v', value[0]);
+
+  s = db_->Get(ReadOptions(), key2, &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(kValueSize, value.size());
+  ASSERT_EQ('w', value[0]);
+}
+
 TEST_F(DBTest, GetFromImmutableLayer) {
   do {
     Options options;

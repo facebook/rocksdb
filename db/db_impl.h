@@ -347,6 +347,10 @@ class DBImpl : public DB {
 
 #endif  // NDEBUG
 
+  // Return maximum background compaction alowed to be scheduled based on
+  // compaction status.
+  int BGCompactionsAllowed() const;
+
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than

@@ -308,6 +308,120 @@ TEST_F(WriteBatchTest, Blob) {
       handler.seen);
 }
 
+// It requires more than 30GB of memory to run the test. With single memory
+// allocation of more than 30GB.
+// Not all platform can run it. Also it runs a long time. So disable it.
+TEST_F(WriteBatchTest, DISABLED_ManyUpdates) {
+  // Insert key and value of 3GB and push total batch size to 12GB.
+  static const size_t kKeyValueSize = 4u;
+  static const uint32_t kNumUpdates = 3 << 30;
+  std::string raw(kKeyValueSize, 'A');
+  WriteBatch batch(kNumUpdates * (4 + kKeyValueSize * 2) + 1024u);
+  char c = 'A';
+  for (uint32_t i = 0; i < kNumUpdates; i++) {
+    if (c > 'Z') {
+      c = 'A';
+    }
+    raw[0] = c;
+    raw[raw.length() - 1] = c;
+    c++;
+    batch.Put(raw, raw);
+  }
+
+  ASSERT_EQ(kNumUpdates, batch.Count());
+
+  struct NoopHandler : public WriteBatch::Handler {
+    uint32_t num_seen = 0;
+    char expected_char = 'A';
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) override {
+      EXPECT_EQ(kKeyValueSize, key.size());
+      EXPECT_EQ(kKeyValueSize, value.size());
+      EXPECT_EQ(expected_char, key[0]);
+      EXPECT_EQ(expected_char, value[0]);
+      EXPECT_EQ(expected_char, key[kKeyValueSize - 1]);
+      EXPECT_EQ(expected_char, value[kKeyValueSize - 1]);
+      expected_char++;
+      if (expected_char > 'Z') {
+        expected_char = 'A';
+      }
+      ++num_seen;
+      return Status::OK();
+    }
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
+      EXPECT_TRUE(false);
+      return Status::OK();
+    }
+    virtual Status SingleDeleteCF(uint32_t column_family_id,
+                                  const Slice& key) override {
+      EXPECT_TRUE(false);
+      return Status::OK();
+    }
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) override {
+      EXPECT_TRUE(false);
+      return Status::OK();
+    }
+    virtual void LogData(const Slice& blob) override { EXPECT_TRUE(false); }
+    virtual bool Continue() override { return num_seen < kNumUpdates; }
+  } handler;
+
+  batch.Iterate(&handler);
+  ASSERT_EQ(kNumUpdates, handler.num_seen);
+}
+
+// The test requires more than 18GB memory to run it, with single memory
+// allocation of more than 12GB. Not all the platform can run it. So disable it.
+TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
+  // Insert key and value of 3GB and push total batch size to 12GB.
+  static const size_t kKeyValueSize = 3221225472u;
+  std::string raw(kKeyValueSize, 'A');
+  WriteBatch batch(12884901888u + 1024u);
+  for (char i = 0; i < 2; i++) {
+    raw[0] = 'A' + i;
+    raw[raw.length() - 1] = 'A' - i;
+    batch.Put(raw, raw);
+  }
+
+  ASSERT_EQ(2, batch.Count());
+
+  struct NoopHandler : public WriteBatch::Handler {
+    int num_seen = 0;
+    virtual Status PutCF(uint32_t column_family_id, const Slice& key,
+                         const Slice& value) override {
+      EXPECT_EQ(kKeyValueSize, key.size());
+      EXPECT_EQ(kKeyValueSize, value.size());
+      EXPECT_EQ('A' + num_seen, key[0]);
+      EXPECT_EQ('A' + num_seen, value[0]);
+      EXPECT_EQ('A' - num_seen, key[kKeyValueSize - 1]);
+      EXPECT_EQ('A' - num_seen, value[kKeyValueSize - 1]);
+      ++num_seen;
+      return Status::OK();
+    }
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
+      EXPECT_TRUE(false);
+      return Status::OK();
+    }
+    virtual Status SingleDeleteCF(uint32_t column_family_id,
+                                  const Slice& key) override {
+      EXPECT_TRUE(false);
+      return Status::OK();
+    }
+    virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
+                           const Slice& value) override {
+      EXPECT_TRUE(false);
+      return Status::OK();
+    }
+    virtual void LogData(const Slice& blob) override { EXPECT_TRUE(false); }
+    virtual bool Continue() override { return num_seen < 2; }
+  } handler;
+
+  batch.Iterate(&handler);
+  ASSERT_EQ(2, handler.num_seen);
+}
+
 TEST_F(WriteBatchTest, Continue) {
   WriteBatch batch;
 

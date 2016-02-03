@@ -21,7 +21,7 @@ struct PerfContext {
 
   void Reset(); // reset all performance counters to zero
 
-  std::string ToString() const;
+  std::string ToString(bool exclude_zero_counters = false) const;
 
   uint64_t user_key_comparison_count; // total number of user key comparisons
   uint64_t block_cache_hit_count;     // total number of block cache hits
