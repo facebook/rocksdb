@@ -32,6 +32,8 @@ class TransactionBaseImpl : public Transaction {
   // Remove pending operations queued in this transaction.
   virtual void Clear();
 
+  void Reinitialize(const WriteOptions& write_options);
+
   // Called before executing Put, Merge, Delete, and GetForUpdate.  If TryLock
   // returns non-OK, the Put/Merge/Delete/GetForUpdate will be failed.
   // untracked will be true if called from PutUntracked, DeleteUntracked, or
@@ -240,7 +242,7 @@ class TransactionBaseImpl : public Transaction {
   const Comparator* cmp_;
 
   // Stores that time the txn was constructed, in microseconds.
-  const uint64_t start_time_;
+  uint64_t start_time_;
 
   // Stores the current snapshot that was was set by SetSnapshot or null if
   // no snapshot is currently set.
@@ -306,6 +308,8 @@ class TransactionBaseImpl : public Transaction {
                  bool read_only, bool untracked = false);
 
   WriteBatchBase* GetBatchForWrite();
+
+  void SetSnapshotInternal(const Snapshot* snapshot);
 };
 
 }  // namespace rocksdb

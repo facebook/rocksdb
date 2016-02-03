@@ -39,19 +39,32 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
                                  const TransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetBaseDB(), write_options),
       txn_db_impl_(nullptr),
-      txn_id_(GenTxnID()),
-      expiration_time_(txn_options.expiration >= 0
-                           ? start_time_ + txn_options.expiration * 1000
-                           : 0),
-      lock_timeout_(txn_options.lock_timeout * 1000),
+      txn_id_(0),
+      expiration_time_(0),
+      lock_timeout_(0),
       exec_status_(STARTED) {
   txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
   assert(txn_db_impl_);
 
+  Initialize(txn_options);
+}
+
+void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
+  txn_id_ = GenTxnID();
+
+  exec_status_ = STARTED;
+
+  lock_timeout_ = txn_options.lock_timeout * 1000;
   if (lock_timeout_ < 0) {
     // Lock timeout not set, use default
     lock_timeout_ =
         txn_db_impl_->GetTxnDBOptions().transaction_lock_timeout * 1000;
+  }
+
+  if (txn_options.expiration >= 0) {
+    expiration_time_ = start_time_ + txn_options.expiration * 1000;
+  } else {
+    expiration_time_ = 0;
   }
 
   if (txn_options.set_snapshot) {
@@ -72,6 +85,12 @@ TransactionImpl::~TransactionImpl() {
 void TransactionImpl::Clear() {
   txn_db_impl_->UnLock(this, &GetTrackedKeys());
   TransactionBaseImpl::Clear();
+}
+
+void TransactionImpl::Reinitialize(const WriteOptions& write_options,
+                                   const TransactionOptions& txn_options) {
+  TransactionBaseImpl::Reinitialize(write_options);
+  Initialize(txn_options);
 }
 
 bool TransactionImpl::IsExpired() const {

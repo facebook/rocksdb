@@ -26,7 +26,8 @@ class TransactionDBImpl : public TransactionDB {
   ~TransactionDBImpl() {}
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
-                                const TransactionOptions& txn_options) override;
+                                const TransactionOptions& txn_options,
+                                Transaction* old_txn) override;
 
   using StackableDB::Put;
   virtual Status Put(const WriteOptions& options,
@@ -78,6 +79,10 @@ class TransactionDBImpl : public TransactionDB {
   bool TryStealingExpiredTransactionLocks(TransactionID tx_id);
 
  private:
+  void ReinitializeTransaction(
+      Transaction* txn, const WriteOptions& write_options,
+      const TransactionOptions& txn_options = TransactionOptions());
+
   const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
 

@@ -111,14 +111,18 @@ class TransactionDB : public StackableDB {
 
   virtual ~TransactionDB() {}
 
-  // Starts a new Transaction.  Passing set_snapshot=true has the same effect
-  // as calling Transaction::SetSnapshot().
+  // Starts a new Transaction.
   //
-  // Caller should delete the returned transaction after calling
-  // Transaction::Commit() or Transaction::Rollback().
+  // Caller is responsible for deleting the returned transaction when no
+  // longer needed.
+  //
+  // If old_txn is not null, BeginTransaction will reuse this Transaction
+  // handle instead of allocating a new one.  This is an optimization to avoid
+  // extra allocations when repeatedly creating transactions.
   virtual Transaction* BeginTransaction(
       const WriteOptions& write_options,
-      const TransactionOptions& txn_options = TransactionOptions()) = 0;
+      const TransactionOptions& txn_options = TransactionOptions(),
+      Transaction* old_txn = nullptr) = 0;
 
  protected:
   // To Create an TransactionDB, call Open()

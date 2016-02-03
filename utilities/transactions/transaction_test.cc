@@ -448,7 +448,6 @@ TEST_F(TransactionTest, FlushTest2) {
 
     s = txn->Delete("S");
     // Should fail after encountering a write to S in SST file
-    fprintf(stderr, "%" ROCKSDB_PRIszt " %s\n", n, s.ToString().c_str());
     ASSERT_TRUE(s.IsBusy());
 
     // Write a bunch of keys to db to force a compaction
@@ -1208,6 +1207,96 @@ TEST_F(TransactionTest, ExpiredTransaction) {
 
   delete txn1;
   delete txn2;
+}
+
+TEST_F(TransactionTest, ReinitializeTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  // Set txn expiration timeout to 0 microseconds (expires instantly)
+  txn_options.expiration = 0;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  // Reinitialize transaction to no long expire
+  txn_options.expiration = -1;
+  db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Put("Z", "z");
+  ASSERT_OK(s);
+
+  // Should commit since not expired
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Put("Z", "zz");
+  ASSERT_OK(s);
+
+  // Reinitilize txn1 and verify that Z gets unlocked
+  db->BeginTransaction(write_options, txn_options, txn1);
+
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options, nullptr);
+  s = txn2->Put("Z", "zzz");
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzz");
+
+  // Verify snapshots get reinitialized correctly
+  txn1->SetSnapshot();
+  s = txn1->Put("Z", "zzzz");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
+
+  db->BeginTransaction(write_options, txn_options, txn1);
+  const Snapshot* snapshot = txn1->GetSnapshot();
+  ASSERT_TRUE(snapshot);
+
+  txn_options.set_snapshot = true;
+  db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+  ASSERT_TRUE(snapshot);
+
+  s = txn1->Put("Z", "a");
+  ASSERT_OK(s);
+
+  txn1->Rollback();
+
+  s = txn1->Put("Y", "y");
+  ASSERT_OK(s);
+
+  txn_options.set_snapshot = false;
+  db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+
+  s = txn1->Put("X", "x");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
+
+  s = db->Get(read_options, "Y", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete txn1;
 }
 
 TEST_F(TransactionTest, Rollback) {

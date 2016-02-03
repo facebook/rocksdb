@@ -31,10 +31,14 @@ TransactionDBImpl::TransactionDBImpl(DB* db,
                           new TransactionDBMutexFactoryImpl())) {}
 
 Transaction* TransactionDBImpl::BeginTransaction(
-    const WriteOptions& write_options, const TransactionOptions& txn_options) {
-  Transaction* txn = new TransactionImpl(this, write_options, txn_options);
-
-  return txn;
+    const WriteOptions& write_options, const TransactionOptions& txn_options,
+    Transaction* old_txn) {
+  if (old_txn != nullptr) {
+    ReinitializeTransaction(old_txn, write_options, txn_options);
+    return old_txn;
+  } else {
+    return new TransactionImpl(this, write_options, txn_options);
+  }
 }
 
 TransactionDBOptions TransactionDBImpl::ValidateTxnDBOptions(
@@ -173,7 +177,7 @@ void TransactionDBImpl::UnLock(TransactionImpl* txn, uint32_t cfh_id,
 Transaction* TransactionDBImpl::BeginInternalTransaction(
     const WriteOptions& options) {
   TransactionOptions txn_options;
-  Transaction* txn = BeginTransaction(options, txn_options);
+  Transaction* txn = BeginTransaction(options, txn_options, nullptr);
 
   assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
   auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
@@ -300,6 +304,15 @@ bool TransactionDBImpl::TryStealingExpiredTransactionLocks(
   }
   TransactionImpl& tx = *(tx_it->second);
   return tx.TryStealingLocks();
+}
+
+void TransactionDBImpl::ReinitializeTransaction(
+    Transaction* txn, const WriteOptions& write_options,
+    const TransactionOptions& txn_options) {
+  assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
+  auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
+
+  txn_impl->Reinitialize(write_options, txn_options);
 }
 
 }  //  namespace rocksdb

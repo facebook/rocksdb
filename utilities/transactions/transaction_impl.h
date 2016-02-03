@@ -38,6 +38,9 @@ class TransactionImpl : public TransactionBaseImpl {
 
   virtual ~TransactionImpl();
 
+  void Reinitialize(const WriteOptions& write_options,
+                    const TransactionOptions& txn_options);
+
   Status Commit() override;
 
   Status CommitBatch(WriteBatch* batch);
@@ -82,11 +85,11 @@ class TransactionImpl : public TransactionBaseImpl {
   static std::atomic<TransactionID> txn_id_counter_;
 
   // Unique ID for this transaction
-  const TransactionID txn_id_;
+  TransactionID txn_id_;
 
   // If non-zero, this transaction should not be committed after this time (in
   // microseconds according to Env->NowMicros())
-  const uint64_t expiration_time_;
+  uint64_t expiration_time_;
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
@@ -95,6 +98,8 @@ class TransactionImpl : public TransactionBaseImpl {
   std::atomic<ExecutionStatus> exec_status_;
 
   void Clear() override;
+
+  void Initialize(const TransactionOptions& txn_options);
 
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
                           SequenceNumber prev_seqno, SequenceNumber* new_seqno);

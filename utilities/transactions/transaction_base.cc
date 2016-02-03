@@ -24,7 +24,10 @@ TransactionBaseImpl::TransactionBaseImpl(DB* db,
       start_time_(db_->GetEnv()->NowMicros()),
       write_batch_(cmp_, 0, true) {}
 
-TransactionBaseImpl::~TransactionBaseImpl() {}
+TransactionBaseImpl::~TransactionBaseImpl() {
+  // Release snapshot if snapshot is set
+  SetSnapshotInternal(nullptr);
+}
 
 void TransactionBaseImpl::Clear() {
   save_points_.reset(nullptr);
@@ -35,12 +38,22 @@ void TransactionBaseImpl::Clear() {
   num_merges_ = 0;
 }
 
+void TransactionBaseImpl::Reinitialize(const WriteOptions& write_options) {
+  Clear();
+  write_options_ = write_options;
+  start_time_ = db_->GetEnv()->NowMicros();
+}
+
 void TransactionBaseImpl::SetSnapshot() {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   auto db_impl = reinterpret_cast<DBImpl*>(db_);
 
   const Snapshot* snapshot = db_impl->GetSnapshotForWriteConflictBoundary();
 
+  SetSnapshotInternal(snapshot);
+}
+
+void TransactionBaseImpl::SetSnapshotInternal(const Snapshot* snapshot) {
   // Set a custom deleter for the snapshot_ SharedPtr as the snapshot needs to
   // be released, not deleted when it is no longer referenced.
   snapshot_.reset(snapshot, std::bind(&TransactionBaseImpl::ReleaseSnapshot,
@@ -493,7 +506,9 @@ WriteBatchBase* TransactionBaseImpl::GetBatchForWrite() {
 }
 
 void TransactionBaseImpl::ReleaseSnapshot(const Snapshot* snapshot, DB* db) {
-  db->ReleaseSnapshot(snapshot);
+  if (snapshot != nullptr) {
+    db->ReleaseSnapshot(snapshot);
+  }
 }
 
 void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
