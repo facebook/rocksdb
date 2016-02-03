@@ -1207,8 +1207,8 @@ jdb_bench:
 
 commit_prereq: build_tools/rocksdb-lego-determinator \
                build_tools/precommit_checker.py
+	build_tools/precommit_checker.py unit unit_481 clang_unit tsan asan lite
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
-	build_tools/precommit_checker.py unit uint_481 clang_unit tsan asan lite
 
 xfunc:
 	for xftest in $(XFUNC_TESTS); do \
