@@ -377,7 +377,7 @@ public class RocksDB extends RocksObject {
    */
   public static List<byte[]> listColumnFamilies(final Options options,
       final String path) throws RocksDBException {
-    return RocksDB.listColumnFamilies(options.nativeHandle_, path);
+    return Arrays.asList(RocksDB.listColumnFamilies(options.nativeHandle_, path));
   }
 
   private void storeOptionsInstance(DBOptionsInterface options) {
@@ -1734,7 +1734,7 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyOptions
   ) throws RocksDBException;
 
-  protected native static List<byte[]> listColumnFamilies(
+  protected native static byte[][] listColumnFamilies(
       long optionsHandle, String path) throws RocksDBException;
   protected native void put(
       long handle, byte[] key, int keyLen,

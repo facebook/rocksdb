@@ -679,10 +679,10 @@ public class Options extends RocksObject
 
   @Override
   public Options setCompressionPerLevel(final List<CompressionType> compressionLevels) {
-    final List<Byte> byteCompressionTypes = new ArrayList<>(
-        compressionLevels.size());
-    for (final CompressionType compressionLevel : compressionLevels) {
-      byteCompressionTypes.add(compressionLevel.getValue());
+    final byte[] byteCompressionTypes = new byte[
+        compressionLevels.size()];
+    for (int i = 0; i < compressionLevels.size(); i++) {
+      byteCompressionTypes[i] = compressionLevels.get(i).getValue();
     }
     setCompressionPerLevel(nativeHandle_, byteCompressionTypes);
     return this;
@@ -690,7 +690,7 @@ public class Options extends RocksObject
 
   @Override
   public List<CompressionType> compressionPerLevel() {
-    final List<Byte> byteCompressionTypes =
+    final byte[] byteCompressionTypes =
         compressionPerLevel(nativeHandle_);
     final List<CompressionType> compressionLevels = new ArrayList<>();
     for (final Byte byteCompressionType : byteCompressionTypes) {
@@ -1206,8 +1206,8 @@ public class Options extends RocksObject
   private native void setCompressionType(long handle, byte compressionType);
   private native byte compressionType(long handle);
   private native void setCompressionPerLevel(long handle,
-      List<Byte> compressionLevels);
-  private native List<Byte> compressionPerLevel(long handle);
+      byte[] compressionLevels);
+  private native byte[] compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void useCappedPrefixExtractor(

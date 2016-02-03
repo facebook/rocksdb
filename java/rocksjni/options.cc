@@ -1081,21 +1081,19 @@ jbyte Java_org_rocksdb_Options_compressionType(
  * vector.
  */
 std::vector<rocksdb::CompressionType> rocksdb_compression_vector_helper(
-    JNIEnv* env, jobject jcompressionLevels) {
+    JNIEnv* env, jbyteArray jcompressionLevels) {
   std::vector<rocksdb::CompressionType> compressionLevels;
-  // iterate over compressionLevels
-  jobject iteratorObj = env->CallObjectMethod(
-        jcompressionLevels, rocksdb::ListJni::getIteratorMethod(env));
-  while (env->CallBooleanMethod(
-    iteratorObj, rocksdb::ListJni::getHasNextMethod(env)) == JNI_TRUE) {
-    // get compression
-    jobject jcompression_obj = env->CallObjectMethod(iteratorObj,
-        rocksdb::ListJni::getNextMethod(env));
-    jbyte jcompression = env->CallByteMethod(jcompression_obj,
-        rocksdb::ByteJni::getByteValueMethod(env));
-    compressionLevels.push_back(static_cast<rocksdb::CompressionType>(
-        jcompression));
+  
+  jsize len = env->GetArrayLength(jcompressionLevels);
+  jbyte* jcompressionLevel = env->GetByteArrayElements(jcompressionLevels, NULL);
+  for(int i = 0; i < len; i++) {
+    jbyte jcl;
+    jcl = jcompressionLevel[i];
+    compressionLevels.push_back(static_cast<rocksdb::CompressionType>(jcl));
   }
+  env->ReleaseByteArrayElements(jcompressionLevels, jcompressionLevel,
+      JNI_ABORT);
+
   return compressionLevels;
 }
 
@@ -1103,34 +1101,29 @@ std::vector<rocksdb::CompressionType> rocksdb_compression_vector_helper(
  * Helper method to convert a CompressionType vector to a Java
  * List.
  */
-jobject rocksdb_compression_list_helper(JNIEnv* env,
+jbyteArray rocksdb_compression_list_helper(JNIEnv* env,
     std::vector<rocksdb::CompressionType> compressionLevels) {
-  jclass jListClazz = env->FindClass("java/util/ArrayList");
-  jmethodID midList = rocksdb::ListJni::getArrayListConstructorMethodId(
-      env, jListClazz);
-  jobject jcompressionLevels = env->NewObject(jListClazz,
-    midList, compressionLevels.size());
-  // insert in java list
+  jbyte jbuf[compressionLevels.size()];
   for (std::vector<rocksdb::CompressionType>::size_type i = 0;
         i != compressionLevels.size(); i++) {
-    jclass jByteClazz = env->FindClass("java/lang/Byte");
-    jmethodID midByte = env->GetMethodID(jByteClazz, "<init>", "(B)V");
-    jobject obj = env->NewObject(jByteClazz, midByte,
-        compressionLevels[i]);
-    env->CallBooleanMethod(jcompressionLevels,
-        rocksdb::ListJni::getListAddMethodId(env), obj);
+      jbuf[i] = compressionLevels[i];
   }
+  // insert in java array
+  jbyteArray jcompressionLevels = env->NewByteArray(
+      static_cast<jsize>(compressionLevels.size()));
+  env->SetByteArrayRegion(jcompressionLevels, 0,
+      static_cast<jsize>(compressionLevels.size()), jbuf);
   return jcompressionLevels;
 }
 
 /*
  * Class:     org_rocksdb_Options
  * Method:    setCompressionPerLevel
- * Signature: (JLjava/util/List;)V
+ * Signature: (J[B)V
  */
 void Java_org_rocksdb_Options_setCompressionPerLevel(
     JNIEnv* env, jobject jobj, jlong jhandle,
-    jobject jcompressionLevels) {
+    jbyteArray jcompressionLevels) {
   auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
   std::vector<rocksdb::CompressionType> compressionLevels =
       rocksdb_compression_vector_helper(env, jcompressionLevels);
@@ -1140,9 +1133,9 @@ void Java_org_rocksdb_Options_setCompressionPerLevel(
 /*
  * Class:     org_rocksdb_Options
  * Method:    compressionPerLevel
- * Signature: (J)Ljava/util/List;
+ * Signature: (J)[B
  */
-jobject Java_org_rocksdb_Options_compressionPerLevel(
+jbyteArray Java_org_rocksdb_Options_compressionPerLevel(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
   return rocksdb_compression_list_helper(env,
@@ -2285,11 +2278,11 @@ jbyte Java_org_rocksdb_ColumnFamilyOptions_compressionType(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    setCompressionPerLevel
- * Signature: (JLjava/util/List;)V
+ * Signature: (J[B)V
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setCompressionPerLevel(
     JNIEnv* env, jobject jobj, jlong jhandle,
-    jobject jcompressionLevels) {
+    jbyteArray jcompressionLevels) {
   auto* options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
   std::vector<rocksdb::CompressionType> compressionLevels =
       rocksdb_compression_vector_helper(env, jcompressionLevels);
@@ -2299,9 +2292,9 @@ void Java_org_rocksdb_ColumnFamilyOptions_setCompressionPerLevel(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    compressionPerLevel
- * Signature: (J)Ljava/util/List;
+ * Signature: (J)[B
  */
-jobject Java_org_rocksdb_ColumnFamilyOptions_compressionPerLevel(
+jbyteArray Java_org_rocksdb_ColumnFamilyOptions_compressionPerLevel(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   auto* options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
   return rocksdb_compression_list_helper(env,

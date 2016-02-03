@@ -171,25 +171,21 @@ jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3_3B_3J(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    listColumnFamilies
- * Signature: (JLjava/lang/String;)Ljava/util/List;
+ * Signature: (JLjava/lang/String;)[[B
  */
-jobject Java_org_rocksdb_RocksDB_listColumnFamilies(
+jobjectArray Java_org_rocksdb_RocksDB_listColumnFamilies(
     JNIEnv* env, jclass jclazz, jlong jopt_handle, jstring jdb_path) {
   std::vector<std::string> column_family_names;
-  auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
-  jobject jvalue_list = nullptr;
-
   rocksdb::Status s = rocksdb::DB::ListColumnFamilies(*opt, db_path,
       &column_family_names);
   env->ReleaseStringUTFChars(jdb_path, db_path);
-  if (s.ok()) {
-    // Don't reuse class pointer
-    jclass jListClazz = env->FindClass("java/util/ArrayList");
-    jmethodID mid = rocksdb::ListJni::getArrayListConstructorMethodId(env,
-        jListClazz);
-    jvalue_list = env->NewObject(jListClazz, mid, column_family_names.size());
 
+  jclass jcls_ba = env->FindClass("[B");
+  jobjectArray jresults = env->NewObjectArray(
+      static_cast<jsize>(column_family_names.size()), jcls_ba, NULL);
+  if (s.ok()) {
     for (std::vector<std::string>::size_type i = 0;
         i < column_family_names.size(); i++) {
       jbyteArray jcf_value =
@@ -197,11 +193,11 @@ jobject Java_org_rocksdb_RocksDB_listColumnFamilies(
       env->SetByteArrayRegion(
           jcf_value, 0, static_cast<jsize>(column_family_names[i].size()),
           reinterpret_cast<const jbyte*>(column_family_names[i].data()));
-      env->CallBooleanMethod(jvalue_list,
-          rocksdb::ListJni::getListAddMethodId(env), jcf_value);
+      env->SetObjectArrayElement(jresults, static_cast<jsize>(i), jcf_value);
+      env->DeleteLocalRef(jcf_value);
     }
   }
-  return jvalue_list;
+  return jresults;
 }
 
 //////////////////////////////////////////////////////////////////////////////
