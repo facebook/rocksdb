@@ -226,6 +226,18 @@ void GetExpectedTableProperties(TableProperties* expected_tp,
 }
 }  // anonymous namespace
 
+TEST_F(DBPropertiesTest, ValidatePropertyInfo) {
+  for (const auto& ppt_name_and_info : InternalStats::ppt_name_to_info) {
+    // If C++ gets a std::string_literal, this would be better to check at
+    // compile-time using static_assert.
+    ASSERT_TRUE(ppt_name_and_info.first.empty() ||
+                !isdigit(ppt_name_and_info.first.back()));
+
+    ASSERT_TRUE((ppt_name_and_info.second.handle_string == nullptr) !=
+                (ppt_name_and_info.second.handle_int == nullptr));
+  }
+}
+
 TEST_F(DBPropertiesTest, AggregatedTableProperties) {
   for (int kTableCount = 40; kTableCount <= 100; kTableCount += 30) {
     const int kKeysPerTable = 100;

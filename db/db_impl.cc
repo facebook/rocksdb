@@ -494,23 +494,22 @@ void DBImpl::MaybeDumpStats() {
     last_stats_dump_time_microsec_ = now_micros;
 
 #ifndef ROCKSDB_LITE
-    bool tmp1 = false;
-    bool tmp2 = false;
-    DBPropertyType cf_property_type =
-        GetPropertyType(DB::Properties::kCFStats, &tmp1, &tmp2);
-    DBPropertyType db_property_type =
-        GetPropertyType(DB::Properties::kDBStats, &tmp1, &tmp2);
+    const DBPropertyInfo* cf_property_info =
+        GetPropertyInfo(DB::Properties::kCFStats);
+    assert(cf_property_info != nullptr);
+    const DBPropertyInfo* db_property_info =
+        GetPropertyInfo(DB::Properties::kDBStats);
+    assert(db_property_info != nullptr);
+
     std::string stats;
     {
       InstrumentedMutexLock l(&mutex_);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
-        cfd->internal_stats()->GetStringProperty(cf_property_type,
-                                                 DB::Properties::kCFStats,
-                                                 &stats);
+        cfd->internal_stats()->GetStringProperty(
+            *cf_property_info, DB::Properties::kCFStats, &stats);
       }
-      default_cf_internal_stats_->GetStringProperty(db_property_type,
-                                                    DB::Properties::kDBStats,
-                                                    &stats);
+      default_cf_internal_stats_->GetStringProperty(
+          *db_property_info, DB::Properties::kDBStats, &stats);
     }
     Log(InfoLogLevel::WARN_LEVEL,
         db_options_.info_log, "------- DUMPING STATS -------");
@@ -4701,53 +4700,51 @@ const DBOptions& DBImpl::GetDBOptions() const { return db_options_; }
 
 bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
                          const Slice& property, std::string* value) {
-  bool is_int_property = false;
-  bool need_out_of_mutex = false;
-  DBPropertyType property_type =
-      GetPropertyType(property, &is_int_property, &need_out_of_mutex);
-
+  const DBPropertyInfo* property_info = GetPropertyInfo(property);
   value->clear();
   auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
-  if (is_int_property) {
+  if (property_info == nullptr) {
+    return false;
+  } else if (property_info->handle_int) {
     uint64_t int_value;
-    bool ret_value = GetIntPropertyInternal(
-        cfd, property_type, need_out_of_mutex, false, &int_value);
+    bool ret_value =
+        GetIntPropertyInternal(cfd, *property_info, false, &int_value);
     if (ret_value) {
       *value = ToString(int_value);
     }
     return ret_value;
-  } else {
+  } else if (property_info->handle_string) {
     InstrumentedMutexLock l(&mutex_);
-    return cfd->internal_stats()->GetStringProperty(property_type, property,
+    return cfd->internal_stats()->GetStringProperty(*property_info, property,
                                                     value);
   }
+  // Shouldn't reach here since exactly one of handle_string and handle_int
+  // should be non-nullptr.
+  assert(false);
+  return false;
 }
 
 bool DBImpl::GetIntProperty(ColumnFamilyHandle* column_family,
                             const Slice& property, uint64_t* value) {
-  bool is_int_property = false;
-  bool need_out_of_mutex = false;
-  DBPropertyType property_type =
-      GetPropertyType(property, &is_int_property, &need_out_of_mutex);
-  if (!is_int_property) {
+  const DBPropertyInfo* property_info = GetPropertyInfo(property);
+  if (property_info == nullptr || property_info->handle_int == nullptr) {
     return false;
   }
   auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
-  return GetIntPropertyInternal(cfd, property_type, need_out_of_mutex, false,
-                                value);
+  return GetIntPropertyInternal(cfd, *property_info, false, value);
 }
 
 bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
-                                    DBPropertyType property_type,
-                                    bool need_out_of_mutex, bool is_locked,
-                                    uint64_t* value) {
-  if (!need_out_of_mutex) {
+                                    const DBPropertyInfo& property_info,
+                                    bool is_locked, uint64_t* value) {
+  assert(property_info.handle_int != nullptr);
+  if (!property_info.need_out_of_mutex) {
     if (is_locked) {
       mutex_.AssertHeld();
-      return cfd->internal_stats()->GetIntProperty(property_type, value, this);
+      return cfd->internal_stats()->GetIntProperty(property_info, value, this);
     } else {
       InstrumentedMutexLock l(&mutex_);
-      return cfd->internal_stats()->GetIntProperty(property_type, value, this);
+      return cfd->internal_stats()->GetIntProperty(property_info, value, this);
     }
   } else {
     SuperVersion* sv = nullptr;
@@ -4758,7 +4755,7 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
     }
 
     bool ret = cfd->internal_stats()->GetIntPropertyOutOfMutex(
-        property_type, sv->current, value);
+        property_info, sv->current, value);
 
     if (!is_locked) {
       ReturnAndCleanupSuperVersion(cfd, sv);
@@ -4770,11 +4767,8 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyData* cfd,
 
 bool DBImpl::GetAggregatedIntProperty(const Slice& property,
                                       uint64_t* aggregated_value) {
-  bool need_out_of_mutex;
-  bool is_int_property;
-  DBPropertyType property_type =
-      GetPropertyType(property, &is_int_property, &need_out_of_mutex);
-  if (!is_int_property) {
+  const DBPropertyInfo* property_info = GetPropertyInfo(property);
+  if (property_info == nullptr || property_info->handle_int == nullptr) {
     return false;
   }
 
@@ -4784,8 +4778,7 @@ bool DBImpl::GetAggregatedIntProperty(const Slice& property,
     InstrumentedMutexLock l(&mutex_);
     uint64_t value;
     for (auto* cfd : *versions_->GetColumnFamilySet()) {
-      if (GetIntPropertyInternal(cfd, property_type, need_out_of_mutex, true,
-                                 &value)) {
+      if (GetIntPropertyInternal(cfd, *property_info, true, &value)) {
         sum += value;
       } else {
         return false;

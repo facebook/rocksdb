@@ -329,6 +329,9 @@ class DB {
 
 #ifndef ROCKSDB_LITE
   // Contains all valid property arguments for GetProperty().
+  //
+  // NOTE: Property names cannot end in numbers since those are interpreted as
+  //       arguments, e.g., see kNumFilesAtLevelPrefix.
   struct Properties {
     //  "rocksdb.num-files-at-level<N>" - returns string containing the number
     //      of files at level <N>, where <N> is an ASCII representation of a

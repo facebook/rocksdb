@@ -893,9 +893,8 @@ class DBImpl : public DB {
                  bool* value_found = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
-                              DBPropertyType property_type,
-                              bool need_out_of_mutex, bool is_locked,
-                              uint64_t* value);
+                              const DBPropertyInfo& property_info,
+                              bool is_locked, uint64_t* value);
 
   bool HasPendingManualCompaction();
   bool HasExclusiveManualCompaction();
