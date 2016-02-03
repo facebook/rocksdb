@@ -99,6 +99,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.StatisticsCollectorTest\
 	org.rocksdb.WriteBatchHandlerTest\
 	org.rocksdb.WriteBatchTest\
+        org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
 	org.rocksdb.WriteBatchWithIndexTest
 
