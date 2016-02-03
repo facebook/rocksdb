@@ -24,6 +24,11 @@
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 
+// Remove macro on windows
+#ifdef DELETE
+#undef DELETE
+#endif
+
 namespace rocksdb {
 
 // Detect if jlong overflows size_t

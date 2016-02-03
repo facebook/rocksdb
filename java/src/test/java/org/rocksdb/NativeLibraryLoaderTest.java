@@ -21,7 +21,7 @@ public class NativeLibraryLoaderTest {
 
   @Test
   public void tempFolder() throws IOException {
-    NativeLibraryLoader.getInstance().loadLibraryFromJar(
+    NativeLibraryLoader.getInstance().loadLibraryFromJarToTemp(
         temporaryFolder.getRoot().getAbsolutePath());
     Path path = Paths.get(temporaryFolder.getRoot().getAbsolutePath(),
         Environment.getJniLibraryFileName("rocksdb"));

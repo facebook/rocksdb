@@ -117,16 +117,22 @@ public class EnvironmentTest {
     assertThat(Environment.isWindows()).isTrue();
   }
 
-  @Test(expected = UnsupportedOperationException.class)
-  public void failWinJniLibraryName(){
+  @Test
+  public void win64() {
     setEnvironmentClassFields("win", "x64");
-    Environment.getJniLibraryFileName("rocksdb");
+    assertThat(Environment.isWindows()).isTrue();
+    assertThat(Environment.getJniLibraryExtension()).
+      isEqualTo(".dll");
+    assertThat(Environment.getJniLibraryFileName("rocksdb")).
+      isEqualTo("librocksdbjni-win64.dll");
+    assertThat(Environment.getSharedLibraryFileName("rocksdb")).
+      isEqualTo("librocksdbjni.dll");
   }
 
   @Test(expected = UnsupportedOperationException.class)
-  public void failWinSharedLibrary(){
-    setEnvironmentClassFields("win", "x64");
-    Environment.getSharedLibraryFileName("rocksdb");
+  public void win32(){
+    setEnvironmentClassFields("win", "32");
+    Environment.getJniLibraryFileName("rocksdb");
   }
 
   private void setEnvironmentClassFields(String osName,

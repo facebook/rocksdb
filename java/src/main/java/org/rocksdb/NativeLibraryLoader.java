@@ -19,7 +19,7 @@ public class NativeLibraryLoader {
   private static final String jniLibraryName = Environment.getJniLibraryName("rocksdb");
   private static final String jniLibraryFileName = Environment.getJniLibraryFileName("rocksdb");
   private static final String tempFilePrefix = "librocksdbjni";
-  private static final String tempFileSuffix = "." + Environment.getJniLibraryExtension();
+  private static final String tempFileSuffix = Environment.getJniLibraryExtension();
 
   /**
    * Get a reference to the NativeLibraryLoader
@@ -75,37 +75,43 @@ public class NativeLibraryLoader {
   void loadLibraryFromJar(final String tmpDir)
       throws IOException {
     if (!initialized) {
-      final File temp;
-      if (tmpDir == null || tmpDir.equals("")) {
-        temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
-      } else {
-        temp = new File(tmpDir, jniLibraryFileName);
-        if (!temp.createNewFile()) {
-          throw new RuntimeException("File: " + temp.getAbsolutePath()
-              + " could not be created.");
-        }
-      }
-
-      if (!temp.exists()) {
-        throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
-      } else {
-        temp.deleteOnExit();
-      }
-
-      // attempt to copy the library from the Jar file to the temp destination
-      try (final InputStream is = getClass().getClassLoader().
-          getResourceAsStream(jniLibraryFileName)) {
-        if (is == null) {
-          throw new RuntimeException(jniLibraryFileName + " was not found inside JAR.");
-        } else {
-          Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
-        }
-      }
-
-      System.load(temp.getAbsolutePath());
+      System.load(loadLibraryFromJarToTemp(tmpDir).getAbsolutePath());
       initialized = true;
     }
   }
+
+  File loadLibraryFromJarToTemp(final String tmpDir)
+          throws IOException {
+    final File temp;
+    if (tmpDir == null || tmpDir.isEmpty()) {
+      temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
+    } else {
+      temp = new File(tmpDir, jniLibraryFileName);
+      if (!temp.createNewFile()) {
+        throw new RuntimeException("File: " + temp.getAbsolutePath()
+            + " could not be created.");
+      }
+    }
+
+    if (!temp.exists()) {
+      throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
+    } else {
+      temp.deleteOnExit();
+    }
+
+    // attempt to copy the library from the Jar file to the temp destination
+    try (final InputStream is = getClass().getClassLoader().
+      getResourceAsStream(jniLibraryFileName)) {
+      if (is == null) {
+        throw new RuntimeException(jniLibraryFileName + " was not found inside JAR.");
+      } else {
+        Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
+      }
+    }
+
+    return temp;
+  }
+
   /**
    * Private constructor to disallow instantiation
    */
