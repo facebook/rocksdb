@@ -24,6 +24,7 @@ default_params = {
     "disable_data_sync": 0,
     "disable_wal": 0,
     "filter_deletes": lambda: random.randint(0, 1),
+    "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "iterpercent": 10,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
@@ -85,6 +86,7 @@ simple_default_params = {
     "disable_data_sync": 0,
     "disable_wal": 0,
     "filter_deletes": lambda: random.randint(0, 1),
+    "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "iterpercent": 10,
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
@@ -126,6 +128,15 @@ whitebox_simple_default_params = {
 }
 
 
+def finalize_and_sanitize(src_params):
+    dest_params = dict([(k,  v() if callable(v) else v)
+                        for (k, v) in src_params.items()])
+    # --allow_concurrent_memtable_write with --filter_deletes is not supported.
+    if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
+        dest_params["filter_deletes"] = 0
+    return dest_params
+
+
 def gen_cmd_params(args):
     params = {}
 
@@ -151,8 +162,8 @@ def gen_cmd_params(args):
 
 def gen_cmd(params):
     cmd = './db_stress ' + ' '.join(
-        '--{0}={1}'.format(k, v() if callable(v) else v)
-        for k, v in params.items()
+        '--{0}={1}'.format(k, v)
+        for k, v in finalize_and_sanitize(params).items()
         if k not in set(['test_type', 'simple', 'duration', 'interval'])
         and v is not None)
     return cmd
