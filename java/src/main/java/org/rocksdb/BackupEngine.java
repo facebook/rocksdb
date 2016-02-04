@@ -175,8 +175,10 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
   /**
    * Restore the database from the latest backup
    *
-   * @param dbDir The directory to restore the backup to, i.e. where your database is
-   * @param walDir The location of the log files for your database, often the same as dbDir
+   * @param dbDir The directory to restore the backup to, i.e. where your
+   *              database is
+   * @param walDir The location of the log files for your database, often the
+   *               same as dbDir
    * @param restoreOptions Options for controlling the restore
    *
    * @throws RocksDBException thrown if the database could not be restored
@@ -187,16 +189,6 @@ public class BackupEngine extends RocksObject implements AutoCloseable {
     assert (isOwningHandle());
     restoreDbFromLatestBackup(nativeHandle_, dbDir, walDir,
         restoreOptions.nativeHandle_);
-  }
-
-  /**
-   * Close the Backup Engine
-   *
-   * @throws RocksDBException thrown if the backup engine could not be closed
-   */
-  @Override
-  public void close() throws RocksDBException {
-    dispose();
   }
 
   private native static long open(final long env,

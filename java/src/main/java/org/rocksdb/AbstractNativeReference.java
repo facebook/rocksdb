@@ -22,7 +22,7 @@ package org.rocksdb;
  * suggested that you manually dispose of objects when you are finished with
  * them.</p>
  */
-public abstract class AbstractNativeReference {
+public abstract class AbstractNativeReference implements AutoCloseable {
 
   /**
    * Returns true if we are responsible for freeing the underlying C++ object
@@ -42,15 +42,34 @@ public abstract class AbstractNativeReference {
    * disposed, calling any of its functions will lead to undefined
    * behavior.</p>
    */
-  public abstract void dispose();
+  @Override
+  public abstract void close();
+
+  /**
+   * @deprecated Instead use {@link AbstractNativeReference#close()}
+   */
+  @Deprecated
+  public final void dispose() {
+    close();
+  }
 
   /**
    * Simply calls {@link AbstractNativeReference#dispose()} to free
    * any underlying C++ object reference which has not yet been manually
    * released.
+   *
+   * @deprecated You should not rely on GC of Rocks objects, and instead should
+   * either call {@link AbstractNativeReference#close()} manually or make
+   * use of some sort of ARM (Automatic Resource Management) such as
+   * Java 7's <a href="https://docs.oracle.com/javase/tutorial/essential/exceptions/tryResourceClose.html">try-with-resources</a>
+   * statement
    */
   @Override
+  @Deprecated
   protected void finalize() throws Throwable {
+    if(isOwningHandle()) {
+      //TODO(AR) log a warning message... developer should have called close()
+    }
     dispose();
     super.finalize();
   }

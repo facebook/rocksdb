@@ -51,7 +51,7 @@ public abstract class AbstractImmutableNativeReference
   }
 
   @Override
-  public final void dispose() {
+  public void close() {
     if (owningHandle_.compareAndSet(true, false)) {
       disposeInternal();
     }

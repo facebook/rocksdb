@@ -53,7 +53,7 @@ public abstract class RocksMutableObject extends AbstractNativeReference {
   }
 
   @Override
-  public synchronized final void dispose() {
+  public synchronized final void close() {
     if (isOwningHandle()) {
       disposeInternal();
       this.owningHandle_ = false;

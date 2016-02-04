@@ -48,7 +48,8 @@ public class RocksDB extends RocksObject {
     }
     catch (IOException e)
     {
-      throw new RuntimeException("Unable to load the RocksDB shared library" + e);
+      throw new RuntimeException("Unable to load the RocksDB shared library"
+          + e);
     }
   }
 
@@ -78,7 +79,8 @@ public class RocksDB extends RocksObject {
     UnsatisfiedLinkError err = null;
     for (String path : paths) {
       try {
-        System.load(path + "/" + Environment.getJniLibraryFileName("rocksdbjni"));
+        System.load(path + "/" +
+            Environment.getJniLibraryFileName("rocksdbjni"));
         success = true;
         break;
       } catch (UnsatisfiedLinkError e) {
@@ -116,8 +118,8 @@ public class RocksDB extends RocksObject {
    * the path to the database using the specified options and db path and a list
    * of column family names.
    * <p>
-   * If opened in read write mode every existing column family name must be passed
-   * within the list to this method.</p>
+   * If opened in read write mode every existing column family name must be
+   * passed within the list to this method.</p>
    * <p>
    * If opened in read-only mode only a subset of existing column families must
    * be passed to this method.</p>
@@ -189,8 +191,8 @@ public class RocksDB extends RocksObject {
    * the path to the database using the specified options and db path and a list
    * of column family names.
    * <p>
-   * If opened in read write mode every existing column family name must be passed
-   * within the list to this method.</p>
+   * If opened in read write mode every existing column family name must be
+   * passed within the list to this method.</p>
    * <p>
    * If opened in read-only mode only a subset of existing column families must
    * be passed to this method.</p>
@@ -204,7 +206,8 @@ public class RocksDB extends RocksObject {
    * with new Options instance as underlying native statistics instance does not
    * use any locks to prevent concurrent updates.</p>
    * <p>
-   * ColumnFamily handles are disposed when the RocksDB instance is disposed.</p>
+   * ColumnFamily handles are disposed when the RocksDB instance is disposed.
+   * </p>
    *
    * @param options {@link org.rocksdb.DBOptions} instance.
    * @param path the path to the rocksdb.
@@ -227,12 +230,14 @@ public class RocksDB extends RocksObject {
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
+          .get(i);
       cfNames[i] = cfDescriptor.columnFamilyName();
       cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
     }
 
-    final long[] handles = open(options.nativeHandle_, path, cfNames, cfOptionHandles);
+    final long[] handles = open(options.nativeHandle_, path, cfNames,
+        cfOptionHandles);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
@@ -349,12 +354,14 @@ public class RocksDB extends RocksObject {
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
+      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors
+          .get(i);
       cfNames[i] = cfDescriptor.columnFamilyName();
       cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
     }
 
-    final long[] handles = openROnly(options.nativeHandle_, path, cfNames, cfOptionHandles);
+    final long[] handles = openROnly(options.nativeHandle_, path, cfNames,
+        cfOptionHandles);
     final RocksDB db = new RocksDB(handles[0]);
     db.storeOptionsInstance(options);
 
@@ -377,19 +384,12 @@ public class RocksDB extends RocksObject {
    */
   public static List<byte[]> listColumnFamilies(final Options options,
       final String path) throws RocksDBException {
-    return Arrays.asList(RocksDB.listColumnFamilies(options.nativeHandle_, path));
+    return Arrays.asList(RocksDB.listColumnFamilies(options.nativeHandle_,
+        path));
   }
 
   private void storeOptionsInstance(DBOptionsInterface options) {
     options_ = options;
-  }
-
-  /**
-   * Close the RocksDB instance.
-   * This function is equivalent to dispose().
-   */
-  public void close() {
-    dispose();
   }
 
   /**
@@ -401,7 +401,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void put(final byte[] key, final byte[] value) throws RocksDBException {
+  public void put(final byte[] key, final byte[] value)
+      throws RocksDBException {
     put(nativeHandle_, key, key.length, value, value.length);
   }
 
@@ -460,8 +461,8 @@ public class RocksDB extends RocksObject {
   public void put(final ColumnFamilyHandle columnFamilyHandle,
       final WriteOptions writeOpts, final byte[] key,
       final byte[] value) throws RocksDBException {
-    put(nativeHandle_, writeOpts.nativeHandle_, key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
+    put(nativeHandle_, writeOpts.nativeHandle_, key, key.length, value,
+        value.length, columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -495,8 +496,8 @@ public class RocksDB extends RocksObject {
    */
   public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final StringBuffer value){
-    return keyMayExist(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_,
-        value);
+    return keyMayExist(nativeHandle_, key, key.length,
+        columnFamilyHandle.nativeHandle_, value);
   }
 
   /**
@@ -578,7 +579,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void merge(final byte[] key, final byte[] value) throws RocksDBException {
+  public void merge(final byte[] key, final byte[] value)
+      throws RocksDBException {
     merge(nativeHandle_, key, key.length, value, value.length);
   }
 
@@ -753,9 +755,10 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public byte[] get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
-      throws RocksDBException {
-    return get(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+  public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
+      final byte[] key) throws RocksDBException {
+    return get(nativeHandle_, key, key.length,
+        columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -811,7 +814,8 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     assert(keys.size() != 0);
 
-    final byte[][] values = multiGet(nativeHandle_, keys.toArray(new byte[keys.size()][]));
+    final byte[][] values = multiGet(nativeHandle_,
+        keys.toArray(new byte[keys.size()][]));
 
     Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.length; i++) {
@@ -843,8 +847,10 @@ public class RocksDB extends RocksObject {
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
    */
-  public Map<byte[], byte[]> multiGet(final List<ColumnFamilyHandle> columnFamilyHandleList,
-      final List<byte[]> keys) throws RocksDBException, IllegalArgumentException {
+  public Map<byte[], byte[]> multiGet(
+      final List<ColumnFamilyHandle> columnFamilyHandleList,
+      final List<byte[]> keys) throws RocksDBException,
+      IllegalArgumentException {
     assert(keys.size() != 0);
     // Check if key size equals cfList size. If not a exception must be
     // thrown. If not a Segmentation fault happens.
@@ -856,8 +862,8 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyHandleList.size(); i++) {
       cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
     }
-    final byte[][] values = multiGet(nativeHandle_, keys.toArray(new byte[keys.size()][]),
-        cfHandles);
+    final byte[][] values = multiGet(nativeHandle_,
+        keys.toArray(new byte[keys.size()][]), cfHandles);
 
     Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.length; i++) {
@@ -884,7 +890,8 @@ public class RocksDB extends RocksObject {
       final List<byte[]> keys) throws RocksDBException {
     assert(keys.size() != 0);
 
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_, keys.toArray(new byte[keys.size()][]));
+    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
+        keys.toArray(new byte[keys.size()][]));
 
     Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.length; i++) {
@@ -931,7 +938,8 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyHandleList.size(); i++) {
       cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
     }
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_, keys.toArray(new byte[keys.size()][]), cfHandles);
+    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
+        keys.toArray(new byte[keys.size()][]), cfHandles);
 
     Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.length; i++) {
@@ -970,8 +978,8 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void remove(final ColumnFamilyHandle columnFamilyHandle, final byte[] key)
-      throws RocksDBException {
+  public void remove(final ColumnFamilyHandle columnFamilyHandle,
+      final byte[] key) throws RocksDBException {
     remove(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
@@ -1021,8 +1029,9 @@ public class RocksDB extends RocksObject {
    *
    * <p>Valid property names include:
    * <ul>
-   * <li>"rocksdb.num-files-at-level&lt;N&gt;" - return the number of files at level &lt;N&gt;,
-   *     where &lt;N&gt; is an ASCII representation of a level number (e.g. "0").</li>
+   * <li>"rocksdb.num-files-at-level&lt;N&gt;" - return the number of files at
+   * level &lt;N&gt;, where &lt;N&gt; is an ASCII representation of a level
+   * number (e.g. "0").</li>
    * <li>"rocksdb.stats" - returns a multi-line string that describes statistics
    *     about the internal operation of the DB.</li>
    * <li>"rocksdb.sstables" - returns a multi-line string that describes all
@@ -1039,8 +1048,8 @@ public class RocksDB extends RocksObject {
    */
   public String getProperty(final ColumnFamilyHandle columnFamilyHandle,
       final String property) throws RocksDBException {
-    return getProperty0(nativeHandle_, columnFamilyHandle.nativeHandle_, property,
-        property.length());
+    return getProperty0(nativeHandle_, columnFamilyHandle.nativeHandle_,
+        property, property.length());
   }
 
   /**
@@ -1051,8 +1060,9 @@ public class RocksDB extends RocksObject {
    *
    * <p>Valid property names include:
    * <ul>
-   * <li>"rocksdb.num-files-at-level&lt;N&gt;" - return the number of files at level &lt;N&gt;,
-   *     where &lt;N&gt; is an ASCII representation of a level number (e.g. "0").</li>
+   * <li>"rocksdb.num-files-at-level&lt;N&gt;" - return the number of files at
+   * level &lt;N&gt;, where &lt;N&gt; is an ASCII representation of a level
+   * number (e.g. "0").</li>
    * <li>"rocksdb.stats" - returns a multi-line string that describes statistics
    *     about the internal operation of the DB.</li>
    * <li>"rocksdb.sstables" - returns a multi-line string that describes all
@@ -1070,8 +1080,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p> Similar to GetProperty(), but only works for a subset of properties whose
-   * return value is a numerical value. Return the value as long.</p>
+   * <p> Similar to GetProperty(), but only works for a subset of properties
+   * whose return value is a numerical value. Return the value as long.</p>
    *
    * <p><strong>Note</strong>: As the returned property is of type
    * {@code uint64_t} on C++ side the returning value can be negative
@@ -1096,8 +1106,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p> Similar to GetProperty(), but only works for a subset of properties whose
-   * return value is a numerical value. Return the value as long.</p>
+   * <p> Similar to GetProperty(), but only works for a subset of properties
+   * whose return value is a numerical value. Return the value as long.</p>
    *
    * <p><strong>Note</strong>: As the returned property is of type
    * {@code uint64_t} on C++ side the returning value can be negative
@@ -1121,8 +1131,8 @@ public class RocksDB extends RocksObject {
    */
   public long getLongProperty(final ColumnFamilyHandle columnFamilyHandle,
       final String property) throws RocksDBException {
-    return getLongProperty(nativeHandle_, columnFamilyHandle.nativeHandle_, property,
-        property.length());
+    return getLongProperty(nativeHandle_, columnFamilyHandle.nativeHandle_,
+        property, property.length());
   }
 
   /**
@@ -1204,7 +1214,8 @@ public class RocksDB extends RocksObject {
    *     instance
    * @return instance of iterator object.
    */
-  public RocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle) {
+  public RocksIterator newIterator(
+      final ColumnFamilyHandle columnFamilyHandle) {
     return new RocksIterator(this, iteratorCF(nativeHandle_,
         columnFamilyHandle.nativeHandle_));
   }
@@ -1244,7 +1255,8 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public List<RocksIterator> newIterators(
-      final List<ColumnFamilyHandle> columnFamilyHandleList) throws RocksDBException {
+      final List<ColumnFamilyHandle> columnFamilyHandleList)
+      throws RocksDBException {
     return newIterators(columnFamilyHandleList, new ReadOptions());
   }
 
@@ -1274,7 +1286,8 @@ public class RocksDB extends RocksObject {
     final long[] iteratorRefs = iterators(nativeHandle_, columnFamilyHandles,
         readOptions.nativeHandle_);
 
-    final List<RocksIterator> iterators = new ArrayList<>(columnFamilyHandleList.size());
+    final List<RocksIterator> iterators = new ArrayList<>(
+        columnFamilyHandleList.size());
     for (int i=0; i<columnFamilyHandleList.size(); i++){
       iterators.add(new RocksIterator(this, iteratorRefs[i]));
     }
@@ -1308,7 +1321,8 @@ public class RocksDB extends RocksObject {
       final ColumnFamilyDescriptor columnFamilyDescriptor)
       throws RocksDBException {
     return new ColumnFamilyHandle(this, createColumnFamily(nativeHandle_,
-        columnFamilyDescriptor.columnFamilyName(), columnFamilyDescriptor.columnFamilyOptions().nativeHandle_));
+        columnFamilyDescriptor.columnFamilyName(),
+        columnFamilyDescriptor.columnFamilyOptions().nativeHandle_));
   }
 
   /**
@@ -1704,7 +1718,8 @@ public class RocksDB extends RocksObject {
    * @param optionsHandle Native handle pointing to an Options object
    * @param path The directory path for the database files
    * @param columnFamilyNames An array of column family names
-   * @param columnFamilyOptions An array of native handles pointing to ColumnFamilyOptions objects
+   * @param columnFamilyOptions An array of native handles pointing to
+   *                            ColumnFamilyOptions objects
    *
    * @return An array of native handles, [0] is the handle of the RocksDB object
    *   [1..1+n] are handles of the ColumnFamilyReferences
@@ -1722,7 +1737,8 @@ public class RocksDB extends RocksObject {
    * @param optionsHandle Native handle pointing to an Options object
    * @param path The directory path for the database files
    * @param columnFamilyNames An array of column family names
-   * @param columnFamilyOptions An array of native handles pointing to ColumnFamilyOptions objects
+   * @param columnFamilyOptions An array of native handles pointing to
+   *                            ColumnFamilyOptions objects
    *
    * @return An array of native handles, [0] is the handle of the RocksDB object
    *   [1..1+n] are handles of the ColumnFamilyReferences
@@ -1791,13 +1807,17 @@ public class RocksDB extends RocksObject {
       long handle, long readOptHandle, byte[] key, int keyLen,
       byte[] value, int valueLen, long cfHandle) throws RocksDBException;
   protected native byte[][] multiGet(final long dbHandle, final byte[][] keys);
-  protected native byte[][] multiGet(final long dbHandle, final byte[][] keys, final long[] columnFamilyHandles);
-  protected native byte[][] multiGet(final long dbHandle, final long rOptHandle, final byte[][] keys);
-  protected native byte[][] multiGet(final long dbHandle, final long rOptHandle, final byte[][] keys, final long[] columnFamilyHandles);
+  protected native byte[][] multiGet(final long dbHandle, final byte[][] keys,
+      final long[] columnFamilyHandles);
+  protected native byte[][] multiGet(final long dbHandle, final long rOptHandle,
+      final byte[][] keys);
+  protected native byte[][] multiGet(final long dbHandle, final long rOptHandle,
+      final byte[][] keys, final long[] columnFamilyHandles);
   protected native byte[] get(
       long handle, byte[] key, int keyLen) throws RocksDBException;
   protected native byte[] get(
-      long handle, byte[] key, int keyLen, long cfHandle) throws RocksDBException;
+      long handle, byte[] key, int keyLen, long cfHandle)
+      throws RocksDBException;
   protected native byte[] get(
       long handle, long readOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
@@ -1807,7 +1827,8 @@ public class RocksDB extends RocksObject {
   protected native void remove(
       long handle, byte[] key, int keyLen) throws RocksDBException;
   protected native void remove(
-      long handle, byte[] key, int keyLen, long cfHandle) throws RocksDBException;
+      long handle, byte[] key, int keyLen, long cfHandle)
+      throws RocksDBException;
   protected native void remove(
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
@@ -1836,25 +1857,27 @@ public class RocksDB extends RocksObject {
   @Override protected final native void disposeInternal(final long handle);
   private native long getDefaultColumnFamily(long handle);
   private native long createColumnFamily(final long handle,
-      final byte[] columnFamilyName, final long columnFamilyOptions) throws RocksDBException;
-  private native void dropColumnFamily(long handle, long cfHandle) throws RocksDBException;
+      final byte[] columnFamilyName, final long columnFamilyOptions)
+      throws RocksDBException;
+  private native void dropColumnFamily(long handle, long cfHandle)
+      throws RocksDBException;
   private native void flush(long handle, long flushOptHandle)
       throws RocksDBException;
   private native void flush(long handle, long flushOptHandle,
       long cfHandle) throws RocksDBException;
-  private native void compactRange0(long handle, boolean reduce_level, int target_level,
+  private native void compactRange0(long handle, boolean reduce_level,
+      int target_level, int target_path_id) throws RocksDBException;
+  private native void compactRange0(long handle, byte[] begin, int beginLen,
+      byte[] end, int endLen, boolean reduce_level, int target_level,
       int target_path_id) throws RocksDBException;
-  private native void compactRange0(long handle, byte[] begin, int beginLen, byte[] end,
-      int endLen, boolean reduce_level, int target_level, int target_path_id)
+  private native void compactRange(long handle, boolean reduce_level,
+      int target_level, int target_path_id, long cfHandle)
       throws RocksDBException;
-  private native void compactRange(long handle, boolean reduce_level, int target_level,
+  private native void compactRange(long handle, byte[] begin, int beginLen,
+      byte[] end, int endLen, boolean reduce_level, int target_level,
       int target_path_id, long cfHandle) throws RocksDBException;
-  private native void compactRange(long handle, byte[] begin, int beginLen, byte[] end,
-      int endLen, boolean reduce_level, int target_level, int target_path_id,
-      long cfHandle) throws RocksDBException;
   private native long getLatestSequenceNumber(long handle);
-  private native void disableFileDeletions(long handle)
-      throws RocksDBException;
+  private native void disableFileDeletions(long handle) throws RocksDBException;
   private native void enableFileDeletions(long handle,
       boolean force) throws RocksDBException;
   private native long getUpdatesSince(long handle, long sequenceNumber)
