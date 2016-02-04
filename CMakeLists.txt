@@ -177,7 +177,6 @@ set(SOURCES
         table/merger.cc
         table/sst_file_writer.cc
         table/meta_blocks.cc
-        table/mock_table.cc
         table/plain_table_builder.cc
         table/plain_table_factory.cc
         table/plain_table_index.cc
@@ -214,7 +213,6 @@ set(SOURCES
         util/logging.cc
         util/log_buffer.cc
         util/memenv.cc
-        util/mock_env.cc
         util/murmurhash.cc
         util/mutable_cf_options.cc
         util/options.cc
@@ -277,6 +275,8 @@ set(SOURCES
 # and linked to tests. Add test only code that is not #ifdefed for Release here.
 set(TESTUTIL_SOURCE
     db/db_test_util.cc
+    table/mock_table.cc
+    util/mock_env.cc
     util/thread_status_updater_debug.cc
 )
 
