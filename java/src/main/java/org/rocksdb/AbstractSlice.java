@@ -42,8 +42,7 @@ abstract class AbstractSlice<T> extends RocksMutableObject {
    *   @see org.rocksdb.AbstractSlice#data0(long)
    */
   public T data() {
-    assert (isOwningHandle());
-    return data0(nativeHandle_);
+    return data0(getNativeHandle());
   }
 
   /**
@@ -64,8 +63,7 @@ abstract class AbstractSlice<T> extends RocksMutableObject {
    * @return The length in bytes.
    */
   public int size() {
-    assert (isOwningHandle());
-    return size0(nativeHandle_);
+    return size0(getNativeHandle());
   }
 
   /**
@@ -75,8 +73,7 @@ abstract class AbstractSlice<T> extends RocksMutableObject {
    * @return true if there is no data, false otherwise.
    */
   public boolean empty() {
-    assert (isOwningHandle());
-    return empty0(nativeHandle_);
+    return empty0(getNativeHandle());
   }
 
   /**
@@ -88,8 +85,7 @@ abstract class AbstractSlice<T> extends RocksMutableObject {
    * @return The string representation of the data.
    */
   public String toString(final boolean hex) {
-    assert (isOwningHandle());
-    return toString0(nativeHandle_, hex);
+    return toString0(getNativeHandle(), hex);
   }
 
   @Override
@@ -109,8 +105,15 @@ abstract class AbstractSlice<T> extends RocksMutableObject {
    */
   public int compare(final AbstractSlice<?> other) {
     assert (other != null);
-    assert (isOwningHandle());
-    return compare0(nativeHandle_, other.nativeHandle_);
+    if(!isOwningHandle()) {
+      return other.isOwningHandle() ? -1 : 0;
+    } else {
+      if(!other.isOwningHandle()) {
+        return 1;
+      } else {
+        return compare0(getNativeHandle(), other.getNativeHandle());
+      }
+    }
   }
 
   @Override
@@ -149,8 +152,7 @@ abstract class AbstractSlice<T> extends RocksMutableObject {
    */
   public boolean startsWith(final AbstractSlice<?> prefix) {
     if (prefix != null) {
-      assert (isOwningHandle());
-      return startsWith0(nativeHandle_, prefix.nativeHandle_);
+      return startsWith0(getNativeHandle(), prefix.getNativeHandle());
     } else {
       return false;
     }

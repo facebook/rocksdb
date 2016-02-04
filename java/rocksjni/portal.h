@@ -49,25 +49,22 @@ template<class PTR, class DERIVED> class RocksDBNativeClass {
     assert(jclazz != nullptr);
     return jclazz;
   }
-
-  // Get the field id of the member variable to store
-  // the ptr
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        DERIVED::getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
 };
 
 // Native class template for sub-classes of RocksMutableObject
 template<class PTR, class DERIVED> class NativeRocksMutableObject : public RocksDBNativeClass<PTR, DERIVED> {
  public:
+
+  static jmethodID getSetNativeHandleMethod(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        DERIVED::getJClass(env), "setNativeHandle", "(JZ)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
   // Pass the pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jdb, PTR ptr) {
-    env->SetLongField(
-        jdb, RocksDBNativeClass<PTR, DERIVED>::getHandleFieldID(env),
-        reinterpret_cast<jlong>(ptr));
+  static void setHandle(JNIEnv* env, jobject jobj, PTR ptr, jboolean java_owns_handle) {
+    env->CallVoidMethod(jobj, getSetNativeHandleMethod(env), reinterpret_cast<jlong>(ptr), java_owns_handle);
   }
 };
 
@@ -646,67 +643,6 @@ class WriteEntryJni {
           env->FindClass("org/rocksdb/WBWIRocksIterator$WriteEntry");
       assert(jclazz != nullptr);
       return jclazz;
-    }
-
-    static void setWriteType(JNIEnv* env, jobject jwrite_entry,
-        WriteType write_type) {
-      jobject jwrite_type;
-      switch (write_type) {
-        case kPutRecord:
-          jwrite_type = WriteTypeJni::PUT(env);
-          break;
-
-        case kMergeRecord:
-          jwrite_type = WriteTypeJni::MERGE(env);
-          break;
-
-        case kDeleteRecord:
-          jwrite_type = WriteTypeJni::DELETE(env);
-          break;
-
-        case kLogDataRecord:
-          jwrite_type = WriteTypeJni::LOG(env);
-          break;
-
-        default:
-          jwrite_type = nullptr;
-      }
-      assert(jwrite_type != nullptr);
-      env->SetObjectField(jwrite_entry, getWriteTypeField(env), jwrite_type);
-    }
-
-    static void setKey(JNIEnv* env, jobject jwrite_entry,
-        const rocksdb::Slice* slice) {
-      jobject jkey = env->GetObjectField(jwrite_entry, getKeyField(env));
-      AbstractSliceJni::setHandle(env, jkey, slice);
-    }
-
-    static void setValue(JNIEnv* env, jobject jwrite_entry,
-        const rocksdb::Slice* slice) {
-      jobject jvalue = env->GetObjectField(jwrite_entry, getValueField(env));
-      AbstractSliceJni::setHandle(env, jvalue, slice);
-    }
-
- private:
-    static jfieldID getWriteTypeField(JNIEnv* env) {
-      static jfieldID fid = env->GetFieldID(
-          getJClass(env), "type", "Lorg/rocksdb/WBWIRocksIterator$WriteType;");
-        assert(fid != nullptr);
-        return fid;
-    }
-
-    static jfieldID getKeyField(JNIEnv* env) {
-      static jfieldID fid = env->GetFieldID(
-          getJClass(env), "key", "Lorg/rocksdb/DirectSlice;");
-      assert(fid != nullptr);
-      return fid;
-    }
-
-    static jfieldID getValueField(JNIEnv* env) {
-      static jfieldID fid = env->GetFieldID(
-          getJClass(env), "value", "Lorg/rocksdb/DirectSlice;");
-      assert(fid != nullptr);
-      return fid;
     }
 };
 

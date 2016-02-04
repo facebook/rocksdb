@@ -24,10 +24,11 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * at creation time.
    *
    * Note: You should be aware that it is intentionally marked as
-   * package-private. This is so that developers cannot construct their own default
-   * DirectSlice objects (at present). As developers cannot construct their own
-   * DirectSlice objects through this, they are not creating underlying C++
-   * DirectSlice objects, and so there is nothing to free (dispose) from Java.
+   * package-private. This is so that developers cannot construct their own
+   * default DirectSlice objects (at present). As developers cannot construct
+   * their own DirectSlice objects through this, they are not creating
+   * underlying C++ DirectSlice objects, and so there is nothing to free
+   * (dispose) from Java.
    */
   DirectSlice() {
     super();
@@ -68,7 +69,8 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   }
 
   private static ByteBuffer ensureDirect(final ByteBuffer data) {
-    //TODO(AR) consider throwing a checked exception, as if it's not direct this can SIGSEGV
+    // TODO(AR) consider throwing a checked exception, as if it's not direct
+    // this can SIGSEGV
     assert(data.isDirect());
     return data;
   }
@@ -82,16 +84,14 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @return the requested byte
    */
   public byte get(int offset) {
-    assert (isOwningHandle());
-    return get0(nativeHandle_, offset);
+    return get0(getNativeHandle(), offset);
   }
 
   /**
    * Clears the backing slice
    */
   public void clear() {
-    assert (isOwningHandle());
-    clear0(nativeHandle_);
+    clear0(getNativeHandle());
   }
 
   /**
@@ -102,8 +102,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @param n The number of bytes to drop
    */
   public void removePrefix(final int n) {
-    assert (isOwningHandle());
-    removePrefix0(nativeHandle_, n);
+    removePrefix0(getNativeHandle(), n);
   }
 
   private native static long createNewDirectSlice0(final ByteBuffer data,

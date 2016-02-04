@@ -353,27 +353,57 @@ void Java_org_rocksdb_WBWIRocksIterator_status0(
 /*
  * Class:     org_rocksdb_WBWIRocksIterator
  * Method:    entry1
- * Signature: (JLorg/rocksdb/WBWIRocksIterator/WriteEntry;)V
+ * Signature: (J)[J
  */
-void Java_org_rocksdb_WBWIRocksIterator_entry1(
-    JNIEnv* env, jobject jobj, jlong handle, jobject jwrite_entry) {
+jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(
+    JNIEnv* env, jobject jobj, jlong handle) {
   auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
   const rocksdb::WriteEntry& we = it->Entry();
-  jobject jwe = rocksdb::WBWIRocksIteratorJni::getWriteEntry(env, jobj);
-  rocksdb::WriteEntryJni::setWriteType(env, jwe, we.type);
 
+  jlong results[3];
+
+  //set the type of the write entry
+  switch (we.type) {
+    case rocksdb::kPutRecord:
+      results[0] = 0x1;
+      break;
+
+    case rocksdb::kMergeRecord:
+      results[0] = 0x2;
+      break;
+
+    case rocksdb::kDeleteRecord:
+      results[0] = 0x4;
+      break;
+
+    case rocksdb::kLogDataRecord:
+      results[0] = 0x8;
+      break;
+
+    default:
+      results[0] = 0x0;
+  }
+
+  //TODO(AR) do we leak buf and value_buf?
+
+  //set the pointer to the key slice
   char* buf = new char[we.key.size()];
   memcpy(buf, we.key.data(), we.key.size());
   auto* key_slice = new rocksdb::Slice(buf, we.key.size());
-  rocksdb::WriteEntryJni::setKey(env, jwe, key_slice);
+  results[1] = reinterpret_cast<jlong>(key_slice);
 
+  //set the pointer to the value slice
   if (we.type == rocksdb::kDeleteRecord || we.type == rocksdb::kLogDataRecord) {
     // set native handle of value slice to null if no value available
-    rocksdb::WriteEntryJni::setValue(env, jwe, nullptr);
+    results[2] = 0;
   } else {
     char* value_buf = new char[we.value.size()];
     memcpy(value_buf, we.value.data(), we.value.size());
     auto* value_slice = new rocksdb::Slice(value_buf, we.value.size());
-    rocksdb::WriteEntryJni::setValue(env, jwe, value_slice);
+    results[2] = reinterpret_cast<jlong>(value_slice);
   }
+
+  jlongArray jresults = env->NewLongArray(3);
+  env->SetLongArrayRegion(jresults, 0, 3, results);
+  return jresults;
 }

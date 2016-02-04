@@ -1,30 +1,47 @@
 package org.rocksdb;
 
-public abstract class RocksMutableObject extends NativeReference {
+public abstract class RocksMutableObject /*extends NativeReference*/ {
 
-    private final boolean shouldOwnHandle;
-    protected volatile long nativeHandle_;
+    private long nativeHandle_;
+    private boolean owningHandle_;
 
     protected RocksMutableObject() {
-        super(false);
-        this.shouldOwnHandle = false;
     }
 
     protected RocksMutableObject(final long nativeHandle) {
-        super(true);
-        this.shouldOwnHandle = true;
         this.nativeHandle_ = nativeHandle;
+        this.owningHandle_ = true;
+    }
+
+    public synchronized void setNativeHandle(final long nativeHandle, final boolean owningNativeHandle) {
+        this.nativeHandle_ = nativeHandle;
+        this.owningHandle_ = owningNativeHandle;
+    }
+
+    //@Override
+    protected synchronized boolean isOwningHandle() {
+        return this.owningHandle_;
+    }
+
+    protected synchronized long getNativeHandle() {
+        assert(this.nativeHandle_ != 0);
+        return this.nativeHandle_;
+    }
+
+    public synchronized final void dispose() {
+        if(isOwningHandle()) {
+            disposeInternal();
+            this.owningHandle_ = false;
+            this.nativeHandle_ = 0;
+        }
     }
 
     @Override
-    public boolean isOwningHandle() {
-        return ((!shouldOwnHandle) || super.isOwningHandle()) && nativeHandle_ != 0;
+    protected void finalize() throws Throwable {
+        dispose();
+        super.finalize();
     }
 
-    /**
-     * Deletes underlying C++ object pointer.
-     */
-    @Override
     protected void disposeInternal() {
         disposeInternal(nativeHandle_);
     }
