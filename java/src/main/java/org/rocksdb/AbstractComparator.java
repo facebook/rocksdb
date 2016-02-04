@@ -14,7 +14,8 @@ package org.rocksdb;
  *   @see org.rocksdb.Comparator
  *   @see org.rocksdb.DirectComparator
  */
-public abstract class AbstractComparator<T extends AbstractSlice<?>> extends NativeReference {
+public abstract class AbstractComparator<T extends AbstractSlice<?>>
+    extends AbstractImmutableNativeReference {
 
   protected AbstractComparator() {
     super(true);

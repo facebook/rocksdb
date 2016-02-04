@@ -35,7 +35,7 @@ package org.rocksdb;
  * {@link org.rocksdb.InfoLogLevel#FATAL_LEVEL}.
  * </p>
  */
-public abstract class Logger extends NativeReference {
+public abstract class Logger extends AbstractImmutableNativeReference {
 
   final long nativeHandle_;
 

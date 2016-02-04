@@ -90,7 +90,7 @@ public class WriteBatch extends AbstractWriteBatch {
   /**
    * Handler callback for iterating over the contents of a batch.
    */
-  public static abstract class Handler extends NativeReference {
+  public static abstract class Handler extends AbstractImmutableNativeReference {
     private final long nativeHandle_;
     public Handler() {
       super(true);

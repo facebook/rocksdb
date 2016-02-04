@@ -6,26 +6,21 @@
 package org.rocksdb;
 
 /**
- * RocksObject is the base-class of all RocksDB classes that has a pointer to
- * some c++ {@code rocksdb} object.
- *
+ * RocksObject is an implementation of {@link AbstractNativeReference} which
+ * has an immutable and therefore thread-safe reference to the underlying
+ * native C++ RocksDB object.
  * <p>
- * RocksObject has {@code dispose()} function, which releases its associated c++
- * resource.</p>
+ * RocksObject is the base-class of almost all RocksDB classes that have a
+ * pointer to some underlying native C++ {@code rocksdb} object.</p>
  * <p>
- * This function can be either called manually, or being called automatically
- * during the regular Java GC process. However, since Java may wrongly assume a
- * RocksObject only contains a long member variable and think it is small in size,
- * Java may give {@code RocksObject} low priority in the GC process. For this, it is
- * suggested to call {@code dispose()} manually. However, it is safe to let
- * {@code RocksObject} go out-of-scope without manually calling {@code dispose()}
- * as {@code dispose()} will be called in the finalizer during the
- * regular GC process.</p>
+ * The use of {@code RocksObject} should always be preferred over
+ * {@link RocksMutableObject}.</p>
  */
-public abstract class RocksObject extends NativeReference {
+public abstract class RocksObject extends AbstractImmutableNativeReference {
 
   /**
-   * A long variable holding c++ pointer pointing to some RocksDB C++ object.
+   * An immutable reference to the value of the C++ pointer pointing to some
+   * underlying native RocksDB C++ object.
    */
   protected final long nativeHandle_;
 
