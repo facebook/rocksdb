@@ -209,7 +209,6 @@ TEST_BENCH_SOURCES =                                                    \
   db/flush_job_test.cc                                                  \
   db/inlineskiplist_test.cc                                             \
   db/listener_test.cc                                                   \
-  db/log_and_apply_bench.cc                                             \
   db/log_test.cc                                                        \
   db/manual_compaction_test.cc                                          \
   db/memtablerep_bench.cc                                               \
@@ -243,8 +242,6 @@ TEST_BENCH_SOURCES =                                                    \
   tools/sst_dump_test.cc                                                \
   util/arena_test.cc                                                    \
   util/autovector_test.cc                                               \
-  util/benchharness.cc                                                  \
-  util/benchharness_test.cc                                             \
   util/bloom_test.cc                                                    \
   util/cache_bench.cc                                                   \
   util/cache_test.cc                                                    \
@@ -261,7 +258,7 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/geodb/geodb_test.cc                                         \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \
-  utilities/options_util_test.cc                                        \
+  utilities/options/options_util_test.cc                                \
   utilities/redis/redis_lists_test.cc                                   \
   utilities/spatialdb/spatial_db_test.cc                                \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
