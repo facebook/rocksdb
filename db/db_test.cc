@@ -6511,7 +6511,29 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
   ASSERT_OK(TryReopen(options));
 }
+
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBTest, ConcurrentMemtableNotSupported) {
+  Options options = CurrentOptions();
+  options.allow_concurrent_memtable_write = true;
+  options.soft_pending_compaction_bytes_limit = 0;
+  options.hard_pending_compaction_bytes_limit = 100;
+  options.create_if_missing = true;
+
+  DestroyDB(dbname_, options);
+  options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true, 4));
+  ASSERT_NOK(TryReopen(options));
+
+  options.memtable_factory.reset(new SkipListFactory);
+  ASSERT_OK(TryReopen(options));
+
+  ColumnFamilyOptions cf_options(options);
+  cf_options.memtable_factory.reset(
+      NewHashLinkListRepFactory(4, 0, 3, true, 4));
+  ColumnFamilyHandle* handle;
+  ASSERT_NOK(db_->CreateColumnFamily(cf_options, "name", &handle));
+}
 
 TEST_F(DBTest, SanitizeNumThreads) {
   for (int attempt = 0; attempt < 2; attempt++) {
