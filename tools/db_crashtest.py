@@ -134,6 +134,7 @@ def finalize_and_sanitize(src_params):
     # --allow_concurrent_memtable_write with --filter_deletes is not supported.
     if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
         dest_params["filter_deletes"] = 0
+        dest_params["memtablerep"] = "skip_list"
     return dest_params
 
 

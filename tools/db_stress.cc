@@ -2008,10 +2008,16 @@ class StressTest {
         FLAGS_allow_concurrent_memtable_write;
     options_.enable_write_thread_adaptive_yield =
         FLAGS_enable_write_thread_adaptive_yield;
-    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
+
+    if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
       fprintf(stderr,
-            "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
+              "prefeix_size cannot be zero if memtablerep == prefix_hash\n");
       exit(1);
+    }
+    if (FLAGS_prefix_size != 0 && FLAGS_rep_factory != kHashSkipList) {
+      fprintf(stderr,
+              "WARNING: prefix_size is non-zero but "
+              "memtablerep != prefix_hash\n");
     }
     switch (FLAGS_rep_factory) {
       case kSkipList:
