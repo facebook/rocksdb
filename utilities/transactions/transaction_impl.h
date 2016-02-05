@@ -110,6 +110,26 @@ class TransactionImpl : public TransactionBaseImpl {
   void operator=(const TransactionImpl&);
 };
 
+// Used at commit time to check whether transaction is committing before its
+// expiration time.
+class TransactionCallback : public WriteCallback {
+ public:
+  explicit TransactionCallback(TransactionImpl* txn) : txn_(txn) {}
+
+  Status Callback(DB* db) override {
+    if (txn_->IsExpired()) {
+      return Status::Expired();
+    } else {
+      return Status::OK();
+    }
+  }
+
+  bool AllowWriteBatching() override { return true; }
+
+ private:
+  TransactionImpl* txn_;
+};
+
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

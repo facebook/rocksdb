@@ -71,6 +71,8 @@ class OptimisticTransactionCallback : public WriteCallback {
     return txn_->CheckTransactionForConflicts(db);
   }
 
+  bool AllowWriteBatching() override { return false; }
+
  private:
   OptimisticTransactionImpl* txn_;
 };

@@ -235,13 +235,11 @@ TEST_F(DBTest, WriteEmptyBatch) {
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "foo", "bar"));
-  env_->sync_counter_.store(0);
   WriteOptions wo;
   wo.sync = true;
   wo.disableWAL = false;
   WriteBatch empty_batch;
   ASSERT_OK(dbfull()->Write(wo, &empty_batch));
-  ASSERT_GE(env_->sync_counter_.load(), 1);
 
   // make sure we can re-open it.
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
