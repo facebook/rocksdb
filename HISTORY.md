@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 4.5.0 (2/5/2016)
 ### Public API Changes
 * Add a new perf context level between kEnableCount and kEnableTime. Level 2 now doesn't include timers for mutexes.
 * Statistics of mutex operation durations will not be measured by default. If you want to have them enabled, you need to set Statistics::stats_level_ to kAll.
