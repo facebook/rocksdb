@@ -5737,8 +5737,6 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
   ASSERT_OK(TryReopen(options));
 }
 
-#endif  // ROCKSDB_LITE
-
 TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   Options options = CurrentOptions();
   options.allow_concurrent_memtable_write = true;
@@ -5759,6 +5757,8 @@ TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   ColumnFamilyHandle* handle;
   ASSERT_NOK(db_->CreateColumnFamily(cf_options, "name", &handle));
 }
+
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, SanitizeNumThreads) {
   for (int attempt = 0; attempt < 2; attempt++) {
