@@ -113,15 +113,17 @@ class IndexBuilder {
 //
 // Optimizations:
 //  1. Made block's `block_restart_interval` to be 1, which will avoid linear
-//     search when doing index lookup.
+//     search when doing index lookup (can be disabled by setting
+//     index_block_restart_interval).
 //  2. Shorten the key length for index block. Other than honestly using the
 //     last key in the data block as the index key, we instead find a shortest
 //     substitute key that serves the same function.
 class ShortenedIndexBuilder : public IndexBuilder {
  public:
-  explicit ShortenedIndexBuilder(const Comparator* comparator)
+  explicit ShortenedIndexBuilder(const Comparator* comparator,
+                                 int index_block_restart_interval)
       : IndexBuilder(comparator),
-        index_block_builder_(1 /* block_restart_interval == 1 */) {}
+        index_block_builder_(index_block_restart_interval) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
@@ -178,9 +180,10 @@ class ShortenedIndexBuilder : public IndexBuilder {
 class HashIndexBuilder : public IndexBuilder {
  public:
   explicit HashIndexBuilder(const Comparator* comparator,
-                            const SliceTransform* hash_key_extractor)
+                            const SliceTransform* hash_key_extractor,
+                            int index_block_restart_interval)
       : IndexBuilder(comparator),
-        primary_index_builder_(comparator),
+        primary_index_builder_(comparator, index_block_restart_interval),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
@@ -266,13 +269,16 @@ namespace {
 
 // Create a index builder based on its type.
 IndexBuilder* CreateIndexBuilder(IndexType type, const Comparator* comparator,
-                                 const SliceTransform* prefix_extractor) {
+                                 const SliceTransform* prefix_extractor,
+                                 int index_block_restart_interval) {
   switch (type) {
     case BlockBasedTableOptions::kBinarySearch: {
-      return new ShortenedIndexBuilder(comparator);
+      return new ShortenedIndexBuilder(comparator,
+                                       index_block_restart_interval);
     }
     case BlockBasedTableOptions::kHashSearch: {
-      return new HashIndexBuilder(comparator, prefix_extractor);
+      return new HashIndexBuilder(comparator, prefix_extractor,
+                                  index_block_restart_interval);
     }
     default: {
       assert(!"Do not recognize the index type ");
@@ -484,9 +490,10 @@ struct BlockBasedTableBuilder::Rep {
         data_block(table_options.block_restart_interval,
                    table_options.use_delta_encoding),
         internal_prefix_transform(_ioptions.prefix_extractor),
-        index_builder(CreateIndexBuilder(table_options.index_type,
-                                         &internal_comparator,
-                                         &this->internal_prefix_transform)),
+        index_builder(
+            CreateIndexBuilder(table_options.index_type, &internal_comparator,
+                               &this->internal_prefix_transform,
+                               table_options.index_block_restart_interval)),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         filter_block(skip_filters ? nullptr : CreateFilterBlockBuilder(

@@ -42,6 +42,9 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   if (table_options_.block_restart_interval < 1) {
     table_options_.block_restart_interval = 1;
   }
+  if (table_options_.index_block_restart_interval < 1) {
+    table_options_.index_block_restart_interval = 1;
+  }
 }
 
 Status BlockBasedTableFactory::NewTableReader(
@@ -149,6 +152,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_restart_interval: %d\n",
            table_options_.block_restart_interval);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  index_block_restart_interval: %d\n",
+           table_options_.index_block_restart_interval);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  filter_policy: %s\n",
            table_options_.filter_policy == nullptr ?

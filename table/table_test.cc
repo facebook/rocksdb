@@ -637,6 +637,7 @@ class HarnessTest : public testing::Test {
             new FlushBlockBySizePolicyFactory());
         table_options_.block_size = 256;
         table_options_.block_restart_interval = args.restart_interval;
+        table_options_.index_block_restart_interval = args.restart_interval;
         table_options_.format_version = args.format_version;
         options_.table_factory.reset(
             new BlockBasedTableFactory(table_options_));
@@ -2280,6 +2281,67 @@ TEST_F(HarnessTest, FooterTests) {
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
     ASSERT_EQ(decoded_footer.version(), 2U);
   }
+}
+
+class IndexBlockRestartIntervalTest
+    : public BlockBasedTableTest,
+      public ::testing::WithParamInterface<int> {
+ public:
+  static std::vector<int> GetRestartValues() { return {-1, 0, 1, 8, 16, 32}; }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    IndexBlockRestartIntervalTest, IndexBlockRestartIntervalTest,
+    ::testing::ValuesIn(IndexBlockRestartIntervalTest::GetRestartValues()));
+
+TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
+  const int kKeysInTable = 10000;
+  const int kKeySize = 100;
+  const int kValSize = 500;
+
+  int index_block_restart_interval = GetParam();
+
+  Options options;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 64;  // small block size to get big index block
+  table_options.index_block_restart_interval = index_block_restart_interval;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  TableConstructor c(BytewiseComparator());
+  static Random rnd(301);
+  for (int i = 0; i < kKeysInTable; i++) {
+    InternalKey k(RandomString(&rnd, kKeySize), 0, kTypeValue);
+    c.Add(k.Encode().ToString(), RandomString(&rnd, kValSize));
+  }
+
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  std::unique_ptr<InternalKeyComparator> comparator(
+      new InternalKeyComparator(BytewiseComparator()));
+  const ImmutableCFOptions ioptions(options);
+  c.Finish(options, ioptions, table_options, *comparator, &keys, &kvmap);
+  auto reader = c.GetTableReader();
+
+  std::unique_ptr<InternalIterator> db_iter(reader->NewIterator(ReadOptions()));
+
+  // Test point lookup
+  for (auto& kv : kvmap) {
+    db_iter->Seek(kv.first);
+
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_OK(db_iter->status());
+    ASSERT_EQ(db_iter->key(), kv.first);
+    ASSERT_EQ(db_iter->value(), kv.second);
+  }
+
+  // Test iterating
+  auto kv_iter = kvmap.begin();
+  for (db_iter->SeekToFirst(); db_iter->Valid(); db_iter->Next()) {
+    ASSERT_EQ(db_iter->key(), kv_iter->first);
+    ASSERT_EQ(db_iter->value(), kv_iter->second);
+    kv_iter++;
+  }
+  ASSERT_EQ(kv_iter, kvmap.end());
 }
 
 }  // namespace rocksdb
