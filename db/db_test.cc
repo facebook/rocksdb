@@ -5272,6 +5272,7 @@ class DBTestRandomized : public DBTest,
         option_configs.push_back(option_config);
       }
     }
+    option_configs.push_back(kBlockBasedTableWithIndexRestartInterval);
     return option_configs;
   }
 };

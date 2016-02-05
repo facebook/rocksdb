@@ -120,6 +120,9 @@ struct BlockBasedTableOptions {
   // value will be silently overwritten with 1.
   int block_restart_interval = 16;
 
+  // Same as block_restart_interval but used for the index block.
+  int index_block_restart_interval = 1;
+
   // Use delta encoding to compress keys in blocks.
   // Iterator::PinData() requires this option to be disabled.
   //

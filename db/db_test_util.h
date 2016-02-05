@@ -529,6 +529,7 @@ class DBTestBase : public testing::Test {
     kEnd = 31,
     kLevelSubcompactions = 31,
     kUniversalSubcompactions = 32,
+    kBlockBasedTableWithIndexRestartInterval = 33,
   };
   int option_config_;
 
