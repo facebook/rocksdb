@@ -137,10 +137,17 @@ if [[ $do_setup != 0 ]]; then
   # Test 2a: sequential fill with large values to get peak ingest
   #          adjust NUM_KEYS given the use of larger values
   env $ARGS BLOCK_SIZE=$((1 * M)) VALUE_SIZE=$((32 * K)) NUM_KEYS=$(( num_keys / 64 )) \
-       ./tools/benchmark.sh fillseq
+       ./tools/benchmark.sh fillseq_disable_wal
 
   # Test 2b: sequential fill with the configured value size
-  env $ARGS ./tools/benchmark.sh fillseq
+  env $ARGS ./tools/benchmark.sh fillseq_disable_wal
+
+  # Test 2c: same as 2a, but with WAL being enabled.
+  env $ARGS BLOCK_SIZE=$((1 * M)) VALUE_SIZE=$((32 * K)) NUM_KEYS=$(( num_keys / 64 )) \
+       ./tools/benchmark.sh fillseq_enable_wal
+
+  # Test 2d: same as 2b, but with WAL being enabled.
+  env $ARGS ./tools/benchmark.sh fillseq_enable_wal
 
   # Test 3: single-threaded overwrite
   env $ARGS NUM_THREADS=1 DB_BENCH_NO_SYNC=1 ./tools/benchmark.sh overwrite
@@ -263,9 +270,13 @@ if [[ $skip_low_pri_tests != 1 ]]; then
   grep bulkload $output_dir/report.txt >> $output_dir/report2.txt
 fi
 
-echo fillseq >> $output_dir/report2.txt
+echo fillseq_wal_disabled >> $output_dir/report2.txt
 head -1 $output_dir/report.txt >> $output_dir/report2.txt
-grep fillseq $output_dir/report.txt >> $output_dir/report2.txt
+grep fillseq.wal_disabled $output_dir/report.txt >> $output_dir/report2.txt
+
+echo fillseq_wal_enabled >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep fillseq.wal_enabled $output_dir/report.txt >> $output_dir/report2.txt
 
 echo overwrite sync=0 >> $output_dir/report2.txt
 head -1 $output_dir/report.txt >> $output_dir/report2.txt
