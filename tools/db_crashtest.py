@@ -24,7 +24,7 @@ default_params = {
     "disable_data_sync": 0,
     "disable_wal": 0,
     "filter_deletes": lambda: random.randint(0, 1),
-    "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
+    "allow_concurrent_memtable_write": 0,
     "iterpercent": 10,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
