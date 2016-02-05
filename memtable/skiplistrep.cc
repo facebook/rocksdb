@@ -25,8 +25,6 @@ public:
       transform_(transform), lookahead_(lookahead) {
   }
 
-  virtual bool IsInsertConcurrentlySupported() const override { return true; }
-
   virtual KeyHandle Allocate(const size_t len, char** buf) override {
     *buf = skip_list_.AllocateKey(len);
     return static_cast<KeyHandle>(*buf);
