@@ -89,8 +89,8 @@ bool DBTestBase::ChangeOptions(int skip_mask) {
         option_config_ == kUniversalCompaction ||
         option_config_ == kUniversalCompactionMultiLevel ||
         option_config_ == kUniversalSubcompactions ||
-        option_config_ == kFIFOCompaction) ||
-        option_config == kConcurrentSkipList) {
+        option_config_ == kFIFOCompaction ||
+        option_config_ == kConcurrentSkipList) {
       continue;
     }
 #endif
