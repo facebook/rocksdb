@@ -38,6 +38,32 @@ Status Env::ReuseWritableFile(const std::string& fname,
   return NewWritableFile(fname, result, options);
 }
 
+Status Env::GetChildrenFileAttributes(const std::string& dir,
+                                      std::vector<FileAttributes>* result) {
+  assert(result != nullptr);
+  std::vector<std::string> child_fnames;
+  Status s = GetChildren(dir, &child_fnames);
+  if (!s.ok()) {
+    return s;
+  }
+  result->resize(child_fnames.size());
+  size_t result_size = 0;
+  for (size_t i = 0; i < child_fnames.size(); ++i) {
+    const std::string path = dir + "/" + child_fnames[i];
+    if (!(s = GetFileSize(path, &(*result)[result_size].size_bytes)).ok()) {
+      if (FileExists(path).IsNotFound()) {
+        // The file may have been deleted since we listed the directory
+        continue;
+      }
+      return s;
+    }
+    (*result)[result_size].name = std::move(child_fnames[i]);
+    result_size++;
+  }
+  result->resize(result_size);
+  return Status::OK();
+}
+
 SequentialFile::~SequentialFile() {
 }
 

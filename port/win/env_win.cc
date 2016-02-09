@@ -1415,6 +1415,11 @@ class WinEnv : public Env {
     return status;
   }
 
+  virtual Status Env::GetChildrenFileMetadata(
+      const std::string& dir, std::vector<FileMetadata>* result) override {
+    return Status::NotSupported("Not supported in WinEnv");
+  }
+
   virtual Status CreateDir(const std::string& name) override {
     Status result;
 
@@ -1723,9 +1728,8 @@ class WinEnv : public Env {
 
   virtual Status GetHostName(char* name, uint64_t len) override {
     Status s;
-    DWORD nSize = 
-      static_cast<DWORD>(std::min<uint64_t>(len,
-            std::numeric_limits<DWORD>::max()));
+    DWORD nSize = static_cast<DWORD>(
+        std::min<uint64_t>(len, std::numeric_limits<DWORD>::max()));
 
     if (!::GetComputerNameA(name, &nSize)) {
       auto lastError = GetLastError();
