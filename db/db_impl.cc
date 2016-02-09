@@ -275,7 +275,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
           db_options_.delete_obsolete_files_period_micros),
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
-      flush_on_destroy_(false),
+      has_unpersisted_data_(false),
       env_options_(db_options_),
 #ifndef ROCKSDB_LITE
       wal_manager_(db_options_, env_options_),
@@ -322,7 +322,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 DBImpl::~DBImpl() {
   mutex_.Lock();
 
-  if (!shutting_down_.load(std::memory_order_acquire) && flush_on_destroy_) {
+  if (!shutting_down_.load(std::memory_order_acquire) &&
+      has_unpersisted_data_) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
@@ -3306,13 +3307,19 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
 
-  if (sv->mem->Get(lkey, value, &s, &merge_context)) {
-    // Done
-    RecordTick(stats_, MEMTABLE_HIT);
-  } else if (sv->imm->Get(lkey, value, &s, &merge_context)) {
-    // Done
-    RecordTick(stats_, MEMTABLE_HIT);
-  } else {
+  bool skip_memtable =
+      (read_options.read_tier == kPersistedTier && has_unpersisted_data_);
+  bool done = false;
+  if (!skip_memtable) {
+    if (sv->mem->Get(lkey, value, &s, &merge_context)) {
+      done = true;
+      RecordTick(stats_, MEMTABLE_HIT);
+    } else if (sv->imm->Get(lkey, value, &s, &merge_context)) {
+      done = true;
+      RecordTick(stats_, MEMTABLE_HIT);
+    }
+  }
+  if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(read_options, lkey, value, &s, &merge_context,
                      value_found);
@@ -3397,14 +3404,23 @@ std::vector<Status> DBImpl::MultiGet(
     assert(mgd_iter != multiget_cf_data.end());
     auto mgd = mgd_iter->second;
     auto super_version = mgd->super_version;
-    if (super_version->mem->Get(lkey, value, &s, &merge_context)) {
-      // Done
-    } else if (super_version->imm->Get(lkey, value, &s, &merge_context)) {
-      // Done
-    } else {
+    bool skip_memtable =
+        (read_options.read_tier == kPersistedTier && has_unpersisted_data_);
+    bool done = false;
+    if (!skip_memtable) {
+      if (super_version->mem->Get(lkey, value, &s, &merge_context)) {
+        done = true;
+        // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
+      } else if (super_version->imm->Get(lkey, value, &s, &merge_context)) {
+        done = true;
+        // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
+      }
+    }
+    if (!done) {
       PERF_TIMER_GUARD(get_from_output_files_time);
       super_version->current->Get(read_options, lkey, value, &s,
                                   &merge_context);
+      // TODO(?): RecordTick(stats_, MEMTABLE_MISS)?
     }
 
     if (s.ok()) {
@@ -3843,6 +3859,10 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
 
 Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
                               ColumnFamilyHandle* column_family) {
+  if (read_options.read_tier == kPersistedTier) {
+    return NewErrorIterator(Status::NotSupported(
+        "ReadTier::kPersistedData is not yet supported in iterators."));
+  }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
@@ -3949,6 +3969,10 @@ Status DBImpl::NewIterators(
     const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
+  if (read_options.read_tier == kPersistedTier) {
+    return Status::NotSupported(
+        "ReadTier::kPersistedData is not yet supported in iterators.");
+  }
   iterators->clear();
   iterators->reserve(column_families.size());
   XFUNC_TEST("", "managed_new", managed_new1, xf_manage_new,
@@ -4328,7 +4352,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     if (write_options.disableWAL) {
-      flush_on_destroy_ = true;
+      has_unpersisted_data_ = true;
     }
 
     uint64_t log_size = 0;

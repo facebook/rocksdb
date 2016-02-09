@@ -521,6 +521,135 @@ TEST_F(DBTest, PutSingleDeleteGet) {
                          kSkipUniversalCompaction | kSkipMergePut));
 }
 
+TEST_F(DBTest, ReadFromPersistedTier) {
+  do {
+    Random rnd(301);
+    Options options = CurrentOptions();
+    for (int disableWAL = 0; disableWAL <= 1; ++disableWAL) {
+      CreateAndReopenWithCF({"pikachu"}, options);
+      WriteOptions wopt;
+      wopt.disableWAL = (disableWAL == 1);
+      // 1st round: put but not flush
+      ASSERT_OK(db_->Put(wopt, handles_[1], "foo", "first"));
+      ASSERT_OK(db_->Put(wopt, handles_[1], "bar", "one"));
+      ASSERT_EQ("first", Get(1, "foo"));
+      ASSERT_EQ("one", Get(1, "bar"));
+
+      // Read directly from persited data.
+      ReadOptions ropt;
+      ropt.read_tier = kPersistedTier;
+      std::string value;
+      if (wopt.disableWAL) {
+        // as data has not yet being flushed, we expect not found.
+        ASSERT_TRUE(db_->Get(ropt, handles_[1], "foo", &value).IsNotFound());
+        ASSERT_TRUE(db_->Get(ropt, handles_[1], "bar", &value).IsNotFound());
+      } else {
+        ASSERT_OK(db_->Get(ropt, handles_[1], "foo", &value));
+        ASSERT_OK(db_->Get(ropt, handles_[1], "bar", &value));
+      }
+
+      // Multiget
+      std::vector<ColumnFamilyHandle*> multiget_cfs;
+      multiget_cfs.push_back(handles_[1]);
+      multiget_cfs.push_back(handles_[1]);
+      std::vector<Slice> multiget_keys;
+      multiget_keys.push_back("foo");
+      multiget_keys.push_back("bar");
+      std::vector<std::string> multiget_values;
+      auto statuses =
+          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
+      if (wopt.disableWAL) {
+        ASSERT_TRUE(statuses[0].IsNotFound());
+        ASSERT_TRUE(statuses[1].IsNotFound());
+      } else {
+        ASSERT_OK(statuses[0]);
+        ASSERT_OK(statuses[1]);
+      }
+
+      // 2nd round: flush and put a new value in memtable.
+      ASSERT_OK(Flush(1));
+      ASSERT_OK(db_->Put(wopt, handles_[1], "rocksdb", "hello"));
+
+      // once the data has been flushed, we are able to get the
+      // data when kPersistedTier is used.
+      ASSERT_TRUE(db_->Get(ropt, handles_[1], "foo", &value).ok());
+      ASSERT_EQ(value, "first");
+      ASSERT_TRUE(db_->Get(ropt, handles_[1], "bar", &value).ok());
+      ASSERT_EQ(value, "one");
+      if (wopt.disableWAL) {
+        ASSERT_TRUE(
+            db_->Get(ropt, handles_[1], "rocksdb", &value).IsNotFound());
+      } else {
+        ASSERT_OK(db_->Get(ropt, handles_[1], "rocksdb", &value));
+        ASSERT_EQ(value, "hello");
+      }
+
+      // Expect same result in multiget
+      multiget_cfs.push_back(handles_[1]);
+      multiget_keys.push_back("rocksdb");
+      statuses =
+          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
+      ASSERT_TRUE(statuses[0].ok());
+      ASSERT_EQ("first", multiget_values[0]);
+      ASSERT_TRUE(statuses[1].ok());
+      ASSERT_EQ("one", multiget_values[1]);
+      if (wopt.disableWAL) {
+        ASSERT_TRUE(statuses[2].IsNotFound());
+      } else {
+        ASSERT_OK(statuses[2]);
+      }
+
+      // 3rd round: delete and flush
+      ASSERT_OK(db_->Delete(wopt, handles_[1], "foo"));
+      Flush(1);
+      ASSERT_OK(db_->Delete(wopt, handles_[1], "bar"));
+
+      ASSERT_TRUE(db_->Get(ropt, handles_[1], "foo", &value).IsNotFound());
+      if (wopt.disableWAL) {
+        // Still expect finding the value as its delete has not yet being
+        // flushed.
+        ASSERT_TRUE(db_->Get(ropt, handles_[1], "bar", &value).ok());
+        ASSERT_EQ(value, "one");
+      } else {
+        ASSERT_TRUE(db_->Get(ropt, handles_[1], "bar", &value).IsNotFound());
+      }
+      ASSERT_TRUE(db_->Get(ropt, handles_[1], "rocksdb", &value).ok());
+      ASSERT_EQ(value, "hello");
+
+      statuses =
+          db_->MultiGet(ropt, multiget_cfs, multiget_keys, &multiget_values);
+      ASSERT_TRUE(statuses[0].IsNotFound());
+      if (wopt.disableWAL) {
+        ASSERT_TRUE(statuses[1].ok());
+        ASSERT_EQ("one", multiget_values[1]);
+      } else {
+        ASSERT_TRUE(statuses[1].IsNotFound());
+      }
+      ASSERT_TRUE(statuses[2].ok());
+      ASSERT_EQ("hello", multiget_values[2]);
+      if (wopt.disableWAL == 0) {
+        DestroyAndReopen(options);
+      }
+    }
+  } while (ChangeOptions(kSkipHashCuckoo));
+}
+
+TEST_F(DBTest, PersistedTierOnIterator) {
+  // The test needs to be changed if kPersistedTier is supported in iterator.
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ReadOptions ropt;
+  ropt.read_tier = kPersistedTier;
+
+  auto* iter = db_->NewIterator(ropt, handles_[1]);
+  ASSERT_TRUE(iter->status().IsNotSupported());
+  delete iter;
+
+  std::vector<Iterator*> iters;
+  ASSERT_TRUE(db_->NewIterators(ropt, {handles_[1]}, &iters).IsNotSupported());
+  Close();
+}
+
 TEST_F(DBTest, SingleDeleteFlush) {
   // Test to check whether flushing preserves a single delete hidden
   // behind a put.

@@ -273,7 +273,7 @@ Status TableCache::Get(const ReadOptions& options,
     if (handle != nullptr) {
       ReleaseHandle(handle);
     }
-  } else if (options.read_tier && s.IsIncomplete()) {
+  } else if (options.read_tier == kBlockCacheTier && s.IsIncomplete()) {
     // Couldn't find Table in cache but treat as kFound if no_io set
     get_context->MarkKeyMayExist();
     return Status::OK();

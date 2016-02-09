@@ -1294,8 +1294,12 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
 // the block cache. It will not page in data from the OS cache or data that
 // resides in storage.
 enum ReadTier {
-  kReadAllTier = 0x0,    // data in memtable, block cache, OS cache or storage
-  kBlockCacheTier = 0x1  // data in memtable or block cache
+  kReadAllTier = 0x0,     // data in memtable, block cache, OS cache or storage
+  kBlockCacheTier = 0x1,  // data in memtable or block cache
+  kPersistedTier = 0x2    // persisted data.  When WAL is disabled, this option
+                          // will skip data in memtable.
+                          // Note that this ReadTier currently only supports
+                          // Get and MultiGet and does not support iterators.
 };
 
 // Options that control read operations
