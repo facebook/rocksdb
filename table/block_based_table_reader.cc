@@ -1255,7 +1255,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         BlockIter biter;
         NewDataBlockIterator(rep_, read_options, iiter.value(), &biter);
 
-        if (read_options.read_tier && biter.status().IsIncomplete()) {
+        if (read_options.read_tier == kBlockCacheTier &&
+            biter.status().IsIncomplete()) {
           // couldn't get block from block_cache
           // Update Saver.state to Found because we are only looking for whether
           // we can guarantee the key is not there when "no_io" is set

@@ -822,7 +822,10 @@ class DBImpl : public DB {
   // they're unique
   std::atomic<int> next_job_id_;
 
-  bool flush_on_destroy_; // Used when disableWAL is true.
+  // A flag indicating whether the current rocksdb database has any
+  // data that is not yet persisted into either WAL or SST file.
+  // Used when disableWAL is true.
+  bool has_unpersisted_data_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
   // MSVC version 1800 still does not have constexpr for ::max()
