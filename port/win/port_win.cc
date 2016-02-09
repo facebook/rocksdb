@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -40,7 +40,7 @@ void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   seconds secNow(duration_cast<seconds>(usNow));
 
   tv->tv_sec = static_cast<long>(secNow.count());
-  tv->tv_usec = static_cast<long>(usNow.count() - 
+  tv->tv_usec = static_cast<long>(usNow.count() -
       duration_cast<microseconds>(secNow).count());
 }
 
