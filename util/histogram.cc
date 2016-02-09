@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -116,9 +116,9 @@ double HistogramImpl::Percentile(double p) const {
     sum += buckets_[b];
     if (sum >= threshold) {
       // Scale linearly within this bucket
-      double left_point = 
+      double left_point =
         static_cast<double>((b == 0) ? 0 : bucketMapper.BucketLimit(b-1));
-      double right_point = 
+      double right_point =
         static_cast<double>(bucketMapper.BucketLimit(b));
       double left_sum = sum - buckets_[b];
       double right_sum = sum;
