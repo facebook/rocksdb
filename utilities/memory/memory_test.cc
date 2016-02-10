@@ -93,7 +93,7 @@ class MemoryTest : public testing::Test {
   std::vector<uint64_t> usage_history_[MemoryUtil::kNumUsageTypes];
 };
 
-TEST_F(MemoryTest, SharedBlockCacheTotal) {
+TEST_F(MemoryTest, DISABLED_SharedBlockCacheTotal) {
   std::vector<DB*> dbs;
   std::vector<uint64_t> usage_by_type;
   const int kNumDBs = 10;
@@ -144,7 +144,7 @@ TEST_F(MemoryTest, SharedBlockCacheTotal) {
   }
 }
 
-TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
+TEST_F(MemoryTest, DISABLED_MemTableAndTableReadersTotal) {
   std::vector<DB*> dbs;
   std::vector<uint64_t> usage_by_type;
   std::vector<std::vector<ColumnFamilyHandle*>> vec_handles;
