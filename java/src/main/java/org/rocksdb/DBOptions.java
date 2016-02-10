@@ -11,8 +11,8 @@ import java.util.Properties;
  * DBOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
- * If {@link #dispose()} function is not called, then it will be GC'd automatically
- * and native resources will be released as part of the process.
+ * If {@link #dispose()} function is not called, then it will be GC'd
+ * automatically and native resources will be released as part of the process.
  */
 public class DBOptions extends RocksObject implements DBOptionsInterface {
   static {

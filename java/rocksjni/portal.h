@@ -52,7 +52,8 @@ template<class PTR, class DERIVED> class RocksDBNativeClass {
 };
 
 // Native class template for sub-classes of RocksMutableObject
-template<class PTR, class DERIVED> class NativeRocksMutableObject : public RocksDBNativeClass<PTR, DERIVED> {
+template<class PTR, class DERIVED> class NativeRocksMutableObject
+    : public RocksDBNativeClass<PTR, DERIVED> {
  public:
 
   static jmethodID getSetNativeHandleMethod(JNIEnv* env) {
@@ -63,8 +64,10 @@ template<class PTR, class DERIVED> class NativeRocksMutableObject : public Rocks
   }
 
   // Pass the pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jobj, PTR ptr, jboolean java_owns_handle) {
-    env->CallVoidMethod(jobj, getSetNativeHandleMethod(env), reinterpret_cast<jlong>(ptr), java_owns_handle);
+  static void setHandle(JNIEnv* env, jobject jobj, PTR ptr,
+      jboolean java_owns_handle) {
+    env->CallVoidMethod(jobj, getSetNativeHandleMethod(env),
+      reinterpret_cast<jlong>(ptr), java_owns_handle);
   }
 };
 

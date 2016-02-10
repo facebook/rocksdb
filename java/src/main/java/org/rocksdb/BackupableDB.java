@@ -21,8 +21,8 @@ public class BackupableDB extends RocksDB {
    *
    * @param opt {@link org.rocksdb.Options} to set for the database.
    * @param bopt {@link org.rocksdb.BackupableDBOptions} to use.
-   * @param db_path Path to store data to. The path for storing the backup should be
-   *     specified in the {@link org.rocksdb.BackupableDBOptions}.
+   * @param db_path Path to store data to. The path for storing the backup
+   *   should be specified in the {@link org.rocksdb.BackupableDBOptions}.
    *
    * @return {@link BackupableDB} reference to the opened database.
    *
@@ -34,7 +34,8 @@ public class BackupableDB extends RocksDB {
       throws RocksDBException {
 
     final RocksDB db = RocksDB.open(opt, db_path);
-    final BackupableDB bdb = new BackupableDB(open(db.nativeHandle_, bopt.nativeHandle_));
+    final BackupableDB bdb = new BackupableDB(open(db.nativeHandle_,
+        bopt.nativeHandle_));
 
     // Prevent the RocksDB object from attempting to delete
     // the underly C++ DB object.
@@ -151,7 +152,8 @@ public class BackupableDB extends RocksDB {
     super.finalize();
   }
 
-  protected native static long open(final long rocksDBHandle, final long backupDBOptionsHandle);
+  protected native static long open(final long rocksDBHandle,
+      final long backupDBOptionsHandle);
   protected native void createNewBackup(long handle, boolean flag)
       throws RocksDBException;
   protected native void purgeOldBackups(long handle, int numBackupsToKeep)

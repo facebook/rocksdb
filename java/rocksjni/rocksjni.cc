@@ -156,8 +156,8 @@ jlongArray Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2_3_3B_3J(
 jlongArray Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2_3_3B_3J(
     JNIEnv* env, jclass jcls, jlong jopt_handle, jstring jdb_path,
     jobjectArray jcolumn_names, jlongArray jcolumn_options) {
-  return rocksdb_open_helper(env, jopt_handle, jdb_path, jcolumn_names, jcolumn_options,
-    (rocksdb::Status(*)
+  return rocksdb_open_helper(env, jopt_handle, jdb_path, jcolumn_names,
+    jcolumn_options, (rocksdb::Status(*)
       (const rocksdb::DBOptions&, const std::string&,
         const std::vector<rocksdb::ColumnFamilyDescriptor>&,
         std::vector<rocksdb::ColumnFamilyHandle*>*, rocksdb::DB**)
@@ -458,7 +458,7 @@ jboolean Java_org_rocksdb_RocksDB_keyMayExist__JJ_3BIJLjava_lang_StringBuffer_2(
     rocksdb::RocksDBExceptionJni::ThrowNew(env,
         rocksdb::Status::InvalidArgument("Invalid ColumnFamilyHandle."));
     return true;
-  }  
+  }
 }
 
 //////////////////////////////////////////////////////////////////////////////

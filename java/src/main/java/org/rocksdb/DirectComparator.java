@@ -28,5 +28,6 @@ public abstract class DirectComparator extends AbstractComparator<DirectSlice> {
     return nativeHandle_;
   }
 
-  private native long createNewDirectComparator0(final long comparatorOptionsHandle);
+  private native long createNewDirectComparator0(
+      final long comparatorOptionsHandle);
 }

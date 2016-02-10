@@ -153,5 +153,6 @@ public class RestoreBackupableDB extends RocksObject {
   private native int[] getCorruptedBackups(long handle);
   private native void garbageCollect(long handle)
       throws RocksDBException;
-  @Override protected final native void disposeInternal(final long nativeHandle);
+  @Override protected final native void disposeInternal(
+      final long nativeHandle);
 }

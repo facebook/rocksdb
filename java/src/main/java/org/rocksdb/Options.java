@@ -12,8 +12,8 @@ import java.util.List;
  * Options to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
- * If {@link #dispose()} function is not called, then it will be GC'd automatically
- * and native resources will be released as part of the process.
+ * If {@link #dispose()} function is not called, then it will be GC'd
+ * automaticallyand native resources will be released as part of the process.
  */
 public class Options extends RocksObject
     implements DBOptionsInterface, ColumnFamilyOptionsInterface {
@@ -41,7 +41,8 @@ public class Options extends RocksObject
    */
   public Options(final DBOptions dbOptions,
       final ColumnFamilyOptions columnFamilyOptions) {
-    super(newOptions(dbOptions.nativeHandle_, columnFamilyOptions.nativeHandle_));
+    super(newOptions(dbOptions.nativeHandle_,
+        columnFamilyOptions.nativeHandle_));
     env_ = Env.getDefault();
   }
 
@@ -678,7 +679,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setCompressionPerLevel(final List<CompressionType> compressionLevels) {
+  public Options setCompressionPerLevel(
+      final List<CompressionType> compressionLevels) {
     final byte[] byteCompressionTypes = new byte[
         compressionLevels.size()];
     for (int i = 0; i < compressionLevels.size(); i++) {
@@ -973,7 +975,8 @@ public class Options extends RocksObject
   @Override
   public Options setMaxSequentialSkipInIterations(
       final long maxSequentialSkipInIterations) {
-    setMaxSequentialSkipInIterations(nativeHandle_, maxSequentialSkipInIterations);
+    setMaxSequentialSkipInIterations(nativeHandle_,
+        maxSequentialSkipInIterations);
     return this;
   }
 
@@ -1189,7 +1192,8 @@ public class Options extends RocksObject
   private native void optimizeUniversalStyleCompaction(long handle,
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
-  private native void setComparatorHandle(long optHandle, long comparatorHandle);
+  private native void setComparatorHandle(long optHandle,
+      long comparatorHandle);
   private native void setMergeOperatorName(
       long handle, String name);
   private native void setMergeOperator(

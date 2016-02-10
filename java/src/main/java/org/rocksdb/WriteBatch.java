@@ -84,13 +84,15 @@ public class WriteBatch extends AbstractWriteBatch {
   @Override final native void clear0(final long handle);
 
   private native static long newWriteBatch(final int reserved_bytes);
-  private native void iterate(final long handle, final long handlerHandle) throws RocksDBException;
+  private native void iterate(final long handle, final long handlerHandle)
+      throws RocksDBException;
 
 
   /**
    * Handler callback for iterating over the contents of a batch.
    */
-  public static abstract class Handler extends AbstractImmutableNativeReference {
+  public static abstract class Handler
+      extends AbstractImmutableNativeReference {
     private final long nativeHandle_;
     public Handler() {
       super(true);

@@ -12,10 +12,10 @@ package org.rocksdb;
  * Calling put, merge, remove or putLogData calls the same function
  * as with {@link org.rocksdb.WriteBatch} whilst also building an index.
  *
- * A user can call {@link org.rocksdb.WriteBatchWithIndex#newIterator() }to create an iterator
- * over the write batch or
- * {@link org.rocksdb.WriteBatchWithIndex#newIteratorWithBase(org.rocksdb.RocksIterator)} to
- * get an iterator for the database with Read-Your-Own-Writes like capability
+ * A user can call {@link org.rocksdb.WriteBatchWithIndex#newIterator()} to
+ * create an iterator over the write batch or
+ * {@link org.rocksdb.WriteBatchWithIndex#newIteratorWithBase(org.rocksdb.RocksIterator)}
+ * to get an iterator for the database with Read-Your-Own-Writes like capability
  */
 public class WriteBatchWithIndex extends AbstractWriteBatch {
   /**
@@ -56,9 +56,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *   inserting a duplicate key, in this way an iterator will never
    *   show two entries with the same key.
    */
-  public WriteBatchWithIndex(final AbstractComparator<? extends AbstractSlice<?>>
-      fallbackIndexComparator, final int reservedBytes, final boolean overwriteKey) {
-    super(newWriteBatchWithIndex(fallbackIndexComparator.getNativeHandle(), reservedBytes, overwriteKey));
+  public WriteBatchWithIndex(
+      final AbstractComparator<? extends AbstractSlice<?>>
+          fallbackIndexComparator, final int reservedBytes,
+      final boolean overwriteKey) {
+    super(newWriteBatchWithIndex(fallbackIndexComparator.getNativeHandle(),
+        reservedBytes, overwriteKey));
   }
 
   /**
@@ -70,9 +73,11 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * time.
    *
    * @param columnFamilyHandle The column family to iterate over
-   * @return An iterator for the Write Batch contents, restricted to the column family
+   * @return An iterator for the Write Batch contents, restricted to the column
+   * family
    */
-  public WBWIRocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle) {
+  public WBWIRocksIterator newIterator(
+      final ColumnFamilyHandle columnFamilyHandle) {
     return new WBWIRocksIterator(this, iterator1(nativeHandle_,
             columnFamilyHandle.nativeHandle_));
   }
@@ -97,11 +102,13 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * as a delta and baseIterator as a base
    *
    * @param columnFamilyHandle The column family to iterate over
-   * @param baseIterator The base iterator, e.g. {@link org.rocksdb.RocksDB#newIterator()}
-   * @return An iterator which shows a view comprised of both the database point-in-time
-   * from baseIterator and modifications made in this write batch.
+   * @param baseIterator The base iterator,
+   *   e.g. {@link org.rocksdb.RocksDB#newIterator()}
+   * @return An iterator which shows a view comprised of both the database
+   * point-in-time from baseIterator and modifications made in this write batch.
    */
-  public RocksIterator newIteratorWithBase(final ColumnFamilyHandle columnFamilyHandle,
+  public RocksIterator newIteratorWithBase(
+      final ColumnFamilyHandle columnFamilyHandle,
       final RocksIterator baseIterator) {
     RocksIterator iterator = new RocksIterator(
         baseIterator.parent_,
@@ -116,14 +123,17 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   /**
    * Provides Read-Your-Own-Writes like functionality by
    * creating a new Iterator that will use {@link org.rocksdb.WBWIRocksIterator}
-   * as a delta and baseIterator as a base. Operates on the default column family.
+   * as a delta and baseIterator as a base. Operates on the default column
+   * family.
    *
-   * @param baseIterator The base iterator, e.g. {@link org.rocksdb.RocksDB#newIterator()}
-   * @return An iterator which shows a view comprised of both the database point-in-time
-   * from baseIterator and modifications made in this write batch.
+   * @param baseIterator The base iterator,
+   *   e.g. {@link org.rocksdb.RocksDB#newIterator()}
+   * @return An iterator which shows a view comprised of both the database
+   * point-in-timefrom baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(final RocksIterator baseIterator) {
-    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
+    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(),
+        baseIterator);
   }
 
   @Override protected final native void disposeInternal(final long handle);
@@ -153,5 +163,6 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);
-  private native long iteratorWithBase(final long handle, final long baseIteratorHandle, final long cfHandle);
+  private native long iteratorWithBase(final long handle,
+      final long baseIteratorHandle, final long cfHandle);
 }

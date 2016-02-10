@@ -16,11 +16,12 @@ public class RestoreOptions extends RocksObject {
   /**
    * Constructor
    *
-   * @param keepLogFiles If true, restore won't overwrite the existing log files in wal_dir. It
-   *     will also move all log files from archive directory to wal_dir. Use this
-   *     option in combination with BackupableDBOptions::backup_log_files = false
-   *     for persisting in-memory databases.
-   *     Default: false
+   * @param keepLogFiles If true, restore won't overwrite the existing log files
+   *   in wal_dir. It will also move all log files from archive directory to
+   *   wal_dir. Use this option in combination with
+   *   BackupableDBOptions::backup_log_files = false for persisting in-memory
+   *   databases.
+   *   Default: false
    */
   public RestoreOptions(final boolean keepLogFiles) {
     super(newRestoreOptions(keepLogFiles));

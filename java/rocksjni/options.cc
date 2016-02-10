@@ -1083,9 +1083,10 @@ jbyte Java_org_rocksdb_Options_compressionType(
 std::vector<rocksdb::CompressionType> rocksdb_compression_vector_helper(
     JNIEnv* env, jbyteArray jcompressionLevels) {
   std::vector<rocksdb::CompressionType> compressionLevels;
-  
+
   jsize len = env->GetArrayLength(jcompressionLevels);
-  jbyte* jcompressionLevel = env->GetByteArrayElements(jcompressionLevels, NULL);
+  jbyte* jcompressionLevel = env->GetByteArrayElements(jcompressionLevels,
+    NULL);
   for(int i = 0; i < len; i++) {
     jbyte jcl;
     jcl = jcompressionLevel[i];

@@ -5,7 +5,8 @@
 
 package org.rocksdb;
 
-public abstract class AbstractWriteBatch extends RocksObject implements WriteBatchInterface {
+public abstract class AbstractWriteBatch extends RocksObject
+    implements WriteBatchInterface {
 
   protected AbstractWriteBatch(final long nativeHandle) {
     super(nativeHandle);
@@ -24,9 +25,11 @@ public abstract class AbstractWriteBatch extends RocksObject implements WriteBat
   }
 
   @Override
-  public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) {
+  public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key,
+      byte[] value) {
     assert (isOwningHandle());
-    put(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
+    put(nativeHandle_, key, key.length, value, value.length,
+        columnFamilyHandle.nativeHandle_);
   }
 
   @Override
@@ -36,9 +39,11 @@ public abstract class AbstractWriteBatch extends RocksObject implements WriteBat
   }
 
   @Override
-  public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) {
+  public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key,
+      byte[] value) {
     assert (isOwningHandle());
-    merge(nativeHandle_, key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
+    merge(nativeHandle_, key, key.length, value, value.length,
+        columnFamilyHandle.nativeHandle_);
   }
 
   @Override

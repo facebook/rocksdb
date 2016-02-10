@@ -13,8 +13,8 @@ import java.util.Properties;
  * ColumnFamilyOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
- * If {@link #dispose()} function is not called, then it will be GC'd automatically
- * and native resources will be released as part of the process.
+ * If {@link #dispose()} function is not called, then it will be GC'd
+ * automatically and native resources will be released as part of the process.
  */
 public class ColumnFamilyOptions extends RocksObject
     implements ColumnFamilyOptionsInterface {
@@ -112,7 +112,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setComparator(final BuiltinComparator builtinComparator) {
+  public ColumnFamilyOptions setComparator(
+      final BuiltinComparator builtinComparator) {
     assert(isOwningHandle());
     setComparatorHandle(nativeHandle_, builtinComparator.ordinal());
     return this;
@@ -139,13 +140,15 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMergeOperator(final MergeOperator mergeOperator) {
+  public ColumnFamilyOptions setMergeOperator(
+      final MergeOperator mergeOperator) {
     setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
     return this;
   }
 
   public ColumnFamilyOptions setCompactionFilter(
-        final AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter) {
+        final AbstractCompactionFilter<? extends AbstractSlice<?>>
+            compactionFilter) {
     setCompactionFilterHandle(nativeHandle_, compactionFilter.nativeHandle_);
     compactionFilter_ = compactionFilter;
     return this;
@@ -205,7 +208,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setCompressionType(final CompressionType compressionType) {
+  public ColumnFamilyOptions setCompressionType(
+      final CompressionType compressionType) {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
   }
@@ -522,7 +526,8 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setMaxSequentialSkipInIterations(
       final long maxSequentialSkipInIterations) {
-    setMaxSequentialSkipInIterations(nativeHandle_, maxSequentialSkipInIterations);
+    setMaxSequentialSkipInIterations(nativeHandle_,
+        maxSequentialSkipInIterations);
     return this;
   }
 
@@ -677,12 +682,12 @@ public class ColumnFamilyOptions extends RocksObject
   private native void optimizeUniversalStyleCompaction(long handle,
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
-  private native void setComparatorHandle(long optHandle, long comparatorHandle);
-  private native void setMergeOperatorName(
-      long handle, String name);
-  private native void setMergeOperator(
-      long handle, long mergeOperatorHandle);
-  private native void setCompactionFilterHandle(long handle, long compactionFilterHandle);
+  private native void setComparatorHandle(long optHandle,
+      long comparatorHandle);
+  private native void setMergeOperatorName(long handle, String name);
+  private native void setMergeOperator(long handle, long mergeOperatorHandle);
+  private native void setCompactionFilterHandle(long handle,
+      long compactionFilterHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
       throws IllegalArgumentException;
   private native long writeBufferSize(long handle);

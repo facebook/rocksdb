@@ -112,14 +112,15 @@ public class TtlDB extends RocksDB {
       final List<Integer> ttlValues, final boolean readOnly)
       throws RocksDBException {
     if (columnFamilyDescriptors.size() != ttlValues.size()) {
-      throw new IllegalArgumentException("There must be a ttl value per column" +
-          "family handle.");
+      throw new IllegalArgumentException("There must be a ttl value per column"
+          + "family handle.");
     }
 
     final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
     final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
     for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
-      final ColumnFamilyDescriptor cfDescriptor = columnFamilyDescriptors.get(i);
+      final ColumnFamilyDescriptor cfDescriptor =
+          columnFamilyDescriptors.get(i);
       cfNames[i] = cfDescriptor.columnFamilyName();
       cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
     }

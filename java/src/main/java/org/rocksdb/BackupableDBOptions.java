@@ -21,8 +21,8 @@ public class BackupableDBOptions extends RocksObject {
   /**
    * <p>BackupableDBOptions constructor.</p>
    *
-   * @param path Where to keep the backup files. Has to be different than db name.
-   *     Best to set this to {@code db name_ + "/backups"}
+   * @param path Where to keep the backup files. Has to be different than db
+   *   name. Best to set this to {@code db name_ + "/backups"}
    * @throws java.lang.IllegalArgumentException if illegal path is used.
    */
   public BackupableDBOptions(final String path) {
@@ -31,7 +31,8 @@ public class BackupableDBOptions extends RocksObject {
 
   private static String ensureWritableFile(final String path) {
     final File backupPath = path == null ? null : new File(path);
-    if (backupPath == null || !backupPath.isDirectory() || !backupPath.canWrite()) {
+    if (backupPath == null || !backupPath.isDirectory() ||
+        !backupPath.canWrite()) {
       throw new IllegalArgumentException("Illegal path provided.");
     } else {
       return path;
@@ -51,10 +52,11 @@ public class BackupableDBOptions extends RocksObject {
   /**
    * <p>Share table files between backups.</p>
    *
-   * @param shareTableFiles If {@code share_table_files == true}, backup will assume
-   *     that table files with same name have the same contents. This enables incremental
-   *     backups and avoids unnecessary data copies. If {@code share_table_files == false},
-   *     each backup will be on its own and will not share any data with other backups.
+   * @param shareTableFiles If {@code share_table_files == true}, backup will
+   *   assume that table files with same name have the same contents. This
+   *   enables incremental backups and avoids unnecessary data copies. If
+   *   {@code share_table_files == false}, each backup will be on its own and
+   *   will not share any data with other backups.
    *
    * <p>Default: true</p>
    *
@@ -80,10 +82,10 @@ public class BackupableDBOptions extends RocksObject {
   /**
    * <p>Set synchronous backups.</p>
    *
-   * @param sync If {@code sync == true}, we can guarantee you'll get consistent backup
-   *     even on a machine crash/reboot. Backup process is slower with sync enabled.
-   *     If {@code sync == false}, we don't guarantee anything on machine reboot.
-   *     However,chances are some of the backups are consistent.
+   * @param sync If {@code sync == true}, we can guarantee you'll get consistent
+   *   backup even on a machine crash/reboot. Backup process is slower with sync
+   *   enabled. If {@code sync == false}, we don't guarantee anything on machine
+   *   reboot. However, chances are some of the backups are consistent.
    *
    * <p>Default: true</p>
    *
@@ -108,7 +110,8 @@ public class BackupableDBOptions extends RocksObject {
   /**
    * <p>Set if old data will be destroyed.</p>
    *
-   * @param destroyOldData If true, it will delete whatever backups there are already.
+   * @param destroyOldData If true, it will delete whatever backups there are
+   *   already.
    *
    * <p>Default: false</p>
    *
@@ -133,9 +136,9 @@ public class BackupableDBOptions extends RocksObject {
   /**
    * <p>Set if log files shall be persisted.</p>
    *
-   * @param backupLogFiles If false, we won't backup log files. This option can be
-   *     useful for backing up in-memory databases where log file are persisted,but table
-   *     files are in memory.
+   * @param backupLogFiles If false, we won't backup log files. This option can
+   *   be useful for backing up in-memory databases where log file are
+   *   persisted, but table files are in memory.
    *
    * <p>Default: true</p>
    *
@@ -160,8 +163,8 @@ public class BackupableDBOptions extends RocksObject {
   /**
    * <p>Set backup rate limit.</p>
    *
-   * @param backupRateLimit Max bytes that can be transferred in a second during backup.
-   *     If 0 or negative, then go as fast as you can.
+   * @param backupRateLimit Max bytes that can be transferred in a second during
+   *   backup. If 0 or negative, then go as fast as you can.
    *
    * <p>Default: 0</p>
    *
@@ -175,10 +178,11 @@ public class BackupableDBOptions extends RocksObject {
   }
 
   /**
-   * <p>Return backup rate limit which described the max bytes that can be transferred in a
-   * second during backup.</p>
+   * <p>Return backup rate limit which described the max bytes that can be
+   * transferred in a second during backup.</p>
    *
-   * @return numerical value describing the backup transfer limit in bytes per second.
+   * @return numerical value describing the backup transfer limit in bytes per
+   *   second.
    */
   public long backupRateLimit() {
     assert(isOwningHandle());
@@ -188,8 +192,8 @@ public class BackupableDBOptions extends RocksObject {
   /**
    * <p>Set restore rate limit.</p>
    *
-   * @param restoreRateLimit Max bytes that can be transferred in a second during restore.
-   *     If 0 or negative, then go as fast as you can.
+   * @param restoreRateLimit Max bytes that can be transferred in a second
+   *   during restore. If 0 or negative, then go as fast as you can.
    *
    * <p>Default: 0</p>
    *
@@ -203,10 +207,11 @@ public class BackupableDBOptions extends RocksObject {
   }
 
   /**
-   * <p>Return restore rate limit which described the max bytes that can be transferred in a
-   * second during restore.</p>
+   * <p>Return restore rate limit which described the max bytes that can be
+   * transferred in a second during restore.</p>
    *
-   * @return numerical value describing the restore transfer limit in bytes per second.
+   * @return numerical value describing the restore transfer limit in bytes per
+   *   second.
    */
   public long restoreRateLimit() {
     assert(isOwningHandle());
@@ -214,12 +219,13 @@ public class BackupableDBOptions extends RocksObject {
   }
 
   /**
-   * <p>Only used if share_table_files is set to true. If true, will consider that
-   * backups can come from different databases, hence a sst is not uniquely
-   * identified by its name, but by the triple (file name, crc32, file length)</p>
+   * <p>Only used if share_table_files is set to true. If true, will consider
+   * that backups can come from different databases, hence a sst is not uniquely
+   * identified by its name, but by the triple (file name, crc32, file length)
+   * </p>
    *
-   * @param shareFilesWithChecksum boolean value indicating if SST files are stored
-   *     using the triple (file name, crc32, file length) and not its name.
+   * @param shareFilesWithChecksum boolean value indicating if SST files are
+   *   stored using the triple (file name, crc32, file length) and not its name.
    *
    * <p>Note: this is an experimental option, and you'll need to set it manually
    * turn it on only if you know what you're doing*</p>
