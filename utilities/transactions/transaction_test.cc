@@ -2876,6 +2876,7 @@ TEST_F(TransactionTest, ExpiredTransactionDataRace1) {
   ASSERT_EQ("1", value);
 
   delete txn1;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb
