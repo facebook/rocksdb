@@ -162,6 +162,54 @@ function run_bulkload {
   eval $cmd
 }
 
+function run_univ_compaction_worker {
+  # Worker function intended to be called from run_univ_compaction.
+  echo -e "\nCompacting ...\n"
+
+  compact_output_file=$output_dir/benchmark_univ_compact_sub_$3.t${num_threads}.s${syncval}.log
+
+  # The essence of the command is borrowed from run_change overwrite with
+  # compaction specific options being added.
+  cmd="./db_bench --benchmarks=overwrite \
+       --use_existing_db=1 \
+       --sync=$syncval \
+       $params_w \
+       --threads=$num_threads \
+       --merge_operator=\"put\" \
+       --seed=$( date +%s ) \
+       --compaction_measure_io_stats=$1 \
+       --compaction_style=$2 \
+       --subcompactions=$3 \
+       2>&1 | tee -a $compact_output_file"
+  echo $cmd | tee $compact_output_file
+  eval $cmd
+
+  summarize_result $compact_output_file univ_compact_sub_comp_$3 overwrite
+}
+
+function run_univ_compaction {
+  # Always ask for I/O statistics to be measured.
+  io_stats=1
+
+  # Values: kCompactionStyleLevel = 0x0, kCompactionStyleUniversal = 0x1.
+  compaction_style=1
+
+  # Get the basic understanding about impact of scaling out the subcompactions
+  # by allowing the usage of { 1, 2, 4, 8, 16 } threads for different runs.
+  subcompactions=("1" "2" "4" "8" "16")
+
+  # Have a separate suffix for each experiment so that separate results will be
+  # persisted.
+  log_suffix=1
+
+  # Do the real work of running various experiments.
+  for ((i=0; i < ${#subcompactions[@]}; i++))
+  do
+    run_univ_compaction_worker $io_stats $compaction_style ${subcompactions[$i]} $log_suffix
+    ((log_suffix++))
+  done
+}
+
 function run_fillseq {
   # This runs with a vector memtable. WAL can be either disabled or enabled
   # depending on the input parameter (1 for disabled, 0 for enabled). The main
@@ -362,6 +410,8 @@ for job in ${jobs[@]}; do
     run_rangewhile merging $job true
   elif [ $job = randomtransaction ]; then
     run_randomtransaction
+  elif [ $job = universal_compaction ]; then
+    run_univ_compaction
   elif [ $job = debug ]; then
     num_keys=1000; # debug
     echo "Setting num_keys to $num_keys"
