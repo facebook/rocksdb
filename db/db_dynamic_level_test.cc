@@ -72,8 +72,10 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
 
       options.compression_per_level.resize(3);
       options.compression_per_level[0] = kNoCompression;
-      options.compression_per_level[1] = kLZ4Compression;
-      options.compression_per_level[2] = kSnappyCompression;
+      options.compression_per_level[1] =
+          LZ4_Supported() ? kLZ4Compression : DefaultCompressionType();
+      options.compression_per_level[2] =
+          Snappy_Supported() ? kSnappyCompression : DefaultCompressionType();
 
       DestroyAndReopen(options);
 

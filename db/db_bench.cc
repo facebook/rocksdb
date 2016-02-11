@@ -539,9 +539,11 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kLZ4HCCompression;
   else if (!strcasecmp(ctype, "zstd"))
     return rocksdb::kZSTDNotFinalCompression;
+  else if (!strcasecmp(ctype, "default"))
+    return rocksdb::DefaultCompressionType();
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
-  return rocksdb::kSnappyCompression; //default value
+  return rocksdb::DefaultCompressionType(); //default value
 }
 
 std::string ColumnFamilyName(size_t i) {
@@ -555,10 +557,10 @@ std::string ColumnFamilyName(size_t i) {
 }
 }  // namespace
 
-DEFINE_string(compression_type, "snappy",
+DEFINE_string(compression_type, "default",
               "Algorithm to use to compress the database");
 static enum rocksdb::CompressionType FLAGS_compression_type_e =
-    rocksdb::kSnappyCompression;
+    rocksdb::DefaultCompressionType();
 
 DEFINE_int32(compression_level, -1,
              "Compression level. For zlib this should be -1 for the "
