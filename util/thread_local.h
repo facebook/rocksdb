@@ -79,6 +79,8 @@ class ThreadLocalPtr {
     std::atomic<void*> ptr;
   };
 
+  class StaticMeta;
+
   // This is the structure that is declared as "thread_local" storage.
   // The vector keep list of atomic pointer for all instances for "current"
   // thread. The vector is indexed by an Id that is unique in process and
@@ -95,10 +97,11 @@ class ThreadLocalPtr {
   //     | thread 3 |    void*   |    void*   |    void*   | <- ThreadData
   //     ---------------------------------------------------
   struct ThreadData {
-    ThreadData() : entries() {}
+    explicit ThreadData(StaticMeta* _inst) : entries(), inst(_inst) {}
     std::vector<Entry> entries;
     ThreadData* next;
     ThreadData* prev;
+    StaticMeta* inst;
   };
 
   class StaticMeta {
@@ -139,6 +142,31 @@ class ThreadLocalPtr {
     // initialized will be no-op.
     static void InitSingletons();
 
+    // protect inst, next_instance_id_, free_instance_ids_, head_,
+    // ThreadData.entries
+    //
+    // Note that here we prefer function static variable instead of the usual
+    // global static variable.  The reason is that c++ destruction order of
+    // static variables in the reverse order of their construction order.
+    // However, C++ does not guarantee any construction order when global
+    // static variables are defined in different files, while the function
+    // static variables are initialized when their function are first called.
+    // As a result, the construction order of the function static variables
+    // can be controlled by properly invoke their first function calls in
+    // the right order.
+    //
+    // For instance, the following function contains a function static
+    // variable.  We place a dummy function call of this inside
+    // Env::Default() to ensure the construction order of the construction
+    // order.
+    static port::Mutex* Mutex();
+
+    // Returns the member mutex of the current StaticMeta.  In general,
+    // Mutex() should be used instead of this one.  However, in case where
+    // the static variable inside Instance() goes out of scope, MemberMutex()
+    // should be used.  One example is OnThreadExit() function.
+    port::Mutex* MemberMutex() { return &mutex_; }
+
    private:
     // Get UnrefHandler for id with acquiring mutex
     // REQUIRES: mutex locked
@@ -169,24 +197,9 @@ class ThreadLocalPtr {
 
     std::unordered_map<uint32_t, UnrefHandler> handler_map_;
 
-    // protect inst, next_instance_id_, free_instance_ids_, head_,
-    // ThreadData.entries
-    //
-    // Note that here we prefer function static variable instead of the usual
-    // global static variable.  The reason is that c++ destruction order of
-    // static variables in the reverse order of their construction order.
-    // However, C++ does not guarantee any construction order when global
-    // static variables are defined in different files, while the function
-    // static variables are initialized when their function are first called.
-    // As a result, the construction order of the function static variables
-    // can be controlled by properly invoke their first function calls in
-    // the right order.
-    //
-    // For instance, the following function contains a function static
-    // variable.  We place a dummy function call of this inside
-    // Env::Default() to ensure the construction order of the construction
-    // order.
-    static port::Mutex* Mutex();
+    // The private mutex.  Developers should always use Mutex() instead of
+    // using this variable directly.
+    port::Mutex mutex_;
 #if ROCKSDB_SUPPORT_THREAD_LOCAL
     // Thread local storage
     static __thread ThreadData* tls_;
