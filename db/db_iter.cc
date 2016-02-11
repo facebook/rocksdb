@@ -275,7 +275,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
 
     if (ParseKey(&ikey)) {
       if (iterate_upper_bound_ != nullptr &&
-          ikey.user_key.compare(*iterate_upper_bound_) >= 0) {
+          user_comparator_->Compare(ikey.user_key, *iterate_upper_bound_) >= 0) {
         break;
       }
 
