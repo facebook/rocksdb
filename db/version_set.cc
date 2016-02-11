@@ -1377,6 +1377,47 @@ void VersionStorageInfo::UpdateNumNonEmptyLevels() {
   }
 }
 
+namespace {
+// Sort `temp` based on ratio of overlapping size over file size
+void SortFileByOverlappingRatio(
+    const InternalKeyComparator& icmp, const std::vector<FileMetaData*>& files,
+    const std::vector<FileMetaData*>& next_level_files,
+    std::vector<Fsize>* temp) {
+  std::unordered_map<uint64_t, uint64_t> file_to_order;
+  auto next_level_it = next_level_files.begin();
+
+  for (auto& file : files) {
+    uint64_t overlapping_bytes = 0;
+    // Skip files in next level that is smaller than current file
+    while (next_level_it != next_level_files.end() &&
+           icmp.Compare((*next_level_it)->largest, file->smallest) < 0) {
+      next_level_it++;
+    }
+
+    while (next_level_it != next_level_files.end() &&
+           icmp.Compare((*next_level_it)->smallest, file->largest) < 0) {
+      overlapping_bytes += (*next_level_it)->fd.file_size;
+
+      if (icmp.Compare((*next_level_it)->largest, file->largest) > 0) {
+        // next level file cross large boundary of current file.
+        break;
+      }
+      next_level_it++;
+    }
+
+    assert(file->fd.file_size != 0);
+    file_to_order[file->fd.GetNumber()] =
+        overlapping_bytes * 1024u / file->fd.file_size;
+  }
+
+  std::sort(temp->begin(), temp->end(),
+            [&](const Fsize& f1, const Fsize& f2) -> bool {
+              return file_to_order[f1.file->fd.GetNumber()] <
+                     file_to_order[f2.file->fd.GetNumber()];
+            });
+}
+}  // namespace
+
 void VersionStorageInfo::UpdateFilesByCompactionPri(
     const MutableCFOptions& mutable_cf_options) {
   if (compaction_style_ == kCompactionStyleFIFO ||
@@ -1418,6 +1459,10 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
                   [this](const Fsize& f1, const Fsize& f2) -> bool {
                     return f1.file->smallest_seqno < f2.file->smallest_seqno;
                   });
+        break;
+      case kMinOverlappingRatio:
+        SortFileByOverlappingRatio(*internal_comparator_, files_[level],
+                                   files_[level + 1], &temp);
         break;
       default:
         assert(false);

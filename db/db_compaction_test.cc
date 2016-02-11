@@ -2507,8 +2507,12 @@ TEST_P(CompactionPriTest, Test) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(CompactionPriTest, CompactionPriTest,
-                        ::testing::Values(0, 1, 2));
+INSTANTIATE_TEST_CASE_P(
+    CompactionPriTest, CompactionPriTest,
+    ::testing::Values(CompactionPri::kByCompensatedSize,
+                      CompactionPri::kOldestLargestSeqFirst,
+                      CompactionPri::kOldestSmallestSeqFirst,
+                      CompactionPri::kMinOverlappingRatio));
 
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace rocksdb

@@ -80,6 +80,9 @@ enum CompactionStyle : char {
   kCompactionStyleNone = 0x3,
 };
 
+// In Level-based comapction, it Determines which file from a level to be
+// picked to merge to the next level. We suggest people try
+// kMinOverlappingRatio first when you tune your database.
 enum CompactionPri : char {
   // Slightly Priotize larger files by size compensated by #deletes
   kByCompensatedSize = 0x0,
@@ -90,6 +93,10 @@ enum CompactionPri : char {
   // for the longest. If your updates are random across the key space,
   // write amplification is slightly better with this option.
   kOldestSmallestSeqFirst = 0x2,
+  // First compact files whose ratio between overlapping size in next level
+  // and its size is the smallest. It in many cases can optimize write
+  // amplification.
+  kMinOverlappingRatio = 0x3,
 };
 
 enum class WALRecoveryMode : char {

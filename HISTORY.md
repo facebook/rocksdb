@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### New Features
+* Add CompactionPri::kMinOverlappingRatio, a compaction picking mode friendly to write amplification.
 
 ## 4.5.0 (2/5/2016)
 ### Public API Changes
