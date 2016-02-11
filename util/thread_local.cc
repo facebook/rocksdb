@@ -104,7 +104,6 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 
 void ThreadLocalPtr::InitSingletons() {
   ThreadLocalPtr::StaticMeta::InitSingletons();
-  ThreadLocalPtr::Instance();
 }
 
 ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
@@ -113,30 +112,46 @@ ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   // when the function is first call.  As a result, we can properly
   // control their construction order by properly preparing their
   // first function call.
-  static ThreadLocalPtr::StaticMeta inst;
-  return &inst;
+  //
+  // Note that here we decide to make "inst" a static pointer w/o deleting
+  // it at the end instead of a static variable.  This is to avoid the following
+  // destruction order desester happens when a child thread using ThreadLocalPtr
+  // dies AFTER the main thread dies:  When a child thread happens to use
+  // ThreadLocalPtr, it will try to delete its thread-local data on its
+  // OnThreadExit when the child thread dies.  However, OnThreadExit depends
+  // on the following variable.  As a result, if the main thread dies before any
+  // child thread happen to use ThreadLocalPtr dies, then the destruction of
+  // the following variable will go first, then OnThreadExit, therefore causing
+  // invalid access.
+  //
+  // The above problem can be solved by using thread_local to store tls_ instead
+  // of using __thread.  The major difference between thread_local and __thread
+  // is that thread_local supports dynamic construction and destruction of
+  // non-primitive typed variables.  As a result, we can guarantee the
+  // desturction order even when the main thread dies before any child threads.
+  // However, thread_local requires gcc 4.8 and is not supported in all the
+  // compilers that accepts -std=c++11 (e.g., the default clang on Mac), while
+  // the current RocksDB still accept gcc 4.7.
+  static ThreadLocalPtr::StaticMeta* inst = new ThreadLocalPtr::StaticMeta();
+  return inst;
 }
 
 void ThreadLocalPtr::StaticMeta::InitSingletons() { Mutex(); }
 
-port::Mutex* ThreadLocalPtr::StaticMeta::Mutex() {
-  // Here we prefer function static variable instead of global
-  // static variable as function static variable is initialized
-  // when the function is first call.  As a result, we can properly
-  // control their construction order by properly preparing their
-  // first function call.
-  static port::Mutex mutex;
-  return &mutex;
-}
+port::Mutex* ThreadLocalPtr::StaticMeta::Mutex() { return &Instance()->mutex_; }
 
 void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   auto* tls = static_cast<ThreadData*>(ptr);
   assert(tls != nullptr);
 
-  auto* inst = Instance();
+  // Use the cached StaticMeta::Instance() instead of directly calling
+  // the variable inside StaticMeta::Instance() might already go out of
+  // scope here in case this OnThreadExit is called after the main thread
+  // dies.
+  auto* inst = tls->inst;
   pthread_setspecific(inst->pthread_key_, nullptr);
 
-  MutexLock l(Mutex());
+  MutexLock l(inst->MemberMutex());
   inst->RemoveThreadData(tls);
   // Unref stored pointers of current thread from all instances
   uint32_t id = 0;
@@ -154,7 +169,7 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   delete tls;
 }
 
-ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
+ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0), head_(this) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
     abort();
   }
@@ -221,7 +236,7 @@ ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
 
   if (UNLIKELY(tls_ == nullptr)) {
     auto* inst = Instance();
-    tls_ = new ThreadData();
+    tls_ = new ThreadData(inst);
     {
       // Register it in the global chain, needs to be done before thread exit
       // handler registration
