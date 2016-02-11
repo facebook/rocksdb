@@ -4337,11 +4337,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
 
-    if (total_count == 0) {
-      write_thread_.ExitAsBatchGroupLeader(&w, last_writer, status);
-      return w.FinalStatus();
-    }
-
     const SequenceNumber current_sequence = last_sequence + 1;
     last_sequence += total_count;
 
@@ -4360,7 +4355,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       PERF_TIMER_GUARD(write_wal_time);
 
       WriteBatch* merged_batch = nullptr;
-      if (write_group.size() == 1) {
+      if (write_group.size() == 1 && !write_group[0]->CallbackFailed()) {
         merged_batch = write_group[0]->batch;
       } else {
         // WAL needs all of the batches flattened into a single batch.
@@ -4376,7 +4371,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       WriteBatchInternal::SetSequence(merged_batch, current_sequence);
 
       assert(WriteBatchInternal::Count(merged_batch) == total_count);
-      assert(WriteBatchInternal::ByteSize(merged_batch) == total_byte_size);
 
       Slice log_entry = WriteBatchInternal::Contents(merged_batch);
       status = logs_.back().writer->AddRecord(log_entry);

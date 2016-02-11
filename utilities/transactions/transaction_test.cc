@@ -62,6 +62,17 @@ class TransactionTest : public testing::Test {
   }
 };
 
+TEST_F(TransactionTest, DoubleEmptyWrite) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+
+  WriteBatch batch;
+
+  ASSERT_OK(db->Write(write_options, &batch));
+  ASSERT_OK(db->Write(write_options, &batch));
+}
+
 TEST_F(TransactionTest, SuccessTest) {
   WriteOptions write_options;
   ReadOptions read_options;
