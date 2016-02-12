@@ -189,17 +189,19 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Also don't need any compilation tests if compiling on fbcode
     true
 else
-    # Test whether fallocate is available
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <fcntl.h>
-      #include <linux/falloc.h>
-      int main() {
-	int fd = open("/dev/null", 0);
-  fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
-      }
+    if ! test $ROCKSDB_DISABLE_FALLOCATE; then
+        # Test whether fallocate is available
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <fcntl.h>
+          #include <linux/falloc.h>
+          int main() {
+      int fd = open("/dev/null", 0);
+      fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
+          }
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_FALLOCATE_PRESENT"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_FALLOCATE_PRESENT"
+        fi
     fi
 
     # Test whether Snappy library is installed
