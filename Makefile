@@ -644,8 +644,6 @@ parloop:
 	exit $$ret_bad;
 endif
 
-all_tests:=$(shell $(test_names))
-
 parallel_check: $(TESTS)
 	$(AM_V_GEN)if test "$(J)" > 1                                  \
 	    && (parallel --gnu --help 2>/dev/null) |                    \
@@ -659,7 +657,7 @@ parallel_check: $(TESTS)
 	echo $(J);\
 	echo Test Dir: $(TMPD); \
         seq $(J) | parallel --gnu 's=$(TMPD)/rdb-{}; rm -rf $$s; mkdir $$s'; \
-	$(MAKE)  PAR_TEST="$(all_tests)" TMPD=$(TMPD) \
+	$(MAKE)  PAR_TEST="$(shell $(test_names))" TMPD=$(TMPD) \
 		J=$(J) db_test=1 parloop; \
 	$(MAKE) PAR_TEST="$(filter-out db_test, $(TESTS))" \
 		TMPD=$(TMPD) J=$(J) db_test=0 parloop;
