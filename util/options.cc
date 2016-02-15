@@ -600,7 +600,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Header(log,
          "                   Options.max_successive_merges: %" ROCKSDB_PRIszt,
          max_successive_merges);
-    Header(log, "               Options.optimize_fllters_for_hits: %d",
+    Header(log, "               Options.optimize_filters_for_hits: %d",
         optimize_filters_for_hits);
     Header(log, "               Options.paranoid_file_checks: %d",
          paranoid_file_checks);
