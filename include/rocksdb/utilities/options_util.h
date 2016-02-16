@@ -44,6 +44,12 @@ namespace rocksdb {
 // examples/options_file_example.cc demonstrates how to use this function
 // to open a RocksDB instance.
 //
+// @return the function returns an OK status when it went successfully.  If
+//     the specified "dbpath" does not contain any option file, then a
+//     Status::NotFound will be returned.  A return value other than
+//     Status::OK or Status::NotFound indicates there're some error related
+//     to the options file itself.
+//
 // @see LoadOptionsFromFile
 Status LoadLatestOptions(const std::string& dbpath, Env* env,
                          DBOptions* db_options,
