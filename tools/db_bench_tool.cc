@@ -11,14 +11,6 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#ifndef GFLAGS
-#include <cstdio>
-int main() {
-  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
-  return 1;
-}
-#else
-
 #ifdef NUMA
 #include <numa.h>
 #include <numaif.h>
@@ -76,6 +68,7 @@ int main() {
 #include <io.h>  // open/close
 #endif
 
+namespace {
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
 using GFLAGS::SetUsageMessage;
@@ -521,7 +514,6 @@ DEFINE_uint64(transaction_lock_timeout, 100,
 DEFINE_bool(compaction_measure_io_stats, false,
             "Measure times spents on I/Os while in compactions. ");
 
-namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
 
@@ -541,7 +533,7 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kZSTDNotFinalCompression;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
-  return rocksdb::kSnappyCompression; //default value
+  return rocksdb::kSnappyCompression;  // default value
 }
 
 std::string ColumnFamilyName(size_t i) {
@@ -553,7 +545,6 @@ std::string ColumnFamilyName(size_t i) {
     return std::string(name);
   }
 }
-}  // namespace
 
 DEFINE_string(compression_type, "snappy",
               "Algorithm to use to compress the database");
@@ -764,7 +755,6 @@ enum RepFactory {
   kCuckoo
 };
 
-namespace {
 enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
 
@@ -782,7 +772,6 @@ enum RepFactory StringToRepFactory(const char* ctype) {
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
 }
-}  // namespace
 
 static enum RepFactory FLAGS_rep_factory;
 DEFINE_string(memtablerep, "skip_list", "");
@@ -834,6 +823,7 @@ static const bool FLAGS_deletepercent_dummy __attribute__((unused)) =
 static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
                           &ValidateTableCacheNumshardbits);
+}  // namespace
 
 namespace rocksdb {
 
@@ -2249,7 +2239,7 @@ class Benchmark {
       count++;
       thread->stats.FinishedOps(nullptr, nullptr, 1, kOthers);
     }
-    if (ptr == nullptr) exit(1); // Disable unused variable warning.
+    if (ptr == nullptr) exit(1);  // Disable unused variable warning.
   }
 
   void Compress(ThreadState *thread) {
@@ -4072,9 +4062,7 @@ class Benchmark {
   }
 };
 
-}  // namespace rocksdb
-
-int main(int argc, char** argv) {
+int db_bench_tool(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                   " [OPTIONS]...");
@@ -4143,5 +4131,4 @@ int main(int argc, char** argv) {
   benchmark.Run();
   return 0;
 }
-
-#endif  // GFLAGS
+}  // namespace rocksdb

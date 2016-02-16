@@ -179,6 +179,9 @@ MOCK_SOURCES = \
   table/mock_table.cc \
   util/mock_env.cc
 
+BENCH_SOURCES = \
+  tools/db_bench_tool.cc
+
 TEST_BENCH_SOURCES =                                                    \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
   db/auto_roll_logger_test.cc                                           \
@@ -189,7 +192,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
-  db/db_bench.cc                                                        \
+  tools/db_bench_tool.cc                                                \
   db/dbformat_test.cc                                                   \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
