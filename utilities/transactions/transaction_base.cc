@@ -502,7 +502,7 @@ void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
   auto& cf_tracked_keys = tracked_keys_[column_family_id];
   std::string key_str = key.ToString();
   bool can_decrement = false;
-  bool can_unlock = false;
+  bool can_unlock __attribute__((unused)) = false;
 
   if (save_points_ != nullptr && !save_points_->empty()) {
     // Check if this key was fetched ForUpdate in this SavePoint
