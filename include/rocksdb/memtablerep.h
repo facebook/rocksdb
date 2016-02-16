@@ -235,6 +235,20 @@ class SkipListFactory : public MemTableRepFactory {
   const size_t lookahead_;
 };
 
+class BTreeFactory : public MemTableRepFactory {
+ public:
+  explicit BTreeFactory(int32_t maxNodeSize = 64) : maxNodeSize_(maxNodeSize) {}
+
+  virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
+                                         MemTableAllocator*, 
+                                         const SliceTransform*,
+                                         Logger* logger) override;
+  virtual const char* Name() const override { return "BTreeFactory"; }
+
+ private:
+  int32_t maxNodeSize_;
+};
+
 #ifndef ROCKSDB_LITE
 // This creates MemTableReps that are backed by an std::vector. On iteration,
 // the vector is sorted. This is useful for workloads where iteration is very

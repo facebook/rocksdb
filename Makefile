@@ -278,6 +278,7 @@ TESTS = \
 	filename_test \
 	file_reader_writer_test \
 	block_based_filter_block_test \
+	btree_test \
 	full_filter_block_test \
 	histogram_test \
 	inlineskiplist_test \
@@ -919,6 +920,9 @@ block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 inlineskiplist_test: db/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
+
+btree_test: db/btree_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/btree_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 skiplist_test: db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)

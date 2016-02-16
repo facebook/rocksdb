@@ -399,6 +399,8 @@ DEFINE_bool(show_table_properties, false,
 
 DEFINE_string(db, "", "Use the db with the following name.");
 
+DEFINE_int64(btree_fanout, 64, "Fanout factor of BTree memtable representation");
+
 static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   if (value >= 20) {
     fprintf(stderr, "Invalid value for --%s: %d, must be < 20\n",
@@ -761,7 +763,8 @@ enum RepFactory {
   kPrefixHash,
   kVectorRep,
   kHashLinkedList,
-  kCuckoo
+  kCuckoo,
+  kBTree
 };
 
 namespace {
@@ -770,6 +773,8 @@ enum RepFactory StringToRepFactory(const char* ctype) {
 
   if (!strcasecmp(ctype, "skip_list"))
     return kSkipList;
+  else if (!strcasecmp(ctype, "btree"))
+    return kBTree;
   else if (!strcasecmp(ctype, "prefix_hash"))
     return kPrefixHash;
   else if (!strcasecmp(ctype, "vector"))
@@ -1669,6 +1674,9 @@ class Benchmark {
       case kCuckoo:
         fprintf(stdout, "Memtablerep: cuckoo\n");
         break;
+      case kBTree:
+        fprintf(stdout, "Memtablerep: btree\n");
+        break;
     }
     fprintf(stdout, "Perf Level: %d\n", FLAGS_perf_level);
 
@@ -2454,6 +2462,9 @@ class Benchmark {
       case kCuckoo:
         options.memtable_factory.reset(NewHashCuckooRepFactory(
             options.write_buffer_size, FLAGS_key_size + FLAGS_value_size));
+        break;
+      case kBTree:
+        options.memtable_factory.reset(new BTreeFactory((int32_t) FLAGS_btree_fanout));
         break;
 #else
       default:
