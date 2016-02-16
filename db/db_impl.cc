@@ -1854,7 +1854,6 @@ Status DBImpl::CompactFilesImpl(
         c->column_family_data(), job_context, *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
-  c.reset();
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
@@ -1871,6 +1870,8 @@ Status DBImpl::CompactFilesImpl(
       bg_error_ = status;
     }
   }
+
+  c.reset();
 
   bg_compaction_scheduled_--;
   if (bg_compaction_scheduled_ == 0) {
