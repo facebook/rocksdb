@@ -1849,7 +1849,6 @@ Status DBImpl::CompactFilesImpl(
         c->column_family_data(), job_context, *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
-  c.reset();
 
   if (status.ok()) {
     // Done
@@ -1864,6 +1863,8 @@ Status DBImpl::CompactFilesImpl(
       bg_error_ = status;
     }
   }
+
+  c.reset();
 
   bg_compaction_scheduled_--;
   if (bg_compaction_scheduled_ == 0) {
