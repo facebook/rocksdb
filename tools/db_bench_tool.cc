@@ -11,6 +11,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#ifdef GFLAGS
 #ifdef NUMA
 #include <numa.h>
 #include <numaif.h>
@@ -4132,3 +4133,4 @@ int db_bench_tool(int argc, char** argv) {
   return 0;
 }
 }  // namespace rocksdb
+#endif
