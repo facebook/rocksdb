@@ -23,6 +23,22 @@ class SstFileManager {
  public:
   virtual ~SstFileManager() {}
 
+  // Update the maximum allowed space that should be used by RocksDB, if
+  // the total size of the SST files exceeds max_allowed_space, writes to
+  // RocksDB will fail.
+  //
+  // Setting max_allowed_space to 0 will disable this feature, maximum allowed
+  // space will be infinite (Default value).
+  //
+  // thread-safe.
+  virtual void SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) = 0;
+
+  // Return true if the total size of SST files exceeded the maximum allowed
+  // space usage.
+  //
+  // thread-safe.
+  virtual bool IsMaxAllowedSpaceReached() = 0;
+
   // Return the total size of all tracked files.
   // thread-safe
   virtual uint64_t GetTotalSize() = 0;

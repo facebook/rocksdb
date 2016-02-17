@@ -1510,11 +1510,12 @@ Status DBImpl::FlushMemTableToOutputFile(
     bg_error_ = s;
   }
   RecordFlushIOStats();
-#ifndef ROCKSDB_LITE
   if (s.ok()) {
+#ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
                            job_context->job_id, flush_job.GetTableProperties());
+#endif  // ROCKSDB_LITE
     auto sfm =
         static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
     if (sfm) {
@@ -1522,9 +1523,13 @@ Status DBImpl::FlushMemTableToOutputFile(
       std::string file_path = MakeTableFileName(db_options_.db_paths[0].path,
                                                 file_meta.fd.GetNumber());
       sfm->OnAddFile(file_path);
+      if (sfm->IsMaxAllowedSpaceReached() && bg_error_.ok()) {
+        bg_error_ = Status::IOError("Max allowed space was reached");
+        TEST_SYNC_POINT(
+            "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached");
+      }
     }
   }
-#endif  // ROCKSDB_LITE
   return s;
 }
 
@@ -1818,9 +1823,9 @@ Status DBImpl::CompactFilesImpl(
   CompactionJob compaction_job(
       job_context->job_id, c.get(), db_options_, env_options_, versions_.get(),
       &shutting_down_, log_buffer, directories_.GetDbDir(),
-      directories_.GetDataDir(c->output_path_id()), stats_, snapshot_seqs,
-      earliest_write_conflict_snapshot, table_cache_, &event_logger_,
-      c->mutable_cf_options()->paranoid_file_checks,
+      directories_.GetDataDir(c->output_path_id()), stats_, &mutex_, &bg_error_,
+      snapshot_seqs, earliest_write_conflict_snapshot, table_cache_,
+      &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
@@ -1843,7 +1848,7 @@ Status DBImpl::CompactFilesImpl(
   compaction_job.Run();
   mutex_.Lock();
 
-  Status status = compaction_job.Install(*c->mutable_cf_options(), &mutex_);
+  Status status = compaction_job.Install(*c->mutable_cf_options());
   if (status.ok()) {
     InstallSuperVersionAndScheduleWorkWrapper(
         c->column_family_data(), job_context, *c->mutable_cf_options());
@@ -2994,8 +2999,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     CompactionJob compaction_job(
         job_context->job_id, c.get(), db_options_, env_options_,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
-        directories_.GetDataDir(c->output_path_id()), stats_, snapshot_seqs,
-        earliest_write_conflict_snapshot, table_cache_, &event_logger_,
+        directories_.GetDataDir(c->output_path_id()), stats_, &mutex_,
+        &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
+        table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
         c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
         &compaction_job_stats);
@@ -3006,7 +3012,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 
-    status = compaction_job.Install(*c->mutable_cf_options(), &mutex_);
+    status = compaction_job.Install(*c->mutable_cf_options());
     if (status.ok()) {
       InstallSuperVersionAndScheduleWorkWrapper(
           c->column_family_data(), job_context, *c->mutable_cf_options());

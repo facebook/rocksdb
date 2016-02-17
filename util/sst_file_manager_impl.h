@@ -37,6 +37,22 @@ class SstFileManagerImpl : public SstFileManager {
   // DB will call OnMoveFile whenever an sst file is move to a new path.
   Status OnMoveFile(const std::string& old_path, const std::string& new_path);
 
+  // Update the maximum allowed space that should be used by RocksDB, if
+  // the total size of the SST files exceeds max_allowed_space, writes to
+  // RocksDB will fail.
+  //
+  // Setting max_allowed_space to 0 will disable this feature, maximum allowed
+  // space will be infinite (Default value).
+  //
+  // thread-safe.
+  void SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) override;
+
+  // Return true if the total size of SST files exceeded the maximum allowed
+  // space usage.
+  //
+  // thread-safe.
+  bool IsMaxAllowedSpaceReached() override;
+
   // Return the total size of all tracked files.
   uint64_t GetTotalSize() override;
 
@@ -68,6 +84,8 @@ class SstFileManagerImpl : public SstFileManager {
   // A map containing all tracked files and there sizes
   //  file_path => file_size
   std::unordered_map<std::string, uint64_t> tracked_files_;
+  // The maximum allowed space (in bytes) for sst files.
+  uint64_t max_allowed_space_;
   // DeleteScheduler used to throttle file deletition, if SstFileManagerImpl was
   // created with rate_bytes_per_sec == 0 or trash_dir == "", delete_scheduler_
   // rate limiting will be disabled and will simply delete the files.

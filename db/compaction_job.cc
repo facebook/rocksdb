@@ -212,6 +212,7 @@ CompactionJob::CompactionJob(
     const EnvOptions& env_options, VersionSet* versions,
     std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
+    InstrumentedMutex* db_mutex, Status* db_bg_error,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
@@ -231,6 +232,8 @@ CompactionJob::CompactionJob(
       db_directory_(db_directory),
       output_directory_(output_directory),
       stats_(stats),
+      db_mutex_(db_mutex),
+      db_bg_error_(db_bg_error),
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       table_cache_(std::move(table_cache)),
@@ -499,16 +502,11 @@ Status CompactionJob::Run() {
   }
 
   TablePropertiesCollection tp;
-  auto sfm =
-      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   for (const auto& state : compact_->sub_compact_states) {
     for (const auto& output : state.outputs) {
       auto fn = TableFileName(db_options_.db_paths, output.meta.fd.GetNumber(),
                               output.meta.fd.GetPathId());
       tp[fn] = output.table_properties;
-      if (sfm && output.meta.fd.GetPathId() == 0) {
-        sfm->OnAddFile(fn);
-      }
     }
   }
   compact_->compaction->SetOutputTableProperties(std::move(tp));
@@ -524,18 +522,17 @@ Status CompactionJob::Run() {
   return status;
 }
 
-Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
-                              InstrumentedMutex* db_mutex) {
+Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_INSTALL);
-  db_mutex->AssertHeld();
+  db_mutex_->AssertHeld();
   Status status = compact_->status;
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), compaction_stats_);
 
   if (status.ok()) {
-    status = InstallCompactionResults(mutable_cf_options, db_mutex);
+    status = InstallCompactionResults(mutable_cf_options);
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
@@ -861,13 +858,33 @@ Status CompactionJob::FinishCompactionOutputFile(
           event_logger_, cfd->ioptions()->listeners, meta->fd, info);
     }
   }
+
+  // Report new file to SstFileManagerImpl
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+  if (sfm && meta->fd.GetPathId() == 0) {
+    ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+    auto fn = TableFileName(cfd->ioptions()->db_paths, meta->fd.GetNumber(),
+                            meta->fd.GetPathId());
+    sfm->OnAddFile(fn);
+    if (sfm->IsMaxAllowedSpaceReached()) {
+      InstrumentedMutexLock l(db_mutex_);
+      if (db_bg_error_->ok()) {
+        s = Status::IOError("Max allowed space was reached");
+        *db_bg_error_ = s;
+        TEST_SYNC_POINT(
+            "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached");
+      }
+    }
+  }
+
   sub_compact->builder.reset();
   return s;
 }
 
 Status CompactionJob::InstallCompactionResults(
-    const MutableCFOptions& mutable_cf_options, InstrumentedMutex* db_mutex) {
-  db_mutex->AssertHeld();
+    const MutableCFOptions& mutable_cf_options) {
+  db_mutex_->AssertHeld();
 
   auto* compaction = compact_->compaction;
   // paranoia: verify that the files that we started with
@@ -902,7 +919,7 @@ Status CompactionJob::InstallCompactionResults(
   }
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, compaction->edit(),
-                                db_mutex, db_directory_);
+                                db_mutex_, db_directory_);
 }
 
 void CompactionJob::RecordCompactionIOStats() {

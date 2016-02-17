@@ -8636,7 +8636,6 @@ TEST_F(DBTest, DeletingOldWalAfterDrop) {
   EXPECT_GT(lognum2, lognum1);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBTest, DBWithSstFileManager) {
   std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
   auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
@@ -8701,6 +8700,7 @@ TEST_F(DBTest, DBWithSstFileManager) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(DBTest, RateLimitedDelete) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DBTest::RateLimitedDelete:1", "DeleteScheduler::BackgroundEmptyTrash"},
@@ -8872,6 +8872,102 @@ TEST_F(DBTest, DestroyDBWithRateLimitedDelete) {
   ASSERT_EQ(bg_delete_file, 4);
 }
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBTest, DBWithMaxSpaceAllowed) {
+  std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+  auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+  Options options = CurrentOptions();
+  options.sst_file_manager = sst_file_manager;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  // Generate a file containing 100 keys.
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 50)));
+  }
+  ASSERT_OK(Flush());
+
+  uint64_t first_file_size = 0;
+  auto files_in_db = GetAllSSTFiles(&first_file_size);
+  ASSERT_EQ(sfm->GetTotalSize(), first_file_size);
+
+  // Set the maximum allowed space usage to the current total size
+  sfm->SetMaxAllowedSpaceUsage(first_file_size + 1);
+
+  ASSERT_OK(Put("key1", "val1"));
+  // This flush will cause bg_error_ and will fail
+  ASSERT_NOK(Flush());
+}
+
+TEST_F(DBTest, DBWithMaxSpaceAllowedRandomized) {
+  // This test will set a maximum allowed space for the DB, then it will
+  // keep filling the DB until the limit is reached and bg_error_ is set.
+  // When bg_error_ is set we will verify that the DB size is greater
+  // than the limit.
+
+  std::vector<int> max_space_limits_mbs = {1, 2, 4, 8, 10};
+
+  bool bg_error_set = false;
+  uint64_t total_sst_files_size = 0;
+
+  int reached_max_space_on_flush = 0;
+  int reached_max_space_on_compaction = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
+      [&](void* arg) {
+        bg_error_set = true;
+        GetAllSSTFiles(&total_sst_files_size);
+        reached_max_space_on_flush++;
+      });
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached",
+      [&](void* arg) {
+        bg_error_set = true;
+        GetAllSSTFiles(&total_sst_files_size);
+        reached_max_space_on_compaction++;
+      });
+
+  for (auto limit_mb : max_space_limits_mbs) {
+    bg_error_set = false;
+    total_sst_files_size = 0;
+    rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+    std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
+    auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
+
+    Options options = CurrentOptions();
+    options.sst_file_manager = sst_file_manager;
+    options.write_buffer_size = 1024 * 512;  // 512 Kb
+    DestroyAndReopen(options);
+    Random rnd(301);
+
+    sfm->SetMaxAllowedSpaceUsage(limit_mb * 1024 * 1024);
+
+    int keys_written = 0;
+    uint64_t estimated_db_size = 0;
+    while (true) {
+      auto s = Put(RandomString(&rnd, 10), RandomString(&rnd, 50));
+      if (!s.ok()) {
+        break;
+      }
+      keys_written++;
+      // Check the estimated db size vs the db limit just to make sure we
+      // dont run into an infinite loop
+      estimated_db_size = keys_written * 60;  // ~60 bytes per key
+      ASSERT_LT(estimated_db_size, limit_mb * 1024 * 1024 * 2);
+    }
+    ASSERT_TRUE(bg_error_set);
+    ASSERT_GE(total_sst_files_size, limit_mb * 1024 * 1024);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+
+  ASSERT_GT(reached_max_space_on_flush, 0);
+  ASSERT_GT(reached_max_space_on_compaction, 0);
+}
 
 TEST_F(DBTest, UnsupportedManualSync) {
   DestroyAndReopen(CurrentOptions());

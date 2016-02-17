@@ -56,6 +56,19 @@ Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
   return Status::OK();
 }
 
+void SstFileManagerImpl::SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) {
+  MutexLock l(&mu_);
+  max_allowed_space_ = max_allowed_space;
+}
+
+bool SstFileManagerImpl::IsMaxAllowedSpaceReached() {
+  MutexLock l(&mu_);
+  if (max_allowed_space_ <= 0) {
+    return false;
+  }
+  return total_files_size_ >= max_allowed_space_;
+}
+
 uint64_t SstFileManagerImpl::GetTotalSize() {
   MutexLock l(&mu_);
   return total_files_size_;

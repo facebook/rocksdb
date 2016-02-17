@@ -754,7 +754,8 @@ class DBTestBase : public testing::Test {
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
 
-  std::unordered_map<std::string, uint64_t> GetAllSSTFiles();
+  std::unordered_map<std::string, uint64_t> GetAllSSTFiles(
+      uint64_t* total_size = nullptr);
 };
 
 }  // namespace rocksdb
