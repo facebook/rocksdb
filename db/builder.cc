@@ -139,6 +139,11 @@ Status BuildTable(
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       file_writer->Sync(ioptions.use_fsync);
     }
+    if (s.ok()) {
+      meta->UpdatePrivateMetadataHandle(
+          file_writer->GetPrivateMetadataHandle());
+    }
+
     if (s.ok() && !empty) {
       s = file_writer->Close();
     }

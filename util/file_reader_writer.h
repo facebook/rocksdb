@@ -156,6 +156,10 @@ class WritableFileWriter {
 
   WritableFile* writable_file() const { return writable_file_.get(); }
 
+  FilePrivateMetadata* GetPrivateMetadataHandle() {
+    return writable_file_->GetMetadataHandle();
+  }
+
  private:
   // Used when os buffering is OFF and we are writing
   // DMA such as in Windows unbuffered mode

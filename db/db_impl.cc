@@ -1525,6 +1525,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     }
   }
 #endif  // ROCKSDB_LITE
+  file_meta.FreePrivateMetadata();
   return s;
 }
 

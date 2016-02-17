@@ -572,10 +572,15 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
     s = ioptions->env->NewRandomAccessFile(
         *fname, &file, vset_->env_options_);
   } else {
-    s = ioptions->env->NewRandomAccessFile(
+    std::string new_fname =
         TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
-                      file_meta->fd.GetPathId()),
-        &file, vset_->env_options_);
+                      file_meta->fd.GetPathId());
+    s = ioptions->env->LoadPrivateMetadata(new_fname, file_meta->priv_meta);
+    if (!s.ok()) {
+      return s;
+    }
+    s = ioptions->env->NewRandomAccessFile(new_fname, &file,
+                                           vset_->env_options_);
   }
   if (!s.ok()) {
     return s;
