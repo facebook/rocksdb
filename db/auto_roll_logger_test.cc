@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #include <string>
+#include <thread>
 #include <vector>
 #include <cmath>
 #include <iostream>
@@ -11,6 +12,7 @@
 #include <iterator>
 #include <algorithm>
 #include "db/auto_roll_logger.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
 #include "rocksdb/db.h"
 #include <sys/stat.h>
@@ -260,7 +262,56 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
       auto_roll_logger, options.log_file_time_to_roll,
       kSampleMessage + ":CreateLoggerFromOptions - both");
 }
-#endif
+
+TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
+  DBOptions options;
+  shared_ptr<Logger> logger;
+
+  InitTestDb();
+  options.max_log_file_size = 1024 * 5;
+  ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+  AutoRollLogger* auto_roll_logger =
+      dynamic_cast<AutoRollLogger*>(logger.get());
+  ASSERT_TRUE(auto_roll_logger);
+
+  // The test is split into two parts, with the below callback happening between
+  // them:
+  // (1) Before ResetLogger() is reached, the log rolling test code occasionally
+  //    invokes PosixLogger::Flush(). For this part, dependencies should not be
+  //    enforced.
+  // (2) After ResetLogger() has begun, any calls to PosixLogger::Flush() will
+  //    be from threads other than the log rolling thread. We want to only
+  //    enforce dependencies for this part.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "AutoRollLogger::Logv:BeforeResetLogger", [&](void* arg) {
+        rocksdb::SyncPoint::GetInstance()->LoadDependency({
+            {"PosixLogger::Flush:1",
+             "AutoRollLogger::ResetLogger:BeforeNewLogger"},
+            {"AutoRollLogger::ResetLogger:AfterNewLogger",
+             "PosixLogger::Flush:2"},
+        });
+      });
+  std::thread flush_thread;
+  // Additionally, to exercise the edge case, we need to ensure the old logger
+  // is used. For this, we pause after pinning the logger until dependencies
+  // have probably been loaded.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "AutoRollLogger::Flush:PinnedLogger", [&](void* arg) {
+        if (std::this_thread::get_id() == flush_thread.get_id()) {
+          sleep(2);
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
+  sleep(1);
+  RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
+                        kSampleMessage + ":LogFlushWhileRolling");
+  flush_thread.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+#endif  // OS_WIN
 
 TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   InitTestDb();

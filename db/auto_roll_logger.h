@@ -13,6 +13,7 @@
 #include "db/filename.h"
 #include "port/port.h"
 #include "port/util_logger.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -53,11 +54,26 @@ class AutoRollLogger : public Logger {
     return status_;
   }
 
-  size_t GetLogFileSize() const override { return logger_->GetLogFileSize(); }
+  size_t GetLogFileSize() const override {
+    std::shared_ptr<Logger> logger;
+    {
+      MutexLock l(&mutex_);
+      // pin down the current logger_ instance before releasing the mutex.
+      logger = logger_;
+    }
+    return logger->GetLogFileSize();
+  }
 
   void Flush() override {
-    if (logger_) {
-      logger_->Flush();
+    std::shared_ptr<Logger> logger;
+    {
+      MutexLock l(&mutex_);
+      // pin down the current logger_ instance before releasing the mutex.
+      logger = logger_;
+    }
+    TEST_SYNC_POINT_CALLBACK("AutoRollLogger::Flush:PinnedLogger", nullptr);
+    if (logger) {
+      logger->Flush();
     }
   }
 
@@ -101,7 +117,7 @@ class AutoRollLogger : public Logger {
   uint64_t ctime_;
   uint64_t cached_now_access_count;
   uint64_t call_NowMicros_every_N_records_;
-  port::Mutex mutex_;
+  mutable port::Mutex mutex_;
 };
 
 // Facade to craete logger automatically

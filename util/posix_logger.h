@@ -25,6 +25,7 @@
 
 #include "rocksdb/env.h"
 #include "util/iostats_context_imp.h"
+#include "util/sync_point.h"
 #include <atomic>
 
 namespace rocksdb {
@@ -56,6 +57,8 @@ class PosixLogger : public Logger {
     fclose(file_);
   }
   virtual void Flush() override {
+    TEST_SYNC_POINT("PosixLogger::Flush:1");
+    TEST_SYNC_POINT("PosixLogger::Flush:2");
     if (flush_pending_) {
       flush_pending_ = false;
       fflush(file_);
