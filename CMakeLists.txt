@@ -185,6 +185,7 @@ set(SOURCES
         table/table_properties.cc
         table/two_level_iterator.cc
         tools/sst_dump_tool.cc
+        tools/db_bench_tool.cc
         tools/dump/db_dump_tool.cc
         util/arena.cc
         util/bloom.cc
@@ -301,7 +302,7 @@ else()
 endif()
 
 set(APPS
-        db/db_bench.cc
+        tools/db_bench.cc
         db/memtablerep_bench.cc
         table/table_reader_bench.cc
         tools/db_stress.cc
