@@ -1415,8 +1415,8 @@ class WinEnv : public Env {
     return status;
   }
 
-  virtual Status Env::GetChildrenFileMetadata(
-      const std::string& dir, std::vector<FileMetadata>* result) override {
+  virtual Status GetChildrenFileAttributes(
+      const std::string& dir, std::vector<FileAttributes>* result) override {
     return Status::NotSupported("Not supported in WinEnv");
   }
 
