@@ -13,7 +13,7 @@ namespace rocksdb {
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 
 #define PERF_TIMER_GUARD(metric)
-#define PERF_CONDITIONAL_TIMER_GUARD(metric, condition)
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)
 #define PERF_TIMER_MEASURE(metric)
 #define PERF_TIMER_STOP(metric)
 #define PERF_TIMER_START(metric)
