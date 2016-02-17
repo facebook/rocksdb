@@ -12,7 +12,9 @@ namespace rocksdb {
 
 // -- AutoRollLogger
 Status AutoRollLogger::ResetLogger() {
+  TEST_SYNC_POINT("AutoRollLogger::ResetLogger:BeforeNewLogger");
   status_ = env_->NewLogger(log_fname_, &logger_);
+  TEST_SYNC_POINT("AutoRollLogger::ResetLogger:AfterNewLogger");
 
   if (!status_.ok()) {
     return status_;
@@ -75,6 +77,8 @@ void AutoRollLogger::Logv(const char* format, va_list ap) {
     if ((kLogFileTimeToRoll > 0 && LogExpired()) ||
         (kMaxLogFileSize > 0 && logger_->GetLogFileSize() >= kMaxLogFileSize)) {
       RollLogFile();
+      TEST_SYNC_POINT_CALLBACK("AutoRollLogger::Logv:BeforeResetLogger",
+                               logger_.get());
       Status s = ResetLogger();
       if (!s.ok()) {
         // can't really log the error if creating a new LOG file failed
