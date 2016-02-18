@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 
+## 4.4.1 (2/18/2016)
+
 ## 4.4.0 (1/14/2016)
 ### Public API Changes
 * Change names in CompactionPri and add a new one.
