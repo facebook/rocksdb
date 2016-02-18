@@ -132,7 +132,6 @@ class PosixEnv : public Env {
     // All threads must be joined before the deletion of
     // thread_status_updater_.
     delete thread_status_updater_;
-    TEST_SYNC_POINT("PosixEnv::~PosixEnv():End");
   }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
