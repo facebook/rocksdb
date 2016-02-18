@@ -20,6 +20,7 @@ SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
     : env_(env),
       logger_(logger),
       total_files_size_(0),
+      max_allowed_space_(0),
       delete_scheduler_(env, trash_dir, rate_bytes_per_sec, logger.get(),
                         this) {}
 
