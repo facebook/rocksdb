@@ -12,6 +12,8 @@
 #include <iterator>
 #include <algorithm>
 #include "db/auto_roll_logger.h"
+#include "port/port.h"
+#include "util/mutexlock.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 #include "rocksdb/db.h"
@@ -291,20 +293,33 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
              "PosixLogger::Flush:2"},
         });
       });
+
+  port::Mutex flush_thread_mutex;
+  port::CondVar flush_thread_cv{&flush_thread_mutex};
   std::thread flush_thread;
   // Additionally, to exercise the edge case, we need to ensure the old logger
   // is used. For this, we pause after pinning the logger until dependencies
   // have probably been loaded.
+  const int kWaitForDepsSeconds = 1;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "AutoRollLogger::Flush:PinnedLogger", [&](void* arg) {
+        MutexLock ml{&flush_thread_mutex};
+        while (flush_thread.get_id() == std::thread::id()) {
+          flush_thread_cv.Wait();
+        }
         if (std::this_thread::get_id() == flush_thread.get_id()) {
-          sleep(2);
+          Env::Default()->SleepForMicroseconds(kWaitForDepsSeconds * 1000 * 1000);
+          sleep(1);
         }
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
-  sleep(1);
+  {
+    MutexLock ml{&flush_thread_mutex};
+    flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
+    flush_thread_cv.Signal();
+  }
+
   RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
                         kSampleMessage + ":LogFlushWhileRolling");
   flush_thread.join();
