@@ -1415,11 +1415,6 @@ class WinEnv : public Env {
     return status;
   }
 
-  virtual Status GetChildrenFileAttributes(
-      const std::string& dir, std::vector<FileAttributes>* result) override {
-    return Status::NotSupported("Not supported in WinEnv");
-  }
-
   virtual Status CreateDir(const std::string& name) override {
     Status result;
 
