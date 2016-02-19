@@ -3,7 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include <pthread.h>
+#include <thread>
 #include <atomic>
 #include <string>
 
@@ -496,9 +496,15 @@ TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
 
   // Triggers the initialization of singletons.
   Env::Default();
-  pthread_t t;
-  pthread_create(&t, nullptr, &AccessThreadLocal, nullptr);
-  TEST_SYNC_POINT("MainThreadDiesFirst:End");
+
+  try {
+    std::thread th(&AccessThreadLocal, nullptr);
+    th.detach();
+    TEST_SYNC_POINT("MainThreadDiesFirst:End");
+  } catch (const std::system_error& ex) {
+    std::cerr << "Start thread: " << ex.code() << std::endl;
+    ASSERT_TRUE(false);
+  }
 }
 
 }  // namespace rocksdb
