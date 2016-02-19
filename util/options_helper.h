@@ -98,13 +98,15 @@ enum class OptionType {
 
 enum class OptionVerificationType {
   kNormal,
-  kByName,     // The option is pointer typed so we can only verify
-               // based on it's name.
-  kDeprecated  // The option is no longer used in rocksdb. The RocksDB
-               // OptionsParser will still accept this option if it
-               // happen to exists in some Options file.  However, the
-               // parser will not include it in serialization and
-               // verification processes.
+  kByName,           // The option is pointer typed so we can only verify
+                     // based on it's name.
+  kByNameAllowNull,  // Same as kByName, but it also allows the case
+                     // where one of them is a nullptr.
+  kDeprecated        // The option is no longer used in rocksdb. The RocksDB
+                     // OptionsParser will still accept this option if it
+                     // happen to exists in some Options file.  However, the
+                     // parser will not include it in serialization and
+                     // verification processes.
 };
 
 // A struct for storing constant option information such as option name,
@@ -433,7 +435,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
       OptionVerificationType::kByName}},
     {"prefix_extractor",
      {offsetof(struct ColumnFamilyOptions, prefix_extractor),
-      OptionType::kSliceTransform, OptionVerificationType::kByName}},
+      OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull}},
     {"memtable_factory",
      {offsetof(struct ColumnFamilyOptions, memtable_factory),
       OptionType::kMemTableRepFactory, OptionVerificationType::kByName}},

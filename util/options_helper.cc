@@ -805,6 +805,7 @@ Status ParseColumnFamilyOption(const std::string& name,
       }
       switch (opt_info.verification) {
         case OptionVerificationType::kByName:
+        case OptionVerificationType::kByNameAllowNull:
           return Status::NotSupported(
               "Deserializing the specified CF option " + name +
                   " is not supported");
@@ -985,6 +986,7 @@ Status ParseDBOption(const std::string& name,
       }
       switch (opt_info.verification) {
         case OptionVerificationType::kByName:
+        case OptionVerificationType::kByNameAllowNull:
           return Status::NotSupported(
               "Deserializing the specified DB option " + name +
                   " is not supported");
@@ -1082,6 +1084,8 @@ Status GetBlockBasedTableOptionsFromMap(
                                      // the old API, where everything is
                                      // parsable.
           (iter->second.verification != OptionVerificationType::kByName &&
+           iter->second.verification !=
+               OptionVerificationType::kByNameAllowNull &&
            iter->second.verification != OptionVerificationType::kDeprecated)) {
         return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
                                        o.first + " " + error_message);
@@ -1116,10 +1120,12 @@ Status GetPlainTableOptionsFromMap(
     if (error_message != "") {
       const auto iter = plain_table_type_info.find(o.first);
       if (iter == plain_table_type_info.end() ||
-          !input_strings_escaped ||// !input_strings_escaped indicates
-                                   // the old API, where everything is
-                                   // parsable.
+          !input_strings_escaped ||  // !input_strings_escaped indicates
+                                     // the old API, where everything is
+                                     // parsable.
           (iter->second.verification != OptionVerificationType::kByName &&
+           iter->second.verification !=
+               OptionVerificationType::kByNameAllowNull &&
            iter->second.verification != OptionVerificationType::kDeprecated)) {
         return Status::InvalidArgument("Can't parse PlainTableOptions:",
                                         o.first + " " + error_message);

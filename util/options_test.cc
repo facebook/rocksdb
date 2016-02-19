@@ -1308,10 +1308,10 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
 
   // prefix_extractor
   {
-    // change the prefix extractor and expect only pass when
-    // sanity-level == kSanityLevelNone
+    // Okay to change prefix_extractor form nullptr to non-nullptr
+    ASSERT_EQ(opts.prefix_extractor.get(), nullptr);
     opts.prefix_extractor.reset(NewCappedPrefixTransform(10));
-    ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
     ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
 
     // persist the change
@@ -1338,11 +1338,21 @@ TEST_F(OptionsSanityCheckTest, SanityCheck) {
     // expect pass only in kSanityLevelNone
     ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
     ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
+
+    // Change prefix extractor from non-nullptr to nullptr
+    opts.prefix_extractor.reset();
+    // expect pass as it's safe to change prefix_extractor
+    // from non-null to null
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
+    ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelNone));
   }
+  // persist the change
+  ASSERT_OK(PersistCFOptions(opts));
+  ASSERT_OK(SanityCheckCFOptions(opts, kSanityLevelExactMatch));
 
   // table_factory
   {
-    for (int tb = 2; tb >= 0; --tb) {
+    for (int tb = 0; tb <= 2; ++tb) {
       // change the table factory
       opts.table_factory.reset(test::RandomTableFactory(&rnd, tb));
       ASSERT_NOK(SanityCheckCFOptions(opts, kSanityLevelLooselyCompatible));
