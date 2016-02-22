@@ -1819,6 +1819,9 @@ Status DBImpl::CompactFilesImpl(
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
+  auto pending_outputs_inserted_elem =
+      CaptureCurrentFileNumberInPendingOutputs();
+
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), db_options_, env_options_, versions_.get(),
@@ -1846,6 +1849,8 @@ Status DBImpl::CompactFilesImpl(
   TEST_SYNC_POINT("CompactFilesImpl:0");
   TEST_SYNC_POINT("CompactFilesImpl:1");
   compaction_job.Run();
+  TEST_SYNC_POINT("CompactFilesImpl:2");
+  TEST_SYNC_POINT("CompactFilesImpl:3");
   mutex_.Lock();
 
   Status status = compaction_job.Install(*c->mutable_cf_options());
@@ -1854,6 +1859,8 @@ Status DBImpl::CompactFilesImpl(
         c->column_family_data(), job_context, *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
+
+  ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
   if (status.ok()) {
     // Done
