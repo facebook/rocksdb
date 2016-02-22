@@ -789,7 +789,6 @@ class WinRandomAccessFile : public RandomAccessFile {
         random_access_max_buffer_size_(options.random_access_max_buffer_size),
         buffer_(),
         buffered_start_(0) {
-    assert(!options.use_mmap_reads);
 
     // Unbuffered access, use internal buffer for reads
     if (!use_os_buffer_) {
