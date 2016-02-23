@@ -1952,13 +1952,27 @@ TEST_F(ColumnFamilyTest, ReadDroppedColumnFamily) {
     PutRandomData(1, kKeysNum, 100);
     PutRandomData(2, kKeysNum, 100);
 
-    if (iter == 0) {
-      // Drop CF two
-      ASSERT_OK(db_->DropColumnFamily(handles_[2]));
-    } else {
-      // delete CF two
-      delete handles_[2];
-      handles_[2] = nullptr;
+    {
+      std::unique_ptr<Iterator> iterator(
+          db_->NewIterator(ReadOptions(), handles_[2]));
+      iterator->SeekToFirst();
+
+      if (iter == 0) {
+        // Drop CF two
+        ASSERT_OK(db_->DropColumnFamily(handles_[2]));
+      } else {
+        // delete CF two
+        delete handles_[2];
+        handles_[2] = nullptr;
+      }
+      // Make sure iterator created can still be used.
+      int count = 0;
+      for (; iterator->Valid(); iterator->Next()) {
+        ASSERT_OK(iterator->status());
+        ++count;
+      }
+      ASSERT_OK(iterator->status());
+      ASSERT_EQ(count, kKeysNum);
     }
 
     // Add bunch more data to other CFs
