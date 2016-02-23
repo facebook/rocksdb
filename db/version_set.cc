@@ -2160,10 +2160,12 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   // Initialize new descriptor log file if necessary by creating
   // a temporary file that contains a snapshot of the current version.
   uint64_t new_manifest_file_size = 0;
+  bool current_file_updated __attribute__((unused)) = false;
   Status s;
 
   assert(pending_manifest_file_number_ == 0);
-  if (!descriptor_log_ ||
+  if (new_descriptor_log ||
+      !descriptor_log_ ||
       manifest_file_size_ > db_options_->max_manifest_file_size) {
     pending_manifest_file_number_ = NewFileNumber();
     batch_edits.back()->SetNextFile(next_file_number_.load());
@@ -2217,7 +2219,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       }
     }
 
-    if (!edit->IsColumnFamilyManipulation()) {
+    if (s.ok() && !edit->IsColumnFamilyManipulation()) {
       // This is cpu-heavy operations, which should be called outside mutex.
       v->PrepareApply(mutable_cf_options, true);
     }
@@ -2250,12 +2252,14 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
+      assert(pending_manifest_file_number_ > manifest_file_number_);
       s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
                          db_options_->disableDataSync ? nullptr : db_directory);
-      if (s.ok() && pending_manifest_file_number_ > manifest_file_number_) {
+      if (s.ok()) {
+        current_file_updated = true;
         // delete old manifest file
         Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-            "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
+            "Deleting old manifest %" PRIu64 " current manifest %" PRIu64 "\n",
             manifest_file_number_, pending_manifest_file_number_);
         // we don't care about an error here, PurgeObsoleteFiles will take care
         // of it later
@@ -2316,11 +2320,17 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         column_family_data ? column_family_data->GetName().c_str()
                            : "<null>");
     delete v;
-    if (new_descriptor_log) {
+    if (new_descriptor_log && descriptor_log_) {
+      // because invoking SetCurrentFile() is the last point to set the status `s',
+      // if it succeed, we should not be here
+      assert(!current_file_updated);
+      // delete fresh manifest file
       Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-        "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
-        manifest_file_number_, pending_manifest_file_number_);
+        "Deleting fresh manifest %" PRIu64 " current manifest %" PRIu64 "\n",
+        pending_manifest_file_number_, manifest_file_number_);
       descriptor_log_.reset();
+      // we don't care about an error here, PurgeObsoleteFiles will take care
+      // of it later
       env_->DeleteFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_));
     }

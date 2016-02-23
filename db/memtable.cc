@@ -650,9 +650,9 @@ void MemTable::Update(SequenceNumber seq,
 
           // Update value, if new value size  <= previous value size
           if (new_size <= prev_size ) {
+            WriteLock wl(GetLock(lkey.user_key()));
             char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
                                      new_size);
-            WriteLock wl(GetLock(lkey.user_key()));
             memcpy(p, value.data(), value.size());
             assert((unsigned)((p + value.size()) - entry) ==
                    (unsigned)(VarintLength(key_length) + key_length +
