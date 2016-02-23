@@ -14,6 +14,8 @@
 
 #include <stdint.h>
 #ifdef __SSE4_2__
+#include <array>
+#include <bitset>
 #include <nmmintrin.h>
 #endif
 #include "util/coding.h"
@@ -291,12 +293,10 @@ static inline uint32_t LE_LOAD32(const uint8_t *p) {
   return DecodeFixed32(reinterpret_cast<const char*>(p));
 }
 
-#ifdef __SSE4_2__
-#ifdef __LP64__
+#if defined(__LP64__) || defined(_M_X64)
 static inline uint64_t LE_LOAD64(const uint8_t *p) {
   return DecodeFixed64(reinterpret_cast<const char*>(p));
 }
-#endif
 #endif
 
 static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
@@ -315,9 +315,15 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   table0_[c >> 24];
 }
 
+static inline void Slow_CRC32_Byte(uint64_t* l, uint8_t const **p) {
+  int c = (*l & 0xff) ^ **p;
+  *l = table0_[c] ^ (*l >> 8);
+  ++*p;
+}
+
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifdef __SSE4_2__
-#ifdef __LP64__
+#if defined (_M_X64) || defined (__LP64__)
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
   *p += 8;
 #else
@@ -325,13 +331,22 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
   *p += 4;
   *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
   *p += 4;
-#endif
-#else
+#endif // defined (_M_X64) || defined (__LP64__)
+#else // __SSE4_2__
   Slow_CRC32(l, p);
-#endif
+#endif // __SSE4_2__
 }
 
-template<void (*CRC32)(uint64_t*, uint8_t const**)>
+static inline void Fast_CRC32_Byte(uint64_t* l, uint8_t const **p) {
+#ifdef __SSE4_2__
+  *l = _mm_crc32_u8(static_cast<unsigned int>(*l), **p);
+  ++*p;
+#else // __SSE4_2__
+  Slow_CRC32_Byte(l, p);
+#endif // __SSE4_2__
+}
+
+template<void (*CRC32)(uint64_t*, uint8_t const**), void (*CRC32B)(uint64_t*, uint8_t const**)>
 uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
   const uint8_t *p = reinterpret_cast<const uint8_t *>(buf);
   const uint8_t *e = p + size;
@@ -340,26 +355,17 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
 // Align n to (1 << m) byte boundary
 #define ALIGN(n, m)     ((n + ((1 << m) - 1)) & ~((1 << m) - 1))
 
-#define STEP1 do {                              \
-    int c = (l & 0xff) ^ *p++;                  \
-    l = table0_[c] ^ (l >> 8);                  \
-} while (0)
-
-
   // Point x at first 16-byte aligned byte in string.  This might be
   // just past the end of the string.
   const uintptr_t pval = reinterpret_cast<uintptr_t>(p);
   const uint8_t* x = reinterpret_cast<const uint8_t*>(ALIGN(pval, 4));
+#undef ALIGN
+
   if (x <= e) {
     // Process bytes until finished or p is 16-byte aligned
     while (p != x) {
-      STEP1;
+      CRC32B(&l, &p);
     }
-  }
-  // Process bytes 16 at a time
-  while ((e-p) >= 16) {
-    CRC32(&l, &p);
-    CRC32(&l, &p);
   }
   // Process bytes 8 at a time
   while ((e-p) >= 8) {
@@ -367,20 +373,24 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
   }
   // Process the last few bytes
   while (p != e) {
-    STEP1;
+    CRC32B(&l, &p);
   }
-#undef STEP1
-#undef ALIGN
+
   return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
 
 // Detect if SS42 or not.
 static bool isSSE42() {
-#if defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
+#if defined(__SSE4_2__) && defined(__GNUC__) && defined(__x86_64__) && !defined(IOS_CROSS_COMPILE)
   uint32_t c_;
   uint32_t d_;
   __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
   return c_ & (1U << 20);  // copied from CpuId.h in Folly.
+#elif defined(__SSE4_2__) && defined(_MSC_VER)
+  std::array<int, 4> cpui = { 0 };
+  __cpuid(cpui.data(), 1);
+  std::bitset<32> ecx_ = cpui[2];
+  return ecx_[20];
 #else
   return false;
 #endif
@@ -389,15 +399,11 @@ static bool isSSE42() {
 typedef uint32_t (*Function)(uint32_t, const char*, size_t);
 
 static inline Function Choose_Extend() {
-  return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
+  return isSSE42() ? ExtendImpl<Fast_CRC32, Fast_CRC32_Byte> : ExtendImpl<Slow_CRC32, Slow_CRC32_Byte>;
 }
 
 bool IsFastCrc32Supported() {
-#ifdef __SSE4_2__
   return isSSE42();
-#else
-  return false;
-#endif
 }
 
 Function ChosenExtend = Choose_Extend();
