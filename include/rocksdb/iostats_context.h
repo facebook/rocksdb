@@ -18,7 +18,7 @@ struct IOStatsContext {
   // reset all io-stats counter to zero
   void Reset();
 
-  std::string ToString() const;
+  std::string ToString(bool exclude_zero_counters = false) const;
 
   // the thread pool id
   uint64_t thread_pool_id;

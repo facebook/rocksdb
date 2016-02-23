@@ -340,7 +340,8 @@ TESTS = \
 	compact_on_deletion_collector_test \
 	compaction_job_stats_test \
 	transaction_test \
-	ldb_cmd_test
+	ldb_cmd_test \
+	iostats_context_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -1044,6 +1045,9 @@ ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
 	$(AM_LINK)
+
+iostats_context_test: util/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 #-------------------------------------------------
 # make install related stuff

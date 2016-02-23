@@ -269,6 +269,7 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/transactions/transaction_test.cc                            \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
+	util/iostats_context_test.cc																					\
   util/log_write_bench.cc                                               \
   util/memenv_test.cc                                                   \
   util/mock_env_test.cc                                                 \

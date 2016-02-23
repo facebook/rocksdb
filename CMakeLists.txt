@@ -391,6 +391,7 @@ set(TESTS
         util/file_reader_writer_test.cc
         util/heap_test.cc
         util/histogram_test.cc
+        util/iostats_context_test.cc
         util/memenv_test.cc
         util/mock_env_test.cc
         util/options_test.cc

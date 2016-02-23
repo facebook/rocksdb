@@ -31,21 +31,24 @@ void IOStatsContext::Reset() {
   logger_nanos = 0;
 }
 
-#define IOSTATS_CONTEXT_OUTPUT(counter) #counter << " = " << counter << ", "
+#define IOSTATS_CONTEXT_OUTPUT(counter)         \
+  if (!exclude_zero_counters || counter > 0) {  \
+    ss << #counter << " = " << counter << ", "; \
+  }
 
-std::string IOStatsContext::ToString() const {
+std::string IOStatsContext::ToString(bool exclude_zero_counters) const {
   std::ostringstream ss;
-  ss << IOSTATS_CONTEXT_OUTPUT(thread_pool_id)
-     << IOSTATS_CONTEXT_OUTPUT(bytes_read)
-     << IOSTATS_CONTEXT_OUTPUT(bytes_written)
-     << IOSTATS_CONTEXT_OUTPUT(open_nanos)
-     << IOSTATS_CONTEXT_OUTPUT(allocate_nanos)
-     << IOSTATS_CONTEXT_OUTPUT(write_nanos)
-     << IOSTATS_CONTEXT_OUTPUT(read_nanos)
-     << IOSTATS_CONTEXT_OUTPUT(range_sync_nanos)
-     << IOSTATS_CONTEXT_OUTPUT(fsync_nanos)
-     << IOSTATS_CONTEXT_OUTPUT(prepare_write_nanos)
-     << IOSTATS_CONTEXT_OUTPUT(logger_nanos);
+  IOSTATS_CONTEXT_OUTPUT(thread_pool_id);
+  IOSTATS_CONTEXT_OUTPUT(bytes_read);
+  IOSTATS_CONTEXT_OUTPUT(bytes_written);
+  IOSTATS_CONTEXT_OUTPUT(open_nanos);
+  IOSTATS_CONTEXT_OUTPUT(allocate_nanos);
+  IOSTATS_CONTEXT_OUTPUT(write_nanos);
+  IOSTATS_CONTEXT_OUTPUT(read_nanos);
+  IOSTATS_CONTEXT_OUTPUT(range_sync_nanos);
+  IOSTATS_CONTEXT_OUTPUT(fsync_nanos);
+  IOSTATS_CONTEXT_OUTPUT(prepare_write_nanos);
+  IOSTATS_CONTEXT_OUTPUT(logger_nanos);
 
   return ss.str();
 }
