@@ -13,7 +13,6 @@
 #include <algorithm>
 #include "db/auto_roll_logger.h"
 #include "port/port.h"
-#include "util/mutexlock.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 #include "rocksdb/db.h"
@@ -275,51 +274,42 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   AutoRollLogger* auto_roll_logger =
       dynamic_cast<AutoRollLogger*>(logger.get());
   ASSERT_TRUE(auto_roll_logger);
-
-  // The test is split into two parts, with the below callback happening between
-  // them:
-  // (1) Before ResetLogger() is reached, the log rolling test code occasionally
-  //    invokes PosixLogger::Flush(). For this part, dependencies should not be
-  //    enforced.
-  // (2) After ResetLogger() has begun, any calls to PosixLogger::Flush() will
-  //    be from threads other than the log rolling thread. We want to only
-  //    enforce dependencies for this part.
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "AutoRollLogger::Logv:BeforeResetLogger", [&](void* arg) {
-        rocksdb::SyncPoint::GetInstance()->LoadDependency({
-            {"PosixLogger::Flush:1",
-             "AutoRollLogger::ResetLogger:BeforeNewLogger"},
-            {"AutoRollLogger::ResetLogger:AfterNewLogger",
-             "PosixLogger::Flush:2"},
-        });
-      });
-
-  port::Mutex flush_thread_mutex;
-  port::CondVar flush_thread_cv{&flush_thread_mutex};
   std::thread flush_thread;
-  // Additionally, to exercise the edge case, we need to ensure the old logger
-  // is used. For this, we pause after pinning the logger until dependencies
-  // have probably been loaded.
-  const int kWaitForDepsSeconds = 1;
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      // Need to pin the old logger before beginning the roll, as rolling grabs
+      // the mutex, which would prevent us from accessing the old logger.
+      {"AutoRollLogger::Flush:PinnedLogger",
+       "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
+      // Need to finish the flush thread init before this callback because the
+      // callback accesses flush_thread.get_id() in order to apply certain sync
+      // points only to the flush thread.
+      {"AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit",
+       "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallbackBegin"},
+      // Need to reset logger at this point in Flush() to exercise a race
+      // condition case, which is executing the flush with the pinned (old)
+      // logger after the roll has cut over to a new logger.
+      {"AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback1",
+       "AutoRollLogger::ResetLogger:BeforeNewLogger"},
+      {"AutoRollLogger::ResetLogger:AfterNewLogger",
+       "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback2"},
+  });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "AutoRollLogger::Flush:PinnedLogger", [&](void* arg) {
-        MutexLock ml{&flush_thread_mutex};
-        while (flush_thread.get_id() == std::thread::id()) {
-          flush_thread_cv.Wait();
-        }
+      "PosixLogger::Flush:BeginCallback", [&](void* arg) {
+        TEST_SYNC_POINT(
+            "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallbackBegin");
         if (std::this_thread::get_id() == flush_thread.get_id()) {
-          Env::Default()->SleepForMicroseconds(kWaitForDepsSeconds * 1000 * 1000);
-          sleep(1);
+          TEST_SYNC_POINT(
+              "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback1");
+          TEST_SYNC_POINT(
+              "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback2");
         }
       });
-
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  {
-    MutexLock ml{&flush_thread_mutex};
-    flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
-    flush_thread_cv.Signal();
-  }
 
+  flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
+  TEST_SYNC_POINT(
+      "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit");
   RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
                         kSampleMessage + ":LogFlushWhileRolling");
   flush_thread.join();
