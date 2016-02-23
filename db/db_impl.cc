@@ -2202,6 +2202,9 @@ Status DBImpl::SyncWAL() {
     status = directories_.GetWalDir()->Fsync();
   }
 
+  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
+  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
+
   {
     InstrumentedMutexLock l(&mutex_);
     MarkLogsSynced(current_log_number, need_log_dir_sync, status);
@@ -2229,7 +2232,8 @@ void DBImpl::MarkLogsSynced(
       ++it;
     }
   }
-  assert(logs_.empty() || (logs_.size() == 1 && !logs_[0].getting_synced));
+  assert(logs_.empty() || logs_[0].number > up_to ||
+         (logs_.size() == 1 && !logs_[0].getting_synced));
   log_sync_cv_.SignalAll();
 }
 

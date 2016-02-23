@@ -2542,6 +2542,36 @@ TEST_F(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_EQ(2, dbfull()->BGCompactionsAllowed());
 }
+
+TEST_F(ColumnFamilyTest, LogSyncConflictFlush) {
+  Open();
+  CreateColumnFamiliesAndReopen({"one", "two"});
+
+  Put(0, "", "");
+  Put(1, "foo", "bar");
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::SyncWAL:BeforeMarkLogsSynced:1",
+        "ColumnFamilyTest::LogSyncConflictFlush:1"},
+       {"ColumnFamilyTest::LogSyncConflictFlush:2",
+        "DBImpl::SyncWAL:BeforeMarkLogsSynced:2"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread thread([&] { db_->SyncWAL(); });
+
+  TEST_SYNC_POINT("ColumnFamilyTest::LogSyncConflictFlush:1");
+  Flush(1);
+  Put(1, "foo", "bar");
+  Flush(1);
+
+  TEST_SYNC_POINT("ColumnFamilyTest::LogSyncConflictFlush:2");
+
+  thread.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  Close();
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
