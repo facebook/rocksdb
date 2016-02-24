@@ -544,6 +544,10 @@ class BackupableDBTest : public testing::Test {
   std::string dbname_;
   std::string backupdir_;
 
+  // logger_ must be above backup_engine_ such that the engine's destructor,
+  // which uses a raw pointer to the logger, executes first.
+  std::shared_ptr<Logger> logger_;
+
   // envs
   Env* env_;
   unique_ptr<MockEnv> mock_env_;
@@ -558,7 +562,6 @@ class BackupableDBTest : public testing::Test {
 
   // options
   Options options_;
-  std::shared_ptr<Logger> logger_;
 
  protected:
   unique_ptr<BackupableDBOptions> backupable_options_;
