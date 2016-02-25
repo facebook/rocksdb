@@ -1103,15 +1103,10 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   for (int i = 0; i <= max_key1; i++) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
-
-  int non_level0_num_files = 0;
-  for (int i = 1; i < options.num_levels; i++) {
-    non_level0_num_files += NumTableFilesAtLevel(i, 1);
-  }
-  ASSERT_EQ(non_level0_num_files, 0);
 
   // Stage 2: reopen with universal compaction, num_levels=4
   options.compaction_style = kCompactionStyleUniversal;
@@ -1125,6 +1120,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   for (int i = max_key1 + 1; i <= max_key2; i++) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
@@ -1155,6 +1151,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   for (int i = max_key2 + 1; i <= max_key3; i++) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
