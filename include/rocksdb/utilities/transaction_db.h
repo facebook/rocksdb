@@ -92,8 +92,6 @@ struct TransactionOptions {
   // will never relinquish any locks it holds.  This could prevent keys from
   // being
   // written by other writers.
-  //
-  // TODO(agiardullo):  Improve performance of checking expiration time.
   int64_t expiration = -1;
 };
 
