@@ -360,6 +360,8 @@ fi
 if test "$USE_SSE"; then
   # if Intel SSE instruction set is supported, set USE_SSE=1
   COMMON_FLAGS="$COMMON_FLAGS -msse -msse4.2 "
+elif [ "$TARGET_ARCHITECTURE" = s390x ]; then
+  COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
 elif test -z "$PORTABLE"; then
   if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
     # Tune for this POWER processor, treating '+' models as base models
