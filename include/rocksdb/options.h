@@ -1399,8 +1399,9 @@ struct ReadOptions {
 
   // Keep the blocks loaded by the iterator pinned in memory as long as the
   // iterator is not deleted, If used when reading from tables created with
-  // BlockBasedTableOptions::use_delta_encoding = false, Iterator::IsKeyPinned()
-  // is guaranteed to return true.
+  // BlockBasedTableOptions::use_delta_encoding = false,
+  // Iterator's property "rocksdb.iterator.is.key.pinned" is guaranteed to
+  // return 1.
   // Default: false
   bool pin_data;
 

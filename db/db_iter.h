@@ -9,6 +9,7 @@
 
 #pragma once
 #include <stdint.h>
+#include <string>
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "db/dbformat.h"
@@ -66,7 +67,7 @@ class ArenaWrappedDBIter : public Iterator {
   void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
   virtual Status PinData();
   virtual Status ReleasePinnedData();
-  virtual bool IsKeyPinned() const override;
+  virtual Status GetProperty(std::string prop_name, std::string* prop) override;
 
  private:
   DBIter* db_iter_;

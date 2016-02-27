@@ -2,6 +2,7 @@
 ## Unreleased
 ### New Features
 * Add CompactionPri::kMinOverlappingRatio, a compaction picking mode friendly to write amplification.
+* Deprecate Iterator::IsKeyPinned() and replace it with Iterator::GetProperty() with prop_name="rocksdb.iterator.is.key.pinned"
 
 ## 4.5.0 (2/5/2016)
 ### Public API Changes

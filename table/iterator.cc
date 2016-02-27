@@ -46,6 +46,17 @@ void Cleanable::RegisterCleanup(CleanupFunction func, void* arg1, void* arg2) {
   c->arg2 = arg2;
 }
 
+Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
+  if (prop == nullptr) {
+    return Status::InvalidArgument("prop is nullptr");
+  }
+  if (prop_name == "rocksdb.iterator.is.key.pinned") {
+    *prop = "0";
+    return Status::OK();
+  }
+  return Status::InvalidArgument("Undentified property.");
+}
+
 namespace {
 class EmptyIterator : public Iterator {
  public:

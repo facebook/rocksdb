@@ -136,9 +136,21 @@ class DBIter: public Iterator {
     }
     return s;
   }
-  virtual bool IsKeyPinned() const override {
-    assert(valid_);
-    return iter_pinned_ && saved_key_.IsKeyPinned();
+
+  virtual Status GetProperty(std::string prop_name,
+                             std::string* prop) override {
+    if (prop == nullptr) {
+      return Status::InvalidArgument("prop is nullptr");
+    }
+    if (prop_name == "rocksdb.iterator.is.key.pinned") {
+      if (valid_) {
+        *prop = (iter_pinned_ && saved_key_.IsKeyPinned()) ? "1" : "0";
+      } else {
+        *prop = "Iterator is not valid.";
+      }
+      return Status::OK();
+    }
+    return Status::InvalidArgument("Undentified property.");
   }
 
   virtual void Next() override;
@@ -850,11 +862,12 @@ inline Slice ArenaWrappedDBIter::key() const { return db_iter_->key(); }
 inline Slice ArenaWrappedDBIter::value() const { return db_iter_->value(); }
 inline Status ArenaWrappedDBIter::status() const { return db_iter_->status(); }
 inline Status ArenaWrappedDBIter::PinData() { return db_iter_->PinData(); }
+inline Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
+                                              std::string* prop) {
+  return db_iter_->GetProperty(prop_name, prop);
+}
 inline Status ArenaWrappedDBIter::ReleasePinnedData() {
   return db_iter_->ReleasePinnedData();
-}
-inline bool ArenaWrappedDBIter::IsKeyPinned() const {
-  return db_iter_->IsKeyPinned();
 }
 void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
                                          void* arg2) {
