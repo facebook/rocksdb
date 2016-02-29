@@ -365,6 +365,8 @@ elif test -z "$PORTABLE"; then
     # Tune for this POWER processor, treating '+' models as base models
     POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
+    COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
   else
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
   fi
