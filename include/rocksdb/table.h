@@ -166,7 +166,7 @@ struct BlockBasedTableOptions {
   // this.
   // This option only affects newly written tables. When reading exising tables,
   // the information about version is read from the footer.
-  uint32_t format_version = 0;
+  uint32_t format_version = 2;
 };
 
 // Table Properties that are specific to block-based table properties.
