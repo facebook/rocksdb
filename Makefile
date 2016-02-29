@@ -84,10 +84,9 @@ endif
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
 OPT += -O2 -fno-omit-frame-pointer
-ifeq (,$(findstring ppc64,$(MACHINE))) # ppc64[le] doesn't support -momit-leaf-frame-pointer
-ifneq ($(MACHINE),armv7l)
+# Skip for archs that don't support -momit-leaf-frame-pointer
+ifeq (,$(shell $(CXX) -fsyntax-only -momit-leaf-frame-pointer -xc /dev/null 2>&1))
 OPT += -momit-leaf-frame-pointer
-endif
 endif
 endif
 
