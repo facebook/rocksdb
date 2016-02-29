@@ -24,6 +24,7 @@
 #include "util/random.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 #include "util/testutil.h"
 #include "util/mock_env.h"
 #include "utilities/backupable/backupable_db_testutil.h"
@@ -1315,6 +1316,33 @@ TEST_F(BackupableDBTest, EnvFailures) {
                                  &backup_engine));
     delete backup_engine;
   }
+}
+
+// Verify manifest can roll while a backup is being created with the old
+// manifest.
+TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
+  DestroyDB(dbname_, Options());
+  options_.max_manifest_file_size = 0;  // always rollover manifest for file add
+  OpenDBAndBackupEngine(true);
+  FillDB(db_.get(), 0, 100);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"BackupEngineImpl::CreateNewBackup:SavedLiveFiles1",
+       "VersionSet::LogAndApply:WriteManifest"},
+      {"VersionSet::LogAndApply:WriteManifestDone",
+       "BackupEngineImpl::CreateNewBackup:SavedLiveFiles2"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread flush_thread{[this]() { ASSERT_OK(db_->Flush(FlushOptions())); }};
+
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+
+  flush_thread.join();
+  CloseDBAndBackupEngine();
+  DestroyDB(dbname_, Options());
+  AssertBackupConsistency(0, 0, 100);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // see https://github.com/facebook/rocksdb/issues/921

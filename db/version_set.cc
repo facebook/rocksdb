@@ -2252,15 +2252,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     if (s.ok() && new_descriptor_log) {
       s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
                          db_options_->disableDataSync ? nullptr : db_directory);
-      if (s.ok() && pending_manifest_file_number_ > manifest_file_number_) {
-        // delete old manifest file
-        Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-            "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
-            manifest_file_number_, pending_manifest_file_number_);
-        // we don't care about an error here, PurgeObsoleteFiles will take care
-        // of it later
-        env_->DeleteFile(DescriptorFileName(dbname_, manifest_file_number_));
-      }
+      // Leave the old file behind since PurgeObsoleteFiles will take care of it
+      // later. It's unsafe to delete now since file deletion may be disabled.
     }
 
     if (s.ok()) {
@@ -2275,6 +2268,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     }
 
     LogFlush(db_options_->info_log);
+    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
     mu->Lock();
   }
 

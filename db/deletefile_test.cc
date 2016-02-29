@@ -37,6 +37,7 @@ class DeleteFileTest : public testing::Test {
   DeleteFileTest() {
     db_ = nullptr;
     env_ = Env::Default();
+    options_.delete_obsolete_files_period_micros = 0;  // always do full purge
     options_.enable_thread_tracking = true;
     options_.write_buffer_size = 1024*1024*1000;
     options_.target_file_size_base = 1024*1024*1000;
