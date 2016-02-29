@@ -612,6 +612,17 @@ Compaction* CompactionPicker::CompactRange(
   if (input_level == 0) {
     level0_compactions_in_progress_.insert(compaction);
   }
+
+  // Creating a compaction influences the compaction score because the score
+  // takes running compactions into account (by skipping files that are already
+  // being compacted). Since we just changed compaction score, we recalculate it
+  // here
+  {  // this piece of code recomputes compaction score
+    CompactionOptionsFIFO dummy_compaction_options_fifo;
+    vstorage->ComputeCompactionScore(mutable_cf_options,
+                                     dummy_compaction_options_fifo);
+  }
+
   return compaction;
 }
 
