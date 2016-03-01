@@ -142,7 +142,7 @@ class DBIter: public Iterator {
     if (prop == nullptr) {
       return Status::InvalidArgument("prop is nullptr");
     }
-    if (prop_name == "rocksdb.iterator.is.key.pinned") {
+    if (prop_name == "rocksdb.iterator.is-key-pinned") {
       if (valid_) {
         *prop = (iter_pinned_ && saved_key_.IsKeyPinned()) ? "1" : "0";
       } else {

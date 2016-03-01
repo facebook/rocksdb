@@ -644,10 +644,10 @@ TEST_F(DBTest, IteratorProperty) {
     iter->SeekToFirst();
     std::string prop_value;
     ASSERT_NOK(iter->GetProperty("non_existing.value", &prop_value));
-    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is.key.pinned", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("0", prop_value);
     iter->Next();
-    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is.key.pinned", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("Iterator is not valid.", prop_value);
   }
   Close();
@@ -9864,7 +9864,7 @@ TEST_F(DBTest, PinnedDataIteratorRandomized) {
         }
         std::string prop_value;
         ASSERT_OK(
-            iter->GetProperty("rocksdb.iterator.is.key.pinned", &prop_value));
+            iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
         ASSERT_EQ("1", prop_value);
         keys_slices.push_back(iter->key());
         true_keys.push_back(true_data.lower_bound(k)->first);
@@ -9882,7 +9882,7 @@ TEST_F(DBTest, PinnedDataIteratorRandomized) {
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         std::string prop_value;
         ASSERT_OK(
-            iter->GetProperty("rocksdb.iterator.is.key.pinned", &prop_value));
+            iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
         ASSERT_EQ("1", prop_value);
         all_keys.push_back(iter->key());
       }
@@ -9903,7 +9903,7 @@ TEST_F(DBTest, PinnedDataIteratorRandomized) {
       for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
         std::string prop_value;
         ASSERT_OK(
-            iter->GetProperty("rocksdb.iterator.is.key.pinned", &prop_value));
+            iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
         ASSERT_EQ("1", prop_value);
         all_keys.push_back(iter->key());
       }
@@ -9976,7 +9976,7 @@ TEST_F(DBTest, PinnedDataIteratorMultipleFiles) {
   std::vector<std::pair<Slice, std::string>> results;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     std::string prop_value;
-    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is.key.pinned", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
     results.emplace_back(iter->key(), iter->value().ToString());
   }
@@ -10031,7 +10031,7 @@ TEST_F(DBTest, PinnedDataIteratorMergeOperator) {
   std::vector<std::pair<Slice, std::string>> results;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     std::string prop_value;
-    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is.key.pinned", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
     results.emplace_back(iter->key(), iter->value().ToString());
   }
@@ -10088,7 +10088,7 @@ TEST_F(DBTest, PinnedDataIteratorReadAfterUpdate) {
   std::vector<std::pair<Slice, std::string>> results;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     std::string prop_value;
-    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is.key.pinned", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
     ASSERT_EQ("1", prop_value);
     results.emplace_back(iter->key(), iter->value().ToString());
   }

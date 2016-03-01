@@ -96,7 +96,7 @@ class Iterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // Property "rocksdb.iterator.is.key.pinned":
+  // Property "rocksdb.iterator.is-key-pinned":
   //   If returning "1", this means that the Slice returned by key() is valid
   //   as long as the iterator is not deleted and ReleasePinnedData() is not
   //   called.
