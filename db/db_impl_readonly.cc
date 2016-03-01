@@ -54,10 +54,11 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
   auto db_iter = NewArenaWrappedDbIterator(
       env_, *cfd->ioptions(), cfd->user_comparator(),
       (read_options.snapshot != nullptr
-           ? reinterpret_cast<const SnapshotImpl*>(
-                read_options.snapshot)->number_
+           ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                 ->number_
            : latest_snapshot),
-      super_version->mutable_cf_options.max_sequential_skip_in_iterations);
+      super_version->mutable_cf_options.max_sequential_skip_in_iterations,
+      super_version->version_number);
   auto internal_iter = NewInternalIterator(
       read_options, cfd, super_version, db_iter->GetArena());
   db_iter->SetIterUnderDBIter(internal_iter);
@@ -81,10 +82,11 @@ Status DBImplReadOnly::NewIterators(
     auto* db_iter = NewArenaWrappedDbIterator(
         env_, *cfd->ioptions(), cfd->user_comparator(),
         (read_options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(
-                  read_options.snapshot)->number_
-            : latest_snapshot),
-        sv->mutable_cf_options.max_sequential_skip_in_iterations);
+             ? reinterpret_cast<const SnapshotImpl*>(read_options.snapshot)
+                   ->number_
+             : latest_snapshot),
+        sv->mutable_cf_options.max_sequential_skip_in_iterations,
+        sv->version_number);
     auto* internal_iter = NewInternalIterator(
         read_options, cfd, sv, db_iter->GetArena());
     db_iter->SetIterUnderDBIter(internal_iter);

@@ -13,18 +13,19 @@
 #include <string>
 #include <limits>
 
-#include "db/filename.h"
 #include "db/dbformat.h"
+#include "db/filename.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "rocksdb/options.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/options.h"
 #include "table/internal_iterator.h"
 #include "util/arena.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -61,7 +62,7 @@ class DBIter: public Iterator {
 
   DBIter(Env* env, const ImmutableCFOptions& ioptions, const Comparator* cmp,
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
-         uint64_t max_sequential_skip_in_iterations,
+         uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
          const Slice* iterate_upper_bound = nullptr,
          bool prefix_same_as_start = false)
       : arena_mode_(arena_mode),
@@ -75,6 +76,7 @@ class DBIter: public Iterator {
         valid_(false),
         current_entry_is_merged_(false),
         statistics_(ioptions.statistics),
+        version_number_(version_number),
         iterate_upper_bound_(iterate_upper_bound),
         prefix_same_as_start_(prefix_same_as_start),
         iter_pinned_(false) {
@@ -142,7 +144,13 @@ class DBIter: public Iterator {
     if (prop == nullptr) {
       return Status::InvalidArgument("prop is nullptr");
     }
-    if (prop_name == "rocksdb.iterator.is-key-pinned") {
+    if (prop_name == "rocksdb.iterator.version-number") {
+      // First try to pass the value returned from inner iterator.
+      if (!iter_->GetProperty(prop_name, prop).ok()) {
+        *prop = ToString(version_number_);
+      }
+      return Status::OK();
+    } else if (prop_name == "rocksdb.iterator.is-key-pinned") {
       if (valid_) {
         *prop = (iter_pinned_ && saved_key_.IsKeyPinned()) ? "1" : "0";
       } else {
@@ -198,6 +206,7 @@ class DBIter: public Iterator {
   bool current_entry_is_merged_;
   Statistics* statistics_;
   uint64_t max_skip_;
+  uint64_t version_number_;
   const Slice* iterate_upper_bound_;
   IterKey prefix_start_;
   bool prefix_same_as_start_;
@@ -830,12 +839,13 @@ Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,
                         InternalIterator* internal_iter,
                         const SequenceNumber& sequence,
                         uint64_t max_sequential_skip_in_iterations,
+                        uint64_t version_number,
                         const Slice* iterate_upper_bound,
                         bool prefix_same_as_start, bool pin_data) {
   DBIter* db_iter =
       new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
-                 false, max_sequential_skip_in_iterations, iterate_upper_bound,
-                 prefix_same_as_start);
+                 false, max_sequential_skip_in_iterations, version_number,
+                 iterate_upper_bound, prefix_same_as_start);
   if (pin_data) {
     db_iter->PinData();
   }
@@ -877,7 +887,7 @@ void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     Env* env, const ImmutableCFOptions& ioptions,
     const Comparator* user_key_comparator, const SequenceNumber& sequence,
-    uint64_t max_sequential_skip_in_iterations,
+    uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     const Slice* iterate_upper_bound, bool prefix_same_as_start,
     bool pin_data) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
@@ -885,7 +895,7 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
   auto mem = arena->AllocateAligned(sizeof(DBIter));
   DBIter* db_iter =
       new (mem) DBIter(env, ioptions, user_key_comparator, nullptr, sequence,
-                       true, max_sequential_skip_in_iterations,
+                       true, max_sequential_skip_in_iterations, version_number,
                        iterate_upper_bound, prefix_same_as_start);
 
   iter->SetDBIter(db_iter);

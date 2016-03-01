@@ -71,6 +71,8 @@ class ForwardIterator : public InternalIterator {
   virtual Slice key() const override;
   virtual Slice value() const override;
   virtual Status status() const override;
+  virtual Status GetProperty(std::string prop_name, std::string* prop) override;
+
   bool TEST_CheckDeletedIters(int* deleted_iters, int* num_iters);
 
  private:
