@@ -3587,8 +3587,16 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     return Status::InvalidArgument(
         "Non zero sequence numbers are not supported");
   }
+
   // Generate a location for the new table
-  meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, file_info->file_size);
+  std::list<uint64_t>::iterator pending_outputs_inserted_elem;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    pending_outputs_inserted_elem = CaptureCurrentFileNumberInPendingOutputs();
+    meta.fd =
+        FileDescriptor(versions_->NewFileNumber(), 0, file_info->file_size);
+  }
+
   std::string db_fname = TableFileName(
       db_options_.db_paths, meta.fd.GetNumber(), meta.fd.GetPathId());
 
@@ -3601,6 +3609,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   } else {
     status = CopyFile(env_, file_info->file_path, db_fname, 0);
   }
+  TEST_SYNC_POINT("DBImpl::AddFile:FileCopied");
   if (!status.ok()) {
     return status;
   }
@@ -3664,6 +3673,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       delete InstallSuperVersionAndScheduleWork(cfd, nullptr,
                                                 mutable_cf_options);
     }
+    ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
   }
 
   if (!status.ok()) {

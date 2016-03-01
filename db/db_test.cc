@@ -9409,6 +9409,58 @@ TEST_F(DBTest, AddExternalSstFile) {
                          kSkipFIFOCompaction));
 }
 
+// This test reporduce a bug that can happen in some cases if the DB started
+// purging obsolete files when we are adding an external sst file.
+// This situation may result in deleting the file while it's being added.
+TEST_F(DBTest, AddExternalSstFilePurgeObsoleteFilesBug) {
+  std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+  env_->CreateDir(sst_files_folder);
+  Options options = CurrentOptions();
+  options.env = env_;
+  const ImmutableCFOptions ioptions(options);
+
+  SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+
+  // file1.sst (0 => 500)
+  std::string sst_file_path = sst_files_folder + "file1.sst";
+  Status s = sst_file_writer.Open(sst_file_path);
+  ASSERT_OK(s);
+  for (int i = 0; i < 500; i++) {
+    std::string k = Key(i);
+    s = sst_file_writer.Add(k, k + "_val");
+    ASSERT_OK(s);
+  }
+
+  ExternalSstFileInfo sst_file_info;
+  s = sst_file_writer.Finish(&sst_file_info);
+  ASSERT_OK(s);
+
+  options.delete_obsolete_files_period_micros = 0;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::AddFile:FileCopied", [&](void* arg) {
+        ASSERT_OK(Put("aaa", "bbb"));
+        ASSERT_OK(Flush());
+        ASSERT_OK(Put("aaa", "xxx"));
+        ASSERT_OK(Flush());
+        db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  s = db_->AddFile(sst_file_path);
+  ASSERT_OK(s);
+
+  for (int i = 0; i < 500; i++) {
+    std::string k = Key(i);
+    std::string v = k + "_val";
+    ASSERT_EQ(Get(k), v);
+  }
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest, AddExternalSstFileNoCopy) {
   std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
   env_->CreateDir(sst_files_folder);
