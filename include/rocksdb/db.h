@@ -444,6 +444,9 @@ class DB {
     //      by iterators or unfinished compactions.
     static const std::string kNumLiveVersions;
 
+    //  "rocksdb.current-version-number" - returns number of curent LSM version.
+    static const std::string kCurrentVersionNumber;
+
     //  "rocksdb.estimate-live-data-size" - returns an estimate of the amount of
     //      live data in bytes.
     static const std::string kEstimateLiveDataSize;
@@ -504,6 +507,7 @@ class DB {
   //  "rocksdb.num-snapshots"
   //  "rocksdb.oldest-snapshot-time"
   //  "rocksdb.num-live-versions"
+  //  "rocksdb.current_version_number"
   //  "rocksdb.estimate-live-data-size"
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.base-level"

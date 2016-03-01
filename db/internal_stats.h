@@ -328,6 +328,8 @@ class InternalStats {
   bool HandleNumSnapshots(uint64_t* value, DBImpl* db, Version* version);
   bool HandleOldestSnapshotTime(uint64_t* value, DBImpl* db, Version* version);
   bool HandleNumLiveVersions(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleCurrentVersionNumber(uint64_t* value, DBImpl* db,
+                                  Version* version);
   bool HandleIsFileDeletionsEnabled(uint64_t* value, DBImpl* db,
                                     Version* version);
   bool HandleBaseLevel(uint64_t* value, DBImpl* db, Version* version);

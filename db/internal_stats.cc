@@ -132,6 +132,7 @@ static const std::string is_file_deletions_enabled =
 static const std::string num_snapshots = "num-snapshots";
 static const std::string oldest_snapshot_time = "oldest-snapshot-time";
 static const std::string num_live_versions = "num-live-versions";
+static const std::string current_version_number = "current_version_number";
 static const std::string estimate_live_data_size = "estimate-live-data-size";
 static const std::string base_level = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
@@ -191,6 +192,8 @@ const std::string DB::Properties::kOldestSnapshotTime =
                       rocksdb_prefix + oldest_snapshot_time;
 const std::string DB::Properties::kNumLiveVersions =
                       rocksdb_prefix + num_live_versions;
+const std::string DB::Properties::kCurrentVersionNumber =
+    rocksdb_prefix + current_version_number;
 const std::string DB::Properties::kEstimateLiveDataSize =
                       rocksdb_prefix + estimate_live_data_size;
 const std::string DB::Properties::kTotalSstFilesSize =
@@ -254,6 +257,8 @@ const std::unordered_map<std::string,
      {false, nullptr, &InternalStats::HandleOldestSnapshotTime}},
     {DB::Properties::kNumLiveVersions,
      {false, nullptr, &InternalStats::HandleNumLiveVersions}},
+    {DB::Properties::kCurrentVersionNumber,
+     {false, nullptr, &InternalStats::HandleCurrentVersionNumber}},
     {DB::Properties::kEstimateLiveDataSize,
      {true, nullptr, &InternalStats::HandleEstimateLiveDataSize}},
     {DB::Properties::kBaseLevel,
@@ -516,6 +521,12 @@ bool InternalStats::HandleOldestSnapshotTime(uint64_t* value, DBImpl* db,
 bool InternalStats::HandleNumLiveVersions(uint64_t* value, DBImpl* db,
                                           Version* version) {
   *value = cfd_->GetNumLiveVersions();
+  return true;
+}
+
+bool InternalStats::HandleCurrentVersionNumber(uint64_t* value, DBImpl* db,
+                                               Version* version) {
+  *value = cfd_->GetSuperVersionNumber();
   return true;
 }
 

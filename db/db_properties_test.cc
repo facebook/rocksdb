@@ -90,6 +90,18 @@ TEST_F(DBPropertiesTest, Empty) {
   } while (ChangeOptions());
 }
 
+TEST_F(DBPropertiesTest, CurrentVersionNumber) {
+  uint64_t v1, v2, v3;
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.current_version_number", &v1));
+  Put("12345678", "");
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.current_version_number", &v2));
+  Flush();
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.current_version_number", &v3));
+
+  ASSERT_EQ(v1, v2);
+  ASSERT_GT(v3, v2);
+}
+
 TEST_F(DBPropertiesTest, GetAggregatedIntPropertyTest) {
   const int kKeySize = 100;
   const int kValueSize = 500;
