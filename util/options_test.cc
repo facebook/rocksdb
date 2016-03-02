@@ -1653,16 +1653,6 @@ TEST_F(OptionsParserTest, DBOptionsAllFieldsSettable) {
   options = new (options_ptr) DBOptions();
   FillWithSpecialChar(options_ptr, sizeof(DBOptions), kDBOptionsBlacklist);
 
-  // Following options are not settable through GetDBOptionsFromString():
-  options->fail_if_options_file_error = false;
-  options->allow_concurrent_memtable_write = false;
-  options->wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
-  options->enable_write_thread_adaptive_yield = true;
-  options->write_thread_slow_yield_usec = true;
-  options->write_thread_max_yield_usec = 1000u;
-  options->access_hint_on_compaction_start = DBOptions::AccessHint::NONE;
-  options->info_log_level = InfoLogLevel::DEBUG_LEVEL;
-
   char* new_options_ptr = new char[sizeof(DBOptions)];
   DBOptions* new_options = new (new_options_ptr) DBOptions();
   FillWithSpecialChar(new_options_ptr, sizeof(DBOptions), kDBOptionsBlacklist);
@@ -1714,7 +1704,15 @@ TEST_F(OptionsParserTest, DBOptionsAllFieldsSettable) {
                              "allow_mmap_reads=false;"
                              "max_log_file_size=4607;"
                              "random_access_max_buffer_size=1048576;"
-                             "advise_random_on_open=true;",
+                             "advise_random_on_open=true;"
+                             "fail_if_options_file_error=false;"
+                             "allow_concurrent_memtable_write=true;"
+                             "wal_recovery_mode=kPointInTimeRecovery;"
+                             "enable_write_thread_adaptive_yield=true;"
+                             "write_thread_slow_yield_usec=5;"
+                             "write_thread_max_yield_usec=1000;"
+                             "access_hint_on_compaction_start=NONE;"
+                             "info_log_level=DEBUG_LEVEL;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

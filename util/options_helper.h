@@ -93,6 +93,9 @@ enum class OptionType {
   kFlushBlockPolicyFactory,
   kChecksumType,
   kEncodingType,
+  kWALRecoveryMode,
+  kAccessHint,
+  kInfoLogLevel,
   kUnknown
 };
 
@@ -143,10 +146,7 @@ Status GetColumnFamilyOptionsFromMapInternal(
 static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     /*
      // not yet supported
-      AccessHint access_hint_on_compaction_start;
       Env* env;
-      InfoLogLevel info_log_level;
-      WALRecoveryMode wal_recovery_mode;
       std::shared_ptr<Cache> row_cache;
       std::shared_ptr<DeleteScheduler> delete_scheduler;
       std::shared_ptr<Logger> info_log;
@@ -289,6 +289,30 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal}},
     {"stats_dump_period_sec",
      {offsetof(struct DBOptions, stats_dump_period_sec), OptionType::kUInt,
+      OptionVerificationType::kNormal}},
+    {"fail_if_options_file_error",
+     {offsetof(struct DBOptions, fail_if_options_file_error),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"allow_concurrent_memtable_write",
+     {offsetof(struct DBOptions, allow_concurrent_memtable_write),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"wal_recovery_mode",
+     {offsetof(struct DBOptions, wal_recovery_mode),
+      OptionType::kWALRecoveryMode, OptionVerificationType::kNormal}},
+    {"enable_write_thread_adaptive_yield",
+     {offsetof(struct DBOptions, enable_write_thread_adaptive_yield),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"write_thread_slow_yield_usec",
+     {offsetof(struct DBOptions, write_thread_slow_yield_usec),
+      OptionType::kUInt64T, OptionVerificationType::kNormal}},
+    {"write_thread_max_yield_usec",
+     {offsetof(struct DBOptions, write_thread_max_yield_usec),
+      OptionType::kUInt64T, OptionVerificationType::kNormal}},
+    {"access_hint_on_compaction_start",
+     {offsetof(struct DBOptions, access_hint_on_compaction_start),
+      OptionType::kAccessHint, OptionVerificationType::kNormal}},
+    {"info_log_level",
+     {offsetof(struct DBOptions, info_log_level), OptionType::kInfoLogLevel,
       OptionVerificationType::kNormal}}};
 
 static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
@@ -557,6 +581,28 @@ static std::unordered_map<std::string, CompactionStyle>
         {"kCompactionStyleUniversal", kCompactionStyleUniversal},
         {"kCompactionStyleFIFO", kCompactionStyleFIFO},
         {"kCompactionStyleNone", kCompactionStyleNone}};
+
+static std::unordered_map<std::string,
+                          WALRecoveryMode> wal_recovery_mode_string_map = {
+    {"kTolerateCorruptedTailRecords",
+     WALRecoveryMode::kTolerateCorruptedTailRecords},
+    {"kAbsoluteConsistency", WALRecoveryMode::kAbsoluteConsistency},
+    {"kPointInTimeRecovery", WALRecoveryMode::kPointInTimeRecovery},
+    {"kSkipAnyCorruptedRecords", WALRecoveryMode::kSkipAnyCorruptedRecords}};
+
+static std::unordered_map<std::string, DBOptions::AccessHint>
+    access_hint_string_map = {{"NONE", DBOptions::AccessHint::NONE},
+                              {"NORMAL", DBOptions::AccessHint::NORMAL},
+                              {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
+                              {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
+
+static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
+    {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
+     {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
+     {"WARN_LEVEL", InfoLogLevel::WARN_LEVEL},
+     {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
+     {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
+     {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
 
 }  // namespace rocksdb
 

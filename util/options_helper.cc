@@ -361,6 +361,18 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<EncodingType>(
           encoding_type_string_map, value,
           reinterpret_cast<EncodingType*>(opt_address));
+    case OptionType::kWALRecoveryMode:
+      return ParseEnum<WALRecoveryMode>(
+          wal_recovery_mode_string_map, value,
+          reinterpret_cast<WALRecoveryMode*>(opt_address));
+    case OptionType::kAccessHint:
+      return ParseEnum<DBOptions::AccessHint>(
+          access_hint_string_map, value,
+          reinterpret_cast<DBOptions::AccessHint*>(opt_address));
+    case OptionType::kInfoLogLevel:
+      return ParseEnum<InfoLogLevel>(
+          info_log_level_string_map, value,
+          reinterpret_cast<InfoLogLevel*>(opt_address));
     default:
       return false;
   }
@@ -498,6 +510,18 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<EncodingType>(
           encoding_type_string_map,
           *reinterpret_cast<const EncodingType*>(opt_address), value);
+    case OptionType::kWALRecoveryMode:
+      return SerializeEnum<WALRecoveryMode>(
+          wal_recovery_mode_string_map,
+          *reinterpret_cast<const WALRecoveryMode*>(opt_address), value);
+    case OptionType::kAccessHint:
+      return SerializeEnum<DBOptions::AccessHint>(
+          access_hint_string_map,
+          *reinterpret_cast<const DBOptions::AccessHint*>(opt_address), value);
+    case OptionType::kInfoLogLevel:
+      return SerializeEnum<InfoLogLevel>(
+          info_log_level_string_map,
+          *reinterpret_cast<const InfoLogLevel*>(opt_address), value);
     default:
       return false;
   }
