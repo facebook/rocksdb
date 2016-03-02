@@ -363,7 +363,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
       size_t num_files = flevel->num_files;
 
       if (num_files == 0) {
-        break;
+        continue;
       }
 
       if (lvl == 0) {
