@@ -232,6 +232,23 @@ class TestEnv : public EnvWrapper {
     return EnvWrapper::GetChildren(dir, r);
   }
 
+  // Some test cases do not actually create the test files (e.g., see
+  // DummyDB::live_files_) - for those cases, we mock those files' attributes
+  // so CreateNewBackup() can get their attributes.
+  void SetFilenamesForMockedAttrs(const std::vector<std::string>& filenames) {
+    filenames_for_mocked_attrs_ = filenames;
+  }
+  Status GetChildrenFileAttributes(
+      const std::string& dir, std::vector<Env::FileAttributes>* r) override {
+    if (filenames_for_mocked_attrs_.size() > 0) {
+      for (const auto& filename : filenames_for_mocked_attrs_) {
+        r->push_back({dir + filename, 10 /* size_bytes */});
+      }
+      return Status::OK();
+    }
+    return EnvWrapper::GetChildrenFileAttributes(dir, r);
+  }
+
   void SetCreateDirIfMissingFailure(bool fail) {
     create_dir_if_missing_failure_ = fail;
   }
@@ -255,6 +272,7 @@ class TestEnv : public EnvWrapper {
   port::Mutex mutex_;
   bool dummy_sequential_file_ = false;
   std::vector<std::string> written_files_;
+  std::vector<std::string> filenames_for_mocked_attrs_;
   uint64_t limit_written_files_ = 1000000;
   uint64_t limit_delete_files_ = 1000000;
 
@@ -780,6 +798,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
       "/shared/00010.sst.tmp",    "/shared/00011.sst.tmp",
@@ -796,6 +815,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   dummy_db_->live_files_ = { "/00010.sst", "/00015.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
   should_have_written = {
@@ -846,6 +866,7 @@ TEST_F(BackupableDBTest, DifferentEnvs) {
   dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
 
   CloseDBAndBackupEngine();
@@ -857,6 +878,7 @@ TEST_F(BackupableDBTest, DifferentEnvs) {
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, Options());
 
+  test_backup_env_->SetFilenamesForMockedAttrs({});
   AssertBackupConsistency(0, 0, 100, 500);
 }
 
