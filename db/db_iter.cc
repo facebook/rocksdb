@@ -144,7 +144,7 @@ class DBIter: public Iterator {
     if (prop == nullptr) {
       return Status::InvalidArgument("prop is nullptr");
     }
-    if (prop_name == "rocksdb.iterator.version-number") {
+    if (prop_name == "rocksdb.iterator.super-version-number") {
       // First try to pass the value returned from inner iterator.
       if (!iter_->GetProperty(prop_name, prop).ok()) {
         *prop = ToString(version_number_);

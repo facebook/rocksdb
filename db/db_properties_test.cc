@@ -92,11 +92,14 @@ TEST_F(DBPropertiesTest, Empty) {
 
 TEST_F(DBPropertiesTest, CurrentVersionNumber) {
   uint64_t v1, v2, v3;
-  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.current_version_number", &v1));
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.current-super-version-number", &v1));
   Put("12345678", "");
-  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.current_version_number", &v2));
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.current-super-version-number", &v2));
   Flush();
-  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.current_version_number", &v3));
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.current-super-version-number", &v3));
 
   ASSERT_EQ(v1, v2);
   ASSERT_GT(v3, v2);

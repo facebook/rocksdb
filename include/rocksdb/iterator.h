@@ -105,8 +105,9 @@ class Iterator : public Cleanable {
   //      - DB tables were created with
   //      BlockBasedTableOptions::use_delta_encoding
   //        set to false.
-  // Property "rocksdb.iterator.version-number":
-  //   Number of LSM version used by the iterator.
+  // Property "rocksdb.iterator.super-version-number":
+  //   LSM version used by the iterator. The same format as DB Property
+  //   kCurrentSuperVersionNumber. See its comment for more information.
   virtual Status GetProperty(std::string prop_name, std::string* prop);
 
  private:

@@ -21,7 +21,8 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Put("", "");
   Iterator* iter1 = db_->NewIterator(ReadOptions());
   std::string prop_value;
-  ASSERT_OK(iter1->GetProperty("rocksdb.iterator.version-number", &prop_value));
+  ASSERT_OK(
+      iter1->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number1 =
       static_cast<uint64_t>(std::atoi(prop_value.c_str()));
 
@@ -29,7 +30,8 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Flush();
 
   Iterator* iter2 = db_->NewIterator(ReadOptions());
-  ASSERT_OK(iter2->GetProperty("rocksdb.iterator.version-number", &prop_value));
+  ASSERT_OK(
+      iter2->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number2 =
       static_cast<uint64_t>(std::atoi(prop_value.c_str()));
 
@@ -38,14 +40,16 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Put("", "");
 
   Iterator* iter3 = db_->NewIterator(ReadOptions());
-  ASSERT_OK(iter3->GetProperty("rocksdb.iterator.version-number", &prop_value));
+  ASSERT_OK(
+      iter3->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number3 =
       static_cast<uint64_t>(std::atoi(prop_value.c_str()));
 
   ASSERT_EQ(version_number2, version_number3);
 
   iter1->SeekToFirst();
-  ASSERT_OK(iter1->GetProperty("rocksdb.iterator.version-number", &prop_value));
+  ASSERT_OK(
+      iter1->GetProperty("rocksdb.iterator.super-version-number", &prop_value));
   uint64_t version_number1_new =
       static_cast<uint64_t>(std::atoi(prop_value.c_str()));
   ASSERT_EQ(version_number1, version_number1_new);

@@ -668,21 +668,21 @@ TEST_F(DBTestTailingIterator, ForwardIteratorVersionProperty) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     iter->Seek("foo");
     std::string prop_value;
-    ASSERT_OK(
-        iter->GetProperty("rocksdb.iterator.version-number", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                &prop_value));
     v1 = static_cast<uint64_t>(std::atoi(prop_value.c_str()));
 
     Put("foo1", "bar1");
     Flush();
 
-    ASSERT_OK(
-        iter->GetProperty("rocksdb.iterator.version-number", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                &prop_value));
     v2 = static_cast<uint64_t>(std::atoi(prop_value.c_str()));
 
     iter->Seek("f");
 
-    ASSERT_OK(
-        iter->GetProperty("rocksdb.iterator.version-number", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                &prop_value));
     v3 = static_cast<uint64_t>(std::atoi(prop_value.c_str()));
 
     ASSERT_EQ(v1, v2);
@@ -693,8 +693,8 @@ TEST_F(DBTestTailingIterator, ForwardIteratorVersionProperty) {
     std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
     iter->Seek("foo");
     std::string prop_value;
-    ASSERT_OK(
-        iter->GetProperty("rocksdb.iterator.version-number", &prop_value));
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                &prop_value));
     v4 = static_cast<uint64_t>(std::atoi(prop_value.c_str()));
   }
   ASSERT_EQ(v3, v4);
