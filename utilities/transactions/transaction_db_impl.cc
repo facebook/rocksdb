@@ -312,7 +312,7 @@ void TransactionDBImpl::ReinitializeTransaction(
   assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
   auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
 
-  txn_impl->Reinitialize(write_options, txn_options);
+  txn_impl->Reinitialize(this, write_options, txn_options);
 }
 
 }  //  namespace rocksdb

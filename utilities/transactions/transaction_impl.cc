@@ -70,6 +70,7 @@ void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
   if (txn_options.set_snapshot) {
     SetSnapshot();
   }
+
   if (expiration_time_ > 0) {
     txn_db_impl_->InsertExpirableTransaction(txn_id_, this);
   }
@@ -87,9 +88,10 @@ void TransactionImpl::Clear() {
   TransactionBaseImpl::Clear();
 }
 
-void TransactionImpl::Reinitialize(const WriteOptions& write_options,
+void TransactionImpl::Reinitialize(TransactionDB* txn_db,
+                                   const WriteOptions& write_options,
                                    const TransactionOptions& txn_options) {
-  TransactionBaseImpl::Reinitialize(write_options);
+  TransactionBaseImpl::Reinitialize(txn_db->GetBaseDB(), write_options);
   Initialize(txn_options);
 }
 

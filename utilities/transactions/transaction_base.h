@@ -32,7 +32,7 @@ class TransactionBaseImpl : public Transaction {
   // Remove pending operations queued in this transaction.
   virtual void Clear();
 
-  void Reinitialize(const WriteOptions& write_options);
+  void Reinitialize(DB* db, const WriteOptions& write_options);
 
   // Called before executing Put, Merge, Delete, and GetForUpdate.  If TryLock
   // returns non-OK, the Put/Merge/Delete/GetForUpdate will be failed.
@@ -235,7 +235,7 @@ class TransactionBaseImpl : public Transaction {
   // Sets a snapshot if SetSnapshotOnNextOperation() has been called.
   void SetSnapshotIfNeeded();
 
-  DB* const db_;
+  DB* db_;
 
   WriteOptions write_options_;
 
@@ -294,7 +294,7 @@ class TransactionBaseImpl : public Transaction {
   // WriteBatchWithIndex.
   // If false, future Put/Merge/Deletes will be inserted directly into the
   // underlying WriteBatch and not indexed in the WriteBatchWithIndex.
-  bool indexing_enabled_ = true;
+  bool indexing_enabled_;
 
   // SetSnapshotOnNextOperation() has been called and the snapshot has not yet
   // been reset.

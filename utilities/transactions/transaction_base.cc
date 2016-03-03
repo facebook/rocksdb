@@ -22,7 +22,8 @@ TransactionBaseImpl::TransactionBaseImpl(DB* db,
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
-      write_batch_(cmp_, 0, true) {}
+      write_batch_(cmp_, 0, true),
+      indexing_enabled_(true) {}
 
 TransactionBaseImpl::~TransactionBaseImpl() {
   // Release snapshot if snapshot is set
@@ -38,10 +39,15 @@ void TransactionBaseImpl::Clear() {
   num_merges_ = 0;
 }
 
-void TransactionBaseImpl::Reinitialize(const WriteOptions& write_options) {
+void TransactionBaseImpl::Reinitialize(DB* db,
+                                       const WriteOptions& write_options) {
   Clear();
+  ClearSnapshot();
+  db_ = db;
   write_options_ = write_options;
   start_time_ = db_->GetEnv()->NowMicros();
+  indexing_enabled_ = true;
+  cmp_ = GetColumnFamilyUserComparator(db_->DefaultColumnFamily());
 }
 
 void TransactionBaseImpl::SetSnapshot() {

@@ -1222,7 +1222,7 @@ TEST_F(TransactionTest, ReinitializeTest) {
 
   // Reinitialize transaction to no long expire
   txn_options.expiration = -1;
-  db->BeginTransaction(write_options, txn_options, txn1);
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
 
   s = txn1->Put("Z", "z");
   ASSERT_OK(s);
@@ -1231,13 +1231,13 @@ TEST_F(TransactionTest, ReinitializeTest) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  db->BeginTransaction(write_options, txn_options, txn1);
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
 
   s = txn1->Put("Z", "zz");
   ASSERT_OK(s);
 
   // Reinitilize txn1 and verify that Z gets unlocked
-  db->BeginTransaction(write_options, txn_options, txn1);
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
 
   Transaction* txn2 = db->BeginTransaction(write_options, txn_options, nullptr);
   s = txn2->Put("Z", "zzz");
@@ -1262,12 +1262,12 @@ TEST_F(TransactionTest, ReinitializeTest) {
   ASSERT_OK(s);
   ASSERT_EQ(value, "zzzz");
 
-  db->BeginTransaction(write_options, txn_options, txn1);
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
   const Snapshot* snapshot = txn1->GetSnapshot();
-  ASSERT_TRUE(snapshot);
+  ASSERT_FALSE(snapshot);
 
   txn_options.set_snapshot = true;
-  db->BeginTransaction(write_options, txn_options, txn1);
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
   snapshot = txn1->GetSnapshot();
   ASSERT_TRUE(snapshot);
 
@@ -1280,8 +1280,9 @@ TEST_F(TransactionTest, ReinitializeTest) {
   ASSERT_OK(s);
 
   txn_options.set_snapshot = false;
-  db->BeginTransaction(write_options, txn_options, txn1);
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
   snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot);
 
   s = txn1->Put("X", "x");
   ASSERT_OK(s);

@@ -38,7 +38,7 @@ class TransactionImpl : public TransactionBaseImpl {
 
   virtual ~TransactionImpl();
 
-  void Reinitialize(const WriteOptions& write_options,
+  void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
 
   Status Commit() override;
