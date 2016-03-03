@@ -101,6 +101,7 @@ LIB_SOURCES =                                                   \
   util/env_posix.cc                                             \
   util/io_posix.cc                                              \
   util/thread_posix.cc                                          \
+  util/transaction_test_util.cc                                 \
   util/sst_file_manager_impl.cc                                     \
   util/file_util.cc                                             \
   util/file_reader_writer.cc                                    \

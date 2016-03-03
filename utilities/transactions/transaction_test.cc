@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+#include <thread>
 
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
@@ -14,9 +15,11 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
 #include "util/logging.h"
+#include "util/random.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "util/transaction_test_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -2978,6 +2981,72 @@ TEST_F(TransactionTest, ExpiredTransactionDataRace1) {
 
   delete txn1;
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+namespace {
+Status TransactionStressTestInserter(TransactionDB* db,
+                                     const size_t num_transactions,
+                                     const size_t num_sets,
+                                     const size_t num_keys_per_set) {
+  size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+  Random64 _rand(seed);
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  txn_options.set_snapshot = true;
+
+  RandomTransactionInserter inserter(&_rand, write_options, read_options,
+                                     num_keys_per_set, num_sets);
+
+  for (size_t t = 0; t < num_transactions; t++) {
+    bool success = inserter.TransactionDBInsert(db, txn_options);
+    if (!success) {
+      // unexpected failure
+      return inserter.GetLastStatus();
+    }
+  }
+
+  // Make sure at least some of the transactions succeeded.  It's ok if
+  // some failed due to write-conflicts.
+  if (inserter.GetFailureCount() > num_transactions / 2) {
+    return Status::TryAgain("Too many transactions failed! " +
+                            std::to_string(inserter.GetFailureCount()) + " / " +
+                            std::to_string(num_transactions));
+  }
+
+  return Status::OK();
+}
+}  // namespace
+
+TEST_F(TransactionTest, TransactionStressTest) {
+  const size_t num_threads = 4;
+  const size_t num_transactions_per_thread = 10000;
+  const size_t num_sets = 3;
+  const size_t num_keys_per_set = 100;
+  // Setting the key-space to be 100 keys should cause enough write-conflicts
+  // to make this test interesting.
+
+  std::vector<std::thread> threads;
+
+  std::function<void()> call_inserter = [&] {
+    ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,
+                                            num_sets, num_keys_per_set));
+  };
+
+  // Create N threads that use RandomTransactionInserter to write
+  // many transactions.
+  for (uint32_t i = 0; i < num_threads; i++) {
+    threads.emplace_back(call_inserter);
+  }
+
+  // Wait for all threads to run
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  // Verify that data is consistent
+  Status s = RandomTransactionInserter::Verify(db, num_sets);
+  ASSERT_OK(s);
 }
 
 }  // namespace rocksdb

@@ -6,12 +6,16 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+#include <thread>
 
 #include "rocksdb/db.h"
-#include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/transaction.h"
+#include "util/crc32c.h"
 #include "util/logging.h"
+#include "util/random.h"
 #include "util/testharness.h"
+#include "util/transaction_test_util.h"
 
 using std::string;
 
@@ -1267,88 +1271,70 @@ TEST_F(OptimisticTransactionTest, UndoGetForUpdateTest) {
   delete txn1;
 }
 
-TEST_F(OptimisticTransactionTest, ReinitializeTest) {
+namespace {
+Status OptimisticTransactionStressTestInserter(OptimisticTransactionDB* db,
+                                               const size_t num_transactions,
+                                               const size_t num_sets,
+                                               const size_t num_keys_per_set) {
+  size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+  Random64 _rand(seed);
   WriteOptions write_options;
   ReadOptions read_options;
   OptimisticTransactionOptions txn_options;
-  string value;
-  Status s;
-
-  Transaction* txn1 = txn_db->BeginTransaction(write_options, txn_options);
-
-  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
-
-  s = txn1->Put("Z", "z");
-  ASSERT_OK(s);
-
-  s = txn1->Commit();
-  ASSERT_OK(s);
-
-  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
-
-  s = txn1->Put("Z", "zz");
-  ASSERT_OK(s);
-
-  // Reinitilize txn1 and verify that zz is not written
-  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
-
-  s = txn1->Commit();
-  ASSERT_OK(s);
-  s = db->Get(read_options, "Z", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "z");
-
-  // Verify snapshots get reinitialized correctly
-  txn1->SetSnapshot();
-  s = txn1->Put("Z", "zzzz");
-  ASSERT_OK(s);
-
-  s = txn1->Commit();
-  ASSERT_OK(s);
-
-  s = db->Get(read_options, "Z", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "zzzz");
-
-  const Snapshot* snapshot = txn1->GetSnapshot();
-  ASSERT_TRUE(snapshot);
-
-  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
-  snapshot = txn1->GetSnapshot();
-  ASSERT_FALSE(snapshot);
-
   txn_options.set_snapshot = true;
-  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
-  snapshot = txn1->GetSnapshot();
-  ASSERT_TRUE(snapshot);
 
-  s = txn1->Put("Z", "a");
+  RandomTransactionInserter inserter(&_rand, write_options, read_options,
+                                     num_keys_per_set, num_sets);
+
+  for (size_t t = 0; t < num_transactions; t++) {
+    bool success = inserter.OptimisticTransactionDBInsert(db, txn_options);
+    if (!success) {
+      // unexpected failure
+      return inserter.GetLastStatus();
+    }
+  }
+
+  // Make sure at least some of the transactions succeeded.  It's ok if
+  // some failed due to write-conflicts.
+  if (inserter.GetFailureCount() > num_transactions / 2) {
+    return Status::TryAgain("Too many transactions failed! " +
+                            std::to_string(inserter.GetFailureCount()) + " / " +
+                            std::to_string(num_transactions));
+  }
+
+  return Status::OK();
+}
+}  // namespace
+
+TEST_F(OptimisticTransactionTest, OptimisticTransactionStressTest) {
+  const size_t num_threads = 4;
+  const size_t num_transactions_per_thread = 10000;
+  const size_t num_sets = 3;
+  const size_t num_keys_per_set = 100;
+  // Setting the key-space to be 100 keys should cause enough write-conflicts
+  // to make this test interesting.
+
+  std::vector<std::thread> threads;
+
+  std::function<void()> call_inserter = [&] {
+    ASSERT_OK(OptimisticTransactionStressTestInserter(
+        txn_db, num_transactions_per_thread, num_sets, num_keys_per_set));
+  };
+
+  // Create N threads that use RandomTransactionInserter to write
+  // many transactions.
+  for (uint32_t i = 0; i < num_threads; i++) {
+    threads.emplace_back(call_inserter);
+  }
+
+  // Wait for all threads to run
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  // Verify that data is consistent
+  Status s = RandomTransactionInserter::Verify(db, num_sets);
   ASSERT_OK(s);
-
-  txn1->Rollback();
-
-  s = txn1->Put("Y", "y");
-  ASSERT_OK(s);
-
-  txn_options.set_snapshot = false;
-  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
-  snapshot = txn1->GetSnapshot();
-  ASSERT_FALSE(snapshot);
-
-  s = txn1->Put("X", "x");
-  ASSERT_OK(s);
-
-  s = txn1->Commit();
-  ASSERT_OK(s);
-
-  s = db->Get(read_options, "Z", &value);
-  ASSERT_OK(s);
-  ASSERT_EQ(value, "zzzz");
-
-  s = db->Get(read_options, "Y", &value);
-  ASSERT_TRUE(s.IsNotFound());
-
-  delete txn1;
 }
 
 }  // namespace rocksdb
