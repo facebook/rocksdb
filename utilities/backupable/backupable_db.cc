@@ -1616,7 +1616,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       std::string abs_path = backup_dir + "/" + filename;
       try {
         size = abs_path_to_size.at(abs_path);
-      } catch (std::out_of_range& e) {
+      } catch (std::out_of_range&) {
         return Status::NotFound("Size missing for pathname: " + abs_path);
       }
     }
