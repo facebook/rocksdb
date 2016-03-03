@@ -27,7 +27,6 @@
 #include "util/sync_point.h"
 #include "util/testutil.h"
 #include "util/mock_env.h"
-#include "utilities/backupable/backupable_db_testutil.h"
 
 namespace rocksdb {
 
@@ -596,8 +595,7 @@ class BackupableDBTestWithParam : public BackupableDBTest,
                                   public testing::WithParamInterface<bool> {
  public:
   BackupableDBTestWithParam() {
-    backupable_options_->share_files_with_checksum =
-        backupable_options_->use_file_size_in_file_name = GetParam();
+    backupable_options_->share_files_with_checksum = GetParam();
   }
 };
 
@@ -745,47 +743,6 @@ TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
 
 INSTANTIATE_TEST_CASE_P(BackupableDBTestWithParam, BackupableDBTestWithParam,
                         ::testing::Bool());
-
-TEST_F(BackupableDBTest, GetFileSizeFromBackupFileName) {
-  uint64_t size = 0;
-
-  ASSERT_TRUE(test::TEST_GetFileSizeFromBackupFileName(
-      "shared_checksum/6580354_1874793674_65806675.sst", &size));
-  ASSERT_EQ(65806675u, size);
-
-  ASSERT_TRUE(test::TEST_GetFileSizeFromBackupFileName(
-      "hdfs://a.b:80/a/b/shared_checksum/6580354_1874793674_85806675.sst",
-      &size));
-  ASSERT_EQ(85806675u, size);
-
-  ASSERT_TRUE(test::TEST_GetFileSizeFromBackupFileName(
-      "6580354_1874793674_65806665.sst", &size));
-  ASSERT_EQ(65806665u, size);
-
-  ASSERT_TRUE(test::TEST_GetFileSizeFromBackupFileName(
-      "private/66/6580354_1874793674_65806666.sst", &size));
-  ASSERT_EQ(65806666u, size);
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "shared_checksum/6580354.sst", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "private/368/6592388.log", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "private/68/MANIFEST-6586581", &size));
-
-  ASSERT_TRUE(
-      !test::TEST_GetFileSizeFromBackupFileName("private/68/CURRENT", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "shared_checksum/6580354_1874793674_65806675.log", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "shared_checksum/6580354_1874793674_65806675", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName("meta/368", &size));
-}
 
 // this will make sure that backup does not copy the same file twice
 TEST_F(BackupableDBTest, NoDoubleCopy) {
