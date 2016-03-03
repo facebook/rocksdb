@@ -141,7 +141,8 @@ CompactionPicker::~CompactionPicker() {}
 
 // Delete this compaction from the list of running compactions.
 void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
-  if (c->start_level() == 0) {
+  if (c->start_level() == 0 ||
+      ioptions_.compaction_style == kCompactionStyleUniversal) {
     level0_compactions_in_progress_.erase(c);
   }
   if (!status.ok()) {
