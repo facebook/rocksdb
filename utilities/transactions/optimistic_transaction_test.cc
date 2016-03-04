@@ -1267,6 +1267,90 @@ TEST_F(OptimisticTransactionTest, UndoGetForUpdateTest) {
   delete txn1;
 }
 
+TEST_F(OptimisticTransactionTest, ReinitializeTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  OptimisticTransactionOptions txn_options;
+  string value;
+  Status s;
+
+  Transaction* txn1 = txn_db->BeginTransaction(write_options, txn_options);
+
+  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Put("Z", "z");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Put("Z", "zz");
+  ASSERT_OK(s);
+
+  // Reinitilize txn1 and verify that zz is not written
+  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "z");
+
+  // Verify snapshots get reinitialized correctly
+  txn1->SetSnapshot();
+  s = txn1->Put("Z", "zzzz");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
+
+  const Snapshot* snapshot = txn1->GetSnapshot();
+  ASSERT_TRUE(snapshot);
+
+  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot);
+
+  txn_options.set_snapshot = true;
+  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+  ASSERT_TRUE(snapshot);
+
+  s = txn1->Put("Z", "a");
+  ASSERT_OK(s);
+
+  txn1->Rollback();
+
+  s = txn1->Put("Y", "y");
+  ASSERT_OK(s);
+
+  txn_options.set_snapshot = false;
+  txn1 = txn_db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot);
+
+  s = txn1->Put("X", "x");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
+
+  s = db->Get(read_options, "Y", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete txn1;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

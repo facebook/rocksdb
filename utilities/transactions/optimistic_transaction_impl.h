@@ -34,6 +34,10 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
 
   virtual ~OptimisticTransactionImpl();
 
+  void Reinitialize(OptimisticTransactionDB* txn_db,
+                    const WriteOptions& write_options,
+                    const OptimisticTransactionOptions& txn_options);
+
   Status Commit() override;
 
   void Rollback() override;
@@ -46,6 +50,8 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
   OptimisticTransactionDB* const txn_db_;
 
   friend class OptimisticTransactionCallback;
+
+  void Initialize(const OptimisticTransactionOptions& txn_options);
 
   // Returns OK if it is safe to commit this transaction.  Returns Status::Busy
   // if there are read or write conflicts that would prevent us from committing

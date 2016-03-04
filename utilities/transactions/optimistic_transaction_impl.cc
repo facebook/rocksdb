@@ -28,9 +28,21 @@ OptimisticTransactionImpl::OptimisticTransactionImpl(
     OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetBaseDB(), write_options), txn_db_(txn_db) {
+  Initialize(txn_options);
+}
+
+void OptimisticTransactionImpl::Initialize(
+    const OptimisticTransactionOptions& txn_options) {
   if (txn_options.set_snapshot) {
     SetSnapshot();
   }
+}
+
+void OptimisticTransactionImpl::Reinitialize(
+    OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
+    const OptimisticTransactionOptions& txn_options) {
+  TransactionBaseImpl::Reinitialize(txn_db->GetBaseDB(), write_options);
+  Initialize(txn_options);
 }
 
 OptimisticTransactionImpl::~OptimisticTransactionImpl() {

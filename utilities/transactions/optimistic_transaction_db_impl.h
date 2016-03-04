@@ -19,14 +19,19 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
 
   ~OptimisticTransactionDBImpl() {}
 
-  Transaction* BeginTransaction(
-      const WriteOptions& write_options,
-      const OptimisticTransactionOptions& txn_options) override;
+  Transaction* BeginTransaction(const WriteOptions& write_options,
+                                const OptimisticTransactionOptions& txn_options,
+                                Transaction* old_txn) override;
 
   DB* GetBaseDB() override { return db_.get(); }
 
  private:
   std::unique_ptr<DB> db_;
+
+  void ReinitializeTransaction(Transaction* txn,
+                               const WriteOptions& write_options,
+                               const OptimisticTransactionOptions& txn_options =
+                                   OptimisticTransactionOptions());
 };
 
 }  //  namespace rocksdb
