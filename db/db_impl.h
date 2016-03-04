@@ -494,10 +494,11 @@ class DBImpl : public DB {
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()
+  //     auto file_num = versions_->NewFileNumber();
   //     <do something>
   //     ReleaseFileNumberFromPendingOutputs(x)
-  // This will protect any temporary files created while <do something> is
-  // executing from being deleted.
+  // This will protect any file with number `file_num` or greater from being
+  // deleted while <do something> is running.
   // -----------
   // This function will capture current file number and append it to
   // pending_outputs_. This will prevent any background process to delete any

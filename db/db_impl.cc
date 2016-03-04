@@ -1386,9 +1386,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
-  meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   auto pending_outputs_inserted_elem =
       CaptureCurrentFileNumberInPendingOutputs();
+  meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
