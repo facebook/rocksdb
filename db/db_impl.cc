@@ -282,6 +282,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 #endif  // ROCKSDB_LITE
       event_logger_(db_options_.info_log.get()),
       bg_work_paused_(0),
+      bg_compaction_paused_(0),
       refitting_level_(false),
       opened_successfully_(false) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
@@ -1889,10 +1890,11 @@ Status DBImpl::CompactFilesImpl(
 
 Status DBImpl::PauseBackgroundWork() {
   InstrumentedMutexLock guard_lock(&mutex_);
-  bg_work_paused_++;
+  bg_compaction_paused_++;
   while (bg_compaction_scheduled_ > 0 || bg_flush_scheduled_ > 0) {
     bg_cv_.Wait();
   }
+  bg_work_paused_++;
   return Status::OK();
 }
 
@@ -1902,7 +1904,11 @@ Status DBImpl::ContinueBackgroundWork() {
     return Status::InvalidArgument();
   }
   assert(bg_work_paused_ > 0);
+  assert(bg_compaction_paused_ > 0);
+  bg_compaction_paused_--;
   bg_work_paused_--;
+  // It's sufficient to check just bg_work_paused_ here since
+  // bg_work_paused_ is always no greater than bg_compaction_paused_
   if (bg_work_paused_ == 0) {
     MaybeScheduleFlushOrCompaction();
   }
@@ -2483,6 +2489,11 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       bg_flush_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
     }
+  }
+
+  if (bg_compaction_paused_ > 0) {
+    // we paused the background compaction
+    return;
   }
 
   if (HasExclusiveManualCompaction()) {
