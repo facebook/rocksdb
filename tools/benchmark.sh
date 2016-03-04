@@ -8,6 +8,14 @@ if [ $# -ne 1 ]; then
   exit 0
 fi
 
+# Make it easier to run only the compaction test. Getting valid data requires
+# a number of iterations and having an ability to run the test separately from
+# rest of the benchmarks helps.
+if [ "$COMPACTION_TEST" == "1" -a "$1" != "universal_compaction" ]; then
+  echo "Skipping $1 because it's not a compaction test."
+  exit 0
+fi
+
 # size constants
 K=1024
 M=$((1024 * K))
@@ -104,6 +112,23 @@ params_bulkload="$const_params --max_background_compactions=16 --max_background_
                  --level0_slowdown_writes_trigger=$((10 * M)) \
                  --level0_stop_writes_trigger=$((10 * M))"
 
+#
+# Tune values for level and universal compaction.
+# For universal compaction, these level0_* options mean total sorted of runs in
+# LSM. In level-based compaction, it means number of L0 files.
+#
+params_level_compact="$const_params --max_background_compactions=16 \
+                --max_background_flushes=7 \
+                --level0_file_num_compaction_trigger=4 \
+                --level0_slowdown_writes_trigger=16 \
+                --level0_stop_writes_trigger=20"
+
+params_univ_compact="$const_params --max_background_compactions=16 \
+                --max_background_flushes=7 \
+                --level0_file_num_compaction_trigger=8 \
+                --level0_slowdown_writes_trigger=16 \
+                --level0_stop_writes_trigger=20"
+
 function summarize_result {
   test_out=$1
   test_name=$2
@@ -162,29 +187,64 @@ function run_bulkload {
   eval $cmd
 }
 
-function run_univ_compaction_worker {
-  # Worker function intended to be called from run_univ_compaction.
-  echo -e "\nCompacting ...\n"
+function run_manual_compaction_worker {
+  # This runs with a vector memtable and the WAL disabled to load faster.
+  # It is still crash safe and the client can discover where to restart a
+  # load after a crash. I think this is a good way to load.
+  echo "Bulk loading $num_keys random keys for manual compaction."
 
-  compact_output_file=$output_dir/benchmark_univ_compact_sub_$3.t${num_threads}.s${syncval}.log
+  fillrandom_output_file=$output_dir/benchmark_man_compact_fillrandom_$3.log
+  man_compact_output_log=$output_dir/benchmark_man_compact_$3.log
 
-  # The essence of the command is borrowed from run_change overwrite with
-  # compaction specific options being added.
-  cmd="./db_bench --benchmarks=overwrite \
-       --use_existing_db=1 \
-       --sync=$syncval \
-       $params_w \
+  if [ "$2" == "1" ]; then
+    extra_params=$params_univ_compact
+  else
+    extra_params=$params_level_compact
+  fi
+
+  # Make sure that fillrandom uses the same compaction options as compact.
+  cmd="./db_bench --benchmarks=fillrandom \
+       --use_existing_db=0 \
+       --disable_auto_compactions=0 \
+       --sync=0 \
+       $extra_params \
        --threads=$num_threads \
-       --merge_operator=\"put\" \
-       --seed=$( date +%s ) \
        --compaction_measure_io_stats=$1 \
        --compaction_style=$2 \
        --subcompactions=$3 \
-       2>&1 | tee -a $compact_output_file"
-  echo $cmd | tee $compact_output_file
+       --memtablerep=vector \
+       --disable_wal=1 \
+       --seed=$( date +%s ) \
+       2>&1 | tee -a $fillrandom_output_file"
+
+  echo $cmd | tee $fillrandom_output_file
   eval $cmd
 
-  summarize_result $compact_output_file univ_compact_sub_comp_$3 overwrite
+  summarize_result $fillrandom_output_file man_compact_fillrandom_$3 fillrandom
+
+  echo "Compacting with $3 subcompactions specified ..."
+
+  # This is the part we're really interested in. Given that compact benchmark
+  # doesn't output regular statistics then we'll just use the time command to
+  # measure how long this step takes.
+  cmd="{ \
+       time ./db_bench --benchmarks=compact \
+       --use_existing_db=1 \
+       --disable_auto_compactions=0 \
+       --sync=0 \
+       $extra_params \
+       --threads=$num_threads \
+       --compaction_measure_io_stats=$1 \
+       --compaction_style=$2 \
+       --subcompactions=$3 \
+       ;}
+       2>&1 | tee -a $man_compact_output_log"
+
+  echo $cmd | tee $man_compact_output_log
+  eval $cmd
+
+  # Can't use summarize_result here. One way to analyze the results is to run
+  # "grep real" on the resulting log files.
 }
 
 function run_univ_compaction {
@@ -198,14 +258,16 @@ function run_univ_compaction {
   # by allowing the usage of { 1, 2, 4, 8, 16 } threads for different runs.
   subcompactions=("1" "2" "4" "8" "16")
 
-  # Have a separate suffix for each experiment so that separate results will be
-  # persisted.
+  # Do the real work of running various experiments.
+
+  # Run the compaction benchmark which is based on bulkload. It pretty much
+  # consists of running manual compaction with different number of subcompaction
+  # threads.
   log_suffix=1
 
-  # Do the real work of running various experiments.
   for ((i=0; i < ${#subcompactions[@]}; i++))
   do
-    run_univ_compaction_worker $io_stats $compaction_style ${subcompactions[$i]} $log_suffix
+    run_manual_compaction_worker $io_stats $compaction_style ${subcompactions[$i]} $log_suffix
     ((log_suffix++))
   done
 }

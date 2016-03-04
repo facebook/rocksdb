@@ -267,7 +267,7 @@ done
 ###### Universal compaction tests.
 
 # Use a single thread to reduce the variability in the benchmark.
-env $ARGS NUM_THREADS=1 ./tools/benchmark.sh universal_compaction
+env $ARGS COMPACTION_TEST=1 NUM_THREADS=1 ./tools/benchmark.sh universal_compaction
 
 if [[ $skip_low_pri_tests != 1 ]]; then
   echo bulkload > $output_dir/report2.txt
@@ -354,9 +354,5 @@ if [[ $skip_low_pri_tests != 1 ]]; then
   head -1 $output_dir/report.txt >> $output_dir/report2.txt
   grep revrangewhilemerg $output_dir/report.txt >> $output_dir/report2.txt
 fi
-
-echo universal_compaction >> $output_dir/report2.txt
-head -1 $output_dir/report.txt >> $output_dir/report2.txt
-grep univ_compact $output_dir/report.txt >> $output_dir/report2.txt
 
 cat $output_dir/report2.txt
