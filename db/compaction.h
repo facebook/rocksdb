@@ -138,6 +138,8 @@ class Compaction {
 
   // Clear all files to indicate that they are not being compacted
   // Delete this compaction from the list of running compactions.
+  //
+  // Requirement: DB mutex held
   void ReleaseCompactionFiles(Status status);
 
   // Returns the summary of the compaction in "output" with maximum "len"

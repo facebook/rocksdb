@@ -83,6 +83,8 @@ class CompactionPicker {
 #endif  // ROCKSDB_LITE
 
   // Free up the files that participated in a compaction
+  //
+  // Requirement: DB mutex held
   void ReleaseCompactionFiles(Compaction* c, Status status);
 
   // Returns true if any one of the specified files are being compacted
