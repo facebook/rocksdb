@@ -98,15 +98,21 @@ void ReleaseCachedEntry(void* arg, void* h) {
   cache->Release(handle);
 }
 
-Slice GetCacheKey(const char* cache_key_prefix, size_t cache_key_prefix_size,
-                  const BlockHandle& handle, char* cache_key) {
+Slice GetCacheKeyFromOffset(const char* cache_key_prefix,
+                            size_t cache_key_prefix_size, uint64_t offset,
+                            char* cache_key) {
   assert(cache_key != nullptr);
   assert(cache_key_prefix_size != 0);
   assert(cache_key_prefix_size <= kMaxCacheKeyPrefixSize);
   memcpy(cache_key, cache_key_prefix, cache_key_prefix_size);
-  char* end =
-      EncodeVarint64(cache_key + cache_key_prefix_size, handle.offset());
+  char* end = EncodeVarint64(cache_key + cache_key_prefix_size, offset);
   return Slice(cache_key, static_cast<size_t>(end - cache_key));
+}
+
+Slice GetCacheKey(const char* cache_key_prefix, size_t cache_key_prefix_size,
+                  const BlockHandle& handle, char* cache_key) {
+  return GetCacheKeyFromOffset(cache_key_prefix, cache_key_prefix_size,
+                               handle.offset(), cache_key);
 }
 
 Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
@@ -359,6 +365,8 @@ struct BlockBasedTable::Rep {
   size_t cache_key_prefix_size = 0;
   char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size = 0;
+  uint64_t dummy_index_reader_offset =
+      0;  // ID that is unique for the block cache.
 
   // Footer contains the fixed table information
   Footer footer;
@@ -415,13 +423,16 @@ struct BlockBasedTable::CachableEntry {
 };
 
 // Helper function to setup the cache key's prefix for the Table.
-void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
+void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep, uint64_t file_size) {
   assert(kMaxCacheKeyPrefixSize >= 10);
   rep->cache_key_prefix_size = 0;
   rep->compressed_cache_key_prefix_size = 0;
   if (rep->table_options.block_cache != nullptr) {
     GenerateCachePrefix(rep->table_options.block_cache.get(), rep->file->file(),
                         &rep->cache_key_prefix[0], &rep->cache_key_prefix_size);
+    // Create dummy offset of index reader which is beyond the file size.
+    rep->dummy_index_reader_offset =
+        file_size + rep->table_options.block_cache->NewId();
   }
   if (rep->table_options.block_cache_compressed != nullptr) {
     GenerateCachePrefix(rep->table_options.block_cache_compressed.get(),
@@ -510,7 +521,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   rep->footer = footer;
   rep->index_type = table_options.index_type;
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
-  SetupCacheKeyPrefix(rep);
+  SetupCacheKeyPrefix(rep, file_size);
   unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
 
   // Read meta index
@@ -935,8 +946,9 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   bool no_io = read_options.read_tier == kBlockCacheTier;
   Cache* block_cache = rep_->table_options.block_cache.get();
   char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
-  auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
-                         rep_->footer.index_handle(), cache_key);
+  auto key =
+      GetCacheKeyFromOffset(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
+                            rep_->dummy_index_reader_offset, cache_key);
   Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle =
       GetEntryFromCache(block_cache, key, BLOCK_CACHE_INDEX_MISS,

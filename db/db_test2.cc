@@ -58,6 +58,25 @@ TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   delete iter2;
   delete iter3;
 }
+
+TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Put(1, "a", "begin");
+  Put(1, "z", "end");
+  ASSERT_OK(Flush(1));
+  TryReopenWithColumnFamilies({"default", "pikachu"}, options);
+
+  std::string value;
+  value = Get(1, "a");
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

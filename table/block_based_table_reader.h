@@ -207,7 +207,7 @@ class BlockBasedTable : public TableReader {
   // Create the filter from the filter block.
   static FilterBlockReader* ReadFilter(Rep* rep, size_t* filter_size = nullptr);
 
-  static void SetupCacheKeyPrefix(Rep* rep);
+  static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 
   explicit BlockBasedTable(Rep* rep)
       : rep_(rep), compaction_optimized_(false) {}
