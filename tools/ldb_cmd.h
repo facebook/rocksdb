@@ -378,7 +378,7 @@ private:
    */
   bool StringToBool(string val) {
     std::transform(val.begin(), val.end(), val.begin(),
-                   [](char ch) -> char { return (char)::tolower(ch); });
+                   [](char ch)->char { return (char)::tolower(ch); });
 
     if (val == "true") {
       return true;
