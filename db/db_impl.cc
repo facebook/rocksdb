@@ -1844,6 +1844,17 @@ Status DBImpl::CompactFilesImpl(
                  // support for CompactFiles, we should have CompactFiles API
                  // pass a pointer of CompactionJobStats as the out-value
                  // instead of using EventListener.
+
+  // Creating a compaction influences the compaction score because the score
+  // takes running compactions into account (by skipping files that are already
+  // being compacted). Since we just changed compaction score, we recalculate it
+  // here.
+  {
+    CompactionOptionsFIFO dummy_compaction_options_fifo;
+    version->storage_info()->ComputeCompactionScore(
+        *c->mutable_cf_options(), dummy_compaction_options_fifo);
+  }
+
   compaction_job.Prepare();
 
   mutex_.Unlock();
