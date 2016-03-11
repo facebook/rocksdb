@@ -33,6 +33,8 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_HIT,
   // # of blocks added to block cache.
   BLOCK_CACHE_ADD,
+  // # of failures when adding blocks to block cache.
+  BLOCK_CACHE_ADD_FAILURES,
   // # of times cache miss when accessing index block from block cache.
   BLOCK_CACHE_INDEX_MISS,
   // # of times cache hit when accessing index block from block cache.
@@ -140,8 +142,12 @@ enum Tickers : uint32_t {
   GET_UPDATES_SINCE_CALLS,
   BLOCK_CACHE_COMPRESSED_MISS,  // miss in the compressed block cache
   BLOCK_CACHE_COMPRESSED_HIT,   // hit in the compressed block cache
-  WAL_FILE_SYNCED,              // Number of times WAL sync is done
-  WAL_FILE_BYTES,               // Number of bytes written to WAL
+  // Number of blocks added to comopressed block cache
+  BLOCK_CACHE_COMPRESSED_ADD,
+  // Number of failures when adding blocks to compressed block cache
+  BLOCK_CACHE_COMPRESSED_ADD_FAILURES,
+  WAL_FILE_SYNCED,  // Number of times WAL sync is done
+  WAL_FILE_BYTES,   // Number of bytes written to WAL
 
   // Writes can be processed by requesting thread or by the thread at the
   // head of the writers queue.
@@ -176,6 +182,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_MISS, "rocksdb.block.cache.miss"},
     {BLOCK_CACHE_HIT, "rocksdb.block.cache.hit"},
     {BLOCK_CACHE_ADD, "rocksdb.block.cache.add"},
+    {BLOCK_CACHE_ADD_FAILURES, "rocksdb.block.cache.add.failures"},
     {BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss"},
     {BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit"},
     {BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss"},
@@ -227,6 +234,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls"},
     {BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss"},
     {BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit"},
+    {BLOCK_CACHE_COMPRESSED_ADD, "rocksdb.block.cachecompressed.add"},
+    {BLOCK_CACHE_COMPRESSED_ADD_FAILURES,
+     "rocksdb.block.cachecompressed.add.failures"},
     {WAL_FILE_SYNCED, "rocksdb.wal.synced"},
     {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
     {WRITE_DONE_BY_SELF, "rocksdb.write.self"},

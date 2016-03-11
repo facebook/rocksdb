@@ -740,11 +740,16 @@ Status BlockBasedTable::GetDataBlockFromCache(
     assert(block->value->compression_type() == kNoCompression);
     if (block_cache != nullptr && block->value->cachable() &&
         read_options.fill_cache) {
-      block->cache_handle = block_cache->Insert(block_cache_key, block->value,
-                                                block->value->usable_size(),
-                                                &DeleteCachedEntry<Block>);
-      assert(reinterpret_cast<Block*>(
-                 block_cache->Value(block->cache_handle)) == block->value);
+      s = block_cache->Insert(
+          block_cache_key, block->value, block->value->usable_size(),
+          &DeleteCachedEntry<Block>, &(block->cache_handle));
+      if (s.ok()) {
+        RecordTick(statistics, BLOCK_CACHE_ADD);
+      } else {
+        RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
+        delete block->value;
+        block->value = nullptr;
+      }
     }
   }
 
@@ -784,27 +789,37 @@ Status BlockBasedTable::PutDataBlockToCache(
   // Release the hold on the compressed cache entry immediately.
   if (block_cache_compressed != nullptr && raw_block != nullptr &&
       raw_block->cachable()) {
-    auto cache_handle = block_cache_compressed->Insert(
-        compressed_block_cache_key, raw_block, raw_block->usable_size(),
-        &DeleteCachedEntry<Block>);
-    block_cache_compressed->Release(cache_handle);
-    RecordTick(statistics, BLOCK_CACHE_COMPRESSED_MISS);
-    // Avoid the following code to delete this cached block.
-    raw_block = nullptr;
+    s = block_cache_compressed->Insert(compressed_block_cache_key, raw_block,
+                                       raw_block->usable_size(),
+                                       &DeleteCachedEntry<Block>);
+    if (s.ok()) {
+      // Avoid the following code to delete this cached block.
+      raw_block = nullptr;
+      RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD);
+    } else {
+      RecordTick(statistics, BLOCK_CACHE_COMPRESSED_ADD_FAILURES);
+    }
   }
   delete raw_block;
 
   // insert into uncompressed block cache
   assert((block->value->compression_type() == kNoCompression));
   if (block_cache != nullptr && block->value->cachable()) {
-    block->cache_handle = block_cache->Insert(block_cache_key, block->value,
-                                              block->value->usable_size(),
-                                              &DeleteCachedEntry<Block>);
-    RecordTick(statistics, BLOCK_CACHE_ADD);
-    RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
-               block->value->usable_size());
-    assert(reinterpret_cast<Block*>(block_cache->Value(block->cache_handle)) ==
-           block->value);
+    s = block_cache->Insert(block_cache_key, block->value,
+                            block->value->usable_size(),
+                            &DeleteCachedEntry<Block>, &(block->cache_handle));
+    if (s.ok()) {
+      assert(block->cache_handle != nullptr);
+      RecordTick(statistics, BLOCK_CACHE_ADD);
+      RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
+                 block->value->usable_size());
+      assert(reinterpret_cast<Block*>(
+                 block_cache->Value(block->cache_handle)) == block->value);
+    } else {
+      RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
+      delete block->value;
+      block->value = nullptr;
+    }
   }
 
   return s;
@@ -891,10 +906,17 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     filter = ReadFilter(rep_, &filter_size);
     if (filter != nullptr) {
       assert(filter_size > 0);
-      cache_handle = block_cache->Insert(key, filter, filter_size,
-                                         &DeleteCachedEntry<FilterBlockReader>);
-      RecordTick(statistics, BLOCK_CACHE_ADD);
-      RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter_size);
+      Status s = block_cache->Insert(key, filter, filter_size,
+                                     &DeleteCachedEntry<FilterBlockReader>,
+                                     &cache_handle);
+      if (s.ok()) {
+        RecordTick(statistics, BLOCK_CACHE_ADD);
+        RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter_size);
+      } else {
+        RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
+        delete filter;
+        return CachableEntry<FilterBlockReader>();
+      }
     }
   }
 
@@ -937,10 +959,18 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
     // Create index reader and put it in the cache.
     Status s;
     s = CreateIndexReader(&index_reader);
+    if (s.ok()) {
+      s = block_cache->Insert(key, index_reader, index_reader->usable_size(),
+                              &DeleteCachedEntry<IndexReader>, &cache_handle);
+    }
 
-    if (!s.ok()) {
+    if (s.ok()) {
+      RecordTick(statistics, BLOCK_CACHE_ADD);
+      RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
+                 index_reader->usable_size());
+    } else {
+      RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       // make sure if something goes wrong, index_reader shall remain intact.
-      assert(index_reader == nullptr);
       if (input_iter != nullptr) {
         input_iter->SetStatus(s);
         return input_iter;
@@ -949,12 +979,6 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
       }
     }
 
-    cache_handle =
-        block_cache->Insert(key, index_reader, index_reader->usable_size(),
-                            &DeleteCachedEntry<IndexReader>);
-    RecordTick(statistics, BLOCK_CACHE_ADD);
-    RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
-               index_reader->usable_size());
   }
 
   assert(cache_handle);
@@ -1036,7 +1060,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
   }
 
   // Didn't get any data from block caches.
-  if (block.value == nullptr) {
+  if (s.ok() && block.value == nullptr) {
     if (no_io) {
       // Could not read from block_cache and can't do IO
       if (input_iter != nullptr) {
@@ -1055,7 +1079,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
   }
 
   InternalIterator* iter;
-  if (block.value != nullptr) {
+  if (s.ok() && block.value != nullptr) {
     iter = block.value->NewIterator(&rep->internal_comparator, input_iter);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,

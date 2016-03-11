@@ -338,6 +338,7 @@ set(TESTS
         db/db_tailing_iter_test.cc
         db/db_test.cc
         db/db_test2.cc
+        db/db_block_cache_test.cc
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
         db/dbformat_test.cc
