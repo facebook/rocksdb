@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <iostream>
 
+#include "db/db_impl.h"
 #include "db/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -1318,10 +1319,22 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
 
   flush_thread.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  // The last manifest roll would've already been cleaned up by the full scan
+  // that happens when CreateNewBackup invokes EnableFileDeletions. We need to
+  // trigger another roll to verify non-full scan purges stale manifests.
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_.get());
+  std::string prev_manifest_path =
+      DescriptorFileName(dbname_, db_impl->TEST_Current_Manifest_FileNo());
+  FillDB(db_.get(), 0, 100);
+  ASSERT_OK(env_->FileExists(prev_manifest_path));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_TRUE(env_->FileExists(prev_manifest_path).IsNotFound());
+
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, Options());
   AssertBackupConsistency(0, 0, 100);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // see https://github.com/facebook/rocksdb/issues/921

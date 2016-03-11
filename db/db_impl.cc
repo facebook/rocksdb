@@ -572,6 +572,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // Get obsolete files.  This function will also update the list of
   // pending files in VersionSet().
   versions_->GetObsoleteFiles(&job_context->sst_delete_files,
+                              &job_context->manifest_delete_files,
                               job_context->min_pending_output);
 
   // store the current filenum, lognum, etc
@@ -689,9 +690,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
   }
 
   auto candidate_files = state.full_scan_candidate_files;
-  candidate_files.reserve(candidate_files.size() +
-                          state.sst_delete_files.size() +
-                          state.log_delete_files.size());
+  candidate_files.reserve(
+      candidate_files.size() + state.sst_delete_files.size() +
+      state.log_delete_files.size() + state.manifest_delete_files.size());
   // We may ignore the dbname when generating the file names.
   const char* kDumbDbName = "";
   for (auto file : state.sst_delete_files) {
@@ -706,6 +707,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       candidate_files.emplace_back(LogFileName(kDumbDbName, file_num).substr(1),
                                    0);
     }
+  }
+  for (const auto& filename : state.manifest_delete_files) {
+    candidate_files.emplace_back(filename, 0);
   }
 
   // dedup state.candidate_files so we don't try to delete the same
