@@ -829,7 +829,8 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
 
   // Delete old info log files.
   size_t old_info_log_file_count = old_info_log_files.size();
-  if (old_info_log_file_count >= db_options_.keep_log_file_num) {
+  if (old_info_log_file_count != 0 &&
+      old_info_log_file_count >= db_options_.keep_log_file_num) {
     std::sort(old_info_log_files.begin(), old_info_log_files.end());
     size_t end = old_info_log_file_count - db_options_.keep_log_file_num;
     for (unsigned int i = 0; i <= end; i++) {
