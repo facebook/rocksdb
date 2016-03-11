@@ -703,7 +703,6 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
 
   if (type != kNoCompression && block_cache_compressed != nullptr) {
 
-    Cache::Handle* cache_handle = nullptr;
     size_t size = block_contents.size();
 
     std::unique_ptr<char[]> ubuf(new char[size + 1]);
@@ -723,9 +722,8 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
               (end - r->compressed_cache_key_prefix));
 
     // Insert into compressed block cache.
-    cache_handle = block_cache_compressed->Insert(
-        key, block, block->usable_size(), &DeleteCachedBlock);
-    block_cache_compressed->Release(cache_handle);
+    block_cache_compressed->Insert(key, block, block->usable_size(),
+                                   &DeleteCachedBlock);
 
     // Invalidate OS cache.
     r->file->InvalidateCache(static_cast<size_t>(r->offset), size);

@@ -142,8 +142,7 @@ class CacheBench {
       // Cast uint64* to be char*, data would be copied to cache
       Slice key(reinterpret_cast<char*>(&rand_key), 8);
       // do insert
-      auto handle = cache_->Insert(key, new char[10], 1, &deleter);
-      cache_->Release(handle);
+      cache_->Insert(key, new char[10], 1, &deleter);
     }
   }
 
@@ -221,8 +220,7 @@ class CacheBench {
       int32_t prob_op = thread->rnd.Uniform(100);
       if (prob_op >= 0 && prob_op < FLAGS_insert_percent) {
         // do insert
-        auto handle = cache_->Insert(key, new char[10], 1, &deleter);
-        cache_->Release(handle);
+        cache_->Insert(key, new char[10], 1, &deleter);
       } else if (prob_op -= FLAGS_insert_percent &&
                  prob_op < FLAGS_lookup_percent) {
         // do lookup

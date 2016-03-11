@@ -143,8 +143,12 @@ Status TableCache::FindTable(const EnvOptions& env_options,
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
-      *handle = cache_->Insert(key, table_reader.release(), 1,
-                               &DeleteEntry<TableReader>);
+      s = cache_->Insert(key, table_reader.get(), 1, &DeleteEntry<TableReader>,
+                         handle);
+      if (s.ok()) {
+        // Release ownership of table reader.
+        table_reader.release();
+      }
     }
   }
   return s;
@@ -285,9 +289,8 @@ Status TableCache::Get(const ReadOptions& options,
     size_t charge =
         row_cache_key.Size() + row_cache_entry->size() + sizeof(std::string);
     void* row_ptr = new std::string(std::move(*row_cache_entry));
-    auto row_handle = ioptions_.row_cache->Insert(
-        row_cache_key.GetKey(), row_ptr, charge, &DeleteEntry<std::string>);
-    ioptions_.row_cache->Release(row_handle);
+    ioptions_.row_cache->Insert(row_cache_key.GetKey(), row_ptr, charge,
+                                &DeleteEntry<std::string>);
   }
 #endif  // ROCKSDB_LITE
 
