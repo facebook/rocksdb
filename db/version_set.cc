@@ -2254,6 +2254,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
                          db_options_->disableDataSync ? nullptr : db_directory);
       // Leave the old file behind since PurgeObsoleteFiles will take care of it
       // later. It's unsafe to delete now since file deletion may be disabled.
+      obsolete_manifests_.emplace_back(
+          DescriptorFileName("", manifest_file_number_));
     }
 
     if (s.ok()) {
@@ -3388,7 +3390,10 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 }
 
 void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files,
+                                  std::vector<std::string>* manifest_filenames,
                                   uint64_t min_pending_output) {
+  assert(manifest_filenames->empty());
+  obsolete_manifests_.swap(*manifest_filenames);
   std::vector<FileMetaData*> pending_files;
   for (auto f : obsolete_files_) {
     if (f->fd.GetNumber() < min_pending_output) {

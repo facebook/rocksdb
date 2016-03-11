@@ -22,9 +22,9 @@ class MemTable;
 struct JobContext {
   inline bool HaveSomethingToDelete() const {
     return full_scan_candidate_files.size() || sst_delete_files.size() ||
-           log_delete_files.size() || new_superversion != nullptr ||
-           superversions_to_free.size() > 0 || memtables_to_free.size() > 0 ||
-           logs_to_free.size() > 0;
+           log_delete_files.size() || manifest_delete_files.size() ||
+           new_superversion != nullptr || superversions_to_free.size() > 0 ||
+           memtables_to_free.size() > 0 || logs_to_free.size() > 0;
   }
 
   // Structure to store information for candidate files to delete.
@@ -55,6 +55,9 @@ struct JobContext {
 
   // a list of log files that we need to delete
   std::vector<uint64_t> log_delete_files;
+
+  // a list of manifest files that we need to delete
+  std::vector<std::string> manifest_delete_files;
 
   // a list of memtables to be free
   autovector<MemTable*> memtables_to_free;

@@ -24,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -697,6 +698,7 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files,
+                        std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
@@ -758,6 +760,7 @@ class VersionSet {
   uint64_t manifest_file_size_;
 
   std::vector<FileMetaData*> obsolete_files_;
+  std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions
   const EnvOptions& env_options_;
