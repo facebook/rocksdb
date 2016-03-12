@@ -191,6 +191,8 @@ LDBCommand* LDBCommand::SelectCommand(
     return new InternalDumpCommand(cmdParams, option_map, flags);
   } else if (cmd == CheckConsistencyCommand::Name()) {
     return new CheckConsistencyCommand(cmdParams, option_map, flags);
+  } else if (cmd == RepairCommand::Name()) {
+    return new RepairCommand(cmdParams, option_map, flags);
   }
   return nullptr;
 }
@@ -2139,6 +2141,29 @@ void CheckConsistencyCommand::DoCommand() {
     fprintf(stdout, "OK\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+RepairCommand::RepairCommand(const vector<string>& params,
+                             const map<string, string>& options,
+                             const vector<string>& flags)
+    : LDBCommand(options, flags, false, BuildCmdLineOptions({})) {}
+
+void RepairCommand::Help(string& ret) {
+  ret.append("  ");
+  ret.append(RepairCommand::Name());
+  ret.append("\n");
+}
+
+void RepairCommand::DoCommand() {
+  Options options = PrepareOptionsForOpenDB();
+  Status status = RepairDB(db_path_, options);
+  if (status.ok()) {
+    printf("OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
   }
 }
 

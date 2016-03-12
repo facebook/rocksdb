@@ -883,6 +883,21 @@ public:
   static void Help(string& ret);
 };
 
+class RepairCommand : public LDBCommand {
+ public:
+  static string Name() { return "repair"; }
+
+  RepairCommand(const vector<string>& params,
+                const map<string, string>& options,
+                const vector<string>& flags);
+
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return true; }
+
+  static void Help(string& ret);
+};
+
 } // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

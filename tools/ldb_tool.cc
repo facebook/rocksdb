@@ -77,6 +77,7 @@ public:
     ListColumnFamiliesCommand::Help(ret);
     DBFileDumperCommand::Help(ret);
     InternalDumpCommand::Help(ret);
+    RepairCommand::Help(ret);
 
     fprintf(stderr, "%s\n", ret.c_str());
   }
