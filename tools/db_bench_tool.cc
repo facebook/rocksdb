@@ -1205,7 +1205,7 @@ class Stats {
   uint64_t bytes_;
   uint64_t last_op_finish_;
   uint64_t last_report_finish_;
-  std::unordered_map<OperationType, HistogramImpl,
+  std::unordered_map<OperationType, std::shared_ptr<HistogramImpl>,
                      std::hash<unsigned char>> hist_;
   std::string message_;
   bool exclude_from_merge_;
@@ -1242,7 +1242,7 @@ class Stats {
     for (auto it = other.hist_.begin(); it != other.hist_.end(); ++it) {
       auto this_it = hist_.find(it->first);
       if (this_it != hist_.end()) {
-        this_it->second.Merge(other.hist_.at(it->first));
+        this_it->second->Merge(*(other.hist_.at(it->first)));
       } else {
         hist_.insert({ it->first, it->second });
       }
@@ -1316,10 +1316,10 @@ class Stats {
 
       if (hist_.find(op_type) == hist_.end())
       {
-        HistogramImpl hist_temp;
-        hist_.insert({op_type, hist_temp});
+        auto hist_temp = std::make_shared<HistogramImpl>();
+        hist_.insert({op_type, std::move(hist_temp)});
       }
-      hist_[op_type].Add(micros);
+      hist_[op_type]->Add(micros);
 
       if (micros > 20000 && !FLAGS_stats_interval) {
         fprintf(stderr, "long op: %" PRIu64 " micros%30s\r", micros, "");
@@ -1452,7 +1452,7 @@ class Stats {
       for (auto it = hist_.begin(); it != hist_.end(); ++it) {
         fprintf(stdout, "Microseconds per %s:\n%s\n",
                 OperationTypeString[it->first].c_str(),
-                it->second.ToString().c_str());
+                it->second->ToString().c_str());
       }
     }
     if (FLAGS_report_file_operations) {
