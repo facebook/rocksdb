@@ -10611,6 +10611,88 @@ TEST_F(DBTest, PrefixExtractorBlockFilter) {
   delete iter;
 }
 
+TEST_F(DBTest, IteratorWithLocalStatistics) {
+  Options options = CurrentOptions();
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 1000; i++) {
+    // Key 10 bytes / Value 10 bytes
+    ASSERT_OK(Put(RandomString(&rnd, 10), RandomString(&rnd, 10)));
+  }
+
+  std::atomic<uint64_t> total_next(0);
+  std::atomic<uint64_t> total_next_found(0);
+  std::atomic<uint64_t> total_prev(0);
+  std::atomic<uint64_t> total_prev_found(0);
+  std::atomic<uint64_t> total_bytes(0);
+
+  std::vector<std::thread> threads;
+  std::function<void()> reader_func_next = [&]() {
+    Iterator* iter = db_->NewIterator(ReadOptions());
+
+    iter->SeekToFirst();
+    // Seek will bump ITER_BYTES_READ
+    total_bytes += iter->key().size();
+    total_bytes += iter->value().size();
+    while (true) {
+      iter->Next();
+      total_next++;
+
+      if (!iter->Valid()) {
+        break;
+      }
+      total_next_found++;
+      total_bytes += iter->key().size();
+      total_bytes += iter->value().size();
+    }
+
+    delete iter;
+  };
+
+  std::function<void()> reader_func_prev = [&]() {
+    Iterator* iter = db_->NewIterator(ReadOptions());
+
+    iter->SeekToLast();
+    // Seek will bump ITER_BYTES_READ
+    total_bytes += iter->key().size();
+    total_bytes += iter->value().size();
+    while (true) {
+      iter->Prev();
+      total_prev++;
+
+      if (!iter->Valid()) {
+        break;
+      }
+      total_prev_found++;
+      total_bytes += iter->key().size();
+      total_bytes += iter->value().size();
+    }
+
+    delete iter;
+  };
+
+  for (int i = 0; i < 10; i++) {
+    threads.emplace_back(reader_func_next);
+  }
+  for (int i = 0; i < 15; i++) {
+    threads.emplace_back(reader_func_prev);
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_NEXT), total_next);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_NEXT_FOUND),
+            total_next_found);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_PREV), total_prev);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_PREV_FOUND),
+            total_prev_found);
+  ASSERT_EQ(TestGetTickerCount(options, ITER_BYTES_READ), total_bytes);
+}
+
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBTest,
