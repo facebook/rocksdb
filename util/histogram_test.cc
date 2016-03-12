@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#include <cmath>
+
 #include "util/histogram.h"
 #include "util/histogram_windowing.h"
 #include "util/testharness.h"
@@ -32,12 +34,12 @@ void BasicOperation(Histogram& histogram) {
   HistogramData data;
   histogram.Data(&data);
 
-  ASSERT_LE(std::fabs(histogram.Percentile(100.0) - 100.0), kIota);
-  ASSERT_LE(std::fabs(data.percentile99 - 99.0), kIota);
-  ASSERT_LE(std::fabs(data.percentile95 - 95.0), kIota);
-  ASSERT_LE(std::fabs(data.median - 50.0), kIota);
+  ASSERT_LE(fabs(histogram.Percentile(100.0) - 100.0), kIota);
+  ASSERT_LE(fabs(data.percentile99 - 99.0), kIota);
+  ASSERT_LE(fabs(data.percentile95 - 95.0), kIota);
+  ASSERT_LE(fabs(data.median - 50.0), kIota);
   ASSERT_EQ(data.average, 50.5);               // avg is acurately calculated.
-  ASSERT_LT(std::fabs(data.standard_deviation- 28.86), kIota); //sd is ~= 28.86
+  ASSERT_LT(fabs(data.standard_deviation- 28.86), kIota); //sd is ~= 28.86
 }
 
 void MergeHistogram(Histogram& histogram, Histogram& other) {
@@ -48,12 +50,12 @@ void MergeHistogram(Histogram& histogram, Histogram& other) {
   HistogramData data;
   histogram.Data(&data);
 
-  ASSERT_LE(std::fabs(histogram.Percentile(100.0) - 200.0), kIota);
-  ASSERT_LE(std::fabs(data.percentile99 - 198.0), kIota);
-  ASSERT_LE(std::fabs(data.percentile95 - 190.0), kIota);
-  ASSERT_LE(std::fabs(data.median - 100.0), kIota);
+  ASSERT_LE(fabs(histogram.Percentile(100.0) - 200.0), kIota);
+  ASSERT_LE(fabs(data.percentile99 - 198.0), kIota);
+  ASSERT_LE(fabs(data.percentile95 - 190.0), kIota);
+  ASSERT_LE(fabs(data.median - 100.0), kIota);
   ASSERT_EQ(data.average, 100.5);                // avg is acurately calculated.
-  ASSERT_LT(std::fabs(data.standard_deviation - 57.73), kIota); //sd is ~= 57.73
+  ASSERT_LT(fabs(data.standard_deviation - 57.73), kIota); //sd is ~= 57.73
 }
 
 void EmptyHistogram(Histogram& histogram) {
