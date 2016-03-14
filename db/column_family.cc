@@ -147,13 +147,10 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
   result.comparator = icmp;
-#ifdef OS_MACOSX
-  // TODO(icanadi) make write_buffer_size uint64_t instead of size_t
-  ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, ((size_t)1) << 30);
-#else
-  ClipToRange(&result.write_buffer_size,
-              ((size_t)64) << 10, ((size_t)64) << 30);
-#endif
+  size_t clamp_max = std::conditional<
+      sizeof(size_t) == 4, std::integral_constant<size_t, 0xffffffff>,
+      std::integral_constant<size_t, 64ull << 30>>::type::value;
+  ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, clamp_max);
   // if user sets arena_block_size, we trust user to use this value. Otherwise,
   // calculate a proper value from writer_buffer_size;
   if (result.arena_block_size <= 0) {
