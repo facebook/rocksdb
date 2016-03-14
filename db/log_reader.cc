@@ -192,20 +192,6 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
         break;
 
       case kBadRecordLen:
-        if (recycled_ &&
-            wal_recovery_mode ==
-                WALRecoveryMode::kTolerateCorruptedTailRecords) {
-          scratch->clear();
-          return false;
-        }
-        ReportCorruption(drop_size, "bad record length");
-        if (in_fragmented_record) {
-          ReportCorruption(scratch->size(), "error in middle of record");
-          in_fragmented_record = false;
-          scratch->clear();
-        }
-        break;
-
       case kBadRecordChecksum:
         if (recycled_ &&
             wal_recovery_mode ==
@@ -213,7 +199,10 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           scratch->clear();
           return false;
         }
-        ReportCorruption(drop_size, "checksum mismatch");
+	if (record_type == kBadRecordLen)
+	  ReportCorruption(drop_size, "bad record length");
+	else
+	  ReportCorruption(drop_size, "checksum mismatch");
         if (in_fragmented_record) {
           ReportCorruption(scratch->size(), "error in middle of record");
           in_fragmented_record = false;
