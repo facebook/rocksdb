@@ -52,3 +52,7 @@ Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtub
 
 ## VWO, Wingify
 [VWO's](https://vwo.com/) Smart Code checker and URL helper uses RocksDB to store all the URLs where VWO's Smart Code is installed.
+
+## quasardb
+[quasardb](https://www.quasardb.net) is a high-performance, distributed, transactional key-value database that integrates well with in-memory analytics engines such as Apache Spark. 
+quasardb uses a heavily tuned RocksDB as its persistence layer.
