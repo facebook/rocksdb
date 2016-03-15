@@ -207,6 +207,7 @@ set(SOURCES
         util/filter_policy.cc
         util/hash.cc
         util/histogram.cc
+        util/histogram_windowing.cc
         util/instrumented_mutex.cc
         util/iostats_context.cc
         tools/ldb_cmd.cc
