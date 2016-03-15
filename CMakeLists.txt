@@ -238,6 +238,7 @@ set(SOURCES
         util/thread_status_updater.cc
         util/thread_status_util.cc
         util/thread_status_util_debug.cc
+        util/transaction_test_util.cc
         util/xfunc.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc

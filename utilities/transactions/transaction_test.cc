@@ -2996,7 +2996,8 @@ Status TransactionStressTestInserter(TransactionDB* db,
   txn_options.set_snapshot = true;
 
   RandomTransactionInserter inserter(&_rand, write_options, read_options,
-                                     num_keys_per_set, num_sets);
+                                     num_keys_per_set,
+                                     static_cast<uint16_t>(num_sets));
 
   for (size_t t = 0; t < num_transactions; t++) {
     bool success = inserter.TransactionDBInsert(db, txn_options);
