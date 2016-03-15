@@ -101,7 +101,7 @@ void HistogramStat::Add(uint64_t value) {
   // of any operation. Each individual value is atomic and the order of updates
   // by concurrent threads is tolerable.
   const size_t index = bucketMapper.IndexForValue(value);
-  assert(index < num_buckets_ && index >= 0);
+  assert(index < num_buckets_);
   buckets_[index].fetch_add(1, std::memory_order_relaxed);
 
   uint64_t old_min = min();
