@@ -4,7 +4,7 @@
 if [ $# -ne 1 ]; then
   echo -n "./benchmark.sh [bulkload/fillseq/overwrite/filluniquerandom/"
   echo    "readrandom/readwhilewriting/readwhilemerging/updaterandom/"
-  echo    "mergerandom/randomtransaction]"
+  echo    "mergerandom/randomtransaction/compact]"
   exit 0
 fi
 
@@ -117,14 +117,14 @@ params_bulkload="$const_params --max_background_compactions=16 --max_background_
 # For universal compaction, these level0_* options mean total sorted of runs in
 # LSM. In level-based compaction, it means number of L0 files.
 #
-params_level_compact="$const_params --max_background_compactions=16 \
-                --max_background_flushes=7 \
+params_level_compact="$const_params \
+                --max_background_flushes=4 \
                 --level0_file_num_compaction_trigger=4 \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
 
-params_univ_compact="$const_params --max_background_compactions=16 \
-                --max_background_flushes=7 \
+params_univ_compact="$const_params \
+                --max_background_flushes=4 \
                 --level0_file_num_compaction_trigger=8 \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
@@ -187,6 +187,14 @@ function run_bulkload {
   eval $cmd
 }
 
+#
+# Parameter description:
+#
+# $1 - 1 if I/O statistics should be collected.
+# $2 - compaction type to use (level=0, universal=1).
+# $3 - number of subcompactions.
+# $4 - number of maximum background compactions.
+#
 function run_manual_compaction_worker {
   # This runs with a vector memtable and the WAL disabled to load faster.
   # It is still crash safe and the client can discover where to restart a
@@ -214,6 +222,7 @@ function run_manual_compaction_worker {
        --subcompactions=$3 \
        --memtablerep=vector \
        --disable_wal=1 \
+       --max_background_compactions=$4 \
        --seed=$( date +%s ) \
        2>&1 | tee -a $fillrandom_output_file"
 
@@ -237,6 +246,7 @@ function run_manual_compaction_worker {
        --compaction_measure_io_stats=$1 \
        --compaction_style=$2 \
        --subcompactions=$3 \
+       --max_background_compactions=$4 \
        ;}
        2>&1 | tee -a $man_compact_output_log"
 
@@ -254,21 +264,19 @@ function run_univ_compaction {
   # Values: kCompactionStyleLevel = 0x0, kCompactionStyleUniversal = 0x1.
   compaction_style=1
 
-  # Get the basic understanding about impact of scaling out the subcompactions
-  # by allowing the usage of { 1, 2, 4, 8, 16 } threads for different runs.
-  subcompactions=("1" "2" "4" "8" "16")
+  # Define a set of benchmarks.
+  subcompactions=(1 2 4 8 16)
+  max_background_compactions=(16 16 8 4 2)
 
-  # Do the real work of running various experiments.
+  i=0
+  total=${#subcompactions[@]}
 
-  # Run the compaction benchmark which is based on bulkload. It pretty much
-  # consists of running manual compaction with different number of subcompaction
-  # threads.
-  log_suffix=1
-
-  for ((i=0; i < ${#subcompactions[@]}; i++))
+  # Execute a set of benchmarks to cover variety of scenarios.
+  while [ "$i" -lt "$total" ]
   do
-    run_manual_compaction_worker $io_stats $compaction_style ${subcompactions[$i]} $log_suffix
-    ((log_suffix++))
+    run_manual_compaction_worker $io_stats $compaction_style ${subcompactions[$i]} \
+      ${max_background_compactions[$i]}
+    ((i++))
   done
 }
 
