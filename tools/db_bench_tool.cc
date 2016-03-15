@@ -3764,7 +3764,7 @@ class Benchmark {
     ReadOptions options(FLAGS_verify_checksum, true);
     Duration duration(FLAGS_duration, readwrites_);
     ReadOptions read_options(FLAGS_verify_checksum, true);
-    uint64_t num_prefix_ranges = FLAGS_transaction_sets;
+    uint16_t num_prefix_ranges = static_cast<uint16_t>(FLAGS_transaction_sets);
     uint64_t transactions_done = 0;
 
     if (num_prefix_ranges == 0 || num_prefix_ranges > 9999) {
@@ -3836,7 +3836,8 @@ class Benchmark {
     }
 
     Status s =
-        RandomTransactionInserter::Verify(db_.db, FLAGS_transaction_sets);
+        RandomTransactionInserter::Verify(db_.db,
+                            static_cast<uint16_t>(FLAGS_transaction_sets));
 
     if (s.ok()) {
       fprintf(stdout, "RandomTransactionVerify Success.\n");
