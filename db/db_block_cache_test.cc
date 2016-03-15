@@ -166,10 +166,12 @@ TEST_F(DBBlockCacheTest, TestWithoutCompressedBlockCache) {
   }
 }
 
+#ifdef SNAPPY
 TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   ReadOptions read_options;
   auto table_options = GetTableOptions();
   auto options = GetOptions(table_options);
+  options.compression = CompressionType::kSnappyCompression;
   InitTable(options);
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
@@ -227,6 +229,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   delete iter;
   iter = nullptr;
 }
+#endif
 
 }  // namespace rocksdb
 
