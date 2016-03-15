@@ -146,7 +146,9 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
   if (mutex_.try_lock()) {
     last_swap_time_.store(env_->NowMicros(), std::memory_order_relaxed);
 
-    uint64_t next_window = (current_window() + 1) % num_windows_;
+    uint64_t curr_window = current_window();
+    uint64_t next_window = (curr_window == num_windows_ - 1) ? 
+                                                    0 : curr_window + 1;
 
     // subtract next buckets from totals and swap to next buckets
     HistogramStat& stats_to_drop = window_stats_[next_window];
@@ -159,18 +161,22 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
 
       if (stats_.min() == stats_to_drop.min()) {
         uint64_t new_min = bucketMapper.LastValue();
-        for (unsigned int i = 1; i < num_windows_; i++) {
-          uint64_t m = window_stats_[(next_window + i) % num_windows_].min();
-          if (m < new_min) new_min = m;
+        for (unsigned int i = 0; i < num_windows_; i++) {
+          if (i != next_window) {
+            uint64_t m = window_stats_[i].min();
+            if (m < new_min) new_min = m;
+          }
         }
         stats_.min_.store(new_min, std::memory_order_relaxed);
       }
 
       if (stats_.max() == stats_to_drop.max()) {
         uint64_t new_max = 0;
-        for (unsigned int i = 1; i < num_windows_; i++) {
-          uint64_t m = window_stats_[(next_window + i) % num_windows_].max();
-          if (m > new_max) new_max = m;
+        for (unsigned int i = 0; i < num_windows_; i++) {
+          if (i != next_window) {
+            uint64_t m = window_stats_[i].max();
+            if (m > new_max) new_max = m;
+          }
         }
         stats_.max_.store(new_max, std::memory_order_relaxed);
       }
