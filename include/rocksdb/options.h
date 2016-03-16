@@ -1041,7 +1041,23 @@ struct DBOptions {
   // large amounts of data (such as xfs's allocsize option).
   size_t manifest_preallocation_size;
 
-  // Data being read from file storage may be buffered in the OS
+  // Hint the OS that it should not buffer disk I/O. Enabling this
+  // parameter may improve performance but increases pressure on the
+  // system cache.
+  //
+  // The exact behavior of this parameter is platform dependent.
+  //
+  // On POSIX systems, after RocksDB reads data from disk it will
+  // mark the pages as "unneeded". The operating system may - or may not
+  // - evict these pages from memory, reducing pressure on the system
+  // cache. If the disk block is requested again this can result in
+  // additional disk I/O.
+  //
+  // On WINDOWS system, files will be opened in "unbuffered I/O" mode
+  // which means that data read from the disk will not be cached or
+  // bufferized. The hardware buffer of the devices may however still
+  // be used. Memory mapped files are not impacted by this parameter.
+  //
   // Default: true
   bool allow_os_buffer;
 
