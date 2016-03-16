@@ -345,8 +345,8 @@ Status MemTableList::InstallMemtableFlushResults(
         imm_flush_needed.store(true, std::memory_order_release);
       }
       ++mem_id;
-    } while (!current_->memlist_.empty() && (m = current_->memlist_.back()) &&
-             m->file_number_ == file_number);
+    } while (!current_->memlist_.empty() && (nullptr != (m = current_->memlist_.back())) &&
+             (m->file_number_ == file_number));
   }
   commit_in_progress_ = false;
   return s;

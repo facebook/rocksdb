@@ -110,7 +110,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
 
   snprintf(buffer, kBufferSize, "  flush_block_policy_factory: %s (%p)\n",
            table_options_.flush_block_policy_factory->Name(),
-           table_options_.flush_block_policy_factory.get());
+           static_cast<void*>(table_options_.flush_block_policy_factory.get()));
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  cache_index_and_filter_blocks: %d\n",
            table_options_.cache_index_and_filter_blocks);
@@ -128,7 +128,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            table_options_.no_block_cache);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_cache: %p\n",
-           table_options_.block_cache.get());
+           static_cast<void*>(table_options_.block_cache.get()));
   ret.append(buffer);
   if (table_options_.block_cache) {
     snprintf(buffer, kBufferSize, "  block_cache_size: %" ROCKSDB_PRIszt "\n",
@@ -136,7 +136,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
     ret.append(buffer);
   }
   snprintf(buffer, kBufferSize, "  block_cache_compressed: %p\n",
-           table_options_.block_cache_compressed.get());
+           static_cast<void*>(table_options_.block_cache_compressed.get()));
   ret.append(buffer);
   if (table_options_.block_cache_compressed) {
     snprintf(buffer, kBufferSize,
