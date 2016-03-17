@@ -102,7 +102,7 @@ class Random64 {
   // return "base" random bits.  The effect is to pick a number in the
   // range [0,2^max_log-1] with exponential bias towards smaller numbers.
   uint64_t Skewed(int max_log) {
-    return Uniform(1 << Uniform(max_log + 1));
+    return Uniform(uint64_t(1) << Uniform(max_log + 1));
   }
 };
 

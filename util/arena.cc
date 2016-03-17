@@ -26,7 +26,7 @@ const size_t Arena::kInlineSize;
 #endif
 
 const size_t Arena::kMinBlockSize = 4096;
-const size_t Arena::kMaxBlockSize = 2 << 30;
+const size_t Arena::kMaxBlockSize = 2u << 30;
 static const int kAlignUnit = sizeof(void*);
 
 size_t OptimizeBlockSize(size_t block_size) {
