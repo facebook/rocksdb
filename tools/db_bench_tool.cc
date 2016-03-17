@@ -340,6 +340,9 @@ DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
 
+DEFINE_bool(pin_l0_filter_and_index_blocks_in_cache, false,
+            "Pin index/filter blocks of L0 files in block cache.");
+
 DEFINE_int32(block_size,
              static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
              "Number of bytes in a block.");
@@ -2511,6 +2514,8 @@ class Benchmark {
       }
       block_based_options.cache_index_and_filter_blocks =
           FLAGS_cache_index_and_filter_blocks;
+      block_based_options.pin_l0_filter_and_index_blocks_in_cache =
+          FLAGS_pin_l0_filter_and_index_blocks_in_cache;
       block_based_options.block_cache = cache_;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;

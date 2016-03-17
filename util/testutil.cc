@@ -193,6 +193,7 @@ const SliceTransform* RandomSliceTransform(Random* rnd, int pre_defined) {
 BlockBasedTableOptions RandomBlockBasedTableOptions(Random* rnd) {
   BlockBasedTableOptions opt;
   opt.cache_index_and_filter_blocks = rnd->Uniform(2);
+  opt.pin_l0_filter_and_index_blocks_in_cache = rnd->Uniform(2);
   opt.index_type = rnd->Uniform(2) ? BlockBasedTableOptions::kBinarySearch
                                    : BlockBasedTableOptions::kHashSearch;
   opt.hash_index_allow_collision = rnd->Uniform(2);

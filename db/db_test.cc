@@ -424,6 +424,92 @@ TEST_F(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
             TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 }
 
+TEST_F(DBTest, IndexAndFilterBlocksOfNewTableAddedToCacheWithPinning) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "key", "val"));
+  // Create a new table.
+  ASSERT_OK(Flush(1));
+
+  // index/filter blocks added to block cache right after table creation.
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+
+  // only index/filter were added
+  ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+
+  std::string value;
+  // Miss and hit count should remain the same, they're all pinned.
+  db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value);
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+
+  // Miss and hit count should remain the same, they're all pinned.
+  value = Get(1, "key");
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+}
+
+TEST_F(DBTest, MultiLevelIndexAndFilterBlocksCachedWithPinning) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Put(1, "a", "begin");
+  Put(1, "z", "end");
+  ASSERT_OK(Flush(1));
+  // move this table to L1
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+  TryReopenWithColumnFamilies({"default", "pikachu"}, options);
+  // create new table at L0
+  Put(1, "a2", "begin2");
+  Put(1, "z2", "end2");
+  ASSERT_OK(Flush(1));
+
+  // get base cache values
+  uint64_t fm = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+  uint64_t fh = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  uint64_t im = TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
+  uint64_t ih = TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT);
+
+  std::string value;
+  // this should be read from L0
+  // so cache values don't change
+  value = Get(1, "a2");
+  ASSERT_EQ(fm, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(im, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(ih, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+
+  // should be read from L1; the block cache survives the reopen, and during
+  // the BlockBasedTableReader::Open() of the table we try to fetch it, we
+  // will see one hit from there, and then the Get() results in another hit
+  value = Get(1, "a");
+  ASSERT_EQ(fm, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(fh + 2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+}
+
 TEST_F(DBTest, ParanoidFileChecks) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
