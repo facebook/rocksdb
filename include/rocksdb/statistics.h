@@ -374,6 +374,8 @@ class Statistics {
 // Create a concrete DBStatistics object
 std::shared_ptr<Statistics> CreateDBStatistics();
 
+std::shared_ptr<Statistics> CreateDBStatistics(bool use_window_histogram);
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_STATISTICS_H_

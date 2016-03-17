@@ -11,6 +11,7 @@
 
 #include <inttypes.h>
 #include "rocksdb/statistics.h"
+#include "util/histogram_windowing.h"
 #include "port/likely.h"
 #include <algorithm>
 #include <cstdio>
@@ -18,15 +19,28 @@
 namespace rocksdb {
 
 std::shared_ptr<Statistics> CreateDBStatistics() {
-  return std::make_shared<StatisticsImpl>(nullptr, false);
+  return std::make_shared<StatisticsImpl>(nullptr, false, false);
+}
+
+std::shared_ptr<Statistics> CreateDBStatistics(bool use_window_histogram) {
+  return std::make_shared<StatisticsImpl>(nullptr, false, use_window_histogram);
 }
 
 StatisticsImpl::StatisticsImpl(
     std::shared_ptr<Statistics> stats,
-    bool enable_internal_stats)
+    bool enable_internal_stats,
+    bool use_window_histogram)
   : stats_shared_(stats),
     stats_(stats.get()),
     enable_internal_stats_(enable_internal_stats) {
+  histograms_.reserve(INTERNAL_HISTOGRAM_ENUM_MAX);
+  for (int i = 0; i < INTERNAL_HISTOGRAM_ENUM_MAX; ++i) {
+    if (use_window_histogram) {
+      histograms_.emplace_back(new HistogramWindowingImpl());
+    } else {
+      histograms_.emplace_back(new HistogramImpl());
+    }
+  }
 }
 
 StatisticsImpl::~StatisticsImpl() {}
@@ -47,13 +61,13 @@ void StatisticsImpl::histogramData(uint32_t histogramType,
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
       histogramType < HISTOGRAM_ENUM_MAX);
   // Return its own ticker version
-  histograms_[histogramType].Data(data);
+  histograms_[histogramType]->Data(data);
 }
 
 std::string StatisticsImpl::getHistogramString(uint32_t histogramType) const {
   assert(enable_internal_stats_ ? histogramType < INTERNAL_HISTOGRAM_ENUM_MAX
                                 : histogramType < HISTOGRAM_ENUM_MAX);
-  return histograms_[histogramType].ToString();
+  return histograms_[histogramType]->ToString();
 }
 
 void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
@@ -88,7 +102,7 @@ void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
       histogramType < HISTOGRAM_ENUM_MAX);
   if (histogramType < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
-    histograms_[histogramType].Add(value);
+    histograms_[histogramType]->Add(value);
   }
   if (stats_ && histogramType < HISTOGRAM_ENUM_MAX) {
     stats_->measureTime(histogramType, value);

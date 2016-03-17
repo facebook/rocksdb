@@ -31,8 +31,12 @@ enum HistogramsInternal : uint32_t {
 class StatisticsImpl : public Statistics {
  public:
   StatisticsImpl(std::shared_ptr<Statistics> stats,
-                 bool enable_internal_stats);
+                 bool enable_internal_stats,
+                 bool use_window_histogram);
   virtual ~StatisticsImpl();
+
+  StatisticsImpl(const StatisticsImpl&) = delete;
+  StatisticsImpl& operator=(const StatisticsImpl&) = delete;
 
   virtual uint64_t getTickerCount(uint32_t ticker_type) const override;
   virtual void histogramData(uint32_t histogram_type,
@@ -67,9 +71,7 @@ class StatisticsImpl : public Statistics {
   __declspec(align(64))
   Ticker tickers_[INTERNAL_TICKER_ENUM_MAX]
      __attribute__((aligned(64)));
-  __declspec(align(64))
-  HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX]
-      __attribute__((aligned(64)));
+  std::vector<std::unique_ptr<Histogram>> histograms_;
 };
 
 // Utility functions
