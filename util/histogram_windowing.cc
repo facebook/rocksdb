@@ -14,10 +14,6 @@
 
 namespace rocksdb {
 
-namespace {
-  const HistogramBucketMapper bucketMapper;
-}
-
 HistogramWindowingImpl::HistogramWindowingImpl() {
   env_ = Env::Default();
   window_stats_.reset(new HistogramStat[num_windows_]);
@@ -36,8 +32,7 @@ HistogramWindowingImpl::HistogramWindowingImpl(
   Clear();
 }
 
-HistogramWindowingImpl::~HistogramWindowingImpl(){
-  window_stats_.release();
+HistogramWindowingImpl::~HistogramWindowingImpl() {
 }
 
 void HistogramWindowingImpl::Clear() {
@@ -85,7 +80,7 @@ void HistogramWindowingImpl::Merge(const HistogramWindowingImpl& other) {
   uint64_t cur_window = current_window();
   uint64_t other_cur_window = other.current_window();
   // going backwards for alignment
-  for (unsigned int i = 0; 
+  for (unsigned int i = 0;
                     i < std::min(num_windows_, other.num_windows_); i++) {
     uint64_t window_index =
         (cur_window + num_windows_ - i) % num_windows_;
@@ -147,7 +142,7 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
     last_swap_time_.store(env_->NowMicros(), std::memory_order_relaxed);
 
     uint64_t curr_window = current_window();
-    uint64_t next_window = (curr_window == num_windows_ - 1) ? 
+    uint64_t next_window = (curr_window == num_windows_ - 1) ?
                                                     0 : curr_window + 1;
 
     // subtract next buckets from totals and swap to next buckets
@@ -160,7 +155,7 @@ void HistogramWindowingImpl::SwapHistoryBucket() {
       }
 
       if (stats_.min() == stats_to_drop.min()) {
-        uint64_t new_min = bucketMapper.LastValue();
+        uint64_t new_min = std::numeric_limits<uint64_t>::max();
         for (unsigned int i = 0; i < num_windows_; i++) {
           if (i != next_window) {
             uint64_t m = window_stats_[i].min();
