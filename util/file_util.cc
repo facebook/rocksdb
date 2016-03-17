@@ -66,6 +66,22 @@ Status CopyFile(Env* env, const std::string& source,
   return Status::OK();
 }
 
+// Utility function to create a file with the provided contents
+Status CreateFile(Env* env, const std::string& destination,
+                  const std::string& contents) {
+  const EnvOptions soptions;
+  Status s;
+  unique_ptr<WritableFileWriter> dest_writer;
+
+  unique_ptr<WritableFile> destfile;
+  s = env->NewWritableFile(destination, &destfile, soptions);
+  if (!s.ok()) {
+    return s;
+  }
+  dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
+  return dest_writer->Append(Slice(contents));
+}
+
 Status DeleteSSTFile(const DBOptions* db_options, const std::string& fname,
                      uint32_t path_id) {
   // TODO(tec): support sst_file_manager for multiple path_ids
