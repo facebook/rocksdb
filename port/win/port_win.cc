@@ -233,6 +233,8 @@ int GetMaxOpenFiles() { return -1; }
 
 #include "jemalloc/jemalloc.h"
 
+#ifndef JEMALLOC_NON_INIT
+
 namespace rocksdb {
 
 namespace port {
@@ -277,6 +279,8 @@ JEMALLOC_SECTION(".CRT$XCT") JEMALLOC_ATTR(used) static const void(
 #endif  // _WIN64
 
 }  // extern "C"
+
+#endif // JEMALLOC_NON_INIT
 
 // Global operators to be replaced by a linker
 
