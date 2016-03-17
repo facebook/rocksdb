@@ -79,7 +79,6 @@ const_params="
   --hard_rate_limit=3 \
   --rate_limit_delay_max_milliseconds=1000000 \
   --write_buffer_size=$((128 * M)) \
-  --max_write_buffer_number=8 \
   --target_file_size_base=$((128 * M)) \
   --max_bytes_for_level_base=$((1 * G)) \
   \
@@ -106,8 +105,16 @@ if [ $duration -gt 0 ]; then
   const_params="$const_params --duration=$duration"
 fi
 
-params_w="$const_params $l0_config --max_background_compactions=16 --max_background_flushes=7"
-params_bulkload="$const_params --max_background_compactions=16 --max_background_flushes=7 \
+params_w="$const_params \
+          $l0_config \
+          --max_background_compactions=16 \
+          --max_write_buffer_number=8 \
+          --max_background_flushes=7"
+
+params_bulkload="$const_params \
+                 --max_background_compactions=16 \
+                 --max_write_buffer_number=8 \
+                 --max_background_flushes=7 \
                  --level0_file_num_compaction_trigger=$((10 * M)) \
                  --level0_slowdown_writes_trigger=$((10 * M)) \
                  --level0_stop_writes_trigger=$((10 * M))"
@@ -119,12 +126,14 @@ params_bulkload="$const_params --max_background_compactions=16 --max_background_
 #
 params_level_compact="$const_params \
                 --max_background_flushes=4 \
+                --max_write_buffer_number=4 \
                 --level0_file_num_compaction_trigger=4 \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
 
 params_univ_compact="$const_params \
                 --max_background_flushes=4 \
+                --max_write_buffer_number=4 \
                 --level0_file_num_compaction_trigger=8 \
                 --level0_slowdown_writes_trigger=16 \
                 --level0_stop_writes_trigger=20"
