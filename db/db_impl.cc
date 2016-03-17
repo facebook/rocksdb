@@ -169,6 +169,17 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.recycle_log_file_num = false;
   }
 
+  if (result.recycle_log_file_num &&
+      (result.wal_recovery_mode == WALRecoveryMode::kPointInTimeRecovery ||
+       result.wal_recovery_mode == WALRecoveryMode::kAbsoluteConsistency)) {
+    // kPointInTimeRecovery is indistinguishable from
+    // kTolerateCorruptedTailRecords in recycle mode since we define
+    // the "end" of the log as the first corrupt record we encounter.
+    // kAbsoluteConsistency doesn't make sense because even a clean
+    // shutdown leaves old junk at the end of the log file.
+    result.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+  }
+
   if (result.wal_dir.empty()) {
     // Use dbname as default
     result.wal_dir = dbname;
