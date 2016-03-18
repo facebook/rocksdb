@@ -297,6 +297,7 @@ TESTS = \
 	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
+	hash_table_test \
 	histogram_test \
 	inlineskiplist_test \
 	log_test \
@@ -850,6 +851,9 @@ stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $
 	$(AM_LINK)
 
 redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+hash_table_test: utilities/persistent_cache/hash_table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
