@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <iostream>
 
+#include "db/db_impl.h"
+#include "db/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/types.h"
@@ -23,10 +25,9 @@
 #include "util/random.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 #include "util/testutil.h"
-#include "util/auto_roll_logger.h"
 #include "util/mock_env.h"
-#include "utilities/backupable/backupable_db_testutil.h"
 
 namespace rocksdb {
 
@@ -231,6 +232,23 @@ class TestEnv : public EnvWrapper {
     return EnvWrapper::GetChildren(dir, r);
   }
 
+  // Some test cases do not actually create the test files (e.g., see
+  // DummyDB::live_files_) - for those cases, we mock those files' attributes
+  // so CreateNewBackup() can get their attributes.
+  void SetFilenamesForMockedAttrs(const std::vector<std::string>& filenames) {
+    filenames_for_mocked_attrs_ = filenames;
+  }
+  Status GetChildrenFileAttributes(
+      const std::string& dir, std::vector<Env::FileAttributes>* r) override {
+    if (filenames_for_mocked_attrs_.size() > 0) {
+      for (const auto& filename : filenames_for_mocked_attrs_) {
+        r->push_back({dir + filename, 10 /* size_bytes */});
+      }
+      return Status::OK();
+    }
+    return EnvWrapper::GetChildrenFileAttributes(dir, r);
+  }
+
   void SetCreateDirIfMissingFailure(bool fail) {
     create_dir_if_missing_failure_ = fail;
   }
@@ -254,6 +272,7 @@ class TestEnv : public EnvWrapper {
   port::Mutex mutex_;
   bool dummy_sequential_file_ = false;
   std::vector<std::string> written_files_;
+  std::vector<std::string> filenames_for_mocked_attrs_;
   uint64_t limit_written_files_ = 1000000;
   uint64_t limit_delete_files_ = 1000000;
 
@@ -544,6 +563,10 @@ class BackupableDBTest : public testing::Test {
   std::string dbname_;
   std::string backupdir_;
 
+  // logger_ must be above backup_engine_ such that the engine's destructor,
+  // which uses a raw pointer to the logger, executes first.
+  std::shared_ptr<Logger> logger_;
+
   // envs
   Env* env_;
   unique_ptr<MockEnv> mock_env_;
@@ -558,7 +581,6 @@ class BackupableDBTest : public testing::Test {
 
   // options
   Options options_;
-  std::shared_ptr<Logger> logger_;
 
  protected:
   unique_ptr<BackupableDBOptions> backupable_options_;
@@ -574,8 +596,7 @@ class BackupableDBTestWithParam : public BackupableDBTest,
                                   public testing::WithParamInterface<bool> {
  public:
   BackupableDBTestWithParam() {
-    backupable_options_->share_files_with_checksum =
-        backupable_options_->use_file_size_in_file_name = GetParam();
+    backupable_options_->share_files_with_checksum = GetParam();
   }
 };
 
@@ -724,47 +745,6 @@ TEST_P(BackupableDBTestWithParam, OnlineIntegrationTest) {
 INSTANTIATE_TEST_CASE_P(BackupableDBTestWithParam, BackupableDBTestWithParam,
                         ::testing::Bool());
 
-TEST_F(BackupableDBTest, GetFileSizeFromBackupFileName) {
-  uint64_t size = 0;
-
-  ASSERT_TRUE(test::TEST_GetFileSizeFromBackupFileName(
-      "shared_checksum/6580354_1874793674_65806675.sst", &size));
-  ASSERT_EQ(65806675u, size);
-
-  ASSERT_TRUE(test::TEST_GetFileSizeFromBackupFileName(
-      "hdfs://a.b:80/a/b/shared_checksum/6580354_1874793674_85806675.sst",
-      &size));
-  ASSERT_EQ(85806675u, size);
-
-  ASSERT_TRUE(test::TEST_GetFileSizeFromBackupFileName(
-      "6580354_1874793674_65806665.sst", &size));
-  ASSERT_EQ(65806665u, size);
-
-  ASSERT_TRUE(test::TEST_GetFileSizeFromBackupFileName(
-      "private/66/6580354_1874793674_65806666.sst", &size));
-  ASSERT_EQ(65806666u, size);
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "shared_checksum/6580354.sst", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "private/368/6592388.log", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "private/68/MANIFEST-6586581", &size));
-
-  ASSERT_TRUE(
-      !test::TEST_GetFileSizeFromBackupFileName("private/68/CURRENT", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "shared_checksum/6580354_1874793674_65806675.log", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName(
-                  "shared_checksum/6580354_1874793674_65806675", &size));
-
-  ASSERT_TRUE(!test::TEST_GetFileSizeFromBackupFileName("meta/368", &size));
-}
-
 // this will make sure that backup does not copy the same file twice
 TEST_F(BackupableDBTest, NoDoubleCopy) {
   OpenDBAndBackupEngine(true, true);
@@ -776,6 +756,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
       "/shared/00010.sst.tmp",    "/shared/00011.sst.tmp",
@@ -792,6 +773,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   dummy_db_->live_files_ = { "/00010.sst", "/00015.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
   should_have_written = {
@@ -842,6 +824,7 @@ TEST_F(BackupableDBTest, DifferentEnvs) {
   dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
 
   CloseDBAndBackupEngine();
@@ -853,6 +836,7 @@ TEST_F(BackupableDBTest, DifferentEnvs) {
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, Options());
 
+  test_backup_env_->SetFilenamesForMockedAttrs({});
   AssertBackupConsistency(0, 0, 100, 500);
 }
 
@@ -1312,6 +1296,45 @@ TEST_F(BackupableDBTest, EnvFailures) {
                                  &backup_engine));
     delete backup_engine;
   }
+}
+
+// Verify manifest can roll while a backup is being created with the old
+// manifest.
+TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
+  DestroyDB(dbname_, Options());
+  options_.max_manifest_file_size = 0;  // always rollover manifest for file add
+  OpenDBAndBackupEngine(true);
+  FillDB(db_.get(), 0, 100);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"BackupEngineImpl::CreateNewBackup:SavedLiveFiles1",
+       "VersionSet::LogAndApply:WriteManifest"},
+      {"VersionSet::LogAndApply:WriteManifestDone",
+       "BackupEngineImpl::CreateNewBackup:SavedLiveFiles2"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread flush_thread{[this]() { ASSERT_OK(db_->Flush(FlushOptions())); }};
+
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+
+  flush_thread.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  // The last manifest roll would've already been cleaned up by the full scan
+  // that happens when CreateNewBackup invokes EnableFileDeletions. We need to
+  // trigger another roll to verify non-full scan purges stale manifests.
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_.get());
+  std::string prev_manifest_path =
+      DescriptorFileName(dbname_, db_impl->TEST_Current_Manifest_FileNo());
+  FillDB(db_.get(), 0, 100);
+  ASSERT_OK(env_->FileExists(prev_manifest_path));
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_TRUE(env_->FileExists(prev_manifest_path).IsNotFound());
+
+  CloseDBAndBackupEngine();
+  DestroyDB(dbname_, Options());
+  AssertBackupConsistency(0, 0, 100);
 }
 
 // see https://github.com/facebook/rocksdb/issues/921

@@ -84,7 +84,8 @@ endif
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
 OPT += -O2 -fno-omit-frame-pointer
-ifneq ($(MACHINE),ppc64) # ppc64 doesn't support -momit-leaf-frame-pointer
+# Skip for archs that don't support -momit-leaf-frame-pointer
+ifeq (,$(shell $(CXX) -fsyntax-only -momit-leaf-frame-pointer -xc /dev/null 2>&1))
 OPT += -momit-leaf-frame-pointer
 endif
 endif
@@ -143,6 +144,9 @@ else
 OPT += -DNDEBUG
 endif
 
+ifeq ($(PLATFORM), OS_SOLARIS)
+	PLATFORM_CXXFLAGS += -D _GLIBCXX_USE_C99
+endif
 ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	# found
 	CFLAGS += -fno-exceptions
@@ -237,8 +241,12 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
+BENCHTOOLOBJECTS = $(BENCH_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
+
 TESTS = \
 	db_test \
+	db_test2 \
+	db_block_cache_test \
 	db_iter_test \
 	db_log_iter_test \
 	db_compaction_filter_test \
@@ -248,6 +256,7 @@ TESTS = \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
 	db_wal_test \
+	db_properties_test \
 	db_table_properties_test \
 	block_hash_index_test \
 	autovector_test \
@@ -332,7 +341,8 @@ TESTS = \
 	compact_on_deletion_collector_test \
 	compaction_job_stats_test \
 	transaction_test \
-	ldb_cmd_test
+	ldb_cmd_test \
+	iostats_context_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -460,7 +470,7 @@ test_names = \
       -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
       -e 'print qq! $$p$$2!'
 
-ifeq ($(MAKECMDGOALS),check)
+ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
 # and create a randomly-named rocksdb.XXXX directory therein.
 # We'll use that directory in the "make check" rules.
@@ -616,6 +626,46 @@ valgrind_check: $(TESTS)
 		fi; \
 	done
 
+
+ifneq ($(PAR_TEST),)
+parloop:
+	ret_bad=0;							\
+	for t in $(PAR_TEST); do		\
+		echo "===== Running $$t in parallel $(NUM_PAR)";\
+		if [ $(db_test) -eq 1 ]; then \
+			seq $(J) | v="$$t" parallel --gnu 's=$(TMPD)/rdb-{};  export TEST_TMPDIR=$$s;' \
+				'timeout 2m ./db_test --gtest_filter=$$v >> $$s/log-{} 2>1'; \
+		else\
+			seq $(J) | v="./$$t" parallel --gnu 's=$(TMPD)/rdb-{};' \
+			     'export TEST_TMPDIR=$$s; timeout 10m $$v >> $$s/log-{} 2>1'; \
+		fi; \
+		ret_code=$$?; \
+		if [ $$ret_code -ne 0 ]; then \
+			ret_bad=$$ret_code; \
+			echo $$t exited with $$ret_code; \
+		fi; \
+	done; \
+	exit $$ret_bad;
+endif
+
+parallel_check: $(TESTS)
+	$(AM_V_GEN)if test "$(J)" > 1                                  \
+	    && (parallel --gnu --help 2>/dev/null) |                    \
+	        grep -q 'GNU Parallel';                                 \
+	then                                                            \
+	    echo Running in parallel $(J);			\
+	else                                                            \
+	    echo "Need to have GNU Parallel and J > 1"; exit 1;		\
+	fi;								\
+	ret_bad=0;							\
+	echo $(J);\
+	echo Test Dir: $(TMPD); \
+        seq $(J) | parallel --gnu 's=$(TMPD)/rdb-{}; rm -rf $$s; mkdir $$s'; \
+	$(MAKE)  PAR_TEST="$(shell $(test_names))" TMPD=$(TMPD) \
+		J=$(J) db_test=1 parloop; \
+	$(MAKE) PAR_TEST="$(filter-out db_test, $(TESTS))" \
+		TMPD=$(TMPD) J=$(J) db_test=0 parloop;
+
 analyze: clean
 	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
 		--use-c++=$(CXX) --use-cc=$(CC) --status-bugs \
@@ -652,7 +702,7 @@ clean:
 
 tags:
 	ctags * -R
-	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
+	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
 
 format:
 	build_tools/format-diff.sh
@@ -667,7 +717,7 @@ $(LIBRARY): $(LIBOBJECTS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
 
-db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
+db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
 
 cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
@@ -742,6 +792,12 @@ slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_test2: db/db_test2.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_block_cache_test: db/db_block_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_log_iter_test: db/db_log_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -767,6 +823,9 @@ db_universal_compaction_test: db/db_universal_compaction_test.o db/db_test_util.
 	$(AM_LINK)
 
 db_wal_test: db/db_wal_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_properties_test: db/db_properties_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_table_properties_test: db/db_table_properties_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -970,7 +1029,7 @@ manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+auto_roll_logger_test: db/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -993,6 +1052,9 @@ ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
 	$(AM_LINK)
+
+iostats_context_test: util/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 #-------------------------------------------------
 # make install related stuff
@@ -1036,7 +1098,11 @@ install: install-static
 # ---------------------------------------------------------------------------
 
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
-ARCH := $(shell getconf LONG_BIT)
+ifeq ($(PLATFORM), OS_SOLARIS)
+	ARCH := $(shell isainfo -b)
+else
+	ARCH := $(shell getconf LONG_BIT)
+endif
 ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
@@ -1044,13 +1110,18 @@ ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PA
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
 
 ifeq ($(PLATFORM), OS_MACOSX)
-ROCKSDBJNILIB = librocksdbjni-osx.jnilib
-ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
+	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I $(JAVA_HOME)/include/darwin
 else
 	JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
+endif
+ifeq ($(PLATFORM), OS_SOLARIS)
+	ROCKSDBJNILIB = librocksdbjni-solaris$(ARCH).so
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
 endif
 
 libz.a:
@@ -1145,11 +1216,10 @@ jtest: rocksdbjava
 jdb_bench:
 	cd java;$(MAKE) db_bench;
 
-commit-prereq:
-	$(MAKE) clean && $(MAKE) all check;
+commit_prereq: build_tools/rocksdb-lego-determinator \
+               build_tools/precommit_checker.py
+	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit tsan asan lite
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
-	$(MAKE) clean && USE_CLANG=1 $(MAKE) all;
-	$(MAKE) clean && OPT=-DROCKSDB_LITE $(MAKE) static_lib;
 
 xfunc:
 	for xftest in $(XFUNC_TESTS); do \

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -61,32 +61,54 @@ void PerfContext::Reset() {
 #endif
 }
 
-#define OUTPUT(counter) #counter << " = " << counter << ", "
+#define PERF_CONTEXT_OUTPUT(counter)             \
+  if (!exclude_zero_counters || (counter > 0)) { \
+    ss << #counter << " = " << counter << ", ";  \
+  }
 
-std::string PerfContext::ToString() const {
+std::string PerfContext::ToString(bool exclude_zero_counters) const {
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
   return "";
 #else
   std::ostringstream ss;
-  ss << OUTPUT(user_key_comparison_count) << OUTPUT(block_cache_hit_count)
-     << OUTPUT(block_read_count) << OUTPUT(block_read_byte)
-     << OUTPUT(block_read_time) << OUTPUT(block_checksum_time)
-     << OUTPUT(block_decompress_time) << OUTPUT(internal_key_skipped_count)
-     << OUTPUT(internal_delete_skipped_count) << OUTPUT(write_wal_time)
-     << OUTPUT(get_snapshot_time) << OUTPUT(get_from_memtable_time)
-     << OUTPUT(get_from_memtable_count) << OUTPUT(get_post_process_time)
-     << OUTPUT(get_from_output_files_time) << OUTPUT(seek_on_memtable_time)
-     << OUTPUT(seek_on_memtable_count) << OUTPUT(seek_child_seek_time)
-     << OUTPUT(seek_child_seek_count) << OUTPUT(seek_min_heap_time)
-     << OUTPUT(seek_internal_seek_time) << OUTPUT(find_next_user_entry_time)
-     << OUTPUT(write_pre_and_post_process_time) << OUTPUT(write_memtable_time)
-     << OUTPUT(db_mutex_lock_nanos) << OUTPUT(db_condition_wait_nanos)
-     << OUTPUT(merge_operator_time_nanos) << OUTPUT(write_delay_time)
-     << OUTPUT(read_index_block_nanos) << OUTPUT(read_filter_block_nanos)
-     << OUTPUT(new_table_block_iter_nanos) << OUTPUT(new_table_iterator_nanos)
-     << OUTPUT(block_seek_nanos) << OUTPUT(find_table_nanos)
-     << OUTPUT(bloom_memtable_hit_count) << OUTPUT(bloom_memtable_miss_count)
-     << OUTPUT(bloom_sst_hit_count) << OUTPUT(bloom_sst_miss_count);
+  PERF_CONTEXT_OUTPUT(user_key_comparison_count);
+  PERF_CONTEXT_OUTPUT(block_cache_hit_count);
+  PERF_CONTEXT_OUTPUT(block_read_count);
+  PERF_CONTEXT_OUTPUT(block_read_byte);
+  PERF_CONTEXT_OUTPUT(block_read_time);
+  PERF_CONTEXT_OUTPUT(block_checksum_time);
+  PERF_CONTEXT_OUTPUT(block_decompress_time);
+  PERF_CONTEXT_OUTPUT(internal_key_skipped_count);
+  PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
+  PERF_CONTEXT_OUTPUT(write_wal_time);
+  PERF_CONTEXT_OUTPUT(get_snapshot_time);
+  PERF_CONTEXT_OUTPUT(get_from_memtable_time);
+  PERF_CONTEXT_OUTPUT(get_from_memtable_count);
+  PERF_CONTEXT_OUTPUT(get_post_process_time);
+  PERF_CONTEXT_OUTPUT(get_from_output_files_time);
+  PERF_CONTEXT_OUTPUT(seek_on_memtable_time);
+  PERF_CONTEXT_OUTPUT(seek_on_memtable_count);
+  PERF_CONTEXT_OUTPUT(seek_child_seek_time);
+  PERF_CONTEXT_OUTPUT(seek_child_seek_count);
+  PERF_CONTEXT_OUTPUT(seek_min_heap_time);
+  PERF_CONTEXT_OUTPUT(seek_internal_seek_time);
+  PERF_CONTEXT_OUTPUT(find_next_user_entry_time);
+  PERF_CONTEXT_OUTPUT(write_pre_and_post_process_time);
+  PERF_CONTEXT_OUTPUT(write_memtable_time);
+  PERF_CONTEXT_OUTPUT(db_mutex_lock_nanos);
+  PERF_CONTEXT_OUTPUT(db_condition_wait_nanos);
+  PERF_CONTEXT_OUTPUT(merge_operator_time_nanos);
+  PERF_CONTEXT_OUTPUT(write_delay_time);
+  PERF_CONTEXT_OUTPUT(read_index_block_nanos);
+  PERF_CONTEXT_OUTPUT(read_filter_block_nanos);
+  PERF_CONTEXT_OUTPUT(new_table_block_iter_nanos);
+  PERF_CONTEXT_OUTPUT(new_table_iterator_nanos);
+  PERF_CONTEXT_OUTPUT(block_seek_nanos);
+  PERF_CONTEXT_OUTPUT(find_table_nanos);
+  PERF_CONTEXT_OUTPUT(bloom_memtable_hit_count);
+  PERF_CONTEXT_OUTPUT(bloom_memtable_miss_count);
+  PERF_CONTEXT_OUTPUT(bloom_sst_hit_count);
+  PERF_CONTEXT_OUTPUT(bloom_sst_miss_count);
   return ss.str();
 #endif
 }

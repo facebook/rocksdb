@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -61,7 +61,13 @@ class StatisticsImpl : public Statistics {
     char padding[64 - sizeof(std::atomic_uint_fast64_t)];
   };
 
-  Ticker tickers_[INTERNAL_TICKER_ENUM_MAX] __attribute__((aligned(64)));
+  static_assert(sizeof(Ticker) == 64, "Expecting to fit into 64 bytes");
+
+  // Attributes expand to nothing depending on the platform
+  __declspec(align(64))
+  Ticker tickers_[INTERNAL_TICKER_ENUM_MAX]
+     __attribute__((aligned(64)));
+  __declspec(align(64))
   HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX]
       __attribute__((aligned(64)));
 };

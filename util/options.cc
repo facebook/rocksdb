@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -17,12 +17,11 @@
 #include <inttypes.h>
 #include <limits>
 
-#include "db/writebuffer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
-#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
+#include "rocksdb/sst_file_manager.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
@@ -214,7 +213,7 @@ DBOptions::DBOptions()
       paranoid_checks(true),
       env(Env::Default()),
       rate_limiter(nullptr),
-      delete_scheduler(nullptr),
+      sst_file_manager(nullptr),
       info_log(nullptr),
 #ifdef NDEBUG
       info_log_level(INFO_LEVEL),
@@ -230,6 +229,7 @@ DBOptions::DBOptions()
       db_log_dir(""),
       wal_dir(""),
       delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000),
+      base_background_compactions(-1),
       max_background_compactions(1),
       max_subcompactions(1),
       max_background_flushes(1),
@@ -282,7 +282,7 @@ DBOptions::DBOptions(const Options& options)
       paranoid_checks(options.paranoid_checks),
       env(options.env),
       rate_limiter(options.rate_limiter),
-      delete_scheduler(options.delete_scheduler),
+      sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
       info_log_level(options.info_log_level),
       max_open_files(options.max_open_files),
@@ -296,6 +296,7 @@ DBOptions::DBOptions(const Options& options)
       wal_dir(options.wal_dir),
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
+      base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
       max_background_flushes(options.max_background_flushes),
@@ -384,6 +385,8 @@ void DBOptions::Dump(Logger* log) const {
         table_cache_numshardbits);
     Header(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
         delete_obsolete_files_period_micros);
+    Header(log, "             Options.base_background_compactions: %d",
+           base_background_compactions);
     Header(log, "             Options.max_background_compactions: %d",
         max_background_compactions);
     Header(log, "                     Options.max_subcompactions: %" PRIu32,
@@ -434,8 +437,9 @@ void DBOptions::Dump(Logger* log) const {
         use_adaptive_mutex);
     Header(log, "                            Options.rate_limiter: %p",
         rate_limiter.get());
-    Header(log, "     Options.delete_scheduler.rate_bytes_per_sec: %" PRIi64,
-         delete_scheduler ? delete_scheduler->GetRateBytesPerSecond() : 0);
+    Header(
+        log, "     Options.sst_file_manager.rate_bytes_per_sec: %" PRIi64,
+        sst_file_manager ? sst_file_manager->GetDeleteRateBytesPerSecond() : 0);
     Header(log, "                          Options.bytes_per_sync: %" PRIu64,
         bytes_per_sync);
     Header(log, "                      Options.wal_bytes_per_sync: %" PRIu64,
@@ -596,7 +600,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Header(log,
          "                   Options.max_successive_merges: %" ROCKSDB_PRIszt,
          max_successive_merges);
-    Header(log, "               Options.optimize_fllters_for_hits: %d",
+    Header(log, "               Options.optimize_filters_for_hits: %d",
         optimize_filters_for_hits);
     Header(log, "               Options.paranoid_file_checks: %d",
          paranoid_file_checks);
@@ -652,6 +656,7 @@ Options::PrepareForBulkLoad()
   // to L1. This is helpful so that all files that are
   // input to the manual compaction are all at L0.
   max_background_compactions = 2;
+  base_background_compactions = 2;
 
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;

@@ -1,4 +1,4 @@
-/*  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+/*  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
   This source code is licensed under the BSD-style license found in the
   LICENSE file in the root directory of this source tree. An additional grant
   of patent rights can be found in the PATENTS file in the same directory.
@@ -449,6 +449,9 @@ rocksdb_block_based_options_set_hash_index_allow_collision(
     rocksdb_block_based_table_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_cache_index_and_filter_blocks(
+    rocksdb_block_based_table_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(
     rocksdb_block_based_table_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_block_based_options_set_skip_table_builder_flush(

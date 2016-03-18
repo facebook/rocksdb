@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -24,6 +24,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
 #include "util/file_util.h"
+#include "util/sync_point.h"
 #include "port/port.h"
 
 namespace rocksdb {
@@ -76,7 +77,9 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   s = db_->DisableFileDeletions();
   if (s.ok()) {
     // this will return live_files prefixed with "/"
-    s = db_->GetLiveFiles(live_files, &manifest_file_size, true);
+    s = db_->GetLiveFiles(live_files, &manifest_file_size);
+    TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles1");
+    TEST_SYNC_POINT("CheckpointImpl::CreateCheckpoint:SavedLiveFiles2");
   }
   // if we have more than one column family, we need to also get WAL files
   if (s.ok()) {
@@ -98,6 +101,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   s = db_->GetEnv()->CreateDir(full_private_path);
 
   // copy/hard link live_files
+  std::string manifest_fname, current_fname;
   for (size_t i = 0; s.ok() && i < live_files.size(); ++i) {
     uint64_t number;
     FileType type;
@@ -110,6 +114,15 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
     assert(type == kTableFile || type == kDescriptorFile ||
            type == kCurrentFile);
     assert(live_files[i].size() > 0 && live_files[i][0] == '/');
+    if (type == kCurrentFile) {
+      // We will craft the current file manually to ensure it's consistent with
+      // the manifest number. This is necessary because current's file contents
+      // can change during checkpoint creation.
+      current_fname = live_files[i];
+      continue;
+    } else if (type == kDescriptorFile) {
+      manifest_fname = live_files[i];
+    }
     std::string src_fname = live_files[i];
 
     // rules:
@@ -131,6 +144,10 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
                    full_private_path + src_fname,
                    (type == kDescriptorFile) ? manifest_file_size : 0);
     }
+  }
+  if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
+    s = CreateFile(db_->GetEnv(), full_private_path + current_fname,
+                   manifest_fname.substr(1) + "\n");
   }
   Log(db_->GetOptions().info_log, "Number of log files %" ROCKSDB_PRIszt,
       live_wal_files.size());

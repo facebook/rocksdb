@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -12,21 +12,28 @@
 
 #include "port/port.h"
 
-#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
 
 class Env;
 class Logger;
+class SstFileManagerImpl;
 
-class DeleteSchedulerImpl : public DeleteScheduler {
+// DeleteScheduler allows the DB to enforce a rate limit on file deletion,
+// Instead of deleteing files immediately, files are moved to trash_dir
+// and deleted in a background thread that apply sleep penlty between deletes
+// if they are happening in a rate faster than rate_bytes_per_sec,
+//
+// Rate limiting can be turned off by setting rate_bytes_per_sec = 0, In this
+// case DeleteScheduler will delete files immediately.
+class DeleteScheduler {
  public:
-  DeleteSchedulerImpl(Env* env, const std::string& trash_dir,
-                      int64_t rate_bytes_per_sec,
-                      std::shared_ptr<Logger> info_log);
+  DeleteScheduler(Env* env, const std::string& trash_dir,
+                  int64_t rate_bytes_per_sec, Logger* info_log,
+                  SstFileManagerImpl* sst_file_manager);
 
-  ~DeleteSchedulerImpl();
+  ~DeleteScheduler();
 
   // Return delete rate limit in bytes per second
   int64_t GetRateBytesPerSecond() { return rate_bytes_per_sec_; }
@@ -63,7 +70,7 @@ class DeleteSchedulerImpl : public DeleteScheduler {
   int32_t pending_files_;
   // Errors that happened in BackgroundEmptyTrash (file_path => error)
   std::map<std::string, Status> bg_errors_;
-  // Set to true in ~DeleteSchedulerImpl() to force BackgroundEmptyTrash to stop
+  // Set to true in ~DeleteScheduler() to force BackgroundEmptyTrash to stop
   bool closing_;
   // Condition variable signaled in these conditions
   //    - pending_files_ value change from 0 => 1
@@ -74,7 +81,8 @@ class DeleteSchedulerImpl : public DeleteScheduler {
   std::unique_ptr<std::thread> bg_thread_;
   // Mutex to protect threads from file name conflicts
   port::Mutex file_move_mu_;
-  std::shared_ptr<Logger> info_log_;
+  Logger* info_log_;
+  SstFileManagerImpl* sst_file_manager_;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
 };
 

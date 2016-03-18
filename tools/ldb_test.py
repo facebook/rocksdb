@@ -503,7 +503,36 @@ class LDBTestCase(unittest.TestCase):
         # Test on empty path.
         self.assertRunFAILFull(cmd % "")
 
-
+    def testColumnFamilies(self):
+        print "Running testColumnFamilies..."
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put cf1_1 1 --create_if_missing", "OK")
+        self.assertRunOK("put cf1_2 2 --create_if_missing", "OK")
+        self.assertRunOK("put cf1_3 3", "OK")
+        # Given non-default column family to single CF DB.
+        self.assertRunFAIL("get cf1_1 --column_family=two")
+        self.assertRunOK("create_column_family two", "OK")
+        self.assertRunOK("put cf2_1 1 --create_if_missing --column_family=two",
+                         "OK")
+        self.assertRunOK("put cf2_2 2 --create_if_missing --column_family=two",
+                         "OK")
+        self.assertRunOK("delete cf1_2", "OK")
+        self.assertRunOK("create_column_family three", "OK")
+        self.assertRunOK("delete cf2_2 --column_family=two", "OK")
+        self.assertRunOK(
+            "put cf3_1 3 --create_if_missing --column_family=three",
+            "OK")
+        self.assertRunOK("get cf1_1 --column_family=default", "1")
+        self.assertRunOK("dump --column_family=two",
+                         "cf2_1 ==> 1\nKeys in range: 1")
+        self.assertRunOK("dump",
+                         "cf1_1 ==> 1\ncf1_3 ==> 3\nKeys in range: 2")
+        self.assertRunOK("get cf2_1 --column_family=two",
+                         "1")
+        self.assertRunOK("get cf3_1 --column_family=three",
+                         "3")
+        # non-existing column family.
+        self.assertRunFAIL("get cf3_1 --column_family=four")
 
 if __name__ == "__main__":
     unittest.main()

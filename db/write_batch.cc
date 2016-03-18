@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -798,18 +798,23 @@ class MemTableInserter : public WriteBatch::Handler {
 // 3) During Write(), in a concurrent context where memtables has been cloned
 // The reason is that it calls memtables->Seek(), which has a stateful cache
 Status WriteBatchInternal::InsertInto(
-    const autovector<WriteBatch*>& batches, SequenceNumber sequence,
+    const autovector<WriteThread::Writer*>& writers, SequenceNumber sequence,
     ColumnFamilyMemTables* memtables, FlushScheduler* flush_scheduler,
     bool ignore_missing_column_families, uint64_t log_number, DB* db,
     const bool dont_filter_deletes, bool concurrent_memtable_writes) {
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
                             dont_filter_deletes, concurrent_memtable_writes);
-  Status rv = Status::OK();
-  for (size_t i = 0; i < batches.size() && rv.ok(); ++i) {
-    rv = batches[i]->Iterate(&inserter);
+
+  for (size_t i = 0; i < writers.size(); i++) {
+    if (!writers[i]->CallbackFailed()) {
+      writers[i]->status = writers[i]->batch->Iterate(&inserter);
+      if (!writers[i]->status.ok()) {
+        return writers[i]->status;
+      }
+    }
   }
-  return rv;
+  return Status::OK();
 }
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* batch,

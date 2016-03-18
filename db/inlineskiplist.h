@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional
 //  grant of patent rights can be found in the PATENTS file in the same
@@ -147,8 +147,9 @@ class InlineSkipList {
   // values are ok.
   std::atomic<int> max_height_;  // Height of the entire list
 
-  // Used for optimizing sequential insert patterns.  Tricky.  prev_[i] for
-  // i up to max_height_ - 1 (inclusive) is the predecessor of prev_[0].
+  // Used for optimizing sequential insert patterns.  Tricky.  prev_height_
+  // of zero means prev_ is undefined.  Otherwise: prev_[i] for i up
+  // to max_height_ - 1 (inclusive) is the predecessor of prev_[0], and
   // prev_height_ is the height of prev_[0].  prev_[0] can only be equal
   // to head when max_height_ and prev_height_ are both 1.
   Node** prev_;
@@ -510,11 +511,10 @@ InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
 
 template <class Comparator>
 void InlineSkipList<Comparator>::Insert(const char* key) {
-  // InsertConcurrently can't maintain the prev_ invariants when it needs
-  // to increase max_height_.  In that case it sets prev_height_ to zero,
-  // letting us know that we should ignore it.  A relaxed load suffices
-  // here because write thread synchronization separates Insert calls
-  // from InsertConcurrently calls.
+  // InsertConcurrently often can't maintain the prev_ invariants, so
+  // it just sets prev_height_ to zero, letting us know that we should
+  // ignore it.  A relaxed load suffices here because write thread
+  // synchronization separates Insert calls from InsertConcurrently calls.
   auto prev_height = prev_height_.load(std::memory_order_relaxed);
 
   // fast path for sequential insertion
@@ -595,15 +595,24 @@ void InlineSkipList<Comparator>::InsertConcurrently(const char* key) {
   int height = x->UnstashHeight();
   assert(height >= 1 && height <= kMaxHeight_);
 
+  // We don't have a lock-free algorithm for updating prev_, but we do have
+  // the option of invalidating the entire sequential-insertion cache.
+  // prev_'s invariant is that prev_[i] (i > 0) is the predecessor of
+  // prev_[0] at that level.  We're only going to violate that if height
+  // > 1 and key lands after prev_[height - 1] but before prev_[0].
+  // Comparisons are pretty expensive, so an easier version is to just
+  // clear the cache if height > 1.  We only write to prev_height_ if the
+  // nobody else has, to avoid invalidating the root of the skip list in
+  // all of the other CPU caches.
+  if (height > 1 && prev_height_.load(std::memory_order_relaxed) != 0) {
+    prev_height_.store(0, std::memory_order_relaxed);
+  }
+
   int max_height = max_height_.load(std::memory_order_relaxed);
   while (height > max_height) {
     if (max_height_.compare_exchange_strong(max_height, height)) {
       // successfully updated it
       max_height = height;
-
-      // we dont have a lock-free algorithm for fixing up prev_, so just
-      // mark it invalid
-      prev_height_.store(0, std::memory_order_relaxed);
       break;
     }
     // else retry, possibly exiting the loop because somebody else

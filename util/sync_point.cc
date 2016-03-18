@@ -1,4 +1,4 @@
-//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -21,16 +21,14 @@ void TestKillRandom(std::string kill_point, int odds,
     }
   }
 
-  time_t curtime = time(nullptr);
-  Random r((uint32_t)curtime);
-
   assert(odds > 0);
   if (odds % 7 == 0) {
-    // class Rarndom uses multiplier 16807, which is 7^5. If odds are
-    // multiplier of 7, the first random value might have limited values.
+    // class Random uses multiplier 16807, which is 7^5. If odds are
+    // multiplier of 7, there might be limited values generated.
     odds++;
   }
-  bool crash = r.OneIn(odds);
+  auto* r = Random::GetTLSInstance();
+  bool crash = r->OneIn(odds);
   if (crash) {
     port::Crash(srcfile, srcline);
   }

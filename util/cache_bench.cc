@@ -1,4 +1,4 @@
-//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -142,8 +142,7 @@ class CacheBench {
       // Cast uint64* to be char*, data would be copied to cache
       Slice key(reinterpret_cast<char*>(&rand_key), 8);
       // do insert
-      auto handle = cache_->Insert(key, new char[10], 1, &deleter);
-      cache_->Release(handle);
+      cache_->Insert(key, new char[10], 1, &deleter);
     }
   }
 
@@ -221,8 +220,7 @@ class CacheBench {
       int32_t prob_op = thread->rnd.Uniform(100);
       if (prob_op >= 0 && prob_op < FLAGS_insert_percent) {
         // do insert
-        auto handle = cache_->Insert(key, new char[10], 1, &deleter);
-        cache_->Release(handle);
+        cache_->Insert(key, new char[10], 1, &deleter);
       } else if (prob_op -= FLAGS_insert_percent &&
                  prob_op < FLAGS_lookup_percent) {
         // do lookup

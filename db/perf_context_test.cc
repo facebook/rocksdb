@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -13,6 +13,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/memtablerep.h"
 #include "util/histogram.h"
+#include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"
 #include "util/thread_status_util.h"
@@ -543,27 +544,30 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
 }
 
 TEST_F(PerfContextTest, DBMutexLockCounter) {
-  SetPerfLevel(kEnableTime);
   int stats_code[] = {0, static_cast<int>(DB_MUTEX_WAIT_MICROS)};
-  for (int c = 0; c < 2; ++c) {
+  for (PerfLevel perf_level :
+       {PerfLevel::kEnableTimeExceptForMutex, PerfLevel::kEnableTime}) {
+    for (int c = 0; c < 2; ++c) {
     InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
     mutex.Lock();
     std::thread child_thread([&] {
-      SetPerfLevel(kEnableTime);
+      SetPerfLevel(perf_level);
       perf_context.Reset();
       ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);
       mutex.Lock();
       mutex.Unlock();
-      if (stats_code[c] == DB_MUTEX_WAIT_MICROS) {
+      if (perf_level == PerfLevel::kEnableTimeExceptForMutex ||
+          stats_code[c] != DB_MUTEX_WAIT_MICROS) {
+        ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);
+      } else {
         // increment the counter only when it's a DB Mutex
         ASSERT_GT(perf_context.db_mutex_lock_nanos, 0);
-      } else {
-        ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);
       }
     });
     Env::Default()->SleepForMicroseconds(100);
     mutex.Unlock();
     child_thread.join();
+  }
   }
 }
 
@@ -584,6 +588,19 @@ TEST_F(PerfContextTest, FalseDBMutexWait) {
       ASSERT_EQ(perf_context.db_condition_wait_nanos, 0);
     }
   }
+}
+
+TEST_F(PerfContextTest, ToString) {
+  perf_context.Reset();
+  perf_context.block_read_count = 12345;
+
+  std::string zero_included = perf_context.ToString();
+  ASSERT_NE(std::string::npos, zero_included.find("= 0"));
+  ASSERT_NE(std::string::npos, zero_included.find("= 12345"));
+
+  std::string zero_excluded = perf_context.ToString(true);
+  ASSERT_EQ(std::string::npos, zero_excluded.find("= 0"));
+  ASSERT_NE(std::string::npos, zero_excluded.find("= 12345"));
 }
 }
 

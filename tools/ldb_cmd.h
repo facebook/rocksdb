@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -44,6 +44,7 @@ public:
   static const string ARG_HEX;
   static const string ARG_KEY_HEX;
   static const string ARG_VALUE_HEX;
+  static const string ARG_CF_NAME;
   static const string ARG_TTL;
   static const string ARG_TTL_START;
   static const string ARG_TTL_END;
@@ -60,19 +61,17 @@ public:
   static const string ARG_WRITE_BUFFER_SIZE;
   static const string ARG_FILE_SIZE;
   static const string ARG_CREATE_IF_MISSING;
+  static const string ARG_NO_VALUE;
 
   static LDBCommand* InitFromCmdLineArgs(
-    const vector<string>& args,
-    const Options& options,
-    const LDBOptions& ldb_options
-  );
+      const vector<string>& args, const Options& options,
+      const LDBOptions& ldb_options,
+      const std::vector<ColumnFamilyDescriptor>* column_families);
 
   static LDBCommand* InitFromCmdLineArgs(
-    int argc,
-    char** argv,
-    const Options& options,
-    const LDBOptions& ldb_options
-  );
+      int argc, char** argv, const Options& options,
+      const LDBOptions& ldb_options,
+      const std::vector<ColumnFamilyDescriptor>* column_families);
 
   bool ValidateCmdLineOptions();
 
@@ -80,6 +79,15 @@ public:
 
   virtual void SetDBOptions(Options options) {
     options_ = options;
+  }
+
+  virtual void SetColumnFamilies(
+      const std::vector<ColumnFamilyDescriptor>* column_families) {
+    if (column_families != nullptr) {
+      column_families_ = *column_families;
+    } else {
+      column_families_.clear();
+    }
   }
 
   void SetLDBOptions(const LDBOptions& ldb_options) {
@@ -90,10 +98,7 @@ public:
     return false;
   }
 
-  virtual ~LDBCommand() {
-    delete db_;
-    db_ = nullptr;
-  }
+  virtual ~LDBCommand() { CloseDB(); }
 
   /* Run the command, and return the execute result. */
   void Run() {
@@ -181,8 +186,10 @@ protected:
 
   LDBCommandExecuteResult exec_state_;
   string db_path_;
+  string column_family_name_;
   DB* db_;
   DBWithTTL* db_ttl_;
+  std::map<std::string, ColumnFamilyHandle*> cf_handles_;
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -235,6 +242,13 @@ protected:
       db_path_ = itr->second;
     }
 
+    itr = options.find(ARG_CF_NAME);
+    if (itr != options.end()) {
+      column_family_name_ = itr->second;
+    } else {
+      column_family_name_ = kDefaultColumnFamilyName;
+    }
+
     is_key_hex_ = IsKeyHex(options, flags);
     is_value_hex_ = IsValueHex(options, flags);
     is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
@@ -248,21 +262,75 @@ protected:
     }
     // Open the DB.
     Status st;
+    std::vector<ColumnFamilyHandle*> handles_opened;
     if (is_db_ttl_) {
+      // ldb doesn't yet support TTL DB with multiple column families
+      if (!column_family_name_.empty() || !column_families_.empty()) {
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            "ldb doesn't support TTL DB with multiple column families");
+      }
       if (is_read_only_) {
         st = DBWithTTL::Open(opt, db_path_, &db_ttl_, 0, true);
       } else {
         st = DBWithTTL::Open(opt, db_path_, &db_ttl_);
       }
       db_ = db_ttl_;
-    } else if (is_read_only_) {
-      st = DB::OpenForReadOnly(opt, db_path_, &db_);
     } else {
-      st = DB::Open(opt, db_path_, &db_);
+      if (column_families_.empty()) {
+        // Try to figure out column family lists
+        std::vector<std::string> cf_list;
+        st = DB::ListColumnFamilies(DBOptions(), db_path_, &cf_list);
+        // There is possible the DB doesn't exist yet, for "create if not
+        // "existing case". The failure is ignored here. We rely on DB::Open()
+        // to give us the correct error message for problem with opening
+        // existing DB.
+        if (st.ok() && cf_list.size() > 1) {
+          // Ignore single column family DB.
+          for (auto cf_name : cf_list) {
+            column_families_.emplace_back(cf_name, opt);
+          }
+        }
+      }
+      if (is_read_only_) {
+        if (column_families_.empty()) {
+          st = DB::OpenForReadOnly(opt, db_path_, &db_);
+        } else {
+          st = DB::OpenForReadOnly(opt, db_path_, column_families_,
+                                   &handles_opened, &db_);
+        }
+      } else {
+        if (column_families_.empty()) {
+          st = DB::Open(opt, db_path_, &db_);
+        } else {
+          st = DB::Open(opt, db_path_, column_families_, &handles_opened, &db_);
+        }
+      }
     }
     if (!st.ok()) {
       string msg = st.ToString();
       exec_state_ = LDBCommandExecuteResult::Failed(msg);
+    } else if (!handles_opened.empty()) {
+      assert(handles_opened.size() == column_families_.size());
+      bool found_cf_name = false;
+      for (size_t i = 0; i < handles_opened.size(); i++) {
+        cf_handles_[column_families_[i].name] = handles_opened[i];
+        if (column_family_name_ == column_families_[i].name) {
+          found_cf_name = true;
+        }
+      }
+      if (!found_cf_name) {
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            "Non-existing column family " + column_family_name_);
+        CloseDB();
+      }
+    } else {
+      // We successfully opened DB in single column family mode.
+      assert(column_families_.empty());
+      if (column_family_name_ != kDefaultColumnFamilyName) {
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            "Non-existing column family " + column_family_name_);
+        CloseDB();
+      }
     }
 
     options_ = opt;
@@ -270,9 +338,25 @@ protected:
 
   void CloseDB () {
     if (db_ != nullptr) {
+      for (auto& pair : cf_handles_) {
+        delete pair.second;
+      }
       delete db_;
       db_ = nullptr;
     }
+  }
+
+  ColumnFamilyHandle* GetCfHandle() {
+    if (!cf_handles_.empty()) {
+      auto it = cf_handles_.find(column_family_name_);
+      if (it == cf_handles_.end()) {
+        exec_state_ = LDBCommandExecuteResult::Failed(
+            "Cannot find column family " + column_family_name_);
+      } else {
+        return it->second;
+      }
+    }
+    return db_->DefaultColumnFamily();
   }
 
   static string PrintKeyValue(const string& key, const string& value,
@@ -310,10 +394,10 @@ protected:
    * passed in.
    */
   static vector<string> BuildCmdLineOptions(vector<string> options) {
-    vector<string> ret = {ARG_DB,               ARG_BLOOM_BITS,
-                          ARG_BLOCK_SIZE,       ARG_AUTO_COMPACTION,
-                          ARG_COMPRESSION_TYPE, ARG_WRITE_BUFFER_SIZE,
-                          ARG_FILE_SIZE,        ARG_FIX_PREFIX_LEN};
+    vector<string> ret = {ARG_DB, ARG_BLOOM_BITS, ARG_BLOCK_SIZE,
+                          ARG_AUTO_COMPACTION, ARG_COMPRESSION_TYPE,
+                          ARG_WRITE_BUFFER_SIZE, ARG_FILE_SIZE,
+                          ARG_FIX_PREFIX_LEN, ARG_CF_NAME};
     ret.insert(ret.end(), options.begin(), options.end());
     return ret;
   }
@@ -325,6 +409,7 @@ protected:
                          const string& option, string* value);
 
   Options options_;
+  std::vector<ColumnFamilyDescriptor> column_families_;
   LDBOptions ldb_options_;
 
 private:
@@ -377,7 +462,7 @@ private:
    */
   bool StringToBool(string val) {
     std::transform(val.begin(), val.end(), val.begin(),
-                   [](char ch) -> char { return ::tolower(ch); });
+                   [](char ch)->char { return (char)::tolower(ch); });
 
     if (val == "true") {
       return true;
@@ -568,6 +653,23 @@ class ListColumnFamiliesCommand : public LDBCommand {
   string dbname_;
 };
 
+class CreateColumnFamilyCommand : public LDBCommand {
+ public:
+  static string Name() { return "create_column_family"; }
+
+  CreateColumnFamilyCommand(const vector<string>& params,
+                            const map<string, string>& options,
+                            const vector<string>& flags);
+
+  static void Help(string& ret);
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return false; }
+
+ private:
+  string new_cf_name_;
+};
+
 class ReduceDBLevelsCommand : public LDBCommand {
 public:
   static string Name() { return "reduce_levels"; }
@@ -709,6 +811,7 @@ private:
   bool start_key_specified_;
   bool end_key_specified_;
   int max_keys_scanned_;
+  bool no_value_;
 };
 
 class DeleteCommand : public LDBCommand {
@@ -772,6 +875,21 @@ public:
 
   CheckConsistencyCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
+
+  virtual void DoCommand() override;
+
+  virtual bool NoDBOpen() override { return true; }
+
+  static void Help(string& ret);
+};
+
+class RepairCommand : public LDBCommand {
+ public:
+  static string Name() { return "repair"; }
+
+  RepairCommand(const vector<string>& params,
+                const map<string, string>& options,
+                const vector<string>& flags);
 
   virtual void DoCommand() override;
 

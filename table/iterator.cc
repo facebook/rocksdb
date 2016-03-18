@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -44,6 +44,17 @@ void Cleanable::RegisterCleanup(CleanupFunction func, void* arg1, void* arg2) {
   c->function = func;
   c->arg1 = arg1;
   c->arg2 = arg2;
+}
+
+Status Iterator::GetProperty(std::string prop_name, std::string* prop) {
+  if (prop == nullptr) {
+    return Status::InvalidArgument("prop is nullptr");
+  }
+  if (prop_name == "rocksdb.iterator.is-key-pinned") {
+    *prop = "0";
+    return Status::OK();
+  }
+  return Status::InvalidArgument("Undentified property.");
 }
 
 namespace {

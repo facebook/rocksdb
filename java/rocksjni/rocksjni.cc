@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -12,12 +12,17 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include "include/org_rocksdb_RocksDB.h"
 #include "rocksdb/db.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/types.h"
 #include "rocksjni/portal.h"
+
+#ifdef min
+#undef min
+#endif
 
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Open
@@ -688,8 +693,8 @@ jint rocksdb_get_helper(
     return kStatusError;
   }
 
-  int cvalue_len = static_cast<int>(cvalue.size());
-  int length = std::min(jentry_value_len, cvalue_len);
+  jint cvalue_len = static_cast<jint>(cvalue.size());
+  jint length = std::min(jentry_value_len, cvalue_len);
 
   env->SetByteArrayRegion(
       jentry_value, 0, length,

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -15,6 +15,8 @@
 // strings such as PRIu64
 // in fact, we could use that one
 #define ROCKSDB_PRIszt "zu"
+
+#define __declspec(S)
 
 #define ROCKSDB_NOEXCEPT noexcept
 

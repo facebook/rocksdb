@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -76,7 +76,7 @@ class BlockBasedTable : public TableReader {
                      unique_ptr<RandomAccessFileReader>&& file,
                      uint64_t file_size, unique_ptr<TableReader>* table_reader,
                      bool prefetch_index_and_filter = true,
-                     bool skip_filters = false);
+                     bool skip_filters = false, int level = -1);
 
   bool PrefixMayMatch(const Slice& internal_key);
 
@@ -119,6 +119,8 @@ class BlockBasedTable : public TableReader {
   // convert SST file to a human readable form
   Status DumpTable(WritableFile* out_file) override;
 
+  void Close() override;
+
   ~BlockBasedTable();
 
   bool TEST_filter_block_preloaded() const;
@@ -155,8 +157,9 @@ class BlockBasedTable : public TableReader {
   //  2. index is not present in block cache.
   //  3. We disallowed any io to be performed, that is, read_options ==
   //     kBlockCacheTier
-  InternalIterator* NewIndexIterator(const ReadOptions& read_options,
-                                     BlockIter* input_iter = nullptr);
+  InternalIterator* NewIndexIterator(
+      const ReadOptions& read_options, BlockIter* input_iter = nullptr,
+      CachableEntry<IndexReader>* index_entry = nullptr);
 
   // Read block cache from block caches (if set): block_cache and
   // block_cache_compressed.
@@ -207,7 +210,7 @@ class BlockBasedTable : public TableReader {
   // Create the filter from the filter block.
   static FilterBlockReader* ReadFilter(Rep* rep, size_t* filter_size = nullptr);
 
-  static void SetupCacheKeyPrefix(Rep* rep);
+  static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 
   explicit BlockBasedTable(Rep* rep)
       : rep_(rep), compaction_optimized_(false) {}

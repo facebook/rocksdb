@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -13,7 +13,7 @@ namespace rocksdb {
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 
 #define PERF_TIMER_GUARD(metric)
-#define PERF_CONDITIONAL_TIMER_GUARD(metric, condition)
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)
 #define PERF_TIMER_MEASURE(metric)
 #define PERF_TIMER_STOP(metric)
 #define PERF_TIMER_START(metric)
@@ -33,10 +33,10 @@ namespace rocksdb {
   PerfStepTimer perf_step_timer_ ## metric(&(perf_context.metric));   \
   perf_step_timer_ ## metric.Start();
 
-#define PERF_CONDITIONAL_TIMER_GUARD(metric, condition)           \
-  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric)); \
-  if ((condition)) {                                              \
-    perf_step_timer_##metric.Start();                             \
+#define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)       \
+  PerfStepTimer perf_step_timer_##metric(&(perf_context.metric), true); \
+  if ((condition)) {                                                    \
+    perf_step_timer_##metric.Start();                                   \
   }
 
 // Update metric with time elapsed since last START. start time is reset

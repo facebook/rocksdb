@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -18,6 +18,7 @@
 #include <list>
 
 #ifdef OS_LINUX
+#include <fcntl.h>
 #include <linux/fs.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -26,7 +27,6 @@
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 #include <errno.h>
-#include <fcntl.h>
 #endif
 
 #include "rocksdb/env.h"
@@ -933,6 +933,42 @@ TEST_F(EnvPosixTest, Preallocation) {
   srcfile->Append(buf);
   srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
   ASSERT_EQ(last_allocated_block, 7UL);
+}
+
+// Test that the two ways to get children file attributes (in bulk or
+// individually) behave consistently.
+TEST_F(EnvPosixTest, ConsistentChildrenAttributes) {
+  const EnvOptions soptions;
+  const int kNumChildren = 10;
+
+  std::string data;
+  for (int i = 0; i < kNumChildren; ++i) {
+    std::ostringstream oss;
+    oss << test::TmpDir() << "/testfile_" << i;
+    const std::string path = oss.str();
+    unique_ptr<WritableFile> file;
+    ASSERT_OK(env_->NewWritableFile(path, &file, soptions));
+    file->Append(data);
+    data.append("test");
+  }
+
+  std::vector<Env::FileAttributes> file_attrs;
+  ASSERT_OK(env_->GetChildrenFileAttributes(test::TmpDir(), &file_attrs));
+  for (int i = 0; i < kNumChildren; ++i) {
+    std::ostringstream oss;
+    oss << "testfile_" << i;
+    const std::string name = oss.str();
+    const std::string path = test::TmpDir() + "/" + name;
+
+    auto file_attrs_iter = std::find_if(
+        file_attrs.begin(), file_attrs.end(),
+        [&name](const Env::FileAttributes& fm) { return fm.name == name; });
+    ASSERT_TRUE(file_attrs_iter != file_attrs.end());
+    uint64_t size;
+    ASSERT_OK(env_->GetFileSize(path, &size));
+    ASSERT_EQ(size, 4 * i);
+    ASSERT_EQ(size, file_attrs_iter->size_bytes);
+  }
 }
 
 // Test that all WritableFileWrapper forwards all calls to WritableFile.

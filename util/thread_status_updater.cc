@@ -1,13 +1,13 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
+#include "util/thread_status_updater.h"
 #include <memory>
 #include "rocksdb/env.h"
 #include "port/likely.h"
 #include "util/mutexlock.h"
-#include "util/thread_status_updater.h"
 
 namespace rocksdb {
 
@@ -246,7 +246,9 @@ void ThreadStatusUpdater::EraseColumnFamilyInfo(const void* cf_key) {
   // a consistent view of global column family table (cf_info_map).
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
   auto cf_pair = cf_info_map_.find(cf_key);
-  assert(cf_pair != cf_info_map_.end());
+  if (cf_pair == cf_info_map_.end()) {
+    return;
+  }
 
   auto* cf_info = cf_pair->second.get();
   assert(cf_info);
@@ -278,7 +280,9 @@ void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
   size_t result __attribute__((unused)) = 0;
   for (auto cf_key : db_pair->second) {
     auto cf_pair = cf_info_map_.find(cf_key);
-    assert(cf_pair != cf_info_map_.end());
+    if (cf_pair == cf_info_map_.end()) {
+      continue;
+    }
     cf_pair->second.reset();
     result = cf_info_map_.erase(cf_key);
     assert(result);

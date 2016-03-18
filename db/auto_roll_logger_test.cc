@@ -1,17 +1,20 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #include <string>
+#include <thread>
 #include <vector>
 #include <cmath>
 #include <iostream>
 #include <fstream>
 #include <iterator>
 #include <algorithm>
+#include "db/auto_roll_logger.h"
+#include "port/port.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
-#include "util/auto_roll_logger.h"
 #include "rocksdb/db.h"
 #include <sys/stat.h>
 #include <errno.h>
@@ -260,7 +263,60 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
       auto_roll_logger, options.log_file_time_to_roll,
       kSampleMessage + ":CreateLoggerFromOptions - both");
 }
-#endif
+
+TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
+  DBOptions options;
+  shared_ptr<Logger> logger;
+
+  InitTestDb();
+  options.max_log_file_size = 1024 * 5;
+  ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
+  AutoRollLogger* auto_roll_logger =
+      dynamic_cast<AutoRollLogger*>(logger.get());
+  ASSERT_TRUE(auto_roll_logger);
+  std::thread flush_thread;
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      // Need to pin the old logger before beginning the roll, as rolling grabs
+      // the mutex, which would prevent us from accessing the old logger.
+      {"AutoRollLogger::Flush:PinnedLogger",
+       "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
+      // Need to finish the flush thread init before this callback because the
+      // callback accesses flush_thread.get_id() in order to apply certain sync
+      // points only to the flush thread.
+      {"AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit",
+       "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallbackBegin"},
+      // Need to reset logger at this point in Flush() to exercise a race
+      // condition case, which is executing the flush with the pinned (old)
+      // logger after the roll has cut over to a new logger.
+      {"AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback1",
+       "AutoRollLogger::ResetLogger:BeforeNewLogger"},
+      {"AutoRollLogger::ResetLogger:AfterNewLogger",
+       "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback2"},
+  });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "PosixLogger::Flush:BeginCallback", [&](void* arg) {
+        TEST_SYNC_POINT(
+            "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallbackBegin");
+        if (std::this_thread::get_id() == flush_thread.get_id()) {
+          TEST_SYNC_POINT(
+              "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback1");
+          TEST_SYNC_POINT(
+              "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback2");
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
+  TEST_SYNC_POINT(
+      "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit");
+  RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
+                        kSampleMessage + ":LogFlushWhileRolling");
+  flush_thread.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+#endif  // OS_WIN
 
 TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   InitTestDb();

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -24,6 +24,13 @@ std::unique_ptr<WriteControllerToken> WriteController::GetDelayToken(
   bytes_left_ = 0;
   set_delayed_write_rate(write_rate);
   return std::unique_ptr<WriteControllerToken>(new DelayWriteToken(this));
+}
+
+std::unique_ptr<WriteControllerToken>
+WriteController::GetCompactionPressureToken() {
+  ++total_compaction_pressure_;
+  return std::unique_ptr<WriteControllerToken>(
+      new CompactionPressureToken(this));
 }
 
 bool WriteController::IsStopped() const { return total_stopped_ > 0; }
@@ -104,6 +111,11 @@ StopWriteToken::~StopWriteToken() {
 DelayWriteToken::~DelayWriteToken() {
   controller_->total_delayed_--;
   assert(controller_->total_delayed_ >= 0);
+}
+
+CompactionPressureToken::~CompactionPressureToken() {
+  controller_->total_compaction_pressure_--;
+  assert(controller_->total_compaction_pressure_ >= 0);
 }
 
 }  // namespace rocksdb

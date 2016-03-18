@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -103,6 +103,14 @@ struct EnvOptions {
 
 class Env {
  public:
+  struct FileAttributes {
+    // File name
+    std::string name;
+
+    // Size of file in bytes
+    uint64_t size_bytes;
+  };
+
   Env() : thread_status_updater_(nullptr) {}
 
   virtual ~Env();
@@ -176,6 +184,15 @@ class Env {
   // Original contents of *results are dropped.
   virtual Status GetChildren(const std::string& dir,
                              std::vector<std::string>* result) = 0;
+
+  // Store in *result the attributes of the children of the specified directory.
+  // In case the implementation lists the directory prior to iterating the files
+  // and files are concurrently deleted, the deleted files will be omitted from
+  // result.
+  // The name attributes are relative to "dir".
+  // Original contents of *results are dropped.
+  virtual Status GetChildrenFileAttributes(const std::string& dir,
+                                           std::vector<FileAttributes>* result);
 
   // Delete the named file.
   virtual Status DeleteFile(const std::string& fname) = 0;
@@ -788,6 +805,10 @@ class EnvWrapper : public Env {
   Status GetChildren(const std::string& dir,
                      std::vector<std::string>* r) override {
     return target_->GetChildren(dir, r);
+  }
+  Status GetChildrenFileAttributes(
+      const std::string& dir, std::vector<FileAttributes>* result) override {
+    return target_->GetChildrenFileAttributes(dir, result);
   }
   Status DeleteFile(const std::string& f) override {
     return target_->DeleteFile(f);

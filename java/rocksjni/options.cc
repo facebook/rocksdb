@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <jni.h>
-#include <strings.h>
 #include <memory>
 
 #include "include/org_rocksdb_Options.h"
@@ -1180,7 +1179,7 @@ jbyte Java_org_rocksdb_Options_compactionStyle(
 void Java_org_rocksdb_Options_setMaxTableFilesSizeFIFO(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_table_files_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_options_fifo.max_table_files_size =
-    static_cast<long>(jmax_table_files_size);
+    static_cast<uint64_t>(jmax_table_files_size);
 }
 
 /*
@@ -2339,7 +2338,7 @@ jbyte Java_org_rocksdb_ColumnFamilyOptions_compactionStyle(
 void Java_org_rocksdb_ColumnFamilyOptions_setMaxTableFilesSizeFIFO(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_table_files_size) {
   reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->compaction_options_fifo.max_table_files_size =
-    static_cast<long>(jmax_table_files_size);
+    static_cast<uint64_t>(jmax_table_files_size);
 }
 
 /*

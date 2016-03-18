@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -51,6 +51,7 @@
 #include "util/iostats_context_imp.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
@@ -211,6 +212,7 @@ CompactionJob::CompactionJob(
     const EnvOptions& env_options, VersionSet* versions,
     std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
+    InstrumentedMutex* db_mutex, Status* db_bg_error,
     std::vector<SequenceNumber> existing_snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
@@ -230,6 +232,8 @@ CompactionJob::CompactionJob(
       db_directory_(db_directory),
       output_directory_(output_directory),
       stats_(stats),
+      db_mutex_(db_mutex),
+      db_bg_error_(db_bg_error),
       existing_snapshots_(std::move(existing_snapshots)),
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       table_cache_(std::move(table_cache)),
@@ -237,7 +241,9 @@ CompactionJob::CompactionJob(
       paranoid_file_checks_(paranoid_file_checks),
       measure_io_stats_(measure_io_stats) {
   assert(log_buffer_ != nullptr);
-  ThreadStatusUtil::SetColumnFamily(compact_->compaction->column_family_data());
+  const auto* cfd = compact_->compaction->column_family_data();
+  ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
+                                    cfd->options()->enable_thread_tracking);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
   ReportStartedCompaction(compaction);
 }
@@ -249,8 +255,9 @@ CompactionJob::~CompactionJob() {
 
 void CompactionJob::ReportStartedCompaction(
     Compaction* compaction) {
-  ThreadStatusUtil::SetColumnFamily(
-      compact_->compaction->column_family_data());
+  const auto* cfd = compact_->compaction->column_family_data();
+  ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
+                                    cfd->options()->enable_thread_tracking);
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_JOB_ID,
@@ -356,7 +363,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
       size_t num_files = flevel->num_files;
 
       if (num_files == 0) {
-        break;
+        continue;
       }
 
       if (lvl == 0) {
@@ -415,12 +422,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
 
   // Group the ranges into subcompactions
   const double min_file_fill_percent = 4.0 / 5;
-  uint64_t max_output_files = 
-    static_cast<uint64_t>(
-        std::ceil(
-          sum / min_file_fill_percent /
-          cfd->GetCurrentMutableCFOptions()->MaxFileSizeForLevel(out_lvl))
-          );
+  uint64_t max_output_files = static_cast<uint64_t>(std::ceil(
+      sum / min_file_fill_percent /
+      cfd->GetCurrentMutableCFOptions()->MaxFileSizeForLevel(out_lvl)));
   uint64_t subcompactions =
       std::min({static_cast<uint64_t>(ranges.size()),
                 static_cast<uint64_t>(db_options_.max_subcompactions),
@@ -518,18 +522,17 @@ Status CompactionJob::Run() {
   return status;
 }
 
-Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options,
-                              InstrumentedMutex* db_mutex) {
+Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_INSTALL);
-  db_mutex->AssertHeld();
+  db_mutex_->AssertHeld();
   Status status = compact_->status;
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), compaction_stats_);
 
   if (status.ok()) {
-    status = InstallCompactionResults(mutable_cf_options, db_mutex);
+    status = InstallCompactionResults(mutable_cf_options);
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
@@ -855,13 +858,33 @@ Status CompactionJob::FinishCompactionOutputFile(
           event_logger_, cfd->ioptions()->listeners, meta->fd, info);
     }
   }
+
+  // Report new file to SstFileManagerImpl
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
+  if (sfm && meta->fd.GetPathId() == 0) {
+    ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+    auto fn = TableFileName(cfd->ioptions()->db_paths, meta->fd.GetNumber(),
+                            meta->fd.GetPathId());
+    sfm->OnAddFile(fn);
+    if (sfm->IsMaxAllowedSpaceReached()) {
+      InstrumentedMutexLock l(db_mutex_);
+      if (db_bg_error_->ok()) {
+        s = Status::IOError("Max allowed space was reached");
+        *db_bg_error_ = s;
+        TEST_SYNC_POINT(
+            "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached");
+      }
+    }
+  }
+
   sub_compact->builder.reset();
   return s;
 }
 
 Status CompactionJob::InstallCompactionResults(
-    const MutableCFOptions& mutable_cf_options, InstrumentedMutex* db_mutex) {
-  db_mutex->AssertHeld();
+    const MutableCFOptions& mutable_cf_options) {
+  db_mutex_->AssertHeld();
 
   auto* compaction = compact_->compaction;
   // paranoia: verify that the files that we started with
@@ -896,7 +919,7 @@ Status CompactionJob::InstallCompactionResults(
   }
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, compaction->edit(),
-                                db_mutex, db_directory_);
+                                db_mutex_, db_directory_);
 }
 
 void CompactionJob::RecordCompactionIOStats() {

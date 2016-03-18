@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -531,6 +531,104 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
 
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 1);
+}
+
+TEST_F(DBCompactionTest, BGCompactionsAllowed) {
+  // Create several column families. Make compaction triggers in all of them
+  // and see number of compactions scheduled to be less than allowed.
+  const int kNumKeysPerFile = 100;
+
+  Options options;
+  options.write_buffer_size = 110 << 10;  // 110KB
+  options.arena_block_size = 4 << 10;
+  options.num_levels = 3;
+  // Should speed up compaction when there are 4 files.
+  options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 20;
+  options.soft_pending_compaction_bytes_limit = 1 << 30;  // Infinitely large
+  options.base_background_compactions = 1;
+  options.max_background_compactions = 3;
+  options.memtable_factory.reset(new SpecialSkipListFactory(kNumKeysPerFile));
+  options = CurrentOptions(options);
+
+  // Block all threads in thread pool.
+  const size_t kTotalTasks = 4;
+  env_->SetBackgroundThreads(4, Env::LOW);
+  test::SleepingBackgroundTask sleeping_tasks[kTotalTasks];
+  for (size_t i = 0; i < kTotalTasks; i++) {
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   &sleeping_tasks[i], Env::Priority::LOW);
+    sleeping_tasks[i].WaitUntilSleeping();
+  }
+
+  CreateAndReopenWithCF({"one", "two", "three"}, options);
+
+  Random rnd(301);
+  for (int cf = 0; cf < 4; cf++) {
+    for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
+      for (int i = 0; i < kNumKeysPerFile; i++) {
+        ASSERT_OK(Put(cf, Key(i), ""));
+      }
+      // put extra key to trigger flush
+      ASSERT_OK(Put(cf, "", ""));
+      dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
+      ASSERT_EQ(NumTableFilesAtLevel(0, cf), num + 1);
+    }
+  }
+
+  // Now all column families qualify compaction but only one should be
+  // scheduled, because no column family hits speed up condition.
+  ASSERT_EQ(1, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+
+  // Create two more files for one column family, which triggers speed up
+  // condition, three compactions will be scheduled.
+  for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
+    for (int i = 0; i < kNumKeysPerFile; i++) {
+      ASSERT_OK(Put(2, Key(i), ""));
+    }
+    // put extra key to trigger flush
+    ASSERT_OK(Put(2, "", ""));
+    dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+    ASSERT_EQ(options.level0_file_num_compaction_trigger + num + 1,
+              NumTableFilesAtLevel(0, 2));
+  }
+  ASSERT_EQ(3, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+
+  // Unblock all threads to unblock all compactions.
+  for (size_t i = 0; i < kTotalTasks; i++) {
+    sleeping_tasks[i].WakeUp();
+    sleeping_tasks[i].WaitUntilDone();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  // Verify number of compactions allowed will come back to 1.
+
+  for (size_t i = 0; i < kTotalTasks; i++) {
+    sleeping_tasks[i].Reset();
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                   &sleeping_tasks[i], Env::Priority::LOW);
+    sleeping_tasks[i].WaitUntilSleeping();
+  }
+  for (int cf = 0; cf < 4; cf++) {
+    for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
+      for (int i = 0; i < kNumKeysPerFile; i++) {
+        ASSERT_OK(Put(cf, Key(i), ""));
+      }
+      // put extra key to trigger flush
+      ASSERT_OK(Put(cf, "", ""));
+      dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
+      ASSERT_EQ(NumTableFilesAtLevel(0, cf), num + 1);
+    }
+  }
+
+  // Now all column families qualify compaction but only one should be
+  // scheduled, because no column family hits speed up condition.
+  ASSERT_EQ(1, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+
+  for (size_t i = 0; i < kTotalTasks; i++) {
+    sleeping_tasks[i].WakeUp();
+    sleeping_tasks[i].WaitUntilDone();
+  }
 }
 
 TEST_P(DBCompactionTestWithParam, CompactionsGenerateMultipleFiles) {
@@ -1898,7 +1996,7 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
     std::set<std::string> overlapping_file_names;
     std::vector<std::string> compaction_input_file_names;
     for (int f = 0; f < file_picked; ++f) {
-      int level;
+      int level = 0;
       auto file_meta = PickFileRandomly(cf_meta, &rnd, &level);
       compaction_input_file_names.push_back(file_meta->name);
       GetOverlappingFileNumbersForLevelCompaction(
@@ -2198,6 +2296,25 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   Destroy(options);
 }
 
+TEST_F(DBCompactionTest, SanitizeCompactionOptionsTest) {
+  Options options = CurrentOptions();
+  options.max_background_compactions = 5;
+  options.soft_pending_compaction_bytes_limit = 0;
+  options.hard_pending_compaction_bytes_limit = 100;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+  ASSERT_EQ(5, db_->GetOptions().base_background_compactions);
+  ASSERT_EQ(100, db_->GetOptions().soft_pending_compaction_bytes_limit);
+
+  options.base_background_compactions = 4;
+  options.max_background_compactions = 3;
+  options.soft_pending_compaction_bytes_limit = 200;
+  options.hard_pending_compaction_bytes_limit = 150;
+  DestroyAndReopen(options);
+  ASSERT_EQ(3, db_->GetOptions().base_background_compactions);
+  ASSERT_EQ(150, db_->GetOptions().soft_pending_compaction_bytes_limit);
+}
+
 // This tests for a bug that could cause two level0 compactions running
 // concurrently
 // TODO(aekmekji): Make sure that the reason this fails when run with
@@ -2390,8 +2507,12 @@ TEST_P(CompactionPriTest, Test) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(CompactionPriTest, CompactionPriTest,
-                        ::testing::Values(0, 1, 2));
+INSTANTIATE_TEST_CASE_P(
+    CompactionPriTest, CompactionPriTest,
+    ::testing::Values(CompactionPri::kByCompensatedSize,
+                      CompactionPri::kOldestLargestSeqFirst,
+                      CompactionPri::kOldestSmallestSeqFirst,
+                      CompactionPri::kMinOverlappingRatio));
 
 #endif // !defined(ROCKSDB_LITE)
 }  // namespace rocksdb

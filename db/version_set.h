@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -24,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -530,7 +531,7 @@ class Version {
   // checked during read operations. In certain cases (trivial move or preload),
   // the filter block may already be cached, but we still do not access it such
   // that it eventually expires from the cache.
-  bool IsFilterSkipped(int level);
+  bool IsFilterSkipped(int level, bool is_file_last_in_level = false);
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
   // fields of file_mata from its associated TableProperties.
@@ -697,6 +698,7 @@ class VersionSet {
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files,
+                        std::vector<std::string>* manifest_filenames,
                         uint64_t min_pending_output);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
@@ -731,9 +733,6 @@ class VersionSet {
 
   void AppendVersion(ColumnFamilyData* column_family_data, Version* v);
 
-  bool ManifestContains(uint64_t manifest_file_number,
-                        const std::string& record) const;
-
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        VersionEdit* edit);
 
@@ -761,6 +760,7 @@ class VersionSet {
   uint64_t manifest_file_size_;
 
   std::vector<FileMetaData*> obsolete_files_;
+  std::vector<std::string> obsolete_manifests_;
 
   // env options for all reads and writes except compactions
   const EnvOptions& env_options_;

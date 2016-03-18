@@ -1,40 +1,42 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include "util/delete_scheduler_impl.h"
+#include "util/delete_scheduler.h"
 
 #include <thread>
 #include <vector>
 
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
 
-DeleteSchedulerImpl::DeleteSchedulerImpl(Env* env, const std::string& trash_dir,
-                                         int64_t rate_bytes_per_sec,
-                                         std::shared_ptr<Logger> info_log)
+DeleteScheduler::DeleteScheduler(Env* env, const std::string& trash_dir,
+                                 int64_t rate_bytes_per_sec, Logger* info_log,
+                                 SstFileManagerImpl* sst_file_manager)
     : env_(env),
       trash_dir_(trash_dir),
       rate_bytes_per_sec_(rate_bytes_per_sec),
       pending_files_(0),
       closing_(false),
       cv_(&mu_),
-      info_log_(info_log) {
-  if (rate_bytes_per_sec_ == 0) {
+      info_log_(info_log),
+      sst_file_manager_(sst_file_manager) {
+  if (rate_bytes_per_sec_ <= 0) {
     // Rate limiting is disabled
     bg_thread_.reset();
   } else {
     bg_thread_.reset(
-        new std::thread(&DeleteSchedulerImpl::BackgroundEmptyTrash, this));
+        new std::thread(&DeleteScheduler::BackgroundEmptyTrash, this));
   }
 }
 
-DeleteSchedulerImpl::~DeleteSchedulerImpl() {
+DeleteScheduler::~DeleteScheduler() {
   {
     MutexLock l(&mu_);
     closing_ = true;
@@ -45,20 +47,29 @@ DeleteSchedulerImpl::~DeleteSchedulerImpl() {
   }
 }
 
-Status DeleteSchedulerImpl::DeleteFile(const std::string& file_path) {
-  if (rate_bytes_per_sec_ == 0) {
+Status DeleteScheduler::DeleteFile(const std::string& file_path) {
+  Status s;
+  if (rate_bytes_per_sec_ <= 0) {
     // Rate limiting is disabled
-    return env_->DeleteFile(file_path);
+    s = env_->DeleteFile(file_path);
+    if (s.ok() && sst_file_manager_) {
+      sst_file_manager_->OnDeleteFile(file_path);
+    }
+    return s;
   }
 
   // Move file to trash
   std::string path_in_trash;
-  Status s = MoveToTrash(file_path, &path_in_trash);
+  s = MoveToTrash(file_path, &path_in_trash);
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, info_log_,
         "Failed to move %s to trash directory (%s)", file_path.c_str(),
         trash_dir_.c_str());
-    return env_->DeleteFile(file_path);
+    s = env_->DeleteFile(file_path);
+    if (s.ok() && sst_file_manager_) {
+      sst_file_manager_->OnDeleteFile(file_path);
+    }
+    return s;
   }
 
   // Add file to delete queue
@@ -73,13 +84,13 @@ Status DeleteSchedulerImpl::DeleteFile(const std::string& file_path) {
   return s;
 }
 
-std::map<std::string, Status> DeleteSchedulerImpl::GetBackgroundErrors() {
+std::map<std::string, Status> DeleteScheduler::GetBackgroundErrors() {
   MutexLock l(&mu_);
   return bg_errors_;
 }
 
-Status DeleteSchedulerImpl::MoveToTrash(const std::string& file_path,
-                                        std::string* path_in_trash) {
+Status DeleteScheduler::MoveToTrash(const std::string& file_path,
+                                    std::string* path_in_trash) {
   Status s;
   // Figure out the name of the file in trash folder
   size_t idx = file_path.rfind("/");
@@ -112,11 +123,14 @@ Status DeleteSchedulerImpl::MoveToTrash(const std::string& file_path,
       break;
     }
   }
+  if (s.ok() && sst_file_manager_) {
+    sst_file_manager_->OnMoveFile(file_path, *path_in_trash);
+  }
   return s;
 }
 
-void DeleteSchedulerImpl::BackgroundEmptyTrash() {
-  TEST_SYNC_POINT("DeleteSchedulerImpl::BackgroundEmptyTrash");
+void DeleteScheduler::BackgroundEmptyTrash() {
+  TEST_SYNC_POINT("DeleteScheduler::BackgroundEmptyTrash");
 
   while (true) {
     MutexLock l(&mu_);
@@ -151,7 +165,7 @@ void DeleteSchedulerImpl::BackgroundEmptyTrash() {
       uint64_t total_penlty =
           ((total_deleted_bytes * kMicrosInSecond) / rate_bytes_per_sec_);
       while (!closing_ && !cv_.TimedWait(start_time + total_penlty)) {}
-      TEST_SYNC_POINT_CALLBACK("DeleteSchedulerImpl::BackgroundEmptyTrash:Wait",
+      TEST_SYNC_POINT_CALLBACK("DeleteScheduler::BackgroundEmptyTrash:Wait",
                                &total_penlty);
 
       pending_files_--;
@@ -164,12 +178,12 @@ void DeleteSchedulerImpl::BackgroundEmptyTrash() {
   }
 }
 
-Status DeleteSchedulerImpl::DeleteTrashFile(const std::string& path_in_trash,
-                                            uint64_t* deleted_bytes) {
+Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
+                                        uint64_t* deleted_bytes) {
   uint64_t file_size;
   Status s = env_->GetFileSize(path_in_trash, &file_size);
   if (s.ok()) {
-    TEST_SYNC_POINT("DeleteSchedulerImpl::DeleteTrashFile:DeleteFile");
+    TEST_SYNC_POINT("DeleteScheduler::DeleteTrashFile:DeleteFile");
     s = env_->DeleteFile(path_in_trash);
   }
 
@@ -181,51 +195,19 @@ Status DeleteSchedulerImpl::DeleteTrashFile(const std::string& path_in_trash,
     *deleted_bytes = 0;
   } else {
     *deleted_bytes = file_size;
+    if (sst_file_manager_) {
+      sst_file_manager_->OnDeleteFile(path_in_trash);
+    }
   }
 
   return s;
 }
 
-void DeleteSchedulerImpl::WaitForEmptyTrash() {
+void DeleteScheduler::WaitForEmptyTrash() {
   MutexLock l(&mu_);
   while (pending_files_ > 0 && !closing_) {
     cv_.Wait();
   }
-}
-
-DeleteScheduler* NewDeleteScheduler(Env* env, const std::string& trash_dir,
-                                    int64_t rate_bytes_per_sec,
-                                    std::shared_ptr<Logger> info_log,
-                                    bool delete_exisitng_trash,
-                                    Status* status) {
-  DeleteScheduler* res =
-      new DeleteSchedulerImpl(env, trash_dir, rate_bytes_per_sec, info_log);
-
-  Status s;
-  if (trash_dir != "") {
-    s = env->CreateDirIfMissing(trash_dir);
-    if (s.ok() && delete_exisitng_trash) {
-      std::vector<std::string> files_in_trash;
-      s = env->GetChildren(trash_dir, &files_in_trash);
-      if (s.ok()) {
-        for (const std::string& trash_file : files_in_trash) {
-          if (trash_file == "." || trash_file == "..") {
-            continue;
-          }
-          Status file_delete = res->DeleteFile(trash_dir + "/" + trash_file);
-          if (s.ok() && !file_delete.ok()) {
-            s = file_delete;
-          }
-        }
-      }
-    }
-  }
-
-  if (status) {
-    *status = s;
-  }
-
-  return res;
 }
 
 }  // namespace rocksdb

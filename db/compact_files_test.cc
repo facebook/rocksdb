@@ -1,4 +1,4 @@
-//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -7,6 +7,7 @@
 
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "rocksdb/db.h"
@@ -107,6 +108,7 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
       break;
     }
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   delete db;
 }
 
@@ -141,15 +143,68 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   }
 
   auto l0_files = collector->GetFlushedFiles();
-  CompactionOptions compact_opt;
-  compact_opt.compression = kNoCompression;
-  compact_opt.output_file_size_limit = kWriteBufferSize * 5;
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1));
 
   // verify all compaction input files are deleted
   for (auto fname : l0_files) {
     ASSERT_EQ(Status::NotFound(), env_->FileExists(fname));
   }
+  delete db;
+}
+
+TEST_F(CompactFilesTest, CapturingPendingFiles) {
+  Options options;
+  options.create_if_missing = true;
+  // Disable RocksDB background compaction.
+  options.compaction_style = kCompactionStyleNone;
+  // Always do full scans for obsolete files (needed to reproduce the issue).
+  options.delete_obsolete_files_period_micros = 0;
+
+  // Add listener.
+  FlushedFileCollector* collector = new FlushedFileCollector();
+  options.listeners.emplace_back(collector);
+
+  DB* db = nullptr;
+  DestroyDB(db_name_, options);
+  Status s = DB::Open(options, db_name_, &db);
+  assert(s.ok());
+  assert(db);
+
+  // Create 5 files.
+  for (int i = 0; i < 5; ++i) {
+    db->Put(WriteOptions(), "key" + ToString(i), "value");
+    db->Flush(FlushOptions());
+  }
+
+  auto l0_files = collector->GetFlushedFiles();
+  EXPECT_EQ(5, l0_files.size());
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"CompactFilesImpl:2", "CompactFilesTest.CapturingPendingFiles:0"},
+      {"CompactFilesTest.CapturingPendingFiles:1", "CompactFilesImpl:3"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Start compacting files.
+  std::thread compaction_thread(
+      [&] { EXPECT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1)); });
+
+  // In the meantime flush another file.
+  TEST_SYNC_POINT("CompactFilesTest.CapturingPendingFiles:0");
+  db->Put(WriteOptions(), "key5", "value");
+  db->Flush(FlushOptions());
+  TEST_SYNC_POINT("CompactFilesTest.CapturingPendingFiles:1");
+
+  compaction_thread.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  delete db;
+
+  // Make sure we can reopen the DB.
+  s = DB::Open(options, db_name_, &db);
+  ASSERT_TRUE(s.ok());
+  assert(db);
   delete db;
 }
 

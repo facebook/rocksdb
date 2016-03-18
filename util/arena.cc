@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -26,7 +26,7 @@ const size_t Arena::kInlineSize;
 #endif
 
 const size_t Arena::kMinBlockSize = 4096;
-const size_t Arena::kMaxBlockSize = 2 << 30;
+const size_t Arena::kMaxBlockSize = 2u << 30;
 static const int kAlignUnit = sizeof(void*);
 
 size_t OptimizeBlockSize(size_t block_size) {

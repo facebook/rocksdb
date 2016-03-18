@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -29,17 +29,20 @@ struct TableReaderOptions {
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters = false)
+                     bool _skip_filters = false, int _level = -1)
       : ioptions(_ioptions),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
-        skip_filters(_skip_filters) {}
+        skip_filters(_skip_filters),
+        level(_level) {}
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
   bool skip_filters;
+  // what level this table/file is on, -1 for "not set, don't know"
+  int level;
 };
 
 struct TableBuilderOptions {

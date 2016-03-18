@@ -1,5 +1,5 @@
 #!/bin/bash
-#  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+#  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 #  This source code is licensed under the BSD-style license found in the
 #  LICENSE file in the root directory of this source tree. An additional grant
 #  of patent rights can be found in the PATENTS file in the same directory.
@@ -10,7 +10,7 @@ then
   GIT="git"
 fi
 
-# Print out the colored progress info so that it can be brainlessly 
+# Print out the colored progress info so that it can be brainlessly
 # distinguished by users.
 function title() {
   echo -e "\033[1;32m$*\033[0m"

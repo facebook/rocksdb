@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -6,6 +6,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+#include <thread>
 
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
@@ -14,8 +15,11 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
 #include "util/logging.h"
+#include "util/random.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "util/transaction_test_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -60,6 +64,17 @@ class TransactionTest : public testing::Test {
     return s;
   }
 };
+
+TEST_F(TransactionTest, DoubleEmptyWrite) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+
+  WriteBatch batch;
+
+  ASSERT_OK(db->Write(write_options, &batch));
+  ASSERT_OK(db->Write(write_options, &batch));
+}
 
 TEST_F(TransactionTest, SuccessTest) {
   WriteOptions write_options;
@@ -436,7 +451,6 @@ TEST_F(TransactionTest, FlushTest2) {
 
     s = txn->Delete("S");
     // Should fail after encountering a write to S in SST file
-    fprintf(stderr, "%" ROCKSDB_PRIszt " %s\n", n, s.ToString().c_str());
     ASSERT_TRUE(s.IsBusy());
 
     // Write a bunch of keys to db to force a compaction
@@ -1198,6 +1212,97 @@ TEST_F(TransactionTest, ExpiredTransaction) {
   delete txn2;
 }
 
+TEST_F(TransactionTest, ReinitializeTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  // Set txn expiration timeout to 0 microseconds (expires instantly)
+  txn_options.expiration = 0;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  // Reinitialize transaction to no long expire
+  txn_options.expiration = -1;
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Put("Z", "z");
+  ASSERT_OK(s);
+
+  // Should commit since not expired
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Put("Z", "zz");
+  ASSERT_OK(s);
+
+  // Reinitilize txn1 and verify that Z gets unlocked
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options, nullptr);
+  s = txn2->Put("Z", "zzz");
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzz");
+
+  // Verify snapshots get reinitialized correctly
+  txn1->SetSnapshot();
+  s = txn1->Put("Z", "zzzz");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
+
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  const Snapshot* snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot);
+
+  txn_options.set_snapshot = true;
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+  ASSERT_TRUE(snapshot);
+
+  s = txn1->Put("Z", "a");
+  ASSERT_OK(s);
+
+  txn1->Rollback();
+
+  s = txn1->Put("Y", "y");
+  ASSERT_OK(s);
+
+  txn_options.set_snapshot = false;
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot);
+
+  s = txn1->Put("X", "x");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
+
+  s = db->Get(read_options, "Y", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete txn1;
+}
+
 TEST_F(TransactionTest, Rollback) {
   WriteOptions write_options;
   ReadOptions read_options;
@@ -1716,9 +1821,8 @@ TEST_F(TransactionTest, SavepointTest) {
 
 TEST_F(TransactionTest, SavepointTest2) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
   TransactionOptions txn_options;
-  string value;
   Status s;
 
   txn_options.lock_timeout = 1;  // 1 ms
@@ -1810,6 +1914,356 @@ TEST_F(TransactionTest, SavepointTest2) {
 
   s = txn2->Commit();
   ASSERT_OK(s);
+  delete txn2;
+}
+
+TEST_F(TransactionTest, UndoGetForUpdateTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  txn1->UndoGetForUpdate("A");
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  txn1 = db->BeginTransaction(write_options, txn_options);
+
+  txn1->UndoGetForUpdate("A");
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Verify that A is locked
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->UndoGetForUpdate("A");
+
+  // Verify that A is now unlocked
+  s = txn2->Put("A", "a2");
+  ASSERT_OK(s);
+  txn2->Commit();
+  delete txn2;
+  s = db->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a2", value);
+
+  s = txn1->Delete("A");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("B", "b3");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+
+  // Verify that A and B are still locked
+  txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a4");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b4");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->Rollback();
+  delete txn1;
+
+  // Verify that A and B are no longer locked
+  s = txn2->Put("A", "a5");
+  ASSERT_OK(s);
+  s = txn2->Put("B", "b5");
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  delete txn2;
+  ASSERT_OK(s);
+
+  txn1 = db->BeginTransaction(write_options, txn_options);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+  s = txn1->Put("B", "b5");
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify A,B,C are locked
+  txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("X", "x6");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify A,B are locked and C is not
+  s = txn2->Put("A", "a6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c6");
+  ASSERT_OK(s);
+  s = txn2->Put("X", "x6");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify B is locked and A and C are not
+  s = txn2->Put("A", "a7");
+  ASSERT_OK(s);
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c7");
+  ASSERT_OK(s);
+  s = txn2->Put("X", "x7");
+  ASSERT_OK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+}
+
+TEST_F(TransactionTest, UndoGetForUpdateTest2) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  s = db->Put(write_options, "A", "");
+  ASSERT_OK(s);
+
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("F", "f");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 1
+
+  txn1->UndoGetForUpdate("A");
+
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("E", "e");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "E", &value);
+  ASSERT_OK(s);
+
+  s = txn1->GetForUpdate(read_options, "F", &value);
+  ASSERT_OK(s);
+
+  // Verify A,B,C,D,E,F are still locked
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f1");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("E");
+
+  // Verify A,B,D,E,F are still locked and C is not.
+  s = txn2->Put("A", "a2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c2");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 2
+
+  s = txn1->Put("H", "h");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify A,B,D,E,F,H are still locked and C,G are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("H", "h3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+
+  txn1->RollbackToSavePoint();  // rollback to 2
+
+  // Verify A,B,D,E,F are still locked and C,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify A,B,E,F are still locked and C,D,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->RollbackToSavePoint();  // rollback to 1
+
+  // Verify A,B,F are still locked and C,D,E,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("E", "e3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify F is still locked and A,B,C,D,E,G,H are not.
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("A", "a3");
+  ASSERT_OK(s);
+  s = txn2->Put("B", "b3");
+  ASSERT_OK(s);
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("E", "e3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  delete txn1;
   delete txn2;
 }
 
@@ -2481,6 +2935,119 @@ TEST_F(TransactionTest, ToggleAutoCompactionTest) {
   for (auto handle : handles) {
     delete handle;
   }
+}
+
+TEST_F(TransactionTest, ExpiredTransactionDataRace1) {
+  // In this test, txn1 should succeed committing,
+  // as the callback is called after txn1 starts committing.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"TransactionTest::ExpirableTransactionDataRace:1"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TransactionTest::ExpirableTransactionDataRace:1", [&](void* arg) {
+        WriteOptions write_options;
+        TransactionOptions txn_options;
+
+        // Force txn1 to expire
+        /* sleep override */
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+        Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+        Status s;
+        s = txn2->Put("X", "2");
+        ASSERT_TRUE(s.IsTimedOut());
+        s = txn2->Commit();
+        ASSERT_OK(s);
+        delete txn2;
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+
+  txn_options.expiration = 100;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  Status s;
+  s = txn1->Put("X", "1");
+  ASSERT_OK(s);
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  string value;
+  s = db->Get(read_options, "X", &value);
+  ASSERT_EQ("1", value);
+
+  delete txn1;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+namespace {
+Status TransactionStressTestInserter(TransactionDB* db,
+                                     const size_t num_transactions,
+                                     const size_t num_sets,
+                                     const size_t num_keys_per_set) {
+  size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+  Random64 _rand(seed);
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  txn_options.set_snapshot = true;
+
+  RandomTransactionInserter inserter(&_rand, write_options, read_options,
+                                     num_keys_per_set,
+                                     static_cast<uint16_t>(num_sets));
+
+  for (size_t t = 0; t < num_transactions; t++) {
+    bool success = inserter.TransactionDBInsert(db, txn_options);
+    if (!success) {
+      // unexpected failure
+      return inserter.GetLastStatus();
+    }
+  }
+
+  // Make sure at least some of the transactions succeeded.  It's ok if
+  // some failed due to write-conflicts.
+  if (inserter.GetFailureCount() > num_transactions / 2) {
+    return Status::TryAgain("Too many transactions failed! " +
+                            std::to_string(inserter.GetFailureCount()) + " / " +
+                            std::to_string(num_transactions));
+  }
+
+  return Status::OK();
+}
+}  // namespace
+
+TEST_F(TransactionTest, TransactionStressTest) {
+  const size_t num_threads = 4;
+  const size_t num_transactions_per_thread = 10000;
+  const size_t num_sets = 3;
+  const size_t num_keys_per_set = 100;
+  // Setting the key-space to be 100 keys should cause enough write-conflicts
+  // to make this test interesting.
+
+  std::vector<std::thread> threads;
+
+  std::function<void()> call_inserter = [&] {
+    ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,
+                                            num_sets, num_keys_per_set));
+  };
+
+  // Create N threads that use RandomTransactionInserter to write
+  // many transactions.
+  for (uint32_t i = 0; i < num_threads; i++) {
+    threads.emplace_back(call_inserter);
+  }
+
+  // Wait for all threads to run
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  // Verify that data is consistent
+  Status s = RandomTransactionInserter::Verify(db, num_sets);
+  ASSERT_OK(s);
 }
 
 }  // namespace rocksdb

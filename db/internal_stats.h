@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -21,63 +21,29 @@ namespace rocksdb {
 class MemTableList;
 class DBImpl;
 
-// IMPORTANT: If you add a new property here, also add it to the list in
-//            include/rocksdb/db.h
-enum DBPropertyType : uint32_t {
-  kUnknown,
-  kNumFilesAtLevel,  // Number of files at a specific level
-  kLevelStats,       // Return number of files and total sizes of each level
-  kCFStats,          // Return general statitistics of CF
-  kDBStats,          // Return general statitistics of DB
-  kStats,            // Return general statitistics of both DB and CF
-  kSsTables,         // Return a human readable string of current SST files
-  kStartIntTypes,    // ---- Dummy value to indicate the start of integer values
-  kNumImmutableMemTable,         // Return number of immutable mem tables that
-                                 // have not been flushed.
-  kNumImmutableMemTableFlushed,  // Return number of immutable mem tables
-                                 // in memory that have already been flushed
-  kMemtableFlushPending,         // Return 1 if mem table flushing is pending,
-                                 // otherwise 0.
-  kNumRunningFlushes,      // Return the number of currently running flushes.
-  kCompactionPending,      // Return 1 if a compaction is pending. Otherwise 0.
-  kNumRunningCompactions,  // Return the number of currently running
-                           // compactions.
-  kBackgroundErrors,       // Return accumulated background errors encountered.
-  kCurSizeActiveMemTable,  // Return current size of the active memtable
-  kCurSizeAllMemTables,    // Return current size of unflushed
-                           // (active + immutable) memtables
-  kSizeAllMemTables,       // Return current size of all (active + immutable
-                           // + pinned) memtables
-  kNumEntriesInMutableMemtable,    // Return number of deletes in the mutable
-                                   // memtable.
-  kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
-                                   // the immutable mem tables.
-  kNumDeletesInMutableMemtable,    // Return number of deletion entries in the
-                                   // mutable memtable.
-  kNumDeletesInImmutableMemtable,  // Return the total number of deletion
-                                   // entries in all the immutable mem tables.
-  kEstimatedNumKeys,  // Estimated total number of keys in the database.
-  kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
-  kIsFileDeletionEnabled,         // Equals disable_delete_obsolete_files_,
-                                  // 0 means file deletions enabled
-  kNumSnapshots,                  // Number of snapshots in the system
-  kOldestSnapshotTime,            // Unix timestamp of the first snapshot
-  kNumLiveVersions,
-  kEstimateLiveDataSize,            // Estimated amount of live data in bytes
-  kTotalSstFilesSize,               // Total size of all sst files.
-  kBaseLevel,                       // The level that L0 data is compacted to
-  kEstimatePendingCompactionBytes,  // Estimated bytes to compaction
-  kAggregatedTableProperties,  // Return a string that contains the aggregated
-                               // table properties.
-  kAggregatedTablePropertiesAtLevel,  // Return a string that contains the
-                                      // aggregated
-  // table properties at the specified level.
+// Config for retrieving a property's value.
+struct DBPropertyInfo {
+  bool need_out_of_mutex;
+
+  // gcc had an internal error for initializing union of pointer-to-member-
+  // functions. Workaround is to populate exactly one of the following function
+  // pointers with a non-nullptr value.
+
+  // @param value Value-result argument for storing the property's string value
+  // @param suffix Argument portion of the property. For example, suffix would
+  //      be "5" for the property "rocksdb.num-files-at-level5". So far, only
+  //      certain string properties take an argument.
+  bool (InternalStats::*handle_string)(std::string* value, Slice suffix);
+
+  // @param value Value-result argument for storing the property's uint64 value
+  // @param db Many of the int properties rely on DBImpl methods.
+  // @param version Version is needed in case the property is retrieved without
+  //      holding db mutex, which is only supported for int properties.
+  bool (InternalStats::*handle_int)(uint64_t* value, DBImpl* db,
+                                    Version* version);
 };
 
-extern DBPropertyType GetPropertyType(const Slice& property,
-                                      bool* is_int_property,
-                                      bool* need_out_of_mutex);
-
+extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #ifndef ROCKSDB_LITE
 class InternalStats {
@@ -248,14 +214,18 @@ class InternalStats {
 
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
 
-  bool GetStringProperty(DBPropertyType property_type, const Slice& property,
-                         std::string* value);
+  bool GetStringProperty(const DBPropertyInfo& property_info,
+                         const Slice& property, std::string* value);
 
-  bool GetIntProperty(DBPropertyType property_type, uint64_t* value,
-                      DBImpl* db) const;
+  bool GetIntProperty(const DBPropertyInfo& property_info, uint64_t* value,
+                      DBImpl* db);
 
-  bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
-                                uint64_t* value) const;
+  bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
+                                Version* version, uint64_t* value);
+
+  // Store a mapping from the user-facing DB::Properties string to our
+  // DBPropertyInfo struct used internally for retrieving properties.
+  static const std::unordered_map<std::string, DBPropertyInfo> ppt_name_to_info;
 
  private:
   void DumpDBStats(std::string* value);
@@ -320,6 +290,56 @@ class InternalStats {
           write_stall_micros(0),
           seconds_up(0) {}
   } db_stats_snapshot_;
+
+  // Handler functions for getting property values. They use "value" as a value-
+  // result argument, and return true upon successfully setting "value".
+  bool HandleNumFilesAtLevel(std::string* value, Slice suffix);
+  bool HandleLevelStats(std::string* value, Slice suffix);
+  bool HandleStats(std::string* value, Slice suffix);
+  bool HandleCFStats(std::string* value, Slice suffix);
+  bool HandleDBStats(std::string* value, Slice suffix);
+  bool HandleSsTables(std::string* value, Slice suffix);
+  bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
+  bool HandleAggregatedTablePropertiesAtLevel(std::string* value, Slice suffix);
+  bool HandleNumImmutableMemTable(uint64_t* value, DBImpl* db,
+                                  Version* version);
+  bool HandleNumImmutableMemTableFlushed(uint64_t* value, DBImpl* db,
+                                         Version* version);
+  bool HandleMemTableFlushPending(uint64_t* value, DBImpl* db,
+                                  Version* version);
+  bool HandleNumRunningFlushes(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleCompactionPending(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
+                                   Version* version);
+  bool HandleBackgroundErrors(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleCurSizeActiveMemTable(uint64_t* value, DBImpl* db,
+                                   Version* version);
+  bool HandleCurSizeAllMemTables(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleSizeAllMemTables(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleNumEntriesActiveMemTable(uint64_t* value, DBImpl* db,
+                                      Version* version);
+  bool HandleNumEntriesImmMemTables(uint64_t* value, DBImpl* db,
+                                    Version* version);
+  bool HandleNumDeletesActiveMemTable(uint64_t* value, DBImpl* db,
+                                      Version* version);
+  bool HandleNumDeletesImmMemTables(uint64_t* value, DBImpl* db,
+                                    Version* version);
+  bool HandleEstimateNumKeys(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleNumSnapshots(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleOldestSnapshotTime(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleNumLiveVersions(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleCurrentSuperVersionNumber(uint64_t* value, DBImpl* db,
+                                       Version* version);
+  bool HandleIsFileDeletionsEnabled(uint64_t* value, DBImpl* db,
+                                    Version* version);
+  bool HandleBaseLevel(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleTotalSstFilesSize(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleEstimatePendingCompactionBytes(uint64_t* value, DBImpl* db,
+                                            Version* version);
+  bool HandleEstimateTableReadersMem(uint64_t* value, DBImpl* db,
+                                     Version* version);
+  bool HandleEstimateLiveDataSize(uint64_t* value, DBImpl* db,
+                                  Version* version);
 
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
@@ -402,14 +422,20 @@ class InternalStats {
 
   uint64_t BumpAndGetBackgroundErrorCount() { return 0; }
 
-  bool GetStringProperty(DBPropertyType property_type, const Slice& property,
-                         std::string* value) { return false; }
+  bool GetStringProperty(const DBPropertyInfo& property_info,
+                         const Slice& property, std::string* value) {
+    return false;
+  }
 
-  bool GetIntProperty(DBPropertyType property_type, uint64_t* value,
-                      DBImpl* db) const { return false; }
+  bool GetIntProperty(const DBPropertyInfo& property_info, uint64_t* value,
+                      DBImpl* db) const {
+    return false;
+  }
 
-  bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
-                                uint64_t* value) const { return false; }
+  bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
+                                Version* version, uint64_t* value) const {
+    return false;
+  }
 };
 #endif  // !ROCKSDB_LITE
 

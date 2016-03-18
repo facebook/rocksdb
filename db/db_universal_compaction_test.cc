@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -13,6 +13,11 @@
 #include "util/sync_point.h"
 
 namespace rocksdb {
+
+static uint64_t TestGetTickerCount(const Options& options,
+                                   Tickers ticker_type) {
+  return options.statistics->getTickerCount(ticker_type);
+}
 
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
@@ -152,6 +157,72 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
     dbfull()->TEST_WaitForCompact();
     ASSERT_EQ(NumSortedRuns(0), 1);
   }
+}
+
+TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
+  Options options;
+  options = CurrentOptions(options);
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.size_ratio = 5;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 105 << 10;  // 105KB
+  options.arena_block_size = 4 << 10;
+  options.target_file_size_base = 32 << 10;  // 32KB
+  // trigger compaction if there are >= 4 files
+  options.level0_file_num_compaction_trigger = 4;
+  BlockBasedTableOptions bbto;
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.optimize_filters_for_hits = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.memtable_factory.reset(new SpecialSkipListFactory(3));
+
+  DestroyAndReopen(options);
+
+  // block compaction from happening
+  env_->SetBackgroundThreads(1, Env::LOW);
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
+    Put(Key(num * 10), "val");
+    if (num) {
+      dbfull()->TEST_WaitForFlushMemTable();
+    }
+    Put(Key(30 + num * 10), "val");
+    Put(Key(60 + num * 10), "val");
+  }
+  Put("", "");
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  // Query set of non existing keys
+  for (int i = 5; i < 90; i += 10) {
+    ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+  }
+
+  // Make sure bloom filter is used at least once.
+  ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+  auto prev_counter = TestGetTickerCount(options, BLOOM_FILTER_USEFUL);
+
+  // Make sure bloom filter is used for all but the last L0 file when looking
+  // up a non-existent key that's in the range of all L0 files.
+  ASSERT_EQ(Get(Key(35)), "NOT_FOUND");
+  ASSERT_EQ(prev_counter + NumTableFilesAtLevel(0) - 1,
+            TestGetTickerCount(options, BLOOM_FILTER_USEFUL));
+  prev_counter = TestGetTickerCount(options, BLOOM_FILTER_USEFUL);
+
+  // Unblock compaction and wait it for happening.
+  sleeping_task_low.WakeUp();
+  dbfull()->TEST_WaitForCompact();
+
+  // The same queries will not trigger bloom filter
+  for (int i = 5; i < 90; i += 10) {
+    ASSERT_EQ(Get(Key(i)), "NOT_FOUND");
+  }
+  ASSERT_EQ(prev_counter, TestGetTickerCount(options, BLOOM_FILTER_USEFUL));
 }
 
 // TODO(kailiu) The tests on UniversalCompaction has some issues:
@@ -1032,15 +1103,10 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   for (int i = 0; i <= max_key1; i++) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
-
-  int non_level0_num_files = 0;
-  for (int i = 1; i < options.num_levels; i++) {
-    non_level0_num_files += NumTableFilesAtLevel(i, 1);
-  }
-  ASSERT_EQ(non_level0_num_files, 0);
 
   // Stage 2: reopen with universal compaction, num_levels=4
   options.compaction_style = kCompactionStyleUniversal;
@@ -1054,6 +1120,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   for (int i = max_key1 + 1; i <= max_key2; i++) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
@@ -1084,6 +1151,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
   for (int i = max_key2 + 1; i <= max_key3; i++) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
+    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();

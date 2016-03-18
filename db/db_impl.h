@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -347,6 +347,10 @@ class DBImpl : public DB {
 
 #endif  // NDEBUG
 
+  // Return maximum background compaction alowed to be scheduled based on
+  // compaction status.
+  int BGCompactionsAllowed() const;
+
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
@@ -490,10 +494,11 @@ class DBImpl : public DB {
 
   // Background process needs to call
   //     auto x = CaptureCurrentFileNumberInPendingOutputs()
+  //     auto file_num = versions_->NewFileNumber();
   //     <do something>
   //     ReleaseFileNumberFromPendingOutputs(x)
-  // This will protect any temporary files created while <do something> is
-  // executing from being deleted.
+  // This will protect any file with number `file_num` or greater from being
+  // deleted while <do something> is running.
   // -----------
   // This function will capture current file number and append it to
   // pending_outputs_. This will prevent any background process to delete any
@@ -818,7 +823,10 @@ class DBImpl : public DB {
   // they're unique
   std::atomic<int> next_job_id_;
 
-  bool flush_on_destroy_; // Used when disableWAL is true.
+  // A flag indicating whether the current rocksdb database has any
+  // data that is not yet persisted into either WAL or SST file.
+  // Used when disableWAL is true.
+  bool has_unpersisted_data_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
   // MSVC version 1800 still does not have constexpr for ::max()
@@ -836,8 +844,11 @@ class DBImpl : public DB {
   // Unified interface for logging events
   EventLogger event_logger_;
 
-  // A value of >0 temporarily disables scheduling of background work
+  // A value of > 0 temporarily disables scheduling of background work
   int bg_work_paused_;
+
+  // A value of > 0 temporarily disables scheduling of background compaction
+  int bg_compaction_paused_;
 
   // Guard against multiple concurrent refitting
   bool refitting_level_;
@@ -889,9 +900,8 @@ class DBImpl : public DB {
                  bool* value_found = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,
-                              DBPropertyType property_type,
-                              bool need_out_of_mutex, bool is_locked,
-                              uint64_t* value);
+                              const DBPropertyInfo& property_info,
+                              bool is_locked, uint64_t* value);
 
   bool HasPendingManualCompaction();
   bool HasExclusiveManualCompaction();

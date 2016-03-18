@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -33,6 +33,8 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_HIT,
   // # of blocks added to block cache.
   BLOCK_CACHE_ADD,
+  // # of failures when adding blocks to block cache.
+  BLOCK_CACHE_ADD_FAILURES,
   // # of times cache miss when accessing index block from block cache.
   BLOCK_CACHE_INDEX_MISS,
   // # of times cache hit when accessing index block from block cache.
@@ -109,6 +111,7 @@ enum Tickers : uint32_t {
   // Writer has to wait for compaction or flush to finish.
   STALL_MICROS,
   // The wait time for db mutex.
+  // Disabled by default. To enable it set stats level to kAll
   DB_MUTEX_WAIT_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
   NO_ITERATORS,  // number of iterators currently open
@@ -139,8 +142,12 @@ enum Tickers : uint32_t {
   GET_UPDATES_SINCE_CALLS,
   BLOCK_CACHE_COMPRESSED_MISS,  // miss in the compressed block cache
   BLOCK_CACHE_COMPRESSED_HIT,   // hit in the compressed block cache
-  WAL_FILE_SYNCED,              // Number of times WAL sync is done
-  WAL_FILE_BYTES,               // Number of bytes written to WAL
+  // Number of blocks added to comopressed block cache
+  BLOCK_CACHE_COMPRESSED_ADD,
+  // Number of failures when adding blocks to compressed block cache
+  BLOCK_CACHE_COMPRESSED_ADD_FAILURES,
+  WAL_FILE_SYNCED,  // Number of times WAL sync is done
+  WAL_FILE_BYTES,   // Number of bytes written to WAL
 
   // Writes can be processed by requesting thread or by the thread at the
   // head of the writers queue.
@@ -175,6 +182,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_MISS, "rocksdb.block.cache.miss"},
     {BLOCK_CACHE_HIT, "rocksdb.block.cache.hit"},
     {BLOCK_CACHE_ADD, "rocksdb.block.cache.add"},
+    {BLOCK_CACHE_ADD_FAILURES, "rocksdb.block.cache.add.failures"},
     {BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss"},
     {BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit"},
     {BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss"},
@@ -226,6 +234,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {GET_UPDATES_SINCE_CALLS, "rocksdb.getupdatessince.calls"},
     {BLOCK_CACHE_COMPRESSED_MISS, "rocksdb.block.cachecompressed.miss"},
     {BLOCK_CACHE_COMPRESSED_HIT, "rocksdb.block.cachecompressed.hit"},
+    {BLOCK_CACHE_COMPRESSED_ADD, "rocksdb.block.cachecompressed.add"},
+    {BLOCK_CACHE_COMPRESSED_ADD_FAILURES,
+     "rocksdb.block.cachecompressed.add.failures"},
     {WAL_FILE_SYNCED, "rocksdb.wal.synced"},
     {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
     {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
@@ -279,6 +290,10 @@ enum Histograms : uint32_t {
   SST_READ_MICROS,
   // The number of subcompactions actually scheduled during a compaction
   NUM_SUBCOMPACTIONS_SCHEDULED,
+  // Value size distribution in each operation
+  BYTES_PER_READ,
+  BYTES_PER_WRITE,
+  BYTES_PER_MULTIGET,
   HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
 };
 
@@ -306,6 +321,9 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {WRITE_STALL, "rocksdb.db.write.stall"},
     {SST_READ_MICROS, "rocksdb.sst.read.micros"},
     {NUM_SUBCOMPACTIONS_SCHEDULED, "rocksdb.num.subcompactions.scheduled"},
+    {BYTES_PER_READ, "rocksdb.bytes.per.read"},
+    {BYTES_PER_WRITE, "rocksdb.bytes.per.write"},
+    {BYTES_PER_MULTIGET, "rocksdb.bytes.per.multiget"},
 };
 
 struct HistogramData {
@@ -314,6 +332,16 @@ struct HistogramData {
   double percentile99;
   double average;
   double standard_deviation;
+};
+
+enum StatsLevel {
+  // Collect all stats except the counters requiring to get time inside the
+  // mutex lock.
+  kExceptTimeForMutex,
+  // Collect all stats, including measuring duration of mutex operations.
+  // If getting time is expensive on the platform to run, it can
+  // reduce scalability to more threads, especialy for writes.
+  kAll,
 };
 
 // Analyze the performance of a db
@@ -339,6 +367,8 @@ class Statistics {
   virtual bool HistEnabledForType(uint32_t type) const {
     return type < HISTOGRAM_ENUM_MAX;
   }
+
+  StatsLevel stats_level_ = kExceptTimeForMutex;
 };
 
 // Create a concrete DBStatistics object

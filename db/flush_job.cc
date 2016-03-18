@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -94,7 +94,8 @@ FlushJob::~FlushJob() {
 }
 
 void FlushJob::ReportStartedFlush() {
-  ThreadStatusUtil::SetColumnFamily(cfd_);
+  ThreadStatusUtil::SetColumnFamily(cfd_, cfd_->ioptions()->env,
+                                    cfd_->options()->enable_thread_tracking);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_JOB_ID,
@@ -233,14 +234,14 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
-      s = BuildTable(dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
-                     cfd_->table_cache(), iter.get(), meta,
-                     cfd_->internal_comparator(),
-                     cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
-                     existing_snapshots_, earliest_write_conflict_snapshot_,
-                     output_compression_, cfd_->ioptions()->compression_opts,
-                     mutable_cf_options_.paranoid_file_checks,
-                     cfd_->internal_stats(), Env::IO_HIGH, &table_properties_);
+      s = BuildTable(
+          dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
+          cfd_->table_cache(), iter.get(), meta, cfd_->internal_comparator(),
+          cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
+          existing_snapshots_, earliest_write_conflict_snapshot_,
+          output_compression_, cfd_->ioptions()->compression_opts,
+          mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
+          Env::IO_HIGH, &table_properties_, 0 /* level */);
       info.table_properties = table_properties_;
       LogFlush(db_options_.info_log);
     }
@@ -270,6 +271,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
     if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }
+    TEST_SYNC_POINT("FlushJob::WriteLevel0Table");
     db_mutex_->Lock();
   }
   base->Unref();

@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -162,6 +162,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   Rep* r = rep_;
   if (!r->builder) {
     return Status::InvalidArgument("File is not opened");
+  }
+  if (r->file_info.num_entries == 0) {
+    return Status::InvalidArgument("Cannot create sst file with no entries");
   }
 
   Status s = r->builder->Finish();

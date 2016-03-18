@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -43,15 +43,19 @@ class OptimisticTransactionDB {
 
   virtual ~OptimisticTransactionDB() {}
 
-  // Starts a new Transaction.  Passing set_snapshot=true has the same effect
-  // as calling SetSnapshot().
+  // Starts a new Transaction.
   //
-  // Caller should delete the returned transaction after calling
-  // Commit() or Rollback().
+  // Caller is responsible for deleting the returned transaction when no
+  // longer needed.
+  //
+  // If old_txn is not null, BeginTransaction will reuse this Transaction
+  // handle instead of allocating a new one.  This is an optimization to avoid
+  // extra allocations when repeatedly creating transactions.
   virtual Transaction* BeginTransaction(
       const WriteOptions& write_options,
-      const OptimisticTransactionOptions&
-          txn_options = OptimisticTransactionOptions()) = 0;
+      const OptimisticTransactionOptions& txn_options =
+          OptimisticTransactionOptions(),
+      Transaction* old_txn = nullptr) = 0;
 
   // Return the underlying Database that was opened
   virtual DB* GetBaseDB() = 0;

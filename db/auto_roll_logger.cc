@@ -1,9 +1,9 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
-#include "util/auto_roll_logger.h"
+#include "db/auto_roll_logger.h"
 #include "util/mutexlock.h"
 
 using namespace std;
@@ -12,7 +12,9 @@ namespace rocksdb {
 
 // -- AutoRollLogger
 Status AutoRollLogger::ResetLogger() {
+  TEST_SYNC_POINT("AutoRollLogger::ResetLogger:BeforeNewLogger");
   status_ = env_->NewLogger(log_fname_, &logger_);
+  TEST_SYNC_POINT("AutoRollLogger::ResetLogger:AfterNewLogger");
 
   if (!status_.ok()) {
     return status_;
@@ -32,8 +34,16 @@ Status AutoRollLogger::ResetLogger() {
 }
 
 void AutoRollLogger::RollLogFile() {
-  std::string old_fname = OldInfoLogFileName(
-      dbname_, env_->NowMicros(), db_absolute_path_, db_log_dir_);
+  // This function is called when log is rotating. Two rotations
+  // can happen quickly (NowMicro returns same value). To not overwrite
+  // previous log file we increment by one micro second and try again.
+  uint64_t now = env_->NowMicros();
+  std::string old_fname;
+  do {
+    old_fname = OldInfoLogFileName(
+      dbname_, now, db_absolute_path_, db_log_dir_);
+    now++;
+  } while (env_->FileExists(old_fname).ok());
   env_->RenameFile(log_fname_, old_fname);
 }
 

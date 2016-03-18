@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -20,6 +20,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 #include "utilities/transactions/transaction_db_impl.h"
 #include "utilities/transactions/transaction_util.h"
 
@@ -38,32 +39,60 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
                                  const TransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetBaseDB(), write_options),
       txn_db_impl_(nullptr),
-      txn_id_(GenTxnID()),
-      expiration_time_(txn_options.expiration >= 0
-                           ? start_time_ + txn_options.expiration * 1000
-                           : 0),
-      lock_timeout_(txn_options.lock_timeout * 1000) {
+      txn_id_(0),
+      expiration_time_(0),
+      lock_timeout_(0),
+      exec_status_(STARTED) {
   txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
   assert(txn_db_impl_);
 
+  Initialize(txn_options);
+}
+
+void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
+  txn_id_ = GenTxnID();
+
+  exec_status_ = STARTED;
+
+  lock_timeout_ = txn_options.lock_timeout * 1000;
   if (lock_timeout_ < 0) {
     // Lock timeout not set, use default
     lock_timeout_ =
         txn_db_impl_->GetTxnDBOptions().transaction_lock_timeout * 1000;
   }
 
+  if (txn_options.expiration >= 0) {
+    expiration_time_ = start_time_ + txn_options.expiration * 1000;
+  } else {
+    expiration_time_ = 0;
+  }
+
   if (txn_options.set_snapshot) {
     SetSnapshot();
+  }
+
+  if (expiration_time_ > 0) {
+    txn_db_impl_->InsertExpirableTransaction(txn_id_, this);
   }
 }
 
 TransactionImpl::~TransactionImpl() {
   txn_db_impl_->UnLock(this, &GetTrackedKeys());
+  if (expiration_time_ > 0) {
+    txn_db_impl_->RemoveExpirableTransaction(txn_id_);
+  }
 }
 
 void TransactionImpl::Clear() {
   txn_db_impl_->UnLock(this, &GetTrackedKeys());
   TransactionBaseImpl::Clear();
+}
+
+void TransactionImpl::Reinitialize(TransactionDB* txn_db,
+                                   const WriteOptions& write_options,
+                                   const TransactionOptions& txn_options) {
+  TransactionBaseImpl::Reinitialize(txn_db->GetBaseDB(), write_options);
+  Initialize(txn_options);
 }
 
 bool TransactionImpl::IsExpired() const {
@@ -92,7 +121,7 @@ Status TransactionImpl::CommitBatch(WriteBatch* batch) {
 }
 
 Status TransactionImpl::Commit() {
-  Status s = DoCommit(write_batch_->GetWriteBatch());
+  Status s = DoCommit(GetWriteBatch()->GetWriteBatch());
 
   Clear();
 
@@ -103,18 +132,27 @@ Status TransactionImpl::DoCommit(WriteBatch* batch) {
   Status s;
 
   if (expiration_time_ > 0) {
-    // We cannot commit a transaction that is expired as its locks might have
-    // been released.
-    // To avoid race conditions, we need to use a WriteCallback to check the
-    // expiration time once we're on the writer thread.
-    TransactionCallback callback(this);
+    if (IsExpired()) {
+      return Status::Expired();
+    }
 
-    // Do write directly on base db as TransctionDB::Write() would attempt to
-    // do conflict checking that we've already done.
-    assert(dynamic_cast<DBImpl*>(db_) != nullptr);
-    auto db_impl = reinterpret_cast<DBImpl*>(db_);
+    // Transaction should only be committed if the thread succeeds
+    // changing its execution status to COMMITTING. This is because
+    // A different transaction may consider this one expired and attempt
+    // to steal its locks between the IsExpired() check and the beginning
+    // of a commit.
+    ExecutionStatus expected = STARTED;
+    bool can_commit = std::atomic_compare_exchange_strong(
+        &exec_status_, &expected, COMMITTING);
 
-    s = db_impl->WriteWithCallback(write_options_, batch, &callback);
+    TEST_SYNC_POINT("TransactionTest::ExpirableTransactionDataRace:1");
+
+    if (can_commit) {
+      s = db_->Write(write_options_, batch);
+    } else {
+      assert(exec_status_ == LOCKS_STOLEN);
+      return Status::Expired();
+    }
   } else {
     s = db_->Write(write_options_, batch);
   }
@@ -126,9 +164,11 @@ void TransactionImpl::Rollback() { Clear(); }
 
 Status TransactionImpl::RollbackToSavePoint() {
   // Unlock any keys locked since last transaction
-  const TransactionKeyMap* keys = GetTrackedKeysSinceSavePoint();
+  const std::unique_ptr<TransactionKeyMap>& keys =
+      GetTrackedKeysSinceSavePoint();
+
   if (keys) {
-    txn_db_impl_->UnLock(this, keys);
+    txn_db_impl_->UnLock(this, keys.get());
   }
 
   return TransactionBaseImpl::RollbackToSavePoint();
@@ -193,7 +233,8 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
       if (!s.ok()) {
         break;
       }
-      (*keys_to_unlock)[cfh_id].insert({std::move(key), kMaxSequenceNumber});
+      TrackKey(keys_to_unlock, cfh_id, std::move(key), kMaxSequenceNumber,
+               false);
     }
 
     if (!s.ok()) {
@@ -214,7 +255,8 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
 // this key will only be locked if there have been no writes to this key since
 // the snapshot time.
 Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                const Slice& key, bool untracked) {
+                                const Slice& key, bool read_only,
+                                bool untracked) {
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
@@ -234,7 +276,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
       previously_locked = false;
     } else {
       previously_locked = true;
-      current_seqno = iter->second;
+      current_seqno = iter->second.seq;
     }
   }
 
@@ -281,7 +323,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     // Let base class know we've conflict checked this key.
-    TrackKey(cfh_id, key_str, new_seqno);
+    TrackKey(cfh_id, key_str, new_seqno, read_only);
   }
 
   return s;
@@ -295,7 +337,7 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
                                          SequenceNumber* new_seqno) {
   assert(snapshot_);
 
-  SequenceNumber seq = snapshot_->snapshot()->GetSequenceNumber();
+  SequenceNumber seq = snapshot_->GetSequenceNumber();
   if (prev_seqno <= seq) {
     // If the key has been previous validated at a sequence number earlier
     // than the curent snapshot's sequence number, we already know it has not
@@ -311,9 +353,21 @@ Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
   ColumnFamilyHandle* cfh =
       column_family ? column_family : db_impl->DefaultColumnFamily();
 
-  return TransactionUtil::CheckKeyForConflicts(
-      db_impl, cfh, key.ToString(), snapshot_->snapshot()->GetSequenceNumber(),
-      false /* cache_only */);
+  return TransactionUtil::CheckKeyForConflicts(db_impl, cfh, key.ToString(),
+                                               snapshot_->GetSequenceNumber(),
+                                               false /* cache_only */);
+}
+
+bool TransactionImpl::TryStealingLocks() {
+  assert(IsExpired());
+  ExecutionStatus expected = STARTED;
+  return std::atomic_compare_exchange_strong(&exec_status_, &expected,
+                                             LOCKS_STOLEN);
+}
+
+void TransactionImpl::UnlockGetForUpdate(ColumnFamilyHandle* column_family,
+                                         const Slice& key) {
+  txn_db_impl_->UnLock(this, GetColumnFamilyID(column_family), key.ToString());
 }
 
 }  // namespace rocksdb

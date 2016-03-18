@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -19,6 +19,7 @@
 #endif
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -27,7 +28,6 @@
 #include <vector>
 
 #include "db/db_impl.h"
-#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "memtable/hash_linklist_rep.h"
@@ -525,9 +525,11 @@ class DBTestBase : public testing::Test {
     kOptimizeFiltersForHits = 27,
     kRowCache = 28,
     kRecycleLogFiles = 29,
-    kLevelSubcompactions = 30,
-    kUniversalSubcompactions = 31,
-    kEnd = 30
+    kConcurrentSkipList = 30,
+    kEnd = 31,
+    kLevelSubcompactions = 31,
+    kUniversalSubcompactions = 32,
+    kBlockBasedTableWithIndexRestartInterval = 33,
   };
   int option_config_;
 
@@ -572,6 +574,8 @@ class DBTestBase : public testing::Test {
     snprintf(buf, sizeof(buf), "key%06d", i);
     return std::string(buf);
   }
+
+  static bool ShouldSkipOptions(int option_config, int skip_mask = kNoSkip);
 
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
@@ -749,6 +753,9 @@ class DBTestBase : public testing::Test {
 
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
+
+  std::unordered_map<std::string, uint64_t> GetAllSSTFiles(
+      uint64_t* total_size = nullptr);
 };
 
 }  // namespace rocksdb

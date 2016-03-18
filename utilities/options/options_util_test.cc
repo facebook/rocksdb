@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -173,8 +173,9 @@ TEST_F(OptionsUtilTest, SanityCheck) {
         (i == 0) ? kDefaultColumnFamilyName : test::RandomName(&rnd_, 10);
 
     cf_descs.back().options.table_factory.reset(NewBlockBasedTableFactory());
+    // Assign non-null values to prefix_extractors except the first cf.
     cf_descs.back().options.prefix_extractor.reset(
-        test::RandomSliceTransform(&rnd_));
+        i != 0 ? test::RandomSliceTransform(&rnd_) : nullptr);
     cf_descs.back().options.merge_operator.reset(
         test::RandomMergeOperator(&rnd_));
   }
@@ -223,9 +224,10 @@ TEST_F(OptionsUtilTest, SanityCheck) {
     std::shared_ptr<const SliceTransform> prefix_extractor =
         cf_descs[1].options.prefix_extractor;
 
+    // It's okay to set prefix_extractor to nullptr.
     ASSERT_NE(prefix_extractor, nullptr);
     cf_descs[1].options.prefix_extractor.reset();
-    ASSERT_NOK(
+    ASSERT_OK(
         CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
 
     cf_descs[1].options.prefix_extractor.reset(new DummySliceTransform());
@@ -233,6 +235,27 @@ TEST_F(OptionsUtilTest, SanityCheck) {
         CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
 
     cf_descs[1].options.prefix_extractor = prefix_extractor;
+    ASSERT_OK(
+        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+  }
+
+  // prefix extractor nullptr case
+  {
+    std::shared_ptr<const SliceTransform> prefix_extractor =
+        cf_descs[0].options.prefix_extractor;
+
+    // It's okay to set prefix_extractor to nullptr.
+    ASSERT_EQ(prefix_extractor, nullptr);
+    cf_descs[0].options.prefix_extractor.reset();
+    ASSERT_OK(
+        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+
+    // It's okay to change prefix_extractor from nullptr to non-nullptr
+    cf_descs[0].options.prefix_extractor.reset(new DummySliceTransform());
+    ASSERT_OK(
+        CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
+
+    cf_descs[0].options.prefix_extractor = prefix_extractor;
     ASSERT_OK(
         CheckOptionsCompatibility(dbname_, Env::Default(), db_opt, cf_descs));
   }

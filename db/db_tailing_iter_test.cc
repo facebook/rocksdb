@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -654,6 +654,51 @@ TEST_F(DBTestTailingIterator, ManagedTailingIteratorSeekToSame) {
   ASSERT_EQ(found, iter->key().ToString());
 }
 
+TEST_F(DBTestTailingIterator, ForwardIteratorVersionProperty) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 1000;
+
+  ReadOptions read_options;
+  read_options.tailing = true;
+
+  Put("foo", "bar");
+
+  uint64_t v1, v2, v3, v4;
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek("foo");
+    std::string prop_value;
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                &prop_value));
+    v1 = static_cast<uint64_t>(std::atoi(prop_value.c_str()));
+
+    Put("foo1", "bar1");
+    Flush();
+
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                &prop_value));
+    v2 = static_cast<uint64_t>(std::atoi(prop_value.c_str()));
+
+    iter->Seek("f");
+
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                &prop_value));
+    v3 = static_cast<uint64_t>(std::atoi(prop_value.c_str()));
+
+    ASSERT_EQ(v1, v2);
+    ASSERT_GT(v3, v2);
+  }
+
+  {
+    std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+    iter->Seek("foo");
+    std::string prop_value;
+    ASSERT_OK(iter->GetProperty("rocksdb.iterator.super-version-number",
+                                &prop_value));
+    v4 = static_cast<uint64_t>(std::atoi(prop_value.c_str()));
+  }
+  ASSERT_EQ(v3, v4);
+}
 }  // namespace rocksdb
 
 #endif  // !defined(ROCKSDB_LITE)

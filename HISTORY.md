@@ -1,6 +1,26 @@
 # Rocksdb Change Log
+## 4.6.0 (3/10/2016)
+### Public API Changes
+* Change default of BlockBasedTableOptions.format_version to 2. It means default DB created by 4.6 or up cannot be opened by RocksDB version 3.9 or earlier.
+* Added strict_capacity_limit option to NewLRUCache. If the flag is set to true, insert to cache will fail if no enough capacity can be free. Signiture of Cache::Insert() is updated accordingly.
+* Tickers [NUMBER_DB_NEXT, NUMBER_DB_PREV, NUMBER_DB_NEXT_FOUND, NUMBER_DB_PREV_FOUND, ITER_BYTES_READ] are not updated immediately. The are updated when the Iterator is deleted.  
+* Add monotonically increasing counter (DB property "rocksdb.current-super-version-number") that increments upon any change to the LSM tree.
+### New Features
+* Add CompactionPri::kMinOverlappingRatio, a compaction picking mode friendly to write amplification.
+* Deprecate Iterator::IsKeyPinned() and replace it with Iterator::GetProperty() with prop_name="rocksdb.iterator.is.key.pinned"
 
-## Unreleased
+## 4.5.0 (2/5/2016)
+### Public API Changes
+* Add a new perf context level between kEnableCount and kEnableTime. Level 2 now does not include timers for mutexes.
+* Statistics of mutex operation durations will not be measured by default. If you want to have them enabled, you need to set Statistics::stats_level_ to kAll.
+* DBOptions::delete_scheduler and NewDeleteScheduler() are removed, please use DBOptions::sst_file_manager and NewSstFileManager() instead
+
+### New Features
+* ldb tool now supports operations to non-default column families.
+* Add kPersistedTier to ReadTier.  This option allows Get and MultiGet to read only the persited data and skip mem-tables if writes were done with disableWAL = true.
+* Add DBOptions::sst_file_manager. Use NewSstFileManager() in include/rocksdb/sst_file_manager.h to create a SstFileManager that can be used to track the total size of SST files and control the SST files deletion rate.  
+
+## 4.4.0 (1/14/2016)
 ### Public API Changes
 * Change names in CompactionPri and add a new one.
 * Deprecate options.soft_rate_limit and add options.soft_pending_compaction_bytes_limit.

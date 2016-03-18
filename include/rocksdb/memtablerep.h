@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -188,10 +188,6 @@ class MemTableRep {
   // Default: true
   virtual bool IsSnapshotSupported() const { return true; }
 
-  // Return true if the current MemTableRep supports concurrent inserts
-  // Default: false
-  virtual bool IsInsertConcurrentlySupported() const { return false; }
-
  protected:
   // When *key is an internal key concatenated with the value, returns the
   // user key.
@@ -210,6 +206,10 @@ class MemTableRepFactory {
                                          const SliceTransform*,
                                          Logger* logger) = 0;
   virtual const char* Name() const = 0;
+
+  // Return true if the current MemTableRep supports concurrent inserts
+  // Default: false
+  virtual bool IsInsertConcurrentlySupported() const { return false; }
 };
 
 // This uses a skip list to store keys. It is the default.
@@ -228,6 +228,8 @@ class SkipListFactory : public MemTableRepFactory {
                                          const SliceTransform*,
                                          Logger* logger) override;
   virtual const char* Name() const override { return "SkipListFactory"; }
+
+  bool IsInsertConcurrentlySupported() const override { return true; }
 
  private:
   const size_t lookahead_;

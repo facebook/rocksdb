@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -12,9 +12,9 @@
 #include <thread>
 #include <vector>
 
-#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "util/delete_scheduler.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -74,6 +74,12 @@ class DeleteSchedulerTest : public testing::Test {
     return file_path;
   }
 
+  void NewDeleteScheduler() {
+    ASSERT_OK(env_->CreateDirIfMissing(trash_dir_));
+    delete_scheduler_.reset(new DeleteScheduler(
+        env_, trash_dir_, rate_bytes_per_sec_, nullptr, nullptr));
+  }
+
   Env* env_;
   std::string dummy_files_dir_;
   std::string trash_dir_;
@@ -84,19 +90,19 @@ class DeleteSchedulerTest : public testing::Test {
 // Test the basic functionality of DeleteScheduler (Rate Limiting).
 // 1- Create 100 dummy files
 // 2- Delete the 100 dummy files using DeleteScheduler
-// --- Hold DeleteSchedulerImpl::BackgroundEmptyTrash ---
+// --- Hold DeleteScheduler::BackgroundEmptyTrash ---
 // 3- Wait for DeleteScheduler to delete all files in trash
 // 4- Verify that BackgroundEmptyTrash used to correct penlties for the files
 // 5- Make sure that all created files were completely deleted
 TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DeleteSchedulerTest::BasicRateLimiting:1",
-       "DeleteSchedulerImpl::BackgroundEmptyTrash"},
+       "DeleteScheduler::BackgroundEmptyTrash"},
   });
 
   std::vector<uint64_t> penalties;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::BackgroundEmptyTrash:Wait",
+      "DeleteScheduler::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
 
   int num_files = 100;  // 100 files
@@ -110,8 +116,7 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
 
     DestroyAndCreateDir(dummy_files_dir_);
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
-    delete_scheduler_.reset(
-        NewDeleteScheduler(env_, trash_dir_, rate_bytes_per_sec_));
+    NewDeleteScheduler();
 
     // Create 100 dummy files, every file is 1 Kb
     std::vector<std::string> generated_files;
@@ -152,19 +157,19 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
 // Same as the BasicRateLimiting test but delete files in multiple threads.
 // 1- Create 100 dummy files
 // 2- Delete the 100 dummy files using DeleteScheduler using 10 threads
-// --- Hold DeleteSchedulerImpl::BackgroundEmptyTrash ---
+// --- Hold DeleteScheduler::BackgroundEmptyTrash ---
 // 3- Wait for DeleteScheduler to delete all files in queue
 // 4- Verify that BackgroundEmptyTrash used to correct penlties for the files
 // 5- Make sure that all created files were completely deleted
 TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DeleteSchedulerTest::RateLimitingMultiThreaded:1",
-       "DeleteSchedulerImpl::BackgroundEmptyTrash"},
+       "DeleteScheduler::BackgroundEmptyTrash"},
   });
 
   std::vector<uint64_t> penalties;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::BackgroundEmptyTrash:Wait",
+      "DeleteScheduler::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
 
   int thread_cnt = 10;
@@ -179,8 +184,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 
     DestroyAndCreateDir(dummy_files_dir_);
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
-    delete_scheduler_.reset(
-        NewDeleteScheduler(env_, trash_dir_, rate_bytes_per_sec_));
+    NewDeleteScheduler();
 
     // Create 100 dummy files, every file is 1 Kb
     std::vector<std::string> generated_files;
@@ -239,12 +243,13 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 TEST_F(DeleteSchedulerTest, DisableRateLimiting) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* arg) { bg_delete_file++; });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  delete_scheduler_.reset(NewDeleteScheduler(env_, "", 0));
+  rate_bytes_per_sec_ = 0;
+  NewDeleteScheduler();
 
   for (int i = 0; i < 10; i++) {
     // Every file we delete will be deleted immediately
@@ -264,18 +269,17 @@ TEST_F(DeleteSchedulerTest, DisableRateLimiting) {
 // 1- Create 10 files with the same name "conflict.data"
 // 2- Delete the 10 files using DeleteScheduler
 // 3- Make sure that trash directory contain 10 files ("conflict.data" x 10)
-// --- Hold DeleteSchedulerImpl::BackgroundEmptyTrash ---
+// --- Hold DeleteScheduler::BackgroundEmptyTrash ---
 // 4- Make sure that files are deleted from trash
 TEST_F(DeleteSchedulerTest, ConflictNames) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DeleteSchedulerTest::ConflictNames:1",
-       "DeleteSchedulerImpl::BackgroundEmptyTrash"},
+       "DeleteScheduler::BackgroundEmptyTrash"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rate_bytes_per_sec_ = 1024 * 1024;  // 1 Mb/sec
-  delete_scheduler_.reset(
-      NewDeleteScheduler(env_, trash_dir_, rate_bytes_per_sec_));
+  NewDeleteScheduler();
 
   // Create "conflict.data" and move it to trash 10 times
   for (int i = 0; i < 10; i++) {
@@ -300,19 +304,18 @@ TEST_F(DeleteSchedulerTest, ConflictNames) {
 // 1- Create 10 dummy files
 // 2- Delete the 10 files using DeleteScheduler (move them to trsah)
 // 3- Delete the 10 files directly (using env_->DeleteFile)
-// --- Hold DeleteSchedulerImpl::BackgroundEmptyTrash ---
+// --- Hold DeleteScheduler::BackgroundEmptyTrash ---
 // 4- Make sure that DeleteScheduler failed to delete the 10 files and
 //    reported 10 background errors
 TEST_F(DeleteSchedulerTest, BackgroundError) {
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DeleteSchedulerTest::BackgroundError:1",
-       "DeleteSchedulerImpl::BackgroundEmptyTrash"},
+       "DeleteScheduler::BackgroundEmptyTrash"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rate_bytes_per_sec_ = 1024 * 1024;  // 1 Mb/sec
-  delete_scheduler_.reset(
-      NewDeleteScheduler(env_, trash_dir_, rate_bytes_per_sec_));
+  NewDeleteScheduler();
 
   // Generate 10 dummy files and move them to trash
   for (int i = 0; i < 10; i++) {
@@ -339,32 +342,6 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-// 1- Create 10 files in trash
-// 2- Create a DeleteScheduler with delete_exisitng_trash = true
-// 3- Wait for DeleteScheduler to delete all files in queue
-// 4- Make sure that all files in trash directory were deleted
-TEST_F(DeleteSchedulerTest, TrashWithExistingFiles) {
-  std::vector<std::string> dummy_files;
-  for (int i = 0; i < 10; i++) {
-    std::string file_name = "data_" + ToString(i) + ".data";
-    std::string trash_path = trash_dir_ + "/" + file_name;
-    env_->RenameFile(NewDummyFile(file_name), trash_path);
-  }
-  ASSERT_EQ(CountFilesInDir(trash_dir_), 10);
-
-  Status s;
-  rate_bytes_per_sec_ = 1024 * 1024;  // 1 Mb/sec
-  delete_scheduler_.reset(NewDeleteScheduler(
-      env_, trash_dir_, rate_bytes_per_sec_, nullptr, true, &s));
-  ASSERT_OK(s);
-
-  delete_scheduler_->WaitForEmptyTrash();
-  ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
-
-  auto bg_errors = delete_scheduler_->GetBackgroundErrors();
-  ASSERT_EQ(bg_errors.size(), 0);
-}
-
 // 1- Create 10 dummy files
 // 2- Delete 10 dummy files using DeleteScheduler
 // 3- Wait for DeleteScheduler to delete all files in queue
@@ -373,13 +350,12 @@ TEST_F(DeleteSchedulerTest, TrashWithExistingFiles) {
 TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rate_bytes_per_sec_ = 1024 * 1024;  // 1 MB / sec
-  delete_scheduler_.reset(
-      NewDeleteScheduler(env_, trash_dir_, rate_bytes_per_sec_));
+  NewDeleteScheduler();
 
   // Move files to trash, wait for empty trash, start again
   for (int run = 1; run <= 5; run++) {
@@ -409,13 +385,12 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
 TEST_F(DeleteSchedulerTest, DestructorWithNonEmptyQueue) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rate_bytes_per_sec_ = 1;  // 1 Byte / sec
-  delete_scheduler_.reset(
-      NewDeleteScheduler(env_, trash_dir_, rate_bytes_per_sec_));
+  NewDeleteScheduler();
 
   for (int i = 0; i < 100; i++) {
     std::string file_name = "data_" + ToString(i) + ".data";
@@ -439,13 +414,12 @@ TEST_F(DeleteSchedulerTest, DestructorWithNonEmptyQueue) {
 TEST_F(DeleteSchedulerTest, MoveToTrashError) {
   int bg_delete_file = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
       [&](void* arg) { bg_delete_file++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   rate_bytes_per_sec_ = 1024;  // 1 Kb / sec
-  delete_scheduler_.reset(
-      NewDeleteScheduler(env_, trash_dir_, rate_bytes_per_sec_));
+  NewDeleteScheduler();
 
   // We will delete the trash directory, that mean that DeleteScheduler wont
   // be able to move files to trash and will delete files them immediately.
@@ -460,7 +434,6 @@ TEST_F(DeleteSchedulerTest, MoveToTrashError) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

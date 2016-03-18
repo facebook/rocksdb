@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -486,6 +486,87 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   }
 }
 #endif  // ROCKSDB_LITE
+
+TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.target_file_size_base = 10000000;
+  mutable_cf_options_.target_file_size_multiplier = 10;
+  mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
+
+  Add(2, 6U, "150", "179", 50000000U);
+  Add(2, 7U, "180", "220", 50000000U);
+  Add(2, 8U, "321", "400", 50000000U);  // File not overlapping
+  Add(2, 9U, "721", "800", 50000000U);
+
+  Add(3, 26U, "150", "170", 260000000U);
+  Add(3, 27U, "171", "179", 260000000U);
+  Add(3, 28U, "191", "220", 260000000U);
+  Add(3, 29U, "221", "300", 260000000U);
+  Add(3, 30U, "750", "900", 260000000U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  // Pick file 8 because it overlaps with 0 files on level 3.
+  ASSERT_EQ(8U, compaction->input(0, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.target_file_size_base = 10000000;
+  mutable_cf_options_.target_file_size_multiplier = 10;
+  mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
+
+  Add(2, 6U, "150", "175",
+      60000000U);  // Overlaps with file 26, 27, total size 521M
+  Add(2, 7U, "176", "200", 60000000U);  // Overlaps with file 27, 28, total size
+                                        // 520M, the smalelst overlapping
+  Add(2, 8U, "201", "300",
+      60000000U);  // Overlaps with file 28, 29, total size 521M
+
+  Add(3, 26U, "100", "110", 261000000U);
+  Add(3, 26U, "150", "170", 261000000U);
+  Add(3, 27U, "171", "179", 260000000U);
+  Add(3, 28U, "191", "220", 260000000U);
+  Add(3, 29U, "221", "300", 261000000U);
+  Add(3, 30U, "321", "400", 261000000U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  // Picking file 7 because overlapping ratio is the biggest.
+  ASSERT_EQ(7U, compaction->input(0, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, CompactionPriMinOverlapping3) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.target_file_size_base = 10000000;
+  mutable_cf_options_.target_file_size_multiplier = 10;
+  mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
+
+  // file 7 and 8 over lap with the same file, but file 8 is smaller so
+  // it will be picked.
+  Add(2, 6U, "150", "175", 60000000U);  // Overlaps with file 26, 27
+  Add(2, 7U, "176", "200", 60000000U);  // Overlaps with file 27
+  Add(2, 8U, "201", "300", 61000000U);  // Overlaps with file 27
+
+  Add(3, 26U, "160", "165", 260000000U);
+  Add(3, 26U, "166", "170", 260000000U);
+  Add(3, 27U, "180", "400", 260000000U);
+  Add(3, 28U, "401", "500", 260000000U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  // Picking file 8 because overlapping ratio is the biggest.
+  ASSERT_EQ(8U, compaction->input(0, 0)->fd.GetNumber());
+}
 
 // This test exhibits the bug where we don't properly reset parent_index in
 // PickCompaction()

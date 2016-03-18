@@ -21,7 +21,7 @@ depend on gflags. You will need to have gflags installed to run `make all`. This
 use binaries compiled by `make all` in production.
 
 * By default the binary we produce is optimized for the platform you're compiling on
-(-march=native). If you want to build a portable binary, add 'PORTABLE=1' before
+(-march=native or the equivalent). If you want to build a portable binary, add 'PORTABLE=1' before
 your make commands, like this: `PORTABLE=1 make static_lib`
 
 ## Dependencies

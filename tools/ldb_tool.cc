@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -30,6 +30,10 @@ public:
         " : Values are input/output as hex\n");
     ret.append("  --" + LDBCommand::ARG_HEX +
         " : Both keys and values are input/output as hex\n");
+    ret.append(
+        "  --" + LDBCommand::ARG_CF_NAME +
+        " : name of the column family to operate on. default: default column "
+        "family\n");
     ret.append("\n");
 
     ret.append("The following optional parameters control the database "
@@ -73,19 +77,21 @@ public:
     ListColumnFamiliesCommand::Help(ret);
     DBFileDumperCommand::Help(ret);
     InternalDumpCommand::Help(ret);
+    RepairCommand::Help(ret);
 
     fprintf(stderr, "%s\n", ret.c_str());
   }
 
-  static void RunCommand(int argc, char** argv, Options options,
-                         const LDBOptions& ldb_options) {
+  static void RunCommand(
+      int argc, char** argv, Options options, const LDBOptions& ldb_options,
+      const std::vector<ColumnFamilyDescriptor>* column_families) {
     if (argc <= 2) {
       PrintHelp(argv[0]);
       exit(1);
     }
 
-    LDBCommand* cmdObj = LDBCommand::InitFromCmdLineArgs(argc, argv, options,
-                                                         ldb_options);
+    LDBCommand* cmdObj = LDBCommand::InitFromCmdLineArgs(
+        argc, argv, options, ldb_options, column_families);
     if (cmdObj == nullptr) {
       fprintf(stderr, "Unknown command\n");
       PrintHelp(argv[0]);
@@ -106,10 +112,11 @@ public:
 
 };
 
-
 void LDBTool::Run(int argc, char** argv, Options options,
-                  const LDBOptions& ldb_options) {
-  LDBCommandRunner::RunCommand(argc, argv, options, ldb_options);
+                  const LDBOptions& ldb_options,
+                  const std::vector<ColumnFamilyDescriptor>* column_families) {
+  LDBCommandRunner::RunCommand(argc, argv, options, ldb_options,
+                               column_families);
 }
 } // namespace rocksdb
 

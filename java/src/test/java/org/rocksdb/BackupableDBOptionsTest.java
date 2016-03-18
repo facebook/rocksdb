@@ -1,22 +1,22 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
 package org.rocksdb;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.Random;
+
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.util.Random;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 public class BackupableDBOptionsTest {
 
-  private final static String ARBITRARY_PATH = "/tmp";
+  private final static String ARBITRARY_PATH = System.getProperty("java.io.tmpdir");
 
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =

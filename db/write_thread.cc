@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -218,21 +218,25 @@ void WriteThread::JoinBatchGroup(Writer* w) {
   assert(w->batch != nullptr);
   bool linked_as_leader;
   LinkOne(w, &linked_as_leader);
+
+  TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait", w);
+
   if (!linked_as_leader) {
     AwaitState(w,
                STATE_GROUP_LEADER | STATE_PARALLEL_FOLLOWER | STATE_COMPLETED,
                &ctx);
+    TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:DoneWaiting", w);
   }
 }
 
 size_t WriteThread::EnterAsBatchGroupLeader(
     Writer* leader, WriteThread::Writer** last_writer,
-    autovector<WriteBatch*>* write_batch_group) {
+    autovector<WriteThread::Writer*>* write_batch_group) {
   assert(leader->link_older == nullptr);
   assert(leader->batch != nullptr);
 
   size_t size = WriteBatchInternal::ByteSize(leader->batch);
-  write_batch_group->push_back(leader->batch);
+  write_batch_group->push_back(leader);
 
   // Allow the group to grow up to a maximum size, but if the
   // original write is small, limit the growth so we do not slow
@@ -243,12 +247,6 @@ size_t WriteThread::EnterAsBatchGroupLeader(
   }
 
   *last_writer = leader;
-
-  if (leader->has_callback) {
-    // TODO(agiardullo:) Batching not currently supported as this write may
-    // fail if the callback function decides to abort this write.
-    return size;
-  }
 
   Writer* newest_writer = newest_writer_.load(std::memory_order_acquire);
 
@@ -276,15 +274,14 @@ size_t WriteThread::EnterAsBatchGroupLeader(
       break;
     }
 
-    if (w->has_callback) {
-      // Do not include writes which may be aborted if the callback does not
-      // succeed.
-      break;
-    }
-
     if (w->batch == nullptr) {
       // Do not include those writes with nullptr batch. Those are not writes,
       // those are something else. They want to be alone
+      break;
+    }
+
+    if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
+      // dont batch writes that don't want to be batched
       break;
     }
 
@@ -295,7 +292,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(
     }
 
     size += batch_size;
-    write_batch_group->push_back(w->batch);
+    write_batch_group->push_back(w);
     w->in_batch_group = true;
     *last_writer = w;
   }
@@ -313,7 +310,10 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
   w->sequence = sequence;
 
   while (w != pg->last_writer) {
-    sequence += WriteBatchInternal::Count(w->batch);
+    // Writers that won't write don't get sequence allotment
+    if (!w->CallbackFailed()) {
+      sequence += WriteBatchInternal::Count(w->batch);
+    }
     w = w->link_newer;
 
     w->sequence = sequence;
@@ -330,6 +330,7 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
     std::lock_guard<std::mutex> guard(w->StateMutex());
     pg->status = w->status;
   }
+
   auto leader = pg->leader;
   auto early_exit_allowed = pg->early_exit_allowed;
 
@@ -364,8 +365,8 @@ void WriteThread::EarlyExitParallelGroup(Writer* w) {
   assert(w->state == STATE_PARALLEL_FOLLOWER);
   assert(pg->status.ok());
   ExitAsBatchGroupLeader(pg->leader, pg->last_writer, pg->status);
-  assert(w->state == STATE_COMPLETED);
   assert(w->status.ok());
+  assert(w->state == STATE_COMPLETED);
   SetState(pg->leader, STATE_COMPLETED);
 }
 
@@ -407,7 +408,6 @@ void WriteThread::ExitAsBatchGroupLeader(Writer* leader, Writer* last_writer,
 
   while (last_writer != leader) {
     last_writer->status = status;
-
     // we need to read link_older before calling SetState, because as soon
     // as it is marked committed the other thread's Await may return and
     // deallocate the Writer.

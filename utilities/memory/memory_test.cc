@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -93,7 +93,7 @@ class MemoryTest : public testing::Test {
   std::vector<uint64_t> usage_history_[MemoryUtil::kNumUsageTypes];
 };
 
-TEST_F(MemoryTest, SharedBlockCacheTotal) {
+TEST_F(MemoryTest, DISABLED_SharedBlockCacheTotal) {
   std::vector<DB*> dbs;
   std::vector<uint64_t> usage_by_type;
   const int kNumDBs = 10;
@@ -144,7 +144,7 @@ TEST_F(MemoryTest, SharedBlockCacheTotal) {
   }
 }
 
-TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
+TEST_F(MemoryTest, DISABLED_MemTableAndTableReadersTotal) {
   std::vector<DB*> dbs;
   std::vector<uint64_t> usage_by_type;
   std::vector<std::vector<ColumnFamilyHandle*>> vec_handles;

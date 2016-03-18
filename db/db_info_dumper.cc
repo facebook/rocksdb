@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -6,6 +6,8 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
+
+#include "db/db_info_dumper.h"
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -16,7 +18,6 @@
 #include "db/filename.h"
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
-#include "util/db_info_dumper.h"
 
 namespace rocksdb {
 

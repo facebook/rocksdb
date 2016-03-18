@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -292,9 +292,11 @@ static inline uint32_t LE_LOAD32(const uint8_t *p) {
 }
 
 #ifdef __SSE4_2__
+#ifdef __LP64__
 static inline uint64_t LE_LOAD64(const uint8_t *p) {
   return DecodeFixed64(reinterpret_cast<const char*>(p));
 }
+#endif
 #endif
 
 static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
@@ -315,8 +317,15 @@ static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
 
 static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifdef __SSE4_2__
+#ifdef __LP64__
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
   *p += 8;
+#else
+  *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
+  *p += 4;
+  *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
+  *p += 4;
+#endif
 #else
   Slow_CRC32(l, p);
 #endif

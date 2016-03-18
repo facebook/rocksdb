@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -92,8 +92,6 @@ struct TransactionOptions {
   // will never relinquish any locks it holds.  This could prevent keys from
   // being
   // written by other writers.
-  //
-  // TODO(agiardullo):  Improve performance of checking expiration time.
   int64_t expiration = -1;
 };
 
@@ -113,14 +111,18 @@ class TransactionDB : public StackableDB {
 
   virtual ~TransactionDB() {}
 
-  // Starts a new Transaction.  Passing set_snapshot=true has the same effect
-  // as calling Transaction::SetSnapshot().
+  // Starts a new Transaction.
   //
-  // Caller should delete the returned transaction after calling
-  // Transaction::Commit() or Transaction::Rollback().
+  // Caller is responsible for deleting the returned transaction when no
+  // longer needed.
+  //
+  // If old_txn is not null, BeginTransaction will reuse this Transaction
+  // handle instead of allocating a new one.  This is an optimization to avoid
+  // extra allocations when repeatedly creating transactions.
   virtual Transaction* BeginTransaction(
       const WriteOptions& write_options,
-      const TransactionOptions& txn_options = TransactionOptions()) = 0;
+      const TransactionOptions& txn_options = TransactionOptions(),
+      Transaction* old_txn = nullptr) = 0;
 
  protected:
   // To Create an TransactionDB, call Open()

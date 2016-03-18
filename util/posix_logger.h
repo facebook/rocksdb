@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -16,11 +16,16 @@
 #include "port/sys_time.h"
 #include <time.h>
 #include <fcntl.h>
+
 #ifdef OS_LINUX
+#ifndef FALLOC_FL_KEEP_SIZE
 #include <linux/falloc.h>
 #endif
+#endif
+
 #include "rocksdb/env.h"
 #include "util/iostats_context_imp.h"
+#include "util/sync_point.h"
 #include <atomic>
 
 namespace rocksdb {
@@ -52,6 +57,7 @@ class PosixLogger : public Logger {
     fclose(file_);
   }
   virtual void Flush() override {
+    TEST_SYNC_POINT_CALLBACK("PosixLogger::Flush:BeginCallback", nullptr);
     if (flush_pending_) {
       flush_pending_ = false;
       fflush(file_);

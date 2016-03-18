@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -230,6 +230,13 @@ DEFINE_int64(cache_size, 2LL * KB * KB * KB,
 DEFINE_uint64(subcompactions, 1,
              "Maximum number of subcompactions to divide L0-L1 compactions "
              "into.");
+
+DEFINE_bool(allow_concurrent_memtable_write, true,
+            "Allow multi-writers to update mem tables in parallel.");
+
+DEFINE_bool(enable_write_thread_adaptive_yield, true,
+            "Use a yielding spin loop for brief writer thread waits.");
+
 static const bool FLAGS_subcompactions_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
@@ -1997,10 +2004,20 @@ class StressTest {
     options_.filter_deletes = FLAGS_filter_deletes;
     options_.inplace_update_support = FLAGS_in_place_update;
     options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
-    if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
+    options_.allow_concurrent_memtable_write =
+        FLAGS_allow_concurrent_memtable_write;
+    options_.enable_write_thread_adaptive_yield =
+        FLAGS_enable_write_thread_adaptive_yield;
+
+    if (FLAGS_prefix_size == 0 && FLAGS_rep_factory == kHashSkipList) {
       fprintf(stderr,
-            "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
+              "prefeix_size cannot be zero if memtablerep == prefix_hash\n");
       exit(1);
+    }
+    if (FLAGS_prefix_size != 0 && FLAGS_rep_factory != kHashSkipList) {
+      fprintf(stderr,
+              "WARNING: prefix_size is non-zero but "
+              "memtablerep != prefix_hash\n");
     }
     switch (FLAGS_rep_factory) {
       case kSkipList:

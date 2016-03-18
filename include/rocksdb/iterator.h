@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -19,6 +19,7 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
 #define STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
 
+#include <string>
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
@@ -95,14 +96,19 @@ class Iterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // If true, this means that the Slice returned by key() is valid as long
-  // as the iterator is not deleted and ReleasePinnedData() is not called.
-  //
-  // IsKeyPinned() is guaranteed to always return true if
-  //  - Iterator created with ReadOptions::pin_data = true
-  //  - DB tables were created with BlockBasedTableOptions::use_delta_encoding
-  //    set to false.
-  virtual bool IsKeyPinned() const { return false; }
+  // Property "rocksdb.iterator.is-key-pinned":
+  //   If returning "1", this means that the Slice returned by key() is valid
+  //   as long as the iterator is not deleted and ReleasePinnedData() is not
+  //   called.
+  //   It is guaranteed to always return "1" if
+  //      - Iterator created with ReadOptions::pin_data = true
+  //      - DB tables were created with
+  //      BlockBasedTableOptions::use_delta_encoding
+  //        set to false.
+  // Property "rocksdb.iterator.super-version-number":
+  //   LSM version used by the iterator. The same format as DB Property
+  //   kCurrentSuperVersionNumber. See its comment for more information.
+  virtual Status GetProperty(std::string prop_name, std::string* prop);
 
  private:
   // No copying allowed

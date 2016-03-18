@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -28,9 +28,21 @@ OptimisticTransactionImpl::OptimisticTransactionImpl(
     OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetBaseDB(), write_options), txn_db_(txn_db) {
+  Initialize(txn_options);
+}
+
+void OptimisticTransactionImpl::Initialize(
+    const OptimisticTransactionOptions& txn_options) {
   if (txn_options.set_snapshot) {
     SetSnapshot();
   }
+}
+
+void OptimisticTransactionImpl::Reinitialize(
+    OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
+    const OptimisticTransactionOptions& txn_options) {
+  TransactionBaseImpl::Reinitialize(txn_db->GetBaseDB(), write_options);
+  Initialize(txn_options);
 }
 
 OptimisticTransactionImpl::~OptimisticTransactionImpl() {
@@ -54,7 +66,7 @@ Status OptimisticTransactionImpl::Commit() {
   }
 
   Status s = db_impl->WriteWithCallback(
-      write_options_, write_batch_->GetWriteBatch(), &callback);
+      write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
 
   if (s.ok()) {
     Clear();
@@ -67,7 +79,8 @@ void OptimisticTransactionImpl::Rollback() { Clear(); }
 
 // Record this key so that we can check it for conflicts at commit time.
 Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                          const Slice& key, bool untracked) {
+                                          const Slice& key, bool read_only,
+                                          bool untracked) {
   if (untracked) {
     return Status::OK();
   }
@@ -77,14 +90,14 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   SequenceNumber seq;
   if (snapshot_) {
-    seq = snapshot_->snapshot()->GetSequenceNumber();
+    seq = snapshot_->GetSequenceNumber();
   } else {
     seq = db_->GetLatestSequenceNumber();
   }
 
   std::string key_str = key.ToString();
 
-  TrackKey(cfh_id, key_str, seq);
+  TrackKey(cfh_id, key_str, seq, read_only);
 
   // Always return OK. Confilct checking will happen at commit time.
   return Status::OK();

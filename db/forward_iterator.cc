@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -10,15 +10,16 @@
 #include <string>
 #include <utility>
 
-#include "db/job_context.h"
+#include "db/column_family.h"
 #include "db/db_impl.h"
 #include "db/db_iter.h"
-#include "db/column_family.h"
+#include "db/dbformat.h"
+#include "db/job_context.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/merger.h"
-#include "db/dbformat.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -469,6 +470,15 @@ Status ForwardIterator::status() const {
   }
 
   return immutable_status_;
+}
+
+Status ForwardIterator::GetProperty(std::string prop_name, std::string* prop) {
+  assert(prop != nullptr);
+  if (prop_name == "rocksdb.iterator.super-version-number") {
+    *prop = ToString(sv_->version_number);
+    return Status::OK();
+  }
+  return Status::InvalidArgument();
 }
 
 void ForwardIterator::RebuildIterators(bool refresh_sv) {
