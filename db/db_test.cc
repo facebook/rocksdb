@@ -10648,16 +10648,16 @@ TEST_F(DBTest, WalFilterTestWithColumnFamilies) {
                                           bool* batch_changed) override {
       class LogRecordBatchHandler : public WriteBatch::Handler {
         private:
-          std::map<uint32_t, std::vector<std::string>> & cf_wal_keys_;
           const std::map<uint32_t, uint64_t> & cf_log_number_map_;
+          std::map<uint32_t, std::vector<std::string>> & cf_wal_keys_;
           unsigned long long log_number_;
       public:
-          LogRecordBatchHandler(unsigned long long log_number,
+          LogRecordBatchHandler(unsigned long long current_log_number,
             const std::map<uint32_t, uint64_t> & cf_log_number_map,
             std::map<uint32_t, std::vector<std::string>> & cf_wal_keys) :
             cf_log_number_map_(cf_log_number_map),
             cf_wal_keys_(cf_wal_keys),
-            log_number_(log_number){}
+            log_number_(current_log_number){}
 
           virtual Status PutCF(uint32_t column_family_id, const Slice& key, 
             const Slice& /*value*/) override {
