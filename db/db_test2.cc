@@ -77,6 +77,29 @@ TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
   std::string value;
   value = Get(1, "a");
 }
+
+TEST_F(DBTest2, DISABLED_FirstSnapshotTest) {
+  Options options;
+  options.write_buffer_size = 100000;  // Small write buffer
+  options = CurrentOptions(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // This snapshot will have sequence number 0.  When compaction encounters
+  // this snapshot, CompactionIterator::findEarliestVisibleSnapshot() will
+  // assert as it expects non-zero snapshots.
+  //
+  // One fix would be to simply remove this assert.  However, a better fix
+  // might
+  // be to always have db sequence numbers start from 1 so that no code is
+  // ever
+  // confused by 0.
+  const Snapshot* s1 = db_->GetSnapshot();
+
+  Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
+  Put(1, "k2", std::string(100000, 'y'));  // Trigger flush
+
+  db_->ReleaseSnapshot(s1);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
