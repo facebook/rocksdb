@@ -1237,7 +1237,7 @@ struct DBOptions {
   // records, ignoring a particular record or skipping replay.
   // The filter is invoked at startup and is invoked from a single-thread
   // currently.
-  const WalFilter* wal_filter;
+  WalFilter* wal_filter;
 #endif  // ROCKSDB_LITE
 
   // If true, then DB::Open / CreateColumnFamily / DropColumnFamily
