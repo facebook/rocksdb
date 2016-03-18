@@ -481,6 +481,10 @@ TEST_F(DBTest, MultiLevelIndexAndFilterBlocksCachedWithPinning) {
   ASSERT_OK(Flush(1));
   // move this table to L1
   dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+
+  // reset block cache
+  table_options.block_cache = NewLRUCache(64 * 1024);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   TryReopenWithColumnFamilies({"default", "pikachu"}, options);
   // create new table at L0
   Put(1, "a2", "begin2");
@@ -502,12 +506,13 @@ TEST_F(DBTest, MultiLevelIndexAndFilterBlocksCachedWithPinning) {
   ASSERT_EQ(im, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
   ASSERT_EQ(ih, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
 
-  // should be read from L1; the block cache survives the reopen, and during
-  // the BlockBasedTableReader::Open() of the table we try to fetch it, we
-  // will see one hit from there, and then the Get() results in another hit
+  // this should be read from L1
+  // the file is opened, prefetching results in a cache filter miss
+  // the block is loaded and added to the cache,
+  // then the get results in a cache hit for L1
   value = Get(1, "a");
-  ASSERT_EQ(fm, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
-  ASSERT_EQ(fh + 2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(fm + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(fh + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 }
 
 TEST_F(DBTest, ParanoidFileChecks) {
