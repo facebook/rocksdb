@@ -360,6 +360,7 @@ set(TESTS
         db/perf_context_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc
+        db/repair_test.cc
         db/skiplist_test.cc
         db/table_properties_collector_test.cc
         db/version_builder_test.cc

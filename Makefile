@@ -1047,6 +1047,9 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
+repair_test: db/repair_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
