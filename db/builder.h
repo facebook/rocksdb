@@ -61,6 +61,6 @@ extern Status BuildTable(
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats,
     const Env::IOPriority io_priority = Env::IO_HIGH,
-    TableProperties* table_properties = nullptr, int level = -1);
+    TableProperties* table_properties = nullptr);
 
 }  // namespace rocksdb
