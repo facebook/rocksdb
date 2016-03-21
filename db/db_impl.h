@@ -781,8 +781,11 @@ class DBImpl : public DB {
   // Unified interface for logging events
   EventLogger event_logger_;
 
-  // A value of >0 temporarily disables scheduling of background work
+  // A value of > 0 temporarily disables scheduling of background work
   int bg_work_paused_;
+
+  // A value of > 0 temporarily disables scheduling of background compaction
+  int bg_compaction_paused_;
 
   // Guard against multiple concurrent refitting
   bool refitting_level_;
