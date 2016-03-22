@@ -33,11 +33,12 @@ class WalFilter {
   virtual ~WalFilter() {}
 
   // Provide ColumnFamily->LogNumber map to filter
-  // so that filter can determine whether given record
-  // is applicable to given column family.
-  // We also pass in name->id map as this is known at
-  // recovery time and write batch callbacks happen
-  // in terms of column family id.
+  // so that filter can determine whether a log number applies to a given 
+  // column family (i.e. that log hasn't been flushed to SST already for the
+  // column family).
+  // We also pass in name->id map as only name is known during
+  // recovery (as handles are opened post-recovery).
+  // while write batch callbacks happen in terms of column family id.
   //
   // @params cf_lognumber_map column_family_id to lognumber map
   // @params cf_name_id_map   column_family_name to column_family_id map
@@ -58,8 +59,8 @@ class WalFilter {
   //    discarding the logs from current record onwards.
   //
   // @params log_number     log_number of the current log.
-  //                        Filter might use this to determine if the log record
-  //                        is applicable to a certain column family.
+  //                        Filter might use this to determine if the log
+  //                        record is applicable to a certain column family.
   // @params log_file_name  log file name - only for informational purposes
   // @params batch          batch encountered in the log during recovery
   // @params new_batch      new_batch to populate if filter wants to change
@@ -82,6 +83,9 @@ class WalFilter {
     return LogRecord(batch, new_batch, batch_changed);
   }
 
+  // Please see the comments for LogRecord above. This function is for 
+  // compatibility only and contains a subset of parameters. 
+  // New code should use the function above.
   virtual WalProcessingOption LogRecord(const WriteBatch& batch,
                                         WriteBatch* new_batch,
                                         bool* batch_changed) const {
