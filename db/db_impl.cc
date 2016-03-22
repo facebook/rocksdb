@@ -2345,12 +2345,12 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     }
   }
 
-  if (bg_manual_only_ || bg_compaction_paused_ > 0) {
+  if (bg_compaction_paused_ > 0) {
     // we paused the background compaction
     return;
   }
 
-  if (HasExclusiveManualCompaction()) {
+  if (bg_manual_only_) { 
     // only manual compactions are allowed to run. don't schedule automatic
     // compactions
     return;
