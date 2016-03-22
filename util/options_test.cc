@@ -1489,7 +1489,7 @@ TEST_F(OptionsParserTest, EscapeOptionString) {
 // string on limited platforms as it depends on behavior of compilers.
 #ifdef OS_LINUX
 #ifndef __clang__
-const char kSpecialChar = 'R';
+const char kSpecialChar = 'z';
 typedef std::vector<std::pair<int, size_t>> OffsetGap;
 
 void FillWithSpecialChar(char* start_ptr, size_t total_size,
