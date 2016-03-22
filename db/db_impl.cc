@@ -1103,6 +1103,23 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     stream.EndArray();
   }
 
+#ifndef ROCKSDB_LITE
+  if (db_options_.wal_filter != nullptr) {
+    std::map<std::string, uint32_t> cf_name_id_map;
+    std::map<uint32_t, uint64_t> cf_lognumber_map;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      cf_name_id_map.insert(
+        std::make_pair(cfd->GetName(), cfd->GetID()));
+      cf_lognumber_map.insert(
+        std::make_pair(cfd->GetID(), cfd->GetLogNumber()));
+    }
+
+    db_options_.wal_filter->ColumnFamilyLogNumberMap(
+      cf_lognumber_map,
+      cf_name_id_map);
+  }
+#endif
+
   bool continue_replay_log = true;
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
@@ -1182,8 +1199,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         bool batch_changed = false;
 
         WalFilter::WalProcessingOption wal_processing_option =
-            db_options_.wal_filter->LogRecord(batch, &new_batch,
-                                              &batch_changed);
+            db_options_.wal_filter->LogRecord(log_number, fname, batch,
+                                              &new_batch, &batch_changed);
 
         switch (wal_processing_option) {
           case WalFilter::WalProcessingOption::kContinueProcessing:
