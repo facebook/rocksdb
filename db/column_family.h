@@ -465,8 +465,6 @@ class ColumnFamilySet {
   // Don't call while iterating over ColumnFamilySet
   void FreeDeadColumnFamilies();
 
-  Cache* get_table_cache() { return table_cache_; }
-
  private:
   friend class ColumnFamilyData;
   // helper function that gets called from cfd destructor

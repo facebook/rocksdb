@@ -64,12 +64,6 @@ struct BlockBasedTableOptions {
   // block during table initialization.
   bool cache_index_and_filter_blocks = false;
 
-  // if cache_index_and_filter_blocks is true and the below is true, then
-  // filter and index blocks are stored in the cache, but a reference is
-  // held in the "table reader" object so the blocks are pinned and only
-  // evicted from cache when the table reader is freed.
-  bool pin_l0_filter_and_index_blocks_in_cache = false;
-
   // The index type that will be used for this table.
   enum IndexType : char {
     // A space efficient index block that is optimized for

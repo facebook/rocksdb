@@ -1715,7 +1715,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   ImmutableCFOptions ioptions3(options);
   // Generate table without filter policy
   c3.Finish(options, ioptions3, table_options,
-            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   // Open table with filter policy
   table_options.filter_policy.reset(NewBloomFilterPolicy(1));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));

@@ -29,20 +29,17 @@ struct TableReaderOptions {
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters = false, int _level = -1)
+                     bool _skip_filters = false)
       : ioptions(_ioptions),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
-        skip_filters(_skip_filters),
-        level(_level) {}
+        skip_filters(_skip_filters) {}
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
   bool skip_filters;
-  // what level this table/file is on, -1 for "not set, don't know"
-  int level;
 };
 
 struct TableBuilderOptions {
