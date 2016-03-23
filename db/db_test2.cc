@@ -502,7 +502,7 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
       cf_name_id_map_ = cf_name_id_map;
     }
 
-    virtual WalProcessingOption LogRecord(unsigned long long log_number,
+    virtual WalProcessingOption LogRecordFound(unsigned long long log_number,
       const std::string& log_file_name,
       const WriteBatch& batch,
       WriteBatch* new_batch,

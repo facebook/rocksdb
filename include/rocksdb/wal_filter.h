@@ -75,11 +75,12 @@ class WalFilter {
   // @returns               Processing option for the current record.
   //                        Please see WalProcessingOption enum above for
   //                        details.
-  virtual WalProcessingOption LogRecord(unsigned long long log_number,
+  virtual WalProcessingOption LogRecordFound(unsigned long long log_number,
                                         const std::string& log_file_name,
                                         const WriteBatch& batch,
                                         WriteBatch* new_batch,
                                         bool* batch_changed) {
+    // Default implementation falls back to older function for compatibility
     return LogRecord(batch, new_batch, batch_changed);
   }
 
