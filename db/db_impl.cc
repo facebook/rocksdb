@@ -1199,7 +1199,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         bool batch_changed = false;
 
         WalFilter::WalProcessingOption wal_processing_option =
-            db_options_.wal_filter->LogRecord(log_number, fname, batch,
+            db_options_.wal_filter->LogRecordFound(log_number, fname, batch,
                                               &new_batch, &batch_changed);
 
         switch (wal_processing_option) {
