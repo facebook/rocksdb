@@ -210,6 +210,8 @@ Options DBTestBase::CurrentOptions(
     const anon::OptionsOverride& options_override) {
   Options options;
   options.write_buffer_size = 4090 * 4096;
+  options.target_file_size_base = 2 * 1024 * 1024;
+  options.max_bytes_for_level_base = 10 * 1024 * 1024;
   return CurrentOptions(options, options_override);
 }
 

@@ -368,11 +368,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
 // entries are deleted. The compaction should create bunch of 'DeleteFile'
 // entries in VersionEdit, but none of the 'AddFile's.
 TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   // put some data
@@ -400,11 +399,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilterDeletesAll) {
 
 TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.num_levels = 3;
     options.compaction_filter_factory =
       std::make_shared<ChangeFilterFactory>();
-    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Write 100K+1 keys, these are written to a few files
@@ -467,8 +465,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   PutFixed64(&three, 3);
   PutFixed64(&four, 4);
 
-  Options options;
-  options = CurrentOptions(options);
+  Options options = CurrentOptions();
   options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreateUInt64AddOperator();
   options.num_levels = 3;
@@ -621,11 +618,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextCfId) {
 // Compaction filters should only be applied to records that are newer than the
 // latest snapshot. This test inserts records and applies a delete filter.
 TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   // Put some data.
@@ -659,11 +655,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
 // records newer than the snapshot will also be processed
 TEST_F(DBTestCompactionFilter, CompactionFilterIgnoreSnapshot) {
   std::string five = ToString(5);
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<DeleteISFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   // Put some data.

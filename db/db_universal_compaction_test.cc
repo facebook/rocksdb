@@ -124,8 +124,7 @@ class DelayFilterFactory : public CompactionFilterFactory {
 // Make sure we don't trigger a problem if the trigger conditon is given
 // to be 0, which is invalid.
 TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
-  Options options;
-  options = CurrentOptions(options);
+  Options options = CurrentOptions();
 
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = num_levels_;
@@ -160,8 +159,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
 }
 
 TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
-  Options options;
-  options = CurrentOptions(options);
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.size_ratio = 5;
   options.num_levels = num_levels_;
@@ -337,13 +335,12 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
 }
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionSizeAmplification) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = num_levels_;
   options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 3;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -388,12 +385,12 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   ChangeCompactOptions();
   Options options;
   options.create_if_missing = true;
-  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
   options.compaction_style = kCompactionStyleLevel;
   options.num_levels = 1;
   options.target_file_size_base = options.write_buffer_size;
   options.compression = kNoCompression;
   options = CurrentOptions(options);
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
   CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
   Random rnd(301);
@@ -451,12 +448,11 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
 }
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionTargetLevel) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100 << 10;     // 100KB
   options.num_levels = 7;
   options.disable_auto_compactions = true;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   // Generate 3 overlapping files
@@ -496,14 +492,13 @@ class DBTestUniversalCompactionMultiLevels
 };
 
 TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionMultiLevels) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = num_levels_;
   options.write_buffer_size = 100 << 10;  // 100KB
   options.level0_file_num_compaction_trigger = 8;
   options.max_background_compactions = 3;
   options.target_file_size_base = 32 * 1024;
-  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Trigger compaction if size amplification exceeds 110%
@@ -539,7 +534,7 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.allow_trivial_move = true;
   options.num_levels = 3;
@@ -547,7 +542,6 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   options.level0_file_num_compaction_trigger = 3;
   options.max_background_compactions = 2;
   options.target_file_size_base = 32 * 1024;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -586,7 +580,7 @@ class DBTestUniversalCompactionParallel :
 };
 
 TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = num_levels_;
   options.write_buffer_size = 1 << 10;  // 1KB
@@ -595,7 +589,6 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   options.max_background_flushes = 3;
   options.target_file_size_base = 1 * 1024;
   options.compaction_options_universal.max_size_amplification_percent = 110;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -652,7 +645,7 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionParallel,
                                            ::testing::Bool()));
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 105 << 10;    // 105KB
   options.arena_block_size = 4 << 10;       // 4KB
@@ -660,7 +653,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = num_levels_;
   options.compaction_options_universal.compression_size_percent = -1;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -773,14 +765,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio1) {
     return;
   }
 
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = num_levels_;
   options.compaction_options_universal.compression_size_percent = 70;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   Random rnd(301);
@@ -841,14 +832,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio2) {
   if (!Snappy_Supported()) {
     return;
   }
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100 << 10;     // 100KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = num_levels_;
   options.compaction_options_universal.compression_size_percent = 95;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   Random rnd(301);
@@ -884,7 +874,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.allow_trivial_move = true;
   options.num_levels = 2;
@@ -892,7 +882,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
   options.level0_file_num_compaction_trigger = 3;
   options.max_background_compactions = 1;
   options.target_file_size_base = 32 * 1024;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -929,7 +918,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.allow_trivial_move = true;
   options.num_levels = 15;
@@ -937,7 +926,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
   options.level0_file_num_compaction_trigger = 8;
   options.max_background_compactions = 4;
   options.target_file_size_base = 64 * 1024;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -963,7 +951,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
 }
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
-  Options options;
+  Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_, 300 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 300 * 1024);
   options.db_paths.emplace_back(dbname_ + "_3", 500 * 1024);
@@ -976,7 +964,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
-  options = CurrentOptions(options);
 
   std::vector<std::string> filenames;
   env_->GetChildren(options.db_paths[1].path, &filenames);
@@ -1163,7 +1150,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   if (!Snappy_Supported()) {
     return;
   }
-  Options options;
+  Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_, 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleUniversal;
@@ -1175,7 +1162,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   options.num_levels = 1;
   options.memtable_factory.reset(
       new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
-  options = CurrentOptions(options);
 
   std::vector<std::string> filenames;
   env_->GetChildren(options.db_paths[1].path, &filenames);

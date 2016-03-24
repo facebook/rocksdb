@@ -158,7 +158,15 @@ struct DbPath {
 struct Options;
 
 struct ColumnFamilyOptions {
+  // The function recovers options to a previous version. Only 4.6 or later
+  // versions are supported.
+  ColumnFamilyOptions* OldDefaults(int rocksdb_major_version = 4,
+                                   int rocksdb_minor_version = 6);
+
   // Some functions that make it easier to optimize RocksDB
+  // Use if if your DB is very small (like under 1GB) and you don't want to
+  // spend lots of memory for memtables.
+  ColumnFamilyOptions* OptimizeForSmallDb();
 
   // Use this if you don't need to keep the data sorted, i.e. you'll never use
   // an iterator, only Put() and Get() API calls
@@ -254,7 +262,7 @@ struct ColumnFamilyOptions {
   // Note that write_buffer_size is enforced per column family.
   // See db_write_buffer_size for sharing memory across column families.
   //
-  // Default: 4MB
+  // Default: 64MB
   //
   // Dynamically changeable through SetOptions() API
   size_t write_buffer_size;
@@ -400,7 +408,7 @@ struct ColumnFamilyOptions {
   // be 2MB, and each file on level 2 will be 20MB,
   // and each file on level-3 will be 200MB.
   //
-  // Default: 2MB.
+  // Default: 64MB.
   //
   // Dynamically changeable through SetOptions() API
   uint64_t target_file_size_base;
@@ -415,12 +423,12 @@ struct ColumnFamilyOptions {
   // max_bytes_for_level_base is the max total for level-1.
   // Maximum number of bytes for level L can be calculated as
   // (max_bytes_for_level_base) * (max_bytes_for_level_multiplier ^ (L-1))
-  // For example, if max_bytes_for_level_base is 20MB, and if
+  // For example, if max_bytes_for_level_base is 200MB, and if
   // max_bytes_for_level_multiplier is 10, total data size for level-1
-  // will be 20MB, total file size for level-2 will be 200MB,
-  // and total file size for level-3 will be 2GB.
+  // will be 2GB, total file size for level-2 will be 20GB,
+  // and total file size for level-3 will be 200GB.
   //
-  // Default: 10MB.
+  // Default: 256MB.
   //
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base;
@@ -538,13 +546,13 @@ struct ColumnFamilyOptions {
   // All writes will be slowed down to at least delayed_write_rate if estimated
   // bytes needed to be compaction exceed this threshold.
   //
-  // Default: 0 (disabled)
+  // Default: 64GB
   uint64_t soft_pending_compaction_bytes_limit;
 
   // All writes are stopped if estimated bytes needed to be compaction exceed
   // this threshold.
   //
-  // Default: 0 (disabled)
+  // Default: 256GB
   uint64_t hard_pending_compaction_bytes_limit;
 
   // DEPRECATED -- this options is no longer used
@@ -795,6 +803,10 @@ struct ColumnFamilyOptions {
 };
 
 struct DBOptions {
+  // The function recovers options to the option as in version 4.6.
+  DBOptions* OldDefaults(int rocksdb_major_version = 4,
+                         int rocksdb_minor_version = 6);
+
   // Some functions that make it easier to optimize RocksDB
 
 #ifndef ROCKSDB_LITE
@@ -1302,6 +1314,10 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   Options(const DBOptions& db_options,
           const ColumnFamilyOptions& column_family_options)
       : DBOptions(db_options), ColumnFamilyOptions(column_family_options) {}
+
+  // The function recovers options to the option as in version 4.6.
+  Options* OldDefaults(int rocksdb_major_version = 4,
+                       int rocksdb_minor_version = 6);
 
   void Dump(Logger* log) const;
 

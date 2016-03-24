@@ -228,10 +228,9 @@ TEST_F(DBTest, MemEnvTest) {
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, WriteEmptyBatch) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
   options.write_buffer_size = 100000;
-  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "foo", "bar"));
@@ -281,13 +280,12 @@ TEST_F(DBTest, ReadOnlyDB) {
 
 TEST_F(DBTest, CompactedDB) {
   const uint64_t kFileSize = 1 << 20;
-  Options options;
+  Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.write_buffer_size = kFileSize;
   options.target_file_size_base = kFileSize;
   options.max_bytes_for_level_base = 1 << 30;
   options.compression = kNoCompression;
-  options = CurrentOptions(options);
   Reopen(options);
   // 1 L0 file, use CompactedDB if max_open_files = -1
   ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
@@ -764,11 +762,10 @@ TEST_F(DBTest, DISABLED_VeryLargeValue) {
   std::string key1(kKeySize, 'c');
   std::string key2(kKeySize, 'd');
 
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
   options.write_buffer_size = 100000;  // Small write buffer
   options.paranoid_checks = true;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("boo", "v1"));
@@ -811,10 +808,8 @@ TEST_F(DBTest, DISABLED_VeryLargeValue) {
 
 TEST_F(DBTest, GetFromImmutableLayer) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.env = env_;
-    options.write_buffer_size = 100000;  // Small write buffer
-    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     ASSERT_OK(Put(1, "foo", "v1"));
@@ -1916,11 +1911,9 @@ TEST_F(DBTest, Recover) {
 
 TEST_F(DBTest, RecoverWithTableHandle) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.create_if_missing = true;
-    options.write_buffer_size = 100;
     options.disable_auto_compactions = true;
-    options = CurrentOptions(options);
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -2368,10 +2361,9 @@ TEST_F(DBTest, CompressedCache) {
   // Iteration 4: both block cache and compressed cache, but DB is not
   // compressed
   for (int iter = 0; iter < 4; iter++) {
-    Options options;
+    Options options = CurrentOptions();
     options.write_buffer_size = 64*1024;        // small write buffer
     options.statistics = rocksdb::CreateDBStatistics();
-    options = CurrentOptions(options);
 
     BlockBasedTableOptions table_options;
     switch (iter) {
@@ -2636,10 +2628,9 @@ TEST_F(DBTest, MinLevelToCompress2) {
 
 TEST_F(DBTest, RepeatedWritesToSameKey) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
-    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // We must have at most one file per level except for level-0,
@@ -2716,11 +2707,10 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
 }
 
 TEST_F(DBTest, ApproximateSizesMemTable) {
-  Options options;
+  Options options = CurrentOptions();
   options.write_buffer_size = 100000000;  // Large write buffer
   options.compression = kNoCompression;
   options.create_if_missing = true;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   const int N = 128;
@@ -2823,11 +2813,10 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
 
 TEST_F(DBTest, ApproximateSizes) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.write_buffer_size = 100000000;        // Large write buffer
     options.compression = kNoCompression;
     options.create_if_missing = true;
-    options = CurrentOptions(options);
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -7843,8 +7832,7 @@ TEST_F(DBTest, MergeTestTime) {
   this->env_->addon_time_.store(0);
   this->env_->time_elapse_only_sleep_ = true;
   this->env_->no_sleep_ = true;
-  Options options;
-  options = CurrentOptions(options);
+  Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
   DestroyAndReopen(options);
@@ -7884,8 +7872,7 @@ TEST_F(DBTest, MergeTestTime) {
 #ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
-  Options options;
-  options = CurrentOptions(options);
+  Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options.statistics = rocksdb::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
@@ -7904,14 +7891,13 @@ TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
 }
 
 TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_filter_factory =
       std::make_shared<DelayFilterFactory>(this);
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
   options.max_subcompactions = max_subcompactions_;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   // put some data
@@ -7953,9 +7939,8 @@ TEST_F(DBTest, TestLogCleanup) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, EmptyCompactedDB) {
-  Options options;
+  Options options = CurrentOptions();
   options.max_open_files = -1;
-  options = CurrentOptions(options);
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
   Status s = Put("new", "value");
@@ -8191,9 +8176,8 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
 // Github issue #595
 // Large write batch with column families
 TEST_F(DBTest, LargeBatchWithColumnFamilies) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
-  options = CurrentOptions(options);
   options.write_buffer_size = 100000;  // Small write buffer
   CreateAndReopenWithCF({"pikachu"}, options);
   int64_t j = 0;
@@ -8287,11 +8271,10 @@ TEST_F(DBTest, DelayedWriteRate) {
   const int kEntriesPerMemTable = 100;
   const int kTotalFlushes = 20;
 
-  Options options;
+  Options options = CurrentOptions();
   env_->SetBackgroundThreads(1, Env::LOW);
   options.env = env_;
   env_->no_sleep_ = true;
-  options = CurrentOptions(options);
   options.write_buffer_size = 100000000;
   options.max_write_buffer_number = 256;
   options.max_background_compactions = 1;
@@ -8352,10 +8335,9 @@ TEST_F(DBTest, DelayedWriteRate) {
 }
 
 TEST_F(DBTest, HardLimit) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
   env_->SetBackgroundThreads(1, Env::LOW);
-  options = CurrentOptions(options);
   options.max_write_buffer_number = 256;
   options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 * 1024;
@@ -8403,9 +8385,8 @@ TEST_F(DBTest, HardLimit) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, SoftLimit) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
-  options = CurrentOptions(options);
   options.write_buffer_size = 100000;  // Small write buffer
   options.max_write_buffer_number = 256;
   options.level0_file_num_compaction_trigger = 1;
@@ -8521,9 +8502,8 @@ TEST_F(DBTest, SoftLimit) {
 }
 
 TEST_F(DBTest, LastWriteBufferDelay) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
-  options = CurrentOptions(options);
   options.write_buffer_size = 100000;
   options.max_write_buffer_number = 4;
   options.delayed_write_rate = 20000;
@@ -10108,9 +10088,8 @@ INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                                            ::testing::Bool()));
 
 TEST_F(DBTest, PauseBackgroundWorkTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.write_buffer_size = 100000;  // Small write buffer
-  options = CurrentOptions(options);
   Reopen(options);
 
   std::vector<std::thread> threads;

@@ -195,6 +195,7 @@ TEST_F(CompactionPickerTest, LevelMaxScore) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.target_file_size_base = 10000000;
   mutable_cf_options_.target_file_size_multiplier = 10;
+  mutable_cf_options_.max_bytes_for_level_base = 10 * 1024 * 1024;
   Add(0, 1U, "150", "200", 1000000000U);
   // Level 1 score 1.2
   Add(1, 66U, "150", "200", 6000000U);
@@ -491,6 +492,7 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.target_file_size_base = 10000000;
   mutable_cf_options_.target_file_size_multiplier = 10;
+  mutable_cf_options_.max_bytes_for_level_base = 10 * 1024 * 1024;
   mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
 
   Add(2, 6U, "150", "179", 50000000U);
@@ -517,6 +519,7 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {
   NewVersionStorage(6, kCompactionStyleLevel);
   mutable_cf_options_.target_file_size_base = 10000000;
   mutable_cf_options_.target_file_size_multiplier = 10;
+  mutable_cf_options_.max_bytes_for_level_base = 10 * 1024 * 1024;
   mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
 
   Add(2, 6U, "150", "175",
@@ -544,20 +547,21 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping3) {
   NewVersionStorage(6, kCompactionStyleLevel);
-  mutable_cf_options_.target_file_size_base = 10000000;
-  mutable_cf_options_.target_file_size_multiplier = 10;
+  mutable_cf_options_.max_bytes_for_level_base = 10000000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
   mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
 
   // file 7 and 8 over lap with the same file, but file 8 is smaller so
   // it will be picked.
-  Add(2, 6U, "150", "175", 60000000U);  // Overlaps with file 26, 27
-  Add(2, 7U, "176", "200", 60000000U);  // Overlaps with file 27
-  Add(2, 8U, "201", "300", 61000000U);  // Overlaps with file 27
+  Add(2, 6U, "150", "167", 60000000U);  // Overlaps with file 26, 27
+  Add(2, 7U, "168", "169", 60000000U);  // Overlaps with file 27
+  Add(2, 8U, "201", "300", 61000000U);  // Overlaps with file 28, but the file
+                                        // itself is larger. Should be picked.
 
   Add(3, 26U, "160", "165", 260000000U);
-  Add(3, 26U, "166", "170", 260000000U);
-  Add(3, 27U, "180", "400", 260000000U);
-  Add(3, 28U, "401", "500", 260000000U);
+  Add(3, 27U, "166", "170", 260000000U);
+  Add(3, 28U, "180", "400", 260000000U);
+  Add(3, 29U, "401", "500", 260000000U);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(

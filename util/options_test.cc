@@ -1270,6 +1270,26 @@ TEST_F(OptionsParserTest, DifferentDefault) {
 
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
+
+  Options old_default_opts;
+  old_default_opts.OldDefaults();
+  ASSERT_EQ(10 * 1048576, old_default_opts.max_bytes_for_level_base);
+
+  Options old_default_opts46;
+  old_default_opts46.OldDefaults();
+  ASSERT_EQ(10 * 1048576, old_default_opts46.max_bytes_for_level_base);
+
+  ColumnFamilyOptions old_default_cf_opts;
+  old_default_cf_opts.OldDefaults();
+  ASSERT_EQ(2 * 1048576, old_default_cf_opts.target_file_size_base);
+
+  ColumnFamilyOptions old_default_cf_opts46;
+  old_default_cf_opts46.OldDefaults();
+  ASSERT_EQ(2 * 1048576, old_default_cf_opts46.target_file_size_base);
+
+  ColumnFamilyOptions cf_small_opts;
+  cf_small_opts.OptimizeForSmallDb();
+  ASSERT_EQ(2 << 20, cf_small_opts.write_buffer_size);
 }
 
 class OptionsSanityCheckTest : public OptionsParserTest {
