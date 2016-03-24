@@ -9,7 +9,7 @@ Param(
   [string]$WorkFolder = "",  # Direct tests to use that folder
   [int]$Limit = -1, # -1 means run all otherwise limit for testing purposes
   [string]$Exclude = "", # Expect a comma separated list, no spaces
-  [string]$Run = "db_test",  # Run db_test|tests|testname1,testname2...
+  [string]$Run = "db_test",  # Run db_test|db_test2|tests|testname1,testname2...
    # Number of async tasks that would run concurrently. Recommend a number below 64.
    # However, CPU utlization really depends on the storage media. Recommend ram based disk.
    # a value of 1 will run everything serially
@@ -46,15 +46,25 @@ if($WorkFolder -eq "") {
   $Env:TEST_TMPDIR = $WorkFolder
 }
 
+Write-Output "Root: $RootFolder, WorkFolder: $WorkFolder"
+
 # Use JEMALLOC executables
-if($EnableJE) {
-    $db_test = -Join ($BinariesFolder, "db_test_je.exe")
-} else {
-    $db_test = -Join ($BinariesFolder, "db_test.exe")
+if($Run -ceq "db_test" -or
+   $Run -ceq "db_test2" ) {
+
+   $file_name = $Run
+
+   if($EnableJE) {
+     $file_name += "_je"
+   }
+
+   $file_name += ".exe"
+
+   $db_test = -Join ($BinariesFolder, $file_name)
+
+   Write-Output "Binaries: $BinariesFolder db_test: $db_test"
 }
 
-Write-Output "Root: $RootFolder, WorkFolder: $WorkFolder"
-Write-Output "Binaries: $BinariesFolder db_test: $db_test"
 
 #Exclusions that we do not want to run
 $ExcludeTests = New-Object System.Collections.Generic.HashSet[string]
@@ -153,7 +163,8 @@ function Discover-TestBinaries([string]$Pattern, $HashTable) {
 
 $TestsToRun = [ordered]@{}
 
-if($Run -ceq "db_test") {
+if($Run -ceq "db_test" -or
+   $Run -ceq "db_test2") {
     Normalize-DbTests -HashTable $TestsToRun
 } elseif($Run -ceq "tests") {
     if($EnableJE) {
@@ -225,7 +236,8 @@ function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
             Write-Host "Starting $k"
             $log_path = ($TestToLog.$k)
 
-            if($Run -ceq "db_test") {
+            if($Run -ceq "db_test" -or
+               $Run -ceq "db_test2") {
               $job = Start-Job -Name $k -ScriptBlock $InvokeTestCase -ArgumentList @($db_test,$k,$log_path)
             } else {
               [string]$Exe =  -Join ($BinariesFolder, $k)
