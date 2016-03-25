@@ -21,10 +21,12 @@
  */
 package org.rocksdb.benchmark;
 
+import java.io.IOException;
 import java.lang.Runnable;
 import java.lang.Math;
 import java.io.File;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.util.Collection;
 import java.util.Date;
 import java.util.EnumMap;
@@ -774,6 +776,7 @@ public class DbBenchmark {
   }
 
   private void open(Options options) throws RocksDBException {
+    System.out.println("Using database directory: " + databaseDir_);
     db_ = RocksDB.open(options, databaseDir_);
   }
 
@@ -1475,7 +1478,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    db("/tmp/rocksdbjni-bench",
+    db(getTempDir("rocksdb-jni"),
        "Use the db with the following name.") {
       @Override public Object parseValue(String value) {
         return value;
@@ -1514,6 +1517,18 @@ public class DbBenchmark {
 
     private final Object defaultValue_;
     private final String desc_;
+  }
+
+  private final static String DEFAULT_TEMP_DIR = "/tmp";
+
+  private static String getTempDir(final String dirName) {
+    try {
+      return Files.createTempDirectory(dirName).toAbsolutePath().toString();
+    } catch(final IOException ioe) {
+      System.err.println("Unable to create temp directory, defaulting to: " +
+          DEFAULT_TEMP_DIR);
+      return DEFAULT_TEMP_DIR + File.pathSeparator + dirName;
+    }
   }
 
   private static class RandomGenerator {
