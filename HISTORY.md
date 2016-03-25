@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 ## Unreleased
 
+## 4.5.1 (3/25/2016)
+### Bug Fixes
+* Fix failures caused by the destorying order of singleton objects.
+
 ## 4.5.0 (2/5/2016)
 ### Public API Changes
 * Add a new perf context level between kEnableCount and kEnableTime. Level 2 now does not include timers for mutexes.
