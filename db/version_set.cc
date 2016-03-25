@@ -3240,7 +3240,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   }
 }
 
-InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
+InternalIterator* VersionSet::MakeInputIterator(const Compaction* c) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums =

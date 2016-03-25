@@ -14,7 +14,7 @@ CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
     SequenceNumber earliest_write_conflict_snapshot, Env* env,
-    bool expect_valid_internal_key, Compaction* compaction,
+    bool expect_valid_internal_key, const Compaction* compaction,
     const CompactionFilter* compaction_filter, LogBuffer* log_buffer)
     : input_(input),
       cmp_(cmp),
