@@ -23,6 +23,7 @@
 #include <vector>
 #include <string>
 
+#include "db/compaction.h"
 #include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
@@ -30,22 +31,22 @@
 #include "db/memtable.h"
 #include "db/merge_context.h"
 #include "db/table_cache.h"
-#include "db/compaction.h"
 #include "db/version_builder.h"
 #include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "table/internal_iterator.h"
-#include "table/table_reader.h"
-#include "table/merger.h"
-#include "table/two_level_iterator.h"
 #include "table/format.h"
-#include "table/plain_table_factory.h"
-#include "table/meta_blocks.h"
 #include "table/get_context.h"
+#include "table/internal_iterator.h"
+#include "table/merger.h"
+#include "table/meta_blocks.h"
+#include "table/plain_table_factory.h"
+#include "table/table_reader.h"
+#include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
+#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
@@ -948,9 +949,16 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    if (merge_operator_->FullMerge(user_key, nullptr,
-                                   merge_context->GetOperands(), value,
-                                   info_log_)) {
+    bool merge_success = false;
+    {
+      StopWatchNano timer(env_, db_statistics_ != nullptr);
+      PERF_TIMER_GUARD(merge_operator_time_nanos);
+      merge_success = merge_operator_->FullMerge(
+          user_key, nullptr, merge_context->GetOperands(), value, info_log_);
+      RecordTick(db_statistics_, MERGE_OPERATION_TOTAL_TIME,
+                 timer.ElapsedNanos());
+    }
+    if (merge_success) {
       *status = Status::OK();
     } else {
       RecordTick(db_statistics_, NUMBER_MERGE_FAILURES);
