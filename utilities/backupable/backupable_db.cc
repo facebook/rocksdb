@@ -1574,7 +1574,17 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     const std::unordered_map<std::string, uint64_t>& abs_path_to_size) {
   assert(Empty());
   Status s;
+  size_t file_size;
   unique_ptr<SequentialFile> backup_meta_file;
+
+  s = env_->GetFileSize(meta_filename_, &file_size);
+  if (!s.ok()) {
+    return s;
+  }
+  if (file_size > max_backup_meta_file_size_) {
+    return Status::Corruption("File size too big");
+  }
+
   s = env_->NewSequentialFile(meta_filename_, &backup_meta_file, EnvOptions());
   if (!s.ok()) {
     return s;
@@ -1582,12 +1592,11 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
   unique_ptr<SequentialFileReader> backup_meta_reader(
       new SequentialFileReader(std::move(backup_meta_file)));
-  unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
+  unique_ptr<char[]> buf(new char[file_size + 1]);
   Slice data;
-  s = backup_meta_reader->Read(max_backup_meta_file_size_, &data, buf.get());
-
-  if (!s.ok() || data.size() == max_backup_meta_file_size_) {
-    return s.ok() ? Status::Corruption("File size too big") : s;
+  s = backup_meta_reader->Read(file_size, &data, buf.get());
+  if (!s.ok()) {
+    return s;
   }
   buf[data.size()] = 0;
 
@@ -1673,20 +1682,20 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     return s;
   }
 
-  unique_ptr<char[]> buf(new char[max_backup_meta_file_size_]);
-  int len = 0, buf_size = max_backup_meta_file_size_;
-  len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
-  len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
-                  sequence_number_);
-  len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n",
-                  files_.size());
+  std::string buf;
+  buf += std::to_string(timestamp_) + "\n";
+  buf += std::to_string(sequence_number_) + "\n";
+  buf += std::to_string(files_.size()) + "\n";
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
-    len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",
-                    file->filename.c_str(), file->checksum_value);
+    buf += file->filename + " crc32 " + std::to_string(file->checksum_value) +
+           "\n";
+    if (buf.size() > max_backup_meta_file_size_) {
+      return Status::Corruption("Generated meta file size too big");
+    }
   }
 
-  s = backup_meta_file->Append(Slice(buf.get(), (size_t)len));
+  s = backup_meta_file->Append(buf);
   if (s.ok() && sync) {
     s = backup_meta_file->Sync();
   }
