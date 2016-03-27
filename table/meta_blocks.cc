@@ -242,12 +242,18 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
       metaindex_block.NewIterator(BytewiseComparator()));
 
   // -- Read property block
+<<<<<<< HEAD
   bool found_properties_block = true;
   s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
   if (!s.ok()) {
     return s;
   }
 
+=======
+  // This function is not used by BlockBasedTable, so we don't have to
+  // worry about old properties block name.
+  meta_iter->Seek(kPropertiesBlock);
+>>>>>>> facebook/2.7
   TableProperties table_properties;
   if (found_properties_block == true) {
     s = ReadProperties(meta_iter->value(), file, footer, env, info_log,

@@ -112,6 +112,7 @@ const std::string TablePropertiesNames::kFixedKeyLen =
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility
 extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
+<<<<<<< HEAD
 
 // Seek to the properties block.
 // Return true if it successfully seeks to the properties block.
@@ -128,5 +129,7 @@ Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
   }
   return meta_iter->status();
 }
+=======
+>>>>>>> facebook/2.7
 
 }  // namespace rocksdb

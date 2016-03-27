@@ -231,4 +231,8 @@ class BlockBasedTable : public TableReader {
   void operator=(const TableReader&) = delete;
 };
 
+// Backward compatible properties block name. Limited in block based
+// table.
+extern const std::string kPropertiesBlockOldName;
+
 }  // namespace rocksdb

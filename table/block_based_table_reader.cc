@@ -549,6 +549,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   // Read the properties
   bool found_properties_block = true;
+<<<<<<< HEAD
   s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
 
   if (!s.ok()) {
@@ -556,6 +557,21 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         "Cannot seek to properties block from file: %s",
         s.ToString().c_str());
   } else if (found_properties_block) {
+=======
+  meta_iter->Seek(kPropertiesBlock);
+  if (meta_iter->status().ok() &&
+      (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlock)) {
+    meta_iter->Seek(kPropertiesBlockOldName);
+    if (meta_iter->status().ok() &&
+        (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlockOldName)) {
+      found_properties_block = false;
+      Log(WARN, rep->options.info_log,
+          "Cannot find Properties block from file.");
+    }
+  }
+
+  if (found_properties_block) {
+>>>>>>> facebook/2.7
     s = meta_iter->status();
     TableProperties* table_properties = nullptr;
     if (s.ok()) {
@@ -1415,12 +1431,20 @@ Status BlockBasedTable::CreateIndexReader(
     IndexReader** index_reader, InternalIterator* preloaded_meta_index_iter) {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
+<<<<<<< HEAD
   auto index_type_on_file = BlockBasedTableOptions::kBinarySearch;
+=======
+  auto index_type = BlockBasedTableOptions::kBinarySearch;
+>>>>>>> facebook/2.7
   if (rep_->table_properties) {
     auto& props = rep_->table_properties->user_collected_properties;
     auto pos = props.find(BlockBasedTablePropertyNames::kIndexType);
     if (pos != props.end()) {
+<<<<<<< HEAD
       index_type_on_file = static_cast<BlockBasedTableOptions::IndexType>(
+=======
+      index_type = static_cast<BlockBasedTableOptions::IndexType>(
+>>>>>>> facebook/2.7
           DecodeFixed32(pos->second.c_str()));
     }
   }
