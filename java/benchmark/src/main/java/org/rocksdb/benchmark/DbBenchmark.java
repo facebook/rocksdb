@@ -25,6 +25,8 @@ import java.io.IOException;
 import java.lang.Runnable;
 import java.lang.Math;
 import java.io.File;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.util.Collection;
@@ -603,6 +605,11 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_successive_merges));
     options.setWalTtlSeconds((Long)flags_.get(Flag.wal_ttl_seconds));
     options.setWalSizeLimitMB((Long)flags_.get(Flag.wal_size_limit_MB));
+    if(flags_.get(Flag.java_comparator) != null) {
+      options.setComparator(
+          (AbstractComparator)flags_.get(Flag.java_comparator));
+    }
+
     /* TODO(yhchiang): enable the following parameters
     options.setCompressionType((String)flags_.get(Flag.compression_type));
     options.setCompressionLevel((Integer)flags_.get(Flag.compression_level));
@@ -1488,6 +1495,31 @@ public class DbBenchmark {
         "environment.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
+      }
+    },
+    java_comparator(null, "Class name of a Java Comparator to use instead\n" +
+        "\tof the default C++ ByteWiseComparatorImpl. Must be available on\n" +
+        "\tthe classpath") {
+      @Override
+      protected Object parseValue(final String value) {
+        try {
+          final ComparatorOptions copt = new ComparatorOptions();
+          final Class<AbstractComparator> clsComparator =
+              (Class<AbstractComparator>)Class.forName(value);
+          final Constructor cstr =
+              clsComparator.getConstructor(ComparatorOptions.class);
+          return cstr.newInstance(copt);
+        } catch(final ClassNotFoundException cnfe) {
+          throw new IllegalArgumentException("Java Comparator '" + value + "'" +
+              " not found on the classpath", cnfe);
+        } catch(final NoSuchMethodException nsme) {
+          throw new IllegalArgumentException("Java Comparator '" + value + "'" +
+              " does not have a public ComparatorOptions constructor", nsme);
+        } catch(final IllegalAccessException | InstantiationException
+            | InvocationTargetException ie) {
+          throw new IllegalArgumentException("Unable to construct Java" +
+              " Comparator '" + value + "'", ie);
+        }
       }
     };
 
