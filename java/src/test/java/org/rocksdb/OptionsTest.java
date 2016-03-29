@@ -142,6 +142,17 @@ public class OptionsTest {
   }
 
   @Test
+  public void maxBytesForLevelMultiplierAdditional() {
+    try (final Options opt = new Options()) {
+      final int intValue1 = rand.nextInt();
+      final int intValue2 = rand.nextInt();
+      final int[] ints = new int[]{intValue1, intValue2};
+      opt.setMaxBytesForLevelMultiplierAdditional(ints);
+      assertThat(opt.maxBytesForLevelMultiplierAdditional()).isEqualTo(ints);
+    }
+  }
+
+  @Test
   public void expandedCompactionFactor() {
     try (final Options opt = new Options()) {
       final int intValue = rand.nextInt();
@@ -178,11 +189,56 @@ public class OptionsTest {
   }
 
   @Test
+  public void softPendingCompactionBytesLimit() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setSoftPendingCompactionBytesLimit(longValue);
+      assertThat(opt.softPendingCompactionBytesLimit()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void hardRateLimit() {
     try (final Options opt = new Options()) {
       final double doubleValue = rand.nextDouble();
       opt.setHardRateLimit(doubleValue);
       assertThat(opt.hardRateLimit()).isEqualTo(doubleValue);
+    }
+  }
+
+  @Test
+  public void hardPendingCompactionBytesLimit() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setHardPendingCompactionBytesLimit(longValue);
+      assertThat(opt.hardPendingCompactionBytesLimit()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void level0FileNumCompactionTrigger() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0FileNumCompactionTrigger(intValue);
+      assertThat(opt.level0FileNumCompactionTrigger()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void level0SlowdownWritesTrigger() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0SlowdownWritesTrigger(intValue);
+      assertThat(opt.level0SlowdownWritesTrigger()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void level0StopWritesTrigger() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0StopWritesTrigger(intValue);
+      assertThat(opt.level0StopWritesTrigger()).isEqualTo(intValue);
     }
   }
 
@@ -264,6 +320,15 @@ public class OptionsTest {
       final double doubleValue = rand.nextDouble();
       opt.setMemtablePrefixBloomSizeRatio(doubleValue);
       assertThat(opt.memtablePrefixBloomSizeRatio()).isEqualTo(doubleValue);
+    }
+  }
+
+  @Test
+  public void memtableHugePageSize() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setMemtableHugePageSize(longValue);
+      assertThat(opt.memtableHugePageSize()).isEqualTo(longValue);
     }
   }
 
