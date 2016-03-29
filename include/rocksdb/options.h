@@ -837,10 +837,19 @@ struct DBOptions {
   // Default: nullptr
   std::shared_ptr<RateLimiter> rate_limiter;
 
-  // Use to track SST files and control their file deletion rate, can be used
-  // among multiple RocksDB instances, sst_file_manager only track and throttle
-  // deletes of SST files in first db_path (db_name if db_paths is empty), other
-  // files and other db_paths wont be tracked or affected by sst_file_manager.
+  // Use to track SST files and control their file deletion rate.
+  //
+  // Features:
+  //  - Throttle the deletion rate of the SST files.
+  //  - Keep track the total size of all SST files.
+  //  - Set a maximum allowed space limit for SST files that when reached
+  //    the DB wont do any further flushes or compactions and will set the
+  //    background error.
+  //  - Can be shared between multiple dbs.
+  // Limitations:
+  //  - Only track and throttle deletes of SST files in
+  //    first db_path (db_name if db_paths is empty).
+  //
   // Default: nullptr
   std::shared_ptr<SstFileManager> sst_file_manager;
 
