@@ -184,7 +184,7 @@ parser = argparse.ArgumentParser(description='RocksDB pre-commit checker.')
 
 # <test ....>
 parser.add_argument('test', nargs='+',
-                    help='CI test(s) to run. e.g: unit punit asan tsan')
+                    help='CI test(s) to run. e.g: unit punit asan tsan ubsan')
 
 print("Please follow log %s" % Log.LOG_FILE)
 

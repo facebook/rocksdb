@@ -59,7 +59,10 @@ extern const uint64_t kLegacyPlainTableMagicNumber;
 const char* testFileName = "test_file_name";
 
 Status SstFileReader::GetTableReader(const std::string& file_path) {
-  uint64_t magic_number;
+  // Warning about 'magic_number' being uninitialized shows up only in UBsan
+  // builds. Though access is guarded by 's.ok()' checks, fix the issue to
+  // avoid any warnings.
+  uint64_t magic_number = Footer::kInvalidTableMagicNumber;
 
   // read table magic number
   Footer footer;

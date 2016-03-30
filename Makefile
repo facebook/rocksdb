@@ -174,6 +174,15 @@ else
 	pg = -pg
 endif
 
+# USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
+ifdef COMPILE_WITH_UBSAN
+	DISABLE_JEMALLOC=1
+	EXEC_LDFLAGS += -fsanitize=undefined
+	PLATFORM_CCFLAGS += -fsanitize=undefined
+	PLATFORM_CXXFLAGS += -fsanitize=undefined
+endif
+
+
 ifndef DISABLE_JEMALLOC
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
@@ -600,7 +609,7 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py --simple blackbox 
+	python -u tools/db_crashtest.py --simple blackbox
 	python -u tools/db_crashtest.py blackbox
 
 whitebox_crash_test: db_stress
@@ -615,6 +624,16 @@ asan_check:
 asan_crash_test:
 	$(MAKE) clean
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
+	$(MAKE) clean
+
+ubsan_check:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) check -j32
+	$(MAKE) clean
+
+ubsan_crash_test:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
 valgrind_check: $(TESTS)
@@ -1221,7 +1240,7 @@ jdb_bench:
 
 commit_prereq: build_tools/rocksdb-lego-determinator \
                build_tools/precommit_checker.py
-	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit tsan asan lite
+	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit tsan asan ubsan lite
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
 xfunc:

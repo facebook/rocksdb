@@ -67,6 +67,7 @@ ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
 LITE="OPT=-DROCKSDB_LITE"
 TSAN="COMPILE_WITH_TSAN=1"
+UBSAN="COMPILE_WITH_UBSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 PARSER="'parser':'egrep \'Failure|^#|Abort|Expected|Actual|GoogleTestFailure|^==\''"
 
@@ -377,6 +378,48 @@ ASAN_CRASH_TEST_COMMANDS="[
 ]"
 
 #
+# RocksDB test under undefined behavior sanitizer
+#
+UBSAN_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Unit Test under UBSAN',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Test RocksDB debug under UBSAN',
+                'shell':'set -o pipefail && $SHM $UBSAN $DEBUG make J=1 ubsan_check',
+                'user':'root',
+                $PARSER
+            }
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB crash testing under udnefined behavior sanitizer
+#
+UBSAN_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb crash test under UBSAN',
+        'oncall':'$ONCALL',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug ubsan_crash_test',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG make J=1 ubsan_crash_test',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB unit test under valgrind
 #
 VALGRIND_TEST_COMMANDS="[
@@ -462,9 +505,9 @@ run_format_compatible()
   if [ -e "build_detect_platform" ]
   then
     sed "s/tcmalloc/nothingnothingnothing/g" build_detect_platform > $TEST_TMPDIR/temp_build_file
-    rm -rf build_detect_platform 
+    rm -rf build_detect_platform
     cp $TEST_TMPDIR/temp_build_file build_detect_platform
-    chmod +x build_detect_platform 
+    chmod +x build_detect_platform
   fi
 
   make ldb -j32
@@ -631,6 +674,12 @@ case $1 in
     ;;
   asan_crash)
     echo $ASAN_CRASH_TEST_COMMANDS
+    ;;
+  ubsan)
+    echo $UBSAN_TEST_COMMANDS
+    ;;
+  ubsan_crash)
+    echo $UBSAN_CRASH_TEST_COMMANDS
     ;;
   valgrind)
     echo $VALGRIND_TEST_COMMANDS
