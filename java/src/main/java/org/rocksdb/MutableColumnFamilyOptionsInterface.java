@@ -283,7 +283,7 @@ public interface MutableColumnFamilyOptionsInterface {
    * @deprecated Instead use {@link #setHardPendingCompactionBytesLimit(long)}
    */
   @Deprecated
-  Object setHardRateLimit(double hardRateLimit);
+  MutableColumnFamilyOptionsInterface setHardRateLimit(double hardRateLimit);
 
   /**
    * Puts are delayed 1ms at a time when any level has a compaction score that
@@ -663,41 +663,4 @@ public interface MutableColumnFamilyOptionsInterface {
    * @return true if paranoid file checks are enabled
    */
   boolean paranoidFileChecks();
-
-  //TODO(AR) do we still need these enums? are we to let devs set values from strings? if so parse these names...
-  enum MemtableOption {
-    write_buffer_size,
-    arena_block_size,
-    memtable_prefix_bloom_bits,
-    memtable_prefix_bloom_probes,
-    memtable_prefix_bloom_huge_page_tlb_size,
-    max_successive_merges,
-    filter_deletes,
-    max_write_buffer_number,
-    inplace_update_num_locks
-  }
-
-  enum CompactionOption {
-    disable_auto_compactions,
-    soft_pending_compaction_bytes_limit,
-    hard_pending_compaction_bytes_limit,
-    level0_file_num_compaction_trigger,
-    level0_slowdown_writes_trigger,
-    level0_stop_writes_trigger,
-    max_grandparent_overlap_factor,
-    expanded_compaction_factor,
-    source_compaction_factor,
-    target_file_size_base,
-    target_file_size_multiplier,
-    max_bytes_for_level_base,
-    max_bytes_for_level_multiplier,
-    max_bytes_for_level_multiplier_additional,
-    verify_checksums_in_compaction
-  }
-
-  enum MiscOptions {
-    max_sequential_skip_in_iterations,
-    paranoid_file_checks
-  }
-
 }

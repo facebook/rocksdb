@@ -80,6 +80,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\
+        org.rocksdb.MutableColumnFamilyOptionsTest\
         org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptionsTest\
 	org.rocksdb.PlainTableConfigTest\
