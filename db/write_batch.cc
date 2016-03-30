@@ -144,7 +144,7 @@ bool WriteBatch::Handler::Continue() {
 
 void WriteBatch::Clear() {
   rep_.clear();
-  rep_.resize(kHeader);
+  rep_.resize(WriteBatchInternal::kHeader);
 
   content_flags_.store(0, std::memory_order_relaxed);
 
@@ -247,11 +247,11 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 
 Status WriteBatch::Iterate(Handler* handler) const {
   Slice input(rep_);
-  if (input.size() < kHeader) {
+  if (input.size() < WriteBatchInternal::kHeader) {
     return Status::Corruption("malformed WriteBatch (too small)");
   }
 
-  input.remove_prefix(kHeader);
+  input.remove_prefix(WriteBatchInternal::kHeader);
   Slice key, value, blob;
   int found = 0;
   Status s;
@@ -327,7 +327,7 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
-size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) { return kHeader; }
+size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) { return WriteBatchInternal::kHeader; }
 
 void WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                              const Slice& key, const Slice& value) {
@@ -830,15 +830,15 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* batch,
 }
 
 void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
-  assert(contents.size() >= kHeader);
+  assert(contents.size() >= WriteBatchInternal::kHeader);
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
 }
 
 void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
   SetCount(dst, Count(dst) + Count(src));
-  assert(src->rep_.size() >= kHeader);
-  dst->rep_.append(src->rep_.data() + kHeader, src->rep_.size() - kHeader);
+  assert(src->rep_.size() >= WriteBatchInternal::kHeader);
+  dst->rep_.append(src->rep_.data() + WriteBatchInternal::kHeader, src->rep_.size() - WriteBatchInternal::kHeader);
   dst->content_flags_.store(
       dst->content_flags_.load(std::memory_order_relaxed) |
           src->content_flags_.load(std::memory_order_relaxed),
@@ -850,7 +850,7 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
   if (leftByteSize == 0 || rightByteSize == 0) {
     return leftByteSize + rightByteSize;
   } else {
-    return leftByteSize + rightByteSize - kHeader;
+    return leftByteSize + rightByteSize - WriteBatchInternal::kHeader;
   }
 }
 
