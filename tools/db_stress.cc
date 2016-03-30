@@ -465,11 +465,7 @@ static std::string Key(int64_t val) {
 
 static std::string StringToHex(const std::string& str) {
   std::string result = "0x";
-  char buf[10];
-  for (size_t i = 0; i < str.length(); i++) {
-    snprintf(buf, 10, "%02X", (unsigned char)str[i]);
-    result += buf;
-  }
+  result.append(Slice(str).ToString(true));
   return result;
 }
 
