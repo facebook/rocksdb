@@ -265,7 +265,7 @@ class Repairer {
     mem->Ref();
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {
-      if (record.size() < 12) {
+      if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(
             record.size(), Status::Corruption("log record too small"));
         continue;

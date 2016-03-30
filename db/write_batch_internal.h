@@ -63,6 +63,10 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
 // WriteBatch that we don't want in the public WriteBatch interface.
 class WriteBatchInternal {
  public:
+
+  // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
+  static const size_t kHeader = 12;
+
   // WriteBatch methods with column_family_id instead of ColumnFamilyHandle*
   static void Put(WriteBatch* batch, uint32_t column_family_id,
                   const Slice& key, const Slice& value);

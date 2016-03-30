@@ -1576,7 +1576,7 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     }
     while (reader.ReadRecord(&record, &scratch)) {
       row.str("");
-      if (record.size() < 12) {
+      if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(record.size(),
                             Status::Corruption("log record too small"));
       } else {
