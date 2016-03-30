@@ -455,7 +455,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
 
   if (reader.ReadRecord(&record, &scratch) &&
       (status.ok() || !db_options_.paranoid_checks)) {
-    if (record.size() < 12) {
+    if (record.size() < WriteBatchInternal::kHeader) {
       reporter.Corruption(record.size(),
                           Status::Corruption("log record too small"));
       // TODO read record's till the first no corrupt entry?

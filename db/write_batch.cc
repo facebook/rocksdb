@@ -81,8 +81,6 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 }  // anon namespace
 
-// WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
-static const size_t kHeader = 12;
 
 struct SavePoint {
   size_t size;  // size of rep_
@@ -96,8 +94,8 @@ struct SavePoints {
 
 WriteBatch::WriteBatch(size_t reserved_bytes)
     : save_points_(nullptr), content_flags_(0), rep_() {
-  rep_.reserve((reserved_bytes > kHeader) ? reserved_bytes : kHeader);
-  rep_.resize(kHeader);
+  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ? reserved_bytes : WriteBatchInternal::kHeader);
+  rep_.resize(WriteBatchInternal::kHeader);
 }
 
 WriteBatch::WriteBatch(const std::string& rep)
