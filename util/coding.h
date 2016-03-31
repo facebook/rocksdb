@@ -23,8 +23,7 @@
 
 namespace rocksdb {
 
-// The maximum length of a varint in bytes for 32 and 64 bits respectively.
-const unsigned int kMaxVarint32Length = 5;
+// The maximum length of a varint in bytes for 64-bit.
 const unsigned int kMaxVarint64Length = 10;
 
 // Standard Put... routines append to a string

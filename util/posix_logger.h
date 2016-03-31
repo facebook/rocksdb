@@ -30,8 +30,6 @@
 
 namespace rocksdb {
 
-const int kDebugLogChunkSize = 128 * 1024;
-
 class PosixLogger : public Logger {
  private:
   FILE* file_;
@@ -129,6 +127,8 @@ class PosixLogger : public Logger {
       const size_t write_size = p - base;
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
+      const int kDebugLogChunkSize = 128 * 1024;
+
       // If this write would cross a boundary of kDebugLogChunkSize
       // space, pre-allocate more space to avoid overly large
       // allocations from filesystem allocsize options.
