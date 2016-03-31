@@ -16,10 +16,10 @@
 /*
  * Class:     org_rocksdb_BackupEngine
  * Method:    open
- * Signature: (JJ)V
+ * Signature: (JJ)J
  */
-void Java_org_rocksdb_BackupEngine_open(
-    JNIEnv* env, jobject jbe, jlong env_handle,
+jlong Java_org_rocksdb_BackupEngine_open(
+    JNIEnv* env, jclass jcls, jlong env_handle,
     jlong backupable_db_options_handle) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(env_handle);
   auto* backupable_db_options =
@@ -30,11 +30,11 @@ void Java_org_rocksdb_BackupEngine_open(
       *backupable_db_options, &backup_engine);
 
   if (status.ok()) {
-    rocksdb::BackupEngineJni::setHandle(env, jbe, backup_engine);
-    return;
+    return reinterpret_cast<jlong>(backup_engine);
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
+    return 0;
   }
-
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, status);
 }
 
 /*

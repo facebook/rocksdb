@@ -35,7 +35,9 @@ package org.rocksdb;
  * {@link org.rocksdb.InfoLogLevel#FATAL_LEVEL}.
  * </p>
  */
-public abstract class Logger extends RocksObject {
+public abstract class Logger extends AbstractImmutableNativeReference {
+
+  final long nativeHandle_;
 
   /**
    * <p>AbstractLogger constructor.</p>
@@ -47,7 +49,8 @@ public abstract class Logger extends RocksObject {
    * @param options {@link org.rocksdb.Options} instance.
    */
   public Logger(final Options options) {
-    createNewLoggerOptions(options.nativeHandle_);
+    super(true);
+    this.nativeHandle_ = createNewLoggerOptions(options.nativeHandle_);
   }
 
   /**
@@ -60,7 +63,8 @@ public abstract class Logger extends RocksObject {
    * @param dboptions {@link org.rocksdb.DBOptions} instance.
    */
   public Logger(final DBOptions dboptions) {
-    createNewLoggerDbOptions(dboptions.nativeHandle_);
+    super(true);
+    this.nativeHandle_ = createNewLoggerDbOptions(dboptions.nativeHandle_);
   }
 
   /**
@@ -93,16 +97,15 @@ public abstract class Logger extends RocksObject {
    */
   @Override
   protected void disposeInternal() {
-    assert(isInitialized());
     disposeInternal(nativeHandle_);
   }
 
-  protected native void createNewLoggerOptions(
+  protected native long createNewLoggerOptions(
       long options);
-  protected native void createNewLoggerDbOptions(
+  protected native long createNewLoggerDbOptions(
       long dbOptions);
   protected native void setInfoLogLevel(long handle,
       byte infoLogLevel);
   protected native byte infoLogLevel(long handle);
-  private native void disposeInternal(long handle);
+  private native void disposeInternal(final long handle);
 }

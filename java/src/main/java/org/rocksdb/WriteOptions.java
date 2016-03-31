@@ -16,13 +16,8 @@ public class WriteOptions extends RocksObject {
    * Construct WriteOptions instance.
    */
   public WriteOptions() {
-    super();
-    newWriteOptions();
-  }
+    super(newWriteOptions());
 
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
   }
 
   /**
@@ -97,10 +92,10 @@ public class WriteOptions extends RocksObject {
     return disableWAL(nativeHandle_);
   }
 
-  private native void newWriteOptions();
+  private native static long newWriteOptions();
   private native void setSync(long handle, boolean flag);
   private native boolean sync(long handle);
   private native void setDisableWAL(long handle, boolean flag);
   private native boolean disableWAL(long handle);
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
 }

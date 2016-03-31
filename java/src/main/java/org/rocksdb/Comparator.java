@@ -15,10 +15,18 @@ package org.rocksdb;
  * using @see org.rocksdb.DirectComparator
  */
 public abstract class Comparator extends AbstractComparator<Slice> {
+
+  private final long nativeHandle_;
+
   public Comparator(final ComparatorOptions copt) {
     super();
-    createNewComparator0(copt.nativeHandle_);
+    this.nativeHandle_ = createNewComparator0(copt.nativeHandle_);
   }
 
-  private native void createNewComparator0(final long comparatorOptionsHandle);
+  @Override
+  protected final long getNativeHandle() {
+    return nativeHandle_;
+  }
+
+  private native long createNewComparator0(final long comparatorOptionsHandle);
 }

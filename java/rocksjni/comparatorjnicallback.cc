@@ -60,8 +60,8 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   // performance.
   mtx_compare->Lock();
 
-  AbstractSliceJni::setHandle(m_env, m_jSliceA, &a);
-  AbstractSliceJni::setHandle(m_env, m_jSliceB, &b);
+  AbstractSliceJni::setHandle(m_env, m_jSliceA, &a, JNI_FALSE);
+  AbstractSliceJni::setHandle(m_env, m_jSliceB, &b, JNI_FALSE);
   jint result =
     m_env->CallIntMethod(m_jComparator, m_jCompareMethodId, m_jSliceA,
       m_jSliceB);
@@ -89,7 +89,7 @@ void BaseComparatorJniCallback::FindShortestSeparator(
   // performance.
   mtx_findShortestSeparator->Lock();
 
-  AbstractSliceJni::setHandle(m_env, m_jSliceLimit, &limit);
+  AbstractSliceJni::setHandle(m_env, m_jSliceLimit, &limit, JNI_FALSE);
   jstring jsResultStart =
     (jstring)m_env->CallObjectMethod(m_jComparator,
       m_jFindShortestSeparatorMethodId, jsStart, m_jSliceLimit);

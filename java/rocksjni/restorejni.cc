@@ -22,17 +22,17 @@
  * Signature: (Z)J
  */
 jlong Java_org_rocksdb_RestoreOptions_newRestoreOptions(JNIEnv* env,
-    jobject jobj, jboolean keep_log_files) {
+    jclass jcls, jboolean keep_log_files) {
   auto ropt = new rocksdb::RestoreOptions(keep_log_files);
   return reinterpret_cast<jlong>(ropt);
 }
 
 /*
  * Class:     org_rocksdb_RestoreOptions
- * Method:    dispose
+ * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_RestoreOptions_dispose(JNIEnv* env, jobject jobj,
+void Java_org_rocksdb_RestoreOptions_disposeInternal(JNIEnv* env, jobject jobj,
     jlong jhandle) {
   auto ropt = reinterpret_cast<rocksdb::RestoreOptions*>(jhandle);
   assert(ropt);
@@ -45,8 +45,8 @@ void Java_org_rocksdb_RestoreOptions_dispose(JNIEnv* env, jobject jobj,
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_RestoreBackupableDB_newRestoreBackupableDB(JNIEnv* env,
-    jobject jobj, jlong jopt_handle) {
-  auto opt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jopt_handle);
+    jclass jcls, jlong jopt_handle) {
+  auto* opt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jopt_handle);
   auto rdb = new rocksdb::RestoreBackupableDB(rocksdb::Env::Default(), *opt);
   return reinterpret_cast<jlong>(rdb);
 }
@@ -185,11 +185,11 @@ void Java_org_rocksdb_RestoreBackupableDB_garbageCollect(
 
 /*
  * Class:     org_rocksdb_RestoreBackupableDB
- * Method:    dispose
+ * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_RestoreBackupableDB_dispose(JNIEnv* env, jobject jobj,
-    jlong jhandle) {
+void Java_org_rocksdb_RestoreBackupableDB_disposeInternal(JNIEnv* env,
+    jobject jobj, jlong jhandle) {
   auto ropt = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   assert(ropt);
   delete ropt;
