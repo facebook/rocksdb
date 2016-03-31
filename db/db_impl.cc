@@ -1186,7 +1186,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         continue_replay_log &&
         reader.ReadRecord(&record, &scratch, db_options_.wal_recovery_mode) &&
         status.ok()) {
-      if (record.size() < 12) {
+      if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(record.size(),
                             Status::Corruption("log record too small"));
         continue;
