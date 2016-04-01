@@ -12,19 +12,20 @@
 
 #include <inttypes.h>
 
-#include "db/dbformat.h"
 #include "db/db_impl.h"
-#include "db/log_reader.h"
+#include "db/dbformat.h"
 #include "db/filename.h"
-#include "db/writebuffer.h"
+#include "db/log_reader.h"
 #include "db/write_batch_internal.h"
-#include "rocksdb/write_batch.h"
+#include "db/writebuffer.h"
+#include "port/dirent.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/write_batch.h"
 #include "table/scoped_arena_iterator.h"
-#include "port/dirent.h"
 #include "tools/sst_dump_tool_imp.h"
 #include "util/coding.h"
+#include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
@@ -2159,6 +2160,7 @@ void RepairCommand::Help(string& ret) {
 
 void RepairCommand::DoCommand() {
   Options options = PrepareOptionsForOpenDB();
+  options.info_log.reset(new StderrLogger(InfoLogLevel::WARN_LEVEL));
   Status status = RepairDB(db_path_, options);
   if (status.ok()) {
     printf("OK\n");

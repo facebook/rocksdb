@@ -24,6 +24,7 @@
 #include "util/options_parser.h"
 #include "util/options_sanity_check.h"
 #include "util/random.h"
+#include "util/stderr_logger.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -36,15 +37,6 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
 namespace rocksdb {
-
-class StderrLogger : public Logger {
- public:
-  using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override {
-    vprintf(format, ap);
-    printf("\n");
-  }
-};
 
 Options PrintAndGetOptions(size_t total_write_buffer_limit,
                            int read_amplification_threshold,
