@@ -333,6 +333,8 @@ class TableConstructor: public Constructor {
     return convert_to_internal_key_;
   }
 
+  void ResetTableReader() { table_reader_.reset(); }
+
  private:
   void Reset() {
     uniq_id_ = 0;
@@ -1017,6 +1019,7 @@ TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   }
   Slice content = block_builder.Finish();
   ASSERT_EQ(content.size() + kBlockTrailerSize, props.data_size);
+  c.ResetTableReader();
 }
 
 TEST_F(BlockBasedTableTest, FilterPolicyNameProperties) {
@@ -1034,6 +1037,7 @@ TEST_F(BlockBasedTableTest, FilterPolicyNameProperties) {
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   auto& props = *c.GetTableReader()->GetTableProperties();
   ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
+  c.ResetTableReader();
 }
 
 //
@@ -1075,6 +1079,7 @@ void PrefetchRange(TableConstructor* c, Options* opt,
 
   // assert our expectation in cache warmup
   AssertKeysInCache(table_reader, keys_in_cache, keys_not_in_cache);
+  c->ResetTableReader();
 }
 
 TEST_F(BlockBasedTableTest, PrefetchTest) {
@@ -1102,6 +1107,7 @@ TEST_F(BlockBasedTableTest, PrefetchTest) {
   stl_wrappers::KVMap kvmap;
   const ImmutableCFOptions ioptions(opt);
   c.Finish(opt, ioptions, table_options, *ikc, &keys, &kvmap);
+  c.ResetTableReader();
 
   // We get the following data spread :
   //
@@ -1157,6 +1163,7 @@ TEST_F(BlockBasedTableTest, PrefetchTest) {
   PrefetchRange(&c, &opt, &table_options, keys,
                 "k06", "k00", {}, {},
                 Status::InvalidArgument(Slice("k06 "), Slice("k07")));
+  c.ResetTableReader();
 }
 
 TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
@@ -1400,6 +1407,7 @@ TEST_F(TableTest, HashIndexTest) {
       ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) < 0);
     }
   }
+  c.ResetTableReader();
 }
 
 // It's very hard to figure out the index block size of a block accurately.
@@ -1440,6 +1448,7 @@ TEST_F(BlockBasedTableTest, IndexSizeStat) {
     auto index_size = c.GetTableReader()->GetTableProperties()->index_size;
     ASSERT_GT(index_size, last_index_size);
     last_index_size = index_size;
+    c.ResetTableReader();
   }
 }
 
@@ -1466,6 +1475,7 @@ TEST_F(BlockBasedTableTest, NumBlockStat) {
            GetPlainInternalComparator(options.comparator), &ks, &kvmap);
   ASSERT_EQ(kvmap.size(),
             c.GetTableReader()->GetTableProperties()->num_data_blocks);
+  c.ResetTableReader();
 }
 
 // A simple tool that takes the snapshot of block cache statistics.
@@ -1662,6 +1672,8 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   // release the iterator so that the block cache can reset correctly.
   iter.reset();
 
+  c.ResetTableReader();
+
   // -- PART 2: Open with very small block cache
   // In this test, no block will ever get hit since the block cache is
   // too small to fit even one entry.
@@ -1702,6 +1714,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     ASSERT_EQ(props.GetCacheBytesRead(), 0);
   }
   iter.reset();
+  c.ResetTableReader();
 
   // -- PART 3: Open table with bloom filter enabled but not in SST file
   table_options.block_cache = NewLRUCache(4096);
@@ -1715,7 +1728,9 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   ImmutableCFOptions ioptions3(options);
   // Generate table without filter policy
   c3.Finish(options, ioptions3, table_options,
-           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  c3.ResetTableReader();
+
   // Open table with filter policy
   table_options.filter_policy.reset(NewBloomFilterPolicy(1));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
@@ -1732,6 +1747,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   ASSERT_EQ(value, "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
+  c3.ResetTableReader();
 }
 
 void ValidateBlockSizeDeviation(int value, int expected) {
@@ -1894,6 +1910,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   for (const std::string& key : keys) {
     ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
   }
+  c.ResetTableReader();
 
   // rerun with different block cache
   table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
@@ -1904,6 +1921,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   for (const std::string& key : keys) {
     ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), key));
   }
+  c.ResetTableReader();
 }
 
 // Plain table is not supported in ROCKSDB_LITE
@@ -1991,6 +2009,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k06"),  510000, 511000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k07"),  510000, 511000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),  610000, 612000));
+  c.ResetTableReader();
 }
 
 static void DoCompressionTest(CompressionType comp) {
@@ -2017,6 +2036,7 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k03"),    2000,   3000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k04"),    2000,   3000));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),    4000,   6100));
+  c.ResetTableReader();
 }
 
 TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
@@ -2342,6 +2362,7 @@ TEST_P(IndexBlockRestartIntervalTest, IndexBlockRestartInterval) {
     kv_iter++;
   }
   ASSERT_EQ(kv_iter, kvmap.end());
+  c.ResetTableReader();
 }
 
 class PrefixTest : public testing::Test {

@@ -13,6 +13,11 @@
 
 namespace rocksdb {
 
+static uint64_t TestGetTickerCount(const Options& options,
+                                   Tickers ticker_type) {
+  return options.statistics->getTickerCount(ticker_type);
+}
+
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("/db_test2") {}
@@ -675,6 +680,119 @@ TEST_F(DBTest2, DISABLED_FirstSnapshotTest) {
 
   db_->ReleaseSnapshot(s1);
 }
+
+class PinL0IndexAndFilterBlocksTest : public DBTestBase,
+                                      public testing::WithParamInterface<bool> {
+ public:
+  PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
+  virtual void SetUp() override { infinite_max_files_ = GetParam(); }
+
+  bool infinite_max_files_;
+};
+
+TEST_P(PinL0IndexAndFilterBlocksTest,
+       IndexAndFilterBlocksOfNewTableAddedToCacheWithPinning) {
+  Options options = CurrentOptions();
+  if (infinite_max_files_) {
+    options.max_open_files = -1;
+  }
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "key", "val"));
+  // Create a new table.
+  ASSERT_OK(Flush(1));
+
+  // index/filter blocks added to block cache right after table creation.
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+
+  // only index/filter were added
+  ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+
+  std::string value;
+  // Miss and hit count should remain the same, they're all pinned.
+  db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value);
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+
+  // Miss and hit count should remain the same, they're all pinned.
+  value = Get(1, "key");
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+}
+
+TEST_P(PinL0IndexAndFilterBlocksTest,
+       MultiLevelIndexAndFilterBlocksCachedWithPinning) {
+  Options options = CurrentOptions();
+  if (infinite_max_files_) {
+    options.max_open_files = -1;
+  }
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Put(1, "a", "begin");
+  Put(1, "z", "end");
+  ASSERT_OK(Flush(1));
+  // move this table to L1
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+
+  // reset block cache
+  table_options.block_cache = NewLRUCache(64 * 1024);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  TryReopenWithColumnFamilies({"default", "pikachu"}, options);
+  // create new table at L0
+  Put(1, "a2", "begin2");
+  Put(1, "z2", "end2");
+  ASSERT_OK(Flush(1));
+
+  table_options.block_cache->EraseUnRefEntries();
+
+  // get base cache values
+  uint64_t fm = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+  uint64_t fh = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  uint64_t im = TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
+  uint64_t ih = TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT);
+
+  std::string value;
+  // this should be read from L0
+  // so cache values don't change
+  value = Get(1, "a2");
+  ASSERT_EQ(fm, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(im, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(ih, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+
+  // this should be read from L1
+  // the file is opened, prefetching results in a cache filter miss
+  // the block is loaded and added to the cache,
+  // then the get results in a cache hit for L1
+  value = Get(1, "a");
+  ASSERT_EQ(fm + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(im + 1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+}
+
+INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
+                        PinL0IndexAndFilterBlocksTest, ::testing::Bool());
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

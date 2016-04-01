@@ -1288,6 +1288,11 @@ void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
   options->rep.cache_index_and_filter_blocks = v;
 }
 
+void rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(
+    rocksdb_block_based_table_options_t* options, unsigned char v) {
+  options->rep.pin_l0_filter_and_index_blocks_in_cache = v;
+}
+
 void rocksdb_block_based_options_set_skip_table_builder_flush(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.skip_table_builder_flush = v;

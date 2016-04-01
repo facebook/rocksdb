@@ -405,6 +405,21 @@ DBImpl::~DBImpl() {
   }
   logs_.clear();
 
+  // Table cache may have table handles holding blocks from the block cache.
+  // We need to release them before the block cache is destroyed. The block
+  // cache may be destroyed inside versions_.reset(), when column family data
+  // list is destroyed, so leaving handles in table cache after
+  // versions_.reset() may cause issues.
+  // Here we clean all unreferenced handles in table cache.
+  // Now we assume all user queries have finished, so only version set itself
+  // can possibly hold the blocks from block cache. After releasing unreferenced
+  // handles here, only handles held by version set left and inside
+  // versions_.reset(), we will release them. There, we need to make sure every
+  // time a handle is released, we erase it from the cache too. By doing that,
+  // we can guarantee that after versions_.reset(), table cache is empty
+  // so the cache can be safely destroyed.
+  table_cache_->EraseUnRefEntries();
+
   // versions need to be destroyed before table_cache since it can hold
   // references to table_cache.
   versions_.reset();
