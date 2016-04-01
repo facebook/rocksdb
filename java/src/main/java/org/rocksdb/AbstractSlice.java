@@ -24,7 +24,7 @@ package org.rocksdb;
  *   C++ BaseComparatorJniCallback subclass, which in turn destroys the
  *   Java @see org.rocksdb.AbstractSlice subclass Objects.
  */
-abstract class AbstractSlice<T> extends RocksMutableObject {
+public abstract class AbstractSlice<T> extends RocksMutableObject {
 
   protected AbstractSlice() {
     super();
