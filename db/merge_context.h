@@ -37,6 +37,11 @@ public:
     Initialize();
     operand_list->push_front(operand_slice.ToString());
   }
+  // Push back a merge operand
+  void PushOperandBack(const Slice& operand_slice) {
+    Initialize();
+    operand_list->push_back(operand_slice.ToString());
+  }
   // return total number of operands in the list
   size_t GetNumOperands() const {
     if (!operand_list) {
