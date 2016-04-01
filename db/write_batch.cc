@@ -94,7 +94,7 @@ struct SavePoints {
 
 WriteBatch::WriteBatch(size_t reserved_bytes)
     : save_points_(nullptr), content_flags_(0), rep_() {
-  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ? 
+  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
     reserved_bytes : WriteBatchInternal::kHeader);
   rep_.resize(WriteBatchInternal::kHeader);
 }
@@ -190,6 +190,23 @@ bool WriteBatch::HasSingleDelete() const {
 
 bool WriteBatch::HasMerge() const {
   return (ComputeContentFlags() & ContentFlags::HAS_MERGE) != 0;
+}
+
+bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key, bool cf_record) {
+  assert(input != nullptr && key != nullptr);
+  // Skip tag byte
+  input->remove_prefix(1);
+
+  if (cf_record) {
+    // Skip column_family bytes
+    uint32_t cf;
+    if (!GetVarint32(input, &cf)) {
+      return false;
+    }
+  }
+
+  // Extract key
+  return GetLengthPrefixedSlice(input, key);
 }
 
 Status ReadRecordFromWriteBatch(Slice* input, char* tag,
@@ -328,8 +345,8 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
-size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) { 
-  return WriteBatchInternal::kHeader; 
+size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) {
+  return WriteBatchInternal::kHeader;
 }
 
 void WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
@@ -841,7 +858,7 @@ void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
 void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
   SetCount(dst, Count(dst) + Count(src));
   assert(src->rep_.size() >= WriteBatchInternal::kHeader);
-  dst->rep_.append(src->rep_.data() + WriteBatchInternal::kHeader, 
+  dst->rep_.append(src->rep_.data() + WriteBatchInternal::kHeader,
     src->rep_.size() - WriteBatchInternal::kHeader);
   dst->content_flags_.store(
       dst->content_flags_.load(std::memory_order_relaxed) |
