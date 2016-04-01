@@ -143,13 +143,17 @@ struct BackupInfo {
   uint64_t size;
 
   uint32_t number_files;
+  std::string app_metadata;
 
   BackupInfo() {}
 
   BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size,
-             uint32_t _number_files)
-      : backup_id(_backup_id), timestamp(_timestamp), size(_size),
-        number_files(_number_files) {}
+             uint32_t _number_files, const std::string& _app_metadata)
+      : backup_id(_backup_id),
+        timestamp(_timestamp),
+        size(_size),
+        number_files(_number_files),
+        app_metadata(_app_metadata) {}
 };
 
 class BackupStatistics {
@@ -218,9 +222,17 @@ class BackupEngine {
                      const BackupableDBOptions& options,
                      BackupEngine** backup_engine_ptr);
 
-  virtual Status CreateNewBackup(
-      DB* db, bool flush_before_backup = false,
+  /// same as CreateNewBackup, but stores extra application metadata
+  virtual Status CreateNewBackupWithMetadata(
+      DB* db, const std::string& app_metadata, bool flush_before_backup = false,
       std::function<void()> progress_callback = []() {}) = 0;
+
+  virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false,
+                                 std::function<void()> progress_callback =
+                                     []() {}) {
+    return CreateNewBackupWithMetadata(db, "", flush_before_backup,
+                                       progress_callback);
+  }
   virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
   virtual Status DeleteBackup(BackupID backup_id) = 0;
   virtual void StopBackup() = 0;

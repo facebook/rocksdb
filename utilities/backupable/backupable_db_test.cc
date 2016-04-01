@@ -1348,6 +1348,55 @@ TEST_F(BackupableDBTest, Issue921Test) {
   delete backup_engine;
 }
 
+TEST_F(BackupableDBTest, BackupWithMetadata) {
+  const int keys_iteration = 5000;
+  OpenDBAndBackupEngine(true);
+  // create five backups
+  for (int i = 0; i < 5; ++i) {
+    const std::string metadata = std::to_string(i);
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(
+        backup_engine_->CreateNewBackupWithMetadata(db_.get(), metadata, true));
+  }
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(5, backup_infos.size());
+  for (int i = 0; i < 5; i++) {
+    ASSERT_EQ(std::to_string(i), backup_infos[i].app_metadata);
+  }
+  CloseDBAndBackupEngine();
+  DestroyDB(dbname_, Options());
+}
+
+TEST_F(BackupableDBTest, BinaryMetadata) {
+  OpenDBAndBackupEngine(true);
+  std::string binaryMetadata = "abc\ndef";
+  binaryMetadata.push_back('\0');
+  binaryMetadata.append("ghi");
+  ASSERT_OK(
+      backup_engine_->CreateNewBackupWithMetadata(db_.get(), binaryMetadata));
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  std::vector<BackupInfo> backup_infos;
+  backup_engine_->GetBackupInfo(&backup_infos);
+  ASSERT_EQ(1, backup_infos.size());
+  ASSERT_EQ(binaryMetadata, backup_infos[0].app_metadata);
+  CloseDBAndBackupEngine();
+  DestroyDB(dbname_, Options());
+}
+
+TEST_F(BackupableDBTest, MetadataTooLarge) {
+  OpenDBAndBackupEngine(true);
+  std::string largeMetadata(1024 * 1024 + 1, 0);
+  ASSERT_NOK(
+      backup_engine_->CreateNewBackupWithMetadata(db_.get(), largeMetadata));
+  CloseDBAndBackupEngine();
+  DestroyDB(dbname_, Options());
+}
 }  // anon namespace
 
 } //  namespace rocksdb
