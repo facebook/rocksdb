@@ -1079,6 +1079,12 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
         if (MaybeInitializeFileMetaData(file_meta)) {
           // each FileMeta will be initialized only once.
           storage_info_.UpdateAccumulatedStats(file_meta);
+          // when option "max_open_files" is -1, all the file metadata has
+          // already been read, so MaybeInitializeFileMetaData() won't incur
+          // any I/O cost.
+          if (vset_->db_options_->max_open_files == -1) {
+            continue;
+          }
           if (++init_count >= kMaxInitCount) {
             break;
           }
