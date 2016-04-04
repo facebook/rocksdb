@@ -32,11 +32,11 @@ struct PerfContext {
   uint64_t block_decompress_time;  // total nanos spent on block decompression
   // total number of internal keys skipped over during iteration.
   // There are several reasons for it:
-  // 1. when calling Next(), iterator is in the position of the previous key,
-  //    so that we'll need to skip it. It means this counter will always
-  //    incrmented in Next().
-  // 2. when calling Next(), needs to skip internal entries for the previous
-  //    key that are overwritten.
+  // 1. when calling Next(), the iterator is in the position of the previous
+  //    key, so that we'll need to skip it. It means this counter will always
+  //    be incremented in Next().
+  // 2. when calling Next(), we need to skip internal entries for the previous
+  //    keys that are overwritten.
   // 3. when calling Next(), Seek() or SeekToFirst(), after previous key
   //    before calling Next(), the seek key in Seek() or the beginning for
   //    SeekToFirst(), there may be one or more deleted keys before the next
@@ -46,16 +46,15 @@ struct PerfContext {
   //    hidden by the tombstones will be included here.
   // 4. symmetric cases for Prev() and SeekToLast()
   // We sometimes also skip entries of more recent updates than the snapshot
-  // we read from, but it is not counted.
+  // we read from, but they are not included in this counter.
   //
   uint64_t internal_key_skipped_count;
   // Total number of deletes and single deletes skipped over during iteration
-  // When calling Next(), Seek() or SeekToFirst(), after previous key before
-  // calling Next(), the seek key in Seek() or the beginning for SeekToFirst(),
-  // there may be one or more deleted keys before the next valid key that the
-  // operation should place the iterator to. Every deleted key is counted once.
-  // We don't recount here if there are still older updates invalidated by the
-  // tombstones.
+  // When calling Next(), Seek() or SeekToFirst(), after previous position
+  // before calling Next(), the seek key in Seek() or the beginning for
+  // SeekToFirst(), there may be one or more deleted keys before the next valid
+  // key. Every deleted key is counted once. We don't recount here if there are
+  // still older updates invalidated by the tombstones.
   //
   uint64_t internal_delete_skipped_count;
 
