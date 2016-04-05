@@ -210,7 +210,8 @@ extern Status ReadBlockContents(RandomAccessFileReader* file,
                                 const ReadOptions& options,
                                 const BlockHandle& handle,
                                 BlockContents* contents, Env* env,
-                                bool do_uncompress);
+                                bool do_uncompress,
+                                rocksdb::CompressionType* found_compression_type = nullptr);
 
 // The 'data' points to the raw block contents read in from file.
 // This method allocates a new heap buffer and the raw block

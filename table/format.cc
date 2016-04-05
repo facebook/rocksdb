@@ -296,7 +296,8 @@ Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
 Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
                          const ReadOptions& options, const BlockHandle& handle,
                          BlockContents* contents, Env* env,
-                         bool decompression_requested) {
+                         bool decompression_requested,
+                         rocksdb::CompressionType* found_compression_type) {
   Status status;
   Slice slice;
   size_t n = static_cast<size_t>(handle.size());
@@ -324,6 +325,10 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
   PERF_TIMER_GUARD(block_decompress_time);
 
   compression_type = static_cast<rocksdb::CompressionType>(slice.data()[n]);
+
+  if (found_compression_type != nullptr) {
+    *found_compression_type = compression_type;
+  }
 
   if (decompression_requested && compression_type != kNoCompression) {
     return UncompressBlockContents(slice.data(), n, contents, footer.version());
