@@ -2336,11 +2336,14 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     manifest_file_size_ = new_manifest_file_size;
     prev_log_number_ = edit->prev_log_number_;
   } else {
+    std::string version_edits;
+    for (auto& e : batch_edits) {
+      version_edits = version_edits + "\n" + e->DebugString(true);
+    }
     Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
-        "Error in committing version %lu to [%s]",
-        (unsigned long)v->GetVersionNumber(),
-        column_family_data ? column_family_data->GetName().c_str()
-                           : "<null>");
+        "[%s] Error in committing version edit to MANIFEST: %s",
+        column_family_data ? column_family_data->GetName().c_str() : "<null>",
+        version_edits.c_str());
     delete v;
     if (new_descriptor_log) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
