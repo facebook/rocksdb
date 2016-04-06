@@ -201,6 +201,44 @@ Status SanitizeOptionsByTable(
   return Status::OK();
 }
 
+static Status ValidateOptions(
+    const DBOptions& db_options,
+    const std::vector<ColumnFamilyDescriptor>& column_families) {
+  Status s;
+
+  for (auto& cfd : column_families) {
+    s = CheckCompressionSupported(cfd.options);
+    if (s.ok() && db_options.allow_concurrent_memtable_write) {
+      s = CheckConcurrentWritesSupported(cfd.options);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+    if (db_options.db_paths.size() > 1) {
+      if ((cfd.options.compaction_style != kCompactionStyleUniversal) &&
+          (cfd.options.compaction_style != kCompactionStyleLevel)) {
+        return Status::NotSupported(
+            "More than one DB paths are only supported in "
+            "universal and level compaction styles. ");
+      }
+    }
+  }
+
+  if (db_options.db_paths.size() > 4) {
+    return Status::NotSupported(
+        "More than four DB paths are not supported yet. ");
+  }
+
+  if (db_options.allow_mmap_reads && !db_options.allow_os_buffer) {
+    // Protect against assert in PosixMMapReadableFile constructor
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then os caching (allow_os_buffer) must also be enabled. ");
+  }
+
+  return Status::OK();
+}
+
 CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions) {
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
@@ -5388,27 +5426,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     return s;
   }
 
-  for (auto& cfd : column_families) {
-    s = CheckCompressionSupported(cfd.options);
-    if (s.ok() && db_options.allow_concurrent_memtable_write) {
-      s = CheckConcurrentWritesSupported(cfd.options);
-    }
-    if (!s.ok()) {
-      return s;
-    }
-    if (db_options.db_paths.size() > 1) {
-      if ((cfd.options.compaction_style != kCompactionStyleUniversal) &&
-          (cfd.options.compaction_style != kCompactionStyleLevel)) {
-        return Status::NotSupported(
-            "More than one DB paths are only supported in "
-            "universal and level compaction styles. ");
-      }
-    }
-  }
-
-  if (db_options.db_paths.size() > 4) {
-    return Status::NotSupported(
-        "More than four DB paths are not supported yet. ");
+  s = ValidateOptions(db_options, column_families);
+  if (!s.ok()) {
+    return s;
   }
 
   *dbptr = nullptr;

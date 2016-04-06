@@ -5876,6 +5876,26 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
   ASSERT_OK(TryReopen(options));
 }
 
+TEST_F(DBTest, MmapAndBufferOptions) {
+  Options options = CurrentOptions();
+
+  // If allow_mmap_reads is on allow_os_buffer must also be on
+  options.allow_os_buffer = false;
+  options.allow_mmap_reads = true;
+  ASSERT_NOK(TryReopen(options));
+
+  // All other combinations are acceptable
+  options.allow_os_buffer = true;
+  ASSERT_OK(TryReopen(options));
+
+  options.allow_os_buffer = false;
+  options.allow_mmap_reads = false;
+  ASSERT_OK(TryReopen(options));
+
+  options.allow_os_buffer = true;
+  ASSERT_OK(TryReopen(options));
+}
+
 TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   Options options = CurrentOptions();
   options.allow_concurrent_memtable_write = true;
