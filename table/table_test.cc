@@ -1065,7 +1065,7 @@ void PrefetchRange(TableConstructor* c, Options* opt,
                    const std::vector<std::string>& keys_not_in_cache,
                    const Status expected_status = Status::OK()) {
   // reset the cache and reopen the table
-  table_options->block_cache = NewLRUCache(16 * 1024 * 1024);
+  table_options->block_cache = NewLRUCache(16 * 1024 * 1024, 4);
   opt->table_factory.reset(NewBlockBasedTableFactory(*table_options));
   const ImmutableCFOptions ioptions2(*opt);
   ASSERT_OK(c->Reopen(ioptions2));
@@ -1094,7 +1094,7 @@ TEST_F(BlockBasedTableTest, PrefetchTest) {
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
   // big enough so we don't ever lose cached values.
-  table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
+  table_options.block_cache = NewLRUCache(16 * 1024 * 1024, 4);
   opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   TableConstructor c(BytewiseComparator());
@@ -1328,7 +1328,7 @@ TEST_F(TableTest, HashIndexTest) {
   table_options.index_type = BlockBasedTableOptions::kHashSearch;
   table_options.hash_index_allow_collision = true;
   table_options.block_size = 1700;
-  table_options.block_cache = NewLRUCache(1024);
+  table_options.block_cache = NewLRUCache(1024, 4);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<InternalKeyComparator> comparator(
@@ -1550,7 +1550,7 @@ TEST_F(BlockBasedTableTest, BlockCacheDisabledTest) {
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions table_options;
-  table_options.block_cache = NewLRUCache(1024);
+  table_options.block_cache = NewLRUCache(1024, 4);
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
@@ -1596,7 +1596,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
 
   // Enable the cache for index/filter blocks
   BlockBasedTableOptions table_options;
-  table_options.block_cache = NewLRUCache(1024);
+  table_options.block_cache = NewLRUCache(1024, 4);
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
@@ -1679,7 +1679,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   // -- PART 2: Open with very small block cache
   // In this test, no block will ever get hit since the block cache is
   // too small to fit even one entry.
-  table_options.block_cache = NewLRUCache(1);
+  table_options.block_cache = NewLRUCache(1, 4);
   options.statistics = CreateDBStatistics();
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   const ImmutableCFOptions ioptions2(options);
@@ -1719,7 +1719,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   c.ResetTableReader();
 
   // -- PART 3: Open table with bloom filter enabled but not in SST file
-  table_options.block_cache = NewLRUCache(4096);
+  table_options.block_cache = NewLRUCache(4096, 4);
   table_options.cache_index_and_filter_blocks = false;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1881,7 +1881,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
   // big enough so we don't ever lose cached values.
-  table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
+  table_options.block_cache = NewLRUCache(16 * 1024 * 1024, 4);
   opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   TableConstructor c(BytewiseComparator());
@@ -1915,7 +1915,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   c.ResetTableReader();
 
   // rerun with different block cache
-  table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
+  table_options.block_cache = NewLRUCache(16 * 1024 * 1024, 4);
   opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
   const ImmutableCFOptions ioptions2(opt);
   ASSERT_OK(c.Reopen(ioptions2));

@@ -1270,6 +1270,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   Options old_default_opts46;
   old_default_opts46.OldDefaults();
   ASSERT_EQ(10 * 1048576, old_default_opts46.max_bytes_for_level_base);
+  ASSERT_EQ(4, old_default_opts46.table_cache_numshardbits);
 
   ColumnFamilyOptions old_default_cf_opts;
   old_default_cf_opts.OldDefaults();

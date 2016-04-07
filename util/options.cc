@@ -221,7 +221,7 @@ DBOptions::DBOptions()
       info_log_level(DEBUG_LEVEL),
 #endif  // NDEBUG
       max_open_files(5000),
-      max_file_opening_threads(1),
+      max_file_opening_threads(16),
       max_total_wal_size(0),
       statistics(nullptr),
       disableDataSync(false),
@@ -238,7 +238,7 @@ DBOptions::DBOptions()
       keep_log_file_num(1000),
       recycle_log_file_num(0),
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
-      table_cache_numshardbits(4),
+      table_cache_numshardbits(6),
       WAL_ttl_seconds(0),
       WAL_size_limit_MB(0),
       manifest_preallocation_size(4 * 1024 * 1024),
@@ -673,6 +673,8 @@ Options* Options::OldDefaults(int rocksdb_major_version,
 
 DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
                                   int rocksdb_minor_version) {
+  max_file_opening_threads = 1;
+  table_cache_numshardbits = 4;
   return this;
 }
 

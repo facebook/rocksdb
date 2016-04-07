@@ -520,7 +520,7 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
   }
 }
 
-static int kNumShardBits = 4;          // default values, can be overridden
+static int kNumShardBits = 6;  // default values, can be overridden
 
 class ShardedLRUCache : public Cache {
  private:
