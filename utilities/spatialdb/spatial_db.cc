@@ -713,7 +713,7 @@ ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
   column_family_options.target_file_size_base = 64 * 1024 * 1024;      // 64MB
   column_family_options.level0_file_num_compaction_trigger = 2;
   column_family_options.level0_slowdown_writes_trigger = 16;
-  column_family_options.level0_slowdown_writes_trigger = 32;
+  column_family_options.level0_stop_writes_trigger = 32;
   // only compress levels >= 2
   column_family_options.compression_per_level.resize(
       column_family_options.num_levels);
