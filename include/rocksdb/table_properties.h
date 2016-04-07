@@ -27,47 +27,6 @@ namespace rocksdb {
 // }
 typedef std::map<std::string, std::string> UserCollectedProperties;
 
-// TableProperties contains a bunch of read-only properties of its associated
-// table.
-struct TableProperties {
- public:
-  // the total size of all data blocks.
-  uint64_t data_size = 0;
-  // the size of index block.
-  uint64_t index_size = 0;
-  // the size of filter block.
-  uint64_t filter_size = 0;
-  // total raw key size
-  uint64_t raw_key_size = 0;
-  // total raw value size
-  uint64_t raw_value_size = 0;
-  // the number of blocks in this table
-  uint64_t num_data_blocks = 0;
-  // the number of entries in this table
-  uint64_t num_entries = 0;
-  // format version, reserved for backward compatibility
-  uint64_t format_version = 0;
-  // If 0, key is variable length. Otherwise number of bytes for each key.
-  uint64_t fixed_key_len = 0;
-
-  // The name of the filter policy used in this table.
-  // If no filter policy is used, `filter_policy_name` will be an empty string.
-  std::string filter_policy_name;
-
-  // user collected properties
-  UserCollectedProperties user_collected_properties;
-  UserCollectedProperties readable_properties;
-
-  // convert this object to a human readable form
-  //   @prop_delim: delimiter for each property.
-  std::string ToString(const std::string& prop_delim = "; ",
-                       const std::string& kv_delim = "=") const;
-
-  // Aggregate the numerical member variables of the specified
-  // TableProperties.
-  void Add(const TableProperties& tp);
-};
-
 // table properties' human-readable names in the property block.
 struct TablePropertiesNames {
   static const std::string kDataSize;
@@ -80,6 +39,8 @@ struct TablePropertiesNames {
   static const std::string kFormatVersion;
   static const std::string kFixedKeyLen;
   static const std::string kFilterPolicy;
+  static const std::string kColumnFamilyName;
+  static const std::string kColumnFamilyId;
 };
 
 extern const std::string kPropertiesBlock;
@@ -156,6 +117,55 @@ class TablePropertiesCollectorFactory {
 
   // The name of the properties collector can be used for debugging purpose.
   virtual const char* Name() const = 0;
+};
+
+// TableProperties contains a bunch of read-only properties of its associated
+// table.
+struct TableProperties {
+ public:
+  // the total size of all data blocks.
+  uint64_t data_size = 0;
+  // the size of index block.
+  uint64_t index_size = 0;
+  // the size of filter block.
+  uint64_t filter_size = 0;
+  // total raw key size
+  uint64_t raw_key_size = 0;
+  // total raw value size
+  uint64_t raw_value_size = 0;
+  // the number of blocks in this table
+  uint64_t num_data_blocks = 0;
+  // the number of entries in this table
+  uint64_t num_entries = 0;
+  // format version, reserved for backward compatibility
+  uint64_t format_version = 0;
+  // If 0, key is variable length. Otherwise number of bytes for each key.
+  uint64_t fixed_key_len = 0;
+  // ID of column family for this SST file, corresponding to the CF identified
+  // by column_family_name.
+  uint64_t column_family_id =
+      rocksdb::TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+
+  // Name of the column family with which this SST file is associated.
+  // If column family is unknown, `column_family_name` will be an empty string.
+  std::string column_family_name;
+
+  // The name of the filter policy used in this table.
+  // If no filter policy is used, `filter_policy_name` will be an empty string.
+  std::string filter_policy_name;
+
+  // user collected properties
+  UserCollectedProperties user_collected_properties;
+  UserCollectedProperties readable_properties;
+
+  // convert this object to a human readable form
+  //   @prop_delim: delimiter for each property.
+  std::string ToString(const std::string& prop_delim = "; ",
+                       const std::string& kv_delim = "=") const;
+
+  // Aggregate the numerical member variables of the specified
+  // TableProperties.
+  void Add(const TableProperties& tp);
 };
 
 // Extra properties

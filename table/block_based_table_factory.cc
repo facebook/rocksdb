@@ -76,7 +76,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,
       table_builder_options.compression_opts,
-      table_builder_options.skip_filters);
+      table_builder_options.skip_filters,
+      table_builder_options.column_family_name);
 
   return table_builder;
 }

@@ -263,7 +263,9 @@ class TestPlainTableReader : public PlainTableReader {
                        const TableProperties* table_properties,
                        unique_ptr<RandomAccessFileReader>&& file,
                        const ImmutableCFOptions& ioptions,
-                       bool* expect_bloom_not_match, bool store_index_in_file)
+                       bool* expect_bloom_not_match, bool store_index_in_file,
+                       uint32_t column_family_id,
+                       const std::string& column_family_name)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
                          encoding_type, file_size, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
@@ -276,6 +278,8 @@ class TestPlainTableReader : public PlainTableReader {
     EXPECT_TRUE(s.ok());
 
     TableProperties* props = const_cast<TableProperties*>(table_properties);
+    EXPECT_EQ(column_family_id, static_cast<uint32_t>(props->column_family_id));
+    EXPECT_EQ(column_family_name, props->column_family_name);
     if (store_index_in_file) {
       auto bloom_version_ptr = props->user_collected_properties.find(
           PlainTablePropertyNames::kBloomVersion);
@@ -308,13 +312,17 @@ extern const uint64_t kPlainTableMagicNumber;
 class TestPlainTableFactory : public PlainTableFactory {
  public:
   explicit TestPlainTableFactory(bool* expect_bloom_not_match,
-                                 const PlainTableOptions& options)
+                                 const PlainTableOptions& options,
+                                 uint32_t column_family_id,
+                                 std::string column_family_name)
       : PlainTableFactory(options),
         bloom_bits_per_key_(options.bloom_bits_per_key),
         hash_table_ratio_(options.hash_table_ratio),
         index_sparseness_(options.index_sparseness),
         store_index_in_file_(options.store_index_in_file),
-        expect_bloom_not_match_(expect_bloom_not_match) {}
+        expect_bloom_not_match_(expect_bloom_not_match),
+        column_family_id_(column_family_id),
+        column_family_name_(std::move(column_family_name)) {}
 
   Status NewTableReader(const TableReaderOptions& table_reader_options,
                         unique_ptr<RandomAccessFileReader>&& file,
@@ -354,7 +362,7 @@ class TestPlainTableFactory : public PlainTableFactory {
         table_reader_options.internal_comparator, encoding_type, file_size,
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
         std::move(file), table_reader_options.ioptions, expect_bloom_not_match_,
-        store_index_in_file_));
+        store_index_in_file_, column_family_id_, column_family_name_));
 
     *table = std::move(new_reader);
     return s;
@@ -366,6 +374,8 @@ class TestPlainTableFactory : public PlainTableFactory {
   size_t index_sparseness_;
   bool store_index_in_file_;
   bool* expect_bloom_not_match_;
+  const uint32_t column_family_id_;
+  const std::string column_family_name_;
 };
 
 TEST_P(PlainTableDBTest, Flush) {
@@ -492,7 +502,8 @@ TEST_P(PlainTableDBTest, Flush2) {
         plain_table_options.encoding_type = encoding_type;
         plain_table_options.store_index_in_file = store_index_in_file;
         options.table_factory.reset(new TestPlainTableFactory(
-            &expect_bloom_not_match, plain_table_options));
+            &expect_bloom_not_match, plain_table_options,
+            0 /* column_family_id */, kDefaultColumnFamilyName));
 
         DestroyAndReopen(&options);
         ASSERT_OK(Put("0000000000000bar", "b"));
@@ -561,7 +572,8 @@ TEST_P(PlainTableDBTest, Iterator) {
           plain_table_options.encoding_type = encoding_type;
 
           options.table_factory.reset(new TestPlainTableFactory(
-              &expect_bloom_not_match, plain_table_options));
+              &expect_bloom_not_match, plain_table_options,
+              0 /* column_family_id */, kDefaultColumnFamilyName));
         } else {
           PlainTableOptions plain_table_options;
           plain_table_options.user_key_len = 16;
@@ -572,7 +584,8 @@ TEST_P(PlainTableDBTest, Iterator) {
           plain_table_options.encoding_type = encoding_type;
 
           options.table_factory.reset(new TestPlainTableFactory(
-              &expect_bloom_not_match, plain_table_options));
+              &expect_bloom_not_match, plain_table_options,
+              0 /* column_family_id */, kDefaultColumnFamilyName));
         }
         DestroyAndReopen(&options);
 

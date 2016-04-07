@@ -42,7 +42,8 @@ class BlockBasedTableBuilder : public TableBuilder {
           int_tbl_prop_collector_factories,
       uint32_t column_family_id, WritableFileWriter* file,
       const CompressionType compression_type,
-      const CompressionOptions& compression_opts, const bool skip_filters);
+      const CompressionOptions& compression_opts, const bool skip_filters,
+      const std::string& column_family_name);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~BlockBasedTableBuilder();

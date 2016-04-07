@@ -98,8 +98,9 @@ class CuckooReaderTest : public testing::Test {
     unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(writable_file), env_options));
 
-    CuckooTableBuilder builder(file_writer.get(), 0.9, kNumHashFunc, 100, ucomp,
-                               2, false, false, GetSliceHash);
+    CuckooTableBuilder builder(
+        file_writer.get(), 0.9, kNumHashFunc, 100, ucomp, 2, false, false,
+        GetSliceHash, 0 /* column_family_id */, kDefaultColumnFamilyName);
     ASSERT_OK(builder.status());
     for (uint32_t key_idx = 0; key_idx < num_items; ++key_idx) {
       builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
@@ -405,9 +406,10 @@ void WriteFile(const std::vector<std::string>& keys,
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
   unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(writable_file), env_options));
-  CuckooTableBuilder builder(file_writer.get(), hash_ratio, 64, 1000,
-                             test::Uint64Comparator(), 5, false,
-                             FLAGS_identity_as_first_hash, nullptr);
+  CuckooTableBuilder builder(
+      file_writer.get(), hash_ratio, 64, 1000, test::Uint64Comparator(), 5,
+      false, FLAGS_identity_as_first_hash, nullptr, 0 /* column_family_id */,
+      kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     // Value is just a part of key.

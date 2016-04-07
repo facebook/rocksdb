@@ -1019,7 +1019,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), cfd->internal_comparator(),
-      cfd->int_tbl_prop_collector_factories(), cfd->GetID(),
+      cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
       cfd->ioptions()->compression_opts, skip_filters));
   LogFlush(db_options_.info_log);

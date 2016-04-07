@@ -62,8 +62,9 @@ PlainTableBuilder::PlainTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, WritableFileWriter* file, uint32_t user_key_len,
     EncodingType encoding_type, size_t index_sparseness,
-    uint32_t bloom_bits_per_key, uint32_t num_probes, size_t huge_page_tlb_size,
-    double hash_table_ratio, bool store_index_in_file)
+    uint32_t bloom_bits_per_key, const std::string& column_family_name,
+    uint32_t num_probes, size_t huge_page_tlb_size, double hash_table_ratio,
+    bool store_index_in_file)
     : ioptions_(ioptions),
       bloom_block_(num_probes),
       file_(file),
@@ -94,6 +95,8 @@ PlainTableBuilder::PlainTableBuilder(
   // To support roll-back to previous version, now still use version 0 for
   // plain encoding.
   properties_.format_version = (encoding_type == kPlain) ? 0 : 1;
+  properties_.column_family_id = column_family_id;
+  properties_.column_family_name = column_family_name;
 
   if (ioptions_.prefix_extractor) {
     properties_.user_collected_properties
