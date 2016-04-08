@@ -42,6 +42,7 @@ class CorruptionTest : public testing::Test {
 
   CorruptionTest() {
     tiny_cache_ = NewLRUCache(100);
+    options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = &env_;
     dbname_ = test::TmpDir() + "/corruption_test";
     DestroyDB(dbname_, options_);

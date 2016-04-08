@@ -79,7 +79,7 @@ class CompactionPickerTest : public testing::Test {
   }
 
   void Add(int level, uint32_t file_number, const char* smallest,
-           const char* largest, uint64_t file_size = 0, uint32_t path_id = 0,
+           const char* largest, uint64_t file_size = 1, uint32_t path_id = 0,
            SequenceNumber smallest_seq = 100,
            SequenceNumber largest_seq = 100) {
     assert(level < vstorage_->num_levels());
@@ -320,6 +320,7 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic4) {
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 200;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+
   NewVersionStorage(num_levels, kCompactionStyleLevel);
   Add(0, 1U, "150", "200");
   Add(0, 2U, "200", "250");
@@ -352,6 +353,7 @@ TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 200;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
   NewVersionStorage(num_levels, kCompactionStyleLevel);
   Add(0, 1U, "150", "200");
   Add(num_levels - 1, 3U, "200", "250", 300U);
@@ -367,11 +369,9 @@ TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
       cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(1U, compaction->num_input_files(0));
-  ASSERT_EQ(6U, compaction->input(0, 0)->fd.GetNumber());
-  ASSERT_EQ(2U, compaction->num_input_files(1));
-  ASSERT_EQ(3U, compaction->input(1, 0)->fd.GetNumber());
-  ASSERT_EQ(4U, compaction->input(1, 1)->fd.GetNumber());
-  ASSERT_EQ(2U, compaction->num_input_levels());
+  ASSERT_EQ(5U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(0, compaction->num_input_files(1));
+  ASSERT_EQ(1U, compaction->num_input_levels());
   ASSERT_EQ(num_levels - 1, compaction->output_level());
 }
 
@@ -599,6 +599,8 @@ TEST_F(CompactionPickerTest, ParentIndexResetBug) {
 // ranges (with different sequence numbers) in the input files.
 TEST_F(CompactionPickerTest, OverlappingUserKeys) {
   NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.compaction_pri = kByCompensatedSize;
+
   Add(1, 1U, "100", "150", 1U);
   // Overlapping user keys
   Add(1, 2U, "200", "400", 1U);

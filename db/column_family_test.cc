@@ -1042,6 +1042,7 @@ TEST_F(ColumnFamilyTest, AutomaticAndManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
+  db_options_.base_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
@@ -1134,6 +1135,7 @@ TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
+  db_options_.base_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
@@ -1229,6 +1231,7 @@ TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
+  db_options_.base_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
@@ -1327,6 +1330,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
+  db_options_.base_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
@@ -1416,6 +1420,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
+  db_options_.base_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
@@ -1512,6 +1517,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticConflict) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
+  db_options_.base_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
@@ -1631,6 +1637,7 @@ TEST_F(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   db_options_.max_open_files = 20;  // only 10 files in file cache
   db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
+  db_options_.base_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;

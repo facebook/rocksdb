@@ -1267,22 +1267,53 @@ TEST_F(OptionsParserTest, DifferentDefault) {
   RocksDBOptionsParser parser;
   ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
 
-  Options old_default_opts;
-  old_default_opts.OldDefaults();
-  ASSERT_EQ(10 * 1048576, old_default_opts.max_bytes_for_level_base);
-
-  Options old_default_opts46;
-  old_default_opts46.OldDefaults();
-  ASSERT_EQ(10 * 1048576, old_default_opts46.max_bytes_for_level_base);
-  ASSERT_EQ(4, old_default_opts46.table_cache_numshardbits);
-
-  ColumnFamilyOptions old_default_cf_opts;
-  old_default_cf_opts.OldDefaults();
-  ASSERT_EQ(2 * 1048576, old_default_cf_opts.target_file_size_base);
-
-  ColumnFamilyOptions old_default_cf_opts46;
-  old_default_cf_opts46.OldDefaults();
-  ASSERT_EQ(2 * 1048576, old_default_cf_opts46.target_file_size_base);
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults();
+    ASSERT_EQ(10 * 1048576, old_default_opts.max_bytes_for_level_base);
+    ASSERT_EQ(5000, old_default_opts.max_open_files);
+    ASSERT_EQ(-1, old_default_opts.base_background_compactions);
+    ASSERT_EQ(WALRecoveryMode::kTolerateCorruptedTailRecords,
+              old_default_opts.wal_recovery_mode);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(4, 6);
+    ASSERT_EQ(10 * 1048576, old_default_opts.max_bytes_for_level_base);
+    ASSERT_EQ(5000, old_default_opts.max_open_files);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(4, 7);
+    ASSERT_NE(10 * 1048576, old_default_opts.max_bytes_for_level_base);
+    ASSERT_NE(4, old_default_opts.table_cache_numshardbits);
+    ASSERT_EQ(5000, old_default_opts.max_open_files);
+  }
+  {
+    ColumnFamilyOptions old_default_cf_opts;
+    old_default_cf_opts.OldDefaults();
+    ASSERT_EQ(2 * 1048576, old_default_cf_opts.target_file_size_base);
+    ASSERT_EQ(4 << 20, old_default_cf_opts.write_buffer_size);
+    ASSERT_EQ(2 * 1048576, old_default_cf_opts.target_file_size_base);
+    ASSERT_EQ(0, old_default_cf_opts.soft_pending_compaction_bytes_limit);
+    ASSERT_EQ(0, old_default_cf_opts.hard_pending_compaction_bytes_limit);
+    ASSERT_EQ(CompactionPri::kByCompensatedSize,
+              old_default_cf_opts.compaction_pri);
+  }
+  {
+    ColumnFamilyOptions old_default_cf_opts;
+    old_default_cf_opts.OldDefaults(4, 6);
+    ASSERT_EQ(2 * 1048576, old_default_cf_opts.target_file_size_base);
+    ASSERT_EQ(CompactionPri::kByCompensatedSize,
+              old_default_cf_opts.compaction_pri);
+  }
+  {
+    ColumnFamilyOptions old_default_cf_opts;
+    old_default_cf_opts.OldDefaults(4, 7);
+    ASSERT_NE(2 * 1048576, old_default_cf_opts.target_file_size_base);
+    ASSERT_EQ(CompactionPri::kByCompensatedSize,
+              old_default_cf_opts.compaction_pri);
+  }
 
   ColumnFamilyOptions cf_small_opts;
   cf_small_opts.OptimizeForSmallDb();

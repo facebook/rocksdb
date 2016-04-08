@@ -70,8 +70,7 @@ class FlushedFileCollector : public EventListener {
 static const int kCDTValueSize = 1000;
 static const int kCDTKeysPerBuffer = 4;
 static const int kCDTNumLevels = 8;
-Options DeletionTriggerOptions() {
-  Options options;
+Options DeletionTriggerOptions(Options options) {
   options.compression = kNoCompression;
   options.write_buffer_size = kCDTKeysPerBuffer * (kCDTValueSize + 24);
   options.min_write_buffer_number_to_merge = 1;
@@ -174,7 +173,7 @@ const SstFileMetaData* PickFileRandomly(
 TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
   for (int tid = 0; tid < 3; ++tid) {
     uint64_t db_size[2];
-    Options options = CurrentOptions(DeletionTriggerOptions());
+    Options options = DeletionTriggerOptions(CurrentOptions());
     options.max_subcompactions = max_subcompactions_;
 
     if (tid == 1) {
@@ -217,8 +216,7 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   // the compaction behavior when there are many of deletion entries.
   // The test will need to be updated if the internal behavior changes.
 
-  Options options = DeletionTriggerOptions();
-  options = CurrentOptions(options);
+  Options options = DeletionTriggerOptions(CurrentOptions());
   options.env = env_;
   DestroyAndReopen(options);
   Random rnd(301);
@@ -349,7 +347,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
 TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
   for (int tid = 0; tid < 2; ++tid) {
     uint64_t db_size[3];
-    Options options = CurrentOptions(DeletionTriggerOptions());
+    Options options = DeletionTriggerOptions(CurrentOptions());
     options.max_subcompactions = max_subcompactions_;
 
     if (tid == 1) {
@@ -406,7 +404,7 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
 TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
   uint64_t db_size[3];
   for (int test = 0; test < 2; ++test) {
-    Options options = CurrentOptions(DeletionTriggerOptions());
+    Options options = DeletionTriggerOptions(CurrentOptions());
     options.skip_stats_update_on_db_open = (test == 0);
 
     env_->random_read_counter_.Reset();

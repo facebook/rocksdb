@@ -605,7 +605,7 @@ struct ColumnFamilyOptions {
 
   // If level compaction_style = kCompactionStyleLevel, for each level,
   // which files are prioritized to be picked to compact.
-  // Default: kCompactionPriByCompensatedSize
+  // Default: kByCompensatedSize
   CompactionPri compaction_pri;
 
   // If true, compaction will verify checksum on every read that happens
@@ -893,7 +893,7 @@ struct DBOptions {
   // files opened are always kept open. You can estimate number of files based
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
-  // Default: 5000 or ulimit value of max open files (whichever is smaller)
+  // Default: -1
   int max_open_files;
 
   // If max_open_files is -1, DB will open all files on DB::Open(). You can
@@ -979,7 +979,7 @@ struct DBOptions {
   // Suggested number of concurrent background compaction jobs, submitted to
   // the default LOW priority thread pool.
   //
-  // Default: max_background_compactions
+  // Default: 1
   int base_background_compactions;
 
   // Maximum number of concurrent background compaction jobs, submitted to
@@ -1296,7 +1296,7 @@ struct DBOptions {
   bool skip_stats_update_on_db_open;
 
   // Recovery mode to control the consistency while replaying WAL
-  // Default: kTolerateCorruptedTailRecords
+  // Default: kPointInTimeRecovery
   WALRecoveryMode wal_recovery_mode;
 
   // A global cache for table-level rows.

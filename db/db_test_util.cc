@@ -212,6 +212,11 @@ Options DBTestBase::CurrentOptions(
   options.write_buffer_size = 4090 * 4096;
   options.target_file_size_base = 2 * 1024 * 1024;
   options.max_bytes_for_level_base = 10 * 1024 * 1024;
+  options.max_open_files = 5000;
+  options.base_background_compactions = -1;
+  options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+  options.compaction_pri = CompactionPri::kByCompensatedSize;
+
   return CurrentOptions(options, options_override);
 }
 

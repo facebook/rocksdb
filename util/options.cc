@@ -220,7 +220,7 @@ DBOptions::DBOptions()
 #else
       info_log_level(DEBUG_LEVEL),
 #endif  // NDEBUG
-      max_open_files(5000),
+      max_open_files(-1),
       max_file_opening_threads(16),
       max_total_wal_size(0),
       statistics(nullptr),
@@ -229,7 +229,7 @@ DBOptions::DBOptions()
       db_log_dir(""),
       wal_dir(""),
       delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000),
-      base_background_compactions(-1),
+      base_background_compactions(1),
       max_background_compactions(1),
       max_subcompactions(1),
       max_background_flushes(1),
@@ -267,7 +267,7 @@ DBOptions::DBOptions()
       write_thread_max_yield_usec(100),
       write_thread_slow_yield_usec(3),
       skip_stats_update_on_db_open(false),
-      wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords),
+      wal_recovery_mode(WALRecoveryMode::kPointInTimeRecovery),
       row_cache(nullptr),
 #ifndef ROCKSDB_LITE
       wal_filter(nullptr),
@@ -678,18 +678,29 @@ Options* Options::OldDefaults(int rocksdb_major_version,
 
 DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
                                   int rocksdb_minor_version) {
-  max_file_opening_threads = 1;
-  table_cache_numshardbits = 4;
+  if (rocksdb_major_version < 4 ||
+      (rocksdb_major_version == 4 && rocksdb_minor_version < 7)) {
+    max_file_opening_threads = 1;
+    table_cache_numshardbits = 4;
+  }
+  max_open_files = 5000;
+  base_background_compactions = -1;
+  wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
   return this;
 }
 
 ColumnFamilyOptions* ColumnFamilyOptions::OldDefaults(
     int rocksdb_major_version, int rocksdb_minor_version) {
-  write_buffer_size = 4 << 20;
-  target_file_size_base = 2 * 1048576;
-  max_bytes_for_level_base = 10 * 1048576;
-  soft_pending_compaction_bytes_limit = 0;
-  hard_pending_compaction_bytes_limit = 0;
+  if (rocksdb_major_version < 4 ||
+      (rocksdb_major_version == 4 && rocksdb_minor_version < 7)) {
+    write_buffer_size = 4 << 20;
+    target_file_size_base = 2 * 1048576;
+    max_bytes_for_level_base = 10 * 1048576;
+    soft_pending_compaction_bytes_limit = 0;
+    hard_pending_compaction_bytes_limit = 0;
+  }
+  compaction_pri = CompactionPri::kByCompensatedSize;
+
   return this;
 }
 
