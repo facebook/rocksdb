@@ -1702,7 +1702,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   }
 
   unique_ptr<char[]> buf(new char[max_backup_meta_file_size_]);
-  int len = 0, buf_size = max_backup_meta_file_size_;
+  size_t len = 0, buf_size = max_backup_meta_file_size_;
   len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
   len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
                   sequence_number_);
@@ -1710,7 +1710,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
     std::string hex_encoded_metadata =
         Slice(app_metadata_).ToString(/* hex */ true);
     if (hex_encoded_metadata.size() + kMetaDataPrefix.size() + 1 >
-        (size_t)(buf_size - len)) {
+        buf_size - len) {
       return Status::Corruption("Buffer too small to fit backup metadata");
     }
     memcpy(buf.get() + len, kMetaDataPrefix.data(), kMetaDataPrefix.size());
@@ -1728,7 +1728,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
                     file->filename.c_str(), file->checksum_value);
   }
 
-  s = backup_meta_file->Append(Slice(buf.get(), (size_t)len));
+  s = backup_meta_file->Append(Slice(buf.get(), len));
   if (s.ok() && sync) {
     s = backup_meta_file->Sync();
   }
