@@ -24,10 +24,10 @@ class Statistics;
 
 Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
                                                   WriteType* type, Slice* Key,
-                                                  Slice* value,
-                                                  Slice* blob) const {
+                                                  Slice* value, Slice* blob,
+                                                  Slice* xid) const {
   if (type == nullptr || Key == nullptr || value == nullptr ||
-      blob == nullptr) {
+      blob == nullptr || xid == nullptr) {
     return Status::InvalidArgument("Output parameters cannot be null");
   }
 
@@ -42,8 +42,8 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
   char tag;
   uint32_t column_family;
-  Status s =
-      ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value, blob);
+  Status s = ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value,
+                                      blob, xid);
 
   switch (tag) {
     case kTypeColumnFamilyValue:
@@ -64,6 +64,12 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
       break;
     case kTypeLogData:
       *type = kLogDataRecord;
+      break;
+    case kTypeBeginPrepareXID:
+    case kTypeEndPrepareXID:
+    case kTypeCommitXID:
+    case kTypeRollbackXID:
+      *type = kXIDRecord;
       break;
     default:
       return Status::Corruption("unknown WriteBatch tag");
@@ -183,7 +189,8 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         result = WriteBatchWithIndexInternal::Result::kDeleted;
         break;
       }
-      case kLogDataRecord: {
+      case kLogDataRecord:
+      case kXIDRecord: {
         // ignore
         break;
       }
