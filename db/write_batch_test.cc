@@ -231,6 +231,22 @@ namespace {
     virtual void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
+    virtual Status MarkBeginPrepare() override {
+      seen += "MarkBeginPrepare()";
+      return Status::OK();
+    }
+    virtual Status MarkEndPrepare(const Slice& xid) override {
+      seen += "MarkEndPrepare(" + xid.ToString() + ")";
+      return Status::OK();
+    }
+    virtual Status MarkCommit(const Slice& xid) override {
+      seen += "MarkCommit(" + xid.ToString() + ")";
+      return Status::OK();
+    }
+    virtual Status MarkRollback(const Slice& xid) override {
+      seen += "MarkRollback(" + xid.ToString() + ")";
+      return Status::OK();
+    }
   };
 }
 
@@ -305,6 +321,31 @@ TEST_F(WriteBatchTest, Blob) {
       "SingleDelete(k3)"
       "LogData(blob2)"
       "Merge(foo, bar)",
+      handler.seen);
+}
+
+TEST_F(WriteBatchTest, PrepareCommit) {
+  WriteBatch batch;
+  WriteBatchInternal::InsertNoop(&batch);
+  batch.Put(Slice("k1"), Slice("v1"));
+  batch.Put(Slice("k2"), Slice("v2"));
+  batch.SetSavePoint();
+  WriteBatchInternal::MarkEndPrepare(&batch, Slice("xid1"));
+  Status s = batch.RollbackToSavePoint();
+  ASSERT_EQ(s, Status::NotFound());
+  WriteBatchInternal::MarkCommit(&batch, Slice("xid1"));
+  WriteBatchInternal::MarkRollback(&batch, Slice("xid1"));
+  ASSERT_EQ(2, batch.Count());
+
+  TestHandler handler;
+  batch.Iterate(&handler);
+  ASSERT_EQ(
+      "MarkBeginPrepare()"
+      "Put(k1, v1)"
+      "Put(k2, v2)"
+      "MarkEndPrepare(xid1)"
+      "MarkCommit(xid1)"
+      "MarkRollback(xid1)",
       handler.seen);
 }
 

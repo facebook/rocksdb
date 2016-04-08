@@ -186,6 +186,23 @@ class WriteBatch : public WriteBatchBase {
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
 
+    virtual Status MarkBeginPrepare() {
+      return Status::InvalidArgument("MarkBeginPrepare() handler not defined.");
+    }
+
+    virtual Status MarkEndPrepare(const Slice& xid) {
+      return Status::InvalidArgument("MarkEndPrepare() handler not defined.");
+    }
+
+    virtual Status MarkRollback(const Slice& xid) {
+      return Status::InvalidArgument(
+          "MarkRollbackPrepare() handler not defined.");
+    }
+
+    virtual Status MarkCommit(const Slice& xid) {
+      return Status::InvalidArgument("MarkCommit() handler not defined.");
+    }
+
     // Continue is called by WriteBatch::Iterate. If it returns false,
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.
@@ -213,6 +230,18 @@ class WriteBatch : public WriteBatchBase {
 
   // Returns trie if MergeCF will be called during Iterate
   bool HasMerge() const;
+
+  // Returns true if MarkBeginPrepare will be called during Iterate
+  bool HasBeginPrepare() const;
+
+  // Returns true if MarkEndPrepare will be called during Iterate
+  bool HasEndPrepare() const;
+
+  // Returns trie if MarkCommit will be called during Iterate
+  bool HasCommit() const;
+
+  // Returns trie if MarkRollback will be called during Iterate
+  bool HasRollback() const;
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }

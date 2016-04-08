@@ -34,7 +34,8 @@ enum WriteType {
   kMergeRecord,
   kDeleteRecord,
   kSingleDeleteRecord,
-  kLogDataRecord
+  kLogDataRecord,
+  kXIDRecord,
 };
 
 // an entry for Put, Merge, Delete, or SingleDelete entry for write batches.

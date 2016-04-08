@@ -58,7 +58,7 @@ class ReadableWriteBatch : public WriteBatch {
   // Retrieve some information from a write entry in the write batch, given
   // the start offset of the write entry.
   Status GetEntryFromDataOffset(size_t data_offset, WriteType* type, Slice* Key,
-                                Slice* value, Slice* blob) const;
+                                Slice* value, Slice* blob, Slice* xid) const;
 };
 
 class WriteBatchEntryComparator {
