@@ -75,6 +75,17 @@ std::string TableProperties::ToString(
       filter_policy_name.empty() ? std::string("N/A") : filter_policy_name,
       prop_delim, kv_delim);
 
+  AppendProperty(result, "column family ID",
+                 column_family_id == rocksdb::TablePropertiesCollectorFactory::
+                                         Context::kUnknownColumnFamily
+                     ? std::string("N/A")
+                     : rocksdb::ToString(column_family_id),
+                 prop_delim, kv_delim);
+  AppendProperty(
+      result, "column family name",
+      column_family_name.empty() ? std::string("N/A") : column_family_name,
+      prop_delim, kv_delim);
+
   return result;
 }
 
