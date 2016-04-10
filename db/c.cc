@@ -2132,6 +2132,13 @@ rocksdb_env_t* rocksdb_create_default_env() {
   return result;
 }
 
+rocksdb_env_t* rocksdb_create_mem_env() {
+  rocksdb_env_t* result = new rocksdb_env_t;
+  result->rep = rocksdb::NewMemEnv(Env::Default());
+  result->is_default = false;
+  return result;
+}
+
 void rocksdb_env_set_background_threads(rocksdb_env_t* env, int n) {
   env->rep->SetBackgroundThreads(n);
 }
