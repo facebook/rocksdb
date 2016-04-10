@@ -1393,6 +1393,11 @@ void rocksdb_options_set_compaction_filter_factory(
       std::shared_ptr<CompactionFilterFactory>(factory);
 }
 
+void rocksdb_options_compaction_readahead_size(
+    rocksdb_options_t* opt, size_t s) {
+  opt->rep.compaction_readahead_size = s;
+}
+
 void rocksdb_options_set_comparator(
     rocksdb_options_t* opt,
     rocksdb_comparator_t* cmp) {
