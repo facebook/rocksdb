@@ -75,8 +75,8 @@ int NumUnsetBytes(char* start_ptr, size_t total_size,
       if (*ptr == kSpecialChar) {
         total_unset_bytes_base++;
       }
-      offset = pair.first + pair.second;
     }
+    offset = pair.first + pair.second;
   }
   for (char* ptr = start_ptr + offset; ptr < start_ptr + total_size; ptr++) {
     if (*ptr == kSpecialChar) {
