@@ -2429,7 +2429,7 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
 
   bbto.whole_key_filtering = true;
 
-  const std::string kDBPath = test::TmpDir() + "/prefix_test";
+  const std::string kDBPath = test::TmpDir() + "/table_prefix_test";
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyDB(kDBPath, options);
   rocksdb::DB* db;
