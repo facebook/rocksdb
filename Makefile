@@ -330,6 +330,7 @@ TESTS = \
 	rate_limiter_test \
 	delete_scheduler_test \
 	options_test \
+	options_settable_test \
 	options_util_test \
 	event_logger_test \
 	cuckoo_table_builder_test \
@@ -637,7 +638,7 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_check: $(TESTS)
-	for t in $(filter-out %skiplist_test,$(TESTS)); do \
+	for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
 		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
 		ret_code=$$?; \
 		if [ $$ret_code -ne 0 ]; then \
@@ -1022,6 +1023,9 @@ compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+options_settable_test: util/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHARNESS)
