@@ -399,6 +399,7 @@ set(TESTS
         util/iostats_context_test.cc
         util/memenv_test.cc
         util/mock_env_test.cc
+        util/options_settable_test.cc
         util/options_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
