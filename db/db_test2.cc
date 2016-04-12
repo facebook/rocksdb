@@ -23,6 +23,45 @@ class DBTest2 : public DBTestBase {
   DBTest2() : DBTestBase("/db_test2") {}
 };
 
+TEST_F(DBTest2, PrefixFullBloomWithReverseComparator) {
+  Options options = last_options_;
+  options.comparator = ReverseBytewiseComparator();
+  options.prefix_extractor.reset(NewCappedPrefixTransform(3));
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "bar123", "foo"));
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "bar234", "foo2"));
+  ASSERT_OK(dbfull()->Put(WriteOptions(), "foo123", "foo3"));
+
+  dbfull()->Flush(FlushOptions());
+
+  unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->Seek("bar345");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bar234", iter->key().ToString());
+  ASSERT_EQ("foo2", iter->value().ToString());
+  iter->Next();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("bar123", iter->key().ToString());
+  ASSERT_EQ("foo", iter->value().ToString());
+
+  iter->Seek("foo234");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ("foo123", iter->key().ToString());
+  ASSERT_EQ("foo3", iter->value().ToString());
+
+  iter->Seek("bar");
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(!iter->Valid());
+}
+
 TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Put("", "");
   Iterator* iter1 = db_->NewIterator(ReadOptions());
