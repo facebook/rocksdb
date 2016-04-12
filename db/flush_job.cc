@@ -300,7 +300,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
                                      meta->fd.GetFileSize());
-  RecordTick(stats_, COMPACT_WRITE_BYTES, meta->fd.GetFileSize());
+  RecordTick(stats_, FLUSH_WRITE_BYTES, meta->fd.GetFileSize());
   return s;
 }
 
