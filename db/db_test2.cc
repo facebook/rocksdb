@@ -452,8 +452,7 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatch) {
 
   for (size_t i = 0; i < batch_keys.size(); i++) {
     for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      if (i >= change_records_from_index && j >= 
-        num_keys_to_add_in_new_batch) {
+      if (i >= change_records_from_index && j >= num_keys_to_add_in_new_batch) {
         keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
       }
       else {
@@ -528,8 +527,7 @@ TEST_F(DBTest2, WalFilterTestWithChangeBatchExtraKeys) {
   // Reopen database with option to use WAL filter
   options = OptionsForLogIterTest();
   options.wal_filter = &test_wal_filter_extra_keys;
-  Status status = TryReopenWithColumnFamilies({ "default", "pikachu" }, 
-    options);
+  Status status = TryReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_TRUE(status.IsNotSupported());
 
   // Reopen without filter, now reopen should succeed - previous
@@ -612,8 +610,7 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
       return "WalFilterTestWithColumnFamilies";
     }
 
-    const std::map<uint32_t, std::vector<std::string>> & 
-    GetColumnFamilyKeys() {
+    const std::map<uint32_t, std::vector<std::string>>& GetColumnFamilyKeys() {
       return cf_wal_keys_;
     }
 
@@ -684,8 +681,7 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   // verify that handles_[0] only has post_flush keys
   // while handles_[1] has pre and post flush keys
   auto cf_wal_keys = test_wal_filter_column_families.GetColumnFamilyKeys();
-  auto name_id_map = 
-    test_wal_filter_column_families.GetColumnFamilyNameIdMap();
+  auto name_id_map = test_wal_filter_column_families.GetColumnFamilyNameIdMap();
   size_t index = 0;
   auto keys_cf = cf_wal_keys[name_id_map[kDefaultColumnFamilyName]];
   //default column-family, only post_flush keys are expected
@@ -720,21 +716,13 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTest2, DISABLED_FirstSnapshotTest) {
+TEST_F(DBTest2, FirstSnapshotTest) {
   Options options;
   options.write_buffer_size = 100000;  // Small write buffer
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
-  // This snapshot will have sequence number 0.  When compaction encounters
-  // this snapshot, CompactionIterator::findEarliestVisibleSnapshot() will
-  // assert as it expects non-zero snapshots.
-  //
-  // One fix would be to simply remove this assert.  However, a better fix
-  // might
-  // be to always have db sequence numbers start from 1 so that no code is
-  // ever
-  // confused by 0.
+  // This snapshot will have sequence number 0 what is expected behaviour.
   const Snapshot* s1 = db_->GetSnapshot();
 
   Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
