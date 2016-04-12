@@ -104,13 +104,12 @@ struct CompactionJob::SubcompactionState {
   uint64_t num_output_records;
   CompactionJobStats compaction_job_stats;
   uint64_t approx_size;
-  // An index that used to speed up Compaction::ShouldStopBefore().
+  // An index that used to speed up ShouldStopBefore().
   size_t grandparent_index = 0;
   // The number of bytes overlapping between the current output and
-  // grandparent files used in Compaction::ShouldStopBefore().
+  // grandparent files used in ShouldStopBefore().
   uint64_t overlapped_bytes = 0;
-  // A flag determine whether the key has been seen in
-  // Compaction::ShouldStopBefore()
+  // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
@@ -174,7 +173,7 @@ struct CompactionJob::SubcompactionState {
       assert(grandparent_index + 1 >= grandparents.size() ||
              icmp->Compare(
                  grandparents[grandparent_index]->largest.Encode(),
-                 grandparents[grandparent_index + 1]->smallest.Encode()) < 0);
+                 grandparents[grandparent_index + 1]->smallest.Encode()) <= 0);
       grandparent_index++;
     }
     seen_key = true;
