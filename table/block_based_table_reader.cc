@@ -1226,10 +1226,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
   FilterBlockReader* filter = filter_entry.value;
   if (filter != nullptr && !filter->IsBlockBased()) {
     may_match = filter->PrefixMayMatch(prefix);
-  }
-
-  // Then, try find it within each block
-  if (may_match) {
+  } else {
+    // Then, try find it within each block
     unique_ptr<InternalIterator> iiter(NewIndexIterator(no_io_read_options));
     iiter->Seek(internal_prefix);
 
