@@ -423,15 +423,15 @@ void CompactionIterator::PrepareOutput() {
 inline SequenceNumber CompactionIterator::findEarliestVisibleSnapshot(
     SequenceNumber in, SequenceNumber* prev_snapshot) {
   assert(snapshots_->size());
-  SequenceNumber prev __attribute__((unused)) = 0;
+  SequenceNumber prev __attribute__((__unused__)) = kMaxSequenceNumber;
   for (const auto cur : *snapshots_) {
-    assert(prev <= cur);
+    assert(prev == kMaxSequenceNumber || prev <= cur);
     if (cur >= in) {
-      *prev_snapshot = prev;
+      *prev_snapshot = prev == kMaxSequenceNumber ? 0 : prev;
       return cur;
     }
     prev = cur;
-    assert(prev);
+    assert(prev < kMaxSequenceNumber);
   }
   *prev_snapshot = prev;
   return kMaxSequenceNumber;
