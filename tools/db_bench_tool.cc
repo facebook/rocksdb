@@ -1714,7 +1714,7 @@ class Benchmark {
 #endif
 
   void PrintEnvironment() {
-    fprintf(stderr, "LevelDB:    version %d.%d\n",
+    fprintf(stderr, "RocksDB:    version %d.%d\n",
             kMajorVersion, kMinorVersion);
 
 #if defined(__linux)
