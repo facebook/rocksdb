@@ -6,7 +6,6 @@
 #ifndef ROCKSDB_LITE
 
 #include "tools/ldb_cmd.h"
-#include <strings.h>
 #include "util/testharness.h"
 
 class LdbCmdTest : public testing::Test {};
@@ -26,7 +25,7 @@ TEST_F(LdbCmdTest, HexToString) {
       EXPECT_EQ(expected[i], static_cast<int>(actual[i]));
     }
     auto reverse = rocksdb::LDBCommand::StringToHex(actual);
-    EXPECT_EQ(strcasecmp(inPair.first.c_str(), reverse.c_str()), 0);
+    EXPECT_STRCASEEQ(inPair.first.c_str(), reverse.c_str());
   }
 }
 
