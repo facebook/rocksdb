@@ -1711,8 +1711,6 @@ class Benchmark {
 #endif
 
   void PrintEnvironment() {
-    // hyunyoung2 : fixed it : LevelDB -> rocksdb 
-    // I thought of LevelDB as the wrong presentation, LevelDB, so I fixed it to rocksDB
     fprintf(stderr, "rocksDB:    version %d.%d\n",
             kMajorVersion, kMinorVersion);
 
