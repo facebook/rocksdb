@@ -21,17 +21,17 @@
 /*
  * Class:     org_rocksdb_BackupableDB
  * Method:    open
- * Signature: (JJ)V
+ * Signature: (JJ)J
  */
-void Java_org_rocksdb_BackupableDB_open(
-    JNIEnv* env, jobject jbdb, jlong jdb_handle, jlong jopt_handle) {
-  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
-  auto opt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jopt_handle);
+jlong Java_org_rocksdb_BackupableDB_open(
+    JNIEnv* env, jclass jcls, jlong jdb_handle, jlong jopt_handle) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* opt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jopt_handle);
   auto bdb = new rocksdb::BackupableDB(db, *opt);
 
   // as BackupableDB extends RocksDB on the java side, we can reuse
   // the RocksDB portal here.
-  rocksdb::RocksDBJni::setHandle(env, jbdb, bdb);
+  return reinterpret_cast<jlong>(bdb);
 }
 
 /*
@@ -135,14 +135,14 @@ void Java_org_rocksdb_BackupableDB_garbageCollect(JNIEnv* env,
 /*
  * Class:     org_rocksdb_BackupableDBOptions
  * Method:    newBackupableDBOptions
- * Signature: (Ljava/lang/String;)V
+ * Signature: (Ljava/lang/String;)J
  */
-void Java_org_rocksdb_BackupableDBOptions_newBackupableDBOptions(
-    JNIEnv* env, jobject jobj, jstring jpath) {
-  const char* cpath = env->GetStringUTFChars(jpath, 0);
+jlong Java_org_rocksdb_BackupableDBOptions_newBackupableDBOptions(
+    JNIEnv* env, jclass jcls, jstring jpath) {
+  const char* cpath = env->GetStringUTFChars(jpath, NULL);
   auto bopt = new rocksdb::BackupableDBOptions(cpath);
   env->ReleaseStringUTFChars(jpath, cpath);
-  rocksdb::BackupableDBOptionsJni::setHandle(env, jobj, bopt);
+  return reinterpret_cast<jlong>(bopt);
 }
 
 /*
@@ -320,5 +320,4 @@ void Java_org_rocksdb_BackupableDBOptions_disposeInternal(
   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
   assert(bopt);
   delete bopt;
-  rocksdb::BackupableDBOptionsJni::setHandle(env, jopt, nullptr);
 }

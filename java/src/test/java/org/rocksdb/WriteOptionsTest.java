@@ -17,15 +17,16 @@ public class WriteOptionsTest {
       new RocksMemoryResource();
 
   @Test
-  public void writeOptions(){
-    WriteOptions writeOptions = new WriteOptions();
-    writeOptions.setDisableWAL(true);
-    assertThat(writeOptions.disableWAL()).isTrue();
-    writeOptions.setDisableWAL(false);
-    assertThat(writeOptions.disableWAL()).isFalse();
-    writeOptions.setSync(true);
-    assertThat(writeOptions.sync()).isTrue();
-    writeOptions.setSync(false);
-    assertThat(writeOptions.sync()).isFalse();
+  public void writeOptions() {
+    try (final WriteOptions writeOptions = new WriteOptions()) {
+      writeOptions.setDisableWAL(true);
+      assertThat(writeOptions.disableWAL()).isTrue();
+      writeOptions.setDisableWAL(false);
+      assertThat(writeOptions.disableWAL()).isFalse();
+      writeOptions.setSync(true);
+      assertThat(writeOptions.sync()).isTrue();
+      writeOptions.setSync(false);
+      assertThat(writeOptions.sync()).isFalse();
+    }
   }
 }

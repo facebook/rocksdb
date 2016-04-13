@@ -228,10 +228,9 @@ TEST_F(DBTest, MemEnvTest) {
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest, WriteEmptyBatch) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
   options.write_buffer_size = 100000;
-  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "foo", "bar"));
@@ -281,13 +280,12 @@ TEST_F(DBTest, ReadOnlyDB) {
 
 TEST_F(DBTest, CompactedDB) {
   const uint64_t kFileSize = 1 << 20;
-  Options options;
+  Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.write_buffer_size = kFileSize;
   options.target_file_size_base = kFileSize;
   options.max_bytes_for_level_base = 1 << 30;
   options.compression = kNoCompression;
-  options = CurrentOptions(options);
   Reopen(options);
   // 1 L0 file, use CompactedDB if max_open_files = -1
   ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
@@ -764,11 +762,10 @@ TEST_F(DBTest, DISABLED_VeryLargeValue) {
   std::string key1(kKeySize, 'c');
   std::string key2(kKeySize, 'd');
 
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
   options.write_buffer_size = 100000;  // Small write buffer
   options.paranoid_checks = true;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   ASSERT_OK(Put("boo", "v1"));
@@ -811,10 +808,8 @@ TEST_F(DBTest, DISABLED_VeryLargeValue) {
 
 TEST_F(DBTest, GetFromImmutableLayer) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.env = env_;
-    options.write_buffer_size = 100000;  // Small write buffer
-    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     ASSERT_OK(Put(1, "foo", "v1"));
@@ -1916,11 +1911,9 @@ TEST_F(DBTest, Recover) {
 
 TEST_F(DBTest, RecoverWithTableHandle) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.create_if_missing = true;
-    options.write_buffer_size = 100;
     options.disable_auto_compactions = true;
-    options = CurrentOptions(options);
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -2368,10 +2361,9 @@ TEST_F(DBTest, CompressedCache) {
   // Iteration 4: both block cache and compressed cache, but DB is not
   // compressed
   for (int iter = 0; iter < 4; iter++) {
-    Options options;
+    Options options = CurrentOptions();
     options.write_buffer_size = 64*1024;        // small write buffer
     options.statistics = rocksdb::CreateDBStatistics();
-    options = CurrentOptions(options);
 
     BlockBasedTableOptions table_options;
     switch (iter) {
@@ -2636,10 +2628,9 @@ TEST_F(DBTest, MinLevelToCompress2) {
 
 TEST_F(DBTest, RepeatedWritesToSameKey) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
-    options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // We must have at most one file per level except for level-0,
@@ -2716,11 +2707,10 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
 }
 
 TEST_F(DBTest, ApproximateSizesMemTable) {
-  Options options;
+  Options options = CurrentOptions();
   options.write_buffer_size = 100000000;  // Large write buffer
   options.compression = kNoCompression;
   options.create_if_missing = true;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   const int N = 128;
@@ -2823,11 +2813,10 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
 
 TEST_F(DBTest, ApproximateSizes) {
   do {
-    Options options;
+    Options options = CurrentOptions();
     options.write_buffer_size = 100000000;        // Large write buffer
     options.compression = kNoCompression;
     options.create_if_missing = true;
-    options = CurrentOptions(options);
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -5887,6 +5876,26 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
   ASSERT_OK(TryReopen(options));
 }
 
+TEST_F(DBTest, MmapAndBufferOptions) {
+  Options options = CurrentOptions();
+
+  // If allow_mmap_reads is on allow_os_buffer must also be on
+  options.allow_os_buffer = false;
+  options.allow_mmap_reads = true;
+  ASSERT_NOK(TryReopen(options));
+
+  // All other combinations are acceptable
+  options.allow_os_buffer = true;
+  ASSERT_OK(TryReopen(options));
+
+  options.allow_os_buffer = false;
+  options.allow_mmap_reads = false;
+  ASSERT_OK(TryReopen(options));
+
+  options.allow_os_buffer = true;
+  ASSERT_OK(TryReopen(options));
+}
+
 TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   Options options = CurrentOptions();
   options.allow_concurrent_memtable_write = true;
@@ -7843,8 +7852,7 @@ TEST_F(DBTest, MergeTestTime) {
   this->env_->addon_time_.store(0);
   this->env_->time_elapse_only_sleep_ = true;
   this->env_->no_sleep_ = true;
-  Options options;
-  options = CurrentOptions(options);
+  Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
   DestroyAndReopen(options);
@@ -7884,8 +7892,7 @@ TEST_F(DBTest, MergeTestTime) {
 #ifndef ROCKSDB_LITE
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
-  Options options;
-  options = CurrentOptions(options);
+  Options options = CurrentOptions();
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options.statistics = rocksdb::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
@@ -7904,14 +7911,13 @@ TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
 }
 
 TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_filter_factory =
       std::make_shared<DelayFilterFactory>(this);
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
   options.max_subcompactions = max_subcompactions_;
-  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   // put some data
@@ -7953,9 +7959,8 @@ TEST_F(DBTest, TestLogCleanup) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, EmptyCompactedDB) {
-  Options options;
+  Options options = CurrentOptions();
   options.max_open_files = -1;
-  options = CurrentOptions(options);
   Close();
   ASSERT_OK(ReadOnlyReopen(options));
   Status s = Put("new", "value");
@@ -8191,9 +8196,8 @@ TEST_F(DBTest, AutomaticConflictsWithManualCompaction) {
 // Github issue #595
 // Large write batch with column families
 TEST_F(DBTest, LargeBatchWithColumnFamilies) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
-  options = CurrentOptions(options);
   options.write_buffer_size = 100000;  // Small write buffer
   CreateAndReopenWithCF({"pikachu"}, options);
   int64_t j = 0;
@@ -8287,11 +8291,10 @@ TEST_F(DBTest, DelayedWriteRate) {
   const int kEntriesPerMemTable = 100;
   const int kTotalFlushes = 20;
 
-  Options options;
+  Options options = CurrentOptions();
   env_->SetBackgroundThreads(1, Env::LOW);
   options.env = env_;
   env_->no_sleep_ = true;
-  options = CurrentOptions(options);
   options.write_buffer_size = 100000000;
   options.max_write_buffer_number = 256;
   options.max_background_compactions = 1;
@@ -8352,10 +8355,9 @@ TEST_F(DBTest, DelayedWriteRate) {
 }
 
 TEST_F(DBTest, HardLimit) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
   env_->SetBackgroundThreads(1, Env::LOW);
-  options = CurrentOptions(options);
   options.max_write_buffer_number = 256;
   options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 * 1024;
@@ -8403,9 +8405,8 @@ TEST_F(DBTest, HardLimit) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, SoftLimit) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
-  options = CurrentOptions(options);
   options.write_buffer_size = 100000;  // Small write buffer
   options.max_write_buffer_number = 256;
   options.level0_file_num_compaction_trigger = 1;
@@ -8521,9 +8522,8 @@ TEST_F(DBTest, SoftLimit) {
 }
 
 TEST_F(DBTest, LastWriteBufferDelay) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
-  options = CurrentOptions(options);
   options.write_buffer_size = 100000;
   options.max_write_buffer_number = 4;
   options.delayed_write_rate = 20000;
@@ -10108,9 +10108,8 @@ INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                                            ::testing::Bool()));
 
 TEST_F(DBTest, PauseBackgroundWorkTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.write_buffer_size = 100000;  // Small write buffer
-  options = CurrentOptions(options);
   Reopen(options);
 
   std::vector<std::thread> threads;
@@ -10133,403 +10132,6 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   // now it's done
   ASSERT_EQ(true, done.load());
 }
-
-#ifndef ROCKSDB_LITE
-namespace {
-void ValidateKeyExistence(DB* db, const std::vector<Slice>& keys_must_exist,
-                          const std::vector<Slice>& keys_must_not_exist) {
-  // Ensure that expected keys exist
-  std::vector<std::string> values;
-  if (keys_must_exist.size() > 0) {
-    std::vector<Status> status_list =
-        db->MultiGet(ReadOptions(), keys_must_exist, &values);
-    for (size_t i = 0; i < keys_must_exist.size(); i++) {
-      ASSERT_OK(status_list[i]);
-    }
-  }
-
-  // Ensure that given keys don't exist
-  if (keys_must_not_exist.size() > 0) {
-    std::vector<Status> status_list =
-        db->MultiGet(ReadOptions(), keys_must_not_exist, &values);
-    for (size_t i = 0; i < keys_must_not_exist.size(); i++) {
-      ASSERT_TRUE(status_list[i].IsNotFound());
-    }
-  }
-}
-
-}  // namespace
-
-TEST_F(DBTest, WalFilterTest) {
-  class TestWalFilter : public WalFilter {
-   private:
-    // Processing option that is requested to be applied at the given index
-    WalFilter::WalProcessingOption wal_processing_option_;
-    // Index at which to apply wal_processing_option_
-    // At other indexes default wal_processing_option::kContinueProcessing is
-    // returned.
-    size_t apply_option_at_record_index_;
-    // Current record index, incremented with each record encountered.
-    size_t current_record_index_;
-
-   public:
-    TestWalFilter(WalFilter::WalProcessingOption wal_processing_option,
-                  size_t apply_option_for_record_index)
-        : wal_processing_option_(wal_processing_option),
-          apply_option_at_record_index_(apply_option_for_record_index),
-          current_record_index_(0) {}
-
-    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-                                          WriteBatch* new_batch,
-                                          bool* batch_changed) const override {
-      WalFilter::WalProcessingOption option_to_return;
-
-      if (current_record_index_ == apply_option_at_record_index_) {
-        option_to_return = wal_processing_option_;
-      } else {
-        option_to_return = WalProcessingOption::kContinueProcessing;
-      }
-
-      // Filter is passed as a const object for RocksDB to not modify the
-      // object, however we modify it for our own purpose here and hence
-      // cast the constness away.
-      (const_cast<TestWalFilter*>(this)->current_record_index_)++;
-
-      return option_to_return;
-    }
-
-    virtual const char* Name() const override { return "TestWalFilter"; }
-  };
-
-  // Create 3 batches with two keys each
-  std::vector<std::vector<std::string>> batch_keys(3);
-
-  batch_keys[0].push_back("key1");
-  batch_keys[0].push_back("key2");
-  batch_keys[1].push_back("key3");
-  batch_keys[1].push_back("key4");
-  batch_keys[2].push_back("key5");
-  batch_keys[2].push_back("key6");
-
-  // Test with all WAL processing options
-  for (int option = 0;
-       option < static_cast<int>(
-                    WalFilter::WalProcessingOption::kWalProcessingOptionMax);
-       option++) {
-    Options options = OptionsForLogIterTest();
-    DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"}, options);
-
-    // Write given keys in given batches
-    for (size_t i = 0; i < batch_keys.size(); i++) {
-      WriteBatch batch;
-      for (size_t j = 0; j < batch_keys[i].size(); j++) {
-        batch.Put(handles_[0], batch_keys[i][j], DummyString(1024));
-      }
-      dbfull()->Write(WriteOptions(), &batch);
-    }
-
-    WalFilter::WalProcessingOption wal_processing_option =
-        static_cast<WalFilter::WalProcessingOption>(option);
-
-    // Create a test filter that would apply wal_processing_option at the first
-    // record
-    size_t apply_option_for_record_index = 1;
-    TestWalFilter test_wal_filter(wal_processing_option,
-                                  apply_option_for_record_index);
-
-    // Reopen database with option to use WAL filter
-    options = OptionsForLogIterTest();
-    options.wal_filter = &test_wal_filter;
-    Status status =
-        TryReopenWithColumnFamilies({"default", "pikachu"}, options);
-    if (wal_processing_option ==
-        WalFilter::WalProcessingOption::kCorruptedRecord) {
-      assert(!status.ok());
-      // In case of corruption we can turn off paranoid_checks to reopen
-      // databse
-      options.paranoid_checks = false;
-      ReopenWithColumnFamilies({"default", "pikachu"}, options);
-    } else {
-      assert(status.ok());
-    }
-
-    // Compute which keys we expect to be found
-    // and which we expect not to be found after recovery.
-    std::vector<Slice> keys_must_exist;
-    std::vector<Slice> keys_must_not_exist;
-    switch (wal_processing_option) {
-      case WalFilter::WalProcessingOption::kCorruptedRecord:
-      case WalFilter::WalProcessingOption::kContinueProcessing: {
-        fprintf(stderr, "Testing with complete WAL processing\n");
-        // we expect all records to be processed
-        for (size_t i = 0; i < batch_keys.size(); i++) {
-          for (size_t j = 0; j < batch_keys[i].size(); j++) {
-            keys_must_exist.push_back(Slice(batch_keys[i][j]));
-          }
-        }
-        break;
-      }
-      case WalFilter::WalProcessingOption::kIgnoreCurrentRecord: {
-        fprintf(stderr,
-                "Testing with ignoring record %" ROCKSDB_PRIszt " only\n",
-                apply_option_for_record_index);
-        // We expect the record with apply_option_for_record_index to be not
-        // found.
-        for (size_t i = 0; i < batch_keys.size(); i++) {
-          for (size_t j = 0; j < batch_keys[i].size(); j++) {
-            if (i == apply_option_for_record_index) {
-              keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
-            } else {
-              keys_must_exist.push_back(Slice(batch_keys[i][j]));
-            }
-          }
-        }
-        break;
-      }
-      case WalFilter::WalProcessingOption::kStopReplay: {
-        fprintf(stderr,
-                "Testing with stopping replay from record %" ROCKSDB_PRIszt
-                "\n",
-                apply_option_for_record_index);
-        // We expect records beyond apply_option_for_record_index to be not
-        // found.
-        for (size_t i = 0; i < batch_keys.size(); i++) {
-          for (size_t j = 0; j < batch_keys[i].size(); j++) {
-            if (i >= apply_option_for_record_index) {
-              keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
-            } else {
-              keys_must_exist.push_back(Slice(batch_keys[i][j]));
-            }
-          }
-        }
-        break;
-      }
-      default:
-        assert(false);  // unhandled case
-    }
-
-    bool checked_after_reopen = false;
-
-    while (true) {
-      // Ensure that expected keys exists
-      // and not expected keys don't exist after recovery
-      ValidateKeyExistence(db_, keys_must_exist, keys_must_not_exist);
-
-      if (checked_after_reopen) {
-        break;
-      }
-
-      // reopen database again to make sure previous log(s) are not used
-      //(even if they were skipped)
-      // reopn database with option to use WAL filter
-      options = OptionsForLogIterTest();
-      ReopenWithColumnFamilies({"default", "pikachu"}, options);
-
-      checked_after_reopen = true;
-    }
-  }
-}
-
-TEST_F(DBTest, WalFilterTestWithChangeBatch) {
-  class ChangeBatchHandler : public WriteBatch::Handler {
-   private:
-    // Batch to insert keys in
-    WriteBatch* new_write_batch_;
-    // Number of keys to add in the new batch
-    size_t num_keys_to_add_in_new_batch_;
-    // Number of keys added to new batch
-    size_t num_keys_added_;
-
-   public:
-    ChangeBatchHandler(WriteBatch* new_write_batch,
-                       size_t num_keys_to_add_in_new_batch)
-        : new_write_batch_(new_write_batch),
-          num_keys_to_add_in_new_batch_(num_keys_to_add_in_new_batch),
-          num_keys_added_(0) {}
-    virtual void Put(const Slice& key, const Slice& value) override {
-      if (num_keys_added_ < num_keys_to_add_in_new_batch_) {
-        new_write_batch_->Put(key, value);
-        ++num_keys_added_;
-      }
-    }
-  };
-
-  class TestWalFilterWithChangeBatch : public WalFilter {
-   private:
-    // Index at which to start changing records
-    size_t change_records_from_index_;
-    // Number of keys to add in the new batch
-    size_t num_keys_to_add_in_new_batch_;
-    // Current record index, incremented with each record encountered.
-    size_t current_record_index_;
-
-   public:
-    TestWalFilterWithChangeBatch(size_t change_records_from_index,
-                                 size_t num_keys_to_add_in_new_batch)
-        : change_records_from_index_(change_records_from_index),
-          num_keys_to_add_in_new_batch_(num_keys_to_add_in_new_batch),
-          current_record_index_(0) {}
-
-    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-                                          WriteBatch* new_batch,
-                                          bool* batch_changed) const override {
-      if (current_record_index_ >= change_records_from_index_) {
-        ChangeBatchHandler handler(new_batch, num_keys_to_add_in_new_batch_);
-        batch.Iterate(&handler);
-        *batch_changed = true;
-      }
-
-      // Filter is passed as a const object for RocksDB to not modify the
-      // object, however we modify it for our own purpose here and hence
-      // cast the constness away.
-      (const_cast<TestWalFilterWithChangeBatch*>(this)
-           ->current_record_index_)++;
-
-      return WalProcessingOption::kContinueProcessing;
-    }
-
-    virtual const char* Name() const override {
-      return "TestWalFilterWithChangeBatch";
-    }
-  };
-
-  std::vector<std::vector<std::string>> batch_keys(3);
-
-  batch_keys[0].push_back("key1");
-  batch_keys[0].push_back("key2");
-  batch_keys[1].push_back("key3");
-  batch_keys[1].push_back("key4");
-  batch_keys[2].push_back("key5");
-  batch_keys[2].push_back("key6");
-
-  Options options = OptionsForLogIterTest();
-  DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, options);
-
-  // Write given keys in given batches
-  for (size_t i = 0; i < batch_keys.size(); i++) {
-    WriteBatch batch;
-    for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      batch.Put(handles_[0], batch_keys[i][j], DummyString(1024));
-    }
-    dbfull()->Write(WriteOptions(), &batch);
-  }
-
-  // Create a test filter that would apply wal_processing_option at the first
-  // record
-  size_t change_records_from_index = 1;
-  size_t num_keys_to_add_in_new_batch = 1;
-  TestWalFilterWithChangeBatch test_wal_filter_with_change_batch(
-      change_records_from_index, num_keys_to_add_in_new_batch);
-
-  // Reopen database with option to use WAL filter
-  options = OptionsForLogIterTest();
-  options.wal_filter = &test_wal_filter_with_change_batch;
-  ReopenWithColumnFamilies({"default", "pikachu"}, options);
-
-  // Ensure that all keys exist before change_records_from_index_
-  // And after that index only single key exists
-  // as our filter adds only single key for each batch
-  std::vector<Slice> keys_must_exist;
-  std::vector<Slice> keys_must_not_exist;
-
-  for (size_t i = 0; i < batch_keys.size(); i++) {
-    for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      if (i >= change_records_from_index && j >= num_keys_to_add_in_new_batch) {
-        keys_must_not_exist.push_back(Slice(batch_keys[i][j]));
-      } else {
-        keys_must_exist.push_back(Slice(batch_keys[i][j]));
-      }
-    }
-  }
-
-  bool checked_after_reopen = false;
-
-  while (true) {
-    // Ensure that expected keys exists
-    // and not expected keys don't exist after recovery
-    ValidateKeyExistence(db_, keys_must_exist, keys_must_not_exist);
-
-    if (checked_after_reopen) {
-      break;
-    }
-
-    // reopen database again to make sure previous log(s) are not used
-    //(even if they were skipped)
-    // reopn database with option to use WAL filter
-    options = OptionsForLogIterTest();
-    ReopenWithColumnFamilies({"default", "pikachu"}, options);
-
-    checked_after_reopen = true;
-  }
-}
-
-TEST_F(DBTest, WalFilterTestWithChangeBatchExtraKeys) {
-  class TestWalFilterWithChangeBatchAddExtraKeys : public WalFilter {
-   public:
-    virtual WalProcessingOption LogRecord(const WriteBatch& batch,
-                                          WriteBatch* new_batch,
-                                          bool* batch_changed) const override {
-      *new_batch = batch;
-      new_batch->Put("key_extra", "value_extra");
-      *batch_changed = true;
-      return WalProcessingOption::kContinueProcessing;
-    }
-
-    virtual const char* Name() const override {
-      return "WalFilterTestWithChangeBatchExtraKeys";
-    }
-  };
-
-  std::vector<std::vector<std::string>> batch_keys(3);
-
-  batch_keys[0].push_back("key1");
-  batch_keys[0].push_back("key2");
-  batch_keys[1].push_back("key3");
-  batch_keys[1].push_back("key4");
-  batch_keys[2].push_back("key5");
-  batch_keys[2].push_back("key6");
-
-  Options options = OptionsForLogIterTest();
-  DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, options);
-
-  // Write given keys in given batches
-  for (size_t i = 0; i < batch_keys.size(); i++) {
-    WriteBatch batch;
-    for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      batch.Put(handles_[0], batch_keys[i][j], DummyString(1024));
-    }
-    dbfull()->Write(WriteOptions(), &batch);
-  }
-
-  // Create a test filter that would add extra keys
-  TestWalFilterWithChangeBatchAddExtraKeys test_wal_filter_extra_keys;
-
-  // Reopen database with option to use WAL filter
-  options = OptionsForLogIterTest();
-  options.wal_filter = &test_wal_filter_extra_keys;
-  Status status = TryReopenWithColumnFamilies({"default", "pikachu"}, options);
-  ASSERT_TRUE(status.IsNotSupported());
-
-  // Reopen without filter, now reopen should succeed - previous
-  // attempt to open must not have altered the db.
-  options = OptionsForLogIterTest();
-  ReopenWithColumnFamilies({"default", "pikachu"}, options);
-
-  std::vector<Slice> keys_must_exist;
-  std::vector<Slice> keys_must_not_exist;  // empty vector
-
-  for (size_t i = 0; i < batch_keys.size(); i++) {
-    for (size_t j = 0; j < batch_keys[i].size(); j++) {
-      keys_must_exist.push_back(Slice(batch_keys[i][j]));
-    }
-  }
-
-  ValidateKeyExistence(db_, keys_must_exist, keys_must_not_exist);
-}
-#endif  // ROCKSDB_LITE
 
 class SliceTransformLimitedDomain : public SliceTransform {
   const char* Name() const override { return "SliceTransformLimitedDomain"; }

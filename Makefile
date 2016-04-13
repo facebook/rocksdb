@@ -174,6 +174,15 @@ else
 	pg = -pg
 endif
 
+# USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
+ifdef COMPILE_WITH_UBSAN
+	DISABLE_JEMALLOC=1
+	EXEC_LDFLAGS += -fsanitize=undefined
+	PLATFORM_CCFLAGS += -fsanitize=undefined
+	PLATFORM_CXXFLAGS += -fsanitize=undefined
+endif
+
+
 ifndef DISABLE_JEMALLOC
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
@@ -321,6 +330,7 @@ TESTS = \
 	rate_limiter_test \
 	delete_scheduler_test \
 	options_test \
+	options_settable_test \
 	options_util_test \
 	event_logger_test \
 	cuckoo_table_builder_test \
@@ -344,7 +354,14 @@ TESTS = \
 	ldb_cmd_test \
 	iostats_context_test
 
-SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
+SUBSET := $(TESTS)
+ifdef ROCKSDBTESTS_START
+        SUBSET := $(shell echo $(SUBSET) | sed 's/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/')
+endif
+
+ifdef ROCKSDBTESTS_END
+        SUBSET := $(shell echo $(SUBSET) | sed 's/$(ROCKSDBTESTS_END).*//')
+endif
 
 TOOLS = \
 	sst_dump \
@@ -600,7 +617,7 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py --simple blackbox 
+	python -u tools/db_crashtest.py --simple blackbox
 	python -u tools/db_crashtest.py blackbox
 
 whitebox_crash_test: db_stress
@@ -617,8 +634,18 @@ asan_crash_test:
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
+ubsan_check:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) check -j32
+	$(MAKE) clean
+
+ubsan_crash_test:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test
+	$(MAKE) clean
+
 valgrind_check: $(TESTS)
-	for t in $(filter-out %skiplist_test,$(TESTS)); do \
+	for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
 		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
 		ret_code=$$?; \
 		if [ $$ret_code -ne 0 ]; then \
@@ -1005,6 +1032,9 @@ compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+options_settable_test: util/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1045,6 +1075,9 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+repair_test: db/repair_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1218,7 +1251,7 @@ jdb_bench:
 
 commit_prereq: build_tools/rocksdb-lego-determinator \
                build_tools/precommit_checker.py
-	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit tsan asan lite
+	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit tsan asan ubsan lite
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
 xfunc:

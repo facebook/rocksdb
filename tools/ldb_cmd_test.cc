@@ -12,23 +12,26 @@ class LdbCmdTest : public testing::Test {};
 
 TEST_F(LdbCmdTest, HexToString) {
   // map input to expected outputs.
+  // odd number of "hex" half bytes doesn't make sense
   map<string, vector<int>> inputMap = {
-      {"0x7", {7}},         {"0x5050", {80, 80}}, {"0xFF", {-1}},
-      {"0x1234", {18, 52}}, {"0xaa", {-86}}, {"0x123", {18, 3}},
+      {"0x07", {7}},        {"0x5050", {80, 80}},          {"0xFF", {-1}},
+      {"0x1234", {18, 52}}, {"0xaaAbAC", {-86, -85, -84}}, {"0x1203", {18, 3}},
   };
 
   for (const auto& inPair : inputMap) {
     auto actual = rocksdb::LDBCommand::HexToString(inPair.first);
     auto expected = inPair.second;
     for (unsigned int i = 0; i < actual.length(); i++) {
-      ASSERT_EQ(expected[i], static_cast<int>(actual[i]));
+      EXPECT_EQ(expected[i], static_cast<int>(actual[i]));
     }
+    auto reverse = rocksdb::LDBCommand::StringToHex(actual);
+    EXPECT_STRCASEEQ(inPair.first.c_str(), reverse.c_str());
   }
 }
 
 TEST_F(LdbCmdTest, HexToStringBadInputs) {
   const vector<string> badInputs = {
-      "0xZZ", "123", "0xx5", "0x11G", "Ox12", "0xT", "0x1Q1",
+      "0xZZ", "123", "0xx5", "0x111G", "0x123", "Ox12", "0xT", "0x1Q1",
   };
   for (const auto badInput : badInputs) {
     try {

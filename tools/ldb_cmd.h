@@ -133,50 +133,27 @@ public:
     exec_state_.Reset();
   }
 
+  // Consider using Slice::DecodeHex directly instead if you don't need the
+  // 0x prefix
   static string HexToString(const string& str) {
+    string result;
     std::string::size_type len = str.length();
-    string parsed;
-    static const char* const hexas = "0123456789ABCDEF";
-    parsed.reserve(len / 2);
-
     if (len < 2 || str[0] != '0' || str[1] != 'x') {
       fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n",
               str.c_str());
       throw "Invalid hex input";
     }
-
-    for (unsigned int i = 2; i < len; i += 2) {
-      char a = static_cast<char>(toupper(str[i]));
-      const char* p = std::lower_bound(hexas, hexas + 16, a);
-      if (*p != a) {
-        throw "Invalid hex value";
-      }
-
-      if (i + 1 >= len) {
-        // if odd number of chars than we just hit end of string
-        parsed.push_back(static_cast<char>(p - hexas));
-        break;
-      }
-
-      char b = static_cast<char>(toupper(str[i + 1]));
-      const char* q = std::lower_bound(hexas, hexas + 16, b);
-      if (*q == b) {
-        // pairwise compute decimal value from hex
-        parsed.push_back(static_cast<char>(((p - hexas) << 4) | (q - hexas)));
-      } else {
-        throw "Invalid hex value";
-      }
+    if (!Slice(str.data() + 2, len - 2).DecodeHex(&result)) {
+      throw "Invalid hex input";
     }
-    return parsed;
+    return result;
   }
 
+  // Consider using Slice::ToString(true) directly instead if
+  // you don't need the 0x prefix
   static string StringToHex(const string& str) {
-    string result = "0x";
-    char buf[10];
-    for (size_t i = 0; i < str.length(); i++) {
-      snprintf(buf, 10, "%02X", (unsigned char)str[i]);
-      result += buf;
-    }
+    string result("0x");
+    result.append(Slice(str).ToString(true));
     return result;
   }
 

@@ -311,13 +311,13 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   virtual void SeekToFirst() override {
     WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
-                                      column_family_id_);
+                                      column_family_id_, 0, 0);
     skip_list_iter_.Seek(&search_entry);
   }
 
   virtual void SeekToLast() override {
     WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
-                                      column_family_id_ + 1);
+                                      column_family_id_ + 1, 0, 0);
     skip_list_iter_.Seek(&search_entry);
     if (!skip_list_iter_.Valid()) {
       skip_list_iter_.SeekToLast();
@@ -454,9 +454,19 @@ void WriteBatchWithIndex::Rep::AddOrUpdateIndex(const Slice& key) {
 }
 
 void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
+  const std::string& wb_data = write_batch.Data();
+  Slice entry_ptr = Slice(wb_data.data() + last_entry_offset,
+                          wb_data.size() - last_entry_offset);
+  // Extract key
+  Slice key;
+  bool success __attribute__((__unused__)) =
+      ReadKeyFromWriteBatchEntry(&entry_ptr, &key, column_family_id != 0);
+  assert(success);
+
     auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
     auto* index_entry =
-        new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id);
+        new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id,
+                                       key.data() - wb_data.data(), key.size());
     skip_list.Insert(index_entry);
   }
 

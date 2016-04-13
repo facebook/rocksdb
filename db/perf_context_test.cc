@@ -9,16 +9,16 @@
 #include <vector>
 
 #include "rocksdb/db.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/memtablerep.h"
 #include "util/histogram.h"
 #include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/thread_status_util.h"
-#include "util/string_util.h"
-
+#include "utilities/merge_operators.h"
 
 bool FLAGS_random_key = false;
 bool FLAGS_use_set_based_memetable = false;
@@ -601,6 +601,41 @@ TEST_F(PerfContextTest, ToString) {
   std::string zero_excluded = perf_context.ToString(true);
   ASSERT_EQ(std::string::npos, zero_excluded.find("= 0"));
   ASSERT_NE(std::string::npos, zero_excluded.find("= 12345"));
+}
+
+TEST_F(PerfContextTest, MergeOperatorTime) {
+  DestroyDB(kDbName, Options());
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Status s = DB::Open(options, kDbName, &db);
+  EXPECT_OK(s);
+
+  std::string val;
+  ASSERT_OK(db->Merge(WriteOptions(), "k1", "val1"));
+  ASSERT_OK(db->Merge(WriteOptions(), "k1", "val2"));
+  ASSERT_OK(db->Merge(WriteOptions(), "k1", "val3"));
+  ASSERT_OK(db->Merge(WriteOptions(), "k1", "val4"));
+
+  SetPerfLevel(kEnableTime);
+  perf_context.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  perf_context.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  perf_context.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
+
+  delete db;
 }
 }
 

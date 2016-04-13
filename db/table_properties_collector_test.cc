@@ -36,6 +36,7 @@ class TablePropertiesTest : public testing::Test,
 // Utilities test functions
 namespace {
 static const uint32_t kTestColumnFamilyId = 66;
+static const std::string kTestColumnFamilyName = "test_column_fam";
 
 void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                  const InternalKeyComparator& internal_comparator,
@@ -48,8 +49,8 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
 
   builder->reset(NewTableBuilder(
       ioptions, internal_comparator, int_tbl_prop_collector_factories,
-      kTestColumnFamilyId /* column_family_id */, writable->get(),
-      options.compression, options.compression_opts));
+      kTestColumnFamilyId, kTestColumnFamilyName,
+      writable->get(), options.compression, options.compression_opts));
 }
 }  // namespace
 

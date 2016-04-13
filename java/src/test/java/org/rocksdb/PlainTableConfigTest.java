@@ -80,16 +80,10 @@ public class PlainTableConfigTest {
 
   @Test
   public void plainTableConfig() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      PlainTableConfig plainTableConfig = new PlainTableConfig();
+    try(final Options opt = new Options()) {
+      final PlainTableConfig plainTableConfig = new PlainTableConfig();
       opt.setTableFormatConfig(plainTableConfig);
       assertThat(opt.tableFactoryName()).isEqualTo("PlainTable");
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 }

@@ -23,8 +23,6 @@ namespace rocksdb {
 
 class Env;
 
-const int kDebugLogChunkSize = 128 * 1024;
-
 class WinLogger : public rocksdb::Logger {
  public:
   WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,

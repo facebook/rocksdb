@@ -59,7 +59,10 @@ extern const uint64_t kLegacyPlainTableMagicNumber;
 const char* testFileName = "test_file_name";
 
 Status SstFileReader::GetTableReader(const std::string& file_path) {
-  uint64_t magic_number;
+  // Warning about 'magic_number' being uninitialized shows up only in UBsan
+  // builds. Though access is guarded by 's.ok()' checks, fix the issue to
+  // avoid any warnings.
+  uint64_t magic_number = Footer::kInvalidTableMagicNumber;
 
   // read table magic number
   Footer footer;
@@ -200,8 +203,10 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
        i = (i == kLZ4HCCompression) ? kZSTDNotFinalCompression
                                     : CompressionType(i + 1)) {
     CompressionOptions compress_opt;
+    std::string column_family_name;
     TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i,
-                                compress_opt, false);
+                                compress_opt, false /* skip_filters */,
+                                column_family_name);
     uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
     fprintf(stdout, "Compression: %s", compress_type.find(i)->second);
     fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
@@ -343,16 +348,44 @@ namespace {
 
 void print_help() {
   fprintf(stderr,
-          "sst_dump [--command=check|scan|none|raw] [--verify_checksum] "
-          "--file=data_dir_OR_sst_file"
-          " [--output_hex]"
-          " [--input_key_hex]"
-          " [--from=<user_key>]"
-          " [--to=<user_key>]"
-          " [--read_num=NUM]"
-          " [--show_properties]"
-          " [--show_compression_sizes]"
-          " [--show_compression_sizes [--set_block_size=<block_size>]]\n");
+          R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw]
+    --file=<data_dir_OR_sst_file>
+      Path to SST file or directory containing SST files
+
+    --command=check|scan|raw
+        check: Iterate over entries in files but dont print anything except if an error is encounterd (default command)
+        scan: Iterate over entries in files and print them to screen
+        raw: Dump all the table contents to <file_name>_dump.txt
+
+    --output_hex
+      Can be combined with scan command to print the keys and values in Hex
+
+    --from=<user_key>
+      Key to start reading from when executing check|scan
+
+    --to=<user_key>
+      Key to stop reading at when executing check|scan
+
+    --read_num=<num>
+      Maximum number of entries to read when executing check|scan
+
+    --verify_checksum
+      Verify file checksum when executing check|scan
+
+    --input_key_hex
+      Can be combined with --from and --to to indicate that these values are encoded in Hex
+
+    --show_properties
+      Print table properties after iterating over the file
+
+    --show_compression_sizes
+      Independent command that will recreate the SST file using 16K block size with different
+      compressions and report the size of the file using such compression
+
+    --set_block_size=<block_size>
+      Can be combined with --show_compression_sizes to set the block size that will be used
+      when trying different compression algorithms
+)");
 }
 
 }  // namespace

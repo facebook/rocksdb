@@ -225,6 +225,8 @@ class LRUCache {
   void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                               bool thread_safe);
 
+  void EraseUnRefEntries();
+
  private:
   void LRU_Remove(LRUHandle* e);
   void LRU_Append(LRUHandle* e);
@@ -279,6 +281,29 @@ bool LRUCache::Unref(LRUHandle* e) {
 }
 
 // Call deleter and free
+
+void LRUCache::EraseUnRefEntries() {
+  autovector<LRUHandle*> last_reference_list;
+  {
+    MutexLock l(&mutex_);
+    while (lru_.next != &lru_) {
+      LRUHandle* old = lru_.next;
+      assert(old->in_cache);
+      assert(old->refs ==
+             1);  // LRU list contains elements which may be evicted
+      LRU_Remove(old);
+      table_.Remove(old->key(), old->hash);
+      old->in_cache = false;
+      Unref(old);
+      usage_ -= old->charge;
+      last_reference_list.push_back(old);
+    }
+  }
+
+  for (auto entry : last_reference_list) {
+    entry->Free();
+  }
+}
 
 void LRUCache::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) {
@@ -495,7 +520,7 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
   }
 }
 
-static int kNumShardBits = 4;          // default values, can be overridden
+static int kNumShardBits = 6;  // default values, can be overridden
 
 class ShardedLRUCache : public Cache {
  private:
@@ -613,6 +638,13 @@ class ShardedLRUCache : public Cache {
     int num_shards = 1 << num_shard_bits_;
     for (int s = 0; s < num_shards; s++) {
       shards_[s].ApplyToAllCacheEntries(callback, thread_safe);
+    }
+  }
+
+  virtual void EraseUnRefEntries() override {
+    int num_shards = 1 << num_shard_bits_;
+    for (int s = 0; s < num_shards; s++) {
+      shards_[s].EraseUnRefEntries();
     }
   }
 };

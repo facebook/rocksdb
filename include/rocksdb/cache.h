@@ -146,6 +146,10 @@ class Cache {
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) = 0;
 
+  // Remove all entries.
+  // Prerequisit: no entry is referenced.
+  virtual void EraseUnRefEntries() = 0;
+
  private:
   void LRU_Remove(Handle* e);
   void LRU_Append(Handle* e);

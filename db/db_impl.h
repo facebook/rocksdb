@@ -523,7 +523,7 @@ class DBImpl : public DB {
                          SequenceNumber* max_sequence, bool read_only);
 
   // The following two methods are used to flush a memtable to
-  // storage. The first one is used atdatabase RecoveryTime (when the
+  // storage. The first one is used at database RecoveryTime (when the
   // database is opened) and is heavyweight because it holds the mutex
   // for the entire period. The second method WriteLevel0Table supports
   // concurrent flush memtables to storage.

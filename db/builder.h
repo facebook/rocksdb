@@ -33,13 +33,16 @@ class WritableFileWriter;
 class InternalStats;
 class InternalIterator;
 
+// @param column_family_name Name of the column family that is also identified
+//    by column_family_id, or empty string if unknown. It must outlive the
+//    TableBuilder returned by this function.
 TableBuilder* NewTableBuilder(
     const ImmutableCFOptions& options,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    uint32_t column_family_id, WritableFileWriter* file,
-    const CompressionType compression_type,
+    uint32_t column_family_id, const std::string& column_family_name,
+    WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts,
     const bool skip_filters = false);
 
@@ -48,6 +51,9 @@ TableBuilder* NewTableBuilder(
 // *meta will be filled with metadata about the generated table.
 // If no data is present in *iter, meta->file_size will be set to
 // zero, and no Table file will be produced.
+//
+// @param column_family_name Name of the column family that is also identified
+//    by column_family_id, or empty string if unknown.
 extern Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& options,
     const EnvOptions& env_options, TableCache* table_cache,
@@ -55,12 +61,13 @@ extern Status BuildTable(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    uint32_t column_family_id, std::vector<SequenceNumber> snapshots,
+    uint32_t column_family_id, const std::string& column_family_name,
+    std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats,
     const Env::IOPriority io_priority = Env::IO_HIGH,
-    TableProperties* table_properties = nullptr);
+    TableProperties* table_properties = nullptr, int level = -1);
 
 }  // namespace rocksdb

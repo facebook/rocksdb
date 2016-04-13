@@ -88,7 +88,7 @@ Status TableCache::GetTableReader(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
-    unique_ptr<TableReader>* table_reader, bool skip_filters) {
+    unique_ptr<TableReader>* table_reader, bool skip_filters, int level) {
   std::string fname =
       TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
   unique_ptr<RandomAccessFile> file;
@@ -109,18 +109,26 @@ Status TableCache::GetTableReader(
                                    file_read_hist));
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, env_options, internal_comparator,
-                           skip_filters),
+                           skip_filters, level),
         std::move(file_reader), fd.GetFileSize(), table_reader);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
   }
   return s;
 }
 
+void TableCache::EraseHandle(const FileDescriptor& fd, Cache::Handle* handle) {
+  ReleaseHandle(handle);
+  uint64_t number = fd.GetNumber();
+  Slice key = GetSliceForFileNumber(&number);
+  cache_->Erase(key);
+}
+
 Status TableCache::FindTable(const EnvOptions& env_options,
                              const InternalKeyComparator& internal_comparator,
                              const FileDescriptor& fd, Cache::Handle** handle,
                              const bool no_io, bool record_read_stats,
-                             HistogramImpl* file_read_hist, bool skip_filters) {
+                             HistogramImpl* file_read_hist, bool skip_filters,
+                             int level) {
   PERF_TIMER_GUARD(find_table_nanos);
   Status s;
   uint64_t number = fd.GetNumber();
@@ -136,7 +144,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
     unique_ptr<TableReader> table_reader;
     s = GetTableReader(env_options, internal_comparator, fd,
                        false /* sequential mode */, record_read_stats,
-                       file_read_hist, &table_reader, skip_filters);
+                       file_read_hist, &table_reader, skip_filters, level);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
@@ -158,7 +166,7 @@ InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileDescriptor& fd,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
-    bool for_compaction, Arena* arena, bool skip_filters) {
+    bool for_compaction, Arena* arena, bool skip_filters, int level) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   if (table_reader_ptr != nullptr) {
@@ -173,7 +181,8 @@ InternalIterator* TableCache::NewIterator(
     unique_ptr<TableReader> table_reader_unique_ptr;
     Status s = GetTableReader(
         env_options, icomparator, fd, /* sequential mode */ true,
-        /* record stats */ false, nullptr, &table_reader_unique_ptr);
+        /* record stats */ false, nullptr, &table_reader_unique_ptr,
+        false /* skip_filters */, level);
     if (!s.ok()) {
       return NewErrorInternalIterator(s, arena);
     }
@@ -184,7 +193,7 @@ InternalIterator* TableCache::NewIterator(
       Status s = FindTable(env_options, icomparator, fd, &handle,
                            options.read_tier == kBlockCacheTier /* no_io */,
                            !for_compaction /* record read_stats */,
-                           file_read_hist, skip_filters);
+                           file_read_hist, skip_filters, level);
       if (!s.ok()) {
         return NewErrorInternalIterator(s, arena);
       }
@@ -216,7 +225,7 @@ Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
                        const FileDescriptor& fd, const Slice& k,
                        GetContext* get_context, HistogramImpl* file_read_hist,
-                       bool skip_filters) {
+                       bool skip_filters, int level) {
   TableReader* t = fd.table_reader;
   Status s;
   Cache::Handle* handle = nullptr;
@@ -265,7 +274,8 @@ Status TableCache::Get(const ReadOptions& options,
   if (!t) {
     s = FindTable(env_options_, internal_comparator, fd, &handle,
                   options.read_tier == kBlockCacheTier /* no_io */,
-                  true /* record_read_stats */, file_read_hist, skip_filters);
+                  true /* record_read_stats */, file_read_hist, skip_filters,
+                  level);
     if (s.ok()) {
       t = GetTableReaderFromHandle(handle);
     }

@@ -19,15 +19,9 @@ public class RocksMemEnv extends Env {
    * <p>{@code *base_env} must remain live while the result is in use.</p>
    */
   public RocksMemEnv() {
-    super();
-    nativeHandle_ = createMemEnv();
-  }
-
-  @Override
-  protected void disposeInternal() {
-    disposeInternal(nativeHandle_);
+    super(createMemEnv());
   }
 
   private static native long createMemEnv();
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
 }

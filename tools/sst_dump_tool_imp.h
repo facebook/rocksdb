@@ -59,12 +59,14 @@ class SstFileReader {
   bool output_hex_;
   EnvOptions soptions_;
 
-  Status init_result_;
-  unique_ptr<TableReader> table_reader_;
-  unique_ptr<RandomAccessFileReader> file_;
   // options_ and internal_comparator_ will also be used in
   // ReadSequential internally (specifically, seek-related operations)
   Options options_;
+
+  Status init_result_;
+  unique_ptr<TableReader> table_reader_;
+  unique_ptr<RandomAccessFileReader> file_;
+
   const ImmutableCFOptions ioptions_;
   InternalKeyComparator internal_comparator_;
   unique_ptr<TableProperties> table_properties_;

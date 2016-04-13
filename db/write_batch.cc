@@ -81,8 +81,6 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 }  // anon namespace
 
-// WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
-static const size_t kHeader = 12;
 
 struct SavePoint {
   size_t size;  // size of rep_
@@ -96,8 +94,9 @@ struct SavePoints {
 
 WriteBatch::WriteBatch(size_t reserved_bytes)
     : save_points_(nullptr), content_flags_(0), rep_() {
-  rep_.reserve((reserved_bytes > kHeader) ? reserved_bytes : kHeader);
-  rep_.resize(kHeader);
+  rep_.reserve((reserved_bytes > WriteBatchInternal::kHeader) ?
+    reserved_bytes : WriteBatchInternal::kHeader);
+  rep_.resize(WriteBatchInternal::kHeader);
 }
 
 WriteBatch::WriteBatch(const std::string& rep)
@@ -146,7 +145,7 @@ bool WriteBatch::Handler::Continue() {
 
 void WriteBatch::Clear() {
   rep_.clear();
-  rep_.resize(kHeader);
+  rep_.resize(WriteBatchInternal::kHeader);
 
   content_flags_.store(0, std::memory_order_relaxed);
 
@@ -191,6 +190,23 @@ bool WriteBatch::HasSingleDelete() const {
 
 bool WriteBatch::HasMerge() const {
   return (ComputeContentFlags() & ContentFlags::HAS_MERGE) != 0;
+}
+
+bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key, bool cf_record) {
+  assert(input != nullptr && key != nullptr);
+  // Skip tag byte
+  input->remove_prefix(1);
+
+  if (cf_record) {
+    // Skip column_family bytes
+    uint32_t cf;
+    if (!GetVarint32(input, &cf)) {
+      return false;
+    }
+  }
+
+  // Extract key
+  return GetLengthPrefixedSlice(input, key);
 }
 
 Status ReadRecordFromWriteBatch(Slice* input, char* tag,
@@ -249,11 +265,11 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 
 Status WriteBatch::Iterate(Handler* handler) const {
   Slice input(rep_);
-  if (input.size() < kHeader) {
+  if (input.size() < WriteBatchInternal::kHeader) {
     return Status::Corruption("malformed WriteBatch (too small)");
   }
 
-  input.remove_prefix(kHeader);
+  input.remove_prefix(WriteBatchInternal::kHeader);
   Slice key, value, blob;
   int found = 0;
   Status s;
@@ -329,7 +345,9 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
-size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) { return kHeader; }
+size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) {
+  return WriteBatchInternal::kHeader;
+}
 
 void WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                              const Slice& key, const Slice& value) {
@@ -832,15 +850,16 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* batch,
 }
 
 void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
-  assert(contents.size() >= kHeader);
+  assert(contents.size() >= WriteBatchInternal::kHeader);
   b->rep_.assign(contents.data(), contents.size());
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
 }
 
 void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
   SetCount(dst, Count(dst) + Count(src));
-  assert(src->rep_.size() >= kHeader);
-  dst->rep_.append(src->rep_.data() + kHeader, src->rep_.size() - kHeader);
+  assert(src->rep_.size() >= WriteBatchInternal::kHeader);
+  dst->rep_.append(src->rep_.data() + WriteBatchInternal::kHeader,
+    src->rep_.size() - WriteBatchInternal::kHeader);
   dst->content_flags_.store(
       dst->content_flags_.load(std::memory_order_relaxed) |
           src->content_flags_.load(std::memory_order_relaxed),
@@ -852,7 +871,7 @@ size_t WriteBatchInternal::AppendedByteSize(size_t leftByteSize,
   if (leftByteSize == 0 || rightByteSize == 0) {
     return leftByteSize + rightByteSize;
   } else {
-    return leftByteSize + rightByteSize - kHeader;
+    return leftByteSize + rightByteSize - WriteBatchInternal::kHeader;
   }
 }
 

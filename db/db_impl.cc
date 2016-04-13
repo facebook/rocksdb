@@ -201,6 +201,44 @@ Status SanitizeOptionsByTable(
   return Status::OK();
 }
 
+static Status ValidateOptions(
+    const DBOptions& db_options,
+    const std::vector<ColumnFamilyDescriptor>& column_families) {
+  Status s;
+
+  for (auto& cfd : column_families) {
+    s = CheckCompressionSupported(cfd.options);
+    if (s.ok() && db_options.allow_concurrent_memtable_write) {
+      s = CheckConcurrentWritesSupported(cfd.options);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+    if (db_options.db_paths.size() > 1) {
+      if ((cfd.options.compaction_style != kCompactionStyleUniversal) &&
+          (cfd.options.compaction_style != kCompactionStyleLevel)) {
+        return Status::NotSupported(
+            "More than one DB paths are only supported in "
+            "universal and level compaction styles. ");
+      }
+    }
+  }
+
+  if (db_options.db_paths.size() > 4) {
+    return Status::NotSupported(
+        "More than four DB paths are not supported yet. ");
+  }
+
+  if (db_options.allow_mmap_reads && !db_options.allow_os_buffer) {
+    // Protect against assert in PosixMMapReadableFile constructor
+    return Status::NotSupported(
+        "If memory mapped reads (allow_mmap_reads) are enabled "
+        "then os caching (allow_os_buffer) must also be enabled. ");
+  }
+
+  return Status::OK();
+}
+
 CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions) {
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
@@ -404,6 +442,21 @@ DBImpl::~DBImpl() {
     log.ClearWriter();
   }
   logs_.clear();
+
+  // Table cache may have table handles holding blocks from the block cache.
+  // We need to release them before the block cache is destroyed. The block
+  // cache may be destroyed inside versions_.reset(), when column family data
+  // list is destroyed, so leaving handles in table cache after
+  // versions_.reset() may cause issues.
+  // Here we clean all unreferenced handles in table cache.
+  // Now we assume all user queries have finished, so only version set itself
+  // can possibly hold the blocks from block cache. After releasing unreferenced
+  // handles here, only handles held by version set left and inside
+  // versions_.reset(), we will release them. There, we need to make sure every
+  // time a handle is released, we erase it from the cache too. By doing that,
+  // we can guarantee that after versions_.reset(), table cache is empty
+  // so the cache can be safely destroyed.
+  table_cache_->EraseUnRefEntries();
 
   // versions need to be destroyed before table_cache since it can hold
   // references to table_cache.
@@ -1103,6 +1156,23 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     stream.EndArray();
   }
 
+#ifndef ROCKSDB_LITE
+  if (db_options_.wal_filter != nullptr) {
+    std::map<std::string, uint32_t> cf_name_id_map;
+    std::map<uint32_t, uint64_t> cf_lognumber_map;
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      cf_name_id_map.insert(
+        std::make_pair(cfd->GetName(), cfd->GetID()));
+      cf_lognumber_map.insert(
+        std::make_pair(cfd->GetID(), cfd->GetLogNumber()));
+    }
+
+    db_options_.wal_filter->ColumnFamilyLogNumberMap(
+      cf_lognumber_map,
+      cf_name_id_map);
+  }
+#endif
+
   bool continue_replay_log = true;
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
@@ -1169,7 +1239,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         continue_replay_log &&
         reader.ReadRecord(&record, &scratch, db_options_.wal_recovery_mode) &&
         status.ok()) {
-      if (record.size() < 12) {
+      if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(record.size(),
                             Status::Corruption("log record too small"));
         continue;
@@ -1182,8 +1252,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         bool batch_changed = false;
 
         WalFilter::WalProcessingOption wal_processing_option =
-            db_options_.wal_filter->LogRecord(batch, &new_batch,
-                                              &batch_changed);
+            db_options_.wal_filter->LogRecordFound(log_number, fname, batch,
+                                              &new_batch, &batch_changed);
 
         switch (wal_processing_option) {
           case WalFilter::WalProcessingOption::kContinueProcessing:
@@ -1420,8 +1490,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), env_options_, cfd->table_cache(),
           iter.get(), &meta, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), snapshot_seqs,
-          earliest_write_conflict_snapshot,
+          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
+          snapshot_seqs, earliest_write_conflict_snapshot,
           GetCompressionFlush(*cfd->ioptions()),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), Env::IO_HIGH, &info.table_properties);
@@ -5356,27 +5426,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     return s;
   }
 
-  for (auto& cfd : column_families) {
-    s = CheckCompressionSupported(cfd.options);
-    if (s.ok() && db_options.allow_concurrent_memtable_write) {
-      s = CheckConcurrentWritesSupported(cfd.options);
-    }
-    if (!s.ok()) {
-      return s;
-    }
-    if (db_options.db_paths.size() > 1) {
-      if ((cfd.options.compaction_style != kCompactionStyleUniversal) &&
-          (cfd.options.compaction_style != kCompactionStyleLevel)) {
-        return Status::NotSupported(
-            "More than one DB paths are only supported in "
-            "universal and level compaction styles. ");
-      }
-    }
-  }
-
-  if (db_options.db_paths.size() > 4) {
-    return Status::NotSupported(
-        "More than four DB paths are not supported yet. ");
+  s = ValidateOptions(db_options, column_families);
+  if (!s.ok()) {
+    return s;
   }
 
   *dbptr = nullptr;

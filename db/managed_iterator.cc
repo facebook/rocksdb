@@ -79,7 +79,7 @@ ManagedIterator::ManagedIterator(DBImpl* db, const ReadOptions& read_options,
       release_supported_(true) {
   read_options_.managed = false;
   if ((!read_options_.tailing) && (read_options_.snapshot == nullptr)) {
-    assert(read_options_.snapshot = db_->GetSnapshot());
+    assert(nullptr != (read_options_.snapshot = db_->GetSnapshot()));
     snapshot_created_ = true;
   }
   cfh_.SetCFD(cfd);
@@ -210,7 +210,8 @@ void ManagedIterator::RebuildIterator() {
 void ManagedIterator::UpdateCurrent() {
   assert(mutable_iter_ != nullptr);
 
-  if (!(valid_ = mutable_iter_->Valid())) {
+  valid_ = mutable_iter_->Valid();
+  if (!valid_) {
     status_ = mutable_iter_->status();
     return;
   }

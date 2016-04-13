@@ -92,12 +92,13 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     // Run the actual command
     $this->updateTest($diffID, $test);
     $cmd = $this->updateTestCommand($diffID, $test, "running") . ";"
-           . "(./build_tools/precommit_checker.py " . $test
-           . "&& "
+           . "./build_tools/precommit_checker.py " . $test
+           . "; exit_code=$?; ([[ \$exit_code -eq 0 ]] &&"
            . $this->updateTestCommand($diffID, $test, "pass") . ")"
-           . "|| " . $this->updateTestCommand($diffID, $test, "fail")
+           . "||" . $this->updateTestCommand($diffID, $test, "fail")
            . "; cat /tmp/precommit-check.log"
-           . "; for f in `ls t/log-*`; do echo \$f; cat \$f; done";
+           . "; for f in `ls t/log-*`; do echo \$f; cat \$f; done;"
+           . "[[ \$exit_code -eq 0 ]]";
 
     $run_test = array(
       "name" => "Run " . $test,

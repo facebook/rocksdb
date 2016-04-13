@@ -253,6 +253,35 @@ TEST_F(DBPropertiesTest, ValidatePropertyInfo) {
   }
 }
 
+TEST_F(DBPropertiesTest, ValidateSampleNumber) {
+  // When "max_open_files" is -1, we read all the files for
+  // "rocksdb.estimate-num-keys" computation, which is the ground truth.
+  // Otherwise, we sample 20 newest files to make an estimation.
+  // Formula: lastest_20_files_active_key_ratio * total_files
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.level0_stop_writes_trigger = 1000;
+  DestroyAndReopen(options);
+  int key = 0;
+  for (int files = 20; files >= 10; files -= 10) {
+    for (int i = 0; i < files; i++) {
+      int rows = files / 10;
+      for (int j = 0; j < rows; j++) {
+        db_->Put(WriteOptions(), std::to_string(++key), "foo");
+      }
+      db_->Flush(FlushOptions());
+    }
+  }
+  std::string num;
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
+  ASSERT_EQ("45", num);
+  options.max_open_files = -1;
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
+  ASSERT_EQ("50", num);
+}
+
 TEST_F(DBPropertiesTest, AggregatedTableProperties) {
   for (int kTableCount = 40; kTableCount <= 100; kTableCount += 30) {
     const int kKeysPerTable = 100;

@@ -561,7 +561,7 @@ class WritableFile {
    * underlying storage of a file (generally via fallocate) if the Env
    * instance supports it.
    */
-  void SetPreallocationBlockSize(size_t size) {
+  virtual void SetPreallocationBlockSize(size_t size) {
     preallocation_block_size_ = size;
   }
 
@@ -597,7 +597,7 @@ class WritableFile {
   // of space on devices where it can result in less file
   // fragmentation and/or less waste from over-zealous filesystem
   // pre-allocation.
-  void PrepareWrite(size_t offset, size_t len) {
+  virtual void PrepareWrite(size_t offset, size_t len) {
     if (preallocation_block_size_ == 0) {
       return;
     }
@@ -948,6 +948,13 @@ class WritableFileWrapper : public WritableFile {
   }
   Status InvalidateCache(size_t offset, size_t length) override {
     return target_->InvalidateCache(offset, length);
+  }
+
+  virtual void SetPreallocationBlockSize(size_t size) override {
+    target_->SetPreallocationBlockSize(size);
+  }
+  virtual void PrepareWrite(size_t offset, size_t len) override {
+    target_->PrepareWrite(offset, len);
   }
 
  protected:

@@ -15,7 +15,11 @@ package org.rocksdb;
  *   @see org.rocksdb.DirectComparator
  */
 public abstract class AbstractComparator<T extends AbstractSlice<?>>
-    extends RocksObject {
+    extends AbstractImmutableNativeReference {
+
+  protected AbstractComparator() {
+    super(true);
+  }
 
   /**
    * The name of the comparator.  Used to check for comparator
@@ -91,10 +95,12 @@ public abstract class AbstractComparator<T extends AbstractSlice<?>>
    * RocksDB instances referencing the comparator are closed.
    * Otherwise an undefined behavior will occur.
    */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
+  @Override
+  protected void disposeInternal() {
+    disposeInternal(getNativeHandle());
   }
 
-  private native void disposeInternal(long handle);
+  protected abstract long getNativeHandle();
+
+  private native void disposeInternal(final long handle);
 }

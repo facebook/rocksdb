@@ -18,18 +18,15 @@ public class ComparatorOptionsTest {
 
   @Test
   public void comparatorOptions() {
-    final ComparatorOptions copt = new ComparatorOptions();
+    try(final ComparatorOptions copt = new ComparatorOptions()) {
 
-    assertThat(copt).isNotNull();
-
-    { // UseAdaptiveMutex test
+      assertThat(copt).isNotNull();
+      // UseAdaptiveMutex test
       copt.setUseAdaptiveMutex(true);
       assertThat(copt.useAdaptiveMutex()).isTrue();
 
       copt.setUseAdaptiveMutex(false);
       assertThat(copt.useAdaptiveMutex()).isFalse();
     }
-
-    copt.dispose();
   }
 }

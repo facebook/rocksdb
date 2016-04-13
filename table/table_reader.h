@@ -91,6 +91,8 @@ class TableReader {
   virtual Status DumpTable(WritableFile* out_file) {
     return Status::NotSupported("DumpTable() not supported");
   }
+
+  virtual void Close() {}
 };
 
 }  // namespace rocksdb

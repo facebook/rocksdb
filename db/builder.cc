@@ -41,13 +41,17 @@ TableBuilder* NewTableBuilder(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    uint32_t column_family_id, WritableFileWriter* file,
-    const CompressionType compression_type,
+    uint32_t column_family_id, const std::string& column_family_name,
+    WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters) {
+  assert((column_family_id ==
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
+         column_family_name.empty());
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, skip_filters),
+                          compression_opts, skip_filters,
+                          column_family_name),
       column_family_id, file);
 }
 
@@ -58,12 +62,16 @@ Status BuildTable(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    uint32_t column_family_id, std::vector<SequenceNumber> snapshots,
+    uint32_t column_family_id, const std::string& column_family_name,
+    std::vector<SequenceNumber> snapshots,
     SequenceNumber earliest_write_conflict_snapshot,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, const Env::IOPriority io_priority,
-    TableProperties* table_properties) {
+    TableProperties* table_properties, int level) {
+  assert((column_family_id ==
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
+         column_family_name.empty());
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
@@ -87,7 +95,8 @@ Status BuildTable(
 
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
-          column_family_id, file_writer.get(), compression, compression_opts);
+          column_family_id, column_family_name, file_writer.get(), compression,
+          compression_opts);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
@@ -149,7 +158,8 @@ Status BuildTable(
           ReadOptions(), env_options, internal_comparator, meta->fd, nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
-          false));
+          false /* for_compaction */, nullptr /* arena */,
+          false /* skip_filter */, level));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {

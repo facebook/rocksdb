@@ -63,7 +63,7 @@ namespace rocksdb {
 
 // Maintains state for each sub-compaction
 struct CompactionJob::SubcompactionState {
-  Compaction* compaction;
+  const Compaction* compaction;
   std::unique_ptr<CompactionIterator> c_iter;
 
   // The boundaries of the key-range this compaction is interested in. No two
@@ -104,6 +104,13 @@ struct CompactionJob::SubcompactionState {
   uint64_t num_output_records;
   CompactionJobStats compaction_job_stats;
   uint64_t approx_size;
+  // An index that used to speed up ShouldStopBefore().
+  size_t grandparent_index = 0;
+  // The number of bytes overlapping between the current output and
+  // grandparent files used in ShouldStopBefore().
+  uint64_t overlapped_bytes = 0;
+  // A flag determine whether the key has been seen in ShouldStopBefore()
+  bool seen_key = false;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
@@ -115,7 +122,10 @@ struct CompactionJob::SubcompactionState {
         total_bytes(0),
         num_input_records(0),
         num_output_records(0),
-        approx_size(size) {
+        approx_size(size),
+        grandparent_index(0),
+        overlapped_bytes(0),
+        seen_key(false) {
     assert(compaction != nullptr);
   }
 
@@ -134,6 +144,9 @@ struct CompactionJob::SubcompactionState {
     num_output_records = std::move(o.num_output_records);
     compaction_job_stats = std::move(o.compaction_job_stats);
     approx_size = std::move(o.approx_size);
+    grandparent_index = std::move(o.grandparent_index);
+    overlapped_bytes = std::move(o.overlapped_bytes);
+    seen_key = std::move(o.seen_key);
     return *this;
   }
 
@@ -141,6 +154,38 @@ struct CompactionJob::SubcompactionState {
   SubcompactionState(const SubcompactionState&) = delete;
 
   SubcompactionState& operator=(const SubcompactionState&) = delete;
+
+  // Returns true iff we should stop building the current output
+  // before processing "internal_key".
+  bool ShouldStopBefore(const Slice& internal_key) {
+    const InternalKeyComparator* icmp =
+        &compaction->column_family_data()->internal_comparator();
+    const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
+
+    // Scan to find earliest grandparent file that contains key.
+    while (grandparent_index < grandparents.size() &&
+           icmp->Compare(internal_key,
+                         grandparents[grandparent_index]->largest.Encode()) >
+               0) {
+      if (seen_key) {
+        overlapped_bytes += grandparents[grandparent_index]->fd.GetFileSize();
+      }
+      assert(grandparent_index + 1 >= grandparents.size() ||
+             icmp->Compare(
+                 grandparents[grandparent_index]->largest.Encode(),
+                 grandparents[grandparent_index + 1]->smallest.Encode()) <= 0);
+      grandparent_index++;
+    }
+    seen_key = true;
+
+    if (overlapped_bytes > compaction->max_grandparent_overlap_bytes()) {
+      // Too much overlap for current output; start new output
+      overlapped_bytes = 0;
+      return true;
+    }
+
+    return false;
+  }
 };
 
 // Maintains state for the entire compaction
@@ -669,7 +714,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (end != nullptr &&
         cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
       break;
-    } else if (sub_compact->compaction->ShouldStopBefore(key) &&
+    } else if (sub_compact->ShouldStopBefore(key) &&
                sub_compact->builder != nullptr) {
       status = FinishCompactionOutputFile(input->status(), sub_compact);
       if (!status.ok()) {
@@ -973,7 +1018,7 @@ Status CompactionJob::OpenCompactionOutputFile(
       cfd->ioptions()->optimize_filters_for_hits && bottommost_level_;
   sub_compact->builder.reset(NewTableBuilder(
       *cfd->ioptions(), cfd->internal_comparator(),
-      cfd->int_tbl_prop_collector_factories(), cfd->GetID(),
+      cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
       cfd->ioptions()->compression_opts, skip_filters));
   LogFlush(db_options_.info_log);

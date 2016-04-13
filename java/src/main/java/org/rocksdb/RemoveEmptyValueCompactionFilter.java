@@ -8,11 +8,11 @@ package org.rocksdb;
 /**
  * Just a Java wrapper around EmptyValueCompactionFilter implemented in C++
  */
-public class RemoveEmptyValueCompactionFilter extends AbstractCompactionFilter<Slice> {
+public class RemoveEmptyValueCompactionFilter
+    extends AbstractCompactionFilter<Slice> {
   public RemoveEmptyValueCompactionFilter() {
-    super();
-    createNewRemoveEmptyValueCompactionFilter0();
+    super(createNewRemoveEmptyValueCompactionFilter0());
   }
 
-  private native void createNewRemoveEmptyValueCompactionFilter0();
+  private native static long createNewRemoveEmptyValueCompactionFilter0();
 }

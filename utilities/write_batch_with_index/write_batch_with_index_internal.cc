@@ -86,27 +86,16 @@ int WriteBatchEntryComparator::operator()(
     return 1;
   }
 
-  Status s;
   Slice key1, key2;
   if (entry1->search_key == nullptr) {
-    Slice value, blob;
-    WriteType write_type;
-    s = write_batch_->GetEntryFromDataOffset(entry1->offset, &write_type, &key1,
-                                             &value, &blob);
-    if (!s.ok()) {
-      return 1;
-    }
+    key1 = Slice(write_batch_->Data().data() + entry1->key_offset,
+                 entry1->key_size);
   } else {
     key1 = *(entry1->search_key);
   }
   if (entry2->search_key == nullptr) {
-    Slice value, blob;
-    WriteType write_type;
-    s = write_batch_->GetEntryFromDataOffset(entry2->offset, &write_type, &key2,
-                                             &value, &blob);
-    if (!s.ok()) {
-      return -1;
-    }
+    key2 = Slice(write_batch_->Data().data() + entry2->key_offset,
+                 entry2->key_size);
   } else {
     key2 = *(entry2->search_key);
   }
@@ -125,9 +114,9 @@ int WriteBatchEntryComparator::operator()(
 int WriteBatchEntryComparator::CompareKey(uint32_t column_family,
                                           const Slice& key1,
                                           const Slice& key2) const {
-  auto comparator_for_cf = cf_comparator_map_.find(column_family);
-  if (comparator_for_cf != cf_comparator_map_.end()) {
-    return comparator_for_cf->second->Compare(key1, key2);
+  if (column_family < cf_comparators_.size() &&
+      cf_comparators_[column_family] != nullptr) {
+    return cf_comparators_[column_family]->Compare(key1, key2);
   } else {
     return default_comparator_->Compare(key1, key2);
   }

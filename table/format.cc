@@ -59,14 +59,7 @@ std::string BlockHandle::ToString(bool hex) const {
   std::string handle_str;
   EncodeTo(&handle_str);
   if (hex) {
-    std::string result;
-    char buf[10];
-    for (size_t i = 0; i < handle_str.size(); i++) {
-      snprintf(buf, sizeof(buf), "%02X",
-               static_cast<unsigned char>(handle_str[i]));
-      result += buf;
-    }
-    return result;
+    return Slice(handle_str).ToString(true);
   } else {
     return handle_str;
   }

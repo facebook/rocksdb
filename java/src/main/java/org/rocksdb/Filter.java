@@ -13,7 +13,10 @@ package org.rocksdb;
  * DB::Get() call.
  */
 public abstract class Filter extends RocksObject {
-  protected abstract void createNewFilter();
+
+  protected Filter(final long nativeHandle) {
+    super(nativeHandle);
+  }
 
   /**
    * Deletes underlying C++ filter pointer.
@@ -22,10 +25,11 @@ public abstract class Filter extends RocksObject {
    * RocksDB instances referencing the filter are closed.
    * Otherwise an undefined behavior will occur.
    */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
+  @Override
+  protected void disposeInternal() {
     disposeInternal(nativeHandle_);
   }
 
-  private native void disposeInternal(long handle);
+  @Override
+  protected final native void disposeInternal(final long handle);
 }

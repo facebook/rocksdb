@@ -10,8 +10,7 @@ package org.rocksdb;
  */
 public class Snapshot extends RocksObject {
   Snapshot(final long nativeHandle) {
-    super();
-    nativeHandle_ = nativeHandle;
+    super(nativeHandle);
   }
 
   /**
@@ -21,7 +20,7 @@ public class Snapshot extends RocksObject {
    *     this snapshot.
    */
   public long getSequenceNumber() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return getSequenceNumber(nativeHandle_);
   }
 
@@ -30,7 +29,8 @@ public class Snapshot extends RocksObject {
    * to the snapshot is released by the database
    * instance.
    */
-  @Override protected void disposeInternal() {
+  @Override
+  protected final void disposeInternal(final long handle) {
   }
 
   private native long getSequenceNumber(long handle);

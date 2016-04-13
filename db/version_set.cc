@@ -23,6 +23,7 @@
 #include <vector>
 #include <string>
 
+#include "db/compaction.h"
 #include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
@@ -30,22 +31,22 @@
 #include "db/memtable.h"
 #include "db/merge_context.h"
 #include "db/table_cache.h"
-#include "db/compaction.h"
 #include "db/version_builder.h"
 #include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "table/internal_iterator.h"
-#include "table/table_reader.h"
-#include "table/merger.h"
-#include "table/two_level_iterator.h"
 #include "table/format.h"
-#include "table/plain_table_factory.h"
-#include "table/meta_blocks.h"
 #include "table/get_context.h"
+#include "table/internal_iterator.h"
+#include "table/merger.h"
+#include "table/meta_blocks.h"
+#include "table/plain_table_factory.h"
+#include "table/table_reader.h"
+#include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
+#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
@@ -90,8 +91,9 @@ class FilePicker {
              const Comparator* user_comparator,
              const InternalKeyComparator* internal_comparator)
       : num_levels_(num_levels),
-        curr_level_(-1),
-        hit_file_level_(-1),
+        curr_level_(static_cast<unsigned int>(-1)),
+        returned_file_level_(static_cast<unsigned int>(-1)),
+        hit_file_level_(static_cast<unsigned int>(-1)),
         search_left_bound_(0),
         search_right_bound_(FileIndexer::kLevelMaxIndex),
 #ifndef NDEBUG
@@ -116,6 +118,8 @@ class FilePicker {
       }
     }
   }
+
+  int GetCurrentLevel() { return returned_file_level_; }
 
   FdWithKeyRange* GetNextFile() {
     while (!search_ended_) {  // Loops over different levels.
@@ -189,6 +193,7 @@ class FilePicker {
         }
         prev_file_ = f;
 #endif
+        returned_file_level_ = curr_level_;
         if (curr_level_ > 0 && cmp_largest < 0) {
           // No more files to search in this level.
           search_ended_ = !PrepareNextLevel();
@@ -215,6 +220,7 @@ class FilePicker {
  private:
   unsigned int num_levels_;
   unsigned int curr_level_;
+  unsigned int returned_file_level_;
   unsigned int hit_file_level_;
   int32_t search_left_bound_;
   int32_t search_right_bound_;
@@ -321,7 +327,7 @@ Version::~Version() {
       f->refs--;
       if (f->refs <= 0) {
         if (f->table_reader_handle) {
-          cfd_->table_cache()->ReleaseHandle(f->table_reader_handle);
+          cfd_->table_cache()->EraseHandle(f->fd, f->table_reader_handle);
           f->table_reader_handle = nullptr;
         }
         vset_->obsolete_files_.push_back(f);
@@ -485,7 +491,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
                          const EnvOptions& env_options,
                          const InternalKeyComparator& icomparator,
                          HistogramImpl* file_read_hist, bool for_compaction,
-                         bool prefix_enabled, bool skip_filters)
+                         bool prefix_enabled, bool skip_filters, int level)
       : TwoLevelIteratorState(prefix_enabled),
         table_cache_(table_cache),
         read_options_(read_options),
@@ -493,7 +499,8 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
         icomparator_(icomparator),
         file_read_hist_(file_read_hist),
         for_compaction_(for_compaction),
-        skip_filters_(skip_filters) {}
+        skip_filters_(skip_filters),
+        level_(level) {}
 
   InternalIterator* NewSecondaryIterator(const Slice& meta_handle) override {
     if (meta_handle.size() != sizeof(FileDescriptor)) {
@@ -505,7 +512,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
       return table_cache_->NewIterator(
           read_options_, env_options_, icomparator_, *fd,
           nullptr /* don't need reference to table*/, file_read_hist_,
-          for_compaction_, nullptr /* arena */, skip_filters_);
+          for_compaction_, nullptr /* arena */, skip_filters_, level_);
     }
   }
 
@@ -521,6 +528,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
   HistogramImpl* file_read_hist_;
   bool for_compaction_;
   bool skip_filters_;
+  int level_;
 };
 
 // A wrapper of version builder which references the current version in
@@ -788,7 +796,8 @@ void Version::AddIterators(const ReadOptions& read_options,
     const auto& file = storage_info_.LevelFilesBrief(0).files[i];
     merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
         read_options, soptions, cfd_->internal_comparator(), file.fd, nullptr,
-        cfd_->internal_stats()->GetFileReadHist(0), false, arena));
+        cfd_->internal_stats()->GetFileReadHist(0), false, arena,
+        false /* skip_filters */, 0 /* level */));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -803,7 +812,7 @@ void Version::AddIterators(const ReadOptions& read_options,
                                  cfd_->internal_stats()->GetFileReadHist(level),
                                  false /* for_compaction */,
                                  cfd_->ioptions()->prefix_extractor != nullptr,
-                                 IsFilterSkipped(level));
+                                 IsFilterSkipped(level), level);
       mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
       auto* first_level_iter = new (mem) LevelFileNumIterator(
           cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
@@ -908,7 +917,8 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
         IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
-                        fp.IsHitFileLastInLevel()));
+                        fp.IsHitFileLastInLevel()),
+        fp.GetCurrentLevel());
     // TODO: examine the behavior for corrupted key
     if (!status->ok()) {
       return;
@@ -948,9 +958,16 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    if (merge_operator_->FullMerge(user_key, nullptr,
-                                   merge_context->GetOperands(), value,
-                                   info_log_)) {
+    bool merge_success = false;
+    {
+      StopWatchNano timer(env_, db_statistics_ != nullptr);
+      PERF_TIMER_GUARD(merge_operator_time_nanos);
+      merge_success = merge_operator_->FullMerge(
+          user_key, nullptr, merge_context->GetOperands(), value, info_log_);
+      RecordTick(db_statistics_, MERGE_OPERATION_TOTAL_TIME,
+                 timer.ElapsedNanos());
+    }
+    if (merge_success) {
       *status = Status::OK();
     } else {
       RecordTick(db_statistics_, NUMBER_MERGE_FAILURES);
@@ -1062,6 +1079,12 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
         if (MaybeInitializeFileMetaData(file_meta)) {
           // each FileMeta will be initialized only once.
           storage_info_.UpdateAccumulatedStats(file_meta);
+          // when option "max_open_files" is -1, all the file metadata has
+          // already been read, so MaybeInitializeFileMetaData() won't incur
+          // any I/O cost.
+          if (vset_->db_options_->max_open_files == -1) {
+            continue;
+          }
           if (++init_count >= kMaxInitCount) {
             break;
           }
@@ -2054,9 +2077,16 @@ VersionSet::VersionSet(const std::string& dbname, const DBOptions* db_options,
       env_options_(storage_options),
       env_options_compactions_(env_options_) {}
 
+void CloseTables(void* ptr, size_t) {
+  TableReader* table_reader = reinterpret_cast<TableReader*>(ptr);
+  table_reader->Close();
+}
+
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
   // VersionSet
+  column_family_set_->get_table_cache()->ApplyToAllCacheEntries(&CloseTables,
+                                                                false);
   column_family_set_.reset();
   for (auto file : obsolete_files_) {
     delete file;
@@ -2306,11 +2336,14 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     manifest_file_size_ = new_manifest_file_size;
     prev_log_number_ = edit->prev_log_number_;
   } else {
+    std::string version_edits;
+    for (auto& e : batch_edits) {
+      version_edits = version_edits + "\n" + e->DebugString(true);
+    }
     Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
-        "Error in committing version %lu to [%s]",
-        (unsigned long)v->GetVersionNumber(),
-        column_family_data ? column_family_data->GetName().c_str()
-                           : "<null>");
+        "[%s] Error in committing version edit to MANIFEST: %s",
+        column_family_data ? column_family_data->GetName().c_str() : "<null>",
+        version_edits.c_str());
     delete v;
     if (new_descriptor_log) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
@@ -3240,7 +3273,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   }
 }
 
-InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
+InternalIterator* VersionSet::MakeInputIterator(const Compaction* c) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums =
@@ -3267,7 +3300,8 @@ InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
               read_options, env_options_compactions_,
               cfd->internal_comparator(), flevel->files[i].fd, nullptr,
               nullptr, /* no per level latency histogram*/
-              true /* for compaction */);
+              true /* for_compaction */, nullptr /* arena */,
+              false /* skip_filters */, (int)which /* level */);
         }
       } else {
         // Create concatenating iterator for the files from this level
@@ -3277,7 +3311,7 @@ InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
                 cfd->internal_comparator(),
                 nullptr /* no per level latency histogram */,
                 true /* for_compaction */, false /* prefix enabled */,
-                false /* skip_filters */),
+                false /* skip_filters */, (int)which /* level */),
             new LevelFileNumIterator(cfd->internal_comparator(),
                                      c->input_levels(which)));
       }

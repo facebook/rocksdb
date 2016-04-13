@@ -360,6 +360,7 @@ set(TESTS
         db/perf_context_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc
+        db/repair_test.cc
         db/skiplist_test.cc
         db/table_properties_collector_test.cc
         db/version_builder_test.cc
@@ -398,6 +399,7 @@ set(TESTS
         util/iostats_context_test.cc
         util/memenv_test.cc
         util/mock_env_test.cc
+        util/options_settable_test.cc
         util/options_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc

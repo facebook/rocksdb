@@ -215,6 +215,34 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
     TestGetPropertiesOfTablesInRange(std::move(ranges));
   }
 }
+
+TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
+  std::string kExtraCfName = "pikachu";
+  CreateAndReopenWithCF({kExtraCfName}, CurrentOptions());
+
+  // Create one table per CF, then verify it was created with the column family
+  // name property.
+  for (int cf = 0; cf < 2; ++cf) {
+    Put(cf, "key", "val");
+    Flush(cf);
+
+    TablePropertiesCollection fname_to_props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
+    ASSERT_EQ(1U, fname_to_props.size());
+
+    std::string expected_cf_name;
+    if (cf > 0) {
+      expected_cf_name = kExtraCfName;
+    } else {
+      expected_cf_name = kDefaultColumnFamilyName;
+    }
+    ASSERT_EQ(expected_cf_name,
+              fname_to_props.begin()->second->column_family_name);
+    ASSERT_EQ(cf, static_cast<uint32_t>(
+                      fname_to_props.begin()->second->column_family_id));
+  }
+}
+
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

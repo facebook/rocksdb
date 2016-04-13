@@ -83,7 +83,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       merge_operator(nullptr),
       compaction_filter(nullptr),
       compaction_filter_factory(nullptr),
-      write_buffer_size(4 << 20),
+      write_buffer_size(64 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
       max_write_buffer_number_to_maintain(0),
@@ -93,9 +93,9 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       level0_file_num_compaction_trigger(4),
       level0_slowdown_writes_trigger(20),
       level0_stop_writes_trigger(24),
-      target_file_size_base(2 * 1048576),
+      target_file_size_base(64 * 1048576),
       target_file_size_multiplier(1),
-      max_bytes_for_level_base(10 * 1048576),
+      max_bytes_for_level_base(256 * 1048576),
       level_compaction_dynamic_level_bytes(false),
       max_bytes_for_level_multiplier(10),
       max_bytes_for_level_multiplier_additional(num_levels, 1),
@@ -104,8 +104,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       max_grandparent_overlap_factor(10),
       soft_rate_limit(0.0),
       hard_rate_limit(0.0),
-      soft_pending_compaction_bytes_limit(0),
-      hard_pending_compaction_bytes_limit(0),
+      soft_pending_compaction_bytes_limit(64 * 1073741824ull),
+      hard_pending_compaction_bytes_limit(256 * 1073741824ull),
       rate_limit_delay_max_milliseconds(1000),
       arena_block_size(0),
       disable_auto_compactions(false),
@@ -221,7 +221,7 @@ DBOptions::DBOptions()
       info_log_level(DEBUG_LEVEL),
 #endif  // NDEBUG
       max_open_files(5000),
-      max_file_opening_threads(1),
+      max_file_opening_threads(16),
       max_total_wal_size(0),
       statistics(nullptr),
       disableDataSync(false),
@@ -238,7 +238,7 @@ DBOptions::DBOptions()
       keep_log_file_num(1000),
       recycle_log_file_num(0),
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
-      table_cache_numshardbits(4),
+      table_cache_numshardbits(6),
       WAL_ttl_seconds(0),
       WAL_size_limit_MB(0),
       manifest_preallocation_size(4 * 1024 * 1024),
@@ -663,8 +663,42 @@ Options::PrepareForBulkLoad()
   return this;
 }
 
-#ifndef ROCKSDB_LITE
+Options* Options::OldDefaults(int rocksdb_major_version,
+                              int rocksdb_minor_version) {
+  ColumnFamilyOptions::OldDefaults(rocksdb_major_version,
+                                   rocksdb_minor_version);
+  DBOptions::OldDefaults(rocksdb_major_version, rocksdb_minor_version);
+  return this;
+}
+
+DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
+                                  int rocksdb_minor_version) {
+  max_file_opening_threads = 1;
+  table_cache_numshardbits = 4;
+  return this;
+}
+
+ColumnFamilyOptions* ColumnFamilyOptions::OldDefaults(
+    int rocksdb_major_version, int rocksdb_minor_version) {
+  write_buffer_size = 4 << 20;
+  target_file_size_base = 2 * 1048576;
+  max_bytes_for_level_base = 10 * 1048576;
+  soft_pending_compaction_bytes_limit = 0;
+  hard_pending_compaction_bytes_limit = 0;
+  return this;
+}
+
 // Optimization functions
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb() {
+  write_buffer_size = 2 << 20;
+  target_file_size_base = 2 * 1048576;
+  max_bytes_for_level_base = 10 * 1048576;
+  soft_pending_compaction_bytes_limit = 256 * 1048576;
+  hard_pending_compaction_bytes_limit = 1073741824ul;
+  return this;
+}
+
+#ifndef ROCKSDB_LITE
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
     uint64_t block_cache_size_mb) {
   prefix_extractor.reset(NewNoopTransform());

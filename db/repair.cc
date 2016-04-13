@@ -265,7 +265,7 @@ class Repairer {
     mem->Ref();
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {
-      if (record.size() < 12) {
+      if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(
             record.size(), Status::Corruption("log record too small"));
         continue;
@@ -294,9 +294,10 @@ class Repairer {
       status = BuildTable(
           dbname_, env_, ioptions_, env_options_, table_cache_, iter.get(),
           &meta, icmp_, &int_tbl_prop_collector_factories_,
-          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily, {},
-          kMaxSequenceNumber, kNoCompression, CompressionOptions(), false,
-          nullptr);
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+          std::string() /* column_family_name */, {}, kMaxSequenceNumber,
+          kNoCompression, CompressionOptions(), false,
+          nullptr /* internal_stats */);
     }
     delete mem->Unref();
     delete cf_mems_default;

@@ -162,9 +162,6 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       deletion_compaction_(_deletion_compaction),
       inputs_(std::move(_inputs)),
       grandparents_(std::move(_grandparents)),
-      grandparent_index_(0),
-      seen_key_(false),
-      overlapped_bytes_(0),
       score_(_score),
       bottommost_level_(IsBottommostLevel(output_level_, vstorage, inputs_)),
       is_full_compaction_(IsFullCompaction(vstorage, inputs_)),
@@ -290,32 +287,6 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   return true;
 }
 
-bool Compaction::ShouldStopBefore(const Slice& internal_key) {
-  // Scan to find earliest grandparent file that contains key.
-  const InternalKeyComparator* icmp = &cfd_->internal_comparator();
-  while (grandparent_index_ < grandparents_.size() &&
-      icmp->Compare(internal_key,
-                    grandparents_[grandparent_index_]->largest.Encode()) > 0) {
-    if (seen_key_) {
-      overlapped_bytes_ += grandparents_[grandparent_index_]->fd.GetFileSize();
-    }
-    assert(grandparent_index_ + 1 >= grandparents_.size() ||
-           icmp->Compare(grandparents_[grandparent_index_]->largest.Encode(),
-                         grandparents_[grandparent_index_+1]->smallest.Encode())
-                         < 0);
-    grandparent_index_++;
-  }
-  seen_key_ = true;
-
-  if (overlapped_bytes_ > max_grandparent_overlap_bytes_) {
-    // Too much overlap for current output; start new output
-    overlapped_bytes_ = 0;
-    return true;
-  } else {
-    return false;
-  }
-}
-
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
   for (size_t i = 0; i < num_input_levels(); i++) {
@@ -421,7 +392,7 @@ void Compaction::Summary(char* output, int len) {
   snprintf(output + write, len - write, "]");
 }
 
-uint64_t Compaction::OutputFilePreallocationSize() {
+uint64_t Compaction::OutputFilePreallocationSize() const {
   uint64_t preallocation_size = 0;
 
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel ||

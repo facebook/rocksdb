@@ -37,7 +37,8 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
       table_builder_options.ioptions,
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_options_.user_key_len, table_options_.encoding_type,
-      table_options_.index_sparseness, table_options_.bloom_bits_per_key, 6,
+      table_options_.index_sparseness, table_options_.bloom_bits_per_key,
+      table_builder_options.column_family_name, 6,
       table_options_.huge_page_tlb_size, table_options_.hash_table_ratio,
       table_options_.store_index_in_file);
 }

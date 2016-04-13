@@ -64,7 +64,7 @@ Status BlockBasedTableFactory::NewTableReader(
       table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
       file_size, table_reader, prefetch_enabled,
-      table_reader_options.skip_filters);
+      table_reader_options.skip_filters, table_reader_options.level);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -76,7 +76,8 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,
       table_builder_options.compression_opts,
-      table_builder_options.skip_filters);
+      table_builder_options.skip_filters,
+      table_builder_options.column_family_name);
 
   return table_builder;
 }
@@ -92,6 +93,12 @@ Status BlockBasedTableFactory::SanitizeOptions(
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {
     return Status::InvalidArgument("Enable cache_index_and_filter_blocks, "
+        ", but block cache is disabled");
+  }
+  if (table_options_.pin_l0_filter_and_index_blocks_in_cache &&
+      table_options_.no_block_cache) {
+    return Status::InvalidArgument(
+        "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
   if (!BlockBasedTableSupportedVersion(table_options_.format_version)) {
@@ -110,10 +117,14 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
 
   snprintf(buffer, kBufferSize, "  flush_block_policy_factory: %s (%p)\n",
            table_options_.flush_block_policy_factory->Name(),
-           table_options_.flush_block_policy_factory.get());
+           static_cast<void*>(table_options_.flush_block_policy_factory.get()));
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  cache_index_and_filter_blocks: %d\n",
            table_options_.cache_index_and_filter_blocks);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  pin_l0_filter_and_index_blocks_in_cache: %d\n",
+           table_options_.pin_l0_filter_and_index_blocks_in_cache);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_type: %d\n",
            table_options_.index_type);
@@ -128,7 +139,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            table_options_.no_block_cache);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_cache: %p\n",
-           table_options_.block_cache.get());
+           static_cast<void*>(table_options_.block_cache.get()));
   ret.append(buffer);
   if (table_options_.block_cache) {
     snprintf(buffer, kBufferSize, "  block_cache_size: %" ROCKSDB_PRIszt "\n",
@@ -136,7 +147,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
     ret.append(buffer);
   }
   snprintf(buffer, kBufferSize, "  block_cache_compressed: %p\n",
-           table_options_.block_cache_compressed.get());
+           static_cast<void*>(table_options_.block_cache_compressed.get()));
   ret.append(buffer);
   if (table_options_.block_cache_compressed) {
     snprintf(buffer, kBufferSize,

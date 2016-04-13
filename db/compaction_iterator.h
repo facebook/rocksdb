@@ -42,7 +42,7 @@ class CompactionIterator {
                      std::vector<SequenceNumber>* snapshots,
                      SequenceNumber earliest_write_conflict_snapshot, Env* env,
                      bool expect_valid_internal_key,
-                     Compaction* compaction = nullptr,
+                     const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      LogBuffer* log_buffer = nullptr);
 
@@ -92,7 +92,7 @@ class CompactionIterator {
   const SequenceNumber earliest_write_conflict_snapshot_;
   Env* env_;
   bool expect_valid_internal_key_;
-  Compaction* compaction_;
+  const Compaction* compaction_;
   const CompactionFilter* compaction_filter_;
   LogBuffer* log_buffer_;
   bool bottommost_level_;

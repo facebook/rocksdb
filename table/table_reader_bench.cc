@@ -98,8 +98,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                             CompressionType::kNoCompression,
-                            CompressionOptions(), false),
-        0, file_writer.get());
+                            CompressionOptions(), false /* skip_filters */,
+                            kDefaultColumnFamilyName),
+        0 /* column_family_id */, file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);

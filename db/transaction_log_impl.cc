@@ -107,7 +107,7 @@ void TransactionLogIteratorImpl::SeekToStartSequence(
     return;
   }
   while (RestrictedRead(&record, &scratch)) {
-    if (record.size() < 12) {
+    if (record.size() < WriteBatchInternal::kHeader) {
       reporter_.Corruption(
         record.size(), Status::Corruption("very small log record"));
       continue;
@@ -167,7 +167,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       currentLogReader_->UnmarkEOF();
     }
     while (RestrictedRead(&record, &scratch)) {
-      if (record.size() < 12) {
+      if (record.size() < WriteBatchInternal::kHeader) {
         reporter_.Corruption(
           record.size(), Status::Corruption("very small log record"));
         continue;

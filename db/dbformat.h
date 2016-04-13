@@ -465,6 +465,12 @@ class InternalKeySliceTransform : public SliceTransform {
   const SliceTransform* const transform_;
 };
 
+// Read the key of a record from a write batch.
+// if this record represent the default column family then cf_record
+// must be passed as false, otherwise it must be passed as true.
+extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
+                                       bool cf_record);
+
 // Read record from a write batch piece from input.
 // tag, column_family, key, value and blob are return values. Callers own the
 // Slice they point to.

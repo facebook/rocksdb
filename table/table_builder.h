@@ -29,17 +29,20 @@ struct TableReaderOptions {
   TableReaderOptions(const ImmutableCFOptions& _ioptions,
                      const EnvOptions& _env_options,
                      const InternalKeyComparator& _internal_comparator,
-                     bool _skip_filters = false)
+                     bool _skip_filters = false, int _level = -1)
       : ioptions(_ioptions),
         env_options(_env_options),
         internal_comparator(_internal_comparator),
-        skip_filters(_skip_filters) {}
+        skip_filters(_skip_filters),
+        level(_level) {}
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
   const InternalKeyComparator& internal_comparator;
   // This is only used for BlockBasedTable (reader)
   bool skip_filters;
+  // what level this table/file is on, -1 for "not set, don't know"
+  int level;
 };
 
 struct TableBuilderOptions {
@@ -49,21 +52,23 @@ struct TableBuilderOptions {
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, bool _skip_filters)
+      const CompressionOptions& _compression_opts, bool _skip_filters,
+      const std::string& _column_family_name)
       : ioptions(_ioptions),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        skip_filters(_skip_filters) {}
+        skip_filters(_skip_filters),
+        column_family_name(_column_family_name) {}
   const ImmutableCFOptions& ioptions;
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
       int_tbl_prop_collector_factories;
   CompressionType compression_type;
   const CompressionOptions& compression_opts;
-  // This is only used for BlockBasedTableBuilder
-  bool skip_filters = false;
+  bool skip_filters;  // only used by BlockBasedTableBuilder
+  const std::string& column_family_name;
 };
 
 // TableBuilder provides the interface used to build a Table
