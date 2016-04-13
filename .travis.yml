@@ -11,15 +11,20 @@ addons:
       sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
       packages: ['clang-3.6' , 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl']
 env:
-  - JOB_NAME=unittests
+  # Run all tests before db_block_cache_test (db_test, db_test2)
+  - JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test
+  # Run all tests starting from db_block_cache_test (db_block_cache_test, db_iter_test, ...)
+  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test
+  # Run java tests
   - JOB_NAME=java_test
+  # Build ROCKSDB_LITE
   - JOB_NAME=lite_build
 
 install:
   # Build gflags
   # TODO(noetzli): Remove when gflags available through Travis
   - pushd /tmp/ && curl -L https://github.com/gflags/gflags/archive/v2.1.2.tar.gz -o gflags.tar.gz && tar xfz gflags.tar.gz && cd gflags-2.1.2 && cmake . && make && popd
- 
+
 before_script:
   # Add gflags to include/library paths
   # TODO(noetzli): Remove when gflags available through Travis
@@ -28,11 +33,11 @@ before_script:
   - export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/tmp/gflags-2.1.2/include"
   - if [[ "${TRAVIS_OS_NAME}" == 'linux' ]]; then CXX=clang++-3.6; fi
   - if [[ "${TRAVIS_OS_NAME}" == 'osx' ]]; then brew install gflags snappy; fi
-  # Limit the maximum number of open file descriptors to 2000 
+  # Limit the maximum number of open file descriptors to 2000
   - ulimit -n 2000 || true
 
 script:
-  - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j4 check; fi
+  - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j4 check_some; fi
   - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
   - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
 notifications:
