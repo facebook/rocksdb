@@ -1224,43 +1224,45 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
   // First, try check with full filter
   auto filter_entry = GetFilter(true /* no io */);
   FilterBlockReader* filter = filter_entry.value;
-  if (filter != nullptr && !filter->IsBlockBased()) {
-    may_match = filter->PrefixMayMatch(prefix);
-  } else {
-    // Then, try find it within each block
-    unique_ptr<InternalIterator> iiter(NewIndexIterator(no_io_read_options));
-    iiter->Seek(internal_prefix);
+  if (filter != nullptr) {
+    if (!filter->IsBlockBased()) {
+      may_match = filter->PrefixMayMatch(prefix);
+    } else {
+      // Then, try find it within each block
+      unique_ptr<InternalIterator> iiter(NewIndexIterator(no_io_read_options));
+      iiter->Seek(internal_prefix);
 
-    if (!iiter->Valid()) {
-      // we're past end of file
-      // if it's incomplete, it means that we avoided I/O
-      // and we're not really sure that we're past the end
-      // of the file
-      may_match = iiter->status().IsIncomplete();
-    } else if (ExtractUserKey(iiter->key()).starts_with(
-                ExtractUserKey(internal_prefix))) {
-      // we need to check for this subtle case because our only
-      // guarantee is that "the key is a string >= last key in that data
-      // block" according to the doc/table_format.txt spec.
-      //
-      // Suppose iiter->key() starts with the desired prefix; it is not
-      // necessarily the case that the corresponding data block will
-      // contain the prefix, since iiter->key() need not be in the
-      // block.  However, the next data block may contain the prefix, so
-      // we return true to play it safe.
-      may_match = true;
-    } else if (filter != nullptr && filter->IsBlockBased()) {
-      // iiter->key() does NOT start with the desired prefix.  Because
-      // Seek() finds the first key that is >= the seek target, this
-      // means that iiter->key() > prefix.  Thus, any data blocks coming
-      // after the data block corresponding to iiter->key() cannot
-      // possibly contain the key.  Thus, the corresponding data block
-      // is the only on could potentially contain the prefix.
-      Slice handle_value = iiter->value();
-      BlockHandle handle;
-      s = handle.DecodeFrom(&handle_value);
-      assert(s.ok());
-      may_match = filter->PrefixMayMatch(prefix, handle.offset());
+      if (!iiter->Valid()) {
+        // we're past end of file
+        // if it's incomplete, it means that we avoided I/O
+        // and we're not really sure that we're past the end
+        // of the file
+        may_match = iiter->status().IsIncomplete();
+      } else if (ExtractUserKey(iiter->key())
+                     .starts_with(ExtractUserKey(internal_prefix))) {
+        // we need to check for this subtle case because our only
+        // guarantee is that "the key is a string >= last key in that data
+        // block" according to the doc/table_format.txt spec.
+        //
+        // Suppose iiter->key() starts with the desired prefix; it is not
+        // necessarily the case that the corresponding data block will
+        // contain the prefix, since iiter->key() need not be in the
+        // block.  However, the next data block may contain the prefix, so
+        // we return true to play it safe.
+        may_match = true;
+      } else if (filter->IsBlockBased()) {
+        // iiter->key() does NOT start with the desired prefix.  Because
+        // Seek() finds the first key that is >= the seek target, this
+        // means that iiter->key() > prefix.  Thus, any data blocks coming
+        // after the data block corresponding to iiter->key() cannot
+        // possibly contain the key.  Thus, the corresponding data block
+        // is the only on could potentially contain the prefix.
+        Slice handle_value = iiter->value();
+        BlockHandle handle;
+        s = handle.DecodeFrom(&handle_value);
+        assert(s.ok());
+        may_match = filter->PrefixMayMatch(prefix, handle.offset());
+      }
     }
   }
 

@@ -23,12 +23,28 @@ class DBTest2 : public DBTestBase {
   DBTest2() : DBTestBase("/db_test2") {}
 };
 
-TEST_F(DBTest2, PrefixFullBloomWithReverseComparator) {
+class PrefixFullBloomWithReverseComparator
+    : public DBTestBase,
+      public ::testing::WithParamInterface<bool> {
+ public:
+  PrefixFullBloomWithReverseComparator()
+      : DBTestBase("/prefix_bloom_reverse") {}
+  virtual void SetUp() override { if_cache_filter_ = GetParam(); }
+  bool if_cache_filter_;
+};
+
+TEST_P(PrefixFullBloomWithReverseComparator,
+       PrefixFullBloomWithReverseComparator) {
   Options options = last_options_;
   options.comparator = ReverseBytewiseComparator();
   options.prefix_extractor.reset(NewCappedPrefixTransform(3));
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions bbto;
+  if (if_cache_filter_) {
+    bbto.no_block_cache = false;
+    bbto.cache_index_and_filter_blocks = true;
+    bbto.block_cache = NewLRUCache(1);
+  }
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.whole_key_filtering = false;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
@@ -39,6 +55,10 @@ TEST_F(DBTest2, PrefixFullBloomWithReverseComparator) {
   ASSERT_OK(dbfull()->Put(WriteOptions(), "foo123", "foo3"));
 
   dbfull()->Flush(FlushOptions());
+
+  if (bbto.block_cache) {
+    bbto.block_cache->EraseUnRefEntries();
+  }
 
   unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
   iter->Seek("bar345");
@@ -61,6 +81,9 @@ TEST_F(DBTest2, PrefixFullBloomWithReverseComparator) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(!iter->Valid());
 }
+
+INSTANTIATE_TEST_CASE_P(PrefixFullBloomWithReverseComparator,
+                        PrefixFullBloomWithReverseComparator, testing::Bool());
 
 TEST_F(DBTest2, IteratorPropertyVersionNumber) {
   Put("", "");
