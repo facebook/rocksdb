@@ -986,7 +986,9 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
   bool second = true;
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"DBCompaction::ManualPartial:4", "DBCompaction::ManualPartial:1"},
-       {"DBCompaction::ManualPartial:2", "DBCompaction::ManualPartial:3"}});
+       {"DBCompaction::ManualPartial:2", "DBCompaction::ManualPartial:3"},
+       {"DBCompaction::ManualPartial:5",
+        "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
         if (first) {
@@ -1097,6 +1099,8 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
 
   // 3 files in L0
   ASSERT_EQ("3,0,0,0,0,1,2", FilesPerLevel(0));
+  TEST_SYNC_POINT("DBCompaction::ManualPartial:5");
+
   // 1 file in L6, 1 file in L1
   dbfull()->TEST_WaitForFlushMemTable();
   dbfull()->TEST_WaitForCompact();
