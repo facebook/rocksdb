@@ -69,6 +69,7 @@ LITE="OPT=-DROCKSDB_LITE"
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
+JDK="JAVA_HOME=/usr/local/jdk-7u10-64/"
 PARSER="'parser':'egrep \'Failure|^#|Abort|Expected|Actual|GoogleTestFailure|^==\''"
 
 ARTIFACTS=" 'artifacts': [
@@ -635,6 +636,27 @@ REGRESSION_COMMANDS="[
     }
 ]"
 
+#
+# RocksDB Java build
+#
+JAVA_BUILD_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Java Build',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build RocksDB for Java',
+                'shell':'$JDK $SHM `fwdproxy-config --format=sh curl` make rocksdbjava',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+
 case $1 in
   punit)
     echo $PARALLEL_UNIT_TEST_COMMANDS
@@ -707,6 +729,9 @@ case $1 in
     ;;
   run_regression)
     run_regression
+    ;;
+  java_build)
+    echo $JAVA_BUILD_TEST_COMMANDS
     ;;
   *)
     echo "Invalid determinator command"
