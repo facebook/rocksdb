@@ -69,7 +69,7 @@ LITE="OPT=-DROCKSDB_LITE"
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
-JDK="JAVA_HOME=/usr/local/jdk-7u10-64/"
+SETUP_JDK="export JAVA_HOME=/usr/local/jdk-7u10-64/; export PATH=\$PATH:\$JAVA_HOME/bin"
 PARSER="'parser':'egrep \'Failure|^#|Abort|Expected|Actual|GoogleTestFailure|^==\''"
 
 ARTIFACTS=" 'artifacts': [
@@ -647,7 +647,7 @@ JAVA_BUILD_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB for Java',
-                'shell':'$JDK $SHM `fwdproxy-config --format=sh curl` make rocksdbjava',
+                'shell':'$SETUP_JDK; $SHM `fwdproxy-config --format=sh curl` make rocksdbjava',
                 'user':'root',
                 $PARSER
             },
