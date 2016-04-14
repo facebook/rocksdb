@@ -5880,7 +5880,11 @@ TEST_F(DBTest, MmapAndBufferOptions) {
   Options options = CurrentOptions();
 
   // If allow_mmap_reads is on allow_os_buffer must also be on
+  // On Windows you can have either memory mapped file or a file
+  // with unbuffered access.
+#ifndef OS_WIN
   options.allow_os_buffer = false;
+#endif
   options.allow_mmap_reads = true;
   ASSERT_NOK(TryReopen(options));
 
