@@ -522,7 +522,7 @@ $(t_run): Makefile db_test
 	    '#!/bin/sh'							\
 	    'd=$(TMPD)/$(@F)'						\
 	    'mkdir -p $$d'						\
-	    'TEST_TMPDIR=$$d ./db_test $(filter)'			\
+	    'TEST_TMPDIR=$$d $(DRIVER) ./db_test $(filter)'			\
 	  > $@-t
 	$(AM_V_at)chmod a=rx $@-t
 	$(AM_V_at)mv $@-t $@
@@ -574,6 +574,23 @@ check_0: $(t_run)
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
+
+.PHONY: valgrind_check_0
+valgrind_check_0: $(t_run)
+	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
+	printf '%s\n' ''						\
+	  'To monitor subtest <duration,pass/fail,name>,'		\
+	  '  run "make watch-log" in a separate window' '';		\
+	test -t 1 && eta=--eta || eta=;					\
+	{								\
+	  printf './%s\n' $(filter-out db_test %skiplist_test options_settable_test, $(TESTS));		\
+	  printf '%s\n' $(t_run);					\
+	}								\
+	  | $(prioritize_long_running_tests)				\
+	  | grep -E '$(tests-regexp)'					\
+	  | parallel -j$(J) --joblog=LOG $$eta --gnu \
+      'if [[ "{}" == "./"* ]] ; then $(DRIVER) {} >& t/valgrind_log-{/}; ' \
+      'else {} >& t/valgrind_log-{/}; fi'
 endif
 
 CLEAN_FILES += t LOG $(TMPD)
@@ -645,13 +662,22 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_check: $(TESTS)
-	for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
-		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
-		ret_code=$$?; \
-		if [ $$ret_code -ne 0 ]; then \
-			exit $$ret_code; \
-		fi; \
-	done
+	$(AM_V_GEN)if test "$(J)" != 1                                  \
+	    && (parallel --gnu --help 2>/dev/null) |                    \
+	        grep -q 'GNU Parallel';                                 \
+	then                                                            \
+	    t=$$($(test_names));                                        \
+      $(MAKE) T="$$t" TMPD=$(TMPD)                                \
+      DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0; \
+	else                                                            \
+		for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
+			$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
+			ret_code=$$?; \
+			if [ $$ret_code -ne 0 ]; then \
+				exit $$ret_code; \
+			fi; \
+		done; \
+	fi
 
 
 ifneq ($(PAR_TEST),)
