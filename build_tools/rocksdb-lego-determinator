@@ -647,7 +647,7 @@ JAVA_BUILD_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB for Java',
-                'shell':'$SETUP_JDK; $SHM `fwdproxy-config --format=sh curl` make rocksdbjava',
+                'shell':'$SETUP_JDK; export `fwdproxy-config --format=sh curl`; $SHM make rocksdbjava',
                 'user':'root',
                 $PARSER
             },
