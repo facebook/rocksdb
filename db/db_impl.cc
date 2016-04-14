@@ -1551,12 +1551,13 @@ Status DBImpl::FlushMemTableToOutputFile(
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
-  FlushJob flush_job(
-      dbname_, cfd, db_options_, mutable_cf_options, env_options_,
-      versions_.get(), &mutex_, &shutting_down_, snapshot_seqs,
-      earliest_write_conflict_snapshot, job_context, log_buffer,
-      directories_.GetDbDir(), directories_.GetDataDir(0U),
-      GetCompressionFlush(*cfd->ioptions()), stats_, &event_logger_);
+  FlushJob flush_job(dbname_, cfd, db_options_, mutable_cf_options,
+                     env_options_, versions_.get(), &mutex_, &shutting_down_,
+                     snapshot_seqs, earliest_write_conflict_snapshot,
+                     job_context, log_buffer, directories_.GetDbDir(),
+                     directories_.GetDataDir(0U),
+                     GetCompressionFlush(*cfd->ioptions()), stats_,
+                     &event_logger_, mutable_cf_options.report_bg_io_stats);
 
   FileMetaData file_meta;
 
@@ -1905,7 +1906,7 @@ Status DBImpl::CompactFilesImpl(
       directories_.GetDataDir(c->output_path_id()), stats_, &mutex_, &bg_error_,
       snapshot_seqs, earliest_write_conflict_snapshot, table_cache_,
       &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
-      c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
+      c->mutable_cf_options()->report_bg_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
                  // which is the only place where CompactionJobStats is
@@ -3111,7 +3112,7 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
         &bg_error_, snapshot_seqs, earliest_write_conflict_snapshot,
         table_cache_, &event_logger_,
         c->mutable_cf_options()->paranoid_file_checks,
-        c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
+        c->mutable_cf_options()->report_bg_io_stats, dbname_,
         &compaction_job_stats);
     compaction_job.Prepare();
 

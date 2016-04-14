@@ -790,9 +790,9 @@ struct ColumnFamilyOptions {
   // Default: false
   bool paranoid_file_checks;
 
-  // Measure IO stats in compactions, if true.
+  // Measure IO stats in compactions and flushes, if true.
   // Default: false
-  bool compaction_measure_io_stats;
+  bool report_bg_io_stats;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();

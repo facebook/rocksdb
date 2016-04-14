@@ -420,7 +420,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "filter_deletes=false;"
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
-      "compaction_measure_io_stats=true;",
+      "report_bg_io_stats=true;",
       new_options));
 
   ASSERT_EQ(unset_bytes_base,

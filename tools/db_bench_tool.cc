@@ -516,7 +516,7 @@ DEFINE_uint64(transaction_lock_timeout, 100,
               " milliseconds before failing a transaction waiting on a lock");
 #endif  // ROCKSDB_LITE
 
-DEFINE_bool(compaction_measure_io_stats, false,
+DEFINE_bool(report_bg_io_stats, false,
             "Measure times spents on I/Os while in compactions. ");
 
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
@@ -2599,7 +2599,7 @@ class Benchmark {
       exit(1);
     }
     options.max_successive_merges = FLAGS_max_successive_merges;
-    options.compaction_measure_io_stats = FLAGS_compaction_measure_io_stats;
+    options.report_bg_io_stats = FLAGS_report_bg_io_stats;
 
     // set universal style compaction configurations, if applicable
     if (FLAGS_universal_size_ratio != 0) {

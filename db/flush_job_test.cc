@@ -93,7 +93,7 @@ TEST_F(FlushJobTest, Empty) {
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
                      {}, kMaxSequenceNumber, &job_context, nullptr, nullptr,
-                     nullptr, kNoCompression, nullptr, &event_logger);
+                     nullptr, kNoCompression, nullptr, &event_logger, false);
   ASSERT_OK(flush_job.Run());
   job_context.Clean();
 }
@@ -132,7 +132,7 @@ TEST_F(FlushJobTest, NonEmpty) {
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
                      {}, kMaxSequenceNumber, &job_context, nullptr, nullptr,
-                     nullptr, kNoCompression, nullptr, &event_logger);
+                     nullptr, kNoCompression, nullptr, &event_logger, true);
   FileMetaData fd;
   mutex_.Lock();
   ASSERT_OK(flush_job.Run(&fd));
@@ -192,11 +192,11 @@ TEST_F(FlushJobTest, Snapshots) {
   }
 
   EventLogger event_logger(db_options_.info_log.get());
-  FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
-                     db_options_, *cfd->GetLatestMutableCFOptions(),
-                     env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     snapshots, kMaxSequenceNumber, &job_context, nullptr,
-                     nullptr, nullptr, kNoCompression, nullptr, &event_logger);
+  FlushJob flush_job(
+      dbname_, versions_->GetColumnFamilySet()->GetDefault(), db_options_,
+      *cfd->GetLatestMutableCFOptions(), env_options_, versions_.get(), &mutex_,
+      &shutting_down_, snapshots, kMaxSequenceNumber, &job_context, nullptr,
+      nullptr, nullptr, kNoCompression, nullptr, &event_logger, true);
   mutex_.Lock();
   ASSERT_OK(flush_job.Run());
   mutex_.Unlock();

@@ -129,7 +129,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       min_partial_merge_operands(2),
       optimize_filters_for_hits(false),
       paranoid_file_checks(false),
-      compaction_measure_io_stats(false) {
+      report_bg_io_stats(false) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -198,7 +198,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       min_partial_merge_operands(options.min_partial_merge_operands),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       paranoid_file_checks(options.paranoid_file_checks),
-      compaction_measure_io_stats(options.compaction_measure_io_stats) {
+      report_bg_io_stats(options.report_bg_io_stats) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -604,8 +604,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         optimize_filters_for_hits);
     Header(log, "               Options.paranoid_file_checks: %d",
          paranoid_file_checks);
-    Header(log, "               Options.compaction_measure_io_stats: %d",
-         compaction_measure_io_stats);
+    Header(log, "               Options.report_bg_io_stats: %d",
+           report_bg_io_stats);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {
