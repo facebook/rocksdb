@@ -310,6 +310,7 @@ set(APPS
         tools/db_stress.cc
         tools/write_stress.cc
         tools/db_repl_stress.cc
+        tools/ldb.cc
         tools/sst_dump.cc
         tools/dump/rocksdb_dump.cc
         tools/dump/rocksdb_undump.cc
