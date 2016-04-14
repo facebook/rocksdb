@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 ## 4.7.0 (4/8/2016)
 ### Public API Change
+* rename options compaction_measure_io_stats to report_bg_io_stats and include flush too.
 * Change some default options. Now default options will optimize for server-workloads. Also enable slowdown and full stop triggers for pending compaction bytes. These changes may cause sub-optimal performance or significant increase of resource usage. To avoid these risks, users can open existing RocksDB with options extracted from RocksDB option files. See https://github.com/facebook/rocksdb/wiki/RocksDB-Options-File for how to use RocksDB option files. Or you can call Options.OldDefaults() to recover old defaults. DEFAULT_OPTIONS_HISTORY.md will track change history of default options.
 
 ## 4.6.0 (3/10/2016)

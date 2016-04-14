@@ -47,7 +47,7 @@ struct MutableCFOptions {
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
-        compaction_measure_io_stats(options.compaction_measure_io_stats)
+        report_bg_io_stats(options.report_bg_io_stats)
 
   {
     RefreshDerivedOptions(ioptions);
@@ -80,7 +80,7 @@ struct MutableCFOptions {
         max_subcompactions(1),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
-        compaction_measure_io_stats(false) {}
+        report_bg_io_stats(false) {}
 
   // Must be called after any change to MutableCFOptions
   void RefreshDerivedOptions(const ImmutableCFOptions& ioptions);
@@ -135,7 +135,7 @@ struct MutableCFOptions {
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
   bool paranoid_file_checks;
-  bool compaction_measure_io_stats;
+  bool report_bg_io_stats;
 
   // Derived options
   // Per-level target file size.

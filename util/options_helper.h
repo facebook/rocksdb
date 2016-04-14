@@ -329,9 +329,12 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
                                      std::string* merged_value);
     std::vector<int> max_bytes_for_level_multiplier_additional;
      */
-    {"compaction_measure_io_stats",
-     {offsetof(struct ColumnFamilyOptions, compaction_measure_io_stats),
+    {"report_bg_io_stats",
+     {offsetof(struct ColumnFamilyOptions, report_bg_io_stats),
       OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"compaction_measure_io_stats",
+     {offsetof(struct ColumnFamilyOptions, report_bg_io_stats),
+      OptionType::kBoolean, OptionVerificationType::kDeprecated}},
     {"disable_auto_compactions",
      {offsetof(struct ColumnFamilyOptions, disable_auto_compactions),
       OptionType::kBoolean, OptionVerificationType::kNormal}},

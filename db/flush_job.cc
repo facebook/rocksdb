@@ -66,7 +66,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    JobContext* job_context, LogBuffer* log_buffer,
                    Directory* db_directory, Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
-                   EventLogger* event_logger)
+                   EventLogger* event_logger, bool measure_io_stats)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
@@ -83,7 +83,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       output_file_directory_(output_file_directory),
       output_compression_(output_compression),
       stats_(stats),
-      event_logger_(event_logger) {
+      event_logger_(event_logger),
+      measure_io_stats_(measure_io_stats) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -121,6 +122,21 @@ void FlushJob::RecordFlushIOStats() {
 Status FlushJob::Run(FileMetaData* file_meta) {
   AutoThreadOperationStageUpdater stage_run(
       ThreadStatus::STAGE_FLUSH_RUN);
+  // I/O measurement variables
+  PerfLevel prev_perf_level = PerfLevel::kEnableTime;
+  uint64_t prev_write_nanos = 0;
+  uint64_t prev_fsync_nanos = 0;
+  uint64_t prev_range_sync_nanos = 0;
+  uint64_t prev_prepare_write_nanos = 0;
+  if (measure_io_stats_) {
+    prev_perf_level = GetPerfLevel();
+    SetPerfLevel(PerfLevel::kEnableTime);
+    prev_write_nanos = IOSTATS(write_nanos);
+    prev_fsync_nanos = IOSTATS(fsync_nanos);
+    prev_range_sync_nanos = IOSTATS(range_sync_nanos);
+    prev_prepare_write_nanos = IOSTATS(prepare_write_nanos);
+  }
+
   // Save the contents of the earliest memtable as a new Table
   FileMetaData meta;
   autovector<MemTable*> mems;
@@ -179,6 +195,18 @@ Status FlushJob::Run(FileMetaData* file_meta) {
     stream << vstorage->NumLevelFiles(level);
   }
   stream.EndArray();
+
+  if (measure_io_stats_) {
+    if (prev_perf_level != PerfLevel::kEnableTime) {
+      SetPerfLevel(prev_perf_level);
+    }
+    stream << "file_write_nanos" << (IOSTATS(write_nanos) - prev_write_nanos);
+    stream << "file_range_sync_nanos"
+           << (IOSTATS(range_sync_nanos) - prev_range_sync_nanos);
+    stream << "file_fsync_nanos" << (IOSTATS(fsync_nanos) - prev_fsync_nanos);
+    stream << "file_prepare_write_nanos"
+           << (IOSTATS(prepare_write_nanos) - prev_prepare_write_nanos);
+  }
 
   return s;
 }

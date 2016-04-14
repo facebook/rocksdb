@@ -294,7 +294,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->compaction_style = (CompactionStyle)(rnd->Uniform(4));
 
   // boolean options
-  cf_opt->compaction_measure_io_stats = rnd->Uniform(2);
+  cf_opt->report_bg_io_stats = rnd->Uniform(2);
   cf_opt->disable_auto_compactions = rnd->Uniform(2);
   cf_opt->filter_deletes = rnd->Uniform(2);
   cf_opt->inplace_update_support = rnd->Uniform(2);

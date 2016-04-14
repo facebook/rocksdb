@@ -61,7 +61,7 @@ struct CompactionJobStats {
   uint64_t num_corrupt_keys;
 
   // Following counters are only populated if
-  // options.compaction_measure_io_stats = true;
+  // options.report_bg_io_stats = true;
 
   // Time spent on file's Append() call.
   uint64_t file_write_nanos;
