@@ -1091,6 +1091,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    dbfull()->TEST_WaitForCompact();
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
@@ -1108,6 +1109,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    dbfull()->TEST_WaitForCompact();
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
@@ -1139,6 +1141,7 @@ TEST_P(DBTestUniversalCompaction, IncreaseUniversalCompactionNumLevels) {
     // each value is 10K
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    dbfull()->TEST_WaitForCompact();
   }
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
