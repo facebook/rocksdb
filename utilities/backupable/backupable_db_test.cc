@@ -1341,8 +1341,8 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
 TEST_F(BackupableDBTest, Issue921Test) {
   BackupEngine* backup_engine;
   backupable_options_->share_table_files = false;
+  env_->CreateDirIfMissing(backupable_options_->backup_dir);
   backupable_options_->backup_dir += "/new_dir";
-
   ASSERT_OK(BackupEngine::Open(env_, *backupable_options_, &backup_engine));
 
   delete backup_engine;

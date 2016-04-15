@@ -1468,8 +1468,13 @@ Status BackupEngineImpl::GarbageCollect() {
     // delete obsolete shared files
     std::vector<std::string> shared_children;
     {
-      auto s = backup_env_->GetChildren(GetAbsolutePath(GetSharedFileRel()),
-                                        &shared_children);
+      auto shared_path = GetAbsolutePath(GetSharedFileRel());
+      auto s = backup_env_->FileExists(shared_path);
+      if (s.ok()) {
+        s = backup_env_->GetChildren(shared_path, &shared_children);
+      } else if (s.IsNotFound()) {
+        s = Status::OK();
+      }
       if (!s.ok()) {
         return s;
       }
