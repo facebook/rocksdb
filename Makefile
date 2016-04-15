@@ -15,7 +15,9 @@ ARFLAGS = rs
 
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
-  -e '@a=split("\t",$$_,-1); $$t=$$a[8]; $$t =~ s,^\./,,;'		\
+  -e '@a=split("\t",$$_,-1); $$t=$$a[8];'				\
+  -e '$$t =~ /.*if\s\[\[\s"(.*?\.[\w\/]+)/ and $$t=$$1;'		\
+  -e '$$t =~ s,^\./,,;'							\
   -e '$$t =~ s, >.*,,; chomp $$t;'					\
   -e '$$t =~ /.*--gtest_filter=(.*?\.[\w\/]+)/ and $$t=$$1;'		\
   -e 'printf "%7.3f %s %s\n", $$a[3], $$a[6] == 0 ? "PASS" : "FAIL", $$t'
