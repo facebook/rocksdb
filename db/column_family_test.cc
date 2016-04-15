@@ -2557,6 +2557,9 @@ TEST_F(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   ASSERT_EQ(2, dbfull()->BGCompactionsAllowed());
 }
 
+// Disable on windows because SyncWAL requires env->IsSyncThreadSafe()
+// to return true which is not so in unbuffered mode.
+#ifndef OS_WIN
 TEST_F(ColumnFamilyTest, LogSyncConflictFlush) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
@@ -2586,6 +2589,7 @@ TEST_F(ColumnFamilyTest, LogSyncConflictFlush) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   Close();
 }
+#endif
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

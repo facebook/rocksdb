@@ -458,7 +458,16 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
 TEST_F(AutoRollLoggerTest, LogFileExistence) {
   rocksdb::DB* db;
   rocksdb::Options options;
+#ifdef OS_WIN
+  // Replace all slashes in the path so windows CompSpec does not
+  // become confused
+  std::string testDir(kTestDir);
+  std::replace_if(testDir.begin(), testDir.end(),
+    [](char ch) { return ch == '/'; }, '\\');
+  std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
+#else
   string deleteCmd = "rm -rf " + kTestDir;
+#endif
   ASSERT_EQ(system(deleteCmd.c_str()), 0);
   options.max_log_file_size = 100 * 1024 * 1024;
   options.create_if_missing = true;
