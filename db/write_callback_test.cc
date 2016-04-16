@@ -123,6 +123,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
           DB* db;
           DBImpl* db_impl;
 
+          DestroyDB(dbname, options);
           ASSERT_OK(DB::Open(options, dbname, &db));
 
           db_impl = dynamic_cast<DBImpl*>(db);
@@ -281,6 +282,8 @@ TEST_F(WriteCallbackTest, WriteCallBackTest) {
   string value;
   DB* db;
   DBImpl* db_impl;
+
+  DestroyDB(dbname, options);
 
   options.create_if_missing = true;
   Status s = DB::Open(options, dbname, &db);
