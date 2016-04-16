@@ -8393,6 +8393,7 @@ TEST_F(DBTest, HardLimit) {
   int key_idx = 0;
   for (int num = 0; num < 5; num++) {
     GenerateNewFile(&rnd, &key_idx, true);
+    dbfull()->TEST_WaitForFlushMemTable();
   }
 
   ASSERT_EQ(0, callback_count.load());
