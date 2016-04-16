@@ -37,6 +37,10 @@
 #include <zstd.h>
 #endif
 
+#if defined(XPRESS)
+#include "port/xpress.h"
+#endif
+
 namespace rocksdb {
 
 inline bool Snappy_Supported() {
@@ -67,6 +71,13 @@ inline bool LZ4_Supported() {
   return false;
 }
 
+inline bool XPRESS_Supported() {
+#ifdef XPRESS
+  return true;
+#endif
+  return false;
+}
+
 inline bool ZSTD_Supported() {
 #ifdef ZSTD
   return true;
@@ -88,6 +99,8 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
       return LZ4_Supported();
     case kLZ4HCCompression:
       return LZ4_Supported();
+    case kXpressCompression:
+      return XPRESS_Supported();
     case kZSTDNotFinalCompression:
       return ZSTD_Supported();
     default:
@@ -110,6 +123,8 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       return "LZ4";
     case kLZ4HCCompression:
       return "LZ4HC";
+    case kXpressCompression:
+      return "Xpress";
     case kZSTDNotFinalCompression:
       return "ZSTD";
     default:
@@ -605,6 +620,22 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
 #endif
   return false;
 }
+
+inline bool XPRESS_Compress(const char* input, size_t length, std::string* output) {
+#ifdef XPRESS
+  return port::xpress::Compress(input, length, output);
+#endif
+  return false;
+}
+
+inline char* XPRESS_Uncompress(const char* input_data, size_t input_length,
+  int* decompress_size) {
+#ifdef XPRESS
+  return port::xpress::Decompress(input_data, input_length, decompress_size);
+#endif
+  return nullptr;
+}
+
 
 inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
                           size_t length, ::std::string* output) {

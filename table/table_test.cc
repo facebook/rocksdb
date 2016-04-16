@@ -539,6 +539,10 @@ static std::vector<TestArgs> GenerateArgList() {
     compression_types.emplace_back(kLZ4HCCompression, false);
     compression_types.emplace_back(kLZ4HCCompression, true);
   }
+  if (XPRESS_Supported()) {
+    compression_types.emplace_back(kXpressCompression, false);
+    compression_types.emplace_back(kXpressCompression, true);
+  }
   if (ZSTD_Supported()) {
     compression_types.emplace_back(kZSTDNotFinalCompression, false);
     compression_types.emplace_back(kZSTDNotFinalCompression, true);
@@ -2071,6 +2075,13 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   } else {
     compression_state.push_back(kLZ4Compression);
     compression_state.push_back(kLZ4HCCompression);
+  }
+
+  if (!XPRESS_Supported()) {
+    fprintf(stderr, "skipping xpress and xpress compression tests\n");
+  }
+  else {
+    compression_state.push_back(kXpressCompression);
   }
 
   for (auto state : compression_state) {

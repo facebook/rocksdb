@@ -56,23 +56,6 @@ typedef SSIZE_T ssize_t;
 
 #define __attribute__(A)
 
-#ifdef ZLIB
-#include <zlib.h>
-#endif
-
-#ifdef BZIP2
-#include <bzlib.h>
-#endif
-
-#if defined(LZ4)
-#include <lz4.h>
-#include <lz4hc.h>
-#endif
-
-#ifdef SNAPPY
-#include <snappy.h>
-#endif
-
 // Thread local storage on Linux
 // There is thread_local in C++11
 #ifndef __thread

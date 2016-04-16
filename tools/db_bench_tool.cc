@@ -534,6 +534,8 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kLZ4Compression;
   else if (!strcasecmp(ctype, "lz4hc"))
     return rocksdb::kLZ4HCCompression;
+  else if (!strcasecmp(ctype, "xpress"))
+    return rocksdb::kXpressCompression;
   else if (!strcasecmp(ctype, "zstd"))
     return rocksdb::kZSTDNotFinalCompression;
 
@@ -1604,6 +1606,10 @@ class Benchmark {
         ok = LZ4HC_Compress(Options().compression_opts, 2, input.data(),
                             input.size(), compressed);
         break;
+      case rocksdb::kXpressCompression:
+        ok = XPRESS_Compress(input.data(),
+          input.size(), compressed);
+        break;
       case rocksdb::kZSTDNotFinalCompression:
         ok = ZSTD_Compress(Options().compression_opts, input.data(),
                            input.size(), compressed);
@@ -2317,6 +2323,11 @@ class Benchmark {
       case rocksdb::kLZ4HCCompression:
         uncompressed = LZ4_Uncompress(compressed.data(), compressed.size(),
                                       &decompress_size, 2);
+        ok = uncompressed != nullptr;
+        break;
+      case rocksdb::kXpressCompression:
+        uncompressed = XPRESS_Uncompress(compressed.data(), compressed.size(),
+          &decompress_size);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kZSTDNotFinalCompression:

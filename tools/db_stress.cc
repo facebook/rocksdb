@@ -362,6 +362,8 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kLZ4Compression;
   else if (!strcasecmp(ctype, "lz4hc"))
     return rocksdb::kLZ4HCCompression;
+  else if (!strcasecmp(ctype, "xpress"))
+    return rocksdb::kXpressCompression;
   else if (!strcasecmp(ctype, "zstd"))
     return rocksdb::kZSTDNotFinalCompression;
 

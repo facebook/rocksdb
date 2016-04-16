@@ -584,8 +584,11 @@ class RecoveryTestHelper {
 
     int fd = open(filename.c_str(), O_RDWR);
 
+    // On windows long is 32-bit
+    ASSERT_LE(offset, std::numeric_limits<long>::max());
+
     ASSERT_GT(fd, 0);
-    ASSERT_EQ(offset, lseek(fd, offset, SEEK_SET));
+    ASSERT_EQ(offset, lseek(fd, static_cast<long>(offset), SEEK_SET));
 
     void* buf = alloca(len);
     memset(buf, 'a', len);
