@@ -356,6 +356,18 @@ TESTS = \
 	ldb_cmd_test \
 	iostats_context_test
 
+PARALLEL_TEST = \
+	backupable_db_test \
+	compact_on_deletion_collector_test \
+	db_compaction_filter_test \
+	db_compaction_test \
+	db_test \
+	db_universal_compaction_test \
+	fault_injection_test \
+	inlineskiplist_test \
+	manual_compaction_test \
+	table_test
+
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
         SUBSET := $(shell echo $(SUBSET) | sed 's/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/')
@@ -464,7 +476,26 @@ coverage:
         # Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
-# Extract the names of its tests by running db_test with --gtest_list_tests.
+ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
+# Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
+# and create a randomly-named rocksdb.XXXX directory therein.
+# We'll use that directory in the "make check" rules.
+ifeq ($(TMPD),)
+TMPD := $(shell f=/dev/shm; test -k $$f || f=/tmp;			\
+  perl -le 'use File::Temp "tempdir";'					\
+    -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
+endif
+endif
+
+# Run all tests in parallel, accumulating per-test logs in t/log-*.
+#
+# Each t/run-* file is a tiny generated bourne shell script that invokes one of
+# sub-tests. Why use a file for this?  Because that makes the invocation of
+# parallel below simpler, which in turn makes the parsing of parallel's
+# LOG simpler (the latter is for live monitoring as parallel
+# tests run).
+#
+# Test names are extracted by running tests with --gtest_list_tests.
 # This filter removes the "#"-introduced comments, and expands to
 # fully-qualified names by changing input like this:
 #
@@ -482,52 +513,33 @@ coverage:
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/0
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/1
 #
-test_names = \
-  ./db_test --gtest_list_tests						\
-    | perl -n								\
-      -e 's/ *\#.*//;'							\
-      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
-      -e 'print qq! $$p$$2!'
 
-ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
-# Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
-# and create a randomly-named rocksdb.XXXX directory therein.
-# We'll use that directory in the "make check" rules.
-ifeq ($(TMPD),)
-TMPD := $(shell f=/dev/shm; test -k $$f || f=/tmp;			\
-  perl -le 'use File::Temp "tempdir";'					\
-    -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
-endif
-endif
+parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
+.PHONY: gen_parallel_tests $(parallel_tests)
+$(parallel_tests): $(PARALLEL_TEST)
+	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
+  TEST_NAMES=` \
+    ./$$TEST_BINARY --gtest_list_tests \
+    | perl -n \
+      -e 's/ *\#.*//;' \
+      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'	\
+      -e 'print qq! $$p$$2!'`; \
+	for TEST_NAME in $$TEST_NAMES; do \
+		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
+		echo "  GEN     " $$TEST_SCRIPT; \
+    printf '%s\n' \
+      '#!/bin/sh' \
+      "d=\$(TMPD)$$TEST_SCRIPT" \
+      'mkdir -p $$d' \
+			"TEST_TMPDIR=\$$d ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
+		> $$TEST_SCRIPT; \
+		chmod a=rx $$TEST_SCRIPT; \
+	done
 
-ifneq ($(T),)
-
-# Run all tests in parallel, accumulating per-test logs in t/log-*.
-
-# t_sanitized is each $(T) with "-" in place of each "/".
-t_sanitized = $(subst /,-,$(T))
-
-# t_run is each sanitized name with a leading "t/".
-t_run = $(patsubst %,t/%,$(t_sanitized))
-
-# Each t_run file is a tiny generated bourne shell script
-# that invokes one of db_tests's sub-tests. Why use a file
-# for this?  Because that makes the invocation of parallel
-# below simpler, which in turn makes the parsing of parallel's
-# LOG simpler (the latter is for live monitoring as parallel
-# tests run).
-filter = --gtest_filter=$(subst -,/,$(@F))
-$(t_run): Makefile db_test
-	$(AM_V_GEN)mkdir -p t
-	$(AM_V_at)rm -f $@ $@-t
-	$(AM_V_at)printf '%s\n'						\
-	    '#!/bin/sh'							\
-	    'd=$(TMPD)/$(@F)'						\
-	    'mkdir -p $$d'						\
-	    'TEST_TMPDIR=$$d $(DRIVER) ./db_test $(filter)'			\
-	  > $@-t
-	$(AM_V_at)chmod a=rx $@-t
-	$(AM_V_at)mv $@-t $@
+gen_parallel_tests:
+	$(AM_V_at)mkdir -p t
+	$(AM_V_at)rm -f t/run-*
+	$(MAKE) $(parallel_tests)
 
 # Reorder input lines (which are one per test) so that the
 # longest-running tests appear first in the output.
@@ -546,7 +558,7 @@ $(t_run): Makefile db_test
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-  ^t/DBTest\.(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$
+	^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -557,35 +569,36 @@ prioritize_long_running_tests =						\
 # Run with "make J=200% check" to run two parallel jobs per core.
 # The default is to run one job per core (J=100%).
 # See "man parallel" for its "-j ..." option.
-J = 100%
+J ?= 100%
 
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
 
+t_run = $(wildcard t/run-*)
 .PHONY: check_0
-check_0: $(t_run)
-	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
+check_0:
+	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD); \
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
-	test -t 1 && eta=--eta || eta=;					\
-	{								\
-	  printf './%s\n' $(filter-out db_test, $(TESTS));		\
-	  printf '%s\n' $(t_run);					\
-	}								\
+	test -t 1 && eta=--eta || eta=; \
+	{ \
+		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(TESTS)); \
+		printf '%s\n' $(t_run); \
+	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 
 .PHONY: valgrind_check_0
-valgrind_check_0: $(t_run)
+valgrind_check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	test -t 1 && eta=--eta || eta=;					\
 	{								\
-	  printf './%s\n' $(filter-out db_test %skiplist_test options_settable_test, $(TESTS));		\
+	  printf './%s\n' $(filter-out $(PARALLEL_TEST) %skiplist_test options_settable_test, $(TESTS));		\
 	  printf '%s\n' $(t_run);					\
 	}								\
 	  | $(prioritize_long_running_tests)				\
@@ -593,7 +606,6 @@ valgrind_check_0: $(t_run)
 	  | parallel -j$(J) --joblog=LOG $$eta --gnu \
       'if [[ "{}" == "./"* ]] ; then $(DRIVER) {} >& t/valgrind_log-{/}; ' \
       'else {} >& t/valgrind_log-{/}; fi'
-endif
 
 CLEAN_FILES += t LOG $(TMPD)
 
@@ -610,11 +622,11 @@ watch-log:
 # If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
 check: all
+	$(MAKE) gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
 	    && (parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
-	    t=$$($(test_names));                                        \
 	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
 	else                                                            \
 	    for t in $(TESTS); do                                       \
@@ -664,12 +676,12 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_check: $(TESTS)
+	$(MAKE) gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
 	    && (parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
-	    t=$$($(test_names));                                        \
-      $(MAKE) T="$$t" TMPD=$(TMPD)                                \
+      $(MAKE) TMPD=$(TMPD)                                        \
       DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0; \
 	else                                                            \
 		for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
@@ -702,6 +714,13 @@ parloop:
 	done; \
 	exit $$ret_bad;
 endif
+
+test_names = \
+  ./db_test --gtest_list_tests						\
+    | perl -n								\
+      -e 's/ *\#.*//;'							\
+      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
+      -e 'print qq! $$p$$2!'
 
 parallel_check: $(TESTS)
 	$(AM_V_GEN)if test "$(J)" > 1                                  \
