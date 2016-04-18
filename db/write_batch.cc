@@ -681,37 +681,45 @@ Status WriteBatch::RollbackToSavePoint() {
   return Status::OK();
 }
 
-namespace {
 class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
   ColumnFamilyMemTables* const cf_mems_;
   FlushScheduler* const flush_scheduler_;
   const bool ignore_missing_column_families_;
-  const uint64_t log_number_;
+  const uint64_t recovering_log_number_;
+  // log number that all Memtables inserted into should reference
+  uint64_t log_number_ref_;
   DBImpl* db_;
   const bool dont_filter_deletes_;
   const bool concurrent_memtable_writes_;
+  // current recovered transaction we are rebuilding (recovery)
+  WriteBatch* rebuilding_trx_;
 
   // cf_mems should not be shared with concurrent inserters
   MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
                    FlushScheduler* flush_scheduler,
-                   bool ignore_missing_column_families, uint64_t log_number,
-                   DB* db, const bool dont_filter_deletes,
+                   bool ignore_missing_column_families,
+                   uint64_t recovering_log_number, DB* db,
+                   const bool dont_filter_deletes,
                    bool concurrent_memtable_writes)
       : sequence_(sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
         ignore_missing_column_families_(ignore_missing_column_families),
-        log_number_(log_number),
+        recovering_log_number_(recovering_log_number),
+        log_number_ref_(0),
         db_(reinterpret_cast<DBImpl*>(db)),
         dont_filter_deletes_(dont_filter_deletes),
-        concurrent_memtable_writes_(concurrent_memtable_writes) {
+        concurrent_memtable_writes_(concurrent_memtable_writes),
+        rebuilding_trx_(nullptr) {
     assert(cf_mems_);
     if (!dont_filter_deletes_) {
       assert(db_);
     }
   }
+
+  void set_log_number_ref(uint64_t log) { log_number_ref_ = log; }
 
   bool SeekToColumnFamily(uint32_t column_family_id, Status* s) {
     // If we are in a concurrent mode, it is the caller's responsibility
@@ -728,16 +736,24 @@ class MemTableInserter : public WriteBatch::Handler {
       }
       return false;
     }
-    if (log_number_ != 0 && log_number_ < cf_mems_->GetLogNumber()) {
-      // This is true only in recovery environment (log_number_ is always 0 in
+    if (recovering_log_number_ != 0 &&
+        recovering_log_number_ < cf_mems_->GetLogNumber()) {
+      // This is true only in recovery environment (recovering_log_number_ is
+      // always 0 in
       // non-recovery, regular write code-path)
-      // * If log_number_ < cf_mems_->GetLogNumber(), this means that column
+      // * If recovering_log_number_ < cf_mems_->GetLogNumber(), this means that
+      // column
       // family already contains updates from this log. We can't apply updates
       // twice because of update-in-place or merge workloads -- ignore the
       // update
       *s = Status::OK();
       return false;
     }
+
+    if (log_number_ref_ > 0) {
+      cf_mems_->GetMemTable()->RefLogContainingPrepSection(log_number_ref_);
+    }
+
     return true;
   }
 
@@ -748,6 +764,12 @@ class MemTableInserter : public WriteBatch::Handler {
       ++sequence_;
       return seek_status;
     }
+
+    if (rebuilding_trx_ != nullptr) {
+      rebuilding_trx_->Put(cf_mems_->GetColumnFamilyHandle(), key, value);
+      return Status::OK();
+    }
+
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetMemTableOptions();
     if (!moptions->inplace_update_support) {
@@ -801,11 +823,6 @@ class MemTableInserter : public WriteBatch::Handler {
 
   Status DeleteImpl(uint32_t column_family_id, const Slice& key,
                     ValueType delete_type) {
-    Status seek_status;
-    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
-      ++sequence_;
-      return seek_status;
-    }
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetMemTableOptions();
     if (!dont_filter_deletes_ && moptions->filter_deletes) {
@@ -832,11 +849,33 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status DeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
+    Status seek_status;
+    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+      ++sequence_;
+      return seek_status;
+    }
+
+    if (rebuilding_trx_ != nullptr) {
+      rebuilding_trx_->Delete(cf_mems_->GetColumnFamilyHandle(), key);
+      return Status::OK();
+    }
+
     return DeleteImpl(column_family_id, key, kTypeDeletion);
   }
 
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
+    Status seek_status;
+    if (!SeekToColumnFamily(column_family_id, &seek_status)) {
+      ++sequence_;
+      return seek_status;
+    }
+
+    if (rebuilding_trx_ != nullptr) {
+      rebuilding_trx_->SingleDelete(cf_mems_->GetColumnFamilyHandle(), key);
+      return Status::OK();
+    }
+
     return DeleteImpl(column_family_id, key, kTypeSingleDeletion);
   }
 
@@ -847,6 +886,10 @@ class MemTableInserter : public WriteBatch::Handler {
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
+    }
+    if (rebuilding_trx_ != nullptr) {
+      rebuilding_trx_->Merge(cf_mems_->GetColumnFamilyHandle(), key, value);
+      return Status::OK();
     }
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetMemTableOptions();
@@ -933,8 +976,102 @@ class MemTableInserter : public WriteBatch::Handler {
       }
     }
   }
+
+  Status MarkBeginPrepare() override {
+    assert(rebuilding_trx_ == nullptr);
+    assert(db_);
+
+    if (recovering_log_number_ != 0) {
+      // during recovery we rebuild a hollow transaction
+      // from all encountered prepare sections of the wal
+      if (db_->allow_2pc() == false) {
+        return Status::NotSupported(
+            "WAL contains prepared transactions. Open with "
+            "TransactionDB::Open().");
+      }
+
+      // we are now iterating through a prepared section
+      rebuilding_trx_ = new WriteBatch();
+    } else {
+      // in non-recovery we ignore prepare markers
+      // and insert the values directly. making sure we have a
+      // log for each insertion to reference.
+      assert(log_number_ref_ > 0);
+    }
+
+    return Status::OK();
+  }
+
+  Status MarkEndPrepare(const Slice& name) override {
+    assert(db_);
+    assert((rebuilding_trx_ != nullptr) == (recovering_log_number_ != 0));
+
+    if (recovering_log_number_ != 0) {
+      assert(db_->allow_2pc());
+      db_->InsertRecoveredTransaction(recovering_log_number_, name.ToString(),
+                                      rebuilding_trx_);
+      rebuilding_trx_ = nullptr;
+    } else {
+      assert(rebuilding_trx_ == nullptr);
+      assert(log_number_ref_ > 0);
+    }
+
+    return Status::OK();
+  }
+
+  Status MarkCommit(const Slice& name) override {
+    assert(db_);
+
+    Status s;
+
+    if (recovering_log_number_ != 0) {
+      // in recovery when we encounter a commit marker
+      // we lookup this transaction in our set of rebuilt transactions
+      // and commit.
+      auto trx = db_->GetRecoveredTransaction(name.ToString());
+
+      // the log contaiting the prepared section may have
+      // been released in the last incarnation because the
+      // data was flushed to L0
+      if (trx != nullptr) {
+        // at this point individual CF lognumbers will prevent
+        // duplicate re-insertion of values.
+        assert(log_number_ref_ == 0);
+        // all insertes must refernce this trx log number
+        log_number_ref_ = trx->log_number_;
+        s = trx->batch_->Iterate(this);
+        log_number_ref_ = 0;
+
+        if (s.ok()) {
+          db_->DeleteRecoveredTransaction(name.ToString());
+        }
+      }
+    } else {
+      // in non recovery we simply ignore this tag
+    }
+
+    return s;
+  }
+
+  Status MarkRollback(const Slice& name) override {
+    assert(db_);
+
+    if (recovering_log_number_ != 0) {
+      auto trx = db_->GetRecoveredTransaction(name.ToString());
+
+      // the log containing the transactions prep section
+      // may have been released in the previous incarnation
+      // because we knew it had been rolled back
+      if (trx != nullptr) {
+        db_->DeleteRecoveredTransaction(name.ToString());
+      }
+    } else {
+      // in non recovery we simply ignore this tag
+    }
+
+    return Status::OK();
+  }
 };
-}  // namespace
 
 // This function can only be called in these conditions:
 // 1) During Recovery()
@@ -949,16 +1086,34 @@ Status WriteBatchInternal::InsertInto(
   MemTableInserter inserter(sequence, memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
                             dont_filter_deletes, concurrent_memtable_writes);
-
   for (size_t i = 0; i < writers.size(); i++) {
-    if (!writers[i]->CallbackFailed()) {
-      writers[i]->status = writers[i]->batch->Iterate(&inserter);
-      if (!writers[i]->status.ok()) {
-        return writers[i]->status;
-      }
+    auto w = writers[i];
+    if (!w->ShouldWriteToMemtable()) {
+      continue;
+    }
+    inserter.set_log_number_ref(w->log_ref);
+    w->status = w->batch->Iterate(&inserter);
+    if (!w->status.ok()) {
+      return w->status;
     }
   }
   return Status::OK();
+}
+
+Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
+                                      ColumnFamilyMemTables* memtables,
+                                      FlushScheduler* flush_scheduler,
+                                      bool ignore_missing_column_families,
+                                      uint64_t log_number, DB* db,
+                                      const bool dont_filter_deletes,
+                                      bool concurrent_memtable_writes) {
+  MemTableInserter inserter(WriteBatchInternal::Sequence(writer->batch),
+                            memtables, flush_scheduler,
+                            ignore_missing_column_families, log_number, db,
+                            dont_filter_deletes, concurrent_memtable_writes);
+  assert(writer->ShouldWriteToMemtable());
+  inserter.set_log_number_ref(writer->log_ref);
+  return writer->batch->Iterate(&inserter);
 }
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* batch,

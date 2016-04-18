@@ -10,8 +10,10 @@
 
 #include <atomic>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <list>
+#include <queue>
 #include <set>
 #include <string>
 #include <utility>
@@ -296,7 +298,8 @@ class DBImpl : public DB {
                            bool disallow_trivial_move = false);
 
   // Force current memtable contents to be flushed.
-  Status TEST_FlushMemTable(bool wait = true);
+  Status TEST_FlushMemTable(bool wait = true,
+                            ColumnFamilyHandle* cfh = nullptr);
 
   // Wait for memtable compaction
   Status TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family = nullptr);
@@ -344,6 +347,9 @@ class DBImpl : public DB {
   Cache* TEST_table_cache() { return table_cache_.get(); }
 
   WriteController& TEST_write_controler() { return write_controller_; }
+
+  uint64_t TEST_FindMinLogContainingOutstandingPrep();
+  uint64_t TEST_FindMinPrepLogReferencedByMemTable();
 
 #endif  // NDEBUG
 
@@ -421,12 +427,57 @@ class DBImpl : public DB {
     return num_running_compactions_;
   }
 
+  // hollow transactions shell used for recovery.
+  // these will then be passed to TransactionDB so that
+  // locks can be reacquired before writing can resume.
+  struct RecoveredTransaction {
+    uint64_t log_number_;
+    std::string name_;
+    WriteBatch* batch_;
+    explicit RecoveredTransaction(const uint64_t log, const std::string& name,
+                                  WriteBatch* batch)
+        : log_number_(log), name_(name), batch_(batch) {}
+
+    ~RecoveredTransaction() { delete batch_; }
+  };
+
+  bool allow_2pc() const { return db_options_.allow_2pc; }
+
+  RecoveredTransaction* GetRecoveredTransaction(const std::string& name) {
+    auto it = recovered_transactions_.find(name);
+    if (it == recovered_transactions_.end()) {
+      return nullptr;
+    } else {
+      return it->second;
+    }
+  }
+
+  void InsertRecoveredTransaction(const uint64_t log, const std::string& name,
+                                  WriteBatch* batch) {
+    recovered_transactions_[name] = new RecoveredTransaction(log, name, batch);
+    MarkLogAsContainingPrepSection(log);
+  }
+
+  void DeleteRecoveredTransaction(const std::string& name) {
+    auto it = recovered_transactions_.find(name);
+    assert(it != recovered_transactions_.end());
+    auto* trx = it->second;
+    recovered_transactions_.erase(it);
+    MarkLogAsHavingPrepSectionFlushed(trx->log_number_);
+    delete trx;
+  }
+
+  void MarkLogAsHavingPrepSectionFlushed(uint64_t log);
+  void MarkLogAsContainingPrepSection(uint64_t log);
+
  protected:
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
   const DBOptions db_options_;
   Statistics* stats_;
+  std::unordered_map<std::string, RecoveredTransaction*>
+      recovered_transactions_;
 
   InternalIterator* NewInternalIterator(const ReadOptions&,
                                         ColumnFamilyData* cfd,
@@ -460,7 +511,12 @@ class DBImpl : public DB {
   void EraseThreadStatusDbInfo() const;
 
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
-                   WriteCallback* callback);
+                   WriteCallback* callback = nullptr,
+                   uint64_t* log_used = nullptr, uint64_t log_ref = 0,
+                   bool disable_memtable = false);
+
+  uint64_t FindMinLogContainingOutstandingPrep();
+  uint64_t FindMinPrepLogReferencedByMemTable();
 
  private:
   friend class DB;
@@ -853,6 +909,28 @@ class DBImpl : public DB {
 
   // Indicate DB was opened successfully
   bool opened_successfully_;
+
+  // minmum log number still containing prepared data.
+  // this is used by FindObsoleteFiles to determine which
+  // flushed logs we must keep around because they still
+  // contain prepared data which has not been flushed or rolled back
+  std::priority_queue<uint64_t, std::vector<uint64_t>, std::greater<uint64_t>>
+      min_log_with_prep_;
+
+  // to be used in conjunction with min_log_with_prep_.
+  // once a transaction with data in log L is committed or rolled back
+  // rather than removing the value from the heap we add that value
+  // to prepared_section_completed_ which maps LOG -> instance_count
+  // since a log could contain multiple prepared sections
+  //
+  // when trying to determine the minmum log still active we first
+  // consult min_log_with_prep_. while that root value maps to
+  // a value > 0 in prepared_section_completed_ we decrement the
+  // instance_count for that log and pop the root value in
+  // min_log_with_prep_. This will work the same as a min_heap
+  // where we are deleteing arbitrary elements and the up heaping.
+  std::unordered_map<uint64_t, uint64_t> prepared_section_completed_;
+  std::mutex prep_heap_mutex_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

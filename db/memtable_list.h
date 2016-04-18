@@ -215,6 +215,8 @@ class MemTableList {
 
   size_t* current_memory_usage() { return &current_memory_usage_; }
 
+  uint64_t GetMinLogContainingPrepSection();
+
  private:
   // DB mutex held
   void InstallNewVersion();

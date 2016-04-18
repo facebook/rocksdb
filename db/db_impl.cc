@@ -90,10 +90,10 @@
 #include "util/log_buffer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
-#include "util/sst_file_manager_impl.h"
 #include "util/options_helper.h"
 #include "util/options_parser.h"
 #include "util/perf_context_imp.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -614,6 +614,78 @@ void DBImpl::MaybeDumpStats() {
   }
 }
 
+uint64_t DBImpl::FindMinPrepLogReferencedByMemTable() {
+  uint64_t min_log = 0;
+
+  // we must look through the memtables for two phase transactions
+  // that have been committed but not yet flushed
+  for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
+    if (loop_cfd->IsDropped()) {
+      continue;
+    }
+
+    auto log = loop_cfd->imm()->GetMinLogContainingPrepSection();
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+
+    log = loop_cfd->mem()->GetMinLogContainingPrepSection();
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+  }
+
+  return min_log;
+}
+
+void DBImpl::MarkLogAsHavingPrepSectionFlushed(uint64_t log) {
+  assert(log != 0);
+  std::lock_guard<std::mutex> lock(prep_heap_mutex_);
+  auto it = prepared_section_completed_.find(log);
+  assert(it != prepared_section_completed_.end());
+  it->second += 1;
+}
+
+void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
+  assert(log != 0);
+  std::lock_guard<std::mutex> lock(prep_heap_mutex_);
+  min_log_with_prep_.push(log);
+  auto it = prepared_section_completed_.find(log);
+  if (it == prepared_section_completed_.end()) {
+    prepared_section_completed_[log] = 0;
+  }
+}
+
+uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
+  uint64_t min_log = 0;
+
+  // first we look in the prepared heap where we keep
+  // track of transactions that have been prepared (written to WAL)
+  // but not yet committed.
+  while (!min_log_with_prep_.empty()) {
+    min_log = min_log_with_prep_.top();
+
+    auto it = prepared_section_completed_.find(min_log);
+
+    // value was marked as 'deleted' from heap
+    if (it != prepared_section_completed_.end() && it->second > 0) {
+      it->second -= 1;
+      min_log_with_prep_.pop();
+
+      // back to squere one...
+      min_log = 0;
+      continue;
+    } else {
+      // found a valid value
+      break;
+    }
+  }
+
+  return min_log;
+}
+
 // * Returns the list of live files in 'sst_live'
 // If it's doing full scan:
 // * Returns the list of all files in the filesystem in
@@ -671,6 +743,32 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->pending_manifest_file_number =
       versions_->pending_manifest_file_number();
   job_context->log_number = versions_->MinLogNumber();
+
+  if (allow_2pc()) {
+    // if are 2pc we must consider logs containing prepared
+    // sections of outstanding transactions.
+    //
+    // We must check min logs with outstanding prep before we check
+    // logs referneces by memtables because a log referenced by the
+    // first data structure could transition to the second under us.
+    //
+    // TODO(horuff): iterating over all column families under db mutex.
+    // should find more optimial solution
+    auto min_log_in_prep_heap = FindMinLogContainingOutstandingPrep();
+
+    if (min_log_in_prep_heap != 0 &&
+        min_log_in_prep_heap < job_context->log_number) {
+      job_context->log_number = min_log_in_prep_heap;
+    }
+
+    auto min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable();
+
+    if (min_log_refed_by_mem != 0 &&
+        min_log_refed_by_mem < job_context->log_number) {
+      job_context->log_number = min_log_refed_by_mem;
+    }
+  }
+
   job_context->prev_log_number = versions_->prev_log_number();
 
   versions_->AddLiveFiles(&job_context->sst_live);
@@ -708,7 +806,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   }
 
   if (!alive_log_files_.empty()) {
-    uint64_t min_log_number = versions_->MinLogNumber();
+    uint64_t min_log_number = job_context->log_number;
     // find newly obsoleted log files
     while (alive_log_files_.begin()->number < min_log_number) {
       auto& earliest = *alive_log_files_.begin();
@@ -1378,9 +1476,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // insert. We don't want to fail the whole write batch in that case --
       // we just ignore the update.
       // That's why we set ignore missing column families to true
-      status =
-          WriteBatchInternal::InsertInto(&batch, column_family_memtables_.get(),
-                                         &flush_scheduler_, true, log_number);
+      status = WriteBatchInternal::InsertInto(
+          &batch, column_family_memtables_.get(), &flush_scheduler_, true,
+          log_number, this);
 
       MaybeIgnoreError(&status);
       if (!status.ok()) {
@@ -4258,19 +4356,21 @@ Status DBImpl::SingleDelete(const WriteOptions& write_options,
 }
 
 Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
-  return WriteImpl(write_options, my_batch, nullptr);
+  return WriteImpl(write_options, my_batch, nullptr, nullptr);
 }
 
 #ifndef ROCKSDB_LITE
 Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
                                  WriteBatch* my_batch,
                                  WriteCallback* callback) {
-  return WriteImpl(write_options, my_batch, callback);
+  return WriteImpl(write_options, my_batch, callback, nullptr);
 }
 #endif  // ROCKSDB_LITE
 
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
-                         WriteBatch* my_batch, WriteCallback* callback) {
+                         WriteBatch* my_batch, WriteCallback* callback,
+                         uint64_t* log_used, uint64_t log_ref,
+                         bool disable_memtable) {
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
@@ -4295,8 +4395,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   w.batch = my_batch;
   w.sync = write_options.sync;
   w.disableWAL = write_options.disableWAL;
+  w.disable_memtable = disable_memtable;
   w.in_batch_group = false;
   w.callback = callback;
+  w.log_ref = log_ref;
 
   if (!write_options.disableWAL) {
     RecordTick(stats_, WRITE_WITH_WAL);
@@ -4309,12 +4411,16 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // we are a non-leader in a parallel group
     PERF_TIMER_GUARD(write_memtable_time);
 
-    if (!w.CallbackFailed()) {
+    if (log_used != nullptr) {
+      *log_used = w.log_used;
+    }
+
+    if (w.ShouldWriteToMemtable()) {
       ColumnFamilyMemTablesImpl column_family_memtables(
           versions_->GetColumnFamilySet());
       WriteBatchInternal::SetSequence(w.batch, w.sequence);
       w.status = WriteBatchInternal::InsertInto(
-          w.batch, &column_family_memtables, &flush_scheduler_,
+          &w, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           true /*dont_filter_deletes*/, true /*concurrent_memtable_writes*/);
     }
@@ -4332,6 +4438,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     status = w.FinalStatus();
   }
   if (w.state == WriteThread::STATE_COMPLETED) {
+    if (log_used != nullptr) {
+      *log_used = w.log_used;
+    }
     // write is complete and leader has updated sequence
     RecordTick(stats_, WRITE_DONE_BY_OTHER);
     return w.FinalStatus();
@@ -4489,10 +4598,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     uint64_t total_byte_size = 0;
     for (auto writer : write_group) {
       if (writer->CheckCallback(this)) {
-        total_count += WriteBatchInternal::Count(writer->batch);
-        total_byte_size = WriteBatchInternal::AppendedByteSize(
-            total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
-        parallel = parallel && !writer->batch->HasMerge();
+        if (writer->ShouldWriteToMemtable()) {
+          total_count += WriteBatchInternal::Count(writer->batch);
+          parallel = parallel && !writer->batch->HasMerge();
+        }
+
+        if (writer->ShouldWriteToWAL()) {
+          total_byte_size = WriteBatchInternal::AppendedByteSize(
+              total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
+        }
       }
     }
 
@@ -4514,22 +4628,27 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       PERF_TIMER_GUARD(write_wal_time);
 
       WriteBatch* merged_batch = nullptr;
-      if (write_group.size() == 1 && !write_group[0]->CallbackFailed()) {
+      if (write_group.size() == 1 && write_group[0]->ShouldWriteToWAL()) {
         merged_batch = write_group[0]->batch;
+        write_group[0]->log_used = logfile_number_;
       } else {
         // WAL needs all of the batches flattened into a single batch.
         // We could avoid copying here with an iov-like AddRecord
         // interface
         merged_batch = &tmp_batch_;
         for (auto writer : write_group) {
-          if (!writer->CallbackFailed()) {
+          if (writer->ShouldWriteToWAL()) {
             WriteBatchInternal::Append(merged_batch, writer->batch);
           }
+          writer->log_used = logfile_number_;
         }
       }
-      WriteBatchInternal::SetSequence(merged_batch, current_sequence);
 
-      assert(WriteBatchInternal::Count(merged_batch) == total_count);
+      if (log_used != nullptr) {
+        *log_used = logfile_number_;
+      }
+
+      WriteBatchInternal::SetSequence(merged_batch, current_sequence);
 
       Slice log_entry = WriteBatchInternal::Contents(merged_batch);
       status = logs_.back().writer->AddRecord(log_entry);
@@ -4615,14 +4734,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          std::memory_order_relaxed);
         write_thread_.LaunchParallelFollowers(&pg, current_sequence);
 
-        if (!w.CallbackFailed()) {
+        if (w.ShouldWriteToMemtable()) {
           // do leader write
           ColumnFamilyMemTablesImpl column_family_memtables(
               versions_->GetColumnFamilySet());
           assert(w.sequence == current_sequence);
           WriteBatchInternal::SetSequence(w.batch, w.sequence);
           w.status = WriteBatchInternal::InsertInto(
-              w.batch, &column_family_memtables, &flush_scheduler_,
+              &w, &column_family_memtables, &flush_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
               this, true /*dont_filter_deletes*/,
               true /*concurrent_memtable_writes*/);

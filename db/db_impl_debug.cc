@@ -74,10 +74,17 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
                              disallow_trivial_move);
 }
 
-Status DBImpl::TEST_FlushMemTable(bool wait) {
+Status DBImpl::TEST_FlushMemTable(bool wait, ColumnFamilyHandle* cfh) {
   FlushOptions fo;
   fo.wait = wait;
-  return FlushMemTable(default_cf_handle_->cfd(), fo);
+  ColumnFamilyData* cfd;
+  if (cfh == nullptr) {
+    cfd = default_cf_handle_->cfd();
+  } else {
+    auto cfhi = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh);
+    cfd = cfhi->cfd();
+  }
+  return FlushMemTable(cfd, fo);
 }
 
 Status DBImpl::TEST_WaitForFlushMemTable(ColumnFamilyHandle* column_family) {
@@ -154,5 +161,12 @@ Status DBImpl::TEST_GetAllImmutableCFOptions(
   return Status::OK();
 }
 
+uint64_t DBImpl::TEST_FindMinLogContainingOutstandingPrep() {
+  return FindMinLogContainingOutstandingPrep();
+}
+
+uint64_t DBImpl::TEST_FindMinPrepLogReferencedByMemTable() {
+  return FindMinPrepLogReferencedByMemTable();
+}
 }  // namespace rocksdb
 #endif  // NDEBUG

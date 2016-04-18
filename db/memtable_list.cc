@@ -392,4 +392,24 @@ void MemTableList::InstallNewVersion() {
   }
 }
 
+uint64_t MemTableList::GetMinLogContainingPrepSection() {
+  uint64_t min_log = 0;
+
+  for (auto& m : current_->memlist_) {
+    // this mem has been flushed it no longer
+    // needs to hold on the its prep section
+    if (m->flush_completed_) {
+      continue;
+    }
+
+    auto log = m->GetMinLogContainingPrepSection();
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+  }
+
+  return min_log;
+}
+
 }  // namespace rocksdb

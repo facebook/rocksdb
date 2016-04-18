@@ -1313,6 +1313,10 @@ struct DBOptions {
   // Default: kPointInTimeRecovery
   WALRecoveryMode wal_recovery_mode;
 
+  // if set to false then recovery will fail when a prepared
+  // transaction is encountered in the WAL
+  bool allow_2pc = false;
+
   // A global cache for table-level rows.
   // Default: nullptr (disabled)
   // Not supported in ROCKSDB_LITE mode!

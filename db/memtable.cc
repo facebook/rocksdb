@@ -75,6 +75,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       first_seqno_(0),
       earliest_seqno_(earliest_seq),
       mem_next_logfile_number_(0),
+      min_prep_log_referenced_(0),
       locks_(moptions_.inplace_update_support
                  ? moptions_.inplace_update_num_locks
                  : 0),
@@ -798,6 +799,19 @@ void MemTableRep::Get(const LookupKey& k, void* callback_args,
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {
   }
+}
+
+void MemTable::RefLogContainingPrepSection(uint64_t log) {
+  assert(log > 0);
+  auto cur = min_prep_log_referenced_.load();
+  while ((log < cur || cur == 0) &&
+         !min_prep_log_referenced_.compare_exchange_strong(cur, log)) {
+    cur = min_prep_log_referenced_.load();
+  }
+}
+
+uint64_t MemTable::GetMinLogContainingPrepSection() {
+  return min_prep_log_referenced_.load();
 }
 
 }  // namespace rocksdb
