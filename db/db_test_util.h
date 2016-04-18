@@ -492,6 +492,7 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 };
 
+#ifndef ROCKSDB_LITE
 class OnFileDeletionListener : public EventListener {
  public:
   OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
@@ -516,6 +517,7 @@ class OnFileDeletionListener : public EventListener {
   size_t matched_count_;
   std::string expected_file_name_;
 };
+#endif
 
 class DBTestBase : public testing::Test {
  protected:
