@@ -13,11 +13,6 @@
 
 namespace rocksdb {
 
-static uint64_t TestGetTickerCount(const Options& options,
-                                   Tickers ticker_type) {
-  return options.statistics->getTickerCount(ticker_type);
-}
-
 class DBTest2 : public DBTestBase {
  public:
   DBTest2() : DBTestBase("/db_test2") {}

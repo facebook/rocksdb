@@ -1043,4 +1043,34 @@ std::unordered_map<std::string, uint64_t> DBTestBase::GetAllSSTFiles(
   return res;
 }
 
+std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
+                                                      const std::string& path) {
+  std::vector<std::string> files;
+  std::vector<uint64_t> file_numbers;
+  env->GetChildren(path, &files);
+  uint64_t number;
+  FileType type;
+  for (size_t i = 0; i < files.size(); ++i) {
+    if (ParseFileName(files[i], &number, &type)) {
+      if (type == kTableFile) {
+        file_numbers.push_back(number);
+      }
+    }
+  }
+  return file_numbers;
+}
+
+#ifndef ROCKSDB_LITE
+uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
+    DB* db, std::string column_family_name) {
+  std::vector<LiveFileMetaData> metadata;
+  db->GetLiveFilesMetaData(&metadata);
+  uint64_t result = 0;
+  for (auto& fileMetadata : metadata) {
+    result += (fileMetadata.column_family_name == column_family_name);
+  }
+  return result;
+}
+#endif  // ROCKSDB_LITE
+
 }  // namespace rocksdb

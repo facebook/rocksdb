@@ -12,11 +12,6 @@
 
 namespace rocksdb {
 
-static uint64_t TestGetTickerCount(const Options& options,
-                                   Tickers ticker_type) {
-  return options.statistics->getTickerCount(ticker_type);
-}
-
 class DBBlockCacheTest : public DBTestBase {
  private:
   size_t miss_count_ = 0;
@@ -229,6 +224,222 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   delete iter;
   iter = nullptr;
 }
+
+// Make sure that when options.block_cache is set, after a new table is
+// created its index/filter blocks are added to block cache.
+TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "key", "val"));
+  // Create a new table.
+  ASSERT_OK(Flush(1));
+
+  // index/filter blocks added to block cache right after table creation.
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(2, /* only index/filter were added */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+  ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+  uint64_t int_num;
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
+  ASSERT_EQ(int_num, 0U);
+
+  // Make sure filter block is in cache.
+  std::string value;
+  ReadOptions ropt;
+  db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value);
+
+  // Miss count should remain the same.
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+
+  db_->KeyMayExist(ReadOptions(), handles_[1], "key", &value);
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+
+  // Make sure index block is in cache.
+  auto index_block_hit = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  value = Get(1, "key");
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(index_block_hit + 1,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+
+  value = Get(1, "key");
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(index_block_hit + 2,
+            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+}
+
+TEST_F(DBBlockCacheTest, ParanoidFileChecks) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.level0_file_num_compaction_trigger = 2;
+  options.paranoid_file_checks = true;
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "1_key", "val"));
+  ASSERT_OK(Put(1, "9_key", "val"));
+  // Create a new table.
+  ASSERT_OK(Flush(1));
+  ASSERT_EQ(1, /* read and cache data block */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_OK(Put(1, "1_key2", "val2"));
+  ASSERT_OK(Put(1, "9_key2", "val2"));
+  // Create a new SST file. This will further trigger a compaction
+  // and generate another file.
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(3, /* Totally 3 files created up to now */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  // After disabling options.paranoid_file_checks. NO further block
+  // is added after generating a new file.
+  ASSERT_OK(
+      dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "false"}}));
+
+  ASSERT_OK(Put(1, "1_key3", "val3"));
+  ASSERT_OK(Put(1, "9_key3", "val3"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, "1_key4", "val4"));
+  ASSERT_OK(Put(1, "9_key4", "val4"));
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(3, /* Totally 3 files created up to now */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+}
+
+TEST_F(DBBlockCacheTest, CompressedCache) {
+  if (!Snappy_Supported()) {
+    return;
+  }
+  int num_iter = 80;
+
+  // Run this test three iterations.
+  // Iteration 1: only a uncompressed block cache
+  // Iteration 2: only a compressed block cache
+  // Iteration 3: both block cache and compressed cache
+  // Iteration 4: both block cache and compressed cache, but DB is not
+  // compressed
+  for (int iter = 0; iter < 4; iter++) {
+    Options options = CurrentOptions();
+    options.write_buffer_size = 64 * 1024;  // small write buffer
+    options.statistics = rocksdb::CreateDBStatistics();
+
+    BlockBasedTableOptions table_options;
+    switch (iter) {
+      case 0:
+        // only uncompressed block cache
+        table_options.block_cache = NewLRUCache(8 * 1024);
+        table_options.block_cache_compressed = nullptr;
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        break;
+      case 1:
+        // no block cache, only compressed cache
+        table_options.no_block_cache = true;
+        table_options.block_cache = nullptr;
+        table_options.block_cache_compressed = NewLRUCache(8 * 1024);
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        break;
+      case 2:
+        // both compressed and uncompressed block cache
+        table_options.block_cache = NewLRUCache(1024);
+        table_options.block_cache_compressed = NewLRUCache(8 * 1024);
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        break;
+      case 3:
+        // both block cache and compressed cache, but DB is not compressed
+        // also, make block cache sizes bigger, to trigger block cache hits
+        table_options.block_cache = NewLRUCache(1024 * 1024);
+        table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+        options.compression = kNoCompression;
+        break;
+      default:
+        ASSERT_TRUE(false);
+    }
+    CreateAndReopenWithCF({"pikachu"}, options);
+    // default column family doesn't have block cache
+    Options no_block_cache_opts;
+    no_block_cache_opts.statistics = options.statistics;
+    no_block_cache_opts = CurrentOptions(no_block_cache_opts);
+    BlockBasedTableOptions table_options_no_bc;
+    table_options_no_bc.no_block_cache = true;
+    no_block_cache_opts.table_factory.reset(
+        NewBlockBasedTableFactory(table_options_no_bc));
+    ReopenWithColumnFamilies(
+        {"default", "pikachu"},
+        std::vector<Options>({no_block_cache_opts, options}));
+
+    Random rnd(301);
+
+    // Write 8MB (80 values, each 100K)
+    ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
+    std::vector<std::string> values;
+    std::string str;
+    for (int i = 0; i < num_iter; i++) {
+      if (i % 4 == 0) {  // high compression ratio
+        str = RandomString(&rnd, 1000);
+      }
+      values.push_back(str);
+      ASSERT_OK(Put(1, Key(i), values[i]));
+    }
+
+    // flush all data from memtable so that reads are from block cache
+    ASSERT_OK(Flush(1));
+
+    for (int i = 0; i < num_iter; i++) {
+      ASSERT_EQ(Get(1, Key(i)), values[i]);
+    }
+
+    // check that we triggered the appropriate code paths in the cache
+    switch (iter) {
+      case 0:
+        // only uncompressed block cache
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
+        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 1:
+        // no block cache, only compressed cache
+        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 2:
+        // both compressed and uncompressed block cache
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
+        break;
+      case 3:
+        // both compressed and uncompressed block cache
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_MISS), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_HIT), 0);
+        ASSERT_GT(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS), 0);
+        // compressed doesn't have any hits since blocks are not compressed on
+        // storage
+        ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT), 0);
+        break;
+      default:
+        ASSERT_TRUE(false);
+    }
+
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
+  }
+}
+
 #endif
 
 }  // namespace rocksdb

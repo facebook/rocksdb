@@ -14,11 +14,6 @@
 
 namespace rocksdb {
 
-static uint64_t TestGetTickerCount(const Options& options,
-                                   Tickers ticker_type) {
-  return options.statistics->getTickerCount(ticker_type);
-}
-
 static std::string CompressibleString(Random* rnd, int len) {
   std::string r;
   test::CompressibleString(rnd, 0.8, len, &r);

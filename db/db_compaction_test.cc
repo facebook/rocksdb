@@ -40,34 +40,6 @@ class DBCompactionTestWithParam
 };
 
 namespace {
-class OnFileDeletionListener : public EventListener {
- public:
-  OnFileDeletionListener() :
-      matched_count_(0),
-      expected_file_name_("") {}
-
-  void SetExpectedFileName(
-      const std::string file_name) {
-    expected_file_name_ = file_name;
-  }
-
-  void VerifyMatchedCount(size_t expected_value) {
-    ASSERT_EQ(matched_count_, expected_value);
-  }
-
-  void OnTableFileDeleted(
-      const TableFileDeletionInfo& info) override {
-    if (expected_file_name_ != "") {
-      ASSERT_EQ(expected_file_name_, info.file_path);
-      expected_file_name_ = "";
-      matched_count_++;
-    }
-  }
-
- private:
-  size_t matched_count_;
-  std::string expected_file_name_;
-};
 
 class FlushedFileCollector : public EventListener {
  public:
