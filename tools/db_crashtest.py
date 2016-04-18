@@ -45,6 +45,7 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 
@@ -75,6 +76,7 @@ whitebox_default_params = {
     "ops_per_thread": 200000,
     "test_batches_snapshots": lambda: random.randint(0, 1),
     "write_buffer_size": 4 * 1024 * 1024,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 simple_default_params = {
@@ -107,6 +109,7 @@ simple_default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 32 * 1024 * 1024,
     "writepercent": 35,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 blackbox_simple_default_params = {
@@ -125,6 +128,7 @@ whitebox_simple_default_params = {
     "open_files": 500000,
     "ops_per_thread": 200000,
     "write_buffer_size": 32 * 1024 * 1024,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 
@@ -182,7 +186,8 @@ def blackbox_crash_main(args):
           + "total-duration=" + str(cmd_params['duration']) + "\n"
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
-          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n")
+          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
 
     while time.time() < exit_time:
         run_had_errors = False
@@ -244,7 +249,8 @@ def whitebox_crash_main(args):
           + "total-duration=" + str(cmd_params['duration']) + "\n"
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
-          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n")
+          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
 
     total_check_mode = 4
     check_mode = 0

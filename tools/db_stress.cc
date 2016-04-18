@@ -228,8 +228,8 @@ DEFINE_int64(cache_size, 2LL * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
 DEFINE_uint64(subcompactions, 1,
-             "Maximum number of subcompactions to divide L0-L1 compactions "
-             "into.");
+              "Maximum number of subcompactions to divide L0-L1 compactions "
+              "into.");
 
 DEFINE_bool(allow_concurrent_memtable_write, true,
             "Allow multi-writers to update mem tables in parallel.");
@@ -1929,6 +1929,8 @@ class StressTest {
             1 << FLAGS_log2_keys_per_lock);
     std::string compression = CompressionTypeToString(FLAGS_compression_type_e);
     fprintf(stdout, "Compression               : %s\n", compression.c_str());
+    fprintf(stdout, "Max subcompactions        : %" PRIu64 "\n",
+            FLAGS_subcompactions);
 
     const char* memtablerep = "";
     switch (FLAGS_rep_factory) {
