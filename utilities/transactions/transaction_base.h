@@ -213,6 +213,12 @@ class TransactionBaseImpl : public Transaction {
   // Used for memory management for snapshot_
   void ReleaseSnapshot(const Snapshot* snapshot, DB* db);
 
+  // iterates over the given batch and makes the appropriate inserts.
+  // used for rebuilding prepared transactions after recovery.
+  Status RebuildFromWriteBatch(WriteBatch* src_batch) override;
+
+  WriteBatch* GetCommitTimeWriteBatch() override;
+
  protected:
   // Add a key to the list of tracked keys.
   //
@@ -236,6 +242,7 @@ class TransactionBaseImpl : public Transaction {
   void SetSnapshotIfNeeded();
 
   DB* db_;
+  DBImpl* dbimpl_;
 
   WriteOptions write_options_;
 
@@ -278,6 +285,9 @@ class TransactionBaseImpl : public Transaction {
  private:
   // Records writes pending in this transaction
   WriteBatchWithIndex write_batch_;
+
+  // batch to be written at commit time
+  WriteBatch commit_time_batch_;
 
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.

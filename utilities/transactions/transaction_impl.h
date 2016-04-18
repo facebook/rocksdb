@@ -41,13 +41,17 @@ class TransactionImpl : public TransactionBaseImpl {
   void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
                     const TransactionOptions& txn_options);
 
+  Status Prepare() override;
+
   Status Commit() override;
 
   Status CommitBatch(WriteBatch* batch);
 
-  void Rollback() override;
+  Status Rollback() override;
 
   Status RollbackToSavePoint() override;
+
+  Status SetName(const TransactionName& name) override;
 
   // Generate a new unique transaction identifier
   static TransactionID GenTxnID();
@@ -77,9 +81,8 @@ class TransactionImpl : public TransactionBaseImpl {
                  bool read_only, bool untracked = false) override;
 
  private:
-  enum ExecutionStatus { STARTED, COMMITTING, LOCKS_STOLEN };
-
   TransactionDBImpl* txn_db_impl_;
+  DBImpl* db_impl_;
 
   // Used to create unique ids for transactions.
   static std::atomic<TransactionID> txn_id_counter_;
@@ -93,9 +96,6 @@ class TransactionImpl : public TransactionBaseImpl {
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
-
-  // Execution status of the transaction.
-  std::atomic<ExecutionStatus> exec_status_;
 
   void Clear() override;
 

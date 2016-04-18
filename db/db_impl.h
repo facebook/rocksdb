@@ -443,6 +443,11 @@ class DBImpl : public DB {
 
   bool allow_2pc() const { return db_options_.allow_2pc; }
 
+  std::unordered_map<std::string, RecoveredTransaction*>
+  recovered_transactions() {
+    return recovered_transactions_;
+  }
+
   RecoveredTransaction* GetRecoveredTransaction(const std::string& name) {
     auto it = recovered_transactions_.find(name);
     if (it == recovered_transactions_.end()) {
@@ -521,6 +526,7 @@ class DBImpl : public DB {
  private:
   friend class DB;
   friend class InternalStats;
+  friend class TransactionImpl;
 #ifndef ROCKSDB_LITE
   friend class ForwardIterator;
 #endif

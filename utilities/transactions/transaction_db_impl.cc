@@ -23,12 +23,15 @@ namespace rocksdb {
 TransactionDBImpl::TransactionDBImpl(DB* db,
                                      const TransactionDBOptions& txn_db_options)
     : TransactionDB(db),
+      db_impl_(dynamic_cast<DBImpl*>(db)),
       txn_db_options_(txn_db_options),
       lock_mgr_(this, txn_db_options_.num_stripes, txn_db_options.max_num_locks,
                 txn_db_options_.custom_mutex_factory
                     ? txn_db_options_.custom_mutex_factory
                     : std::shared_ptr<TransactionDBMutexFactory>(
-                          new TransactionDBMutexFactoryImpl())) {}
+                          new TransactionDBMutexFactoryImpl())) {
+  assert(db_impl_ != nullptr);
+}
 
 Transaction* TransactionDBImpl::BeginTransaction(
     const WriteOptions& write_options, const TransactionOptions& txn_options,
@@ -100,7 +103,9 @@ Status TransactionDB::Open(
     }
   }
 
-  s = DB::Open(db_options, dbname, column_families_copy, handles, &db);
+  DBOptions db_options_2pc = db_options;
+  db_options_2pc.allow_2pc = true;
+  s = DB::Open(db_options_2pc, dbname, column_families_copy, handles, &db);
 
   if (s.ok()) {
     TransactionDBImpl* txn_db = new TransactionDBImpl(
@@ -121,6 +126,37 @@ Status TransactionDB::Open(
     }
 
     s = txn_db->EnableAutoCompaction(compaction_enabled_cf_handles);
+
+    // create 'real' transactions from recovered shell transactions
+    assert(dynamic_cast<DBImpl*>(db) != nullptr);
+    auto dbimpl = reinterpret_cast<DBImpl*>(db);
+    auto rtrxs = dbimpl->recovered_transactions();
+
+    for (auto it = rtrxs.begin(); it != rtrxs.end(); it++) {
+      auto recovered_trx = it->second;
+      assert(recovered_trx);
+      assert(recovered_trx->log_number_);
+      assert(recovered_trx->name_.length());
+
+      WriteOptions w_options;
+      TransactionOptions t_options;
+
+      Transaction* real_trx =
+          txn_db->BeginTransaction(w_options, t_options, nullptr);
+      assert(real_trx);
+      real_trx->SetLogNumber(recovered_trx->log_number_);
+
+      s = real_trx->SetName(recovered_trx->name_);
+      if (!s.ok()) {
+        break;
+      }
+
+      s = real_trx->RebuildFromWriteBatch(recovered_trx->batch_);
+      real_trx->exec_status_ = Transaction::PREPARED;
+      if (!s.ok()) {
+        break;
+      }
+    }
   }
 
   return s;
@@ -313,6 +349,46 @@ void TransactionDBImpl::ReinitializeTransaction(
   auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
 
   txn_impl->Reinitialize(this, write_options, txn_options);
+}
+
+Transaction* TransactionDBImpl::GetTransactionByName(
+    const TransactionName& name) {
+  std::lock_guard<std::mutex> lock(name_map_mutex_);
+  auto it = transactions_.find(name);
+  if (it == transactions_.end()) {
+    return nullptr;
+  } else {
+    return it->second;
+  }
+}
+
+void TransactionDBImpl::GetAllPreparedTransactions(
+    std::vector<Transaction*>* transv) {
+  assert(transv);
+  transv->clear();
+  std::lock_guard<std::mutex> lock(name_map_mutex_);
+  for (auto it = transactions_.begin(); it != transactions_.end(); it++) {
+    if (it->second->exec_status_ == Transaction::PREPARED) {
+      transv->push_back(it->second);
+    }
+  }
+}
+
+void TransactionDBImpl::RegisterTransaction(Transaction* txn) {
+  assert(txn);
+  assert(txn->GetName().length() > 0);
+  assert(GetTransactionByName(txn->GetName()) == nullptr);
+  assert(txn->exec_status_ == Transaction::STARTED);
+  std::lock_guard<std::mutex> lock(name_map_mutex_);
+  transactions_[txn->GetName()] = txn;
+}
+
+void TransactionDBImpl::UnregisterTransaction(Transaction* txn) {
+  assert(txn);
+  std::lock_guard<std::mutex> lock(name_map_mutex_);
+  auto it = transactions_.find(txn->GetName());
+  assert(it != transactions_.end());
+  transactions_.erase(it);
 }
 
 }  //  namespace rocksdb

@@ -52,6 +52,11 @@ void OptimisticTransactionImpl::Clear() {
   TransactionBaseImpl::Clear();
 }
 
+Status OptimisticTransactionImpl::Prepare() {
+  return Status::InvalidArgument(
+      "Two phase commit not supported for optimistic transactions.");
+}
+
 Status OptimisticTransactionImpl::Commit() {
   // Set up callback which will call CheckTransactionForConflicts() to
   // check whether this transaction is safe to be committed.
@@ -75,7 +80,10 @@ Status OptimisticTransactionImpl::Commit() {
   return s;
 }
 
-void OptimisticTransactionImpl::Rollback() { Clear(); }
+Status OptimisticTransactionImpl::Rollback() {
+  Clear();
+  return Status::OK();
+}
 
 // Record this key so that we can check it for conflicts at commit time.
 Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
@@ -121,6 +129,10 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
   // for conflicts.
   return TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys(),
                                                 true /* cache_only */);
+}
+
+Status OptimisticTransactionImpl::SetName(const TransactionName& name) {
+  return Status::InvalidArgument("Optimistic transactions cannot be named.");
 }
 
 }  // namespace rocksdb

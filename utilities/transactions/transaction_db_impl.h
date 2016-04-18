@@ -7,8 +7,10 @@
 #ifndef ROCKSDB_LITE
 
 #include <mutex>
+#include <queue>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -78,11 +80,20 @@ class TransactionDBImpl : public TransactionDB {
   // is expirable (GetExpirationTime() > 0) and that it is expired.
   bool TryStealingExpiredTransactionLocks(TransactionID tx_id);
 
+  Transaction* GetTransactionByName(const TransactionName& name) override;
+
+  void RegisterTransaction(Transaction* txn);
+  void UnregisterTransaction(Transaction* txn);
+
+  // not thread safe. current use case is during recovery (single thread)
+  void GetAllPreparedTransactions(std::vector<Transaction*>* trans) override;
+
  private:
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
       const TransactionOptions& txn_options = TransactionOptions());
 
+  DBImpl* db_impl_;
   const TransactionDBOptions txn_db_options_;
   TransactionLockMgr lock_mgr_;
 
@@ -97,6 +108,10 @@ class TransactionDBImpl : public TransactionDB {
   std::mutex map_mutex_;
   std::unordered_map<TransactionID, TransactionImpl*>
       expirable_transactions_map_;
+
+  // map from name to two phase transaction instance
+  std::mutex name_map_mutex_;
+  std::unordered_map<TransactionName, Transaction*> transactions_;
 };
 
 }  //  namespace rocksdb

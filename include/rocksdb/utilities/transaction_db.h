@@ -124,6 +124,9 @@ class TransactionDB : public StackableDB {
       const TransactionOptions& txn_options = TransactionOptions(),
       Transaction* old_txn = nullptr) = 0;
 
+  virtual Transaction* GetTransactionByName(const TransactionName& name) = 0;
+  virtual void GetAllPreparedTransactions(std::vector<Transaction*>* trans) = 0;
+
  protected:
   // To Create an TransactionDB, call Open()
   explicit TransactionDB(DB* db) : StackableDB(db) {}

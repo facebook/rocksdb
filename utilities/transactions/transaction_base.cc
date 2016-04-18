@@ -19,11 +19,18 @@ namespace rocksdb {
 TransactionBaseImpl::TransactionBaseImpl(DB* db,
                                          const WriteOptions& write_options)
     : db_(db),
+      dbimpl_(reinterpret_cast<DBImpl*>(db)),
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
       write_batch_(cmp_, 0, true),
-      indexing_enabled_(true) {}
+      indexing_enabled_(true) {
+  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
+  log_number_ = 0;
+  if (dbimpl_->allow_2pc()) {
+    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+  }
+}
 
 TransactionBaseImpl::~TransactionBaseImpl() {
   // Release snapshot if snapshot is set
@@ -33,10 +40,15 @@ TransactionBaseImpl::~TransactionBaseImpl() {
 void TransactionBaseImpl::Clear() {
   save_points_.reset(nullptr);
   write_batch_.Clear();
+  commit_time_batch_.Clear();
   tracked_keys_.clear();
   num_puts_ = 0;
   num_deletes_ = 0;
   num_merges_ = 0;
+
+  if (dbimpl_->allow_2pc()) {
+    WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
+  }
 }
 
 void TransactionBaseImpl::Reinitialize(DB* db,
@@ -44,6 +56,8 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   Clear();
   ClearSnapshot();
   db_ = db;
+  name_.clear();
+  log_number_ = 0;
   write_options_ = write_options;
   start_time_ = db_->GetEnv()->NowMicros();
   indexing_enabled_ = true;
@@ -51,11 +65,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
 }
 
 void TransactionBaseImpl::SetSnapshot() {
-  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
-  auto db_impl = reinterpret_cast<DBImpl*>(db_);
-
-  const Snapshot* snapshot = db_impl->GetSnapshotForWriteConflictBoundary();
-
+  const Snapshot* snapshot = dbimpl_->GetSnapshotForWriteConflictBoundary();
   SetSnapshotInternal(snapshot);
 }
 
@@ -571,6 +581,56 @@ void TransactionBaseImpl::UndoGetForUpdate(ColumnFamilyHandle* column_family,
   }
 }
 
+Status TransactionBaseImpl::RebuildFromWriteBatch(WriteBatch* src_batch) {
+  struct IndexedWriteBatchBuilder : public WriteBatch::Handler {
+    Transaction* txn_;
+    DBImpl* db_;
+    IndexedWriteBatchBuilder(Transaction* txn, DBImpl* db)
+        : txn_(txn), db_(db) {
+      assert(dynamic_cast<TransactionBaseImpl*>(txn_) != nullptr);
+    }
+
+    Status PutCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      return txn_->Put(db_->GetColumnFamilyHandle(cf), key, val);
+    }
+
+    Status DeleteCF(uint32_t cf, const Slice& key) override {
+      return txn_->Delete(db_->GetColumnFamilyHandle(cf), key);
+    }
+
+    Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+      return txn_->SingleDelete(db_->GetColumnFamilyHandle(cf), key);
+    }
+
+    Status MergeCF(uint32_t cf, const Slice& key, const Slice& val) override {
+      return txn_->Merge(db_->GetColumnFamilyHandle(cf), key, val);
+    }
+
+    // this is used for reconstructing prepared transactions upon
+    // recovery. there should not be any meta markers in the batches
+    // we are processing.
+    Status MarkBeginPrepare() override { return Status::InvalidArgument(); }
+
+    Status MarkEndPrepare(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
+    Status MarkCommit(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+
+    Status MarkRollback(const Slice&) override {
+      return Status::InvalidArgument();
+    }
+  };
+
+  IndexedWriteBatchBuilder copycat(this, dbimpl_);
+  return src_batch->Iterate(&copycat);
+}
+
+WriteBatch* TransactionBaseImpl::GetCommitTimeWriteBatch() {
+  return &commit_time_batch_;
+}
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

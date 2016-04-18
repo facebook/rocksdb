@@ -38,9 +38,13 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
                     const WriteOptions& write_options,
                     const OptimisticTransactionOptions& txn_options);
 
+  Status Prepare() override;
+
   Status Commit() override;
 
-  void Rollback() override;
+  Status Rollback() override;
+
+  Status SetName(const TransactionName& name) override;
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
