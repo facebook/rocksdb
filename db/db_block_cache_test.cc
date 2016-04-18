@@ -224,6 +224,9 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   delete iter;
   iter = nullptr;
 }
+#endif  // SNAPPY
+
+#ifndef ROCKSDB_LITE
 
 // Make sure that when options.block_cache is set, after a new table is
 // created its index/filter blocks are added to block cache.
@@ -440,7 +443,7 @@ TEST_F(DBBlockCacheTest, CompressedCache) {
   }
 }
 
-#endif
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 
