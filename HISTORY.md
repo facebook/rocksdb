@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Public API Change
+* Delete deprecated classes for creating backups (BackupableDB) and restoring from backups (RestoreBackupableDB). Now, BackupEngine should be used for creating backups, and BackupEngineReadOnly should be used for restorations. For more details, see https://github.com/facebook/rocksdb/wiki/How-to-backup-RocksDB%3F
+
 ## 4.7.0 (4/8/2016)
 ### Public API Change
 * rename options compaction_measure_io_stats to report_bg_io_stats and include flush too.
