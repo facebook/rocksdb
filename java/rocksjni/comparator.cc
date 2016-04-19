@@ -12,26 +12,10 @@
 #include <string>
 #include <functional>
 
-#include "include/org_rocksdb_AbstractComparator.h"
 #include "include/org_rocksdb_Comparator.h"
 #include "include/org_rocksdb_DirectComparator.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
-
-// <editor-fold desc="org.rocksdb.AbstractComparator>
-
-/*
- * Class:     org_rocksdb_AbstractComparator
- * Method:    disposeInternal
- * Signature: (J)V
- */
-void Java_org_rocksdb_AbstractComparator_disposeInternal(
-    JNIEnv* env, jobject jobj, jlong handle) {
-  auto* bcjc = reinterpret_cast<rocksdb::BaseComparatorJniCallback*>(handle);
-  assert(bcjc != nullptr);
-  delete bcjc;
-}
-// </editor-fold>
 
 // <editor-fold desc="org.rocksdb.Comparator>
 

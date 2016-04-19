@@ -16,16 +16,13 @@ package org.rocksdb;
  */
 public abstract class DirectComparator extends AbstractComparator<DirectSlice> {
 
-  private final long nativeHandle_;
-
   public DirectComparator(final ComparatorOptions copt) {
-    super();
-    this.nativeHandle_ = createNewDirectComparator0(copt.nativeHandle_);
+    super(copt);
   }
 
   @Override
-  protected final long getNativeHandle() {
-    return nativeHandle_;
+  protected long initializeNative(final long... nativeParameterHandles) {
+    return createNewDirectComparator0(nativeParameterHandles[0]);
   }
 
   private native long createNewDirectComparator0(

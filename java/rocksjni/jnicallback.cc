@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include "rocksjni/jnicallback.h"
+#include "rocksjni/portal.h"
 
 namespace rocksdb {
 JniCallback::JniCallback(JNIEnv* env, jobject jcallback_obj) {
@@ -29,25 +30,23 @@ JniCallback::JniCallback(JNIEnv* env, jobject jcallback_obj) {
   }
 }
 
-JNIEnv* JniCallback::getJniEnv() const {
-  JNIEnv *env;
-  jint rs __attribute__((unused)) =
-      m_jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
-  assert(rs == JNI_OK);
-  return env;
+JNIEnv* JniCallback::getJniEnv(jboolean* attached) const {
+  return JniUtil::getJniEnv(m_jvm, attached);
 }
 
-void JniCallback::releaseJniEnv() const {
-  m_jvm->DetachCurrentThread();
+void JniCallback::releaseJniEnv(jboolean& attached) const {
+  JniUtil::releaseJniEnv(m_jvm, attached);
 }
 
 JniCallback::~JniCallback() {
-  JNIEnv* m_env = getJniEnv();
-  m_env->DeleteGlobalRef(m_jcallback_obj);
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = getJniEnv(&attached_thread);
+  assert(env != nullptr);
 
-  // Note: do not need to explicitly detach, as this function is effectively
-  // called from the Java class's disposeInternal method, and so already
-  // has an attached thread, getJniEnv above is just a no-op Attach to get
-  // the env jvm->DetachCurrentThread();
+  if(m_jcallback_obj != nullptr) {    
+    env->DeleteGlobalRef(m_jcallback_obj);
+  }
+
+  releaseJniEnv(attached_thread);
 }
 }  // namespace rocksdb

@@ -20,8 +20,8 @@ namespace rocksdb {
    protected:
     JavaVM* m_jvm;
     jobject m_jcallback_obj;
-    JNIEnv* getJniEnv() const;
-    void releaseJniEnv() const;
+    JNIEnv* getJniEnv(jboolean* attached) const;
+    void releaseJniEnv(jboolean& attached) const;
   };
 }
 

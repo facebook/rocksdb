@@ -130,7 +130,7 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isOwningHandle());
-    setComparatorHandle(nativeHandle_, comparator.getNativeHandle());
+    setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
     comparator_ = comparator;
     return this;
   }
@@ -153,6 +153,13 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
+  /**
+   * A single CompactionFilter instance to call into during compaction.
+   * Allows an application to modify/delete a key-value during background
+   * compaction.
+   *
+   */
+  //TODO(AR) need to set a note on the concurrency of the compaction filter used from this method
   public ColumnFamilyOptions setCompactionFilter(
         final AbstractCompactionFilter<? extends AbstractSlice<?>>
             compactionFilter) {

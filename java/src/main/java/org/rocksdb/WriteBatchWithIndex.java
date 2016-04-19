@@ -60,7 +60,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final AbstractComparator<? extends AbstractSlice<?>>
           fallbackIndexComparator, final int reservedBytes,
       final boolean overwriteKey) {
-    super(newWriteBatchWithIndex(fallbackIndexComparator.getNativeHandle(),
+    super(newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_,
         reservedBytes, overwriteKey));
   }
 
