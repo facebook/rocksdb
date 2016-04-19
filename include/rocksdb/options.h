@@ -282,7 +282,7 @@ struct ColumnFamilyOptions {
 
   // The minimum number of write buffers that will be merged together
   // before writing to storage.  If set to 1, then
-  // all write buffers are fushed to L0 as individual files and this increases
+  // all write buffers are flushed to L0 as individual files and this increases
   // read amplification because a get request has to check in all of these
   // files. Also, an in-memory merge may result in writing lesser
   // data to storage if there are duplicate records in each of these
