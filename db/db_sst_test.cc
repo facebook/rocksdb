@@ -247,6 +247,7 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
 
 #ifndef ROCKSDB_LITE
 TEST_F(DBSSTTest, RateLimitedDelete) {
+  Destroy(last_options_);
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DBSSTTest::RateLimitedDelete:1",
        "DeleteScheduler::BackgroundEmptyTrash"},
@@ -256,7 +257,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DeleteScheduler::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -270,8 +271,6 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   ASSERT_OK(s);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
-  Destroy(last_options_);
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(TryReopen(options));
   // Create 4 files in L0
   for (char v = 'a'; v <= 'd'; v++) {
