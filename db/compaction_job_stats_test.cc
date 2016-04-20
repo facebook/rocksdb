@@ -624,7 +624,10 @@ CompressionType GetAnyCompression() {
     return kBZip2Compression;
   } else if (LZ4_Supported()) {
     return kLZ4Compression;
+  } else if (XPRESS_Supported()) {
+    return kXpressCompression;
   }
+
   return kNoCompression;
 }
 

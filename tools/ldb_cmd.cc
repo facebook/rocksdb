@@ -300,6 +300,8 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       opt.compression = kLZ4Compression;
     } else if (comp == "lz4hc") {
       opt.compression = kLZ4HCCompression;
+    } else if (comp == "xpress") {
+      opt.compression = kXpressCompression;
     } else if (comp == "zstd") {
       opt.compression = kZSTDNotFinalCompression;
     } else {

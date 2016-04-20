@@ -180,35 +180,27 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
   std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
       block_based_table_factories;
 
-  std::map<CompressionType, const char*> compress_type;
-  compress_type.insert(
-      std::make_pair(CompressionType::kNoCompression, "kNoCompression"));
-  compress_type.insert(std::make_pair(CompressionType::kSnappyCompression,
-                                      "kSnappyCompression"));
-  compress_type.insert(
-      std::make_pair(CompressionType::kZlibCompression, "kZlibCompression"));
-  compress_type.insert(
-      std::make_pair(CompressionType::kBZip2Compression, "kBZip2Compression"));
-  compress_type.insert(
-      std::make_pair(CompressionType::kLZ4Compression, "kLZ4Compression"));
-  compress_type.insert(
-      std::make_pair(CompressionType::kLZ4HCCompression, "kLZ4HCCompression"));
-  compress_type.insert(std::make_pair(CompressionType::kZSTDNotFinalCompression,
-                                      "kZSTDNotFinalCompression"));
-
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
 
-  for (CompressionType i = CompressionType::kNoCompression;
-       i <= CompressionType::kZSTDNotFinalCompression;
-       i = (i == kLZ4HCCompression) ? kZSTDNotFinalCompression
-                                    : CompressionType(i + 1)) {
+  std::pair<CompressionType,const char*> compressions[] = {
+    { CompressionType::kNoCompression, "kNoCompression" },
+    { CompressionType::kSnappyCompression, "kSnappyCompression" },
+    { CompressionType::kZlibCompression, "kZlibCompression" },
+    { CompressionType::kBZip2Compression, "kBZip2Compression" },
+    { CompressionType::kLZ4Compression, "kLZ4Compression" }, 
+    { CompressionType::kLZ4HCCompression, "kLZ4HCCompression" },
+    { CompressionType::kXpressCompression, "kXpressCompression" },
+    { CompressionType::kZSTDNotFinalCompression, "kZSTDNotFinalCompression" }
+  };
+
+  for (auto& i : compressions) {
     CompressionOptions compress_opt;
     std::string column_family_name;
-    TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i,
+    TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i.first,
                                 compress_opt, false /* skip_filters */,
                                 column_family_name);
     uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
-    fprintf(stdout, "Compression: %s", compress_type.find(i)->second);
+    fprintf(stdout, "Compression: %s", i.second);
     fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
   }
   return 0;

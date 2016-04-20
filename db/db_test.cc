@@ -3184,8 +3184,8 @@ class ModelDB : public DB {
 
   virtual Status GetUpdatesSince(
       rocksdb::SequenceNumber, unique_ptr<rocksdb::TransactionLogIterator>*,
-      const TransactionLogIterator::ReadOptions& read_options =
-          TransactionLogIterator::ReadOptions()) override {
+      const TransactionLogIterator::ReadOptions&
+          read_options = TransactionLogIterator::ReadOptions()) override {
     return Status::NotSupported("Not supported in Model DB");
   }
 
@@ -3271,7 +3271,8 @@ static bool CompareIterators(int step, DB* model, DB* db,
        ok && miter->Valid() && dbiter->Valid(); miter->Next(), dbiter->Next()) {
     count++;
     if (miter->key().compare(dbiter->key()) != 0) {
-      fprintf(stderr, "step %d: Key mismatch: '%s' vs. '%s'\n", step,
+      fprintf(stderr, "step %d: Key mismatch: '%s' vs. '%s'\n",
+              step,
               EscapeString(miter->key()).c_str(),
               EscapeString(dbiter->key()).c_str());
       ok = false;
@@ -3474,6 +3475,7 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
 
+
   Reopen(options);
   ASSERT_OK(Put("k1", "v1"));
   Flush();
@@ -3672,15 +3674,15 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
   ASSERT_OK(TryReopen(options));
 }
 
+
+// On Windows you can have either memory mapped file or a file
+// with unbuffered access. So this asserts and does not make
+// sense to run
+#ifndef OS_WIN
 TEST_F(DBTest, MmapAndBufferOptions) {
   Options options = CurrentOptions();
 
-  // If allow_mmap_reads is on allow_os_buffer must also be on
-  // On Windows you can have either memory mapped file or a file
-  // with unbuffered access.
-#ifndef OS_WIN
   options.allow_os_buffer = false;
-#endif
   options.allow_mmap_reads = true;
   ASSERT_NOK(TryReopen(options));
 
@@ -3695,6 +3697,7 @@ TEST_F(DBTest, MmapAndBufferOptions) {
   options.allow_os_buffer = true;
   ASSERT_OK(TryReopen(options));
 }
+#endif
 
 TEST_F(DBTest, ConcurrentMemtableNotSupported) {
   Options options = CurrentOptions();
@@ -4948,10 +4951,12 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
   // iter 1 -- bzip2
   // iter 2 -- lz4
   // iter 3 -- lz4HC
+  // iter 4 -- xpress
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
-                                    kLZ4Compression,  kLZ4HCCompression};
-  for (int iter = 0; iter < 4; ++iter) {
-    if (!CompressionTypeSupported(compressions[iter])) {
+                                    kLZ4Compression,  kLZ4HCCompression,
+                                    kXpressCompression};
+  for (auto comp : compressions) {
+    if (!CompressionTypeSupported(comp)) {
       continue;
     }
     // first_table_version 1 -- generate with table_version == 1, read with
@@ -4966,7 +4971,7 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
       Options options = CurrentOptions();
       options.table_factory.reset(NewBlockBasedTableFactory(table_options));
       options.create_if_missing = true;
-      options.compression = compressions[iter];
+      options.compression = comp;
       DestroyAndReopen(options);
 
       int kNumKeysWritten = 100000;
@@ -5809,18 +5814,19 @@ TEST_F(DBTest, LastWriteBufferDelay) {
 
 TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
-                                    kLZ4Compression, kLZ4HCCompression};
-  for (int iter = 0; iter < 4; ++iter) {
-    if (!CompressionTypeSupported(compressions[iter])) {
+                                    kLZ4Compression,  kLZ4HCCompression,
+                                    kXpressCompression};
+  for (auto comp : compressions) {
+    if (!CompressionTypeSupported(comp)) {
       // not supported, we should fail the Open()
       Options options = CurrentOptions();
-      options.compression = compressions[iter];
+      options.compression = comp;
       ASSERT_TRUE(!TryReopen(options).ok());
       // Try if CreateColumnFamily also fails
       options.compression = kNoCompression;
       ASSERT_OK(TryReopen(options));
       ColumnFamilyOptions cf_options(options);
-      cf_options.compression = compressions[iter];
+      cf_options.compression = comp;
       ColumnFamilyHandle* handle;
       ASSERT_TRUE(!db_->CreateColumnFamily(cf_options, "name", &handle).ok());
     }

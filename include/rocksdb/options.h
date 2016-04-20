@@ -61,6 +61,7 @@ enum CompressionType : char {
   kBZip2Compression = 0x3,
   kLZ4Compression = 0x4,
   kLZ4HCCompression = 0x5,
+  kXpressCompression = 0x6,
   // zstd format is not finalized yet so it's subject to changes.
   kZSTDNotFinalCompression = 0x40,
 };

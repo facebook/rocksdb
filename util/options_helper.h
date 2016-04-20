@@ -572,6 +572,7 @@ static std::unordered_map<std::string, CompressionType>
         {"kBZip2Compression", kBZip2Compression},
         {"kLZ4Compression", kLZ4Compression},
         {"kLZ4HCCompression", kLZ4HCCompression},
+        {"kXpressCompression", kXpressCompression },
         {"kZSTDNotFinalCompression", kZSTDNotFinalCompression}};
 
 static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
