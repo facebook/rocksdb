@@ -35,9 +35,10 @@ package org.rocksdb;
  * {@link org.rocksdb.InfoLogLevel#FATAL_LEVEL}.
  * </p>
  */
-public abstract class Logger extends AbstractImmutableNativeReference {
+public abstract class Logger extends RocksCallbackObject {
 
-  final long nativeHandle_;
+  private final static long WITH_OPTIONS = 0;
+  private final static long WITH_DBOPTIONS = 1;
 
   /**
    * <p>AbstractLogger constructor.</p>
@@ -49,8 +50,8 @@ public abstract class Logger extends AbstractImmutableNativeReference {
    * @param options {@link org.rocksdb.Options} instance.
    */
   public Logger(final Options options) {
-    super(true);
-    this.nativeHandle_ = createNewLoggerOptions(options.nativeHandle_);
+    super(options.nativeHandle_, WITH_OPTIONS);
+
   }
 
   /**
@@ -63,8 +64,18 @@ public abstract class Logger extends AbstractImmutableNativeReference {
    * @param dboptions {@link org.rocksdb.DBOptions} instance.
    */
   public Logger(final DBOptions dboptions) {
-    super(true);
-    this.nativeHandle_ = createNewLoggerDbOptions(dboptions.nativeHandle_);
+    super(dboptions.nativeHandle_, WITH_DBOPTIONS);
+  }
+
+  @Override
+  protected long initializeNative(long... nativeParameterHandles) {
+    if(nativeParameterHandles[1] == WITH_OPTIONS) {
+      return createNewLoggerOptions(nativeParameterHandles[0]);
+    } else if(nativeParameterHandles[1] == WITH_DBOPTIONS) {
+      return createNewLoggerDbOptions(nativeParameterHandles[0]);
+    } else {
+      throw new IllegalArgumentException();
+    }
   }
 
   /**
@@ -89,17 +100,6 @@ public abstract class Logger extends AbstractImmutableNativeReference {
   protected abstract void log(InfoLogLevel infoLogLevel,
       String logMsg);
 
-  /**
-   * Deletes underlying C++ slice pointer.
-   * Note that this function should be called only after all
-   * RocksDB instances referencing the slice are closed.
-   * Otherwise an undefined behavior will occur.
-   */
-  @Override
-  protected void disposeInternal() {
-    disposeInternal(nativeHandle_);
-  }
-
   protected native long createNewLoggerOptions(
       long options);
   protected native long createNewLoggerDbOptions(
@@ -107,5 +107,16 @@ public abstract class Logger extends AbstractImmutableNativeReference {
   protected native void setInfoLogLevel(long handle,
       byte infoLogLevel);
   protected native byte infoLogLevel(long handle);
+
+  /**
+   * We override {@link RocksCallbackObject#disposeInternal()}
+   * as disposing of a rocksdb::LoggerJniCallback requires
+   * a slightly different approach as it is a std::shared_ptr
+   */
+  @Override
+  protected void disposeInternal() {
+    disposeInternal(nativeHandle_);
+  }
+
   private native void disposeInternal(final long handle);
 }
