@@ -265,6 +265,7 @@ set(SOURCES
         utilities/merge_operators/max.cc
         utilities/merge_operators/uint64add.cc
         utilities/options/options_util.cc
+        utilities/persistent_cache/persistent_cache_tier.cc
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc

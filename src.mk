@@ -131,6 +131,7 @@ LIB_SOURCES =                                                   \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/uint64add.cc                        \
   utilities/options/options_util.cc                             \
+  utilities/persistent_cache/persistent_cache_tier.cc           \
   utilities/redis/redis_lists.cc                                \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/spatialdb/spatial_db.cc                             \
