@@ -1614,6 +1614,7 @@ class StressTest {
         }
       }
 
+#ifndef ROCKSDB_LITE  // Lite does not support GetColumnFamilyMetaData
       if (FLAGS_compact_files_one_in > 0 &&
           thread->rand.Uniform(FLAGS_compact_files_one_in) == 0) {
         auto* random_cf =
@@ -1663,6 +1664,7 @@ class StressTest {
           }
         }
       }
+#endif                // !ROCKSDB_LITE
 
       long rand_key = thread->rand.Next() % max_key;
       int rand_column_family = thread->rand.Next() % FLAGS_column_families;
