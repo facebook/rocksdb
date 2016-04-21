@@ -93,7 +93,7 @@ Status CompactedDBImpl::Init(const Options& options) {
   mutex_.Lock();
   ColumnFamilyDescriptor cf(kDefaultColumnFamilyName,
                             ColumnFamilyOptions(options));
-  Status s = Recover({ cf }, true /* read only */, false);
+  Status s = Recover({cf}, true /* read only */, false, true);
   if (s.ok()) {
     cfd_ = reinterpret_cast<ColumnFamilyHandleImpl*>(
               DefaultColumnFamily())->cfd();

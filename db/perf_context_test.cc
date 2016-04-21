@@ -37,6 +37,7 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
     DB* db;
     Options options;
     options.create_if_missing = true;
+    options.max_open_files = -1;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =
@@ -279,14 +280,19 @@ void ProfileQueries(bool enabled_time = false) {
 #endif
 
   for (const int i : keys) {
+    if (i == kFlushFlag) {
+      continue;
+    }
     std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string expected_value = "v" + ToString(i);
+    std::string value;
 
     std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
-    db->Get(read_options, key, &value);
+    ASSERT_OK(db->Get(read_options, key, &value));
+    ASSERT_EQ(expected_value, value);
     hist_get_snapshot.Add(perf_context.get_snapshot_time);
     hist_get_memtable.Add(perf_context.get_from_memtable_time);
     hist_get_files.Add(perf_context.get_from_output_files_time);
@@ -375,14 +381,19 @@ void ProfileQueries(bool enabled_time = false) {
   hist_mget_num_memtable_checked.Clear();
 
   for (const int i : keys) {
+    if (i == kFlushFlag) {
+      continue;
+    }
     std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string expected_value = "v" + ToString(i);
+    std::string value;
 
     std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
-    db->Get(read_options, key, &value);
+    ASSERT_OK(db->Get(read_options, key, &value));
+    ASSERT_EQ(expected_value, value);
     hist_get_snapshot.Add(perf_context.get_snapshot_time);
     hist_get_memtable.Add(perf_context.get_from_memtable_time);
     hist_get_files.Add(perf_context.get_from_output_files_time);

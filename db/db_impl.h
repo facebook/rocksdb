@@ -483,7 +483,8 @@ class DBImpl : public DB {
   // amount of work to recover recently logged updates.  Any changes to
   // be made to the descriptor are added to *edit.
   Status Recover(const std::vector<ColumnFamilyDescriptor>& column_families,
-                 bool read_only = false, bool error_if_log_file_exist = false);
+                 bool read_only = false, bool error_if_log_file_exist = false,
+                 bool error_if_data_exists_in_logs = false);
 
   void MaybeIgnoreError(Status* s) const;
 

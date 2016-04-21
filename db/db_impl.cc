@@ -988,7 +988,7 @@ Directory* DBImpl::Directories::GetDataDir(size_t path_id) {
 
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
-    bool error_if_log_file_exist) {
+    bool error_if_log_file_exist, bool error_if_data_exists_in_logs) {
   mutex_.AssertHeld();
 
   bool is_new_db = false;
@@ -1083,10 +1083,25 @@ Status DBImpl::Recover(
       }
     }
 
-    if (logs.size() > 0 && error_if_log_file_exist) {
-      return Status::Corruption(""
-          "The db was opened in readonly mode with error_if_log_file_exist"
-          "flag but a log file already exists");
+    if (logs.size() > 0) {
+      if (error_if_log_file_exist) {
+        return Status::Corruption(
+            "The db was opened in readonly mode with error_if_log_file_exist"
+            "flag but a log file already exists");
+      } else if (error_if_data_exists_in_logs) {
+        for (auto& log : logs) {
+          std::string fname = LogFileName(db_options_.wal_dir, log);
+          uint64_t bytes;
+          s = env_->GetFileSize(fname, &bytes);
+          if (s.ok()) {
+            if (bytes > 0) {
+              return Status::Corruption(
+                  "error_if_data_exists_in_logs is set but there are data "
+                  " in log files.");
+            }
+          }
+        }
+      }
     }
 
     if (!logs.empty()) {

@@ -338,6 +338,15 @@ TEST_F(DBTest, CompactedDB) {
   ASSERT_OK(status_list[4]);
   ASSERT_EQ(DummyString(kFileSize / 2, 'i'), values[4]);
   ASSERT_TRUE(status_list[5].IsNotFound());
+
+  Reopen(options);
+  // Add a key
+  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  s = Put("new", "value");
+  ASSERT_EQ(s.ToString(),
+            "Not implemented: Not supported operation in read only mode.");
 }
 
 TEST_F(DBTest, LevelLimitReopen) {
