@@ -200,6 +200,11 @@ Slice ManagedIterator::value() const {
   return cached_value_.GetKey();
 }
 
+bool ManagedIterator::key_is_deleted() const {
+  assert(valid_);
+  return cached_key_is_deleted_;
+}
+
 Status ManagedIterator::status() const { return status_; }
 
 void ManagedIterator::RebuildIterator() {
@@ -219,6 +224,7 @@ void ManagedIterator::UpdateCurrent() {
   status_ = Status::OK();
   cached_key_.SetKey(mutable_iter_->key());
   cached_value_.SetKey(mutable_iter_->value());
+  cached_key_is_deleted_ = mutable_iter_->key_is_deleted();
 }
 
 void ManagedIterator::ReleaseIter(bool only_old) {

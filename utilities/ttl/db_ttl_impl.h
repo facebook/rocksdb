@@ -115,6 +115,8 @@ class TtlIterator : public Iterator {
 
   Slice key() const override { return iter_->key(); }
 
+  bool key_is_deleted() const override { return iter_->key_is_deleted(); }
+
   int32_t timestamp() const {
     return DecodeFixed32(iter_->value().data() + iter_->value().size() -
                          DBWithTTLImpl::kTSLength);

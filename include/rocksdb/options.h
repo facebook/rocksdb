@@ -1447,6 +1447,12 @@ struct ReadOptions {
   // Default: false
   bool pin_data;
 
+  // Expose deleted keys through the iterator. If set to false, rocksdb will
+  // internally skip over deleted keys. This can be used by users who want a
+  // predictable upper bound for the time taken by Seek()/Next()/Prev().
+  // Default: true
+  bool skip_deleted_keys;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

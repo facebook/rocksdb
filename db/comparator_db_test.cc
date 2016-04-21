@@ -50,6 +50,7 @@ class KVIter : public Iterator {
   }
 
   virtual Slice key() const override { return iter_->first; }
+  virtual bool key_is_deleted() const override { return false; }
   virtual Slice value() const override { return iter_->second; }
   virtual Status status() const override { return Status::OK(); }
 

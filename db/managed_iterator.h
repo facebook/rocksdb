@@ -46,6 +46,7 @@ class ManagedIterator : public Iterator {
   virtual void Next() override;
   virtual Slice key() const override;
   virtual Slice value() const override;
+  virtual bool key_is_deleted() const override;
   virtual Status status() const override;
   void ReleaseIter(bool only_old);
   void SetDropOld(bool only_old) {
@@ -73,6 +74,7 @@ class ManagedIterator : public Iterator {
 
   IterKey cached_key_;
   IterKey cached_value_;
+  bool cached_key_is_deleted_ = false;
 
   bool only_drop_old_ = true;
   bool snapshot_created_;
