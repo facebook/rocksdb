@@ -2,7 +2,7 @@
 ## Unreleased
 ### Public API Change
 * Delete deprecated classes for creating backups (BackupableDB) and restoring from backups (RestoreBackupableDB). Now, BackupEngine should be used for creating backups, and BackupEngineReadOnly should be used for restorations. For more details, see https://github.com/facebook/rocksdb/wiki/How-to-backup-RocksDB%3F
-* Expose estimate of per-level compression ratio via DB property: "rocksdb.num-files-at-levelN".
+* Expose estimate of per-level compression ratio via DB property: "rocksdb.compression-ratio-at-levelN".
 
 ## 4.7.0 (4/8/2016)
 ### Public API Change
