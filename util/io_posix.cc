@@ -12,6 +12,7 @@
 #include "util/io_posix.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <algorithm>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #endif
@@ -45,6 +46,112 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
   return 0;  // simply do nothing.
 #endif
 }
+
+/*
+ * DirectIOHelper
+ */
+namespace {
+const size_t kSectorSize = 512;
+#ifdef OS_LINUX
+const size_t kPageSize = sysconf(_SC_PAGESIZE);
+#else
+const size_t kPageSize = 4 * 1024;
+#endif
+
+std::unique_ptr<void, void (&)(void*)> NewAligned(const size_t size) {
+  void* ptr = nullptr;
+  if (posix_memalign(&ptr, 4 * 1024, size) != 0) {
+    return std::unique_ptr<char, void (&)(void*)>(nullptr, free);
+  }
+  std::unique_ptr<void, void (&)(void*)> uptr(ptr, free);
+  return uptr;
+}
+
+size_t Upper(const size_t size, const size_t fac) {
+  if (size % fac == 0) {
+    return size;
+  }
+  return size + (fac - size % fac);
+}
+
+size_t Lower(const size_t size, const size_t fac) {
+  if (size % fac == 0) {
+    return size;
+  }
+  return size - (size % fac);
+}
+
+bool IsSectorAligned(const size_t off) { return off % kSectorSize == 0; }
+
+static bool IsPageAligned(const void* ptr) {
+  return uintptr_t(ptr) % (kPageSize) == 0;
+}
+
+Status ReadAligned(int fd, Slice* data, const uint64_t offset,
+                   const size_t size, char* scratch) {
+  assert(IsSectorAligned(offset));
+  assert(IsSectorAligned(size));
+  assert(IsPageAligned(scratch));
+
+  size_t bytes_read = 0;
+  ssize_t status = -1;
+  while (bytes_read < size) {
+    status =
+        pread(fd, scratch + bytes_read, size - bytes_read, offset + bytes_read);
+    if (status <= 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      break;
+    }
+    bytes_read += status;
+  }
+
+  *data = Slice(scratch, bytes_read);
+  return status < 0 ? Status::IOError(strerror(errno)) : Status::OK();
+}
+
+Status ReadUnaligned(int fd, Slice* data, const uint64_t offset,
+                     const size_t size, char* scratch) {
+  assert(scratch);
+  assert(!IsSectorAligned(offset) || !IsSectorAligned(size) ||
+         !IsPageAligned(scratch));
+
+  const uint64_t aligned_off = Lower(offset, kSectorSize);
+  const size_t aligned_size = Upper(size + (offset - aligned_off), kSectorSize);
+  auto aligned_scratch = NewAligned(aligned_size);
+  assert(aligned_scratch);
+  if (!aligned_scratch) {
+    return Status::IOError("Unable to allocate");
+  }
+
+  assert(IsSectorAligned(aligned_off));
+  assert(IsSectorAligned(aligned_size));
+  assert(aligned_scratch);
+  assert(IsPageAligned(aligned_scratch.get()));
+  assert(offset + size <= aligned_off + aligned_size);
+
+  Slice scratch_slice;
+  Status s = ReadAligned(fd, &scratch_slice, aligned_off, aligned_size,
+                         reinterpret_cast<char*>(aligned_scratch.get()));
+
+  // copy data upto min(size, what was read)
+  memcpy(scratch, reinterpret_cast<char*>(aligned_scratch.get()) +
+                      (offset % kSectorSize),
+         std::min(size, scratch_slice.size()));
+  *data = Slice(scratch, std::min(size, scratch_slice.size()));
+  return s;
+}
+
+Status DirectIORead(int fd, Slice* result, size_t off, size_t n,
+                    char* scratch) {
+  if (IsSectorAligned(off) && IsSectorAligned(n) &&
+      IsPageAligned(result->data())) {
+    return ReadAligned(fd, result, off, n, scratch);
+  }
+  return ReadUnaligned(fd, result, off, n, scratch);
+}
+}  // namespace
 
 /*
  * PosixSequentialFile
@@ -104,15 +211,37 @@ Status PosixSequentialFile::InvalidateCache(size_t offset, size_t length) {
 #endif
 }
 
+/*
+ * PosixDirectIOSequentialFile
+ */
+Status PosixDirectIOSequentialFile::Read(size_t n, Slice* result,
+                                         char* scratch) {
+  const size_t off = off_.fetch_add(n);
+  return DirectIORead(fd_, result, off, n, scratch);
+}
+
+Status PosixDirectIOSequentialFile::Skip(uint64_t n) {
+  off_ += n;
+  return Status::OK();
+}
+
+Status PosixDirectIOSequentialFile::InvalidateCache(size_t /*offset*/,
+                                                    size_t /*length*/) {
+  return Status::OK();
+}
+
+/*
+ * PosixRandomAccessFile
+ */
 #if defined(OS_LINUX)
-namespace {
-static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
+size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   if (max_size < kMaxVarint64Length * 3) {
     return 0;
   }
 
   struct stat buf;
   int result = fstat(fd, &buf);
+  assert(result != -1);
   if (result == -1) {
     return 0;
   }
@@ -132,12 +261,10 @@ static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   assert(rid >= id);
   return static_cast<size_t>(rid - id);
 }
-}  // namespace
 #endif
 
 #if defined(OS_MACOSX)
-namespace {
-static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
+size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   if (max_size < kMaxVarint64Length * 3) {
     return 0;
   }
@@ -155,9 +282,7 @@ static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   assert(rid >= id);
   return static_cast<size_t>(rid - id);
 }
-}  // namespace
 #endif
-
 /*
  * PosixRandomAccessFile
  *
@@ -206,7 +331,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
 
 #if defined(OS_LINUX) || defined(OS_MACOSX)
 size_t PosixRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
-  return GetUniqueIdFromFile(fd_, id, max_size);
+  return PosixHelper::GetUniqueIdFromFile(fd_, id, max_size);
 }
 #endif
 
@@ -244,6 +369,15 @@ Status PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   }
   return IOError(filename_, errno);
 #endif
+}
+
+/*
+ * PosixDirectIORandomAccessFile
+ */
+Status PosixDirectIORandomAccessFile::Read(uint64_t offset, size_t n,
+                                           Slice* result, char* scratch) const {
+  Status s = DirectIORead(fd_, result, offset, n, scratch);
+  return s;
 }
 
 /*
@@ -663,9 +797,36 @@ Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
 }
 
 size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
-  return GetUniqueIdFromFile(fd_, id, max_size);
+  return PosixHelper::GetUniqueIdFromFile(fd_, id, max_size);
 }
 #endif
+
+/*
+ * PosixDirectIOWritableFile
+ */
+Status PosixDirectIOWritableFile::Append(const Slice& data) {
+  assert(IsSectorAligned(data.size()) && IsPageAligned(data.data()));
+  if (!IsSectorAligned(data.size()) || !IsPageAligned(data.data())) {
+    return Status::IOError("Unaligned buffer for direct IO");
+  }
+  return PosixWritableFile::Append(data);
+}
+
+Status PosixDirectIOWritableFile::PositionedAppend(const Slice& data,
+                                                   uint64_t offset) {
+  assert(IsSectorAligned(offset));
+  assert(IsSectorAligned(data.size()));
+  assert(IsPageAligned(data.data()));
+  if (!IsSectorAligned(offset) || !IsSectorAligned(data.size()) ||
+      !IsPageAligned(data.data())) {
+    return Status::IOError("offset or size is not aligned");
+  }
+  return PosixWritableFile::PositionedAppend(data, offset);
+}
+
+/*
+ * PosixDirectory
+ */
 
 PosixDirectory::~PosixDirectory() { close(fd_); }
 
