@@ -217,11 +217,7 @@ struct PersistentCacheOptions {
 class PersistentCacheTier : public PersistentCache {
  public:
   typedef std::shared_ptr<PersistentCacheTier> Tier;
-
-  struct TierStats {
-    std::vector<HistogramImpl> histograms_;
-    std::map<std::string, size_t> counters_;
-  };
+  typedef std::map<std::string, double> TierStats;
 
   virtual ~PersistentCacheTier() {}
 

@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "util/random.h"
 #include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/lrulist.h"
 
@@ -63,7 +64,7 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
     port::RWMutex& lock = GetMutex(h);
 
     ReadLock _(&lock);
-    if (hash_table::Find(bucket, t, ret)) {
+    if (hash_table::Find(&bucket, t, ret)) {
       ++(*ret)->refs_;
       lru.Touch(*ret);
       return true;
