@@ -86,6 +86,20 @@ std::string TableProperties::ToString(
       column_family_name.empty() ? std::string("N/A") : column_family_name,
       prop_delim, kv_delim);
 
+  AppendProperty(result, "comparator name",
+                 comparator_name.empty() ? std::string("N/A") : comparator_name,
+                 prop_delim, kv_delim);
+
+  AppendProperty(
+      result, "merge operator name",
+      merge_operator_name.empty() ? std::string("N/A") : merge_operator_name,
+      prop_delim, kv_delim);
+
+  AppendProperty(result, "property collectors names",
+                 property_collectors_names.empty() ? std::string("N/A")
+                                                   : property_collectors_names,
+                 prop_delim, kv_delim);
+
   return result;
 }
 
@@ -123,6 +137,11 @@ const std::string TablePropertiesNames::kColumnFamilyId =
     "rocksdb.column.family.id";
 const std::string TablePropertiesNames::kColumnFamilyName =
     "rocksdb.column.family.name";
+const std::string TablePropertiesNames::kComparator = "rocksdb.comparator";
+const std::string TablePropertiesNames::kMergeOperator =
+    "rocksdb.merge.operator";
+const std::string TablePropertiesNames::kPropertyCollectors =
+    "rocksdb.property.collectors";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

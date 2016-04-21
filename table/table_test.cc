@@ -47,6 +47,7 @@
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "utilities/merge_operators.h"
 
 namespace rocksdb {
 
@@ -56,6 +57,40 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 extern const uint64_t kPlainTableMagicNumber;
 
 namespace {
+
+// DummyPropertiesCollector used to test BlockBasedTableProperties
+class DummyPropertiesCollector : public TablePropertiesCollector {
+ public:
+  const char* Name() const { return ""; }
+
+  Status Finish(UserCollectedProperties* properties) { return Status::OK(); }
+
+  Status Add(const Slice& user_key, const Slice& value) { return Status::OK(); }
+
+  virtual UserCollectedProperties GetReadableProperties() const {
+    return UserCollectedProperties{};
+  }
+};
+
+class DummyPropertiesCollectorFactory1
+    : public TablePropertiesCollectorFactory {
+ public:
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) {
+    return new DummyPropertiesCollector();
+  }
+  const char* Name() const { return "DummyPropertiesCollector1"; }
+};
+
+class DummyPropertiesCollectorFactory2
+    : public TablePropertiesCollectorFactory {
+ public:
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) {
+    return new DummyPropertiesCollector();
+  }
+  const char* Name() const { return "DummyPropertiesCollector2"; }
+};
 
 // Return reverse of "key".
 // Used to test non-lexicographic comparators.
@@ -1026,6 +1061,59 @@ TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   Slice content = block_builder.Finish();
   ASSERT_EQ(content.size() + kBlockTrailerSize, props.data_size);
   c.ResetTableReader();
+}
+
+TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
+  TableConstructor c(&reverse_key_comparator);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+
+  {
+    Options options;
+    BlockBasedTableOptions table_options;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+    const ImmutableCFOptions ioptions(options);
+    c.Finish(options, ioptions, table_options,
+             GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+    auto& props = *c.GetTableReader()->GetTableProperties();
+
+    // Default comparator
+    ASSERT_EQ("leveldb.BytewiseComparator", props.comparator_name);
+    // No merge operator
+    ASSERT_EQ("nullptr", props.merge_operator_name);
+    // No property collectors
+    ASSERT_EQ("[]", props.property_collectors_names);
+    // No filter policy is used
+    ASSERT_EQ("", props.filter_policy_name);
+    c.ResetTableReader();
+  }
+
+  {
+    Options options;
+    BlockBasedTableOptions table_options;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    options.comparator = &reverse_key_comparator;
+    options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+    options.table_properties_collector_factories.emplace_back(
+        new DummyPropertiesCollectorFactory1());
+    options.table_properties_collector_factories.emplace_back(
+        new DummyPropertiesCollectorFactory2());
+
+    const ImmutableCFOptions ioptions(options);
+    c.Finish(options, ioptions, table_options,
+             GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+    auto& props = *c.GetTableReader()->GetTableProperties();
+
+    ASSERT_EQ("rocksdb.ReverseBytewiseComparator", props.comparator_name);
+    ASSERT_EQ("UInt64AddOperator", props.merge_operator_name);
+    ASSERT_EQ("[DummyPropertiesCollector1,DummyPropertiesCollector2]",
+              props.property_collectors_names);
+    ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
+    c.ResetTableReader();
+  }
 }
 
 TEST_F(BlockBasedTableTest, FilterPolicyNameProperties) {

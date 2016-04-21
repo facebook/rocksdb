@@ -26,6 +26,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/merge_operator.h"
 #include "rocksdb/table.h"
 
 #include "table/block.h"
@@ -810,6 +811,25 @@ Status BlockBasedTableBuilder::Finish() {
           r->table_options.filter_policy->Name() : "";
       r->props.index_size =
           r->index_builder->EstimatedSize() + kBlockTrailerSize;
+      r->props.comparator_name = r->ioptions.comparator != nullptr
+                                     ? r->ioptions.comparator->Name()
+                                     : "nullptr";
+      r->props.merge_operator_name = r->ioptions.merge_operator != nullptr
+                                         ? r->ioptions.merge_operator->Name()
+                                         : "nullptr";
+
+      std::string property_collectors_names = "[";
+      property_collectors_names = "[";
+      for (size_t i = 0;
+           i < r->ioptions.table_properties_collector_factories.size(); ++i) {
+        if (i != 0) {
+          property_collectors_names += ",";
+        }
+        property_collectors_names +=
+            r->ioptions.table_properties_collector_factories[i]->Name();
+      }
+      property_collectors_names += "]";
+      r->props.property_collectors_names = property_collectors_names;
 
       // Add basic properties
       property_block_builder.AddTableProperty(r->props);

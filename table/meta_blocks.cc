@@ -72,8 +72,18 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kColumnFamilyId, props.column_family_id);
 
   if (!props.filter_policy_name.empty()) {
-    Add(TablePropertiesNames::kFilterPolicy,
-        props.filter_policy_name);
+    Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);
+  }
+  if (!props.comparator_name.empty()) {
+    Add(TablePropertiesNames::kComparator, props.comparator_name);
+  }
+
+  if (!props.merge_operator_name.empty()) {
+    Add(TablePropertiesNames::kMergeOperator, props.merge_operator_name);
+  }
+  if (!props.property_collectors_names.empty()) {
+    Add(TablePropertiesNames::kPropertyCollectors,
+        props.property_collectors_names);
   }
   if (!props.column_family_name.empty()) {
     Add(TablePropertiesNames::kColumnFamilyName, props.column_family_name);
@@ -212,6 +222,12 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       new_table_properties->filter_policy_name = raw_val.ToString();
     } else if (key == TablePropertiesNames::kColumnFamilyName) {
       new_table_properties->column_family_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kComparator) {
+      new_table_properties->comparator_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kMergeOperator) {
+      new_table_properties->merge_operator_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kPropertyCollectors) {
+      new_table_properties->property_collectors_names = raw_val.ToString();
     } else {
       // handle user-collected properties
       new_table_properties->user_collected_properties.insert(
