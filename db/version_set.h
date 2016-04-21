@@ -301,6 +301,8 @@ class VersionStorageInfo {
 
   uint64_t GetEstimatedActiveKeys() const;
 
+  double GetEstimatedCompressionRatioAtLevel(int level) const;
+
   // re-initializes the index that is used to offset into
   // files_by_compaction_pri_
   // to find the next compaction candidate file.

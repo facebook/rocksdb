@@ -714,6 +714,22 @@ int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
   return atoi(property.c_str());
 }
 
+double DBTestBase::CompressionRatioAtLevel(int level, int cf) {
+  std::string property;
+  if (cf == 0) {
+    // default cfd
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.compression-ratio-at-level" + NumberToString(level),
+        &property));
+  } else {
+    EXPECT_TRUE(db_->GetProperty(
+        handles_[cf],
+        "rocksdb.compression-ratio-at-level" + NumberToString(level),
+        &property));
+  }
+  return std::stod(property);
+}
+
 int DBTestBase::TotalTableFiles(int cf, int levels) {
   if (levels == -1) {
     levels = CurrentOptions().num_levels;

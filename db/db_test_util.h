@@ -700,6 +700,8 @@ class DBTestBase : public testing::Test {
 
   int NumTableFilesAtLevel(int level, int cf = 0);
 
+  double CompressionRatioAtLevel(int level, int cf = 0);
+
   int TotalTableFiles(int cf = 0, int levels = -1);
 
   // Return spread of files per level

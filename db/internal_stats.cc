@@ -101,6 +101,8 @@ std::pair<Slice, Slice> GetPropertyNameAndArg(const Slice& property) {
 static const std::string rocksdb_prefix = "rocksdb.";
 
 static const std::string num_files_at_level_prefix = "num-files-at-level";
+static const std::string compression_ratio_at_level_prefix =
+    "compression-ratio-at-level";
 static const std::string allstats = "stats";
 static const std::string sstables = "sstables";
 static const std::string cfstats = "cfstats";
@@ -148,6 +150,8 @@ static const std::string num_running_flushes = "num-running-flushes";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
+const std::string DB::Properties::kCompressionRatioAtLevelPrefix =
+                      rocksdb_prefix + compression_ratio_at_level_prefix;
 const std::string DB::Properties::kStats = rocksdb_prefix + allstats;
 const std::string DB::Properties::kSSTables = rocksdb_prefix + sstables;
 const std::string DB::Properties::kCFStats = rocksdb_prefix + cfstats;
@@ -211,6 +215,8 @@ const std::unordered_map<std::string,
                          DBPropertyInfo> InternalStats::ppt_name_to_info = {
     {DB::Properties::kNumFilesAtLevelPrefix,
      {false, &InternalStats::HandleNumFilesAtLevel, nullptr}},
+    {DB::Properties::kCompressionRatioAtLevelPrefix,
+     {false, &InternalStats::HandleCompressionRatioAtLevelPrefix, nullptr}},
     {DB::Properties::kLevelStats,
      {false, &InternalStats::HandleLevelStats, nullptr}},
     {DB::Properties::kStats, {false, &InternalStats::HandleStats, nullptr}},
@@ -322,6 +328,19 @@ bool InternalStats::HandleNumFilesAtLevel(std::string* value, Slice suffix) {
     *value = buf;
     return true;
   }
+}
+
+bool InternalStats::HandleCompressionRatioAtLevelPrefix(std::string* value,
+                                                        Slice suffix) {
+  uint64_t level;
+  const auto* vstorage = cfd_->current()->storage_info();
+  bool ok = ConsumeDecimalNumber(&suffix, &level) && suffix.empty();
+  if (!ok || level >= static_cast<uint64_t>(number_levels_)) {
+    return false;
+  }
+  *value = ToString(
+      vstorage->GetEstimatedCompressionRatioAtLevel(static_cast<int>(level)));
+  return true;
 }
 
 bool InternalStats::HandleLevelStats(std::string* value, Slice suffix) {

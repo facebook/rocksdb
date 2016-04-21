@@ -779,6 +779,21 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   }
 }
 
+double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
+    int level) const {
+  assert(level < num_levels_);
+  uint64_t sum_file_size_bytes = 0;
+  uint64_t sum_data_size_bytes = 0;
+  for (auto* file_meta : files_[level]) {
+    sum_file_size_bytes += file_meta->fd.GetFileSize();
+    sum_data_size_bytes += file_meta->raw_key_size + file_meta->raw_value_size;
+  }
+  if (sum_file_size_bytes == 0) {
+    return -1.0;
+  }
+  return static_cast<double>(sum_data_size_bytes) / sum_file_size_bytes;
+}
+
 void Version::AddIterators(const ReadOptions& read_options,
                            const EnvOptions& soptions,
                            MergeIteratorBuilder* merge_iter_builder) {
