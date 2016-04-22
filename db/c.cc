@@ -446,6 +446,12 @@ void rocksdb_backup_engine_create_new_backup(rocksdb_backup_engine_t* be,
   SaveError(errptr, be->rep->CreateNewBackup(db->rep));
 }
 
+void rocksdb_backup_engine_purge_old_backups(rocksdb_backup_engine_t* be,
+                                             uint32_t num_backups_to_keep,
+                                             char** errptr) {
+  SaveError(errptr, be->rep->PurgeOldBackups(num_backups_to_keep));
+}
+
 rocksdb_restore_options_t* rocksdb_restore_options_create() {
   return new rocksdb_restore_options_t;
 }

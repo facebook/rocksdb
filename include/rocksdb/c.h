@@ -121,6 +121,9 @@ extern ROCKSDB_LIBRARY_API rocksdb_backup_engine_t* rocksdb_backup_engine_open(
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_create_new_backup(
     rocksdb_backup_engine_t* be, rocksdb_t* db, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_purge_old_backups(
+    rocksdb_backup_engine_t* be, uint32_t num_backups_to_keep, char** errptr);
+
 extern ROCKSDB_LIBRARY_API rocksdb_restore_options_t*
 rocksdb_restore_options_create();
 extern ROCKSDB_LIBRARY_API void rocksdb_restore_options_destroy(

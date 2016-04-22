@@ -365,6 +365,24 @@ int main(int argc, char** argv) {
     rocksdb_backup_engine_create_new_backup(be, db, &err);
     CheckNoError(err);
 
+    // need a change to trigger a new backup
+    rocksdb_delete(db, woptions, "does-not-exist", 14, &err);
+    CheckNoError(err);
+
+    rocksdb_backup_engine_create_new_backup(be, db, &err);
+    CheckNoError(err);
+
+    const rocksdb_backup_engine_info_t* bei = rocksdb_backup_engine_get_backup_info(be);
+    CheckCondition(rocksdb_backup_engine_info_count(bei) > 1);
+    rocksdb_backup_engine_info_destroy(bei);
+
+    rocksdb_backup_engine_purge_old_backups(be, 1, &err);
+    CheckNoError(err);
+
+    bei = rocksdb_backup_engine_get_backup_info(be);
+    CheckCondition(rocksdb_backup_engine_info_count(bei) == 1);
+    rocksdb_backup_engine_info_destroy(bei);
+
     rocksdb_delete(db, woptions, "foo", 3, &err);
     CheckNoError(err);
 
