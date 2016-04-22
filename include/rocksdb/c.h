@@ -266,6 +266,11 @@ extern ROCKSDB_LIBRARY_API rocksdb_iterator_t* rocksdb_create_iterator_cf(
     rocksdb_t* db, const rocksdb_readoptions_t* options,
     rocksdb_column_family_handle_t* column_family);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_create_iterators(
+    rocksdb_t *db, rocksdb_readoptions_t* opts,
+    rocksdb_column_family_handle_t** column_families,
+    rocksdb_iterator_t** iterators, size_t size, char** errptr);
+
 extern ROCKSDB_LIBRARY_API const rocksdb_snapshot_t* rocksdb_create_snapshot(
     rocksdb_t* db);
 

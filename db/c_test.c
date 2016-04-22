@@ -768,6 +768,30 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
 
+    rocksdb_column_family_handle_t* iters_cf_handles[2] = { handles[0], handles[1] };
+    rocksdb_iterator_t* iters_handles[2];
+    rocksdb_create_iterators(db, roptions, iters_cf_handles, iters_handles, 2, &err);
+    CheckNoError(err);
+
+    iter = iters_handles[0];
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_destroy(iter);
+
+    iter = iters_handles[1];
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+
+    for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
+      i++;
+    }
+    CheckCondition(i == 1);
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    rocksdb_iter_destroy(iter);
+
     rocksdb_drop_column_family(db, handles[1], &err);
     CheckNoError(err);
     for (i = 0; i < 2; i++) {

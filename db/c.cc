@@ -825,6 +825,31 @@ rocksdb_iterator_t* rocksdb_create_iterator_cf(
   return result;
 }
 
+void rocksdb_create_iterators(
+    rocksdb_t *db,
+    rocksdb_readoptions_t* opts,
+    rocksdb_column_family_handle_t** column_families,
+    rocksdb_iterator_t** iterators,
+    size_t size,
+    char** errptr) {
+  std::vector<ColumnFamilyHandle*> column_families_vec;
+  for (size_t i = 0; i < size; i++) {
+    column_families_vec.push_back(column_families[i]->rep);
+  }
+
+  std::vector<Iterator*> res;
+  Status status = db->rep->NewIterators(opts->rep, column_families_vec, &res);
+  assert(res.size() == size);
+  if (SaveError(errptr, status)) {
+    return;
+  }
+
+  for (size_t i = 0; i < size; i++) {
+    iterators[i] = new rocksdb_iterator_t;
+    iterators[i]->rep = res[i];
+  }
+}
+
 const rocksdb_snapshot_t* rocksdb_create_snapshot(
     rocksdb_t* db) {
   rocksdb_snapshot_t* result = new rocksdb_snapshot_t;
