@@ -955,7 +955,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
       new SpecialSkipListFactory(KNumKeysByGenerateNewFile - 1));
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.size_ratio = 5;
-  options.write_buffer_size = 110 << 10;  // 105KB
+  options.write_buffer_size = 111 << 10;  // 114KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
@@ -1153,8 +1153,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.size_ratio = 5;
-  options.write_buffer_size = 110 << 10;  // 105KB
-  options.arena_block_size = 4 * 1024;
+  options.write_buffer_size = 111 << 10;  // 114KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;

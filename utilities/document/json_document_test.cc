@@ -46,7 +46,7 @@ void AssertField(const JSONDocument& json, const std::string& field,
                  double expected) {
   ASSERT_TRUE(json.Contains(field));
   ASSERT_TRUE(json[field].IsDouble());
-  ASSERT_EQ(expected, json[field].GetDouble());
+  ASSERT_DOUBLE_EQ(expected, json[field].GetDouble());
 }
 }  // namespace
 

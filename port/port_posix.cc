@@ -35,7 +35,7 @@ static int PthreadCall(const char* label, int result) {
 }
 
 Mutex::Mutex(bool adaptive) {
-#ifdef OS_LINUX
+#ifdef ROCKSDB_PTHREAD_ADAPTIVE_MUTEX
   if (!adaptive) {
     PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));
   } else {
@@ -48,9 +48,9 @@ Mutex::Mutex(bool adaptive) {
     PthreadCall("destroy mutex attr",
                 pthread_mutexattr_destroy(&mutex_attr));
   }
-#else // ignore adaptive for non-linux platform
+#else
   PthreadCall("init mutex", pthread_mutex_init(&mu_, nullptr));
-#endif // OS_LINUX
+#endif // ROCKSDB_PTHREAD_ADAPTIVE_MUTEX
 }
 
 Mutex::~Mutex() { PthreadCall("destroy mutex", pthread_mutex_destroy(&mu_)); }
