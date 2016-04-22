@@ -9,7 +9,7 @@ At Facebook, we use RocksDB as a backend for many different stateful services. W
 ## LinkedIn
 Two different use cases at Linkedin are using RocksDB as a storage engine:
 
-1. LinkedIn's follow feed for storing user's activities
+1. LinkedIn's follow feed for storing user's activities. Check out the blog post: https://engineering.linkedin.com/blog/2016/03/followfeed--linkedin-s-feed-made-faster-and-smarter
 2. Apache Samza, open source framework for stream processing
 
 Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasundaram: http://www.youtube.com/watch?v=plqVp_OnSzg
