@@ -376,6 +376,8 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/clock_cache.cc                                \
   java/rocksjni/columnfamilyhandle.cc                         \
   java/rocksjni/compaction_filter.cc                          \
+  java/rocksjni/compaction_filter_factory.cc                  \
+  java/rocksjni/compaction_filter_factory_jnicallback.cc      \
   java/rocksjni/compaction_options_fifo.cc                    \
   java/rocksjni/compaction_options_universal.cc               \
   java/rocksjni/comparator.cc                                 \

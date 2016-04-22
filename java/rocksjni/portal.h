@@ -24,6 +24,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
@@ -1013,6 +1014,69 @@ class ComparatorOptionsJni : public RocksDBNativeClass<
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/ComparatorOptions");
+  }
+};
+
+// The portal class for org.rocksdb.AbstractCompactionFilterFactory
+class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
+    const rocksdb::CompactionFilterFactoryJniCallback*,
+    AbstractCompactionFilterFactoryJni> {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractCompactionFilterFactory
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/AbstractCompactionFilterFactory");
+  }
+
+  /**
+   * Get the Java Method: AbstractCompactionFilterFactory#name
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getNameMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(
+        jclazz, "name", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Get the Java Method: AbstractCompactionFilterFactory#createCompactionFilter
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getCreateCompactionFilterMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz,
+      "createCompactionFilter",
+      "(ZZ)J");
+    assert(mid != nullptr);
+    return mid;
   }
 };
 
