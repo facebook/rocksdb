@@ -1632,6 +1632,23 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * This function will wait until all currently running background processes
+   * finish. After it returns, no background process will be run until
+   * {@link #continueBackgroundWork()} is called
+   */
+  public void pauseBackgroundWork() throws RocksDBException {
+    pauseBackgroundWork(nativeHandle_);
+  }
+
+  /**
+   * Resumes backround work which was suspended by
+   * previously calling {@link #pauseBackgroundWork()}
+   */
+  public void continueBackgroundWork() throws RocksDBException {
+    continueBackgroundWork(nativeHandle_);
+  }
+
+  /**
    * <p>The sequence number of the most recent transaction.</p>
    *
    * @return sequence number of the most
@@ -1876,6 +1893,8 @@ public class RocksDB extends RocksObject {
   private native void compactRange(long handle, byte[] begin, int beginLen,
       byte[] end, int endLen, boolean reduce_level, int target_level,
       int target_path_id, long cfHandle) throws RocksDBException;
+  private native void pauseBackgroundWork(long handle) throws RocksDBException;
+  private native void continueBackgroundWork(long handle) throws RocksDBException;
   private native long getLatestSequenceNumber(long handle);
   private native void disableFileDeletions(long handle) throws RocksDBException;
   private native void enableFileDeletions(long handle,
