@@ -1,0 +1,83 @@
+//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
+#ifndef ROCKSDB_LITE
+
+#include "utilities/persistent_cache/block_cache_tier_metadata.h"
+
+#include <functional>
+
+namespace rocksdb {
+
+bool BlockCacheTierMetadata::Insert(BlockCacheFile* file) {
+  return cache_file_index_.Insert(file);
+}
+
+BlockCacheFile* BlockCacheTierMetadata::Lookup(const uint32_t cache_id) {
+  BlockCacheFile* ret = nullptr;
+  BlockCacheFile lookup_key(cache_id);
+  bool ok = cache_file_index_.Find(&lookup_key, &ret);
+  if (ok) {
+    assert(ret->refs_);
+    return ret;
+  }
+  return nullptr;
+}
+
+BlockCacheFile* BlockCacheTierMetadata::Evict() {
+  using std::placeholders::_1;
+  auto fn = std::bind(&BlockCacheTierMetadata::RemoveAllKeys, this, _1);
+  return cache_file_index_.Evict(fn);
+}
+
+void BlockCacheTierMetadata::Clear() {
+  cache_file_index_.Clear([](BlockCacheFile* arg){ delete arg; });
+  block_index_.Clear([](BlockInfo* arg){ delete arg; });
+}
+
+bool BlockCacheTierMetadata::Insert(BlockInfo* binfo) {
+  return block_index_.Insert(binfo);
+}
+
+bool BlockCacheTierMetadata::Lookup(const Slice& key, LBA* lba) {
+  BlockInfo lookup_key(key);
+  BlockInfo* block;
+  port::RWMutex* rlock = nullptr;
+  if (!block_index_.Find(&lookup_key, &block, &rlock)) {
+    return false;
+  }
+
+  ReadUnlock _(rlock);
+  assert(block->key_ == key.ToString());
+  if (lba) {
+    *lba = block->lba_;
+  }
+  return true;
+}
+
+BlockInfo* BlockCacheTierMetadata::Remove(const Slice& key) {
+  BlockInfo lookup_key(key);
+  BlockInfo* binfo = nullptr;
+  bool status __attribute__((__unused__)) =
+    block_index_.Erase(&lookup_key, &binfo);
+  (void)status;
+  assert(status);
+  return binfo;
+}
+
+void BlockCacheTierMetadata::RemoveAllKeys(BlockCacheFile* f) {
+  for (BlockInfo* binfo : f->block_infos()) {
+    BlockInfo* tmp = nullptr;
+    bool status = block_index_.Erase(binfo, &tmp);
+    (void)status;
+    assert(status);
+    assert(tmp == binfo);
+    delete binfo;
+  }
+  f->block_infos().clear();
+}
+
+}  // namespace rocksdb
+
+#endif

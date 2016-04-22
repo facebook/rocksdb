@@ -134,6 +134,8 @@ LIB_SOURCES =                                                   \
   utilities/options/options_util.cc                             \
   utilities/persistent_cache/persistent_cache_tier.cc           \
   utilities/persistent_cache/volatile_tier_impl.cc              \
+  utilities/persistent_cache/block_cache_tier_file.cc           \
+  utilities/persistent_cache/block_cache_tier_metadata.cc       \
   utilities/redis/redis_lists.cc                                \
   utilities/simulator_cache/sim_cache.cc                        \
   utilities/spatialdb/spatial_db.cc                             \
