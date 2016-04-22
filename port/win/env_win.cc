@@ -124,6 +124,8 @@ SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
 }
 
 // See comments for pwrite above
+// PLEASE NOTE: hFile is expected to be an async handle 
+// (i.e. opened with FILE_FLAG_OVERLAPPED)
 SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset) {
   assert(numBytes <= std::numeric_limits<DWORD>::max());
   OVERLAPPED overlapped = {0};
@@ -132,17 +134,32 @@ SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset) {
 
   overlapped.Offset = offsetUnion.LowPart;
   overlapped.OffsetHigh = offsetUnion.HighPart;
+  overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+  if (NULL == overlapped.hEvent) {
+    return -1;
+  }
 
   SSIZE_T result = 0;
 
   unsigned long bytesRead = 0;
+  DWORD lastError = ERROR_SUCCESS;
 
-  if (FALSE == ReadFile(hFile, src, static_cast<DWORD>(numBytes), &bytesRead,
-    &overlapped)) {
-    return -1;
+  if ((FALSE == ReadFile(hFile, src, static_cast<DWORD>(numBytes), &bytesRead,
+    &overlapped)) && ((lastError = GetLastError()) != ERROR_IO_PENDING)) {
+    result = (lastError == ERROR_HANDLE_EOF) ? 0 : -1;
   } else {
-    result = bytesRead;
+    if (lastError == ERROR_IO_PENDING) { //otherwise bytesRead already has the result
+      if (FALSE == GetOverlappedResult(hFile, &overlapped, &bytesRead, TRUE)) {
+        result = (GetLastError() == ERROR_HANDLE_EOF) ? 0 : -1;
+      }
+      else {
+        result = bytesRead;
+      }
+    }
   }
+
+  CloseHandle(overlapped.hEvent);
 
   return result;
 }
@@ -684,6 +701,8 @@ class WinSequentialFile : public SequentialFile {
 // pread() based random-access
 class WinRandomAccessFile : public RandomAccessFile {
   const std::string filename_;
+  // PLEASE NOTE: hFile is expected to be an async handle 
+  // (i.e. opened with FILE_FLAG_OVERLAPPED)
   HANDLE hFile_;
   const bool use_os_buffer_;
   bool read_ahead_;
@@ -1223,6 +1242,12 @@ class WinEnv : public Env {
       fileFlags |= FILE_FLAG_NO_BUFFERING;
     } else {
       fileFlags |= FILE_FLAG_RANDOM_ACCESS;
+    }
+
+    if (!options.use_mmap_reads) {
+      // Open in async mode which makes Windows allow more parallelism even
+      // if we need to do sync I/O on top of it.
+      fileFlags |= FILE_FLAG_OVERLAPPED;
     }
 
     /// Shared access is necessary for corruption test to pass
