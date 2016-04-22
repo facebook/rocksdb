@@ -501,6 +501,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compaction_filter(
     rocksdb_options_t*, rocksdb_compactionfilter_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compaction_filter_factory(
     rocksdb_options_t*, rocksdb_compactionfilterfactory_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_compaction_readahead_size(
+    rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_comparator(
     rocksdb_options_t*, rocksdb_comparator_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_merge_operator(
@@ -525,6 +527,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_info_log(rocksdb_options_t*,
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_info_log_level(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_write_buffer_size(
+    rocksdb_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_db_write_buffer_size(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_open_files(
     rocksdb_options_t*, int);
