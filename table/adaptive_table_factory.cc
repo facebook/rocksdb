@@ -80,25 +80,28 @@ std::string AdaptiveTableFactory::GetPrintableTableOptions() const {
 
   if (table_factory_to_write_) {
     snprintf(buffer, kBufferSize, "  write factory (%s) options:\n%s\n",
-             table_factory_to_write_->Name(),
+             (table_factory_to_write_->Name() ? table_factory_to_write_->Name()
+                                              : ""),
              table_factory_to_write_->GetPrintableTableOptions().c_str());
     ret.append(buffer);
   }
   if (plain_table_factory_) {
     snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
-             plain_table_factory_->Name(),
+             plain_table_factory_->Name() ? plain_table_factory_->Name() : "",
              plain_table_factory_->GetPrintableTableOptions().c_str());
     ret.append(buffer);
   }
   if (block_based_table_factory_) {
-    snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
-             block_based_table_factory_->Name(),
-             block_based_table_factory_->GetPrintableTableOptions().c_str());
+    snprintf(
+        buffer, kBufferSize, "  %s options:\n%s\n",
+        (block_based_table_factory_->Name() ? block_based_table_factory_->Name()
+                                            : ""),
+        block_based_table_factory_->GetPrintableTableOptions().c_str());
     ret.append(buffer);
   }
   if (cuckoo_table_factory_) {
     snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
-             cuckoo_table_factory_->Name(),
+             cuckoo_table_factory_->Name() ? cuckoo_table_factory_->Name() : "",
              cuckoo_table_factory_->GetPrintableTableOptions().c_str());
     ret.append(buffer);
   }
