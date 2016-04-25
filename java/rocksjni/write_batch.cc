@@ -64,6 +64,37 @@ void Java_org_rocksdb_WriteBatch_clear0(JNIEnv* env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_WriteBatch
+ * Method:    setSavePoint0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatch_setSavePoint0(
+    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+
+  wb->SetSavePoint();
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    rollbackToSavePoint0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatch_rollbackToSavePoint0(
+    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+
+  auto s = wb->RollbackToSavePoint();
+
+  if (s.ok()) {
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
  * Method:    put
  * Signature: (J[BI[BI)V
  */

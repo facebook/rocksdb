@@ -14,9 +14,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -203,6 +203,107 @@ public class WriteBatchWithIndexTest {
         assertThat(it.entry().equals(expected[0])).isTrue();
         assertThat(it.entry().hashCode() == expected[0].hashCode()).isTrue();
       }
+    }
+  }
+
+  @Test
+  public void savePoints()
+      throws UnsupportedEncodingException, RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())) {
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+           final ReadOptions readOptions = new ReadOptions()) {
+        wbwi.put("k1".getBytes(), "v1".getBytes());
+        wbwi.put("k2".getBytes(), "v2".getBytes());
+        wbwi.put("k3".getBytes(), "v3".getBytes());
+
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k1"))
+            .isEqualTo("v1");
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k2"))
+            .isEqualTo("v2");
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k3"))
+            .isEqualTo("v3");
+
+
+        wbwi.setSavePoint();
+
+        wbwi.remove("k2".getBytes());
+        wbwi.put("k3".getBytes(), "v3-2".getBytes());
+
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k2"))
+            .isNull();
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k3"))
+            .isEqualTo("v3-2");
+
+
+        wbwi.setSavePoint();
+
+        wbwi.put("k3".getBytes(), "v3-3".getBytes());
+        wbwi.put("k4".getBytes(), "v4".getBytes());
+
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k3"))
+            .isEqualTo("v3-3");
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k4"))
+            .isEqualTo("v4");
+
+
+        wbwi.rollbackToSavePoint();
+
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k2"))
+            .isNull();
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k3"))
+            .isEqualTo("v3-2");
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k4"))
+            .isNull();
+
+
+        wbwi.rollbackToSavePoint();
+
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k1"))
+            .isEqualTo("v1");
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k2"))
+            .isEqualTo("v2");
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k3"))
+            .isEqualTo("v3");
+        assertThat(getFromWriteBatchWithIndex(db, readOptions, wbwi, "k4"))
+            .isNull();
+      }
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void restorePoints_withoutSavePoints() throws RocksDBException {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+      wbwi.rollbackToSavePoint();
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void restorePoints_withoutSavePoints_nested() throws RocksDBException {
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
+
+      wbwi.setSavePoint();
+      wbwi.rollbackToSavePoint();
+
+      // without previous corresponding setSavePoint
+      wbwi.rollbackToSavePoint();
+    }
+  }
+
+  private static String getFromWriteBatchWithIndex(final RocksDB db,
+      final ReadOptions readOptions, final WriteBatchWithIndex wbwi,
+      final String skey) {
+    final byte[] key = skey.getBytes();
+    try(final RocksIterator baseIterator = db.newIterator(readOptions);
+        final RocksIterator iterator = wbwi.newIteratorWithBase(baseIterator)) {
+      iterator.seek(key);
+
+      // Arrays.equals(key, iterator.key()) ensures an exact match in Rocks,
+      // instead of a nearest match
+      return iterator.isValid() &&
+          Arrays.equals(key, iterator.key()) ?
+          new String(iterator.value()) : null;
     }
   }
 

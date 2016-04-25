@@ -82,6 +82,8 @@ public class WriteBatch extends AbstractWriteBatch {
   @Override final native void putLogData(final long handle,
       final byte[] blob, final int blobLen);
   @Override final native void clear0(final long handle);
+  @Override final native void setSavePoint0(final long handle);
+  @Override final native void rollbackToSavePoint0(final long handle);
 
   private native static long newWriteBatch(final int reserved_bytes);
   private native void iterate(final long handle, final long handlerHandle)
