@@ -198,7 +198,7 @@ void Java_org_rocksdb_WriteBatchWithIndex_clear0(
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   assert(wbwi != nullptr);
 
-  wbwi->GetWriteBatch()->Clear();
+  wbwi->Clear();
 }
 
 /*
