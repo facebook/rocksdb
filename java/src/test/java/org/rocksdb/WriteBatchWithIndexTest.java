@@ -307,6 +307,77 @@ public class WriteBatchWithIndexTest {
     }
   }
 
+  @Test
+  public void getFromBatch() throws RocksDBException {
+    final byte[] k1 = "k1".getBytes();
+    final byte[] k2 = "k2".getBytes();
+    final byte[] k3 = "k3".getBytes();
+    final byte[] k4 = "k4".getBytes();
+
+    final byte[] v1 = "v1".getBytes();
+    final byte[] v2 = "v2".getBytes();
+    final byte[] v3 = "v3".getBytes();
+
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+         final DBOptions dbOptions = new DBOptions()) {
+      wbwi.put(k1, v1);
+      wbwi.put(k2, v2);
+      wbwi.put(k3, v3);
+
+      assertThat(wbwi.getFromBatch(dbOptions, k1)).isEqualTo(v1);
+      assertThat(wbwi.getFromBatch(dbOptions, k2)).isEqualTo(v2);
+      assertThat(wbwi.getFromBatch(dbOptions, k3)).isEqualTo(v3);
+      assertThat(wbwi.getFromBatch(dbOptions, k4)).isNull();
+
+      wbwi.remove(k2);
+
+      assertThat(wbwi.getFromBatch(dbOptions, k2)).isNull();
+    }
+  }
+
+  @Test
+  public void getFromBatchAndDB() throws RocksDBException {
+    final byte[] k1 = "k1".getBytes();
+    final byte[] k2 = "k2".getBytes();
+    final byte[] k3 = "k3".getBytes();
+    final byte[] k4 = "k4".getBytes();
+
+    final byte[] v1 = "v1".getBytes();
+    final byte[] v2 = "v2".getBytes();
+    final byte[] v3 = "v3".getBytes();
+    final byte[] v4 = "v4".getBytes();
+
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())) {
+
+      db.put(k1, v1);
+      db.put(k2, v2);
+      db.put(k4, v4);
+
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+           final DBOptions dbOptions = new DBOptions();
+           final ReadOptions readOptions = new ReadOptions()) {
+
+        assertThat(wbwi.getFromBatch(dbOptions, k1)).isNull();
+        assertThat(wbwi.getFromBatch(dbOptions, k2)).isNull();
+        assertThat(wbwi.getFromBatch(dbOptions, k4)).isNull();
+
+        wbwi.put(k3, v3);
+
+        assertThat(wbwi.getFromBatch(dbOptions, k3)).isEqualTo(v3);
+
+        assertThat(wbwi.getFromBatchAndDB(db, readOptions, k1)).isEqualTo(v1);
+        assertThat(wbwi.getFromBatchAndDB(db, readOptions, k2)).isEqualTo(v2);
+        assertThat(wbwi.getFromBatchAndDB(db, readOptions, k3)).isEqualTo(v3);
+        assertThat(wbwi.getFromBatchAndDB(db, readOptions, k4)).isEqualTo(v4);
+
+        wbwi.remove(k4);
+
+        assertThat(wbwi.getFromBatchAndDB(db, readOptions, k4)).isNull();
+      }
+    }
+  }
   private byte[] toArray(final ByteBuffer buf) {
     final byte[] ary = new byte[buf.remaining()];
     buf.get(ary);

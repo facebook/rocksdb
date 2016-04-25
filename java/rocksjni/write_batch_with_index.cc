@@ -275,6 +275,87 @@ jlong Java_org_rocksdb_WriteBatchWithIndex_iteratorWithBase(
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    getFromBatch
+ * Signature: (JJ[BI)[B
+ */
+jbyteArray JNICALL Java_org_rocksdb_WriteBatchWithIndex_getFromBatch__JJ_3BI(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jdbopt_handle,
+    jbyteArray jkey, jint jkey_len) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  auto* dbopt = reinterpret_cast<rocksdb::DBOptions*>(jdbopt_handle);
+
+  auto getter = [&wbwi, &dbopt](const rocksdb::Slice& key, std::string* value) {
+    return wbwi->GetFromBatch(*dbopt, key, value);
+  };
+
+  return rocksdb::JniUtil::v_op(getter, env, jkey, jkey_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    getFromBatch
+ * Signature: (JJ[BIJ)[B
+ */
+jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatch__JJ_3BIJ(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jdbopt_handle,
+    jbyteArray jkey, jint jkey_len, jlong jcf_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  auto* dbopt = reinterpret_cast<rocksdb::DBOptions*>(jdbopt_handle);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+
+  auto getter =
+      [&wbwi, &cf_handle, &dbopt](const rocksdb::Slice& key,
+                                  std::string* value) {
+        return wbwi->GetFromBatch(cf_handle, *dbopt, key, value);
+      };
+
+  return rocksdb::JniUtil::v_op(getter, env, jkey, jkey_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    getFromBatchAndDB
+ * Signature: (JJJ[BI)[B
+ */
+jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatchAndDB__JJJ_3BI(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jdb_handle,
+    jlong jreadopt_handle, jbyteArray jkey, jint jkey_len) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* readopt = reinterpret_cast<rocksdb::ReadOptions*>(jreadopt_handle);
+
+  auto getter =
+      [&wbwi, &db, &readopt](const rocksdb::Slice& key, std::string* value) {
+        return wbwi->GetFromBatchAndDB(db, *readopt, key, value);
+      };
+
+  return rocksdb::JniUtil::v_op(getter, env, jkey, jkey_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    getFromBatchAndDB
+ * Signature: (JJJ[BIJ)[B
+ */
+jbyteArray Java_org_rocksdb_WriteBatchWithIndex_getFromBatchAndDB__JJJ_3BIJ(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jlong jdb_handle,
+    jlong jreadopt_handle, jbyteArray jkey, jint jkey_len, jlong jcf_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* readopt = reinterpret_cast<rocksdb::ReadOptions*>(jreadopt_handle);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+
+  auto getter =
+      [&wbwi, &db, &cf_handle, &readopt](const rocksdb::Slice& key,
+                                         std::string* value) {
+        return wbwi->GetFromBatchAndDB(db, *readopt, cf_handle, key, value);
+      };
+
+  return rocksdb::JniUtil::v_op(getter, env, jkey, jkey_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    disposeInternal
  * Signature: (J)V
  */

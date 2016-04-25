@@ -900,6 +900,38 @@ class JniUtil {
 
       env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
     }
+
+    /*
+     * Helper for operations on a value
+     * for example WriteBatchWithIndex->GetFromBatch
+     */
+    static jbyteArray v_op(
+        std::function<rocksdb::Status(rocksdb::Slice, std::string*)> op,
+        JNIEnv* env, jbyteArray jkey, jint jkey_len) {
+      jboolean isCopy;
+      jbyte* key = env->GetByteArrayElements(jkey, &isCopy);
+      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+      std::string value;
+      rocksdb::Status s = op(key_slice, &value);
+
+      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+
+      if (s.IsNotFound()) {
+        return nullptr;
+      }
+
+      if (s.ok()) {
+        jbyteArray jret_value =
+            env->NewByteArray(static_cast<jsize>(value.size()));
+        env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
+                                reinterpret_cast<const jbyte*>(value.c_str()));
+        return jret_value;
+      }
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+
+      return nullptr;
+    }
 };
 
 }  // namespace rocksdb
