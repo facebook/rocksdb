@@ -1586,7 +1586,6 @@ Status DBImpl::FlushMemTableToOutputFile(
     // true, mark DB read-only
     bg_error_ = s;
   }
-  RecordFlushIOStats();
   if (s.ok()) {
 #ifndef ROCKSDB_LITE
     // may temporarily unlock and lock the mutex.
@@ -2655,11 +2654,6 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
   }
 }
 
-void DBImpl::RecordFlushIOStats() {
-  RecordTick(stats_, FLUSH_WRITE_BYTES, IOSTATS(bytes_written));
-  IOSTATS_RESET(bytes_written);
-}
-
 void DBImpl::BGWorkFlush(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
@@ -2793,7 +2787,6 @@ void DBImpl::BackgroundCallFlush() {
     bg_flush_scheduled_--;
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
-    RecordFlushIOStats();
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In

@@ -115,8 +115,10 @@ void FlushJob::ReportFlushInputSize(const autovector<MemTable*>& mems) {
 }
 
 void FlushJob::RecordFlushIOStats() {
-  ThreadStatusUtil::SetThreadOperationProperty(
+  RecordTick(stats_, FLUSH_WRITE_BYTES, IOSTATS(bytes_written));
+  ThreadStatusUtil::IncreaseThreadOperationProperty(
       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+  IOSTATS_RESET(bytes_written);
 }
 
 Status FlushJob::Run(FileMetaData* file_meta) {
@@ -322,13 +324,14 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                   meta->marked_for_compaction);
   }
 
+  // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.bytes_written = meta->fd.GetFileSize();
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
                                      meta->fd.GetFileSize());
-  RecordTick(stats_, FLUSH_WRITE_BYTES, meta->fd.GetFileSize());
+  RecordFlushIOStats();
   return s;
 }
 

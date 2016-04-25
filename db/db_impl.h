@@ -544,9 +544,6 @@ class DBImpl : public DB {
   // Wait for memtable flushed
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
-  void RecordFlushIOStats();
-  void RecordCompactionIOStats();
-
 #ifndef ROCKSDB_LITE
   Status CompactFilesImpl(
       const CompactionOptions& compact_options, ColumnFamilyData* cfd,
