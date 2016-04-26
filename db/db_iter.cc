@@ -16,6 +16,7 @@
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "db/merge_context.h"
+#include "db/pinned_iterators_manager.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -103,7 +104,7 @@ class DBIter: public Iterator {
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
          uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
          const Slice* iterate_upper_bound = nullptr,
-         bool prefix_same_as_start = false)
+         bool prefix_same_as_start = false, bool pin_data = false)
       : arena_mode_(arena_mode),
         env_(env),
         logger_(ioptions.info_log),
@@ -118,12 +119,21 @@ class DBIter: public Iterator {
         version_number_(version_number),
         iterate_upper_bound_(iterate_upper_bound),
         prefix_same_as_start_(prefix_same_as_start),
-        iter_pinned_(false) {
+        pin_thru_lifetime_(pin_data) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = ioptions.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
+    if (pin_thru_lifetime_) {
+      pinned_iters_mgr_.StartPinning();
+    }
+    if (iter_) {
+      iter_->SetPinnedItersMgr(&pinned_iters_mgr_);
+    }
   }
   virtual ~DBIter() {
+    if (pin_thru_lifetime_) {
+      pinned_iters_mgr_.ReleasePinnedIterators();
+    }
     RecordTick(statistics_, NO_ITERATORS, -1);
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {
@@ -135,9 +145,7 @@ class DBIter: public Iterator {
   virtual void SetIter(InternalIterator* iter) {
     assert(iter_ == nullptr);
     iter_ = iter;
-    if (iter_ && iter_pinned_) {
-      iter_->PinData();
-    }
+    iter_->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
   virtual bool Valid() const override { return valid_; }
   virtual Slice key() const override {
@@ -156,28 +164,6 @@ class DBIter: public Iterator {
       return status_;
     }
   }
-  virtual Status PinData() {
-    Status s;
-    if (iter_) {
-      s = iter_->PinData();
-    }
-    if (s.ok()) {
-      // Even if iter_ is nullptr, we set iter_pinned_ to true so that when
-      // iter_ is updated using SetIter, we Pin it.
-      iter_pinned_ = true;
-    }
-    return s;
-  }
-  virtual Status ReleasePinnedData() {
-    Status s;
-    if (iter_) {
-      s = iter_->ReleasePinnedData();
-    }
-    if (s.ok()) {
-      iter_pinned_ = false;
-    }
-    return s;
-  }
 
   virtual Status GetProperty(std::string prop_name,
                              std::string* prop) override {
@@ -192,7 +178,7 @@ class DBIter: public Iterator {
       return Status::OK();
     } else if (prop_name == "rocksdb.iterator.is-key-pinned") {
       if (valid_) {
-        *prop = (iter_pinned_ && saved_key_.IsKeyPinned()) ? "1" : "0";
+        *prop = (pin_thru_lifetime_ && saved_key_.IsKeyPinned()) ? "1" : "0";
       } else {
         *prop = "Iterator is not valid.";
       }
@@ -250,10 +236,13 @@ class DBIter: public Iterator {
   const Slice* iterate_upper_bound_;
   IterKey prefix_start_;
   bool prefix_same_as_start_;
-  bool iter_pinned_;
+  // Means that we will pin all data blocks we read as long the Iterator
+  // is not deleted, will be true if ReadOptions::pin_data is true
+  const bool pin_thru_lifetime_;
   // List of operands for merge operator.
   MergeContext merge_context_;
   LocalStatistics local_stats_;
+  PinnedIteratorsManager pinned_iters_mgr_;
 
   // No copying allowed
   DBIter(const DBIter&);
@@ -890,10 +879,7 @@ Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,
   DBIter* db_iter =
       new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
                  false, max_sequential_skip_in_iterations, version_number,
-                 iterate_upper_bound, prefix_same_as_start);
-  if (pin_data) {
-    db_iter->PinData();
-  }
+                 iterate_upper_bound, prefix_same_as_start, pin_data);
   return db_iter;
 }
 
@@ -916,13 +902,9 @@ inline void ArenaWrappedDBIter::Prev() { db_iter_->Prev(); }
 inline Slice ArenaWrappedDBIter::key() const { return db_iter_->key(); }
 inline Slice ArenaWrappedDBIter::value() const { return db_iter_->value(); }
 inline Status ArenaWrappedDBIter::status() const { return db_iter_->status(); }
-inline Status ArenaWrappedDBIter::PinData() { return db_iter_->PinData(); }
 inline Status ArenaWrappedDBIter::GetProperty(std::string prop_name,
                                               std::string* prop) {
   return db_iter_->GetProperty(prop_name, prop);
-}
-inline Status ArenaWrappedDBIter::ReleasePinnedData() {
-  return db_iter_->ReleasePinnedData();
 }
 void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
                                          void* arg2) {
@@ -941,12 +923,9 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
   DBIter* db_iter =
       new (mem) DBIter(env, ioptions, user_key_comparator, nullptr, sequence,
                        true, max_sequential_skip_in_iterations, version_number,
-                       iterate_upper_bound, prefix_same_as_start);
+                       iterate_upper_bound, prefix_same_as_start, pin_data);
 
   iter->SetDBIter(db_iter);
-  if (pin_data) {
-    iter->PinData();
-  }
 
   return iter;
 }

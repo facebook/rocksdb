@@ -12,6 +12,8 @@
 
 namespace rocksdb {
 
+class PinnedIteratorsManager;
+
 class InternalIterator : public Cleanable {
  public:
   InternalIterator() {}
@@ -61,20 +63,19 @@ class InternalIterator : public Cleanable {
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
 
-  // Make sure that all current and future data blocks used by this iterator
-  // will be pinned in memory and will not be released except when
-  // ReleasePinnedData() is called or the iterator is deleted.
-  virtual Status PinData() { return Status::NotSupported(""); }
+  // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
+  // communicate with PinnedIteratorsManager so default implementation is no-op
+  // but for Iterators that need to communicate with PinnedIteratorsManager
+  // they will implement this function and use the passed pointer to communicate
+  // with PinnedIteratorsManager.
+  virtual void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {}
 
-  // Release all blocks that were pinned because of PinData() and no future
-  // blocks will be pinned.
-  virtual Status ReleasePinnedData() { return Status::NotSupported(""); }
-
-  // If true, this means that the Slice returned by key() is valid as long
-  // as the iterator is not deleted and ReleasePinnedData() is not called.
+  // If true, this means that the Slice returned by key() is valid as long as
+  // PinnedIteratorsManager::ReleasePinnedIterators is not called and the
+  // Iterator is not deleted.
   //
   // IsKeyPinned() is guaranteed to always return true if
-  //  - PinData() is called
+  //  - Iterator is created with ReadOptions::pin_data = true
   //  - DB tables were created with BlockBasedTableOptions::use_delta_encoding
   //    set to false.
   virtual bool IsKeyPinned() const { return false; }

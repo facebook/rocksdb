@@ -130,7 +130,7 @@ struct BlockBasedTableOptions {
   int index_block_restart_interval = 1;
 
   // Use delta encoding to compress keys in blocks.
-  // Iterator::PinData() requires this option to be disabled.
+  // ReadOptions::pin_data requires this option to be disabled.
   //
   // Default: true
   bool use_delta_encoding = true;

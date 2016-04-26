@@ -98,13 +98,11 @@ class Iterator : public Cleanable {
 
   // Property "rocksdb.iterator.is-key-pinned":
   //   If returning "1", this means that the Slice returned by key() is valid
-  //   as long as the iterator is not deleted and ReleasePinnedData() is not
-  //   called.
+  //   as long as the iterator is not deleted.
   //   It is guaranteed to always return "1" if
   //      - Iterator created with ReadOptions::pin_data = true
   //      - DB tables were created with
-  //      BlockBasedTableOptions::use_delta_encoding
-  //        set to false.
+  //        BlockBasedTableOptions::use_delta_encoding = false.
   // Property "rocksdb.iterator.super-version-number":
   //   LSM version used by the iterator. The same format as DB Property
   //   kCurrentSuperVersionNumber. See its comment for more information.

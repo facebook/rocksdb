@@ -63,8 +63,6 @@ class ArenaWrappedDBIter : public Iterator {
   virtual Status status() const override;
 
   void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
-  virtual Status PinData();
-  virtual Status ReleasePinnedData();
   virtual Status GetProperty(std::string prop_name, std::string* prop) override;
 
  private:

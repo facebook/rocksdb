@@ -14,11 +14,12 @@
 #include <malloc.h>
 #endif
 
+#include "db/dbformat.h"
+#include "db/pinned_iterators_manager.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
-#include "db/dbformat.h"
-#include "table/block_prefix_index.h"
 #include "table/block_hash_index.h"
+#include "table/block_prefix_index.h"
 #include "table/internal_iterator.h"
 
 #include "format.h"
@@ -151,15 +152,18 @@ class BlockIter : public InternalIterator {
 
   virtual void SeekToLast() override;
 
-  virtual Status PinData() override {
-    // block data is always pinned.
-    return Status::OK();
+#ifndef NDEBUG
+  ~BlockIter() {
+    // Assert that the BlockIter is never deleted while Pinning is Enabled.
+    assert(!pinned_iters_mgr_ ||
+           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
   }
-
-  virtual Status ReleasePinnedData() override {
-    // block data is always pinned.
-    return Status::OK();
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
   }
+  PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
+#endif
 
   virtual bool IsKeyPinned() const override { return key_.IsKeyPinned(); }
 

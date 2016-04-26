@@ -11,6 +11,7 @@
 
 #include <vector>
 
+#include "db/pinned_iterators_manager.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -18,11 +19,11 @@
 #include "table/iter_heap.h"
 #include "table/iterator_wrapper.h"
 #include "util/arena.h"
+#include "util/autovector.h"
 #include "util/heap.h"
+#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
-#include "util/perf_context_imp.h"
-#include "util/autovector.h"
 
 namespace rocksdb {
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
@@ -37,12 +38,12 @@ class MergingIterator : public InternalIterator {
  public:
   MergingIterator(const Comparator* comparator, InternalIterator** children,
                   int n, bool is_arena_mode)
-      : data_pinned_(false),
-        is_arena_mode_(is_arena_mode),
+      : is_arena_mode_(is_arena_mode),
         comparator_(comparator),
         current_(nullptr),
         direction_(kForward),
-        minHeap_(comparator_) {
+        minHeap_(comparator_),
+        pinned_iters_mgr_(nullptr) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
@@ -58,9 +59,8 @@ class MergingIterator : public InternalIterator {
   virtual void AddIterator(InternalIterator* iter) {
     assert(direction_ == kForward);
     children_.emplace_back(iter);
-    if (data_pinned_) {
-      Status s = iter->PinData();
-      assert(s.ok());
+    if (pinned_iters_mgr_) {
+      iter->SetPinnedItersMgr(pinned_iters_mgr_);
     }
     auto new_wrapper = children_.back();
     if (new_wrapper.Valid()) {
@@ -243,50 +243,21 @@ class MergingIterator : public InternalIterator {
     return s;
   }
 
-  virtual Status PinData() override {
-    Status s;
-    if (data_pinned_) {
-      return s;
-    }
-
-    for (size_t i = 0; i < children_.size(); i++) {
-      s = children_[i].PinData();
-      if (!s.ok()) {
-        // We failed to pin an iterator, clean up
-        for (size_t j = 0; j < i; j++) {
-          children_[j].ReleasePinnedData();
-        }
-        break;
-      }
-    }
-    data_pinned_ = s.ok();
-    return s;
-  }
-
-  virtual Status ReleasePinnedData() override {
-    Status s;
-    if (!data_pinned_) {
-      return s;
-    }
-
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
     for (auto& child : children_) {
-      Status release_status = child.ReleasePinnedData();
-      if (s.ok() && !release_status.ok()) {
-        s = release_status;
-      }
+      child.SetPinnedItersMgr(pinned_iters_mgr);
     }
-    data_pinned_ = false;
-
-    return s;
   }
 
   virtual bool IsKeyPinned() const override {
     assert(Valid());
-    return current_->IsKeyPinned();
+    return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
+           current_->IsKeyPinned();
   }
 
  private:
-  bool data_pinned_;
   // Clears heaps for both directions, used when changing direction or seeking
   void ClearHeaps();
   // Ensures that maxHeap_ is initialized when starting to go in the reverse
@@ -311,6 +282,7 @@ class MergingIterator : public InternalIterator {
   // Max heap is used for reverse iteration, which is way less common than
   // forward.  Lazily initialize it to save memory.
   std::unique_ptr<MergerMaxIterHeap> maxHeap_;
+  PinnedIteratorsManager* pinned_iters_mgr_;
 
   IteratorWrapper* CurrentForward() const {
     assert(direction_ == kForward);

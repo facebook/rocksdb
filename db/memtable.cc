@@ -15,6 +15,7 @@
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
+#include "db/pinned_iterators_manager.h"
 #include "db/writebuffer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -231,12 +232,26 @@ class MemTableIterator : public InternalIterator {
   }
 
   ~MemTableIterator() {
+#ifndef NDEBUG
+    // Assert that the MemTableIterator is never deleted while
+    // Pinning is Enabled.
+    assert(!pinned_iters_mgr_ ||
+           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+#endif
     if (arena_mode_) {
       iter_->~Iterator();
     } else {
       delete iter_;
     }
   }
+
+#ifndef NDEBUG
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+  }
+  PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
+#endif
 
   virtual bool Valid() const override { return valid_; }
   virtual void Seek(const Slice& k) override {
@@ -284,16 +299,6 @@ class MemTableIterator : public InternalIterator {
   }
 
   virtual Status status() const override { return Status::OK(); }
-
-  virtual Status PinData() override {
-    // memtable data is always pinned
-    return Status::OK();
-  }
-
-  virtual Status ReleasePinnedData() override {
-    // memtable data is always pinned
-    return Status::OK();
-  }
 
   virtual bool IsKeyPinned() const override {
     // memtable data is always pinned
