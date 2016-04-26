@@ -119,9 +119,9 @@ class BackupEngineImpl : public BackupEngine {
   void DeleteChildren(const std::string& dir, uint32_t file_type_filter = 0);
 
   // Extends the "result" map with pathname->size mappings for the contents of
-  // "dir". Pathnames are prefixed with "dir".
+  // "dir" in "env". Pathnames are prefixed with "dir".
   Status InsertPathnameToSizeBytes(
-      const std::string& dir,
+      const std::string& dir, Env* env,
       std::unordered_map<std::string, uint64_t>* result);
 
   struct FileInfo {
@@ -594,12 +594,13 @@ Status BackupEngineImpl::Initialize() {
     for (const auto& rel_dir :
          {GetSharedFileRel(), GetSharedFileWithChecksumRel()}) {
       const auto abs_dir = GetAbsolutePath(rel_dir);
-      InsertPathnameToSizeBytes(abs_dir, &abs_path_to_size);
+      InsertPathnameToSizeBytes(abs_dir, backup_env_, &abs_path_to_size);
     }
     // load the backups if any
     for (auto& backup : backups_) {
       InsertPathnameToSizeBytes(
-          GetAbsolutePath(GetPrivateFileRel(backup.first)), &abs_path_to_size);
+          GetAbsolutePath(GetPrivateFileRel(backup.first)), backup_env_,
+          &abs_path_to_size);
       Status s =
           backup.second->LoadFromFile(options_.backup_dir, abs_path_to_size);
       if (!s.ok()) {
@@ -718,7 +719,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   // Pre-fetch sizes for data files
   std::unordered_map<std::string, uint64_t> data_path_to_size;
   if (s.ok()) {
-    s = InsertPathnameToSizeBytes(db->GetName(), &data_path_to_size);
+    s = InsertPathnameToSizeBytes(db->GetName(), db_env_, &data_path_to_size);
   }
 
   std::vector<BackupAfterCopyOrCreateWorkItem> backup_items_to_finish;
@@ -776,7 +777,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   std::unordered_map<std::string, uint64_t> wal_path_to_size;
   if (s.ok()) {
     if (db->GetOptions().wal_dir != "") {
-      s = InsertPathnameToSizeBytes(db->GetOptions().wal_dir,
+      s = InsertPathnameToSizeBytes(db->GetOptions().wal_dir, db_env_,
                                     &wal_path_to_size);
     } else {
       wal_path_to_size = std::move(data_path_to_size);
@@ -1131,7 +1132,7 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
   for (const auto& rel_dir : {GetPrivateFileRel(backup_id), GetSharedFileRel(),
                               GetSharedFileWithChecksumRel()}) {
     const auto abs_dir = GetAbsolutePath(rel_dir);
-    InsertPathnameToSizeBytes(abs_dir, &curr_abs_path_to_size);
+    InsertPathnameToSizeBytes(abs_dir, backup_env_, &curr_abs_path_to_size);
   }
 
   for (const auto& file_info : backup->GetFiles()) {
@@ -1445,10 +1446,11 @@ void BackupEngineImpl::DeleteChildren(const std::string& dir,
 }
 
 Status BackupEngineImpl::InsertPathnameToSizeBytes(
-    const std::string& dir, std::unordered_map<std::string, uint64_t>* result) {
+    const std::string& dir, Env* env,
+    std::unordered_map<std::string, uint64_t>* result) {
   assert(result != nullptr);
   std::vector<Env::FileAttributes> files_attrs;
-  Status status = backup_env_->GetChildrenFileAttributes(dir, &files_attrs);
+  Status status = env->GetChildrenFileAttributes(dir, &files_attrs);
   if (!status.ok()) {
     return status;
   }
