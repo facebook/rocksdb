@@ -484,7 +484,10 @@ TEST_F(EventListenerTest, CompactionReasonLevel) {
   listener->compaction_reasons_.clear();
   Reopen(options);
 
-  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  Put("key", "value");
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
   ASSERT_GT(listener->compaction_reasons_.size(), 0);
   for (auto compaction_reason : listener->compaction_reasons_) {
     ASSERT_EQ(compaction_reason, CompactionReason::kManualCompaction);
