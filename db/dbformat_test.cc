@@ -92,6 +92,30 @@ TEST_F(FormatTest, InternalKeyShortSeparator) {
             Shorten(IKey("foo", 100, kTypeValue),
                     IKey("hello", 200, kTypeValue)));
 
+  ASSERT_EQ(IKey("ABC2", kMaxSequenceNumber, kValueTypeForSeek),
+            Shorten(IKey("ABC1AAAAA", 100, kTypeValue),
+                    IKey("ABC2ABB", 200, kTypeValue)));
+
+  ASSERT_EQ(IKey("AAA2", kMaxSequenceNumber, kValueTypeForSeek),
+            Shorten(IKey("AAA1AAA", 100, kTypeValue),
+                    IKey("AAA2AA", 200, kTypeValue)));
+
+  ASSERT_EQ(
+      IKey("AAA2", kMaxSequenceNumber, kValueTypeForSeek),
+      Shorten(IKey("AAA1AAA", 100, kTypeValue), IKey("AAA4", 200, kTypeValue)));
+
+  ASSERT_EQ(
+      IKey("AAA1B", kMaxSequenceNumber, kValueTypeForSeek),
+      Shorten(IKey("AAA1AAA", 100, kTypeValue), IKey("AAA2", 200, kTypeValue)));
+
+  ASSERT_EQ(IKey("AAA2", kMaxSequenceNumber, kValueTypeForSeek),
+            Shorten(IKey("AAA1AAA", 100, kTypeValue),
+                    IKey("AAA2A", 200, kTypeValue)));
+
+  ASSERT_EQ(
+      IKey("AAA1", 100, kTypeValue),
+      Shorten(IKey("AAA1", 100, kTypeValue), IKey("AAA2", 200, kTypeValue)));
+
   // When start user key is prefix of limit user key
   ASSERT_EQ(IKey("foo", 100, kTypeValue),
             Shorten(IKey("foo", 100, kTypeValue),

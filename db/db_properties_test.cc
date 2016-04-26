@@ -224,7 +224,7 @@ void GetExpectedTableProperties(TableProperties* expected_tp,
                                 const int kBloomBitsPerKey,
                                 const size_t kBlockSize) {
   const int kKeyCount = kTableCount * kKeysPerTable;
-  const int kAvgSuccessorSize = kKeySize / 2;
+  const int kAvgSuccessorSize = kKeySize / 5;
   const int kEncodingSavePerKey = kKeySize / 4;
   expected_tp->raw_key_size = kKeyCount * (kKeySize + 8);
   expected_tp->raw_value_size = kKeyCount * kValueSize;
