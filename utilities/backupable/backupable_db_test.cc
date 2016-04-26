@@ -756,7 +756,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
-  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
+  test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
       "/shared/00010.sst.tmp",    "/shared/00011.sst.tmp",
@@ -773,7 +773,7 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   dummy_db_->live_files_ = { "/00010.sst", "/00015.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
-  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
+  test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
   should_have_written = {
@@ -824,7 +824,7 @@ TEST_F(BackupableDBTest, DifferentEnvs) {
   dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
                              "/CURRENT",   "/MANIFEST-01" };
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
-  test_backup_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
+  test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
 
   CloseDBAndBackupEngine();
@@ -836,7 +836,7 @@ TEST_F(BackupableDBTest, DifferentEnvs) {
   CloseDBAndBackupEngine();
   DestroyDB(dbname_, Options());
 
-  test_backup_env_->SetFilenamesForMockedAttrs({});
+  test_db_env_->SetFilenamesForMockedAttrs({});
   AssertBackupConsistency(0, 0, 100, 500);
 }
 
