@@ -527,6 +527,7 @@ class KVIter : public Iterator {
   virtual Slice key() const { return iter_->first; }
   virtual Slice value() const { return iter_->second; }
   virtual Status status() const { return Status::OK(); }
+  virtual bool key_is_deleted() const { return false; }
 
  private:
   const KVMap* const map_;

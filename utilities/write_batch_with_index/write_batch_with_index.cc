@@ -147,6 +147,11 @@ class BaseDeltaIterator : public Iterator {
                             : delta_iterator_->Entry().value;
   }
 
+  bool key_is_deleted() const override {
+    return current_at_base_ ? base_iterator_->key_is_deleted()
+                            : false /* delta_iterator */;
+  }
+
   Status status() const override {
     if (!status_.ok()) {
       return status_;

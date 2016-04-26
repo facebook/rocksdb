@@ -778,7 +778,8 @@ ReadOptions::ReadOptions()
       managed(false),
       total_order_seek(false),
       prefix_same_as_start(false),
-      pin_data(false) {
+      pin_data(false),
+      skip_deleted_keys(true) {
   XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
              reinterpret_cast<ReadOptions*>(this));
 }
@@ -793,7 +794,8 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       managed(false),
       total_order_seek(false),
       prefix_same_as_start(false),
-      pin_data(false) {
+      pin_data(false),
+      skip_deleted_keys(true) {
   XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
              reinterpret_cast<ReadOptions*>(this));
 }

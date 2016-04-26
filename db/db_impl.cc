@@ -4014,7 +4014,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         kMaxSequenceNumber,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
         sv->version_number, read_options.iterate_upper_bound,
-        read_options.prefix_same_as_start, read_options.pin_data);
+        read_options.prefix_same_as_start, read_options.pin_data,
+        read_options.skip_deleted_keys);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
@@ -4126,7 +4127,8 @@ Status DBImpl::NewIterators(
           env_, *cfd->ioptions(), cfd->user_comparator(), iter,
           kMaxSequenceNumber,
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
-          sv->version_number, nullptr, false, read_options.pin_data));
+          sv->version_number, nullptr, false, read_options.pin_data,
+          read_options.skip_deleted_keys));
     }
 #endif
   } else {

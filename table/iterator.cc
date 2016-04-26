@@ -71,6 +71,7 @@ class EmptyIterator : public Iterator {
     assert(false);
     return Slice();
   }
+  bool key_is_deleted() const override { assert(false); return false; }
   Slice value() const override {
     assert(false);
     return Slice();

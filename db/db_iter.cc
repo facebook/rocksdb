@@ -103,7 +103,8 @@ class DBIter: public Iterator {
          InternalIterator* iter, SequenceNumber s, bool arena_mode,
          uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
          const Slice* iterate_upper_bound = nullptr,
-         bool prefix_same_as_start = false)
+         bool prefix_same_as_start = false,
+         bool skip_deleted_keys = true)
       : arena_mode_(arena_mode),
         env_(env),
         logger_(ioptions.info_log),
@@ -118,7 +119,8 @@ class DBIter: public Iterator {
         version_number_(version_number),
         iterate_upper_bound_(iterate_upper_bound),
         prefix_same_as_start_(prefix_same_as_start),
-        iter_pinned_(false) {
+        iter_pinned_(false),
+        skip_deleted_keys_(skip_deleted_keys) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = ioptions.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
@@ -140,10 +142,17 @@ class DBIter: public Iterator {
     }
   }
   virtual bool Valid() const override { return valid_; }
+
   virtual Slice key() const override {
     assert(valid_);
     return saved_key_.GetKey();
   }
+
+  virtual bool key_is_deleted() const override {
+    assert(valid_);
+    return saved_key_.IsDeleted();
+  }
+
   virtual Slice value() const override {
     assert(valid_);
     return (direction_ == kForward && !current_entry_is_merged_) ?
@@ -208,6 +217,46 @@ class DBIter: public Iterator {
   virtual void SeekToLast() override;
 
  private:
+
+  // Class that wraps the IterKey and keeps track of delete status. This is
+  // implemented as a separate class to force users to consider the deletion
+  // status as a first class citizen when iterating the db.
+  class IterKeyWithDeletionStatus {
+   public:
+    IterKeyWithDeletionStatus()
+     : is_deleted_(false) {}
+
+    Slice GetKey() const { return key_.GetKey(); }
+    bool IsDeleted() const { return is_deleted_; }
+    bool IsKeyPinned() const { return key_.IsKeyPinned(); }
+
+    void Clear() { is_deleted_ = false; key_.Clear(); }
+
+    void SetInternalKey(const Slice& user_key, SequenceNumber s) {
+      is_deleted_ = false;
+      key_.SetInternalKey(user_key, s);
+    }
+
+    void SetInternalKey(const ParsedInternalKey& parsed_key) {
+      is_deleted_ = false;
+      key_.SetInternalKey(parsed_key);
+    }
+
+    Slice SetKey(const Slice& key, bool copy, bool is_deleted) {
+      is_deleted_ = is_deleted;
+      return key_.SetKey(key, copy);
+    }
+
+    void SetDeleted(bool is_deleted) {
+      is_deleted_ = is_deleted;
+    }
+
+   private:
+    IterKey key_;
+    bool is_deleted_;
+  };
+
+ private:
   void ReverseToBackward();
   void PrevInternal();
   void FindParseableKey(ParsedInternalKey* ikey, Direction direction);
@@ -239,7 +288,7 @@ class DBIter: public Iterator {
   SequenceNumber const sequence_;
 
   Status status_;
-  IterKey saved_key_;
+  IterKeyWithDeletionStatus saved_key_;
   std::string saved_value_;
   Direction direction_;
   bool valid_;
@@ -251,6 +300,7 @@ class DBIter: public Iterator {
   IterKey prefix_start_;
   bool prefix_same_as_start_;
   bool iter_pinned_;
+  const bool skip_deleted_keys_;
   // List of operands for merge operator.
   MergeContext merge_context_;
   LocalStatistics local_stats_;
@@ -353,7 +403,13 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
               saved_key_.SetKey(ikey.user_key,
-                                !iter_->IsKeyPinned() /* copy */);
+                                !iter_->IsKeyPinned() /* copy */,
+                                true /* is_deleted */);
+              if (!skip_deleted_keys_) {
+                valid_ = true;
+                return;
+              }
+
               skipping = true;
               num_skipped = 0;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
@@ -361,12 +417,14 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
             case kTypeValue:
               valid_ = true;
               saved_key_.SetKey(ikey.user_key,
-                                !iter_->IsKeyPinned() /* copy */);
+                                !iter_->IsKeyPinned() /* copy */,
+                                false /* is_deleted */);
               return;
             case kTypeMerge:
               // By now, we are sure the current ikey is going to yield a value
               saved_key_.SetKey(ikey.user_key,
-                                !iter_->IsKeyPinned() /* copy */);
+                                !iter_->IsKeyPinned() /* copy */,
+                                false /* is_deleted */);
               current_entry_is_merged_ = true;
               valid_ = true;
               MergeValuesNewToOld();  // Go to a different state machine
@@ -529,7 +587,8 @@ void DBIter::PrevInternal() {
 
   while (iter_->Valid()) {
     saved_key_.SetKey(ExtractUserKey(iter_->key()),
-                      !iter_->IsKeyPinned() /* copy */);
+                      !iter_->IsKeyPinned() /* copy */,
+                      false /* is_deleted */);
     if (FindValueForCurrentKey()) {
       valid_ = true;
       if (!iter_->Valid()) {
@@ -556,7 +615,9 @@ void DBIter::PrevInternal() {
 
 // This function checks, if the entry with biggest sequence_number <= sequence_
 // is non kTypeDeletion or kTypeSingleDeletion. If it's not, we save value in
-// saved_value_
+// saved_value_. If skip_deleted_keys_ is not set, this function will treat
+// deleted keys as valid keys, except for the fact that saved_value_ will not
+// be set.
 bool DBIter::FindValueForCurrentKey() {
   assert(iter_->Valid());
   merge_context_.Clear();
@@ -587,6 +648,9 @@ bool DBIter::FindValueForCurrentKey() {
       case kTypeSingleDeletion:
         merge_context_.Clear();
         last_not_merge_type = last_key_entry_type;
+        // TODO: Think about the accounting for internal_deleted_skipped_count
+        // if we are not skipping deleted keys. Should we update it only the
+        // first time we encounter a deleted key in this loop?
         PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         break;
       case kTypeMerge:
@@ -605,10 +669,6 @@ bool DBIter::FindValueForCurrentKey() {
   }
 
   switch (last_key_entry_type) {
-    case kTypeDeletion:
-    case kTypeSingleDeletion:
-      valid_ = false;
-      return false;
     case kTypeMerge:
       if (last_not_merge_type == kTypeDeletion) {
         StopWatchNano timer(env_, statistics_ != nullptr);
@@ -635,6 +695,15 @@ bool DBIter::FindValueForCurrentKey() {
       break;
     case kTypeValue:
       // do nothing - we've already has value in saved_value_
+      break;
+    case kTypeDeletion:
+    case kTypeSingleDeletion:
+      saved_key_.SetDeleted(true);
+      if (skip_deleted_keys_) {
+        valid_ = false;
+        return false;
+      }
+      // If we don't intend to skip deleted keys, do nothing.
       break;
     default:
       assert(false);
@@ -664,8 +733,18 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       valid_ = true;
       return true;
     }
-    valid_ = false;
-    return false;
+
+    saved_key_.SetDeleted(true);
+
+    if (skip_deleted_keys_) {
+      valid_ = false;
+      return false;
+    }
+
+    // Control reaches here if we are dealing with a deleted key, and we do not
+    // want to ignore them.
+    valid_ = true;
+    return true;
   }
 
   // kTypeMerge. We need to collect all kTypeMerge values and save them
@@ -682,6 +761,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (!iter_->Valid() ||
       !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) ||
       ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
+    // Handling for the case when we encounter a delete after processing a
+    // bunch of merges. In that case, we should merge all the value we saw so
+    // far.
     {
       StopWatchNano timer(env_, statistics_ != nullptr);
       PERF_TIMER_GUARD(merge_operator_time_nanos);
@@ -700,6 +782,9 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     return true;
   }
 
+  // Control reaches here if we encounter a kTypeValue after a bunch of merges.
+  // In that case, apply all the merges over this value, and keep the value
+  // in saved_value_.
   const Slice& val = iter_->value();
   {
     StopWatchNano timer(env_, statistics_ != nullptr);
@@ -773,7 +858,7 @@ void DBIter::FindParseableKey(ParsedInternalKey* ikey, Direction direction) {
 void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
   saved_key_.Clear();
-  // now savved_key is used to store internal key.
+  // now saved_key is used to store internal key.
   saved_key_.SetInternalKey(target, sequence_);
 
   {
@@ -848,7 +933,8 @@ void DBIter::SeekToLast() {
   // it will seek to the last key before the
   // ReadOptions.iterate_upper_bound
   if (iter_->Valid() && iterate_upper_bound_ != nullptr) {
-    saved_key_.SetKey(*iterate_upper_bound_, false /* copy */);
+    saved_key_.SetKey(*iterate_upper_bound_, false /* copy */,
+                      false /* is_deleted */);
     std::string last_key;
     AppendInternalKey(&last_key,
                       ParsedInternalKey(saved_key_.GetKey(), kMaxSequenceNumber,
@@ -886,11 +972,12 @@ Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,
                         uint64_t max_sequential_skip_in_iterations,
                         uint64_t version_number,
                         const Slice* iterate_upper_bound,
-                        bool prefix_same_as_start, bool pin_data) {
+                        bool prefix_same_as_start, bool pin_data,
+                        bool skip_deleted_keys) {
   DBIter* db_iter =
       new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
                  false, max_sequential_skip_in_iterations, version_number,
-                 iterate_upper_bound, prefix_same_as_start);
+                 iterate_upper_bound, prefix_same_as_start, skip_deleted_keys);
   if (pin_data) {
     db_iter->PinData();
   }
@@ -914,6 +1001,9 @@ inline void ArenaWrappedDBIter::Seek(const Slice& target) {
 inline void ArenaWrappedDBIter::Next() { db_iter_->Next(); }
 inline void ArenaWrappedDBIter::Prev() { db_iter_->Prev(); }
 inline Slice ArenaWrappedDBIter::key() const { return db_iter_->key(); }
+inline bool ArenaWrappedDBIter::key_is_deleted() const {
+  return db_iter_->key_is_deleted();
+}
 inline Slice ArenaWrappedDBIter::value() const { return db_iter_->value(); }
 inline Status ArenaWrappedDBIter::status() const { return db_iter_->status(); }
 inline Status ArenaWrappedDBIter::PinData() { return db_iter_->PinData(); }
@@ -934,14 +1024,15 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const Comparator* user_key_comparator, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     const Slice* iterate_upper_bound, bool prefix_same_as_start,
-    bool pin_data) {
+    bool pin_data, bool skip_deleted_keys) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
   DBIter* db_iter =
       new (mem) DBIter(env, ioptions, user_key_comparator, nullptr, sequence,
                        true, max_sequential_skip_in_iterations, version_number,
-                       iterate_upper_bound, prefix_same_as_start);
+                       iterate_upper_bound, prefix_same_as_start,
+                       skip_deleted_keys);
 
   iter->SetDBIter(db_iter);
   if (pin_data) {

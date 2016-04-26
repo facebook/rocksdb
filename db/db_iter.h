@@ -30,7 +30,8 @@ extern Iterator* NewDBIterator(
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, const Slice* iterate_upper_bound = nullptr,
-    bool prefix_same_as_start = false, bool pin_data = false);
+    bool prefix_same_as_start = false, bool pin_data = false,
+    bool skip_deleted_keys = true);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -59,6 +60,7 @@ class ArenaWrappedDBIter : public Iterator {
   virtual void Next() override;
   virtual void Prev() override;
   virtual Slice key() const override;
+  virtual bool key_is_deleted() const override;
   virtual Slice value() const override;
   virtual Status status() const override;
 
@@ -78,6 +80,7 @@ extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const Comparator* user_key_comparator, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     const Slice* iterate_upper_bound = nullptr,
-    bool prefix_same_as_start = false, bool pin_data = false);
+    bool prefix_same_as_start = false, bool pin_data = false,
+    bool skip_deleted_keys = true);
 
 }  // namespace rocksdb
