@@ -1953,7 +1953,7 @@ class WinEnv : public Env {
           // generation time.
           std::thread& terminating_thread = bgthreads_.back();
           auto tid = terminating_thread.get_id();
-          // Ensure that that this thread is ours
+          // Ensure that this thread is ours
           assert(tid == std::this_thread::get_id());
           terminating_thread.detach();
           bgthreads_.pop_back();

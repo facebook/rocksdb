@@ -271,7 +271,7 @@ class Compaction {
   // A copy of inputs_, organized more closely in memory
   autovector<LevelFilesBrief, 2> input_levels_;
 
-  // State used to check for number of of overlapping grandparent files
+  // State used to check for number of overlapping grandparent files
   // (grandparent == "output_level_ + 1")
   std::vector<FileMetaData*> grandparents_;
   const double score_;         // score that was used to pick this compaction.

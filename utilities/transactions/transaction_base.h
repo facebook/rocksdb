@@ -244,7 +244,7 @@ class TransactionBaseImpl : public Transaction {
   // Stores that time the txn was constructed, in microseconds.
   uint64_t start_time_;
 
-  // Stores the current snapshot that was was set by SetSnapshot or null if
+  // Stores the current snapshot that was set by SetSnapshot or null if
   // no snapshot is currently set.
   std::shared_ptr<const Snapshot> snapshot_;
 

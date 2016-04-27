@@ -165,7 +165,7 @@ struct ColumnFamilyOptions {
                                    int rocksdb_minor_version = 6);
 
   // Some functions that make it easier to optimize RocksDB
-  // Use if if your DB is very small (like under 1GB) and you don't want to
+  // Use this if your DB is very small (like under 1GB) and you don't want to
   // spend lots of memory for memtables.
   ColumnFamilyOptions* OptimizeForSmallDb();
 
@@ -652,7 +652,7 @@ struct ColumnFamilyOptions {
   // If you'd like to customize some of these options, you will need to
   // use NewBlockBasedTableFactory() to construct a new table factory.
 
-  // This option allows user to to collect their own interested statistics of
+  // This option allows user to collect their own interested statistics of
   // the tables.
   // Default: empty vector -- no user-defined statistics collection will be
   // performed.

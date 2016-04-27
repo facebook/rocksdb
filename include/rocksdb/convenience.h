@@ -18,7 +18,7 @@ namespace rocksdb {
 // base_options, and return the new options as a result.
 //
 // If input_strings_escaped is set to true, then each escaped characters
-// prefixed by '\' in the the values of the opts_map will be further
+// prefixed by '\' in the values of the opts_map will be further
 // converted back to the raw string before assigning to the associated
 // options.
 Status GetColumnFamilyOptionsFromMap(
@@ -30,7 +30,7 @@ Status GetColumnFamilyOptionsFromMap(
 // base_options, and return the new options as a result.
 //
 // If input_strings_escaped is set to true, then each escaped characters
-// prefixed by '\' in the the values of the opts_map will be further
+// prefixed by '\' in the values of the opts_map will be further
 // converted back to the raw string before assigning to the associated
 // options.
 Status GetDBOptionsFromMap(

@@ -865,7 +865,7 @@ TEST_F(DBIteratorTest, DBIteratorBoundTest) {
     ASSERT_EQ(iter->key().compare(("b1")), 0);
 
     iter->Next();
-    // the iteration should stop as soon as the the bound key is reached
+    // the iteration should stop as soon as the bound key is reached
     // even though the key is deleted
     // hence internal_delete_skipped_count should be 0
     ASSERT_TRUE(!iter->Valid());

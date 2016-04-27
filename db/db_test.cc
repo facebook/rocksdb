@@ -2565,7 +2565,7 @@ TEST_F(DBTest, SharedWriteBuffer) {
               static_cast<uint64_t>(1));
   }
 
-  // "nikitich" still has has data of 80KB
+  // "nikitich" still has data of 80KB
   // Inserting Data in "dobrynia" triggers "nikitich" flushing.
   ASSERT_OK(Put(3, Key(2), DummyString(40000)));
   ASSERT_OK(Put(2, Key(2), DummyString(40000)));

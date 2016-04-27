@@ -92,7 +92,7 @@ class BlockBasedTable : public TableReader {
              GetContext* get_context, bool skip_filters = false) override;
 
   // Pre-fetch the disk blocks that correspond to the key range specified by
-  // (kbegin, kend). The call will return return error status in the event of
+  // (kbegin, kend). The call will return error status in the event of
   // IO or iteration error.
   Status Prefetch(const Slice* begin, const Slice* end) override;
 

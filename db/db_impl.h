@@ -232,7 +232,7 @@ class DBImpl : public DB {
   // SST files will also be checked.
   //
   // If a key is found, *found_record_for_key will be set to true and
-  // *seq will will be set to the stored sequence number for the latest
+  // *seq will be set to the stored sequence number for the latest
   // operation on this key or kMaxSequenceNumber if unknown.
   // If no key is found, *found_record_for_key will be set to false.
   //
