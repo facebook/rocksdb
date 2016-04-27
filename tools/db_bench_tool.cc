@@ -753,6 +753,7 @@ DEFINE_bool(enable_io_prio, false, "Lower the background flush/compaction "
 DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
             "table becomes an identity function. This is only valid when key "
             "is 8 bytes");
+DEFINE_bool(dump_malloc_stats, true, "Dump malloc stats in LOG ");
 
 enum RepFactory {
   kSkipList,
@@ -2662,6 +2663,8 @@ class Benchmark {
     if (FLAGS_min_level_to_compress >= 0) {
       options.compression_per_level.clear();
     }
+
+    options.dump_malloc_stats = FLAGS_dump_malloc_stats;
   }
 
   void OpenDb(const Options& options, const std::string& db_name,

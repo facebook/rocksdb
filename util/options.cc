@@ -272,7 +272,8 @@ DBOptions::DBOptions()
 #ifndef ROCKSDB_LITE
       wal_filter(nullptr),
 #endif  // ROCKSDB_LITE
-      fail_if_options_file_error(false) {
+      fail_if_options_file_error(false),
+      dump_malloc_stats(false) {
 }
 
 DBOptions::DBOptions(const Options& options)
@@ -341,7 +342,8 @@ DBOptions::DBOptions(const Options& options)
 #ifndef ROCKSDB_LITE
       wal_filter(options.wal_filter),
 #endif  // ROCKSDB_LITE
-      fail_if_options_file_error(options.fail_if_options_file_error) {
+      fail_if_options_file_error(options.fail_if_options_file_error),
+      dump_malloc_stats(options.dump_malloc_stats) {
 }
 
 static const char* const access_hints[] = {

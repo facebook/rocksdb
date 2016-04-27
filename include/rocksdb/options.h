@@ -1305,6 +1305,11 @@ struct DBOptions {
   //
   // DEFAULT: false
   bool fail_if_options_file_error;
+
+  // If true, then print malloc stats together with rocksdb.stats
+  // when printing to LOG.
+  // DEFAULT: false
+  bool dump_malloc_stats;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

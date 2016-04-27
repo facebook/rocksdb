@@ -278,7 +278,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "write_thread_slow_yield_usec=5;"
                              "write_thread_max_yield_usec=1000;"
                              "access_hint_on_compaction_start=NONE;"
-                             "info_log_level=DEBUG_LEVEL;",
+                             "info_log_level=DEBUG_LEVEL;"
+                             "dump_malloc_stats=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

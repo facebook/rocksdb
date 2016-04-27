@@ -299,13 +299,14 @@ EOF
 
     # Test whether jemalloc is available
     if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null -ljemalloc \
-      2>/dev/null; then 
+      2>/dev/null; then
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ljemalloc"
         JAVA_LDFLAGS="$JAVA_LDFLAGS -ljemalloc"
+        JEMALLOC=1
     else
         # jemalloc is not available. Let's try tcmalloc
         if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null \
-          -ltcmalloc 2>/dev/null; then 
+          -ltcmalloc 2>/dev/null; then
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
             JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
         fi
@@ -452,4 +453,6 @@ echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
 echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
-
+if test -z "$JEMALLOC"; then
+  echo "JEMALLOC=1" >> "$OUTPUT"
+fi

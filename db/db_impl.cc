@@ -12,11 +12,13 @@
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
-
 #include <inttypes.h>
 #include <stdint.h>
 #ifdef OS_SOLARIS
 #include <alloca.h>
+#endif
+#ifdef ROCKSDB_JEMALLOC
+#include "jemalloc/jemalloc.h"
 #endif
 
 #include <algorithm>
@@ -534,6 +536,37 @@ void DBImpl::PrintStatistics() {
   }
 }
 
+#ifdef ROCKSDB_JEMALLOC
+typedef struct {
+  char* cur;
+  char* end;
+} MallocStatus;
+
+static void GetJemallocStatus(void* mstat_arg, const char* status) {
+  MallocStatus* mstat = reinterpret_cast<MallocStatus*>(mstat_arg);
+  size_t status_len = status ? strlen(status) : 0;
+  size_t buf_size = (size_t)(mstat->end - mstat->cur);
+  if (!status_len || status_len > buf_size) {
+    return;
+  }
+
+  snprintf(mstat->cur, buf_size, status);
+  mstat->cur += status_len;
+}
+#endif  // ROCKSDB_JEMALLOC
+
+static void DumpMallocStats(std::string* stats) {
+#ifdef ROCKSDB_JEMALLOC
+  MallocStatus mstat;
+  const uint kMallocStatusLen = 1000000;
+  std::unique_ptr<char> buf{new char[kMallocStatusLen + 1]};
+  mstat.cur = buf.get();
+  mstat.end = buf.get() + kMallocStatusLen;
+  malloc_stats_print(GetJemallocStatus, &mstat, "");
+  stats->append(buf.get());
+#endif  // ROCKSDB_JEMALLOC
+}
+
 void DBImpl::MaybeDumpStats() {
   if (db_options_.stats_dump_period_sec == 0) return;
 
@@ -565,6 +598,9 @@ void DBImpl::MaybeDumpStats() {
       }
       default_cf_internal_stats_->GetStringProperty(
           *db_property_info, DB::Properties::kDBStats, &stats);
+    }
+    if (db_options_.dump_malloc_stats) {
+      DumpMallocStats(&stats);
     }
     Log(InfoLogLevel::WARN_LEVEL,
         db_options_.info_log, "------- DUMPING STATS -------");
