@@ -303,7 +303,8 @@ DEFINE_uint64(max_bytes_for_level_base, 256 * KB, "Max bytes for level-1");
 DEFINE_int32(max_bytes_for_level_multiplier, 2,
              "A multiplier to compute max bytes for level-N (N >= 2)");
 
-DEFINE_int32(compact_files_one_in, 1000,
+// Temporarily disable this to allows it to detect new bugs
+DEFINE_int32(compact_files_one_in, 0,
              "If non-zero, then CompactFiles() will be called one for every N "
              "operations IN AVERAGE.  0 indicates CompactFiles() is disabled.");
 
