@@ -49,6 +49,8 @@ mb_written_per_sec=${MB_WRITE_PER_SEC:-0}
 # Only for tests that do range scans
 num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}
 cache_size=${CACHE_SIZE:-$((1 * G))}
+compression_max_dict_bytes=${COMPRESSION_MAX_DICT_BYTES:-0}
+compression_type=${COMPRESSION_TYPE:-snappy}
 duration=${DURATION:-0}
 
 num_keys=${NUM_KEYS:-$((1 * G))}
@@ -68,9 +70,9 @@ const_params="
   --block_size=$block_size \
   --cache_size=$cache_size \
   --cache_numshardbits=6 \
-  --compression_type=snappy \
-  --min_level_to_compress=3 \
+  --compression_max_dict_bytes=$compression_max_dict_bytes \
   --compression_ratio=0.5 \
+  --compression_type=$compression_type \
   --level_compaction_dynamic_level_bytes=true \
   --bytes_per_sync=$((8 * M)) \
   --cache_index_and_filter_blocks=0 \

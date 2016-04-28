@@ -562,6 +562,10 @@ DEFINE_int32(compression_level, -1,
              "Compression level. For zlib this should be -1 for the "
              "default level, or between 0 and 9.");
 
+DEFINE_int32(compression_max_dict_bytes, 0,
+             "Maximum size of dictionary used to prime the compression "
+             "library.");
+
 static bool ValidateCompressionLevel(const char* flagname, int32_t value) {
   if (value < -1 || value > 9) {
     fprintf(stderr, "Invalid value for --%s: %d, must be between -1 and 9\n",
@@ -2556,6 +2560,7 @@ class Benchmark {
       FLAGS_level0_slowdown_writes_trigger;
     options.compression = FLAGS_compression_type_e;
     options.compression_opts.level = FLAGS_compression_level;
+    options.compression_opts.max_dict_bytes = FLAGS_compression_max_dict_bytes;
     options.WAL_ttl_seconds = FLAGS_wal_ttl_seconds;
     options.WAL_size_limit_MB = FLAGS_wal_size_limit_MB;
     options.max_total_wal_size = FLAGS_max_total_wal_size;
