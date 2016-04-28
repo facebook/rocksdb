@@ -912,9 +912,9 @@ TEST_F(DBTest2, PresetCompressionDict) {
       std::vector<std::string> files;
       GetSstFiles(dbname_, &files);
       for (const auto& file : files) {
-        size_t curr_bytes;
+        uint64_t curr_bytes;
         env_->GetFileSize(dbname_ + "/" + file, &curr_bytes);
-        out_bytes += curr_bytes;
+        out_bytes += static_cast<size_t>(curr_bytes);
       }
 
       for (size_t j = 0; j < kNumL0Files * (kL0FileBytes / kBlockSizeBytes);
