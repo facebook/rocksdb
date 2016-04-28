@@ -15,6 +15,8 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
+#include "port/port.h" // noexcept
+
 namespace rocksdb {
 
 class Block;
@@ -193,7 +195,7 @@ struct BlockContents {
         compression_type(_compression_type),
         allocation(std::move(_data)) {}
 
-  BlockContents(BlockContents&& other) noexcept { *this = std::move(other); }
+  BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT { *this = std::move(other); }
 
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
