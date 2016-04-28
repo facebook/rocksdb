@@ -43,14 +43,15 @@ TableBuilder* NewTableBuilder(
         int_tbl_prop_collector_factories,
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts, const bool skip_filters) {
+    const CompressionOptions& compression_opts,
+    const std::string* compression_dict, const bool skip_filters) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
          column_family_name.empty());
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, skip_filters,
+                          compression_opts, compression_dict, skip_filters,
                           column_family_name),
       column_family_id, file);
 }

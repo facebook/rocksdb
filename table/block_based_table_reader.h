@@ -165,11 +165,15 @@ class BlockBasedTable : public TableReader {
   // block_cache_compressed.
   // On success, Status::OK with be returned and @block will be populated with
   // pointer to the block as well as its block handle.
+  // @param compression_dict Data for presetting the compression library's
+  //    dictionary.
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed, Statistics* statistics,
       const ReadOptions& read_options,
-      BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version);
+      BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
+      const Slice& compression_dict);
+
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
   // populate the block caches.
@@ -178,11 +182,14 @@ class BlockBasedTable : public TableReader {
   //
   // REQUIRES: raw_block is heap-allocated. PutDataBlockToCache() will be
   // responsible for releasing its memory if error occurs.
+  // @param compression_dict Data for presetting the compression library's
+  //    dictionary.
   static Status PutDataBlockToCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, Statistics* statistics,
-      CachableEntry<Block>* block, Block* raw_block, uint32_t format_version);
+      CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
+      const Slice& compression_dict);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.

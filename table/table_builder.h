@@ -52,13 +52,15 @@ struct TableBuilderOptions {
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           _int_tbl_prop_collector_factories,
       CompressionType _compression_type,
-      const CompressionOptions& _compression_opts, bool _skip_filters,
+      const CompressionOptions& _compression_opts,
+      const std::string* _compression_dict, bool _skip_filters,
       const std::string& _column_family_name)
       : ioptions(_ioptions),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
+        compression_dict(_compression_dict),
         skip_filters(_skip_filters),
         column_family_name(_column_family_name) {}
   const ImmutableCFOptions& ioptions;
@@ -67,6 +69,8 @@ struct TableBuilderOptions {
       int_tbl_prop_collector_factories;
   CompressionType compression_type;
   const CompressionOptions& compression_opts;
+  // Data for presetting the compression library's dictionary, or nullptr.
+  const std::string* compression_dict;
   bool skip_filters;  // only used by BlockBasedTableBuilder
   const std::string& column_family_name;
 };

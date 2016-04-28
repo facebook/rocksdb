@@ -322,7 +322,7 @@ int main(int argc, char** argv) {
   rocksdb_options_set_block_based_table_factory(options, table_options);
 
   rocksdb_options_set_compression(options, rocksdb_no_compression);
-  rocksdb_options_set_compression_options(options, -14, -1, 0);
+  rocksdb_options_set_compression_options(options, -14, -1, 0, 0);
   int compression_levels[] = {rocksdb_no_compression, rocksdb_no_compression,
                               rocksdb_no_compression, rocksdb_no_compression};
   rocksdb_options_set_compression_per_level(options, compression_levels, 4);

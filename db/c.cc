@@ -1572,11 +1572,13 @@ void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
   }
 }
 
-void rocksdb_options_set_compression_options(
-    rocksdb_options_t* opt, int w_bits, int level, int strategy) {
+void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
+                                             int level, int strategy,
+                                             size_t max_dict_bytes) {
   opt->rep.compression_opts.window_bits = w_bits;
   opt->rep.compression_opts.level = level;
   opt->rep.compression_opts.strategy = strategy;
+  opt->rep.compression_opts.max_dict_bytes = max_dict_bytes;
 }
 
 void rocksdb_options_set_prefix_extractor(

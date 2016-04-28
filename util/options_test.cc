@@ -103,7 +103,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
        "kLZ4HCCompression:"
        "kXpressCompression:"
        "kZSTDNotFinalCompression"},
-      {"compression_opts", "4:5:6"},
+      {"compression_opts", "4:5:6:7"},
       {"num_levels", "8"},
       {"level0_file_num_compaction_trigger", "8"},
       {"level0_slowdown_writes_trigger", "9"},
@@ -201,6 +201,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
   ASSERT_EQ(new_cf_opt.compression_opts.level, 5);
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);
+  ASSERT_EQ(new_cf_opt.compression_opts.max_dict_bytes, 7);
   ASSERT_EQ(new_cf_opt.num_levels, 8);
   ASSERT_EQ(new_cf_opt.level0_file_num_compaction_trigger, 8);
   ASSERT_EQ(new_cf_opt.level0_slowdown_writes_trigger, 9);

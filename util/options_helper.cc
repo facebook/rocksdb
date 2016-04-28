@@ -806,11 +806,19 @@ Status ParseColumnFamilyOption(const std::string& name,
       new_options->compression_opts.level =
           ParseInt(value.substr(start, end - start));
       start = end + 1;
-      if (start >= value.size()) {
+      end = value.find(':', start);
+      if (end == std::string::npos) {
         return Status::InvalidArgument(
             "unable to parse the specified CF option " + name);
       }
       new_options->compression_opts.strategy =
+          ParseInt(value.substr(start, value.size() - start));
+      start = end + 1;
+      if (start >= value.size()) {
+        return Status::InvalidArgument(
+            "unable to parse the specified CF option " + name);
+      }
+      new_options->compression_opts.max_dict_bytes =
           ParseInt(value.substr(start, value.size() - start));
     } else if (name == "compaction_options_fifo") {
       new_options->compaction_options_fifo.max_table_files_size =

@@ -137,9 +137,23 @@ struct CompressionOptions {
   int window_bits;
   int level;
   int strategy;
-  CompressionOptions() : window_bits(-14), level(-1), strategy(0) {}
-  CompressionOptions(int wbits, int _lev, int _strategy)
-      : window_bits(wbits), level(_lev), strategy(_strategy) {}
+  // Maximum size of dictionary used to prime the compression library. Currently
+  // this dictionary will be constructed by sampling the first output file in a
+  // subcompaction when the target level is bottommost. This dictionary will be
+  // loaded into the compression library before compressing/uncompressing each
+  // data block of subsequent files in the subcompaction. Effectively, this
+  // improves compression ratios when there are repetitions across data blocks.
+  // A value of 0 indicates the feature is disabled.
+  // Default: 0.
+  uint32_t max_dict_bytes;
+
+  CompressionOptions()
+      : window_bits(-14), level(-1), strategy(0), max_dict_bytes(0) {}
+  CompressionOptions(int wbits, int _lev, int _strategy, size_t _max_dict_bytes)
+      : window_bits(wbits),
+        level(_lev),
+        strategy(_strategy),
+        max_dict_bytes(_max_dict_bytes) {}
 };
 
 enum UpdateStatus {    // Return status For inplace update callback

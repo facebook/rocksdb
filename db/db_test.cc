@@ -11,7 +11,6 @@
 // in Release build.
 // which is a pity, it is a good test
 #include <algorithm>
-#include <iostream>
 #include <set>
 #include <thread>
 #include <unordered_set>

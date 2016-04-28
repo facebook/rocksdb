@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* Allow preset compression dictionary for improved compression of block-based tables. This is supported for zlib, zstd, and lz4. The compression dictionary's size is configurable via CompressionOptions::max_dict_bytes.
 * Delete deprecated classes for creating backups (BackupableDB) and restoring from backups (RestoreBackupableDB). Now, BackupEngine should be used for creating backups, and BackupEngineReadOnly should be used for restorations. For more details, see https://github.com/facebook/rocksdb/wiki/How-to-backup-RocksDB%3F
 * Expose estimate of per-level compression ratio via DB property: "rocksdb.compression-ratio-at-levelN".
 

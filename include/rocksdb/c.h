@@ -538,7 +538,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_open_files(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_total_wal_size(
     rocksdb_options_t* opt, uint64_t n);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_compression_options(
-    rocksdb_options_t*, int, int, int);
+    rocksdb_options_t*, int, int, int, size_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_prefix_extractor(
     rocksdb_options_t*, rocksdb_slicetransform_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_num_levels(

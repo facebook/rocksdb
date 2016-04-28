@@ -64,13 +64,16 @@ const size_t kMaxCacheKeyPrefixSize __attribute__((unused)) =
 // The only relevant option is options.verify_checksums for now.
 // On failure return non-OK.
 // On success fill *result and return OK - caller owns *result
+// @param compression_dict Data for presetting the compression library's
+//    dictionary.
 Status ReadBlockFromFile(RandomAccessFileReader* file, const Footer& footer,
                          const ReadOptions& options, const BlockHandle& handle,
                          std::unique_ptr<Block>* result, Env* env,
-                         bool do_uncompress = true) {
+                         bool do_uncompress = true,
+                         const Slice& compression_dict = Slice()) {
   BlockContents contents;
   Status s = ReadBlockContents(file, footer, options, handle, &contents, env,
-                               do_uncompress);
+                               do_uncompress, compression_dict);
   if (s.ok()) {
     result->reset(new Block(std::move(contents)));
   }
@@ -407,6 +410,11 @@ struct BlockBasedTable::Rep {
   BlockHandle filter_handle;
 
   std::shared_ptr<const TableProperties> table_properties;
+  // Block containing the data for the compression dictionary. We take ownership
+  // for the entire block struct, even though we only use its Slice member. This
+  // is easier because the Slice member depends on the continued existence of
+  // another member ("allocation").
+  std::unique_ptr<const BlockContents> compression_dict_block;
   BlockBasedTableOptions::IndexType index_type;
   bool hash_index_allow_collision;
   bool whole_key_filtering;
@@ -585,6 +593,31 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         "Cannot find Properties block from file.");
   }
 
+  // Read the compression dictionary meta block
+  bool found_compression_dict;
+  s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict);
+  if (!s.ok()) {
+    Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+        "Cannot seek to compression dictionary block from file: %s",
+        s.ToString().c_str());
+  } else if (found_compression_dict) {
+    // TODO(andrewkr): Add to block cache if cache_index_and_filter_blocks is
+    // true.
+    unique_ptr<BlockContents> compression_dict_block{new BlockContents()};
+    s = rocksdb::ReadMetaBlock(rep->file.get(), file_size,
+                               kBlockBasedTableMagicNumber, rep->ioptions.env,
+                               rocksdb::kCompressionDictBlock,
+                               compression_dict_block.get());
+    if (!s.ok()) {
+      Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+          "Encountered error while reading data from compression dictionary "
+          "block %s",
+          s.ToString().c_str());
+    } else {
+      rep->compression_dict_block = std::move(compression_dict_block);
+    }
+  }
+
   // Determine whether whole key filtering is supported.
   if (rep->table_properties) {
     rep->whole_key_filtering &=
@@ -727,7 +760,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
     const Slice& block_cache_key, const Slice& compressed_block_cache_key,
     Cache* block_cache, Cache* block_cache_compressed, Statistics* statistics,
     const ReadOptions& read_options,
-    BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version) {
+    BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
+    const Slice& compression_dict) {
   Status s;
   Block* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
@@ -771,7 +805,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
   BlockContents contents;
   s = UncompressBlockContents(compressed_block->data(),
                               compressed_block->size(), &contents,
-                              format_version);
+                              format_version, compression_dict);
 
   // Insert uncompressed block into block cache
   if (s.ok()) {
@@ -801,7 +835,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     const Slice& block_cache_key, const Slice& compressed_block_cache_key,
     Cache* block_cache, Cache* block_cache_compressed,
     const ReadOptions& read_options, Statistics* statistics,
-    CachableEntry<Block>* block, Block* raw_block, uint32_t format_version) {
+    CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
+    const Slice& compression_dict) {
   assert(raw_block->compression_type() == kNoCompression ||
          block_cache_compressed != nullptr);
 
@@ -810,7 +845,7 @@ Status BlockBasedTable::PutDataBlockToCache(
   BlockContents contents;
   if (raw_block->compression_type() != kNoCompression) {
     s = UncompressBlockContents(raw_block->data(), raw_block->size(), &contents,
-                                format_version);
+                                format_version, compression_dict);
   }
   if (!s.ok()) {
     delete raw_block;
@@ -1078,6 +1113,10 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     }
   }
 
+  Slice compression_dict;
+  if (rep->compression_dict_block) {
+    compression_dict = rep->compression_dict_block->data;
+  }
   // If either block cache is enabled, we'll try to read from it.
   if (block_cache != nullptr || block_cache_compressed != nullptr) {
     Statistics* statistics = rep->ioptions.statistics;
@@ -1098,9 +1137,9 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
                          compressed_cache_key);
     }
 
-    s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
-                              statistics, ro, &block,
-                              rep->table_options.format_version);
+    s = GetDataBlockFromCache(
+        key, ckey, block_cache, block_cache_compressed, statistics, ro, &block,
+        rep->table_options.format_version, compression_dict);
 
     if (block.value == nullptr && !no_io && ro.fill_cache) {
       std::unique_ptr<Block> raw_block;
@@ -1108,13 +1147,15 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
         StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
         s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
                               &raw_block, rep->ioptions.env,
-                              block_cache_compressed == nullptr);
+                              block_cache_compressed == nullptr,
+                              compression_dict);
       }
 
       if (s.ok()) {
         s = PutDataBlockToCache(key, ckey, block_cache, block_cache_compressed,
                                 ro, statistics, &block, raw_block.release(),
-                                rep->table_options.format_version);
+                                rep->table_options.format_version,
+                                compression_dict);
       }
     }
   }
@@ -1132,7 +1173,8 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     }
     std::unique_ptr<Block> block_value;
     s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
-                          &block_value, rep->ioptions.env);
+                          &block_value, rep->ioptions.env,
+                          true /* do_uncompress */, compression_dict);
     if (s.ok()) {
       block.value = block_value.release();
     }
@@ -1454,8 +1496,10 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
   Slice ckey;
 
   s = GetDataBlockFromCache(cache_key, ckey, block_cache, nullptr, nullptr,
-                            options, &block,
-                            rep_->table_options.format_version);
+                            options, &block, rep_->table_options.format_version,
+                            rep_->compression_dict_block
+                                ? rep_->compression_dict_block->data
+                                : Slice());
   assert(s.ok());
   bool in_cache = block.value != nullptr;
   if (in_cache) {
@@ -1603,6 +1647,10 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
       }
       if (meta_iter->key() == rocksdb::kPropertiesBlock) {
         out_file->Append("  Properties block handle: ");
+        out_file->Append(meta_iter->value().ToString(true).c_str());
+        out_file->Append("\n");
+      } else if (meta_iter->key() == rocksdb::kCompressionDictBlock) {
+        out_file->Append("  Compression dictionary block handle: ");
         out_file->Append(meta_iter->value().ToString(true).c_str());
         out_file->Append("\n");
       } else if (strstr(meta_iter->key().ToString().c_str(),

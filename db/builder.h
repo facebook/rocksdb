@@ -36,6 +36,8 @@ class InternalIterator;
 // @param column_family_name Name of the column family that is also identified
 //    by column_family_id, or empty string if unknown. It must outlive the
 //    TableBuilder returned by this function.
+// @param compression_dict Data for presetting the compression library's
+//    dictionary, or nullptr.
 TableBuilder* NewTableBuilder(
     const ImmutableCFOptions& options,
     const InternalKeyComparator& internal_comparator,
@@ -44,6 +46,7 @@ TableBuilder* NewTableBuilder(
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts,
+    const std::string* compression_dict = nullptr,
     const bool skip_filters = false);
 
 // Build a Table file from the contents of *iter.  The generated file

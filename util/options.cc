@@ -507,6 +507,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         compression_opts.level);
     Header(log, "              Options.compression_opts.strategy: %d",
         compression_opts.strategy);
+    Header(log,
+        "        Options.compression_opts.max_dict_bytes: %" ROCKSDB_PRIszt,
+        compression_opts.max_dict_bytes);
     Header(log, "     Options.level0_file_num_compaction_trigger: %d",
         level0_file_num_compaction_trigger);
     Header(log, "         Options.level0_slowdown_writes_trigger: %d",

@@ -40,6 +40,19 @@ namespace {
         props, key, ToString(value), prop_delim, kv_delim
     );
   }
+
+  // Seek to the specified meta block.
+  // Return true if it successfully seeks to that block.
+  Status SeekToMetaBlock(InternalIterator* meta_iter,
+                         const std::string& block_name, bool* is_found) {
+    *is_found = true;
+    meta_iter->Seek(block_name);
+    if (meta_iter->status().ok() &&
+        (!meta_iter->Valid() || meta_iter->key() != block_name)) {
+      *is_found = false;
+    }
+    return meta_iter->status();
+  }
 }
 
 std::string TableProperties::ToString(
@@ -146,21 +159,22 @@ const std::string TablePropertiesNames::kPropertyCollectors =
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility
 extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
+extern const std::string kCompressionDictBlock = "rocksdb.compression_dict";
 
 // Seek to the properties block.
 // Return true if it successfully seeks to the properties block.
 Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
-  *is_found = true;
-  meta_iter->Seek(kPropertiesBlock);
-  if (meta_iter->status().ok() &&
-      (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlock)) {
-    meta_iter->Seek(kPropertiesBlockOldName);
-    if (meta_iter->status().ok() &&
-        (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlockOldName)) {
-      *is_found = false;
-    }
+  Status status = SeekToMetaBlock(meta_iter, kPropertiesBlock, is_found);
+  if (!*is_found && status.ok()) {
+    status = SeekToMetaBlock(meta_iter, kPropertiesBlockOldName, is_found);
   }
-  return meta_iter->status();
+  return status;
+}
+
+// Seek to the compression dictionary block.
+// Return true if it successfully seeks to that block.
+Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found) {
+  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found);
 }
 
 }  // namespace rocksdb

@@ -16,12 +16,13 @@
 #include <inttypes.h>
 #include <algorithm>
 #include <functional>
-#include <vector>
-#include <memory>
 #include <list>
+#include <memory>
+#include <random>
 #include <set>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "db/builder.h"
 #include "db/db_iter.h"
@@ -111,6 +112,7 @@ struct CompactionJob::SubcompactionState {
   uint64_t overlapped_bytes = 0;
   // A flag determine whether the key has been seen in ShouldStopBefore()
   bool seen_key = false;
+  std::string compression_dict;
 
   SubcompactionState(Compaction* c, Slice* _start, Slice* _end,
                      uint64_t size = 0)
@@ -125,7 +127,8 @@ struct CompactionJob::SubcompactionState {
         approx_size(size),
         grandparent_index(0),
         overlapped_bytes(0),
-        seen_key(false) {
+        seen_key(false),
+        compression_dict() {
     assert(compaction != nullptr);
   }
 
@@ -147,6 +150,7 @@ struct CompactionJob::SubcompactionState {
     grandparent_index = std::move(o.grandparent_index);
     overlapped_bytes = std::move(o.overlapped_bytes);
     seen_key = std::move(o.seen_key);
+    compression_dict = std::move(o.compression_dict);
     return *this;
   }
 
@@ -665,6 +669,30 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+
+  // To build compression dictionary, we sample the first output file, assuming
+  // it'll reach the maximum length, and then use the dictionary for compressing
+  // subsequent output files. The dictionary may be less than max_dict_bytes if
+  // the first output file's length is less than the maximum.
+  const int kSampleLenShift = 6;  // 2^6 = 64-byte samples
+  std::set<size_t> sample_begin_offsets;
+  if (bottommost_level_ &&
+      cfd->ioptions()->compression_opts.max_dict_bytes > 0) {
+    const size_t kMaxSamples =
+        cfd->ioptions()->compression_opts.max_dict_bytes >> kSampleLenShift;
+    const size_t kOutFileLen =
+        cfd->GetCurrentMutableCFOptions()->MaxFileSizeForLevel(
+            compact_->compaction->output_level());
+    if (kOutFileLen != port::kMaxSizet) {
+      const size_t kOutFileNumSamples = kOutFileLen >> kSampleLenShift;
+      Random64 generator{versions_->NewFileNumber()};
+      for (size_t i = 0; i < kMaxSamples; ++i) {
+        sample_begin_offsets.insert(generator.Uniform(kOutFileNumSamples)
+                                    << kSampleLenShift);
+      }
+    }
+  }
+
   auto compaction_filter = cfd->ioptions()->compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (compaction_filter == nullptr) {
@@ -700,6 +728,13 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
   const auto& c_iter_stats = c_iter->iter_stats();
+  auto sample_begin_offset_iter = sample_begin_offsets.cbegin();
+  // data_begin_offset and compression_dict are only valid while generating
+  // dictionary from the first output file.
+  size_t data_begin_offset = 0;
+  std::string compression_dict;
+  compression_dict.reserve(cfd->ioptions()->compression_opts.max_dict_bytes);
+
   // TODO(noetzli): check whether we could check !shutting_down_->... only
   // only occasionally (see diff D42687)
   while (status.ok() && !shutting_down_->load(std::memory_order_acquire) &&
@@ -743,6 +778,55 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         key, c_iter->ikey().sequence);
     sub_compact->num_output_records++;
 
+    if (sub_compact->outputs.size() == 1) {  // first output file
+      // Check if this key/value overlaps any sample intervals; if so, appends
+      // overlapping portions to the dictionary.
+      for (const auto& data_elmt : {key, value}) {
+        size_t data_end_offset = data_begin_offset + data_elmt.size();
+        while (sample_begin_offset_iter != sample_begin_offsets.cend() &&
+               *sample_begin_offset_iter < data_end_offset) {
+          size_t sample_end_offset =
+              *sample_begin_offset_iter + (1 << kSampleLenShift);
+          // Invariant: Because we advance sample iterator while processing the
+          // data_elmt containing the sample's last byte, the current sample
+          // cannot end before the current data_elmt.
+          assert(data_begin_offset < sample_end_offset);
+
+          size_t data_elmt_copy_offset, data_elmt_copy_len;
+          if (*sample_begin_offset_iter <= data_begin_offset) {
+            // The sample starts before data_elmt starts, so take bytes starting
+            // at the beginning of data_elmt.
+            data_elmt_copy_offset = 0;
+          } else {
+            // data_elmt starts before the sample starts, so take bytes starting
+            // at the below offset into data_elmt.
+            data_elmt_copy_offset =
+                *sample_begin_offset_iter - data_begin_offset;
+          }
+          if (sample_end_offset <= data_end_offset) {
+            // The sample ends before data_elmt ends, so take as many bytes as
+            // needed.
+            data_elmt_copy_len =
+                sample_end_offset - (data_begin_offset + data_elmt_copy_offset);
+          } else {
+            // data_elmt ends before the sample ends, so take all remaining
+            // bytes in data_elmt.
+            data_elmt_copy_len =
+                data_end_offset - (data_begin_offset + data_elmt_copy_offset);
+          }
+          compression_dict.append(&data_elmt.data()[data_elmt_copy_offset],
+                                  data_elmt_copy_len);
+          if (sample_end_offset > data_end_offset) {
+            // Didn't finish sample. Try to finish it with the next data_elmt.
+            break;
+          }
+          // Next sample may require bytes from same data_elmt.
+          sample_begin_offset_iter++;
+        }
+        data_begin_offset = data_end_offset;
+      }
+    }
+
     // Close output file if it is big enough
     // TODO(aekmekji): determine if file should be closed earlier than this
     // during subcompactions (i.e. if output size, estimated by input size, is
@@ -751,8 +835,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (sub_compact->builder->FileSize() >=
         sub_compact->compaction->max_output_file_size()) {
       status = FinishCompactionOutputFile(input->status(), sub_compact);
+      if (sub_compact->outputs.size() == 1) {
+        // Use dictionary from first output file for compression of subsequent
+        // files.
+        sub_compact->compression_dict = std::move(compression_dict);
+      }
     }
-
     c_iter->Next();
   }
 
@@ -1020,7 +1108,8 @@ Status CompactionJob::OpenCompactionOutputFile(
       *cfd->ioptions(), cfd->internal_comparator(),
       cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
-      cfd->ioptions()->compression_opts, skip_filters));
+      cfd->ioptions()->compression_opts, &sub_compact->compression_dict,
+      skip_filters));
   LogFlush(db_options_.info_log);
   return s;
 }

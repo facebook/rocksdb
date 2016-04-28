@@ -17,4 +17,9 @@ class InternalIterator;
 // set to true.
 Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found);
 
+// Seek to the compression dictionary block.
+// If it successfully seeks to the properties block, "is_found" will be
+// set to true.
+Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found);
+
 }  // namespace rocksdb

@@ -187,7 +187,7 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
     { CompressionType::kSnappyCompression, "kSnappyCompression" },
     { CompressionType::kZlibCompression, "kZlibCompression" },
     { CompressionType::kBZip2Compression, "kBZip2Compression" },
-    { CompressionType::kLZ4Compression, "kLZ4Compression" }, 
+    { CompressionType::kLZ4Compression, "kLZ4Compression" },
     { CompressionType::kLZ4HCCompression, "kLZ4HCCompression" },
     { CompressionType::kXpressCompression, "kXpressCompression" },
     { CompressionType::kZSTDNotFinalCompression, "kZSTDNotFinalCompression" }
@@ -196,9 +196,10 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
   for (auto& i : compressions) {
     CompressionOptions compress_opt;
     std::string column_family_name;
-    TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i.first,
-                                compress_opt, false /* skip_filters */,
-                                column_family_name);
+    TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories,
+                                i.first, compress_opt,
+                                nullptr /* compression_dict */,
+                                false /* skip_filters */, column_family_name);
     uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
     fprintf(stdout, "Compression: %s", i.second);
     fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
