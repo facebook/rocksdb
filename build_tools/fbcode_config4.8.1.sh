@@ -40,7 +40,6 @@ GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags.a"
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include"
 JEMALLOC_LIB="$JEMALLOC_BASE/lib/libjemalloc.a"
-JEMALLOC=1
 
 # location of numa
 NUMA_INCLUDE=" -I $NUMA_BASE/include/"
@@ -67,6 +66,7 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS="-B$BINUTILS/gold -m64 -mtune=generic"
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
+  JEMALLOC=1
 else
   # clang
   CLANG_BIN="$CLANG_BASE/bin"

@@ -551,7 +551,7 @@ static void GetJemallocStatus(void* mstat_arg, const char* status) {
     return;
   }
 
-  snprintf(mstat->cur, buf_size, status);
+  snprintf(mstat->cur, buf_size, "%s", status);
   mstat->cur += status_len;
 }
 #endif  // ROCKSDB_JEMALLOC

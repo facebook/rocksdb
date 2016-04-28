@@ -61,7 +61,6 @@ CFLAGS+=" -DGFLAGS=google"
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
 JEMALLOC_LIB=" $JEMALLOC_BASE/lib/libjemalloc.a"
-JEMALLOC=1
 
 if test -z $PIC_BUILD; then
   # location of numa
@@ -98,6 +97,7 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS+=" -B$BINUTILS/gold"
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
+  JEMALLOC=1
 else
   # clang
   CLANG_INCLUDE="$CLANG_LIB/clang/*/include"
