@@ -149,7 +149,7 @@ struct CompressionOptions {
 
   CompressionOptions()
       : window_bits(-14), level(-1), strategy(0), max_dict_bytes(0) {}
-  CompressionOptions(int wbits, int _lev, int _strategy, size_t _max_dict_bytes)
+  CompressionOptions(int wbits, int _lev, int _strategy, int _max_dict_bytes)
       : window_bits(wbits),
         level(_lev),
         strategy(_strategy),
