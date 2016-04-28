@@ -135,8 +135,8 @@ void TransactionLockMgr::AddColumnFamily(uint32_t column_family_id) {
 
 void TransactionLockMgr::RemoveColumnFamily(uint32_t column_family_id) {
   // Remove lock_map for this column family.  Since the lock map is stored
-  // as a shared ptr, concurrent transactions can still keep keep using it
-  // until they release their reference to it.
+  // as a shared ptr, concurrent transactions can still keep using it
+  // until they release their references to it.
   {
     InstrumentedMutexLock l(&lock_map_mutex_);
 

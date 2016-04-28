@@ -341,7 +341,7 @@ class Transaction {
   // committed.
   //
   // Note:  You should not write or delete anything from the batch directly and
-  // should only use the the functions in the Transaction class to
+  // should only use the functions in the Transaction class to
   // write to this transaction.
   virtual WriteBatchWithIndex* GetWriteBatch() = 0;
 

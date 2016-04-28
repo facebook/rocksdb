@@ -54,10 +54,10 @@ struct TransactionDBOptions {
   // If negative, there is no timeout and will block indefinitely when acquiring
   // a lock.
   //
-  // Not using a a timeout can lead to deadlocks.  Currently, there
+  // Not using a timeout can lead to deadlocks.  Currently, there
   // is no deadlock-detection to recover from a deadlock.  While DB writes
   // cannot deadlock with other DB writes, they can deadlock with a transaction.
-  // A negative timeout should only be used if all transactions have an small
+  // A negative timeout should only be used if all transactions have a small
   // expiration set.
   int64_t default_lock_timeout = 1000;  // 1 second
 
