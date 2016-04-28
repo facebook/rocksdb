@@ -643,7 +643,7 @@ class Stats {
     fprintf(stdout, "%-12s: Got errors %ld times\n", "", errors_);
     fprintf(stdout, "%-12s: %ld CompactFiles() succeed\n", "",
             num_compact_files_succeed_);
-    fprintf(stdout, "%-12s: %ld CompactFiles() failed\n", "",
+    fprintf(stdout, "%-12s: %ld CompactFiles() did not succeed\n", "",
             num_compact_files_failed_);
 
     if (FLAGS_histogram) {
