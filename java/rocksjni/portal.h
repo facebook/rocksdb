@@ -676,15 +676,20 @@ class InfoLogLevelJni {
       return getEnum(env, "FATAL_LEVEL");
     }
 
+    // Get the HEADER_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject HEADER_LEVEL(JNIEnv* env) {
+      return getEnum(env, "HEADER_LEVEL");
+    }
+
  private:
-    // Get the java class id of org.rocksdb.WBWIRocksIterator.WriteType.
+    // Get the java class id of org.rocksdb.InfoLogLevel
     static jclass getJClass(JNIEnv* env) {
       jclass jclazz = env->FindClass("org/rocksdb/InfoLogLevel");
       assert(jclazz != nullptr);
       return jclazz;
     }
 
-    // Get an enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    // Get an enum field of org.rocksdb.InfoLogLevel
     static jobject getEnum(JNIEnv* env, const char name[]) {
       jclass jclazz = getJClass(env);
       jfieldID jfid =
