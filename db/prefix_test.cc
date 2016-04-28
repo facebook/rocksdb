@@ -446,6 +446,10 @@ TEST_F(PrefixTest, PrefixValid) {
       iter->Next();
       ASSERT_FALSE(iter->Valid());
       ASSERT_EQ(kNotFoundResult, Get(db.get(), read_options, 12346, 8));
+
+      // Verify seeking past the prefix won't return a result.
+      SeekIterator(iter.get(), 12345, 10);
+      ASSERT_TRUE(!iter->Valid());
     }
   }
 }
