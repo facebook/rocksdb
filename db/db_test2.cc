@@ -709,6 +709,97 @@ TEST_F(DBTest2, WalFilterTestWithColumnFamilies) {
   }
   ASSERT_TRUE(index == keys_cf.size());
 }
+
+TEST_F(DBTest2, PresetCompressionDict) {
+  const size_t kBlockSizeBytes = 4 << 10;
+  const size_t kL0FileBytes = 128 << 10;
+  const size_t kApproxPerBlockOverheadBytes = 50;
+  const int kNumL0Files = 5;
+
+  Options options;
+  options.arena_block_size = kBlockSizeBytes;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(kL0FileBytes / kBlockSizeBytes));
+  options.num_levels = 2;
+  options.target_file_size_base = kL0FileBytes;
+  options.target_file_size_multiplier = 2;
+  options.write_buffer_size = kL0FileBytes;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = kBlockSizeBytes;
+  std::vector<CompressionType> compression_types;
+  if (Zlib_Supported()) {
+    compression_types.push_back(kZlibCompression);
+  }
+#if LZ4_VERSION_NUMBER >= 10400  // r124+
+  compression_types.push_back(kLZ4Compression);
+  compression_types.push_back(kLZ4HCCompression);
+#endif                          // LZ4_VERSION_NUMBER >= 10400
+#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
+  compression_types.push_back(kZSTDNotFinalCompression);
+#endif  // ZSTD_VERSION_NUMBER >= 500
+
+  for (auto compression_type : compression_types) {
+    options.compression = compression_type;
+    size_t prev_out_bytes;
+    for (int i = 0; i < 2; ++i) {
+      // First iteration: compress without preset dictionary
+      // Second iteration: compress with preset dictionary
+      // To make sure the compression dictionary was actually used, we verify
+      // the compressed size is smaller in the second iteration. Also in the
+      // second iteration, verify the data we get out is the same data we put
+      // in.
+      if (i) {
+        options.compression_opts.max_dict_bytes = kBlockSizeBytes;
+      } else {
+        options.compression_opts.max_dict_bytes = 0;
+      }
+
+      options.statistics = rocksdb::CreateDBStatistics();
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      CreateAndReopenWithCF({"pikachu"}, options);
+      Random rnd(301);
+      std::string seq_data =
+          RandomString(&rnd, kBlockSizeBytes - kApproxPerBlockOverheadBytes);
+
+      ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
+      for (int j = 0; j < kNumL0Files; ++j) {
+        for (size_t k = 0; k < kL0FileBytes / kBlockSizeBytes + 1; ++k) {
+          ASSERT_OK(Put(1, Key(static_cast<int>(
+                               j * (kL0FileBytes / kBlockSizeBytes) + k)),
+                        seq_data));
+        }
+        dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+        ASSERT_EQ(j + 1, NumTableFilesAtLevel(0, 1));
+      }
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+      ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
+      ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
+
+      size_t out_bytes = 0;
+      std::vector<std::string> files;
+      GetSstFiles(dbname_, &files);
+      for (const auto& file : files) {
+        uint64_t curr_bytes;
+        env_->GetFileSize(dbname_ + "/" + file, &curr_bytes);
+        out_bytes += static_cast<size_t>(curr_bytes);
+      }
+
+      for (size_t j = 0; j < kNumL0Files * (kL0FileBytes / kBlockSizeBytes);
+           j++) {
+        ASSERT_EQ(seq_data, Get(1, Key(static_cast<int>(j))));
+      }
+      if (i) {
+        ASSERT_GT(prev_out_bytes, out_bytes);
+      }
+      prev_out_bytes = out_bytes;
+      DestroyAndReopen(options);
+    }
+  }
+}
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest2, FirstSnapshotTest) {
@@ -838,97 +929,6 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 
 INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
                         PinL0IndexAndFilterBlocksTest, ::testing::Bool());
-
-TEST_F(DBTest2, PresetCompressionDict) {
-  const size_t kBlockSizeBytes = 4 << 10;
-  const size_t kL0FileBytes = 128 << 10;
-  const size_t kApproxPerBlockOverheadBytes = 50;
-  const int kNumL0Files = 5;
-
-  Options options;
-  options.arena_block_size = kBlockSizeBytes;
-  options.compaction_style = kCompactionStyleUniversal;
-  options.create_if_missing = true;
-  options.disable_auto_compactions = true;
-  options.level0_file_num_compaction_trigger = kNumL0Files;
-  options.memtable_factory.reset(
-      new SpecialSkipListFactory(kL0FileBytes / kBlockSizeBytes));
-  options.num_levels = 2;
-  options.target_file_size_base = kL0FileBytes;
-  options.target_file_size_multiplier = 2;
-  options.write_buffer_size = kL0FileBytes;
-  BlockBasedTableOptions table_options;
-  table_options.block_size = kBlockSizeBytes;
-  std::vector<CompressionType> compression_types;
-  if (Zlib_Supported()) {
-    compression_types.push_back(kZlibCompression);
-  }
-#if LZ4_VERSION_NUMBER >= 10400  // r124+
-  compression_types.push_back(kLZ4Compression);
-  compression_types.push_back(kLZ4HCCompression);
-#endif  // LZ4_VERSION_NUMBER >= 10400
-#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
-  compression_types.push_back(kZSTDNotFinalCompression);
-#endif  // ZSTD_VERSION_NUMBER >= 500
-
-  for (auto compression_type : compression_types) {
-    options.compression = compression_type;
-    size_t prev_out_bytes;
-    for (int i = 0; i < 2; ++i) {
-      // First iteration: compress without preset dictionary
-      // Second iteration: compress with preset dictionary
-      // To make sure the compression dictionary was actually used, we verify
-      // the compressed size is smaller in the second iteration. Also in the
-      // second iteration, verify the data we get out is the same data we put
-      // in.
-      if (i) {
-        options.compression_opts.max_dict_bytes = kBlockSizeBytes;
-      } else {
-        options.compression_opts.max_dict_bytes = 0;
-      }
-
-      options.statistics = rocksdb::CreateDBStatistics();
-      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-      CreateAndReopenWithCF({"pikachu"}, options);
-      Random rnd(301);
-      std::string seq_data =
-          RandomString(&rnd, kBlockSizeBytes - kApproxPerBlockOverheadBytes);
-
-      ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
-      for (int j = 0; j < kNumL0Files; ++j) {
-        for (size_t k = 0; k < kL0FileBytes / kBlockSizeBytes + 1; ++k) {
-          ASSERT_OK(Put(1, Key(static_cast<int>(
-                               j * (kL0FileBytes / kBlockSizeBytes) + k)),
-                        seq_data));
-        }
-        dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
-        ASSERT_EQ(j + 1, NumTableFilesAtLevel(0, 1));
-      }
-      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
-      ASSERT_EQ(0, NumTableFilesAtLevel(0, 1));
-      ASSERT_GT(NumTableFilesAtLevel(1, 1), 0);
-
-      size_t out_bytes = 0;
-      std::vector<std::string> files;
-      GetSstFiles(dbname_, &files);
-      for (const auto& file : files) {
-        uint64_t curr_bytes;
-        env_->GetFileSize(dbname_ + "/" + file, &curr_bytes);
-        out_bytes += static_cast<size_t>(curr_bytes);
-      }
-
-      for (size_t j = 0; j < kNumL0Files * (kL0FileBytes / kBlockSizeBytes);
-           j++) {
-        ASSERT_EQ(seq_data, Get(1, Key(static_cast<int>(j))));
-      }
-      if (i) {
-        ASSERT_GT(prev_out_bytes, out_bytes);
-      }
-      prev_out_bytes = out_bytes;
-      DestroyAndReopen(options);
-    }
-  }
-}
 
 }  // namespace rocksdb
 
