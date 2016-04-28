@@ -18,7 +18,7 @@ LIBGCC_LIBS=" -L $LIBGCC_BASE/libs"
 
 # glibc
 GLIBC_INCLUDE="$GLIBC_BASE/include"
-GLIBC_LIBS=" -L $GLIB_BASE/lib"
+GLIBC_LIBS=" -L $GLIBC_BASE/lib"
 
 # snappy
 SNAPPY_INCLUDE=" -I $SNAPPY_BASE/include/"
