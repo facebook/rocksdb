@@ -536,6 +536,7 @@ void DBImpl::PrintStatistics() {
   }
 }
 
+#ifndef ROCKSDB_LITE
 #ifdef ROCKSDB_JEMALLOC
 typedef struct {
   char* cur;
@@ -566,6 +567,7 @@ static void DumpMallocStats(std::string* stats) {
   stats->append(buf.get());
 #endif  // ROCKSDB_JEMALLOC
 }
+#endif  // !ROCKSDB_LITE
 
 void DBImpl::MaybeDumpStats() {
   if (db_options_.stats_dump_period_sec == 0) return;

@@ -61,6 +61,7 @@ CFLAGS+=" -DGFLAGS=google"
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include/"
 JEMALLOC_LIB=" $JEMALLOC_BASE/lib/libjemalloc.a"
+JEMALLOC=1
 
 if test -z $PIC_BUILD; then
   # location of numa

@@ -40,6 +40,7 @@ GFLAGS_LIBS=" $GFLAGS_BASE/lib/libgflags.a"
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I $JEMALLOC_BASE/include"
 JEMALLOC_LIB="$JEMALLOC_BASE/lib/libjemalloc.a"
+JEMALLOC=1
 
 # location of numa
 NUMA_INCLUDE=" -I $NUMA_BASE/include/"
