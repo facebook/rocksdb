@@ -262,8 +262,11 @@ class WinMmapFile : public WritableFile {
                             // page size or SSD page size
   const size_t
       allocation_granularity_;  // View must start at such a granularity
-  size_t mapping_size_;         // We want file mapping to be of a specific size
-                                // because then the file is expandable
+
+  size_t reserved_size_;      // Preallocated size
+
+  size_t mapping_size_;         // The max size of the mapping object
+                                // we want to guess the final file size to minimize the remapping
   size_t view_size_;            // How much memory to map into a view at a time
 
   char* mapped_begin_;  // Must begin at the file offset that is aligned with
@@ -283,15 +286,6 @@ class WinMmapFile : public WritableFile {
     return ftruncate(filename_, hFile_, toSize);
   }
 
-  // Can only truncate or reserve to a sector size aligned if
-  // used on files that are opened with Unbuffered I/O
-  // Normally it does not present a problem since in memory mapped files
-  // we do not disable buffering
-  Status ReserveFileSpace(uint64_t toSize) {
-    IOSTATS_TIMER_GUARD(allocate_nanos);
-    return fallocate(filename_, hFile_, toSize);
-  }
-
   Status UnmapCurrentRegion() {
     Status status;
 
@@ -301,82 +295,57 @@ class WinMmapFile : public WritableFile {
             "Failed to unmap file view: " + filename_, GetLastError());
       }
 
-      // UnmapView automatically sends data to disk but not the metadata
-      // which is good and provides some equivalent of fdatasync() on Linux
-      // therefore, we donot need separate flag for metadata
-      pending_sync_ = false;
-      mapped_begin_ = nullptr;
-      mapped_end_ = nullptr;
-      dst_ = nullptr;
-      last_sync_ = nullptr;
-
       // Move on to the next portion of the file
       file_offset_ += view_size_;
 
-      // Increase the amount we map the next time, but capped at 1MB
-      view_size_ *= 2;
-      view_size_ = std::min(view_size_, c_OneMB);
+      // UnmapView automatically sends data to disk but not the metadata
+      // which is good and provides some equivalent of fdatasync() on Linux
+      // therefore, we donot need separate flag for metadata
+      mapped_begin_ = nullptr;
+      mapped_end_ = nullptr;
+      dst_ = nullptr;
+
+      last_sync_ = nullptr;
+      pending_sync_ = false;
     }
 
     return status;
   }
 
   Status MapNewRegion() {
+
     Status status;
 
     assert(mapped_begin_ == nullptr);
 
-    size_t minMappingSize = file_offset_ + view_size_;
+    size_t minDiskSize = file_offset_ + view_size_;
 
-    // Check if we need to create a new mapping since we want to write beyond
-    // the current one
-    // If the mapping view is now too short
-    // CreateFileMapping will extend the size of the file automatically if the
-    // mapping size is greater than
-    // the current length of the file, which reserves the space and makes
-    // writing faster, except, windows can not map an empty file.
-    // Thus the first time around we must actually extend the file ourselves
-    if (hMap_ == NULL || minMappingSize > mapping_size_) {
-      if (NULL == hMap_) {
-        // Creating mapping for the first time so reserve the space on disk
-        status = ReserveFileSpace(minMappingSize);
-        if (!status.ok()) {
-          return status;
-        }
+    if (minDiskSize > reserved_size_) {
+      status = Allocate(file_offset_, view_size_);
+      if (!status.ok()) {
+        return status;
       }
+    }
 
-      if (hMap_) {
+    // Need to remap
+    if (hMap_ == NULL || reserved_size_ > mapping_size_) {
+
+      if (hMap_ != NULL) {
         // Unmap the previous one
         BOOL ret = ::CloseHandle(hMap_);
         assert(ret);
         hMap_ = NULL;
       }
 
-      // Calculate the new mapping size which will hopefully reserve space for
-      // several consecutive sliding views
-      // Query preallocation block size if set
-      size_t preallocationBlockSize = 0;
-      size_t lastAllocatedBlockSize = 0;  // Not used
-      GetPreallocationStatus(&preallocationBlockSize, &lastAllocatedBlockSize);
-
-      if (preallocationBlockSize) {
-        preallocationBlockSize =
-            Roundup(preallocationBlockSize, allocation_granularity_);
-      } else {
-        preallocationBlockSize = 2 * view_size_;
-      }
-
-      mapping_size_ += preallocationBlockSize;
-
       ULARGE_INTEGER mappingSize;
-      mappingSize.QuadPart = mapping_size_;
+      mappingSize.QuadPart = reserved_size_;
 
       hMap_ = CreateFileMappingA(
           hFile_,
           NULL,                  // Security attributes
           PAGE_READWRITE,        // There is not a write only mode for mapping
           mappingSize.HighPart,  // Enable mapping the whole file but the actual
-                                 // amount mapped is determined by MapViewOfFile
+                                  // amount mapped is determined by MapViewOfFile
           mappingSize.LowPart,
           NULL);  // Mapping name
 
@@ -385,6 +354,8 @@ class WinMmapFile : public WritableFile {
             "WindowsMmapFile failed to create file mapping for: " + filename_,
             GetLastError());
       }
+
+      mapping_size_ = reserved_size_;
     }
 
     ULARGE_INTEGER offset;
@@ -416,6 +387,7 @@ class WinMmapFile : public WritableFile {
         hMap_(NULL),
         page_size_(page_size),
         allocation_granularity_(allocation_granularity),
+        reserved_size_(0),
         mapping_size_(0),
         view_size_(0),
         mapped_begin_(nullptr),
@@ -435,25 +407,10 @@ class WinMmapFile : public WritableFile {
     // Only for memory mapped writes
     assert(options.use_mmap_writes);
 
-    // Make sure buffering is not disabled. It is ignored for mapping
-    // purposes but also imposes restriction on moving file position
-    // it is not a problem so much with reserving space since it is probably a
-    // factor
-    // of allocation_granularity but we also want to truncate the file in
-    // Close() at
-    // arbitrary position so we do not have to feel this with zeros.
-    assert(options.use_os_buffer);
-
     // View size must be both the multiple of allocation_granularity AND the
-    // page size
-    if ((allocation_granularity_ % page_size_) == 0) {
-      view_size_ = 2 * allocation_granularity;
-    } else if ((page_size_ % allocation_granularity_) == 0) {
-      view_size_ = 2 * page_size_;
-    } else {
-      // we can multiply them together
-      assert(false);
-    }
+    // page size and the granularity is usually a multiple of a page size.
+    const size_t viewSize = 32 * 1024; // 32Kb similar to the Windows File Cache in buffered mode
+    view_size_ = Roundup(viewSize, allocation_granularity_);
   }
 
   ~WinMmapFile() {
@@ -479,14 +436,20 @@ class WinMmapFile : public WritableFile {
         if (!s.ok()) {
           return s;
         }
+      } else {
+        size_t n = std::min(left, avail);
+        memcpy(dst_, src, n);
+        dst_ += n;
+        src += n;
+        left -= n;
+        pending_sync_ = true;
       }
+    }
 
-      size_t n = std::min(left, avail);
-      memcpy(dst_, src, n);
-      dst_ += n;
-      src += n;
-      left -= n;
-      pending_sync_ = true;
+    // Now make sure that the last partial page is padded with zeros if needed
+    size_t bytesToPad = Roundup(size_t(dst_), page_size_) - size_t(dst_);
+    if (bytesToPad > 0) {
+      memset(dst_, 0, bytesToPad);
     }
 
     return Status::OK();
@@ -508,7 +471,13 @@ class WinMmapFile : public WritableFile {
     // which we use does not write zeros and it is good.
     uint64_t targetSize = GetFileSize();
 
-    s = UnmapCurrentRegion();
+    if (mapped_begin_ != nullptr) {
+      // Sync before unmapping to make sure everything
+      // is on disk and there is not a lazy writing
+      // so we are deterministic with the tests
+      Sync();
+      s = UnmapCurrentRegion();
+    }
 
     if (NULL != hMap_) {
       BOOL ret = ::CloseHandle(hMap_);
@@ -521,15 +490,18 @@ class WinMmapFile : public WritableFile {
       hMap_ = NULL;
     }
 
-    TruncateFile(targetSize);
+    if (hFile_ != NULL) {
 
-    BOOL ret = ::CloseHandle(hFile_);
-    hFile_ = NULL;
+      TruncateFile(targetSize);
 
-    if (!ret && s.ok()) {
-      auto lastError = GetLastError();
-      s = IOErrorFromWindowsError(
-          "Failed to close file map handle: " + filename_, lastError);
+      BOOL ret = ::CloseHandle(hFile_);
+      hFile_ = NULL;
+
+      if (!ret && s.ok()) {
+        auto lastError = GetLastError();
+        s = IOErrorFromWindowsError(
+            "Failed to close file map handle: " + filename_, lastError);
+      }
     }
 
     return s;
@@ -542,7 +514,7 @@ class WinMmapFile : public WritableFile {
     Status s;
 
     // Some writes occurred since last sync
-    if (pending_sync_) {
+    if (dst_ > last_sync_) {
       assert(mapped_begin_);
       assert(dst_);
       assert(dst_ > mapped_begin_);
@@ -552,16 +524,15 @@ class WinMmapFile : public WritableFile {
           TruncateToPageBoundary(page_size_, last_sync_ - mapped_begin_);
       size_t page_end =
           TruncateToPageBoundary(page_size_, dst_ - mapped_begin_ - 1);
-      last_sync_ = dst_;
 
       // Flush only the amount of that is a multiple of pages
       if (!::FlushViewOfFile(mapped_begin_ + page_begin,
-                             (page_end - page_begin) + page_size_)) {
+                              (page_end - page_begin) + page_size_)) {
         s = IOErrorFromWindowsError("Failed to FlushViewOfFile: " + filename_,
                                     GetLastError());
+      } else {
+        last_sync_ = dst_;
       }
-
-      pending_sync_ = false;
     }
 
     return s;
@@ -571,19 +542,15 @@ class WinMmapFile : public WritableFile {
   * Flush data as well as metadata to stable storage.
   */
   virtual Status Fsync() override {
-    Status s;
-
-    // Flush metadata if pending
-    const bool pending = pending_sync_;
-
-    s = Sync();
+    Status s = Sync();
 
     // Flush metadata
-    if (s.ok() && pending) {
+    if (s.ok() && pending_sync_) {
       if (!::FlushFileBuffers(hFile_)) {
         s = IOErrorFromWindowsError("Failed to FlushFileBuffers: " + filename_,
                                     GetLastError());
       }
+      pending_sync_ = false;
     }
 
     return s;
@@ -604,7 +571,24 @@ class WinMmapFile : public WritableFile {
   }
 
   virtual Status Allocate(uint64_t offset, uint64_t len) override {
-    return Status::OK();
+    Status status;
+    TEST_KILL_RANDOM("WinMmapFile::Allocate", rocksdb_kill_odds);
+
+    // Make sure that we reserve an aligned amount of space
+    // since the reservation block size is driven outside so we want
+    // to check if we are ok with reservation here
+    size_t spaceToReserve = Roundup(offset + len, view_size_);
+    // Nothing to do
+    if (spaceToReserve <= reserved_size_) {
+      return status;
+    }
+
+    IOSTATS_TIMER_GUARD(allocate_nanos);
+    status = fallocate(filename_, hFile_, spaceToReserve);
+    if (status.ok()) {
+      reserved_size_ = spaceToReserve;
+    }
+    return status;
   }
 };
 
