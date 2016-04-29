@@ -15,7 +15,6 @@ public class ReadOptions extends RocksObject {
   public ReadOptions() {
     super(newReadOptions());
   }
-  private native static long newReadOptions();
 
   /**
    * If true, all data read from underlying storage will be
@@ -28,7 +27,6 @@ public class ReadOptions extends RocksObject {
     assert(isOwningHandle());
     return verifyChecksums(nativeHandle_);
   }
-  private native boolean verifyChecksums(long handle);
 
   /**
    * If true, all data read from underlying storage will be
@@ -45,8 +43,6 @@ public class ReadOptions extends RocksObject {
     setVerifyChecksums(nativeHandle_, verifyChecksums);
     return this;
   }
-  private native void setVerifyChecksums(
-      long handle, boolean verifyChecksums);
 
   // TODO(yhchiang): this option seems to be block-based table only.
   //                 move this to a better place?
@@ -61,7 +57,6 @@ public class ReadOptions extends RocksObject {
     assert(isOwningHandle());
     return fillCache(nativeHandle_);
   }
-  private native boolean fillCache(long handle);
 
   /**
    * Fill the cache when loading the block-based sst formatted db.
@@ -77,8 +72,21 @@ public class ReadOptions extends RocksObject {
     setFillCache(nativeHandle_, fillCache);
     return this;
   }
-  private native void setFillCache(
-      long handle, boolean fillCache);
+
+  /**
+   * Returns the currently assigned Snapshot instance.
+   *
+   * @return the Snapshot assigned to this instance. If no Snapshot
+   *     is assigned null.
+   */
+  public Snapshot snapshot() {
+    assert(isOwningHandle());
+    long snapshotHandle = snapshot(nativeHandle_);
+    if (snapshotHandle != 0) {
+      return new Snapshot(snapshotHandle);
+    }
+    return null;
+  }
 
   /**
    * <p>If "snapshot" is non-nullptr, read as of the supplied snapshot
@@ -99,23 +107,6 @@ public class ReadOptions extends RocksObject {
     }
     return this;
   }
-  private native void setSnapshot(long handle, long snapshotHandle);
-
-  /**
-   * Returns the currently assigned Snapshot instance.
-   *
-   * @return the Snapshot assigned to this instance. If no Snapshot
-   *     is assigned null.
-   */
-  public Snapshot snapshot() {
-    assert(isOwningHandle());
-    long snapshotHandle = snapshot(nativeHandle_);
-    if (snapshotHandle != 0) {
-      return new Snapshot(snapshotHandle);
-    }
-    return null;
-  }
-  private native long snapshot(long handle);
 
   /**
    * Specify to create a tailing iterator -- a special iterator that has a
@@ -132,7 +123,6 @@ public class ReadOptions extends RocksObject {
     assert(isOwningHandle());
     return tailing(nativeHandle_);
   }
-  private native boolean tailing(long handle);
 
   /**
    * Specify to create a tailing iterator -- a special iterator that has a
@@ -150,8 +140,16 @@ public class ReadOptions extends RocksObject {
     setTailing(nativeHandle_, tailing);
     return this;
   }
-  private native void setTailing(
-      long handle, boolean tailing);
+
+  private native static long newReadOptions();
+  private native boolean verifyChecksums(long handle);
+  private native void setVerifyChecksums(long handle, boolean verifyChecksums);
+  private native boolean fillCache(long handle);
+  private native void setFillCache(long handle, boolean fillCache);
+  private native long snapshot(long handle);
+  private native void setSnapshot(long handle, long snapshotHandle);
+  private native boolean tailing(long handle);
+  private native void setTailing(long handle, boolean tailing);
 
   @Override protected final native void disposeInternal(final long handle);
 
