@@ -22,6 +22,30 @@ LoggerJniCallback::LoggerJniCallback(
   // across multiple method calls, so we create a global ref
   m_jLogger = env->NewGlobalRef(jlogger);
   m_jLogMethodId = LoggerJni::getLogMethodId(env);
+
+  jobject jdebug_level = InfoLogLevelJni::DEBUG_LEVEL(env);
+  assert(jdebug_level != nullptr);
+  m_jdebug_level = env->NewGlobalRef(jdebug_level);
+
+  jobject jinfo_level = InfoLogLevelJni::INFO_LEVEL(env);
+  assert(jinfo_level != nullptr);
+  m_jinfo_level = env->NewGlobalRef(jinfo_level);
+
+  jobject jwarn_level = InfoLogLevelJni::WARN_LEVEL(env);
+  assert(jwarn_level != nullptr);
+  m_jwarn_level = env->NewGlobalRef(jwarn_level);
+
+  jobject jerror_level = InfoLogLevelJni::ERROR_LEVEL(env);
+  assert(jerror_level != nullptr);
+  m_jerror_level = env->NewGlobalRef(jerror_level);
+
+  jobject jfatal_level = InfoLogLevelJni::FATAL_LEVEL(env);
+  assert(jfatal_level != nullptr);
+  m_jfatal_level = env->NewGlobalRef(jfatal_level);
+
+  jobject jheader_level = InfoLogLevelJni::HEADER_LEVEL(env);
+  assert(jheader_level != nullptr);
+  m_jheader_level = env->NewGlobalRef(jheader_level);
 }
 
 /**
@@ -43,25 +67,30 @@ void LoggerJniCallback::Logv(const char* format, va_list ap) {
 void LoggerJniCallback::Logv(const InfoLogLevel log_level,
     const char* format, va_list ap) {
   if (GetInfoLogLevel() <= log_level) {
-    JNIEnv* env = getJniEnv();
 
     // determine InfoLogLevel java enum instance
     jobject jlog_level;
     switch (log_level) {
       case rocksdb::InfoLogLevel::DEBUG_LEVEL:
-        jlog_level = InfoLogLevelJni::DEBUG_LEVEL(env);
+        jlog_level = m_jdebug_level;
         break;
       case rocksdb::InfoLogLevel::INFO_LEVEL:
-        jlog_level = InfoLogLevelJni::INFO_LEVEL(env);
+        jlog_level = m_jinfo_level;
+        break;
+      case rocksdb::InfoLogLevel::WARN_LEVEL:
+        jlog_level = m_jwarn_level;
         break;
       case rocksdb::InfoLogLevel::ERROR_LEVEL:
-        jlog_level = InfoLogLevelJni::ERROR_LEVEL(env);
+        jlog_level = m_jerror_level;
         break;
       case rocksdb::InfoLogLevel::FATAL_LEVEL:
-        jlog_level = InfoLogLevelJni::FATAL_LEVEL(env);
+        jlog_level = m_jfatal_level;
+        break;
+      case rocksdb::InfoLogLevel::HEADER_LEVEL:
+        jlog_level = m_jheader_level;
         break;
       default:
-        jlog_level = InfoLogLevelJni::FATAL_LEVEL(env);
+        jlog_level = m_jfatal_level;
         break;
     }
 
@@ -98,6 +127,8 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
       assert(p < limit);
       *p++ = '\0';
 
+      JNIEnv* env = getJniEnv();
+
       // pass java string to callback handler
       env->CallVoidMethod(
           m_jLogger,
@@ -117,6 +148,14 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
 LoggerJniCallback::~LoggerJniCallback() {
   JNIEnv* env = getJniEnv();
   env->DeleteGlobalRef(m_jLogger);
+
+  env->DeleteGlobalRef(m_jdebug_level);
+  env->DeleteGlobalRef(m_jinfo_level);
+  env->DeleteGlobalRef(m_jwarn_level);
+  env->DeleteGlobalRef(m_jerror_level);
+  env->DeleteGlobalRef(m_jfatal_level);
+  env->DeleteGlobalRef(m_jheader_level);
+
   m_jvm->DetachCurrentThread();
 }
 
