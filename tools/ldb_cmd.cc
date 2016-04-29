@@ -1505,19 +1505,53 @@ class InMemoryHandler : public WriteBatch::Handler {
     }
   }
 
-  virtual void Put(const Slice& key, const Slice& value) override {
-    row_ << "PUT : ";
+  virtual Status PutCF(uint32_t cf, const Slice& key,
+                       const Slice& value) override {
+    row_ << "PUT(" << cf << ") : ";
     commonPutMerge(key, value);
+    return Status::OK();
   }
 
-  virtual void Merge(const Slice& key, const Slice& value) override {
-    row_ << "MERGE : ";
+  virtual Status MergeCF(uint32_t cf, const Slice& key,
+                         const Slice& value) override {
+    row_ << "MERGE(" << cf << ") : ";
     commonPutMerge(key, value);
+    return Status::OK();
   }
 
-  virtual void Delete(const Slice& key) override {
-    row_ <<",DELETE : ";
+  virtual Status DeleteCF(uint32_t cf, const Slice& key) override {
+    row_ << "DELETE(" << cf << ") : ";
     row_ << LDBCommand::StringToHex(key.ToString()) << " ";
+    return Status::OK();
+  }
+
+  virtual Status SingleDeleteCF(uint32_t cf, const Slice& key) override {
+    row_ << "SINGLE_DELETE(" << cf << ") : ";
+    row_ << LDBCommand::StringToHex(key.ToString()) << " ";
+    return Status::OK();
+  }
+
+  virtual Status MarkBeginPrepare() {
+    row_ << "BEGIN_PREARE ";
+    return Status::OK();
+  }
+
+  virtual Status MarkEndPrepare(const Slice& xid) {
+    row_ << "END_PREPARE(";
+    row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
+    return Status::OK();
+  }
+
+  virtual Status MarkRollback(const Slice& xid) {
+    row_ << "ROLLBACK(";
+    row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
+    return Status::OK();
+  }
+
+  virtual Status MarkCommit(const Slice& xid) {
+    row_ << "COMMIT(";
+    row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
+    return Status::OK();
   }
 
   virtual ~InMemoryHandler() {}
