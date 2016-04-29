@@ -109,6 +109,30 @@ public class ReadOptions extends RocksObject {
   }
 
   /**
+   * Returns the current read tier.
+   *
+   * @return the read tier in use, by default {@link ReadTier#READ_ALL_TIER}
+   */
+  public ReadTier readTier() {
+    assert(isOwningHandle());
+    return ReadTier.getReadTier(readTier(nativeHandle_));
+  }
+
+  /**
+   * Specify if this read request should process data that ALREADY
+   * resides on a particular cache. If the required data is not
+   * found at the specified cache, then {@link RocksDBException} is thrown.
+   *
+   * @param readTier {@link ReadTier} instance
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setReadTier(final ReadTier readTier) {
+    assert(isOwningHandle());
+    setReadTier(nativeHandle_, readTier.getValue());
+    return this;
+  }
+
+  /**
    * Specify to create a tailing iterator -- a special iterator that has a
    * view of the complete database (i.e. it can also be used to read newly
    * added data) and is optimized for sequential reads. It will return records
@@ -141,6 +165,110 @@ public class ReadOptions extends RocksObject {
     return this;
   }
 
+  /**
+   * Returns whether managed iterators will be used.
+   *
+   * @return the setting of whether managed iterators will be used, by default false
+   */
+  public boolean managed() {
+    assert(isOwningHandle());
+    return managed(nativeHandle_);
+  }
+
+  /**
+   * Specify to create a managed iterator -- a special iterator that
+   * uses less resources by having the ability to free its underlying
+   * resources on request.
+   *
+   * @param managed if true, then managed iterators will be enabled.
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setManaged(final boolean managed) {
+    assert(isOwningHandle());
+    setManaged(nativeHandle_, managed);
+    return this;
+  }
+
+  /**
+   * Returns whether a total seek order will be used
+   *
+   * @return the setting of whether a total seek order will be used
+   */
+  public boolean totalOrderSeek() {
+    assert(isOwningHandle());
+    return totalOrderSeek(nativeHandle_);
+  }
+
+  /**
+   * Enable a total order seek regardless of index format (e.g. hash index)
+   * used in the table. Some table format (e.g. plain table) may not support
+   * this option.
+   *
+   * @param totalOrderSeek if true, then total order seek will be enabled.
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setTotalOrderSeek(final boolean totalOrderSeek) {
+    assert(isOwningHandle());
+    setTotalOrderSeek(nativeHandle_, totalOrderSeek);
+    return this;
+  }
+
+  /**
+   * Returns whether the iterator only iterates over the same prefix as the seek
+   *
+   * @return the setting of whether the iterator only iterates over the same
+   *   prefix as the seek, default is false
+   */
+  public boolean prefixSameAsStart() {
+    assert(isOwningHandle());
+    return prefixSameAsStart(nativeHandle_);
+  }
+
+
+  /**
+   * Enforce that the iterator only iterates over the same prefix as the seek.
+   * This option is effective only for prefix seeks, i.e. prefix_extractor is
+   * non-null for the column family and {@link #totalOrderSeek()} is false.
+   * Unlike iterate_upper_bound, {@link #setPrefixSameAsStart(boolean)} only
+   * works within a prefix but in both directions.
+   *
+   * @param prefixSameAsStart if true, then the iterator only iterates over the
+   *   same prefix as the seek
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setPrefixSameAsStart(final boolean prefixSameAsStart) {
+    assert(isOwningHandle());
+    setPrefixSameAsStart(nativeHandle_, prefixSameAsStart);
+    return this;
+  }
+
+  /**
+   * Returns whether the blocks loaded by the iterator will be pinned in memory
+   *
+   * @return the setting of whether the blocks loaded by the iterator will be
+   *   pinned in memory
+   */
+  public boolean pinData() {
+    assert(isOwningHandle());
+    return pinData(nativeHandle_);
+  }
+
+  /**
+   * Keep the blocks loaded by the iterator pinned in memory as long as the
+   * iterator is not deleted, If used when reading from tables created with
+   * BlockBasedTableOptions::use_delta_encoding = false,
+   * Iterator's property "rocksdb.iterator.is-key-pinned" is guaranteed to
+   * return 1.
+   *
+   * @param pinData if true, the blocks loaded by the iterator will be pinned
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setPinData(final boolean pinData) {
+    assert(isOwningHandle());
+    setPinData(nativeHandle_, pinData);
+    return this;
+  }
+
   private native static long newReadOptions();
   private native boolean verifyChecksums(long handle);
   private native void setVerifyChecksums(long handle, boolean verifyChecksums);
@@ -148,8 +276,18 @@ public class ReadOptions extends RocksObject {
   private native void setFillCache(long handle, boolean fillCache);
   private native long snapshot(long handle);
   private native void setSnapshot(long handle, long snapshotHandle);
+  private native byte readTier(long handle);
+  private native void setReadTier(long handle, byte readTierValue);
   private native boolean tailing(long handle);
   private native void setTailing(long handle, boolean tailing);
+  private native boolean managed(long handle);
+  private native void setManaged(long handle, boolean managed);
+  private native boolean totalOrderSeek(long handle);
+  private native void setTotalOrderSeek(long handle, boolean totalOrderSeek);
+  private native boolean prefixSameAsStart(long handle);
+  private native void setPrefixSameAsStart(long handle, boolean prefixSameAsStart);
+  private native boolean pinData(long handle);
+  private native void setPinData(long handle, boolean pinData);
 
   @Override protected final native void disposeInternal(final long handle);
 
