@@ -582,6 +582,147 @@ TEST_F(EventListenerTest, CompactionReasonFIFO) {
     ASSERT_EQ(compaction_reason, CompactionReason::kFIFOMaxSize);
   }
 }
+
+class TableFileCreationListener : public EventListener {
+ public:
+  class TestEnv : public EnvWrapper {
+   public:
+    TestEnv() : EnvWrapper(Env::Default()) {}
+
+    void SetStatus(Status s) { status_ = s; }
+
+    Status NewWritableFile(const std::string& fname,
+                           std::unique_ptr<WritableFile>* result,
+                           const EnvOptions& options) {
+      if (fname.size() > 4 && fname.substr(fname.size() - 4) == ".sst") {
+        if (!status_.ok()) {
+          return status_;
+        }
+      }
+      return Env::Default()->NewWritableFile(fname, result, options);
+    }
+
+   private:
+    Status status_;
+  };
+
+  TableFileCreationListener() {
+    for (int i = 0; i < 2; i++) {
+      started_[i] = finished_[i] = failure_[i] = 0;
+    }
+  }
+
+  int Index(TableFileCreationReason reason) {
+    int idx;
+    switch (reason) {
+      case TableFileCreationReason::kFlush:
+        idx = 0;
+        break;
+      case TableFileCreationReason::kCompaction:
+        idx = 1;
+        break;
+      default:
+        idx = -1;
+    }
+    return idx;
+  }
+
+  void CheckAndResetCounters(int flush_started, int flush_finished,
+                             int flush_failure, int compaction_started,
+                             int compaction_finished, int compaction_failure) {
+    ASSERT_EQ(started_[0], flush_started);
+    ASSERT_EQ(finished_[0], flush_finished);
+    ASSERT_EQ(failure_[0], flush_failure);
+    ASSERT_EQ(started_[1], compaction_started);
+    ASSERT_EQ(finished_[1], compaction_finished);
+    ASSERT_EQ(failure_[1], compaction_failure);
+    for (int i = 0; i < 2; i++) {
+      started_[i] = finished_[i] = failure_[i] = 0;
+    }
+  }
+
+  void OnTableFileCreationStarted(
+      const TableFileCreationBriefInfo& info) override {
+    int idx = Index(info.reason);
+    if (idx >= 0) {
+      started_[idx]++;
+    }
+    ASSERT_GT(info.db_name.size(), 0U);
+    ASSERT_GT(info.cf_name.size(), 0U);
+    ASSERT_GT(info.file_path.size(), 0U);
+    ASSERT_GT(info.job_id, 0);
+  }
+
+  void OnTableFileCreated(const TableFileCreationInfo& info) override {
+    int idx = Index(info.reason);
+    if (idx >= 0) {
+      finished_[idx]++;
+    }
+    ASSERT_GT(info.db_name.size(), 0U);
+    ASSERT_GT(info.cf_name.size(), 0U);
+    ASSERT_GT(info.file_path.size(), 0U);
+    ASSERT_GT(info.job_id, 0);
+    if (info.status.ok()) {
+      ASSERT_GT(info.table_properties.data_size, 0U);
+      ASSERT_GT(info.table_properties.raw_key_size, 0U);
+      ASSERT_GT(info.table_properties.raw_value_size, 0U);
+      ASSERT_GT(info.table_properties.num_data_blocks, 0U);
+      ASSERT_GT(info.table_properties.num_entries, 0U);
+    } else {
+      if (idx >= 0) {
+        failure_[idx]++;
+      }
+    }
+  }
+
+  TestEnv test_env;
+  int started_[2];
+  int finished_[2];
+  int failure_[2];
+};
+
+TEST_F(EventListenerTest, TableFileCreationListenersTest) {
+  auto listener = std::make_shared<TableFileCreationListener>();
+  Options options;
+  options.create_if_missing = true;
+  options.listeners.push_back(listener);
+  options.env = &listener->test_env;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "aaa"));
+  ASSERT_OK(Put("bar", "bbb"));
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForFlushMemTable();
+  listener->CheckAndResetCounters(1, 1, 0, 0, 0, 0);
+
+  ASSERT_OK(Put("foo", "aaa1"));
+  ASSERT_OK(Put("bar", "bbb1"));
+  listener->test_env.SetStatus(Status::NotSupported("not supported"));
+  ASSERT_NOK(Flush());
+  listener->CheckAndResetCounters(1, 1, 1, 0, 0, 0);
+  listener->test_env.SetStatus(Status::OK());
+
+  Reopen(options);
+  ASSERT_OK(Put("foo", "aaa2"));
+  ASSERT_OK(Put("bar", "bbb2"));
+  ASSERT_OK(Flush());
+  dbfull()->TEST_WaitForFlushMemTable();
+  listener->CheckAndResetCounters(1, 1, 0, 0, 0, 0);
+
+  const Slice kRangeStart = "a";
+  const Slice kRangeEnd = "z";
+  dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd);
+  dbfull()->TEST_WaitForCompact();
+  listener->CheckAndResetCounters(0, 0, 0, 1, 1, 0);
+
+  ASSERT_OK(Put("foo", "aaa3"));
+  ASSERT_OK(Put("bar", "bbb3"));
+  ASSERT_OK(Flush());
+  listener->test_env.SetStatus(Status::NotSupported("not supported"));
+  dbfull()->CompactRange(CompactRangeOptions(), &kRangeStart, &kRangeEnd);
+  dbfull()->TEST_WaitForCompact();
+  listener->CheckAndResetCounters(1, 1, 0, 1, 1, 1);
+}
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

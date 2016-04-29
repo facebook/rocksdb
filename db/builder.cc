@@ -15,6 +15,7 @@
 
 #include "db/compaction_iterator.h"
 #include "db/dbformat.h"
+#include "db/event_helpers.h"
 #include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -68,7 +69,8 @@ Status BuildTable(
     SequenceNumber earliest_write_conflict_snapshot,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    InternalStats* internal_stats, const Env::IOPriority io_priority,
+    InternalStats* internal_stats, TableFileCreationReason reason,
+    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
     TableProperties* table_properties, int level) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
@@ -81,6 +83,12 @@ Status BuildTable(
 
   std::string fname = TableFileName(ioptions.db_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
+#ifndef ROCKSDB_LITE
+  EventHelpers::NotifyTableFileCreationStarted(
+      ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
+#endif  // !ROCKSDB_LITE
+  TableProperties tp;
+
   if (iter->Valid()) {
     TableBuilder* builder;
     unique_ptr<WritableFileWriter> file_writer;
@@ -88,6 +96,9 @@ Status BuildTable(
       unique_ptr<WritableFile> file;
       s = NewWritableFile(env, fname, &file, env_options);
       if (!s.ok()) {
+        EventHelpers::LogAndNotifyTableFileCreationFinished(
+            event_logger, ioptions.listeners, dbname, column_family_name, fname,
+            job_id, meta->fd, tp, reason, s);
         return s;
       }
       file->SetIOPriority(io_priority);
@@ -135,11 +146,13 @@ Status BuildTable(
     }
 
     if (s.ok() && !empty) {
-      meta->fd.file_size = builder->FileSize();
+      uint64_t file_size = builder->FileSize();
+      meta->fd.file_size = file_size;
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
+      tp = builder->GetTableProperties();
       if (table_properties) {
-        *table_properties = builder->GetTableProperties();
+        *table_properties = tp;
       }
     }
     delete builder;
@@ -178,6 +191,12 @@ Status BuildTable(
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
     env->DeleteFile(fname);
   }
+
+  // Output to event logger and fire events.
+  EventHelpers::LogAndNotifyTableFileCreationFinished(
+      event_logger, ioptions.listeners, dbname, column_family_name, fname,
+      job_id, meta->fd, tp, reason, s);
+
   return s;
 }
 

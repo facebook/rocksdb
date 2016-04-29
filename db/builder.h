@@ -12,11 +12,13 @@
 #include "db/table_properties_collector.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
-#include "rocksdb/status.h"
-#include "rocksdb/types.h"
-#include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/options.h"
+#include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/types.h"
+#include "util/event_logger.h"
 
 namespace rocksdb {
 
@@ -69,7 +71,8 @@ extern Status BuildTable(
     SequenceNumber earliest_write_conflict_snapshot,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    InternalStats* internal_stats,
+    InternalStats* internal_stats, TableFileCreationReason reason,
+    EventLogger* event_logger = nullptr, int job_id = 0,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr, int level = -1);
 

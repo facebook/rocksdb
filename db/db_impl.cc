@@ -1534,7 +1534,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
     {
       mutex_.Unlock();
-      TableFileCreationInfo info;
 
       SequenceNumber earliest_write_conflict_snapshot;
       std::vector<SequenceNumber> snapshot_seqs =
@@ -1547,26 +1546,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           snapshot_seqs, earliest_write_conflict_snapshot,
           GetCompressionFlush(*cfd->ioptions()),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
-          cfd->internal_stats(), Env::IO_HIGH, &info.table_properties);
+          cfd->internal_stats(), TableFileCreationReason::kRecovery,
+          &event_logger_, job_id);
       LogFlush(db_options_.info_log);
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
           "[%s] [WriteLevel0TableForRecovery]"
           " Level-0 table #%" PRIu64 ": %" PRIu64 " bytes %s",
           cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
           s.ToString().c_str());
-
-      // output to event logger
-      if (s.ok()) {
-        info.db_name = dbname_;
-        info.cf_name = cfd->GetName();
-        info.file_path = TableFileName(db_options_.db_paths,
-                                       meta.fd.GetNumber(),
-                                       meta.fd.GetPathId());
-        info.file_size = meta.fd.GetFileSize();
-        info.job_id = job_id;
-        EventHelpers::LogAndNotifyTableFileCreation(
-            &event_logger_, db_options_.listeners, meta.fd, info);
-      }
       mutex_.Lock();
     }
   }

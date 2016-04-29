@@ -297,7 +297,7 @@ class Repairer {
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
           std::string() /* column_family_name */, {}, kMaxSequenceNumber,
           kNoCompression, CompressionOptions(), false,
-          nullptr /* internal_stats */);
+          nullptr /* internal_stats */, TableFileCreationReason::kRecovery);
     }
     delete mem->Unref();
     delete cf_mems_default;

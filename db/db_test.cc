@@ -4049,8 +4049,7 @@ TEST_F(DBTest, ThreadStatusFlush) {
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"FlushJob::FlushJob()", "DBTest::ThreadStatusFlush:1"},
-      {"DBTest::ThreadStatusFlush:2",
-       "FlushJob::LogAndNotifyTableFileCreation()"},
+      {"DBTest::ThreadStatusFlush:2", "FlushJob::WriteLevel0Table"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 

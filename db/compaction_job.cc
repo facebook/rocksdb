@@ -953,9 +953,10 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
   sub_compact->outfile.reset();
 
+  ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+  TableProperties tp;
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
-    ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
     InternalIterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
         nullptr, cfd->internal_stats()->GetFileReadHist(
@@ -969,34 +970,30 @@ Status CompactionJob::FinishCompactionOutputFile(
     }
 
     delete iter;
+
+    // Output to event logger and fire events.
     if (s.ok()) {
-      auto tp = sub_compact->builder->GetTableProperties();
+      tp = sub_compact->builder->GetTableProperties();
       sub_compact->current_output()->table_properties =
           std::make_shared<TableProperties>(tp);
-      TableFileCreationInfo info(std::move(tp));
-      info.db_name = dbname_;
-      info.cf_name = cfd->GetName();
-      info.file_path =
-          TableFileName(cfd->ioptions()->db_paths, meta->fd.GetNumber(),
-                        meta->fd.GetPathId());
-      info.file_size = meta->fd.GetFileSize();
-      info.job_id = job_id_;
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64
           " keys, %" PRIu64 " bytes%s",
           cfd->GetName().c_str(), job_id_, output_number, current_entries,
           current_bytes,
           meta->marked_for_compaction ? " (need compaction)" : "");
-      EventHelpers::LogAndNotifyTableFileCreation(
-          event_logger_, cfd->ioptions()->listeners, meta->fd, info);
     }
   }
+  std::string fname = TableFileName(db_options_.db_paths, meta->fd.GetNumber(),
+                                    meta->fd.GetPathId());
+  EventHelpers::LogAndNotifyTableFileCreationFinished(
+      event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
+      job_id_, meta->fd, tp, TableFileCreationReason::kCompaction, s);
 
   // Report new file to SstFileManagerImpl
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
   if (sfm && meta->fd.GetPathId() == 0) {
-    ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
     auto fn = TableFileName(cfd->ioptions()->db_paths, meta->fd.GetNumber(),
                             meta->fd.GetPathId());
     sfm->OnAddFile(fn);
@@ -1072,10 +1069,17 @@ Status CompactionJob::OpenCompactionOutputFile(
   assert(sub_compact->builder == nullptr);
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
-  // Make the output file
-  unique_ptr<WritableFile> writable_file;
   std::string fname = TableFileName(db_options_.db_paths, file_number,
                                     sub_compact->compaction->output_path_id());
+  // Fire events.
+  ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+#ifndef ROCKSDB_LITE
+  EventHelpers::NotifyTableFileCreationStarted(
+      cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname, job_id_,
+      TableFileCreationReason::kCompaction);
+#endif  // !ROCKSDB_LITE
+  // Make the output file
+  unique_ptr<WritableFile> writable_file;
   Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
@@ -1084,8 +1088,13 @@ Status CompactionJob::OpenCompactionOutputFile(
         sub_compact->compaction->column_family_data()->GetName().c_str(),
         job_id_, file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
+    EventHelpers::LogAndNotifyTableFileCreationFinished(
+        event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(),
+        fname, job_id_, FileDescriptor(), TableProperties(),
+        TableFileCreationReason::kCompaction, s);
     return s;
   }
+
   SubcompactionState::Output out;
   out.meta.fd =
       FileDescriptor(file_number, sub_compact->compaction->output_path_id(), 0);
@@ -1098,7 +1107,6 @@ Status CompactionJob::OpenCompactionOutputFile(
   sub_compact->outfile.reset(
       new WritableFileWriter(std::move(writable_file), env_options_));
 
-  ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   // If the Column family flag is to only optimize filters for hits,
   // we can skip creating filters if this is the bottommost_level where
   // data is going to be found
