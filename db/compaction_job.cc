@@ -669,6 +669,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   }
 
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
+  const MutableCFOptions* mutable_cf_options =
+      sub_compact->compaction->mutable_cf_options();
 
   // To build compression dictionary, we sample the first output file, assuming
   // it'll reach the maximum length, and then use the dictionary for compressing
@@ -680,9 +682,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       cfd->ioptions()->compression_opts.max_dict_bytes > 0) {
     const size_t kMaxSamples =
         cfd->ioptions()->compression_opts.max_dict_bytes >> kSampleLenShift;
-    const size_t kOutFileLen =
-        cfd->GetCurrentMutableCFOptions()->MaxFileSizeForLevel(
-            compact_->compaction->output_level());
+    const size_t kOutFileLen = mutable_cf_options->MaxFileSizeForLevel(
+        compact_->compaction->output_level());
     if (kOutFileLen != port::kMaxSizet) {
       const size_t kOutFileNumSamples = kOutFileLen >> kSampleLenShift;
       Random64 generator{versions_->NewFileNumber()};

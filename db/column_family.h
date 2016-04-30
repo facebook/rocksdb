@@ -209,7 +209,7 @@ class ColumnFamilyData {
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
-  // You shoul use this API to reference MutableCFOptions most of the time.
+  // You should use this API to reference MutableCFOptions most of the time.
   const MutableCFOptions* GetCurrentMutableCFOptions() const {
     return &(super_version_->mutable_cf_options);
   }
