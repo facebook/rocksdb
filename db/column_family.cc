@@ -149,7 +149,7 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   result.comparator = icmp;
   size_t clamp_max = std::conditional<
       sizeof(size_t) == 4, std::integral_constant<size_t, 0xffffffff>,
-      std::integral_constant<size_t, 64ull << 30>>::type::value;
+      std::integral_constant<uint64_t, 64ull << 30>>::type::value;
   ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, clamp_max);
   // if user sets arena_block_size, we trust user to use this value. Otherwise,
   // calculate a proper value from writer_buffer_size;
