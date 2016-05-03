@@ -1228,6 +1228,164 @@ TEST_F(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
   delete iter;
 }
 
+TEST_F(DBIteratorTest, IterPrevKeyCrossingBlocks) {
+  Options options = CurrentOptions();
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1;  // every block will contain one entry
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  options.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
+  options.disable_auto_compactions = true;
+  options.max_sequential_skip_in_iterations = 8;
+
+  DestroyAndReopen(options);
+
+  // Putting such deletes will force DBIter::Prev() to fallback to a Seek
+  for (int file_num = 0; file_num < 10; file_num++) {
+    ASSERT_OK(Delete("key4"));
+    ASSERT_OK(Flush());
+  }
+
+  // First File containing 5 blocks of puts
+  ASSERT_OK(Put("key1", "val1.0"));
+  ASSERT_OK(Put("key2", "val2.0"));
+  ASSERT_OK(Put("key3", "val3.0"));
+  ASSERT_OK(Put("key4", "val4.0"));
+  ASSERT_OK(Put("key5", "val5.0"));
+  ASSERT_OK(Flush());
+
+  // Second file containing 9 blocks of merge operands
+  ASSERT_OK(db_->Merge(WriteOptions(), "key1", "val1.1"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key1", "val1.2"));
+
+  ASSERT_OK(db_->Merge(WriteOptions(), "key2", "val2.1"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key2", "val2.2"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key2", "val2.3"));
+
+  ASSERT_OK(db_->Merge(WriteOptions(), "key3", "val3.1"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key3", "val3.2"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key3", "val3.3"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "key3", "val3.4"));
+  ASSERT_OK(Flush());
+
+  {
+    ReadOptions ro;
+    ro.fill_cache = false;
+    Iterator* iter = db_->NewIterator(ro);
+
+    iter->SeekToLast();
+    ASSERT_EQ(iter->key().ToString(), "key5");
+    ASSERT_EQ(iter->value().ToString(), "val5.0");
+
+    iter->Prev();
+    ASSERT_EQ(iter->key().ToString(), "key4");
+    ASSERT_EQ(iter->value().ToString(), "val4.0");
+
+    iter->Prev();
+    ASSERT_EQ(iter->key().ToString(), "key3");
+    ASSERT_EQ(iter->value().ToString(), "val3.0,val3.1,val3.2,val3.3,val3.4");
+
+    iter->Prev();
+    ASSERT_EQ(iter->key().ToString(), "key2");
+    ASSERT_EQ(iter->value().ToString(), "val2.0,val2.1,val2.2,val2.3");
+
+    iter->Prev();
+    ASSERT_EQ(iter->key().ToString(), "key1");
+    ASSERT_EQ(iter->value().ToString(), "val1.0,val1.1,val1.2");
+
+    delete iter;
+  }
+}
+
+TEST_F(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateStringAppendTESTOperator();
+  options.disable_auto_compactions = true;
+  options.level0_slowdown_writes_trigger = (1 << 30);
+  options.level0_stop_writes_trigger = (1 << 30);
+  options.max_sequential_skip_in_iterations = 8;
+  DestroyAndReopen(options);
+
+  const int kNumKeys = 500;
+  // Small number of merge operands to make sure that DBIter::Prev() dont
+  // fall back to Seek()
+  const int kNumMergeOperands = 3;
+  // Use value size that will make sure that every block contain 1 key
+  const int kValSize =
+      static_cast<int>(BlockBasedTableOptions().block_size) * 4;
+  // Percentage of keys that wont get merge operations
+  const int kNoMergeOpPercentage = 20;
+  // Percentage of keys that will be deleted
+  const int kDeletePercentage = 10;
+
+  // For half of the key range we will write multiple deletes first to
+  // force DBIter::Prev() to fall back to Seek()
+  for (int file_num = 0; file_num < 10; file_num++) {
+    for (int i = 0; i < kNumKeys; i += 2) {
+      ASSERT_OK(Delete(Key(i)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  Random rnd(301);
+  std::map<std::string, std::string> true_data;
+  std::string gen_key;
+  std::string gen_val;
+
+  for (int i = 0; i < kNumKeys; i++) {
+    gen_key = Key(i);
+    gen_val = RandomString(&rnd, kValSize);
+
+    ASSERT_OK(Put(gen_key, gen_val));
+    true_data[gen_key] = gen_val;
+  }
+  ASSERT_OK(Flush());
+
+  // Separate values and merge operands in different file so that we
+  // make sure that we dont merge them while flushing but actually
+  // merge them in the read path
+  for (int i = 0; i < kNumKeys; i++) {
+    if (rnd.OneIn(static_cast<int>(100.0 / kNoMergeOpPercentage))) {
+      // Dont give merge operations for some keys
+      continue;
+    }
+
+    for (int j = 0; j < kNumMergeOperands; j++) {
+      gen_key = Key(i);
+      gen_val = RandomString(&rnd, kValSize);
+
+      ASSERT_OK(db_->Merge(WriteOptions(), gen_key, gen_val));
+      true_data[gen_key] += "," + gen_val;
+    }
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 0; i < kNumKeys; i++) {
+    if (rnd.OneIn(static_cast<int>(100.0 / kDeletePercentage))) {
+      gen_key = Key(i);
+
+      ASSERT_OK(Delete(gen_key));
+      true_data.erase(gen_key);
+    }
+  }
+  ASSERT_OK(Flush());
+
+  {
+    ReadOptions ro;
+    ro.fill_cache = false;
+    Iterator* iter = db_->NewIterator(ro);
+    auto data_iter = true_data.rbegin();
+
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      ASSERT_EQ(iter->key().ToString(), data_iter->first);
+      ASSERT_EQ(iter->value().ToString(), data_iter->second);
+      data_iter++;
+    }
+    ASSERT_EQ(data_iter, true_data.rend());
+
+    delete iter;
+  }
+}
+
 TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
