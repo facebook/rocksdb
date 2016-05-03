@@ -369,21 +369,24 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
             case kTypeSingleDeletion:
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
-              saved_key_.SetKey(ikey.user_key,
-                                !iter_->IsKeyPinned() /* copy */);
+              saved_key_.SetKey(
+                  ikey.user_key,
+                  !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
               skipping = true;
               num_skipped = 0;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               break;
             case kTypeValue:
               valid_ = true;
-              saved_key_.SetKey(ikey.user_key,
-                                !iter_->IsKeyPinned() /* copy */);
+              saved_key_.SetKey(
+                  ikey.user_key,
+                  !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
               return;
             case kTypeMerge:
               // By now, we are sure the current ikey is going to yield a value
-              saved_key_.SetKey(ikey.user_key,
-                                !iter_->IsKeyPinned() /* copy */);
+              saved_key_.SetKey(
+                  ikey.user_key,
+                  !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
               current_entry_is_merged_ = true;
               valid_ = true;
               MergeValuesNewToOld();  // Go to a different state machine
@@ -547,7 +550,7 @@ void DBIter::PrevInternal() {
 
   while (iter_->Valid()) {
     saved_key_.SetKey(ExtractUserKey(iter_->key()),
-                      !iter_->IsKeyPinned() /* copy */);
+                      !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
     if (FindValueForCurrentKey()) {
       valid_ = true;
       if (!iter_->Valid()) {

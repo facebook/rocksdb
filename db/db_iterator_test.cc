@@ -1384,6 +1384,63 @@ TEST_F(DBIteratorTest, IterPrevKeyCrossingBlocksRandomized) {
 
     delete iter;
   }
+
+  {
+    ReadOptions ro;
+    ro.fill_cache = false;
+    Iterator* iter = db_->NewIterator(ro);
+    auto data_iter = true_data.rbegin();
+
+    int entries_right = 0;
+    std::string seek_key;
+    for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
+      // Verify key/value of current position
+      ASSERT_EQ(iter->key().ToString(), data_iter->first);
+      ASSERT_EQ(iter->value().ToString(), data_iter->second);
+
+      bool restore_position_with_seek = rnd.Uniform(2);
+      if (restore_position_with_seek) {
+        seek_key = iter->key().ToString();
+      }
+
+      // Do some Next() operations the restore the iterator to orignal position
+      int next_count =
+          entries_right > 0 ? rnd.Uniform(std::min(entries_right, 10)) : 0;
+      for (int i = 0; i < next_count; i++) {
+        iter->Next();
+        data_iter--;
+
+        ASSERT_EQ(iter->key().ToString(), data_iter->first);
+        ASSERT_EQ(iter->value().ToString(), data_iter->second);
+      }
+
+      if (restore_position_with_seek) {
+        // Restore orignal position using Seek()
+        iter->Seek(seek_key);
+        for (int i = 0; i < next_count; i++) {
+          data_iter++;
+        }
+
+        ASSERT_EQ(iter->key().ToString(), data_iter->first);
+        ASSERT_EQ(iter->value().ToString(), data_iter->second);
+      } else {
+        // Restore original position using Prev()
+        for (int i = 0; i < next_count; i++) {
+          iter->Prev();
+          data_iter++;
+
+          ASSERT_EQ(iter->key().ToString(), data_iter->first);
+          ASSERT_EQ(iter->value().ToString(), data_iter->second);
+        }
+      }
+
+      entries_right++;
+      data_iter++;
+    }
+    ASSERT_EQ(data_iter, true_data.rend());
+
+    delete iter;
+  }
 }
 
 TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
