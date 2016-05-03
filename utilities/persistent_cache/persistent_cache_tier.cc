@@ -28,12 +28,6 @@ Status PersistentCacheTier::Close() {
   return Status::OK();
 }
 
-void PersistentCacheTier::Flush() {
-  if (next_tier_) {
-    next_tier_->Flush();
-  }
-}
-
 bool PersistentCacheTier::Reserve(const size_t size) {
   // default implementation is a pass through
   return true;
@@ -50,6 +44,13 @@ std::string PersistentCacheTier::PrintStats() {
     return next_tier_->PrintStats();
   }
   return std::string();
+}
+
+std::vector<PersistentCacheTier::TierStats> PersistentCacheTier::Stats() {
+  if (next_tier_) {
+    return next_tier_->Stats();
+  }
+  return std::vector<TierStats>{};
 }
 
 //
@@ -71,14 +72,14 @@ Status PersistentTieredCache::Close() {
   return status;
 }
 
-void PersistentTieredCache::Flush() {
-  assert(!tiers_.empty());
-  tiers_.front()->Flush();
-}
-
 bool PersistentTieredCache::Erase(const Slice& key) {
   assert(!tiers_.empty());
   return tiers_.front()->Erase(key);
+}
+
+std::vector<PersistentCacheTier::TierStats> PersistentTieredCache::Stats() {
+  assert(!tiers_.empty());
+  return tiers_.front()->Stats();
 }
 
 std::string PersistentTieredCache::PrintStats() {
@@ -104,6 +105,11 @@ void PersistentTieredCache::AddTier(const Tier& tier) {
     tiers_.back()->set_next_tier(tier);
   }
   tiers_.push_back(tier);
+}
+
+bool PersistentTieredCache::IsCompressed() {
+  assert(tiers_.size());
+  return tiers_.front()->IsCompressed();
 }
 
 }  // namespace rocksdb

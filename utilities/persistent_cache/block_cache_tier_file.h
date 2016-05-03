@@ -114,7 +114,9 @@ class BlockCacheFile : public LRUElement<BlockCacheFile> {
   }
 
   // get file path
-  std::string Path() const { return dir_ + "/" + std::to_string(cache_id_); }
+  std::string Path() const {
+    return dir_ + "/" + std::to_string(cache_id_) + ".rc";
+  }
   // get cache ID
   uint32_t cacheid() const { return cache_id_; }
   // Add block information to file data
@@ -150,7 +152,7 @@ class RandomAccessCacheFile : public BlockCacheFile {
   virtual ~RandomAccessCacheFile() {}
 
   // open file for reading
-  bool Open();
+  bool Open(const bool enable_direct_reads);
   // read data from the disk
   bool Read(const LBA& lba, Slice* key, Slice* block, char* scratch) override;
 
@@ -158,7 +160,7 @@ class RandomAccessCacheFile : public BlockCacheFile {
   std::unique_ptr<RandomAccessFile> file_;
 
  protected:
-  bool OpenImpl();
+  bool OpenImpl(const bool enable_direct_reads);
   bool ParseRec(const LBA& lba, Slice* key, Slice* val, char* scratch);
 
   std::shared_ptr<Logger> log_;  // log file
@@ -183,7 +185,7 @@ class WriteableCacheFile : public RandomAccessCacheFile {
   virtual ~WriteableCacheFile();
 
   // create file on disk
-  bool Create();
+  bool Create(const bool enable_direct_writes, const bool enable_direct_reads);
 
   // read data from logical file
   bool Read(const LBA& lba, Slice* key, Slice* block, char* scratch) override {
@@ -205,7 +207,7 @@ class WriteableCacheFile : public RandomAccessCacheFile {
  private:
   friend class ThreadedWriter;
 
-  static const size_t FILE_ALIGNMENT_SIZE = 4 * 1024;  // align file size
+  static const size_t kFileAlignmentSize = 4 * 1024;  // align file size
 
   bool ReadBuffer(const LBA& lba, Slice* key, Slice* block, char* scratch);
   bool ReadBuffer(const LBA& lba, char* data);
@@ -240,6 +242,8 @@ class WriteableCacheFile : public RandomAccessCacheFile {
   size_t buf_woff_ = 0;                  // off into bufs_ to write
   size_t buf_doff_ = 0;                  // off into bufs_ to dispatch
   size_t pending_ios_ = 0;               // Number of ios to disk in-progress
+  bool enable_direct_reads_ = false;     // Should we enable direct reads
+                                         // when reading from disk
 };
 
 //
@@ -267,7 +271,7 @@ class ThreadedWriter : public Writer {
 
   explicit ThreadedWriter(PersistentCacheTier* const cache, const size_t qdepth,
                           const size_t io_size);
-  virtual ~ThreadedWriter() {}
+  virtual ~ThreadedWriter() { assert(threads_.empty()); }
 
   void Stop() override;
   void Write(WritableFile* const file, CacheWriteBuffer* buf,

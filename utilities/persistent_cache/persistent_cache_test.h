@@ -32,9 +32,7 @@ namespace rocksdb {
 //
 class PersistentCacheTierTest : public testing::Test {
  public:
-  explicit PersistentCacheTierTest()
-      : path_(test::TmpDir(Env::Default()) + "/cache_test") {}
-
+  PersistentCacheTierTest();
   virtual ~PersistentCacheTierTest() {
     if (cache_) {
       Status s = cache_->Close();
@@ -46,7 +44,7 @@ class PersistentCacheTierTest : public testing::Test {
   // Flush cache
   void Flush() {
     if (cache_) {
-      cache_->Flush();
+      cache_->TEST_Flush();
     }
   }
 
@@ -208,27 +206,7 @@ class PersistentCacheTierTest : public testing::Test {
 //
 class PersistentCacheDBTest : public DBTestBase {
  public:
-  PersistentCacheDBTest() : DBTestBase("/cache_test") {
-    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        "GetUniqueIdFromFile:FS_IOC_GETVERSION",
-        PersistentCacheDBTest::UniqueIdCallback);
-  }
-
-  static void UniqueIdCallback(void* arg) {
-    int* result = reinterpret_cast<int*>(arg);
-    if (*result == -1) {
-      *result = 0;
-    }
-
-    rocksdb::SyncPoint::GetInstance()->ClearTrace();
-    rocksdb::SyncPoint::GetInstance()->SetCallBack(
-        "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
-  }
-
-  std::shared_ptr<PersistentCacheTier> MakeVolatileCache() {
-    return std::make_shared<VolatileCacheTier>();
-  }
+  PersistentCacheDBTest();
 
   static uint64_t TestGetTickerCount(const Options& options,
                                      Tickers ticker_type) {
@@ -281,135 +259,7 @@ class PersistentCacheDBTest : public DBTestBase {
 
   // test template
   void RunTest(const std::function<std::shared_ptr<PersistentCacheTier>(bool)>&
-                   new_pcache) {
-    if (!Snappy_Supported()) {
-      return;
-    }
-
-    // number of insertion interations
-    int num_iter = 100 * 1024;
-
-    for (int iter = 0; iter < 5; iter++) {
-      Options options;
-      options.write_buffer_size = 64 * 1024;  // small write buffer
-      options.statistics = rocksdb::CreateDBStatistics();
-      options = CurrentOptions(options);
-
-      // setup page cache
-      std::shared_ptr<PersistentCacheTier> pcache;
-      BlockBasedTableOptions table_options;
-      table_options.cache_index_and_filter_blocks = true;
-
-      const uint64_t uint64_max = std::numeric_limits<uint64_t>::max();
-
-      switch (iter) {
-        case 0:
-          // page cache, block cache, no-compressed cache
-          pcache = new_pcache(/*is_compressed=*/true);
-          table_options.persistent_cache = pcache;
-          table_options.block_cache = NewLRUCache(uint64_max);
-          table_options.block_cache_compressed = nullptr;
-          options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-          break;
-        case 1:
-          // page cache, block cache, compressed cache
-          pcache = new_pcache(/*is_compressed=*/true);
-          table_options.persistent_cache = pcache;
-          table_options.block_cache = NewLRUCache(uint64_max);
-          table_options.block_cache_compressed = NewLRUCache(uint64_max);
-          options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-          break;
-        case 2:
-          // page cache, block cache, compressed cache + KNoCompression
-          // both block cache and compressed cache, but DB is not compressed
-          // also, make block cache sizes bigger, to trigger block cache hits
-          pcache = new_pcache(/*is_compressed=*/true);
-          table_options.persistent_cache = pcache;
-          table_options.block_cache = NewLRUCache(uint64_max);
-          table_options.block_cache_compressed = NewLRUCache(uint64_max);
-          options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-          options.compression = kNoCompression;
-          break;
-        case 3:
-          // page cache, no block cache, no compressed cache
-          pcache = new_pcache(/*is_compressed=*/false);
-          table_options.persistent_cache = pcache;
-          table_options.block_cache = nullptr;
-          table_options.block_cache_compressed = nullptr;
-          options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-          break;
-        case 4:
-          // page cache, no block cache, no compressed cache
-          // Page cache caches compressed blocks
-          pcache = new_pcache(/*is_compressed=*/true);
-          table_options.persistent_cache = pcache;
-          table_options.block_cache = nullptr;
-          table_options.block_cache_compressed = nullptr;
-          options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-          break;
-        default:
-          ASSERT_TRUE(false);
-      }
-
-      std::vector<std::string> values;
-      // insert data
-      Insert(options, table_options, num_iter, &values);
-      // flush all data in cache to device
-      pcache->Flush();
-      // verify data
-      Verify(num_iter, values);
-
-      auto block_miss = TestGetTickerCount(options, BLOCK_CACHE_MISS);
-      auto compressed_block_hit =
-          TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_HIT);
-      auto compressed_block_miss =
-          TestGetTickerCount(options, BLOCK_CACHE_COMPRESSED_MISS);
-      auto page_hit = TestGetTickerCount(options, PERSISTENT_CACHE_HIT);
-      auto page_miss = TestGetTickerCount(options, PERSISTENT_CACHE_MISS);
-
-      // check that we triggered the appropriate code paths in the cache
-      switch (iter) {
-        case 0:
-          // page cache, block cache, no-compressed cache
-          ASSERT_GT(page_miss, 0);
-          ASSERT_GT(page_hit, 0);
-          ASSERT_GT(block_miss, 0);
-          ASSERT_EQ(compressed_block_miss, 0);
-          ASSERT_EQ(compressed_block_hit, 0);
-          break;
-        case 1:
-          // page cache, block cache, compressed cache
-          ASSERT_GT(page_miss, 0);
-          ASSERT_GT(block_miss, 0);
-          ASSERT_GT(compressed_block_miss, 0);
-          break;
-        case 2:
-          // page cache, block cache, compressed cache + KNoCompression
-          ASSERT_GT(page_miss, 0);
-          ASSERT_GT(page_hit, 0);
-          ASSERT_GT(block_miss, 0);
-          ASSERT_GT(compressed_block_miss, 0);
-          // remember kNoCompression
-          ASSERT_EQ(compressed_block_hit, 0);
-          break;
-        case 3:
-        case 4:
-          // page cache, no block cache, no compressed cache
-          ASSERT_GT(page_miss, 0);
-          ASSERT_GT(page_hit, 0);
-          ASSERT_EQ(compressed_block_hit, 0);
-          ASSERT_EQ(compressed_block_miss, 0);
-          break;
-        default:
-          ASSERT_TRUE(false);
-      }
-
-      options.create_if_missing = true;
-      DestroyAndReopen(options);
-
-      pcache->Close();
-    }
-  }
+                   new_pcache);
 };
 
 }  // namespace rocksdb

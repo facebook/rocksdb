@@ -189,12 +189,12 @@ bool CacheRecord::Deserialize(const Slice& data) {
 // RandomAccessFile
 //
 
-bool RandomAccessCacheFile::Open() {
+bool RandomAccessCacheFile::Open(const bool enable_direct_reads) {
   WriteLock _(&rwlock_);
-  return OpenImpl();
+  return OpenImpl(enable_direct_reads);
 }
 
-bool RandomAccessCacheFile::OpenImpl() {
+bool RandomAccessCacheFile::OpenImpl(const bool enable_direct_reads) {
   rwlock_.AssertHeld();
 
   Debug(log_, "Opening cache file %s", Path().c_str());
@@ -265,8 +265,11 @@ WriteableCacheFile::~WriteableCacheFile() {
   ClearBuffers();
 }
 
-bool WriteableCacheFile::Create() {
+bool WriteableCacheFile::Create(const bool enable_direct_writes,
+                                const bool enable_direct_reads) {
   WriteLock _(&rwlock_);
+
+  enable_direct_reads_ = enable_direct_reads;
 
   Debug(log_, "Creating new cache %s (max size is %d B)", Path().c_str(),
         max_size_);
@@ -388,7 +391,7 @@ void WriteableCacheFile::DispatchBuffer() {
   // pad it with zero for direct IO
   buf->FillTrailingZeros();
 
-  assert(buf->Used() % FILE_ALIGNMENT_SIZE == 0);
+  assert(buf->Used() % kFileAlignmentSize == 0);
 
   writer_->Write(file_.get(), buf, file_off,
                  std::bind(&WriteableCacheFile::BufferWriteDone, this));
@@ -417,7 +420,7 @@ void WriteableCacheFile::CloseAndOpenForReading() {
   // Our env abstraction do not allow reading from a file opened for appending
   // We need close the file and re-open it for reading
   Close();
-  RandomAccessCacheFile::OpenImpl();
+  RandomAccessCacheFile::OpenImpl(enable_direct_reads_);
 }
 
 bool WriteableCacheFile::ReadBuffer(const LBA& lba, Slice* key, Slice* block,
@@ -523,7 +526,9 @@ void ThreadedWriter::Stop() {
   // wait for all threads to exit
   for (auto& th : threads_) {
     th.join();
+    assert(!th.joinable());
   }
+  threads_.clear();
 }
 
 void ThreadedWriter::Write(WritableFile* const file, CacheWriteBuffer* buf,

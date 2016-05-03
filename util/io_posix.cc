@@ -145,8 +145,7 @@ Status ReadUnaligned(int fd, Slice* data, const uint64_t offset,
 
 Status DirectIORead(int fd, Slice* result, size_t off, size_t n,
                     char* scratch) {
-  if (IsSectorAligned(off) && IsSectorAligned(n) &&
-      IsPageAligned(result->data())) {
+  if (IsSectorAligned(off) && IsSectorAligned(n) && IsPageAligned(scratch)) {
     return ReadAligned(fd, result, off, n, scratch);
   }
   return ReadUnaligned(fd, result, off, n, scratch);
