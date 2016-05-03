@@ -34,6 +34,7 @@
 #include "table/plain_table_factory.h"
 #include "tools/ldb_cmd.h"
 #include "util/random.h"
+#include "util/compression.h"
 
 #include "port/port.h"
 
@@ -194,15 +195,19 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
   };
 
   for (auto& i : compressions) {
-    CompressionOptions compress_opt;
-    std::string column_family_name;
-    TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories,
-                                i.first, compress_opt,
-                                nullptr /* compression_dict */,
-                                false /* skip_filters */, column_family_name);
-    uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
-    fprintf(stdout, "Compression: %s", i.second);
-    fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
+    if (CompressionTypeSupported(i.first)) {
+      CompressionOptions compress_opt;
+      std::string column_family_name;
+      TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories,
+                                  i.first, compress_opt,
+                                  nullptr /* compression_dict */,
+                                  false /* skip_filters */, column_family_name);
+      uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
+      fprintf(stdout, "Compression: %s", i.second);
+      fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
+    } else {
+      fprintf(stdout, "Unsupported compression type: %s.\n", i.second);
+    }
   }
   return 0;
 }
