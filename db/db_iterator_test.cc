@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
 
 namespace rocksdb {
@@ -1523,6 +1524,75 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
   ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_PREV_FOUND),
             total_prev_found);
   ASSERT_EQ(TestGetTickerCount(options, ITER_BYTES_READ), total_bytes);
+}
+
+TEST_F(DBIteratorTest, ReadAhead) {
+  Options options;
+  auto env = new SpecialEnv(Env::Default());
+  env->count_random_reads_ = true;
+  options.env = env;
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 4 << 20;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  table_options.no_block_cache = true;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  Reopen(options);
+
+  std::string value(1024, 'a');
+  for (int i = 0; i < 100; i++) {
+    Put(Key(i), value);
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(2);
+
+  for (int i = 0; i < 100; i++) {
+    Put(Key(i), value);
+  }
+  ASSERT_OK(Flush());
+  MoveFilesToLevel(1);
+
+  for (int i = 0; i < 100; i++) {
+    Put(Key(i), value);
+  }
+  ASSERT_OK(Flush());
+  ASSERT_EQ("1,1,1", FilesPerLevel());
+
+  env->random_read_bytes_counter_ = 0;
+  options.statistics->setTickerCount(NO_FILE_OPENS, 0);
+  ReadOptions read_options;
+  auto* iter = db_->NewIterator(read_options);
+  iter->SeekToFirst();
+  int64_t num_file_opens = TestGetTickerCount(options, NO_FILE_OPENS);
+  int64_t bytes_read = env->random_read_bytes_counter_;
+  delete iter;
+
+  env->random_read_bytes_counter_ = 0;
+  options.statistics->setTickerCount(NO_FILE_OPENS, 0);
+  read_options.readahead_size = 1024 * 10;
+  iter = db_->NewIterator(read_options);
+  iter->SeekToFirst();
+  int64_t num_file_opens_readahead = TestGetTickerCount(options, NO_FILE_OPENS);
+  int64_t bytes_read_readahead = env->random_read_bytes_counter_;
+  delete iter;
+  ASSERT_EQ(num_file_opens + 3, num_file_opens_readahead);
+  ASSERT_GT(bytes_read_readahead, bytes_read);
+  ASSERT_GT(bytes_read_readahead, read_options.readahead_size * 3);
+
+  // Verify correctness.
+  iter = db_->NewIterator(read_options);
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_EQ(value, iter->value());
+    count++;
+  }
+  ASSERT_EQ(100, count);
+  for (int i = 0; i < 100; i++) {
+    iter->Seek(Key(i));
+    ASSERT_EQ(value, iter->value());
+  }
+  delete iter;
 }
 
 }  // namespace rocksdb

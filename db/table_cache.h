@@ -111,7 +111,8 @@ class TableCache {
   Status GetTableReader(const EnvOptions& env_options,
                         const InternalKeyComparator& internal_comparator,
                         const FileDescriptor& fd, bool sequential_mode,
-                        bool record_read_stats, HistogramImpl* file_read_hist,
+                        size_t readahead, bool record_read_stats,
+                        HistogramImpl* file_read_hist,
                         unique_ptr<TableReader>* table_reader,
                         bool skip_filters = false, int level = -1);
 

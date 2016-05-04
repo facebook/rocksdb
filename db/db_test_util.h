@@ -358,23 +358,30 @@ class SpecialEnv : public EnvWrapper {
     class CountingFile : public RandomAccessFile {
      public:
       CountingFile(unique_ptr<RandomAccessFile>&& target,
-                   anon::AtomicCounter* counter)
-          : target_(std::move(target)), counter_(counter) {}
+                   anon::AtomicCounter* counter,
+                   std::atomic<int64_t>* bytes_read)
+          : target_(std::move(target)),
+            counter_(counter),
+            bytes_read_(bytes_read) {}
       virtual Status Read(uint64_t offset, size_t n, Slice* result,
                           char* scratch) const override {
         counter_->Increment();
-        return target_->Read(offset, n, result, scratch);
+        Status s = target_->Read(offset, n, result, scratch);
+        *bytes_read_ += result->size();
+        return s;
       }
 
      private:
       unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;
+      std::atomic<int64_t>* bytes_read_;
     };
 
     Status s = target()->NewRandomAccessFile(f, r, soptions);
     random_file_open_counter_++;
     if (s.ok() && count_random_reads_) {
-      r->reset(new CountingFile(std::move(*r), &random_read_counter_));
+      r->reset(new CountingFile(std::move(*r), &random_read_counter_,
+                                &random_read_bytes_counter_));
     }
     return s;
   }
@@ -464,6 +471,7 @@ class SpecialEnv : public EnvWrapper {
 
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
+  std::atomic<int64_t> random_read_bytes_counter_;
   std::atomic<int> random_file_open_counter_;
 
   bool count_sequential_reads_;

@@ -1466,6 +1466,12 @@ struct ReadOptions {
   // Default: false
   bool pin_data;
 
+  // If non-zero, NewIterator will create a new table reader which
+  // performs reads of the given size. Using a large size (> 2MB) can
+  // improve the performance of forward iteration on spinning disks.
+  // Default: 0
+  size_t readahead_size;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };
