@@ -721,6 +721,8 @@ class MemTableInserter : public WriteBatch::Handler {
 
   void set_log_number_ref(uint64_t log) { log_number_ref_ = log; }
 
+  SequenceNumber get_final_sequence() { return sequence_; }
+
   bool SeekToColumnFamily(uint32_t column_family_id, Status* s) {
     // If we are in a concurrent mode, it is the caller's responsibility
     // to clone the original ColumnFamilyMemTables so that each thread
@@ -1116,18 +1118,20 @@ Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
   return writer->batch->Iterate(&inserter);
 }
 
-Status WriteBatchInternal::InsertInto(const WriteBatch* batch,
-                                      ColumnFamilyMemTables* memtables,
-                                      FlushScheduler* flush_scheduler,
-                                      bool ignore_missing_column_families,
-                                      uint64_t log_number, DB* db,
-                                      const bool dont_filter_deletes,
-                                      bool concurrent_memtable_writes) {
+Status WriteBatchInternal::InsertInto(
+    const WriteBatch* batch, ColumnFamilyMemTables* memtables,
+    FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
+    uint64_t log_number, DB* db, const bool dont_filter_deletes,
+    bool concurrent_memtable_writes, SequenceNumber* last_seq_used) {
   MemTableInserter inserter(WriteBatchInternal::Sequence(batch), memtables,
                             flush_scheduler, ignore_missing_column_families,
                             log_number, db, dont_filter_deletes,
                             concurrent_memtable_writes);
-  return batch->Iterate(&inserter);
+  Status s = batch->Iterate(&inserter);
+  if (last_seq_used != nullptr) {
+    *last_seq_used = inserter.get_final_sequence();
+  }
+  return s;
 }
 
 void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {

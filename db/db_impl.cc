@@ -1471,6 +1471,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
 #endif  // ROCKSDB_LITE
 
+      if (*max_sequence == kMaxSequenceNumber) {
+        *max_sequence = WriteBatchInternal::Sequence(&batch);
+      }
+      WriteBatchInternal::SetSequence(&batch, *max_sequence);
+
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
       // insert. We don't want to fail the whole write batch in that case --
@@ -1478,20 +1483,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // That's why we set ignore missing column families to true
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
-          log_number, this);
-
+          log_number, this, true, false, max_sequence);
       MaybeIgnoreError(&status);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
         // blocks that do not form coherent data
         reporter.Corruption(record.size(), status);
         continue;
-      }
-
-      const SequenceNumber last_seq = WriteBatchInternal::Sequence(&batch) +
-                                      WriteBatchInternal::Count(&batch) - 1;
-      if ((*max_sequence == kMaxSequenceNumber) || (last_seq > *max_sequence)) {
-        *max_sequence = last_seq;
       }
 
       if (!read_only) {

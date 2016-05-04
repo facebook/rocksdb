@@ -282,6 +282,7 @@ set(TESTUTIL_SOURCE
     db/db_test_util.cc
     table/mock_table.cc
     util/mock_env.cc
+    util/fault_injection_test_env.cc
     util/thread_status_updater_debug.cc
 )
 

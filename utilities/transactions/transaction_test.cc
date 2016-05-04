@@ -14,6 +14,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "table/mock_table.h"
+#include "util/fault_injection_test_env.h"
 #include "util/logging.h"
 #include "util/random.h"
 #include "util/sync_point.h"
@@ -30,6 +31,7 @@ namespace rocksdb {
 class TransactionTest : public testing::Test {
  public:
   TransactionDB* db;
+  FaultInjectionTestEnv* env_;
   string dbname;
   Options options;
 
@@ -41,6 +43,8 @@ class TransactionTest : public testing::Test {
     options.write_buffer_size = 4 * 1024;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+    env_ = new FaultInjectionTestEnv(Env::Default());
+    options.env = env_;
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
@@ -58,6 +62,9 @@ class TransactionTest : public testing::Test {
   Status ReOpenNoDelete() {
     delete db;
     db = nullptr;
+    env_->AssertNoOpenFile();
+    env_->DropUnsyncedFileData();
+    env_->ResetState();
     Status s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     return s;
   }
@@ -628,6 +635,51 @@ TEST_F(TransactionTest, TwoPhaseMultiThreadTest) {
       ASSERT_EQ(value, "val");
     }
   }
+}
+
+TEST_F(TransactionTest, TwoPhaseSequenceTest) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ReadOptions read_options;
+
+  TransactionOptions txn_options;
+
+  std::string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("xid");
+  ASSERT_OK(s);
+
+  // transaction put
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+  s = txn->Put(Slice("foo2"), Slice("bar2"));
+  ASSERT_OK(s);
+  s = txn->Put(Slice("foo3"), Slice("bar3"));
+  ASSERT_OK(s);
+  s = txn->Put(Slice("foo4"), Slice("bar4"));
+  ASSERT_OK(s);
+
+  // prepare
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  // make commit
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  delete txn;
+
+  // kill and reopen
+  env_->SetFilesystemActive(false);
+  ReOpenNoDelete();
+
+  // value is now available
+  s = db->Get(read_options, "foo4", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar4");
 }
 
 TEST_F(TransactionTest, TwoPhaseLogRollingTest) {

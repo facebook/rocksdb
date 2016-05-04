@@ -180,7 +180,8 @@ TOOL_SOURCES = \
 
 MOCK_SOURCES = \
   table/mock_table.cc \
-  util/mock_env.cc
+  util/mock_env.cc \
+  util/fault_injection_test_env.cc
 
 BENCH_SOURCES = \
   tools/db_bench_tool.cc
