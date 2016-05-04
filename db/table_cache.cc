@@ -87,15 +87,16 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 Status TableCache::GetTableReader(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
-    bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
-    unique_ptr<TableReader>* table_reader, bool skip_filters, int level) {
+    bool sequential_mode, size_t readahead, bool record_read_stats,
+    HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
+    bool skip_filters, int level) {
   std::string fname =
       TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
   unique_ptr<RandomAccessFile> file;
   Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
-  if (sequential_mode && ioptions_.compaction_readahead_size > 0) {
-    file = NewReadaheadRandomAccessFile(std::move(file),
-                                        ioptions_.compaction_readahead_size);
+
+  if (readahead > 0) {
+    file = NewReadaheadRandomAccessFile(std::move(file), readahead);
   }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {
@@ -143,8 +144,9 @@ Status TableCache::FindTable(const EnvOptions& env_options,
     }
     unique_ptr<TableReader> table_reader;
     s = GetTableReader(env_options, internal_comparator, fd,
-                       false /* sequential mode */, record_read_stats,
-                       file_read_hist, &table_reader, skip_filters, level);
+                       false /* sequential mode */, 0 /* readahead */,
+                       record_read_stats, file_read_hist, &table_reader,
+                       skip_filters, level);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
@@ -175,13 +177,24 @@ InternalIterator* TableCache::NewIterator(
 
   TableReader* table_reader = nullptr;
   Cache::Handle* handle = nullptr;
-  bool create_new_table_reader =
-      (for_compaction && ioptions_.new_table_reader_for_compaction_inputs);
+
+  size_t readahead = 0;
+  bool create_new_table_reader = false;
+  if (for_compaction) {
+    if (ioptions_.new_table_reader_for_compaction_inputs) {
+      readahead = ioptions_.compaction_readahead_size;
+      create_new_table_reader = true;
+    }
+  } else {
+    readahead = options.readahead_size;
+    create_new_table_reader = readahead > 0;
+  }
+
   if (create_new_table_reader) {
     unique_ptr<TableReader> table_reader_unique_ptr;
     Status s = GetTableReader(
-        env_options, icomparator, fd, /* sequential mode */ true,
-        /* record stats */ false, nullptr, &table_reader_unique_ptr,
+        env_options, icomparator, fd, true /* sequential_mode */, readahead,
+        !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
         false /* skip_filters */, level);
     if (!s.ok()) {
       return NewErrorInternalIterator(s, arena);
