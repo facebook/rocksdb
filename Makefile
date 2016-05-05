@@ -421,7 +421,7 @@ TEST_LIBS = \
 	librocksdb_env_basic_test.a
 
 # TODO: add back forward_iterator_bench, after making it build in all environemnts.
-BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench column_aware_encoding_exp
+BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench column_aware_encoding_exp persistent_cache_bench
 
 # if user didn't config LIBNAME, set the default
 ifeq ($(LIBNAME),)
@@ -847,6 +847,9 @@ db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
 
 cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
+	$(AM_LINK)
+
+persistent_cache_bench: utilities/persistent_cache/persistent_cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 memtablerep_bench: db/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)

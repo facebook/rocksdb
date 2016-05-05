@@ -58,7 +58,7 @@ Status BlockCacheTier::Open() {
   NewCacheFile();
   assert(cache_file_);
 
-  if (opt_.pipeline_writes_) {
+  if (opt_.pipeline_writes) {
     assert(!insert_th_.joinable());
     insert_th_ = std::thread(&BlockCacheTier::InsertMain, this);
   }
@@ -108,7 +108,7 @@ Status BlockCacheTier::CleanupCacheFolder(const std::string& folder) {
 
 Status BlockCacheTier::Close() {
   // stop the insert thread
-  if (opt_.pipeline_writes_ && insert_th_.joinable()) {
+  if (opt_.pipeline_writes && insert_th_.joinable()) {
     InsertOp op(/*quit=*/true);
     insert_ops_.Push(std::move(op));
     insert_th_.join();
@@ -158,14 +158,14 @@ Status BlockCacheTier::Insert(const Slice& key, const char* data,
   // update stats
   stats_.bytes_pipelined_.Add(size);
 
-  if (opt_.pipeline_writes_) {
+  if (opt_.pipeline_writes) {
     // off load the write to the write thread
     insert_ops_.Push(
         InsertOp(key.ToString(), std::move(std::string(data, size))));
     return Status::OK();
   }
 
-  assert(!opt_.pipeline_writes_);
+  assert(!opt_.pipeline_writes);
   return InsertImpl(key, Slice(data, size));
 }
 

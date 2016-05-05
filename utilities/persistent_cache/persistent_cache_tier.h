@@ -177,7 +177,7 @@ struct PersistentCacheConfig {
   // parameter defines if pipelining is enabled or disabled
   //
   // default: true
-  bool pipeline_writes_ = true;
+  bool pipeline_writes = true;
 
   // max-write-pipeline-backlog-size
   //
