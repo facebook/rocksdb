@@ -5675,7 +5675,7 @@ TEST_F(DBTest, SoftLimit) {
   options.level0_slowdown_writes_trigger = 3;
   options.level0_stop_writes_trigger = 999999;
   options.delayed_write_rate = 20000;  // About 200KB/s limited rate
-  options.soft_pending_compaction_bytes_limit = 200000;
+  options.soft_pending_compaction_bytes_limit = 160000;
   options.target_file_size_base = 99999999;  // All into one file
   options.max_bytes_for_level_base = 50000;
   options.max_bytes_for_level_multiplier = 10;
@@ -5683,6 +5683,27 @@ TEST_F(DBTest, SoftLimit) {
   options.compression = kNoCompression;
 
   Reopen(options);
+
+  // Generating 360KB in Level 3
+  for (int i = 0; i < 72; i++) {
+    Put(Key(i), std::string(5000, 'x'));
+    if (i % 10 == 0) {
+      Flush();
+    }
+  }
+  dbfull()->TEST_WaitForCompact();
+  MoveFilesToLevel(3);
+
+  // Generating 360KB in Level 2
+  for (int i = 0; i < 72; i++) {
+    Put(Key(i), std::string(5000, 'x'));
+    if (i % 10 == 0) {
+      Flush();
+    }
+  }
+  dbfull()->TEST_WaitForCompact();
+  MoveFilesToLevel(2);
+
   Put(Key(0), "");
 
   test::SleepingBackgroundTask sleeping_task_low;
@@ -5758,7 +5779,8 @@ TEST_F(DBTest, SoftLimit) {
   sleeping_task_low.WaitUntilSleeping();
 
   // Now there is one L1 file (around 90KB) which exceeds 50KB base by 40KB
-  // Given level multiplier 10, estimated pending compaction is around 400KB
+  // L2 size is 360KB, so the estimated level fanout 4, estimated pending
+  // compaction is around 200KB
   // triggerring soft_pending_compaction_bytes_limit
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());

@@ -776,19 +776,22 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded1) {
   Add(1, 4U, "400", "500", 600);
   Add(1, 5U, "600", "700", 600);
   // Level 2 is less than target 10000 even added size of level 1
+  // Size ratio of L2/L1 is 9600 / 1200 = 8
   Add(2, 6U, "150", "200", 2500);
   Add(2, 7U, "201", "210", 2000);
-  Add(2, 8U, "300", "310", 2500);
+  Add(2, 8U, "300", "310", 2600);
   Add(2, 9U, "400", "500", 2500);
   // Level 3 exceeds target 100,000 of 1000
   Add(3, 10U, "400", "500", 101000);
-  // Level 4 exceeds target 1,000,000 of 500 after adding size from level 3
-  Add(4, 11U, "400", "500", 999500);
-  Add(5, 11U, "400", "500", 8000000);
+  // Level 4 exceeds target 1,000,000 by 900 after adding size from level 3
+  // Size ratio L4/L3 is 9.9
+  // After merge from L3, L4 size is 1000900
+  Add(4, 11U, "400", "500", 999900);
+  Add(5, 11U, "400", "500", 8007200);
 
   UpdateVersionStorageInfo();
 
-  ASSERT_EQ(2200u + 11000u + 5500u,
+  ASSERT_EQ(200u * 9u + 10900u + 900u * 9,
             vstorage_->estimated_compaction_needed_bytes());
 }
 
@@ -804,17 +807,42 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded2) {
   Add(0, 4U, "150", "200", 200);
   Add(0, 5U, "150", "200", 200);
   Add(0, 6U, "150", "200", 200);
-  // Level 1 is over target by
+  // Level 1 size will be 1400 after merging with L0
   Add(1, 7U, "400", "500", 200);
   Add(1, 8U, "600", "700", 200);
   // Level 2 is less than target 10000 even added size of level 1
-  Add(2, 9U, "150", "200", 9500);
+  Add(2, 9U, "150", "200", 9100);
+  // Level 3 over the target, but since level 4 is empty, we assume it will be
+  // a trivial move.
   Add(3, 10U, "400", "500", 101000);
 
   UpdateVersionStorageInfo();
 
-  ASSERT_EQ(1400u + 4400u + 11000u,
-            vstorage_->estimated_compaction_needed_bytes());
+  // estimated L1->L2 merge: 400 * (9100.0 / 1400.0 + 1.0)
+  ASSERT_EQ(1400u + 3000u, vstorage_->estimated_compaction_needed_bytes());
+}
+
+TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded3) {
+  int num_levels = ioptions_.num_levels;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 3;
+  mutable_cf_options_.max_bytes_for_level_base = 1000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  NewVersionStorage(num_levels, kCompactionStyleLevel);
+  Add(0, 1U, "150", "200", 2000);
+  Add(0, 2U, "150", "200", 2000);
+  Add(0, 4U, "150", "200", 2000);
+  Add(0, 5U, "150", "200", 2000);
+  Add(0, 6U, "150", "200", 1000);
+  // Level 1 size will be 10000 after merging with L0
+  Add(1, 7U, "400", "500", 500);
+  Add(1, 8U, "600", "700", 500);
+
+  Add(2, 9U, "150", "200", 10000);
+
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(10000u + 18000u, vstorage_->estimated_compaction_needed_bytes());
 }
 
 TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
@@ -838,12 +866,14 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
   // num_levels - 3 is over target by 100 + 1000
   Add(num_levels - 3, 7U, "400", "500", 300);
   Add(num_levels - 3, 8U, "600", "700", 300);
-  // Level 2 is over target by 1100 + 100
-  Add(num_levels - 2, 9U, "150", "200", 5100);
+  // num_levels - 2 is over target by 1100 + 200
+  Add(num_levels - 2, 9U, "150", "200", 5200);
 
   UpdateVersionStorageInfo();
 
-  ASSERT_EQ(1600u + 12100u + 13200u,
+  // Merging to the second last level: (5200 / 1600 + 1) * 1100
+  // Merging to the last level: (50000 / 6300 + 1) * 1300
+  ASSERT_EQ(1600u + 4675u + 11617u,
             vstorage_->estimated_compaction_needed_bytes());
 }
 
