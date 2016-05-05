@@ -487,6 +487,11 @@ DEFINE_int32(deletepercent, 2, "Percentage of deletes out of reads/writes/"
              "deletepercent), so deletepercent must be smaller than (100 - "
              "FLAGS_readwritepercent)");
 
+DEFINE_bool(optimize_filters_for_hits, false,
+            "Optimizes bloom filters for workloads for most lookups return "
+            "a value. For now this doesn't create bloom filters for the max "
+            "level of the LSM to reduce metadata that should fit in RAM. ");
+
 DEFINE_uint64(delete_obsolete_files_period_micros, 0,
               "Ignored. Left here for backward compatibility");
 
@@ -2596,6 +2601,7 @@ class Benchmark {
       FLAGS_max_grandparent_overlap_factor;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
     options.source_compaction_factor = FLAGS_source_compaction_factor;
+    options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
 
     // fill storage options
     options.allow_os_buffer = FLAGS_bufferedio;
