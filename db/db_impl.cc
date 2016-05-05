@@ -1195,8 +1195,6 @@ Status DBImpl::Recover(
     // Note that prev_log_number() is no longer used, but we pay
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
-    const uint64_t min_log = versions_->MinLogNumber();
-    const uint64_t prev_log = versions_->prev_log_number();
     std::vector<std::string> filenames;
     s = env_->GetChildren(db_options_.wal_dir, &filenames);
     if (!s.ok()) {
@@ -1213,7 +1211,7 @@ Status DBImpl::Recover(
               "While creating a new Db, wal_dir contains "
               "existing log file: ",
               filenames[i]);
-        } else if ((number >= min_log) || (number == prev_log)) {
+        } else {
           logs.push_back(number);
         }
       }

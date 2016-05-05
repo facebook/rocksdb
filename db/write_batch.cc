@@ -761,15 +761,15 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) override {
+    if (rebuilding_trx_ != nullptr) {
+      WriteBatchInternal::Put(rebuilding_trx_, column_family_id, key, value);
+      return Status::OK();
+    }
+
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
-    }
-
-    if (rebuilding_trx_ != nullptr) {
-      rebuilding_trx_->Put(cf_mems_->GetColumnFamilyHandle(), key, value);
-      return Status::OK();
     }
 
     MemTable* mem = cf_mems_->GetMemTable();
@@ -851,15 +851,15 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status DeleteCF(uint32_t column_family_id,
                           const Slice& key) override {
+    if (rebuilding_trx_ != nullptr) {
+      WriteBatchInternal::Delete(rebuilding_trx_, column_family_id, key);
+      return Status::OK();
+    }
+
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
-    }
-
-    if (rebuilding_trx_ != nullptr) {
-      rebuilding_trx_->Delete(cf_mems_->GetColumnFamilyHandle(), key);
-      return Status::OK();
     }
 
     return DeleteImpl(column_family_id, key, kTypeDeletion);
@@ -867,15 +867,15 @@ class MemTableInserter : public WriteBatch::Handler {
 
   virtual Status SingleDeleteCF(uint32_t column_family_id,
                                 const Slice& key) override {
+    if (rebuilding_trx_ != nullptr) {
+      WriteBatchInternal::SingleDelete(rebuilding_trx_, column_family_id, key);
+      return Status::OK();
+    }
+
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
-    }
-
-    if (rebuilding_trx_ != nullptr) {
-      rebuilding_trx_->SingleDelete(cf_mems_->GetColumnFamilyHandle(), key);
-      return Status::OK();
     }
 
     return DeleteImpl(column_family_id, key, kTypeSingleDeletion);
@@ -884,15 +884,17 @@ class MemTableInserter : public WriteBatch::Handler {
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
     assert(!concurrent_memtable_writes_);
+    if (rebuilding_trx_ != nullptr) {
+      WriteBatchInternal::Merge(rebuilding_trx_, column_family_id, key, value);
+      return Status::OK();
+    }
+
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
     }
-    if (rebuilding_trx_ != nullptr) {
-      rebuilding_trx_->Merge(cf_mems_->GetColumnFamilyHandle(), key, value);
-      return Status::OK();
-    }
+
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetMemTableOptions();
     bool perform_merge = false;

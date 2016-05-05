@@ -139,6 +139,7 @@ Status TransactionDB::Open(
       assert(recovered_trx->name_.length());
 
       WriteOptions w_options;
+      w_options.sync = true;
       TransactionOptions t_options;
 
       Transaction* real_trx =

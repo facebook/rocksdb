@@ -682,6 +682,73 @@ TEST_F(TransactionTest, TwoPhaseSequenceTest) {
   ASSERT_EQ(value, "bar4");
 }
 
+TEST_F(TransactionTest, TwoPhaseDoubleRecoveryTest) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ReadOptions read_options;
+
+  TransactionOptions txn_options;
+
+  std::string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("a");
+  ASSERT_OK(s);
+
+  // transaction put
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+
+  // prepare
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  delete txn;
+
+  // kill and reopen
+  env_->SetFilesystemActive(false);
+  ReOpenNoDelete();
+
+  // commit old txn
+  txn = db->GetTransactionByName("a");
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar");
+
+  delete txn;
+
+  txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("b");
+  ASSERT_OK(s);
+
+  s = txn->Put(Slice("foo2"), Slice("bar2"));
+  ASSERT_OK(s);
+
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  // kill and reopen
+  env_->SetFilesystemActive(false);
+  ReOpenNoDelete();
+
+  // value is now available
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar");
+
+  s = db->Get(read_options, "foo2", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar2");
+}
+
 TEST_F(TransactionTest, TwoPhaseLogRollingTest) {
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
 
