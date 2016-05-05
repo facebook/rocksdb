@@ -1315,9 +1315,10 @@ TEST_F(OptionsParserTest, DifferentDefault) {
               old_default_cf_opts.compaction_pri);
   }
 
-  ColumnFamilyOptions cf_small_opts;
-  cf_small_opts.OptimizeForSmallDb();
-  ASSERT_EQ(2 << 20, cf_small_opts.write_buffer_size);
+  Options small_opts;
+  small_opts.OptimizeForSmallDb();
+  ASSERT_EQ(2 << 20, small_opts.write_buffer_size);
+  ASSERT_EQ(5000, small_opts.max_open_files);
 }
 
 class OptionsSanityCheckTest : public OptionsParserTest {

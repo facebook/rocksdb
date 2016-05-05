@@ -668,6 +668,12 @@ Options::PrepareForBulkLoad()
   return this;
 }
 
+Options* Options::OptimizeForSmallDb() {
+  ColumnFamilyOptions::OptimizeForSmallDb();
+  DBOptions::OptimizeForSmallDb();
+  return this;
+}
+
 Options* Options::OldDefaults(int rocksdb_major_version,
                               int rocksdb_minor_version) {
   ColumnFamilyOptions::OldDefaults(rocksdb_major_version,
@@ -705,6 +711,12 @@ ColumnFamilyOptions* ColumnFamilyOptions::OldDefaults(
 }
 
 // Optimization functions
+DBOptions* DBOptions::OptimizeForSmallDb() {
+  max_file_opening_threads = 1;
+  max_open_files = 5000;
+  return this;
+}
+
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForSmallDb() {
   write_buffer_size = 2 << 20;
   target_file_size_base = 2 * 1048576;

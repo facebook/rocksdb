@@ -824,6 +824,10 @@ struct DBOptions {
 
   // Some functions that make it easier to optimize RocksDB
 
+  // Use this if your DB is very small (like under 1GB) and you don't want to
+  // spend lots of memory for memtables.
+  DBOptions* OptimizeForSmallDb();
+
 #ifndef ROCKSDB_LITE
   // By default, RocksDB uses only one background thread for flush and
   // compaction. Calling this function will set it up such that total of
@@ -898,7 +902,7 @@ struct DBOptions {
 
   // If max_open_files is -1, DB will open all files on DB::Open(). You can
   // use this option to increase the number of threads used to open the files.
-  // Default: 1
+  // Default: 16
   int max_file_opening_threads;
 
   // Once write-ahead logs exceed this size, we will start forcing the flush of
@@ -1343,6 +1347,8 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
 
   void DumpCFOptions(Logger* log) const;
 
+  // Some functions that make it easier to optimize RocksDB
+
   // Set appropriate parameters for bulk loading.
   // The reason that this is a function that returns "this" instead of a
   // constructor is to enable chaining of multiple similar calls in the future.
@@ -1352,6 +1358,10 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
   // It's recommended to manually call CompactRange(NULL, NULL) before reading
   // from the database, because otherwise the read can be very slow.
   Options* PrepareForBulkLoad();
+
+  // Use this if your DB is very small (like under 1GB) and you don't want to
+  // spend lots of memory for memtables.
+  Options* OptimizeForSmallDb();
 };
 
 //
