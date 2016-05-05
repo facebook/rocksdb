@@ -1528,9 +1528,8 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
 
 TEST_F(DBIteratorTest, ReadAhead) {
   Options options;
-  auto env = new SpecialEnv(Env::Default());
-  env->count_random_reads_ = true;
-  options.env = env;
+  env_->count_random_reads_ = true;
+  options.env = env_;
   options.disable_auto_compactions = true;
   options.write_buffer_size = 4 << 20;
   options.statistics = rocksdb::CreateDBStatistics();
@@ -1561,22 +1560,22 @@ TEST_F(DBIteratorTest, ReadAhead) {
   ASSERT_EQ("1,1,1", FilesPerLevel());
 #endif  // !ROCKSDB_LITE
 
-  env->random_read_bytes_counter_ = 0;
+  env_->random_read_bytes_counter_ = 0;
   options.statistics->setTickerCount(NO_FILE_OPENS, 0);
   ReadOptions read_options;
   auto* iter = db_->NewIterator(read_options);
   iter->SeekToFirst();
   int64_t num_file_opens = TestGetTickerCount(options, NO_FILE_OPENS);
-  int64_t bytes_read = env->random_read_bytes_counter_;
+  int64_t bytes_read = env_->random_read_bytes_counter_;
   delete iter;
 
-  env->random_read_bytes_counter_ = 0;
+  env_->random_read_bytes_counter_ = 0;
   options.statistics->setTickerCount(NO_FILE_OPENS, 0);
   read_options.readahead_size = 1024 * 10;
   iter = db_->NewIterator(read_options);
   iter->SeekToFirst();
   int64_t num_file_opens_readahead = TestGetTickerCount(options, NO_FILE_OPENS);
-  int64_t bytes_read_readahead = env->random_read_bytes_counter_;
+  int64_t bytes_read_readahead = env_->random_read_bytes_counter_;
   delete iter;
   ASSERT_EQ(num_file_opens + 3, num_file_opens_readahead);
   ASSERT_GT(bytes_read_readahead, bytes_read);
