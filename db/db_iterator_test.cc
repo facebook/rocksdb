@@ -1557,7 +1557,9 @@ TEST_F(DBIteratorTest, ReadAhead) {
     Put(Key(i), value);
   }
   ASSERT_OK(Flush());
+#ifndef ROCKSDB_LITE
   ASSERT_EQ("1,1,1", FilesPerLevel());
+#endif  // !ROCKSDB_LITE
 
   env->random_read_bytes_counter_ = 0;
   options.statistics->setTickerCount(NO_FILE_OPENS, 0);
