@@ -6,13 +6,14 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/db.h"
 #include "db/db_impl.h"
 #include "db/version_set.h"
-#include "tools/ldb_cmd.h"
+#include "rocksdb/db.h"
+#include "rocksdb/utilities/ldb_cmd.h"
+#include "tools/ldb_cmd_impl.h"
 #include "util/logging.h"
-#include "util/testutil.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 

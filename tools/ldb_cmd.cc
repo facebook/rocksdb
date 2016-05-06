@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #ifndef ROCKSDB_LITE
-#include "tools/ldb_cmd.h"
+#include "rocksdb/utilities/ldb_cmd.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -23,6 +23,7 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/write_batch.h"
 #include "table/scoped_arena_iterator.h"
+#include "tools/ldb_cmd_impl.h"
 #include "tools/sst_dump_tool_imp.h"
 #include "util/coding.h"
 #include "util/stderr_logger.h"
@@ -31,10 +32,11 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <iostream>
 #include <limits>
 #include <sstream>
-#include <string>
 #include <stdexcept>
+#include <string>
 
 namespace rocksdb {
 
@@ -198,6 +200,176 @@ LDBCommand* LDBCommand::SelectCommand(
   return nullptr;
 }
 
+/* Run the command, and return the execute result. */
+void LDBCommand::Run() {
+  if (!exec_state_.IsNotStarted()) {
+    return;
+  }
+
+  if (db_ == nullptr && !NoDBOpen()) {
+    OpenDB();
+  }
+
+  // We'll intentionally proceed even if the DB can't be opened because users
+  // can also specify a filename, not just a directory.
+  DoCommand();
+
+  if (exec_state_.IsNotStarted()) {
+    exec_state_ = LDBCommandExecuteResult::Succeed("");
+  }
+
+  if (db_ != nullptr) {
+    CloseDB();
+  }
+}
+
+LDBCommand::LDBCommand(const map<string, string>& options,
+                       const vector<string>& flags, bool is_read_only,
+                       const vector<string>& valid_cmd_line_options)
+    : db_(nullptr),
+      is_read_only_(is_read_only),
+      is_key_hex_(false),
+      is_value_hex_(false),
+      is_db_ttl_(false),
+      timestamp_(false),
+      option_map_(options),
+      flags_(flags),
+      valid_cmd_line_options_(valid_cmd_line_options) {
+  map<string, string>::const_iterator itr = options.find(ARG_DB);
+  if (itr != options.end()) {
+    db_path_ = itr->second;
+  }
+
+  itr = options.find(ARG_CF_NAME);
+  if (itr != options.end()) {
+    column_family_name_ = itr->second;
+  } else {
+    column_family_name_ = kDefaultColumnFamilyName;
+  }
+
+  is_key_hex_ = IsKeyHex(options, flags);
+  is_value_hex_ = IsValueHex(options, flags);
+  is_db_ttl_ = IsFlagPresent(flags, ARG_TTL);
+  timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
+}
+
+void LDBCommand::OpenDB() {
+  Options opt = PrepareOptionsForOpenDB();
+  if (!exec_state_.IsNotStarted()) {
+    return;
+  }
+  // Open the DB.
+  Status st;
+  std::vector<ColumnFamilyHandle*> handles_opened;
+  if (is_db_ttl_) {
+    // ldb doesn't yet support TTL DB with multiple column families
+    if (!column_family_name_.empty() || !column_families_.empty()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "ldb doesn't support TTL DB with multiple column families");
+    }
+    if (is_read_only_) {
+      st = DBWithTTL::Open(opt, db_path_, &db_ttl_, 0, true);
+    } else {
+      st = DBWithTTL::Open(opt, db_path_, &db_ttl_);
+    }
+    db_ = db_ttl_;
+  } else {
+    if (column_families_.empty()) {
+      // Try to figure out column family lists
+      std::vector<std::string> cf_list;
+      st = DB::ListColumnFamilies(DBOptions(), db_path_, &cf_list);
+      // There is possible the DB doesn't exist yet, for "create if not
+      // "existing case". The failure is ignored here. We rely on DB::Open()
+      // to give us the correct error message for problem with opening
+      // existing DB.
+      if (st.ok() && cf_list.size() > 1) {
+        // Ignore single column family DB.
+        for (auto cf_name : cf_list) {
+          column_families_.emplace_back(cf_name, opt);
+        }
+      }
+    }
+    if (is_read_only_) {
+      if (column_families_.empty()) {
+        st = DB::OpenForReadOnly(opt, db_path_, &db_);
+      } else {
+        st = DB::OpenForReadOnly(opt, db_path_, column_families_,
+                                 &handles_opened, &db_);
+      }
+    } else {
+      if (column_families_.empty()) {
+        st = DB::Open(opt, db_path_, &db_);
+      } else {
+        st = DB::Open(opt, db_path_, column_families_, &handles_opened, &db_);
+      }
+    }
+  }
+  if (!st.ok()) {
+    string msg = st.ToString();
+    exec_state_ = LDBCommandExecuteResult::Failed(msg);
+  } else if (!handles_opened.empty()) {
+    assert(handles_opened.size() == column_families_.size());
+    bool found_cf_name = false;
+    for (size_t i = 0; i < handles_opened.size(); i++) {
+      cf_handles_[column_families_[i].name] = handles_opened[i];
+      if (column_family_name_ == column_families_[i].name) {
+        found_cf_name = true;
+      }
+    }
+    if (!found_cf_name) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Non-existing column family " + column_family_name_);
+      CloseDB();
+    }
+  } else {
+    // We successfully opened DB in single column family mode.
+    assert(column_families_.empty());
+    if (column_family_name_ != kDefaultColumnFamilyName) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Non-existing column family " + column_family_name_);
+      CloseDB();
+    }
+  }
+
+  options_ = opt;
+}
+
+void LDBCommand::CloseDB() {
+  if (db_ != nullptr) {
+    for (auto& pair : cf_handles_) {
+      delete pair.second;
+    }
+    delete db_;
+    db_ = nullptr;
+  }
+}
+
+ColumnFamilyHandle* LDBCommand::GetCfHandle() {
+  if (!cf_handles_.empty()) {
+    auto it = cf_handles_.find(column_family_name_);
+    if (it == cf_handles_.end()) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Cannot find column family " + column_family_name_);
+    } else {
+      return it->second;
+    }
+  }
+  return db_->DefaultColumnFamily();
+}
+
+vector<string> LDBCommand::BuildCmdLineOptions(vector<string> options) {
+  vector<string> ret = {ARG_DB,
+                        ARG_BLOOM_BITS,
+                        ARG_BLOCK_SIZE,
+                        ARG_AUTO_COMPACTION,
+                        ARG_COMPRESSION_TYPE,
+                        ARG_WRITE_BUFFER_SIZE,
+                        ARG_FILE_SIZE,
+                        ARG_FIX_PREFIX_LEN,
+                        ARG_CF_NAME};
+  ret.insert(ret.end(), options.begin(), options.end());
+  return ret;
+}
 
 /**
  * Parses the specific integer option and fills in the value.
@@ -417,6 +589,85 @@ bool LDBCommand::ValidateCmdLineOptions() {
   }
 
   return true;
+}
+
+string LDBCommand::HexToString(const string& str) {
+  string result;
+  std::string::size_type len = str.length();
+  if (len < 2 || str[0] != '0' || str[1] != 'x') {
+    fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n", str.c_str());
+    throw "Invalid hex input";
+  }
+  if (!Slice(str.data() + 2, len - 2).DecodeHex(&result)) {
+    throw "Invalid hex input";
+  }
+  return result;
+}
+
+string LDBCommand::StringToHex(const string& str) {
+  string result("0x");
+  result.append(Slice(str).ToString(true));
+  return result;
+}
+
+string LDBCommand::PrintKeyValue(const string& key, const string& value,
+                                 bool is_key_hex, bool is_value_hex) {
+  string result;
+  result.append(is_key_hex ? StringToHex(key) : key);
+  result.append(DELIM);
+  result.append(is_value_hex ? StringToHex(value) : value);
+  return result;
+}
+
+string LDBCommand::PrintKeyValue(const string& key, const string& value,
+                                 bool is_hex) {
+  return PrintKeyValue(key, value, is_hex, is_hex);
+}
+
+string LDBCommand::HelpRangeCmdArgs() {
+  std::ostringstream str_stream;
+  str_stream << " ";
+  str_stream << "[--" << ARG_FROM << "] ";
+  str_stream << "[--" << ARG_TO << "] ";
+  return str_stream.str();
+}
+
+bool LDBCommand::IsKeyHex(const map<string, string>& options,
+                          const vector<string>& flags) {
+  return (IsFlagPresent(flags, ARG_HEX) || IsFlagPresent(flags, ARG_KEY_HEX) ||
+          ParseBooleanOption(options, ARG_HEX, false) ||
+          ParseBooleanOption(options, ARG_KEY_HEX, false));
+}
+
+bool LDBCommand::IsValueHex(const map<string, string>& options,
+                            const vector<string>& flags) {
+  return (IsFlagPresent(flags, ARG_HEX) ||
+          IsFlagPresent(flags, ARG_VALUE_HEX) ||
+          ParseBooleanOption(options, ARG_HEX, false) ||
+          ParseBooleanOption(options, ARG_VALUE_HEX, false));
+}
+
+bool LDBCommand::ParseBooleanOption(const map<string, string>& options,
+                                    const string& option, bool default_val) {
+  map<string, string>::const_iterator itr = options.find(option);
+  if (itr != options.end()) {
+    string option_val = itr->second;
+    return StringToBool(itr->second);
+  }
+  return default_val;
+}
+
+bool LDBCommand::StringToBool(string val) {
+  std::transform(val.begin(), val.end(), val.begin(),
+                 [](char ch) -> char { return (char)::tolower(ch); });
+
+  if (val == "true") {
+    return true;
+  } else if (val == "false") {
+    return false;
+  } else {
+    throw "Invalid value for boolean argument";
+  }
 }
 
 CompactorCommand::CompactorCommand(const vector<string>& params,

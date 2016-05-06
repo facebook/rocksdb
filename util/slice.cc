@@ -146,7 +146,7 @@ std::string Slice::ToString(bool hex) const {
   }
 }
 
-// Originally from tools/ldb_cmd.h
+// Originally from rocksdb/utilities/ldb_cmd.h
 bool Slice::DecodeHex(std::string* result) const {
   std::string::size_type len = size_;
   if (len % 2) {

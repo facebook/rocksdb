@@ -5,8 +5,12 @@
 //
 #ifndef ROCKSDB_LITE
 
-#include "tools/ldb_cmd.h"
+#include "rocksdb/utilities/ldb_cmd.h"
 #include "util/testharness.h"
+
+using std::string;
+using std::vector;
+using std::map;
 
 class LdbCmdTest : public testing::Test {};
 

@@ -5,7 +5,8 @@
 //
 #ifndef ROCKSDB_LITE
 #include "rocksdb/ldb_tool.h"
-#include "tools/ldb_cmd.h"
+#include "rocksdb/utilities/ldb_cmd.h"
+#include "tools/ldb_cmd_impl.h"
 
 namespace rocksdb {
 
@@ -15,7 +16,7 @@ class LDBCommandRunner {
 public:
 
   static void PrintHelp(const char* exec_name) {
-    string ret;
+    std::string ret;
 
     ret.append("ldb - LevelDB Tool");
     ret.append("\n\n");
