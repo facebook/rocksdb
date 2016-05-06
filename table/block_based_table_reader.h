@@ -207,7 +207,8 @@ class BlockBasedTable : public TableReader {
       IndexReader** index_reader,
       InternalIterator* preloaded_meta_index_iter = nullptr);
 
-  bool FullFilterKeyMayMatch(FilterBlockReader* filter,
+  bool FullFilterKeyMayMatch(const ReadOptions& read_options,
+                             FilterBlockReader* filter,
                              const Slice& user_key) const;
 
   // Read the meta block from sst.
