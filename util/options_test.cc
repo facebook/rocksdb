@@ -600,9 +600,14 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
       base_options,
       "write_buffer_size=10;max_write_buffer_number=16;"
       "block_based_table_factory={block_cache=1M;block_size=4;};"
-      "create_if_missing=true;max_open_files=1;rate_limiter_bytes_per_sec=1024",
+      "compression_opts=4:5:6;create_if_missing=true;max_open_files=1;"
+      "rate_limiter_bytes_per_sec=1024",
       &new_options));
 
+  ASSERT_EQ(new_options.compression_opts.window_bits, 4);
+  ASSERT_EQ(new_options.compression_opts.level, 5);
+  ASSERT_EQ(new_options.compression_opts.strategy, 6);
+  ASSERT_EQ(new_options.compression_opts.max_dict_bytes, 0);
   ASSERT_EQ(new_options.write_buffer_size, 10U);
   ASSERT_EQ(new_options.max_write_buffer_number, 16);
   BlockBasedTableOptions new_block_based_table_options =
