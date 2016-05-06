@@ -638,6 +638,19 @@ public class RocksDBTest {
   }
 
   @Test
+  public void pauseContinueBackgroundWork() throws RocksDBException {
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())
+    ) {
+      db.pauseBackgroundWork();
+      db.continueBackgroundWork();
+      db.pauseBackgroundWork();
+      db.continueBackgroundWork();
+    }
+  }
+
+  @Test
   public void enableDisableFileDeletions() throws RocksDBException {
     try (final Options options = new Options().setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,

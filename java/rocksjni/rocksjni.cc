@@ -1485,6 +1485,42 @@ void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIZIIJ(
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::PauseBackgroundWork
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    pauseBackgroundWork
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_pauseBackgroundWork(
+    JNIEnv* env, jobject jobj, jlong jdb_handle) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto s = db->PauseBackgroundWork();
+  if (s.ok()) {
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::ContinueBackgroundWork
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    continueBackgroundWork
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_continueBackgroundWork(
+    JNIEnv* env, jobject jobj, jlong jdb_handle) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto s = db->ContinueBackgroundWork();
+  if (s.ok()) {
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::GetLatestSequenceNumber
 
 /*
