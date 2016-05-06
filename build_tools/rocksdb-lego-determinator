@@ -65,7 +65,7 @@ SHM="TEST_TMPDIR=/dev/shm/rocksdb"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
-LITE="OPT=-DROCKSDB_LITE"
+LITE="OPT=\"-DROCKSDB_LITE -g\""
 TSAN="COMPILE_WITH_TSAN=1"
 UBSAN="COMPILE_WITH_UBSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
@@ -257,7 +257,7 @@ LITE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'$LITE $DEBUG make J=1 static_lib',
+                'shell':'$LITE make J=1 static_lib',
                 'user':'root',
                 $PARSER
             },
@@ -277,7 +277,7 @@ LITE_UNIT_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'$SHM $LITE $DEBUG make J=1 check',
+                'shell':'$SHM $LITE make J=1 check',
                 'user':'root',
                 $PARSER
             },

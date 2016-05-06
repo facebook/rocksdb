@@ -131,7 +131,7 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     } else {
       // manually list of tests we want to run in sandcastle
       $tests = array(
-        "unit", "unit_481", "clang_unit", "tsan", "asan", "lite", "valgrind"
+        "unit", "unit_481", "clang_unit", "tsan", "asan", "lite_test", "valgrind"
       );
     }
 
