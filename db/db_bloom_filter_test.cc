@@ -160,6 +160,10 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
 
   ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+
+  ro.total_order_seek = true;
+  ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
 }
 
 TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
