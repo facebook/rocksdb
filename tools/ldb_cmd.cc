@@ -1782,24 +1782,24 @@ class InMemoryHandler : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  virtual Status MarkBeginPrepare() override {
+  virtual Status MarkBeginPrepare() {
     row_ << "BEGIN_PREARE ";
     return Status::OK();
   }
 
-  virtual Status MarkEndPrepare(const Slice& xid) override {
+  virtual Status MarkEndPrepare(const Slice& xid) {
     row_ << "END_PREPARE(";
     row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
     return Status::OK();
   }
 
-  virtual Status MarkRollback(const Slice& xid) override {
+  virtual Status MarkRollback(const Slice& xid) {
     row_ << "ROLLBACK(";
     row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
     return Status::OK();
   }
 
-  virtual Status MarkCommit(const Slice& xid) override {
+  virtual Status MarkCommit(const Slice& xid) {
     row_ << "COMMIT(";
     row_ << LDBCommand::StringToHex(xid.ToString()) << ") ";
     return Status::OK();
