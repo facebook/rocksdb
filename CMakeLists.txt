@@ -200,6 +200,7 @@ set(SOURCES
         util/delete_scheduler.cc
         util/dynamic_bloom.cc
         util/env.cc
+        util/env_chroot.cc
         util/env_hdfs.cc
         util/event_logger.cc
         util/file_util.cc
