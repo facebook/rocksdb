@@ -800,22 +800,6 @@ TEST_F(DBTest2, PresetCompressionDict) {
     }
   }
 }
-#endif  // ROCKSDB_LITE
-
-TEST_F(DBTest2, FirstSnapshotTest) {
-  Options options;
-  options.write_buffer_size = 100000;  // Small write buffer
-  options = CurrentOptions(options);
-  CreateAndReopenWithCF({"pikachu"}, options);
-
-  // This snapshot will have sequence number 0 what is expected behaviour.
-  const Snapshot* s1 = db_->GetSnapshot();
-
-  Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
-  Put(1, "k2", std::string(100000, 'y'));  // Trigger flush
-
-  db_->ReleaseSnapshot(s1);
-}
 
 class CompactionCompressionListener : public EventListener {
  public:
@@ -910,6 +894,22 @@ TEST_F(DBTest2, CompressionOptions) {
     // Make sure that we wrote enough to check all 7 levels
     ASSERT_EQ(listener->max_level_checked, 6);
   }
+}
+#endif  // ROCKSDB_LITE
+
+TEST_F(DBTest2, FirstSnapshotTest) {
+  Options options;
+  options.write_buffer_size = 100000;  // Small write buffer
+  options = CurrentOptions(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // This snapshot will have sequence number 0 what is expected behaviour.
+  const Snapshot* s1 = db_->GetSnapshot();
+
+  Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
+  Put(1, "k2", std::string(100000, 'y'));  // Trigger flush
+
+  db_->ReleaseSnapshot(s1);
 }
 
 class PinL0IndexAndFilterBlocksTest : public DBTestBase,
