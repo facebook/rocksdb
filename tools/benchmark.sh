@@ -54,7 +54,7 @@ compression_type=${COMPRESSION_TYPE:-snappy}
 duration=${DURATION:-0}
 
 num_keys=${NUM_KEYS:-$((1 * G))}
-key_size=20
+key_size=${KEY_SIZE:-20}
 value_size=${VALUE_SIZE:-400}
 block_size=${BLOCK_SIZE:-8192}
 

@@ -19,5 +19,5 @@ int main() {
 }
 #else
 #include <rocksdb/db_bench_tool.h>
-int main(int argc, char** argv) { rocksdb::db_bench_tool(argc, argv); }
+int main(int argc, char** argv) { return rocksdb::db_bench_tool(argc, argv); }
 #endif  // GFLAGS

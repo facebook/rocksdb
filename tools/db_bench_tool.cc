@@ -1915,8 +1915,8 @@ class Benchmark {
     if (!SanityCheck()) {
       exit(1);
     }
-    PrintHeader();
     Open(&open_options_);
+    PrintHeader();
     std::stringstream benchmark_stream(FLAGS_benchmarks);
     std::string name;
     while (std::getline(benchmark_stream, name, ',')) {
