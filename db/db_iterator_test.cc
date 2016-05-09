@@ -1566,7 +1566,7 @@ TEST_F(DBIteratorTest, ReadAhead) {
   auto* iter = db_->NewIterator(read_options);
   iter->SeekToFirst();
   int64_t num_file_opens = TestGetTickerCount(options, NO_FILE_OPENS);
-  int64_t bytes_read = env_->random_read_bytes_counter_;
+  size_t bytes_read = env_->random_read_bytes_counter_;
   delete iter;
 
   env_->random_read_bytes_counter_ = 0;
@@ -1575,7 +1575,7 @@ TEST_F(DBIteratorTest, ReadAhead) {
   iter = db_->NewIterator(read_options);
   iter->SeekToFirst();
   int64_t num_file_opens_readahead = TestGetTickerCount(options, NO_FILE_OPENS);
-  int64_t bytes_read_readahead = env_->random_read_bytes_counter_;
+  size_t bytes_read_readahead = env_->random_read_bytes_counter_;
   delete iter;
   ASSERT_EQ(num_file_opens + 3, num_file_opens_readahead);
   ASSERT_GT(bytes_read_readahead, bytes_read);
