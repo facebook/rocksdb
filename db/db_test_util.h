@@ -359,7 +359,7 @@ class SpecialEnv : public EnvWrapper {
      public:
       CountingFile(unique_ptr<RandomAccessFile>&& target,
                    anon::AtomicCounter* counter,
-                   std::atomic<int64_t>* bytes_read)
+                   std::atomic<size_t>* bytes_read)
           : target_(std::move(target)),
             counter_(counter),
             bytes_read_(bytes_read) {}
@@ -374,7 +374,7 @@ class SpecialEnv : public EnvWrapper {
      private:
       unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;
-      std::atomic<int64_t>* bytes_read_;
+      std::atomic<size_t>* bytes_read_;
     };
 
     Status s = target()->NewRandomAccessFile(f, r, soptions);
@@ -471,7 +471,7 @@ class SpecialEnv : public EnvWrapper {
 
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
-  std::atomic<int64_t> random_read_bytes_counter_;
+  std::atomic<size_t> random_read_bytes_counter_;
   std::atomic<int> random_file_open_counter_;
 
   bool count_sequential_reads_;
