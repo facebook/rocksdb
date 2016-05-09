@@ -460,6 +460,9 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     {"compression_per_level",
      {offsetof(struct ColumnFamilyOptions, compression_per_level),
       OptionType::kVectorCompressionType, OptionVerificationType::kNormal}},
+    {"bottommost_compression",
+     {offsetof(struct ColumnFamilyOptions, bottommost_compression),
+      OptionType::kCompressionType, OptionVerificationType::kNormal}},
     {"comparator",
      {offsetof(struct ColumnFamilyOptions, comparator), OptionType::kComparator,
       OptionVerificationType::kByName}},
@@ -575,8 +578,9 @@ static std::unordered_map<std::string, CompressionType>
         {"kBZip2Compression", kBZip2Compression},
         {"kLZ4Compression", kLZ4Compression},
         {"kLZ4HCCompression", kLZ4HCCompression},
-        {"kXpressCompression", kXpressCompression },
-        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression}};
+        {"kXpressCompression", kXpressCompression},
+        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
+        {"kDisableCompressionOption", kDisableCompressionOption}};
 
 static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     block_base_table_index_type_string_map = {

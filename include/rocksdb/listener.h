@@ -20,6 +20,7 @@ typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
 class DB;
 class Status;
 struct CompactionJobStats;
+enum CompressionType : char;
 
 enum class TableFileCreationReason {
   kFlush,
@@ -141,6 +142,9 @@ struct CompactionJobInfo {
 
   // Reason to run the compaction
   CompactionReason compaction_reason;
+
+  // Compression algorithm used for output files
+  CompressionType compression;
 
   // If non-null, this variable stores detailed information
   // about this compaction.

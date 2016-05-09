@@ -2066,6 +2066,7 @@ void DBImpl::NotifyOnCompactionCompleted(
     info.stats = compaction_job_stats;
     info.table_properties = c->GetOutputTableProperties();
     info.compaction_reason = c->compaction_reason();
+    info.compression = c->output_compression();
     for (size_t i = 0; i < c->num_input_levels(); ++i) {
       for (const auto fmd : *c->inputs(i)) {
         auto fn = TableFileName(db_options_.db_paths, fmd->fd.GetNumber(),

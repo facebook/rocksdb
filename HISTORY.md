@@ -1,4 +1,9 @@
 # Rocksdb Change Log
+## Unreleased
+### Public API changes
+* Add bottommost_compression option, This option can be used to set a specific compression algorithm for the bottommost level (Last level containing files in the DB).
+* Introduce CompactionJobInfo::compression, This field state the compression algorithm used to generate the output files of the compaction.
+
 ## 4.8.0 (5/2/2016)
 ### Public API Change
 * Allow preset compression dictionary for improved compression of block-based tables. This is supported for zlib, zstd, and lz4. The compression dictionary's size is configurable via CompressionOptions::max_dict_bytes.

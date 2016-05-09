@@ -203,8 +203,9 @@ Compaction::~Compaction() {
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {
-  int base_level = input_version_->storage_info()->base_level();
-  bool matches = (GetCompressionType(*cfd_->ioptions(), start_level_,
+  VersionStorageInfo* vstorage = input_version_->storage_info();
+  int base_level = vstorage->base_level();
+  bool matches = (GetCompressionType(*cfd_->ioptions(), vstorage, start_level_,
                                      base_level) == output_compression_);
   if (matches) {
     TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:Matches");
