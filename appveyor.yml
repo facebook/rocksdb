@@ -2,7 +2,7 @@ version: 1.0.{build}
 before_build:
 - md %APPVEYOR_BUILD_FOLDER%\build
 - cd %APPVEYOR_BUILD_FOLDER%\build
-- cmake -G "Visual Studio 12 Win64" -DOPTDBG=1 ..
+- cmake -G "Visual Studio 12 Win64" -DOPTDBG=1 -DXPRESS=1 ..
 - cd ..
 build:
   project: build\rocksdb.sln
@@ -10,6 +10,6 @@ build:
   verbosity: minimal
 test:
 test_script:
-- ps: build_tools\run_ci_db_test.ps1 -EnableRerun -Run db_test -Exclude DBTest.Randomized,DBTest.FileCreationRandomFailure -Concurrency 18
+- ps: build_tools\run_ci_db_test.ps1 -EnableRerun -Run db_test -Concurrency 10
 - ps: build_tools\run_ci_db_test.ps1 -Run env_test -Concurrency 1
 

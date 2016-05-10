@@ -7,11 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/thread_posix.h"
+#include "util/threadpool.h"
 #include <atomic>
-#include <unistd.h>
+#include <algorithm>
+
+#ifndef OS_WIN
+#  include <unistd.h>
+#endif
+
 #ifdef OS_LINUX
-#include <sys/syscall.h>
+#  include <sys/syscall.h>
 #endif
 
 namespace rocksdb {
@@ -23,29 +28,128 @@ void ThreadPool::PthreadCall(const char* label, int result) {
   }
 }
 
+namespace {
+#ifdef ROCKSDB_STD_THREADPOOL
+
+struct Lock {
+  std::unique_lock<std::mutex> ul_;
+  Lock(std::mutex& m) : ul_(m, std::defer_lock) {}
+};
+
+using Condition = std::condition_variable;
+
+inline
+int MutexLock(Lock& mutex) {
+  mutex.ul_.lock();
+  return 0;
+}
+
+inline
+int ConditionWait(Condition& condition, Lock& lock) {
+  condition.wait(lock.ul_);
+  return 0;
+}
+
+inline
+int ConditionSignalAll(Condition& condition) {
+  condition.notify_all();
+  return 0;
+}
+
+inline
+int ConditionSignal(Condition& condition) {
+  condition.notify_one();
+  return 0;
+}
+
+inline
+int MutexUnlock(Lock& mutex) {
+  mutex.ul_.unlock();
+  return 0;
+}
+
+inline
+void ThreadJoin(std::thread& thread) {
+  thread.join();
+}
+
+inline
+int ThreadDetach(std::thread& thread) {
+  thread.detach();
+  return 0;
+}
+
+#else
+
+using Lock = pthread_mutex_t&;
+using Condition = pthread_cond_t&;
+
+inline
+int MutexLock(Lock mutex) {
+  return pthread_mutex_lock(&mutex);
+}
+
+inline
+int ConditionWait(Condition condition, Lock lock) {
+  return pthread_cond_wait(&condition, &lock);
+}
+
+inline
+int ConditionSignalAll(Condition condition) {
+  return pthread_cond_broadcast(&condition);
+}
+
+inline
+int ConditionSignal(Condition condition) {
+  return pthread_cond_signal(&condition);
+}
+
+inline
+int MutexUnlock(Lock mutex) {
+  return pthread_mutex_unlock(&mutex);
+}
+
+inline
+void ThreadJoin(pthread_t& thread) {
+  pthread_join(thread, nullptr);
+}
+
+inline
+int ThreadDetach(pthread_t& thread) {
+  return pthread_detach(thread);
+}
+#endif
+}
+
 ThreadPool::ThreadPool()
     : total_threads_limit_(1),
       bgthreads_(0),
       queue_(),
-      queue_len_(0),
+      queue_len_(),
       exit_all_threads_(false),
       low_io_priority_(false),
       env_(nullptr) {
+#ifndef ROCKSDB_STD_THREADPOOL
   PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
   PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, nullptr));
+#endif
 }
 
 ThreadPool::~ThreadPool() { assert(bgthreads_.size() == 0U); }
 
 void ThreadPool::JoinAllThreads() {
-  PthreadCall("lock", pthread_mutex_lock(&mu_));
+
+  Lock lock(mu_);
+  PthreadCall("lock", MutexLock(lock));
   assert(!exit_all_threads_);
   exit_all_threads_ = true;
-  PthreadCall("signalall", pthread_cond_broadcast(&bgsignal_));
-  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-  for (const auto tid : bgthreads_) {
-    pthread_join(tid, nullptr);
+  PthreadCall("signalall", ConditionSignalAll(bgsignal_));
+  PthreadCall("unlock", MutexUnlock(lock));
+
+  for (auto& th : bgthreads_) {
+    ThreadJoin(th);
   }
+
   bgthreads_.clear();
 }
 
@@ -60,31 +164,35 @@ void ThreadPool::LowerIOPriority() {
 void ThreadPool::BGThread(size_t thread_id) {
   bool low_io_priority = false;
   while (true) {
-    // Wait until there is an item that is ready to run
-    PthreadCall("lock", pthread_mutex_lock(&mu_));
+// Wait until there is an item that is ready to run
+    Lock uniqueLock(mu_);
+    PthreadCall("lock", MutexLock(uniqueLock));
     // Stop waiting if the thread needs to do work or needs to terminate.
     while (!exit_all_threads_ && !IsLastExcessiveThread(thread_id) &&
            (queue_.empty() || IsExcessiveThread(thread_id))) {
-      PthreadCall("wait", pthread_cond_wait(&bgsignal_, &mu_));
+      PthreadCall("wait", ConditionWait(bgsignal_, uniqueLock));
     }
+
     if (exit_all_threads_) {  // mechanism to let BG threads exit safely
-      PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+      PthreadCall("unlock", MutexUnlock(uniqueLock));
       break;
     }
+
     if (IsLastExcessiveThread(thread_id)) {
       // Current thread is the last generated one and is excessive.
       // We always terminate excessive thread in the reverse order of
       // generation time.
-      auto terminating_thread = bgthreads_.back();
-      pthread_detach(terminating_thread);
+      auto& terminating_thread = bgthreads_.back();
+      PthreadCall("detach", ThreadDetach(terminating_thread));
       bgthreads_.pop_back();
       if (HasExcessiveThread()) {
         // There is still at least more excessive thread to terminate.
         WakeUpAllThreads();
       }
-      PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+      PthreadCall("unlock", MutexUnlock(uniqueLock));
       break;
     }
+
     void (*function)(void*) = queue_.front().function;
     void* arg = queue_.front().arg;
     queue_.pop_front();
@@ -92,7 +200,7 @@ void ThreadPool::BGThread(size_t thread_id) {
                      std::memory_order_relaxed);
 
     bool decrease_io_priority = (low_io_priority != low_io_priority_);
-    PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+    PthreadCall("unlock", MutexUnlock(uniqueLock));
 
 #ifdef OS_LINUX
     if (decrease_io_priority) {
@@ -124,7 +232,7 @@ void ThreadPool::BGThread(size_t thread_id) {
 struct BGThreadMetadata {
   ThreadPool* thread_pool_;
   size_t thread_id_;  // Thread count in the thread.
-  explicit BGThreadMetadata(ThreadPool* thread_pool, size_t thread_id)
+  BGThreadMetadata(ThreadPool* thread_pool, size_t thread_id)
       : thread_pool_(thread_pool), thread_id_(thread_id) {}
 };
 
@@ -148,13 +256,14 @@ static void* BGThreadWrapper(void* arg) {
 }
 
 void ThreadPool::WakeUpAllThreads() {
-  PthreadCall("signalall", pthread_cond_broadcast(&bgsignal_));
+  PthreadCall("signalall", ConditionSignalAll(bgsignal_));
 }
 
 void ThreadPool::SetBackgroundThreadsInternal(int num, bool allow_reduce) {
-  PthreadCall("lock", pthread_mutex_lock(&mu_));
+  Lock lock(mu_);
+  PthreadCall("lock", MutexLock(lock));
   if (exit_all_threads_) {
-    PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+    PthreadCall("unlock", MutexUnlock(lock));
     return;
   }
   if (num > total_threads_limit_ ||
@@ -163,7 +272,7 @@ void ThreadPool::SetBackgroundThreadsInternal(int num, bool allow_reduce) {
     WakeUpAllThreads();
     StartBGThreads();
   }
-  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  PthreadCall("unlock", MutexUnlock(lock));
 }
 
 void ThreadPool::IncBackgroundThreadsIfNeeded(int num) {
@@ -177,11 +286,15 @@ void ThreadPool::SetBackgroundThreads(int num) {
 void ThreadPool::StartBGThreads() {
   // Start background thread if necessary
   while ((int)bgthreads_.size() < total_threads_limit_) {
+#ifdef ROCKSDB_STD_THREADPOOL
+    std::thread p_t(&BGThreadWrapper,
+      new BGThreadMetadata(this, bgthreads_.size()));
+    bgthreads_.push_back(std::move(p_t));
+#else
     pthread_t t;
     PthreadCall("create thread",
                 pthread_create(&t, nullptr, &BGThreadWrapper,
                                new BGThreadMetadata(this, bgthreads_.size())));
-
 // Set the thread name to aid debugging
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
@@ -192,17 +305,19 @@ void ThreadPool::StartBGThreads() {
     pthread_setname_np(t, name_buf);
 #endif
 #endif
-
     bgthreads_.push_back(t);
+#endif
   }
 }
 
 void ThreadPool::Schedule(void (*function)(void* arg1), void* arg, void* tag,
                           void (*unschedFunction)(void* arg)) {
-  PthreadCall("lock", pthread_mutex_lock(&mu_));
+
+  Lock lock(mu_);
+  PthreadCall("lock", MutexLock(lock));
 
   if (exit_all_threads_) {
-    PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+    PthreadCall("unlock", MutexUnlock(lock));
     return;
   }
 
@@ -219,19 +334,21 @@ void ThreadPool::Schedule(void (*function)(void* arg1), void* arg, void* tag,
 
   if (!HasExcessiveThread()) {
     // Wake up at least one waiting thread.
-    PthreadCall("signal", pthread_cond_signal(&bgsignal_));
+    PthreadCall("signal", ConditionSignal(bgsignal_));
   } else {
     // Need to wake up all threads to make sure the one woken
     // up is not the one to terminate.
     WakeUpAllThreads();
   }
 
-  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  PthreadCall("unlock", MutexUnlock(lock));
 }
 
 int ThreadPool::UnSchedule(void* arg) {
   int count = 0;
-  PthreadCall("lock", pthread_mutex_lock(&mu_));
+
+  Lock lock(mu_);
+  PthreadCall("lock", MutexLock(lock));
 
   // Remove from priority queue
   BGQueue::iterator it = queue_.begin();
@@ -245,12 +362,12 @@ int ThreadPool::UnSchedule(void* arg) {
       it = queue_.erase(it);
       count++;
     } else {
-      it++;
+      ++it;
     }
   }
   queue_len_.store(static_cast<unsigned int>(queue_.size()),
                    std::memory_order_relaxed);
-  PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  PthreadCall("unlock", MutexUnlock(lock));
   return count;
 }
 
