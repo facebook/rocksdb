@@ -97,7 +97,7 @@ JAVA_TESTS                              = org.rocksdb.BackupableDBOptionsTest\
                                           org.rocksdb.WriteBatchWithIndexTest\
 										  $(NULL)
 
-JAVA_TEST_LIBDIR						= test-libs
+JAVA_TEST_LIBDIR						= $(top_builddir)/java/test-libs
 JAVA_JUNIT_JAR							= $(JAVA_TEST_LIBDIR)/junit-4.12.jar
 JAVA_HAMCR_JAR							= $(JAVA_TEST_LIBDIR)/hamcrest-core-1.3.jar
 JAVA_MOCKITO_JAR						= $(JAVA_TEST_LIBDIR)/mockito-all-1.10.19.jar
@@ -113,22 +113,23 @@ SUBDIRS									= . \
 all-recursive: java 
 	
 java: 
-	$(AM_V_GEN)$(mkdir_p) target/classes
-	$(AM_V_at)javac -d target/classes \
+	$(AM_V_GEN)$(mkdir_p) $(top_builddir)/java/target/classes
+	$(AM_V_at)javac -d $(top_builddir)/java/target/classes \
 		$(top_srcdir)/java/src/main/java/org/rocksdb/util/*.java \
 		$(top_srcdir)/java/src/main/java/org/rocksdb/*.java 
-	$(AM_V_at)javah -cp target/classes -d $(top_builddir)/java/include -jni $(NATIVE_JAVA_CLASSES)
-	$(AM_V_at)cp -rf $(top_builddir)/java/rocksjni/.libs/librocksdbjni-linux64.so target/classes
+	$(AM_V_at)javah -cp $(top_builddir)/java/target/classes -d $(top_builddir)/java/include -jni $(NATIVE_JAVA_CLASSES)
 
 sample : java 
-	$(AM_V_GEN)$(mkdir_p) samples/target/classes
-	$(AM_V_at)javac -cp target/classes -d samples/target/classes $(top_srcdir)/java/samples/src/main/java/RocksDBSample.java
-	java -ea -Xcheck:jni -Djava.library.path=target -cp target/classes:samples/target/classes RocksDBSample /tmp/rocksdbjni
+	$(AM_V_GEN)$(mkdir_p) $(top_builddir)/java/samples/target/classes
+	$(AM_V_at)javac -cp $(top_builddir)/java/target/classes -d $(top_builddir)/java/samples/target/classes $(top_srcdir)/java/samples/src/main/java/RocksDBSample.java
+	$(AM_V_at)cp -rf $(top_builddir)/java/rocksjni/.libs/librocksdbjni-linux64.so $(top_builddir)/java/target/classes
+	java -ea -Xcheck:jni -Djava.library.path=target -cp $(top_builddir)/java/target/classes:$(top_builddir)/java/samples/target/classes RocksDBSample /tmp/rocksdbjni
 
 column_family_sample: java 
-	$(AM_V_GEN)$(mkdir_p) samples/target/classes
-	$(AM_V_at)javac -cp target/classes -d samples/target/classes $(top_srcdir)/java/samples/src/main/java/RocksDBColumnFamilySample.java
-	java -ea -Xcheck:jni -Djava.library.path=target -cp target/classes:samples/target/classes RocksDBColumnFamilySample /tmp/rocksdbjni
+	$(AM_V_GEN)$(mkdir_p) $(top_builddir)/java/samples/target/classes
+	$(AM_V_at)javac -cp $(top_builddir)/java/target/classes -d $(top_builddir)/java/samples/target/classes $(top_srcdir)/java/samples/src/main/java/RocksDBColumnFamilySample.java
+	$(AM_V_at)cp -rf $(top_builddir)/java/rocksjni/.libs/librocksdbjni-linux64.so $(top_builddir)/java/target/classes
+	java -ea -Xcheck:jni -Djava.library.path=$(top_builddir)/java/target -cp $(top_builddir)/java/target/classes:samples/target/classes RocksDBColumnFamilySample /tmp/rocksdbjni
 
 resolve_test_deps:
 	$(AM_V_GEN)$(mkdir_p) $(JAVA_TEST_LIBDIR)
@@ -139,19 +140,20 @@ resolve_test_deps:
 	test -s "$(JAVA_ASSERTJ_JAR)" || cp $(MVN_LOCAL)/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o "$(JAVA_ASSERTJ_JAR)" http://central.maven.org/maven2/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar
 
 java_test: resolve_test_deps
-	$(AM_V_GEN)$(mkdir_p) target/test-classes
-	$(AM_V_at)javac -cp target/classes:$(JAVA_TESTCLASSPATH) -d target/test-classes \
+	$(AM_V_GEN)$(mkdir_p) $(top_builddir)/java/target/test-classes
+	$(AM_V_at)javac -cp $(top_builddir)/java/target/classes:$(JAVA_TESTCLASSPATH) -d $(top_builddir)/java/target/test-classes \
 		$(top_srcdir)/java/src/test/java/org/rocksdb/test/*.java \
 		$(top_srcdir)/java/src/test/java/org/rocksdb/util/*.java \
 		$(top_srcdir)/java/src/test/java/org/rocksdb/*.java
-	$(AM_V_at)javah -cp target/classes:target/test-classes -d $(top_builddir)/java/include -jni $(NATIVE_JAVA_TEST_CLASSES)
+	$(AM_V_at)javah -cp $(top_builddir)/java/target/classes:target/test-classes -d $(top_builddir)/java/include -jni $(NATIVE_JAVA_TEST_CLASSES)
 
 test: java resolve_test_deps java_test
-	java -ea -Xcheck:jni -Djava.library.path=target -cp "target/classes:target/test-classes:$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
+	$(AM_V_at)cp -rf $(top_builddir)/java/rocksjni/.libs/librocksdbjni-linux64.so $(top_builddir)/java/target/classes
+	java -ea -Xcheck:jni -Djava.library.path=$(top_builddir)/java/target -cp "$(top_builddir)/java/target/classes:$(top_builddir)/java/target/test-classes:$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 bench: java 
-	$(AM_V_GEN)$(mkdir_p) benchmark/target/classes
-	$(AM_V_at)javac -cp target/classes -d benchmark/target/classes $(top_srcdir)/java/benchmark/src/main/java/org/rocksdb/benchmark/*.java
+	$(AM_V_GEN)$(mkdir_p) $(top_builddir)/java/benchmark/target/classes
+	$(AM_V_at)javac -cp $(top_builddir)/java/target/classes -d $(top_builddir)/java/benchmark/target/classes $(top_srcdir)/java/benchmark/src/main/java/org/rocksdb/benchmark/*.java
 
 clean:
 	$(AM_V_at)rm -rf include/*

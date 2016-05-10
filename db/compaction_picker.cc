@@ -109,11 +109,19 @@ SmallestKeyHeap create_level_heap(Compaction* c, const Comparator* ucmp) {
 // matter what the values of the other two parameters are.
 // Otherwise, the compression type is determined based on options and level.
 CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
+                                   const VersionStorageInfo* vstorage,
                                    int level, int base_level,
                                    const bool enable_compression) {
   if (!enable_compression) {
     // disable compression
     return kNoCompression;
+  }
+
+  // If bottommost_compression is set and we are compacting to the
+  // bottommost level then we should use it.
+  if (ioptions.bottommost_compression != kDisableCompressionOption &&
+      level > base_level && level >= (vstorage->num_non_empty_levels() - 1)) {
+    return ioptions.bottommost_compression;
   }
   // If the use has specified a different compression level for each level,
   // then pick the compression for that level.
@@ -505,7 +513,7 @@ Compaction* CompactionPicker::CompactRange(
         vstorage, mutable_cf_options, std::move(inputs), output_level,
         mutable_cf_options.MaxFileSizeForLevel(output_level),
         /* max_grandparent_overlap_bytes */ LLONG_MAX, output_path_id,
-        GetCompressionType(ioptions_, output_level, 1),
+        GetCompressionType(ioptions_, vstorage, output_level, 1),
         /* grandparents */ {}, /* is manual */ true);
     if (start_level == 0) {
       level0_compactions_in_progress_.insert(c);
@@ -605,8 +613,8 @@ Compaction* CompactionPicker::CompactRange(
       vstorage, mutable_cf_options, std::move(compaction_inputs), output_level,
       mutable_cf_options.MaxFileSizeForLevel(output_level),
       mutable_cf_options.MaxGrandParentOverlapBytes(input_level),
-      output_path_id,
-      GetCompressionType(ioptions_, output_level, vstorage->base_level()),
+      output_path_id, GetCompressionType(ioptions_, vstorage, output_level,
+                                         vstorage->base_level()),
       std::move(grandparents), /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
@@ -1026,7 +1034,8 @@ Compaction* LevelCompactionPicker::PickCompaction(
       mutable_cf_options.MaxFileSizeForLevel(output_level),
       mutable_cf_options.MaxGrandParentOverlapBytes(level),
       GetPathId(ioptions_, mutable_cf_options, output_level),
-      GetCompressionType(ioptions_, output_level, vstorage->base_level()),
+      GetCompressionType(ioptions_, vstorage, output_level,
+                         vstorage->base_level()),
       std::move(grandparents), is_manual, score,
       false /* deletion_compaction */, compaction_reason);
 
@@ -1638,7 +1647,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   return new Compaction(
       vstorage, mutable_cf_options, std::move(inputs), output_level,
       mutable_cf_options.MaxFileSizeForLevel(output_level), LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, start_level, 1, enable_compression),
+      GetCompressionType(ioptions_, vstorage, start_level, 1,
+                         enable_compression),
       /* grandparents */ {}, /* is manual */ false, score,
       false /* deletion_compaction */, compaction_reason);
 }
@@ -1763,7 +1773,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
       vstorage->num_levels() - 1,
       mutable_cf_options.MaxFileSizeForLevel(vstorage->num_levels() - 1),
       /* max_grandparent_overlap_bytes */ LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, vstorage->num_levels() - 1, 1),
+      GetCompressionType(ioptions_, vstorage, vstorage->num_levels() - 1, 1),
       /* grandparents */ {}, /* is manual */ false, score,
       false /* deletion_compaction */,
       CompactionReason::kUniversalSizeAmplification);

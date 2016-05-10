@@ -85,6 +85,8 @@ struct ImmutableCFOptions {
 
   std::vector<CompressionType> compression_per_level;
 
+  CompressionType bottommost_compression;
+
   CompressionOptions compression_opts;
 
   bool level_compaction_dynamic_level_bytes;

@@ -350,6 +350,7 @@ class NullCompactionPicker : public CompactionPicker {
 #endif  // !ROCKSDB_LITE
 
 CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
+                                   const VersionStorageInfo* vstorage,
                                    int level, int base_level,
                                    const bool enable_compression = true);
 

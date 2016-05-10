@@ -350,7 +350,12 @@ DEFINE_int32(block_size,
 DEFINE_int32(block_restart_interval,
              rocksdb::BlockBasedTableOptions().block_restart_interval,
              "Number of keys between restart points "
-             "for delta encoding of keys.");
+             "for delta encoding of keys in data block.");
+
+DEFINE_int32(index_block_restart_interval,
+             rocksdb::BlockBasedTableOptions().index_block_restart_interval,
+             "Number of keys between restart points "
+             "for delta encoding of keys in index block.");
 
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
@@ -1910,8 +1915,8 @@ class Benchmark {
     if (!SanityCheck()) {
       exit(1);
     }
-    PrintHeader();
     Open(&open_options_);
+    PrintHeader();
     std::stringstream benchmark_stream(FLAGS_benchmarks);
     std::string name;
     while (std::getline(benchmark_stream, name, ',')) {
@@ -2541,6 +2546,8 @@ class Benchmark {
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
+      block_based_options.index_block_restart_interval =
+          FLAGS_index_block_restart_interval;
       block_based_options.filter_policy = filter_policy_;
       block_based_options.skip_table_builder_flush =
           FLAGS_skip_table_builder_flush;

@@ -2,11 +2,11 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.59)
-AC_INIT([rocksdb], [4.5.1], [jeff@google.com])
+AC_INIT([rocksdb], [4.8.0], [jeff@google.com])
 AC_CONFIG_SRCDIR([tools/sst_dump_test.cc])
 AC_CONFIG_HEADER([config.h])
 AC_CONFIG_MACRO_DIR([m4])
-# AM_SILENT_RULES([yes])
+AM_SILENT_RULES([yes])
 AM_INIT_AUTOMAKE([1.9 tar-pax])
 
 PACKAGE_RELEASE=1

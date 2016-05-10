@@ -64,6 +64,9 @@ enum CompressionType : char {
   kXpressCompression = 0x6,
   // zstd format is not finalized yet so it's subject to changes.
   kZSTDNotFinalCompression = 0x40,
+
+  // kDisableCompressionOption is used to disable some compression options.
+  kDisableCompressionOption = -1,
 };
 
 enum CompactionStyle : char {
@@ -368,6 +371,13 @@ struct ColumnFamilyOptions {
   // and L4 using compression_per_level[3]. Compaction for each level can
   // change when data grows.
   std::vector<CompressionType> compression_per_level;
+
+  // Compression algorithm that will be used for the bottommost level that
+  // contain files. If level-compaction is used, this option will only affect
+  // levels after base level.
+  //
+  // Default: kDisableCompressionOption (Disabled)
+  CompressionType bottommost_compression;
 
   // different options for compression algorithms
   CompressionOptions compression_opts;

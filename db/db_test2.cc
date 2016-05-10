@@ -800,6 +800,101 @@ TEST_F(DBTest2, PresetCompressionDict) {
     }
   }
 }
+
+class CompactionCompressionListener : public EventListener {
+ public:
+  explicit CompactionCompressionListener(Options* db_options)
+      : db_options_(db_options) {}
+
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+    // Figure out last level with files
+    int bottommost_level = 0;
+    for (int level = 0; level < db->NumberLevels(); level++) {
+      std::string files_at_level;
+      ASSERT_TRUE(
+          db->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
+                          &files_at_level));
+      if (files_at_level != "0") {
+        bottommost_level = level;
+      }
+    }
+
+    if (db_options_->bottommost_compression != kDisableCompressionOption &&
+        ci.output_level == bottommost_level && ci.output_level >= 2) {
+      ASSERT_EQ(ci.compression, db_options_->bottommost_compression);
+    } else if (db_options_->compression_per_level.size() != 0) {
+      ASSERT_EQ(ci.compression,
+                db_options_->compression_per_level[ci.output_level]);
+    } else {
+      ASSERT_EQ(ci.compression, db_options_->compression);
+    }
+    max_level_checked = std::max(max_level_checked, ci.output_level);
+  }
+
+  int max_level_checked = 0;
+  const Options* db_options_;
+};
+
+TEST_F(DBTest2, CompressionOptions) {
+  if (!Zlib_Supported() || !Snappy_Supported()) {
+    return;
+  }
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_bytes_for_level_base = 100;
+  options.max_bytes_for_level_multiplier = 2;
+  options.num_levels = 7;
+  options.max_background_compactions = 1;
+  options.base_background_compactions = 1;
+
+  CompactionCompressionListener* listener =
+      new CompactionCompressionListener(&options);
+  options.listeners.emplace_back(listener);
+
+  const int kKeySize = 5;
+  const int kValSize = 20;
+  Random rnd(301);
+
+  for (int iter = 0; iter <= 2; iter++) {
+    listener->max_level_checked = 0;
+
+    if (iter == 0) {
+      // Use different compression algorithms for different levels but
+      // always use Zlib for bottommost level
+      options.compression_per_level = {kNoCompression,     kNoCompression,
+                                       kNoCompression,     kSnappyCompression,
+                                       kSnappyCompression, kSnappyCompression,
+                                       kZlibCompression};
+      options.compression = kNoCompression;
+      options.bottommost_compression = kZlibCompression;
+    } else if (iter == 1) {
+      // Use Snappy except for bottommost level use ZLib
+      options.compression_per_level = {};
+      options.compression = kSnappyCompression;
+      options.bottommost_compression = kZlibCompression;
+    } else if (iter == 2) {
+      // Use Snappy everywhere
+      options.compression_per_level = {};
+      options.compression = kSnappyCompression;
+      options.bottommost_compression = kDisableCompressionOption;
+    }
+
+    DestroyAndReopen(options);
+    // Write 10 random files
+    for (int i = 0; i < 10; i++) {
+      for (int j = 0; j < 5; j++) {
+        ASSERT_OK(
+            Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValSize)));
+      }
+      ASSERT_OK(Flush());
+      dbfull()->TEST_WaitForCompact();
+    }
+
+    // Make sure that we wrote enough to check all 7 levels
+    ASSERT_EQ(listener->max_level_checked, 6);
+  }
+}
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest2, FirstSnapshotTest) {

@@ -1063,9 +1063,10 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
 INSTANTIATE_TEST_CASE_P(DefaultEnv, EnvPosixTestWithParam,
                         ::testing::Values(Env::Default()));
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+static unique_ptr<Env> chroot_env(NewChrootEnv(Env::Default(),
+                                               test::TmpDir(Env::Default())));
 INSTANTIATE_TEST_CASE_P(ChrootEnv, EnvPosixTestWithParam,
-                        ::testing::Values(NewChrootEnv(Env::Default(),
-                                                       "/tmp")));
+                        ::testing::Values(chroot_env.get()));
 #endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 }  // namespace rocksdb
