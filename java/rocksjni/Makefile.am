@@ -16,9 +16,9 @@ AM_CPPFLAGS								= -I$(top_srcdir)/util \
 
 AM_LDFLAGS								= $(NULL)
 
-lib_LTLIBRARIES							= librocksdb_jni.la
-# /* {{{ librocksdb_jni_la_SOURCES		= */
-librocksdb_jni_la_SOURCES				= backupablejni.cc \
+lib_LTLIBRARIES							= librocksdbjni-linux@ARCH@.la
+# /* {{{ librocksdbjni_linux@ARCH@_la_SOURCES	= */
+librocksdbjni_linux@ARCH@_la_SOURCES	= backupablejni.cc \
                                           backupenginejni.cc \
                                           checkpoint.cc \
                                           columnfamilyhandle.cc \
@@ -48,32 +48,32 @@ librocksdb_jni_la_SOURCES				= backupablejni.cc \
 										  $(dist_headers) \
 										  $(NULL)
 # /* }}} */
-librocksdb_jni_la_LIBADD			= $(top_builddir)/port/librocksdb_port.la \
-									  $(top_builddir)/util/librocksdb_util.la \
-									  $(top_builddir)/table/librocksdb_tbl.la \
-									  $(top_builddir)/db/librocksdb_db.la \
-									  $(top_builddir)/memtable/librocksdb_memtbl.la \
-									  $(top_builddir)/utilities/table_properties_collectors/librocksdb_tpc.la \
-									  $(top_builddir)/utilities/redis/librocksdb_redis.la \
-									  $(top_builddir)/utilities/backupable/librocksdb_bakable.la \
-									  $(top_builddir)/utilities/ttl/librocksdb_ttl.la \
-									  $(top_builddir)/utilities/compaction_filters/librocksdb_cf.la \
-									  $(top_builddir)/utilities/transactions/librocksdb_trans.la \
-									  $(top_builddir)/utilities/document/librocksdb_document.la \
-									  $(top_builddir)/utilities/spatialdb/librocksdb_spatialdb.la \
-									  $(top_builddir)/utilities/write_batch_with_index/librocksdb_wbwi.la \
-									  $(top_builddir)/utilities/flashcache/librocksdb_flashcache.la \
-									  $(top_builddir)/utilities/memory/librocksdb_memory.la \
-									  $(top_builddir)/utilities/librocksdb_utilities.la \
-									  $(top_builddir)/utilities/convenience/librocksdb_convenience.la \
-									  $(top_builddir)/utilities/leveldb_options/librocksdb_leveldb_options.la \
-									  $(top_builddir)/utilities/merge_operators/string_append/librocksdb_string_append.la \
-									  $(top_builddir)/utilities/merge_operators/librocksdb_merge_operators.la \
-									  $(top_builddir)/utilities/geodb/librocksdb_geodb.la \
-									  $(top_builddir)/utilities/options/librocksdb_options.la \
-									  $(top_builddir)/utilities/checkpoint/librocksdb_chkpoint.la \
-									  $(NULL)
-
+librocksdbjni_linux@ARCH@_la_LIBADD		= $(top_builddir)/port/librocksdb_port.la \
+										  $(top_builddir)/util/librocksdb_util.la \
+										  $(top_builddir)/table/librocksdb_tbl.la \
+										  $(top_builddir)/db/librocksdb_db.la \
+										  $(top_builddir)/memtable/librocksdb_memtbl.la \
+										  $(top_builddir)/utilities/table_properties_collectors/librocksdb_tpc.la \
+										  $(top_builddir)/utilities/redis/librocksdb_redis.la \
+										  $(top_builddir)/utilities/backupable/librocksdb_bakable.la \
+										  $(top_builddir)/utilities/ttl/librocksdb_ttl.la \
+										  $(top_builddir)/utilities/compaction_filters/librocksdb_cf.la \
+										  $(top_builddir)/utilities/transactions/librocksdb_trans.la \
+										  $(top_builddir)/utilities/document/librocksdb_document.la \
+										  $(top_builddir)/utilities/spatialdb/librocksdb_spatialdb.la \
+										  $(top_builddir)/utilities/write_batch_with_index/librocksdb_wbwi.la \
+										  $(top_builddir)/utilities/flashcache/librocksdb_flashcache.la \
+										  $(top_builddir)/utilities/memory/librocksdb_memory.la \
+										  $(top_builddir)/utilities/librocksdb_utilities.la \
+										  $(top_builddir)/utilities/convenience/librocksdb_convenience.la \
+										  $(top_builddir)/utilities/leveldb_options/librocksdb_leveldb_options.la \
+										  $(top_builddir)/utilities/merge_operators/string_append/librocksdb_string_append.la \
+										  $(top_builddir)/utilities/merge_operators/librocksdb_merge_operators.la \
+										  $(top_builddir)/utilities/geodb/librocksdb_geodb.la \
+										  $(top_builddir)/utilities/options/librocksdb_options.la \
+										  $(top_builddir)/utilities/checkpoint/librocksdb_chkpoint.la \
+										  $(NULL)
+librocksdbjni_linux@ARCH@_la_LDFLAGS	= -module -avoid-version -shared -fpic
 
 # /*
 #  * Local variables:

@@ -110,14 +110,15 @@ SUBDIRS									= . \
 										  rocksjni \
 										  $(NULL)
 
-all: java sample column_family_sample 
-
+all-recursive: java 
+	
 java: 
 	$(AM_V_GEN)$(mkdir_p) target/classes
 	$(AM_V_at)javac -d target/classes \
 		$(top_srcdir)/java/src/main/java/org/rocksdb/util/*.java \
 		$(top_srcdir)/java/src/main/java/org/rocksdb/*.java 
 	$(AM_V_at)javah -cp target/classes -d $(top_builddir)/java/include -jni $(NATIVE_JAVA_CLASSES)
+	$(AM_V_at)cp -rf $(top_builddir)/java/rocksjni/.libs/librocksdbjni-linux64.so target/classes
 
 sample : java 
 	$(AM_V_GEN)$(mkdir_p) samples/target/classes
