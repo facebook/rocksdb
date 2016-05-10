@@ -1,0 +1,10 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+libdir=@libdir@
+includedir=@includedir@
+
+Name: @PACKAGE@
+Description: rocksdb for pkg-config
+Version: @VERSION@
+Libs: -L${libdir} @rocksdb_libs@
+Cflags: -I${includedir} @rocksdb_cflags@

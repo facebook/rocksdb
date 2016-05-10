@@ -1,0 +1,1 @@
+../db/db_table_properties_test.cc

@@ -60,9 +60,11 @@ DBTestBase::DBTestBase(const std::string path)
 }
 
 DBTestBase::~DBTestBase() {
+#ifndef NDEBUG
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->LoadDependency({});
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+#endif
   Close();
   Options options;
   options.db_paths.emplace_back(dbname_, 0);
@@ -824,6 +826,7 @@ void DBTestBase::FillLevels(const std::string& smallest,
 }
 
 void DBTestBase::MoveFilesToLevel(int level, int cf) {
+#ifndef NDEBUG
   for (int l = 0; l < level; ++l) {
     if (cf > 0) {
       dbfull()->TEST_CompactRange(l, nullptr, nullptr, handles_[cf]);
@@ -831,12 +834,15 @@ void DBTestBase::MoveFilesToLevel(int level, int cf) {
       dbfull()->TEST_CompactRange(l, nullptr, nullptr);
     }
   }
+#endif
 }
 
 void DBTestBase::DumpFileCounts(const char* label) {
   fprintf(stderr, "---\n%s:\n", label);
+#ifndef NDEBUG
   fprintf(stderr, "maxoverlap: %" PRIu64 "\n",
           dbfull()->TEST_MaxNextLevelOverlappingBytes());
+#endif
   for (int level = 0; level < db_->NumberLevels(); level++) {
     int num = NumTableFilesAtLevel(level);
     if (num > 0) {
@@ -877,8 +883,10 @@ void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
     (*key_idx)++;
   }
   if (!nowait) {
+#ifndef NDEBUG
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
+#endif
   }
 }
 
@@ -889,8 +897,10 @@ void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
     (*key_idx)++;
   }
   if (!nowait) {
+#ifndef NDEBUG
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
+#endif
   }
 }
 
@@ -902,8 +912,10 @@ void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
   }
   ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 200)));
   if (!nowait) {
+#ifndef NDEBUG
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
+#endif
   }
 }
 

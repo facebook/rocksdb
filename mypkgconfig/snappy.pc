@@ -1,0 +1,10 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib64
+includedir=${prefix}/include
+
+Name: snappy 
+Description: this is the sdk of snappy 
+Version: 1.1.1
+Libs: -L${libdir} -lsnappy
+Cflags: -I${includedir}

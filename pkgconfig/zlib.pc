@@ -1,0 +1,13 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=/usr/lib64
+sharedlibdir=${libdir}
+includedir=/usr/include
+
+Name: zlib
+Description: zlib compression library
+Version: 1.2.3
+
+Requires:
+Libs: -L${libdir} -L${sharedlibdir} -lz
+Cflags: -I${includedir}

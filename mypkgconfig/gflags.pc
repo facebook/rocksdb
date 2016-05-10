@@ -1,0 +1,10 @@
+prefix=/usr
+exec_prefix=/usr
+libdir=/usr/lib64
+includedir=/usr/include
+
+Name: gflags
+Description: Google flags framework
+Version: 2.1.1
+Libs: -L${libdir} -lgflags
+Cflags: -I${includedir}

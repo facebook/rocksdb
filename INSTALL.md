@@ -39,6 +39,24 @@ your make commands, like this: `PORTABLE=1 make static_lib`
 
 ## Supported platforms
 
+* **Linux - Fedora**
+    * Upgrade your gcc to version at least 4.7 to get C++11 support.
+    * Install snappy. This is usually as easy as:
+      `sudo dnf install snappy-devel`.
+    * Install zlib. Try:
+      `sudo dnf install zlib-devel`
+    * Install bzip2. Try:
+      `sudo dnf install bzip2-devel`
+    * Optional, Install gflags to test and benchmark:
+      `sudo dnf install gflags-devel gtest-devel`
+    * Install rocksdb, git clone from this depository, run:
+
+              export PKG_CONFIG_PATH=`pwd`/mypkgconfig
+              sh ./autogen.sh
+              ./configure --prefix=/tmp/abc  --enable-debug 
+              make -j4
+              make install	
+
 * **Linux - Ubuntu**
     * Upgrade your gcc to version at least 4.7 to get C++11 support.
     * Install gflags. First, try: `sudo apt-get install libgflags-dev`
@@ -48,6 +66,7 @@ your make commands, like this: `PORTABLE=1 make static_lib`
       `sudo apt-get install libsnappy-dev`.
     * Install zlib. Try: `sudo apt-get install zlib1g-dev`.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
+
 * **Linux - CentOS**
     * Upgrade your gcc to version at least 4.7 to get C++11 support:
       `yum install gcc47-c++`

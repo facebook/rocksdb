@@ -1,0 +1,6 @@
+#include "build_version.h"
+
+
+const char *rocksdb_build_git_sha = "rocksdb_build_git_sha: @GIT_REV@";
+const char *rocksdb_build_git_datetime = "rocksdb_build_git_datetime: @RDB_FULLDATE@";
+const char *rocksdb_build_compile_date = __DATE__;
