@@ -22,7 +22,13 @@ namespace rocksdb {
 class ChrootEnv : public EnvWrapper {
  public:
   ChrootEnv(Env* base_env, const std::string& chroot_dir)
-      : EnvWrapper(base_env), chroot_dir_(chroot_dir) {}
+      : EnvWrapper(base_env) {
+    char* real_chroot_dir = realpath(chroot_dir.c_str(), nullptr);
+    // chroot_dir must exist so realpath() returns non-nullptr.
+    assert(real_chroot_dir != nullptr);
+    chroot_dir_ = real_chroot_dir;
+    free(real_chroot_dir);
+  }
 
   virtual Status NewSequentialFile(const std::string& fname,
                                    std::unique_ptr<SequentialFile>* result,
@@ -277,7 +283,7 @@ class ChrootEnv : public EnvWrapper {
     return status_and_enc_path;
   }
 
-  const std::string chroot_dir_;
+  std::string chroot_dir_;
 };
 
 Env* NewChrootEnv(Env* base_env, const std::string& chroot_dir) {
