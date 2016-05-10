@@ -58,6 +58,8 @@ const string LDBCommand::ARG_MAX_KEYS = "max_keys";
 const string LDBCommand::ARG_BLOOM_BITS = "bloom_bits";
 const string LDBCommand::ARG_FIX_PREFIX_LEN = "fix_prefix_len";
 const string LDBCommand::ARG_COMPRESSION_TYPE = "compression_type";
+const string LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES =
+    "compression_max_dict_bytes";
 const string LDBCommand::ARG_BLOCK_SIZE = "block_size";
 const string LDBCommand::ARG_AUTO_COMPACTION = "auto_compaction";
 const string LDBCommand::ARG_DB_WRITE_BUFFER_SIZE = "db_write_buffer_size";
@@ -363,6 +365,7 @@ vector<string> LDBCommand::BuildCmdLineOptions(vector<string> options) {
                         ARG_BLOCK_SIZE,
                         ARG_AUTO_COMPACTION,
                         ARG_COMPRESSION_TYPE,
+                        ARG_COMPRESSION_MAX_DICT_BYTES,
                         ARG_WRITE_BUFFER_SIZE,
                         ARG_FILE_SIZE,
                         ARG_FIX_PREFIX_LEN,
@@ -480,6 +483,17 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       // Unknown compression.
       exec_state_ =
           LDBCommandExecuteResult::Failed("Unknown compression level: " + comp);
+    }
+  }
+
+  int compression_max_dict_bytes;
+  if (ParseIntOption(option_map_, ARG_COMPRESSION_MAX_DICT_BYTES,
+                     compression_max_dict_bytes, exec_state_)) {
+    if (compression_max_dict_bytes >= 0) {
+      opt.compression_opts.max_dict_bytes = compression_max_dict_bytes;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_COMPRESSION_MAX_DICT_BYTES + " must be >= 0.");
     }
   }
 

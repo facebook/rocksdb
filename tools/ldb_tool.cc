@@ -45,7 +45,9 @@ public:
     ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
     ret.append("  --" + LDBCommand::ARG_FIX_PREFIX_LEN + "=<int,e.g.:14>\n");
     ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +
-        "=<no|snappy|zlib|bzip2>\n");
+        "=<no|snappy|zlib|bzip2|lz4|lz4hc|xpress|zstd>\n");
+    ret.append("  --" + LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES +
+        "=<int,e.g.:14>\n");
     ret.append("  --" + LDBCommand::ARG_BLOCK_SIZE +
         "=<block_size_in_bytes>\n");
     ret.append("  --" + LDBCommand::ARG_AUTO_COMPACTION + "=<true|false>\n");
