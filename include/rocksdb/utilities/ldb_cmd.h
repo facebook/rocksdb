@@ -230,6 +230,15 @@ class LDBCommand {
       const std::vector<std::string>& flags);
 };
 
+class LDBCommandRunner {
+ public:
+  static void PrintHelp(const char* exec_name);
+
+  static void RunCommand(
+      int argc, char** argv, Options options, const LDBOptions& ldb_options,
+      const std::vector<ColumnFamilyDescriptor>* column_families);
+};
+
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE
