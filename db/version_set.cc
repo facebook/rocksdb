@@ -2322,10 +2322,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     if (s.ok() && new_descriptor_log) {
       s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
                          db_options_->disableDataSync ? nullptr : db_directory);
-      // Leave the old file behind since PurgeObsoleteFiles will take care of it
-      // later. It's unsafe to delete now since file deletion may be disabled.
-      obsolete_manifests_.emplace_back(
-          DescriptorFileName("", manifest_file_number_));
     }
 
     if (s.ok()) {
@@ -2342,6 +2338,13 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     LogFlush(db_options_->info_log);
     TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
     mu->Lock();
+  }
+
+  // Append the old mainfest file to the obsolete_manifests_ list to be deleted
+  // by PurgeObsoleteFiles later.
+  if (s.ok() && new_descriptor_log) {
+    obsolete_manifests_.emplace_back(
+        DescriptorFileName("", manifest_file_number_));
   }
 
   // Install the new version
