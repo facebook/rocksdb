@@ -560,7 +560,7 @@ TEST_F(TransactionTest, PersistentTwoPhaseTransactionTest) {
 
 TEST_F(TransactionTest, TwoPhaseMultiThreadTest) {
   // mix transaction writes and regular writes
-  const int NUM_TXN_THREADS = 50;
+  const uint32_t NUM_TXN_THREADS = 50;
   std::atomic<uint32_t> txn_thread_num(0);
 
   std::function<void()> txn_write_thread = [&]() {
@@ -626,7 +626,7 @@ TEST_F(TransactionTest, TwoPhaseMultiThreadTest) {
   ReadOptions read_options;
   std::string value;
   Status s;
-  for (int t = 0; t < NUM_TXN_THREADS; t++) {
+  for (uint32_t t = 0; t < NUM_TXN_THREADS; t++) {
     TransactionName name("xid_" + std::string(1, 'A' + t));
     for (int i = 0; i < 10; i++) {
       std::string key(name + "_" + std::string(1, 'A' + i));
