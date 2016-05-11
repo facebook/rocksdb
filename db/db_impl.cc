@@ -1181,7 +1181,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok()) {
-    SequenceNumber max_sequence(kMaxSequenceNumber);
+    SequenceNumber next_sequence(kMaxSequenceNumber);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
@@ -1241,7 +1241,7 @@ Status DBImpl::Recover(
     if (!logs.empty()) {
       // Recover in the order in which the logs were generated
       std::sort(logs.begin(), logs.end());
-      s = RecoverLogFiles(logs, &max_sequence, read_only);
+      s = RecoverLogFiles(logs, &next_sequence, read_only);
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -1266,7 +1266,7 @@ Status DBImpl::Recover(
 
 // REQUIRES: log_numbers are sorted in ascending order
 Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
-                               SequenceNumber* max_sequence, bool read_only) {
+                               SequenceNumber* next_sequence, bool read_only) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
@@ -1469,10 +1469,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
 #endif  // ROCKSDB_LITE
 
-      if (*max_sequence == kMaxSequenceNumber) {
-        *max_sequence = WriteBatchInternal::Sequence(&batch);
+      if (*next_sequence == kMaxSequenceNumber) {
+        *next_sequence = WriteBatchInternal::Sequence(&batch);
       }
-      WriteBatchInternal::SetSequence(&batch, *max_sequence);
+      WriteBatchInternal::SetSequence(&batch, *next_sequence);
 
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
@@ -1481,7 +1481,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // That's why we set ignore missing column families to true
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
-          log_number, this, true, false, max_sequence);
+          log_number, this, true, false, next_sequence);
       MaybeIgnoreError(&status);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
@@ -1511,7 +1511,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           }
 
           cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                 *max_sequence);
+                                 *next_sequence);
         }
       }
     }
@@ -1529,7 +1529,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
         Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
             "Point in time recovered to log #%" PRIu64 " seq #%" PRIu64,
-            log_number, *max_sequence);
+            log_number, *next_sequence);
       } else {
         assert(db_options_.wal_recovery_mode ==
                   WALRecoveryMode::kTolerateCorruptedTailRecords
@@ -1540,9 +1540,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
 
     flush_scheduler_.Clear();
-    if ((*max_sequence != kMaxSequenceNumber) &&
-        (versions_->LastSequence() < *max_sequence)) {
-      versions_->SetLastSequence(*max_sequence);
+    auto last_sequence = *next_sequence - 1;
+    if ((*next_sequence != kMaxSequenceNumber) &&
+        (versions_->LastSequence() <= last_sequence)) {
+      versions_->SetLastSequence(last_sequence);
     }
   }
 
@@ -1574,7 +1575,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         }
 
         cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                               *max_sequence);
+                               *next_sequence);
       }
 
       // write MANIFEST with update
