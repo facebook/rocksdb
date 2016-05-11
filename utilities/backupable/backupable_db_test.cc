@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
+#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 #include <algorithm>
 #include <string>
@@ -1385,4 +1385,4 @@ int main(int argc, char** argv) {
   return 0;
 }
 
-#endif  // !ROCKSDB_LITE
+#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
