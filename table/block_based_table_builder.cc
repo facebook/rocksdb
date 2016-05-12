@@ -830,6 +830,7 @@ Status BlockBasedTableBuilder::Finish() {
       r->props.merge_operator_name = r->ioptions.merge_operator != nullptr
                                          ? r->ioptions.merge_operator->Name()
                                          : "nullptr";
+      r->props.compression_name = CompressionTypeToString(r->compression_type);
 
       std::string property_collectors_names = "[";
       property_collectors_names = "[";

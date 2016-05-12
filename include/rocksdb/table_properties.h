@@ -44,6 +44,7 @@ struct TablePropertiesNames {
   static const std::string kComparator;
   static const std::string kMergeOperator;
   static const std::string kPropertyCollectors;
+  static const std::string kCompression;
 };
 
 extern const std::string kPropertiesBlock;
@@ -169,6 +170,9 @@ struct TableProperties {
   // separated by commas
   // {collector_name[1]},{collector_name[2]},{collector_name[3]} ..
   std::string property_collectors_names;
+
+  // The compression algo used to compress the SST files.
+  std::string compression_name;
 
   // user collected properties
   UserCollectedProperties user_collected_properties;

@@ -113,6 +113,11 @@ std::string TableProperties::ToString(
                                                    : property_collectors_names,
                  prop_delim, kv_delim);
 
+  AppendProperty(
+      result, "SST file compression algo",
+      compression_name.empty() ? std::string("N/A") : compression_name,
+      prop_delim, kv_delim);
+
   return result;
 }
 
@@ -155,6 +160,7 @@ const std::string TablePropertiesNames::kMergeOperator =
     "rocksdb.merge.operator";
 const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
+const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility

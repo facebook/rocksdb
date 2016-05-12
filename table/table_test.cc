@@ -1071,6 +1071,7 @@ TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
 
   {
     Options options;
+    options.compression = CompressionType::kNoCompression;
     BlockBasedTableOptions table_options;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
@@ -1088,6 +1089,8 @@ TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
     ASSERT_EQ("[]", props.property_collectors_names);
     // No filter policy is used
     ASSERT_EQ("", props.filter_policy_name);
+    // Compression type == that set:
+    ASSERT_EQ("NoCompression", props.compression_name);
     c.ResetTableReader();
   }
 
