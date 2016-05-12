@@ -37,8 +37,8 @@
  * @author Deon Nicholas (dnicholas@fb.com)
  */
 
-#ifndef ROCKSDB_LITE
 #pragma once
+#ifndef ROCKSDB_LITE
 
 #include <string>
 
@@ -65,7 +65,7 @@ class RedisListIterator {
   ///  e) result_ will always contain data_[0..cur_byte_) and a header
   ///  f) Whenever corrupt data is encountered or an invalid operation is
   ///      attempted, a RedisListException will immediately be thrown.
-  RedisListIterator(const std::string& list_data)
+  explicit RedisListIterator(const std::string& list_data)
       : data_(list_data.data()),
         num_bytes_(static_cast<uint32_t>(list_data.size())),
         cur_byte_(0),
@@ -73,7 +73,6 @@ class RedisListIterator {
         cur_elem_length_(0),
         length_(0),
         result_() {
-
     // Initialize the result_ (reserve enough space for header)
     InitializeResult();
 
@@ -269,7 +268,7 @@ class RedisListIterator {
                    data_+cur_byte_+ sizeof(uint32_t) + cur_elem_length_);
   }
 
-  /// Will ThrowError() if neccessary.
+  /// Will ThrowError() if necessary.
   /// Checks for common/ubiquitous errors that can arise after most operations.
   /// This method should be called before any reading operation.
   /// If this function succeeds, then we are guaranteed to be in a valid state.

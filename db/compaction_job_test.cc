@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -162,9 +162,12 @@ class CompactionJobTest : public testing::Test {
         auto key = ToString(i * kMatchingKeys + k);
         auto value = ToString(i * kKeysPerFile + k);
         InternalKey internal_key(key, ++sequence_number, kTypeValue);
+
         // This is how the key will look like once it's written in bottommost
         // file
-        InternalKey bottommost_internal_key(key, 0, kTypeValue);
+        InternalKey bottommost_internal_key(
+            key, (key == "9999") ? sequence_number : 0, kTypeValue);
+
         if (corrupt_id(k)) {
           test::CorruptKeyType(&internal_key);
           test::CorruptKeyType(&bottommost_internal_key);
@@ -217,9 +220,11 @@ class CompactionJobTest : public testing::Test {
     cfd_ = versions_->GetColumnFamilySet()->GetDefault();
   }
 
-  void RunCompaction(const std::vector<std::vector<FileMetaData*>>& input_files,
-                     const stl_wrappers::KVMap& expected_results,
-                     const std::vector<SequenceNumber>& snapshots = {}) {
+  void RunCompaction(
+      const std::vector<std::vector<FileMetaData*>>& input_files,
+      const stl_wrappers::KVMap& expected_results,
+      const std::vector<SequenceNumber>& snapshots = {},
+      SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     size_t num_input_files = 0;
@@ -243,11 +248,11 @@ class CompactionJobTest : public testing::Test {
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
     mutex_.Lock();
     EventLogger event_logger(db_options_.info_log.get());
-    CompactionJob compaction_job(0, &compaction, db_options_, env_options_,
-                                 versions_.get(), &shutting_down_, &log_buffer,
-                                 nullptr, nullptr, nullptr, snapshots,
-                                 table_cache_, &event_logger, false, false,
-                                 dbname_, &compaction_job_stats_);
+    CompactionJob compaction_job(
+        0, &compaction, db_options_, env_options_, versions_.get(),
+        &shutting_down_, &log_buffer, nullptr, nullptr, nullptr, &mutex_,
+        &bg_error_, snapshots, earliest_write_conflict_snapshot, table_cache_,
+        &event_logger, false, false, dbname_, &compaction_job_stats_);
 
     VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
@@ -257,8 +262,7 @@ class CompactionJobTest : public testing::Test {
     s = compaction_job.Run();
     ASSERT_OK(s);
     mutex_.Lock();
-    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions(),
-                                     &mutex_));
+    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
     mutex_.Unlock();
 
     if (expected_results.size() == 0) {
@@ -290,6 +294,7 @@ class CompactionJobTest : public testing::Test {
   ColumnFamilyData* cfd_;
   std::unique_ptr<CompactionFilter> compaction_filter_;
   std::shared_ptr<MergeOperator> merge_op_;
+  Status bg_error_;
 };
 
 TEST_F(CompactionJobTest, Simple) {
@@ -346,7 +351,7 @@ TEST_F(CompactionJobTest, SimpleOverwrite) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "val2"},
-                          {KeyStr("b", 0U, kTypeValue), "val3"}});
+                          {KeyStr("b", 4U, kTypeValue), "val3"}});
 
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -399,7 +404,7 @@ TEST_F(CompactionJobTest, SimpleMerge) {
 
   auto expected_results =
       mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "3,4,5"},
-                          {KeyStr("b", 0U, kTypeValue), "1,2"}});
+                          {KeyStr("b", 2U, kTypeValue), "1,2"}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -559,34 +564,144 @@ TEST_F(CompactionJobTest, SimpleSingleDelete) {
 TEST_F(CompactionJobTest, SingleDeleteSnapshots) {
   NewDB();
 
-  auto file1 = mock::MakeMockFile({{KeyStr("A", 12U, kTypeSingleDeletion), ""},
-                                   {KeyStr("a", 12U, kTypeSingleDeletion), ""},
-                                   {KeyStr("b", 21U, kTypeSingleDeletion), ""},
-                                   {KeyStr("c", 22U, kTypeSingleDeletion), ""},
-                                   {KeyStr("d", 9U, kTypeSingleDeletion), ""}});
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("A", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("a", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("b", 21U, kTypeSingleDeletion), ""},
+      {KeyStr("c", 22U, kTypeSingleDeletion), ""},
+      {KeyStr("d", 9U, kTypeSingleDeletion), ""},
+      {KeyStr("f", 21U, kTypeSingleDeletion), ""},
+      {KeyStr("j", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("j", 9U, kTypeSingleDeletion), ""},
+      {KeyStr("k", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("k", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("l", 3U, kTypeSingleDeletion), ""},
+      {KeyStr("l", 2U, kTypeSingleDeletion), ""},
+  });
   AddMockFile(file1);
 
-  auto file2 = mock::MakeMockFile({{KeyStr("0", 2U, kTypeSingleDeletion), ""},
-                                   {KeyStr("a", 11U, kTypeValue), "val1"},
-                                   {KeyStr("b", 11U, kTypeValue), "val2"},
-                                   {KeyStr("c", 21U, kTypeValue), "val3"},
-                                   {KeyStr("d", 8U, kTypeValue), "val4"},
-                                   {KeyStr("e", 2U, kTypeSingleDeletion), ""}});
+  auto file2 = mock::MakeMockFile({
+      {KeyStr("0", 2U, kTypeSingleDeletion), ""},
+      {KeyStr("a", 11U, kTypeValue), "val1"},
+      {KeyStr("b", 11U, kTypeValue), "val2"},
+      {KeyStr("c", 21U, kTypeValue), "val3"},
+      {KeyStr("d", 8U, kTypeValue), "val4"},
+      {KeyStr("e", 2U, kTypeSingleDeletion), ""},
+      {KeyStr("f", 1U, kTypeValue), "val1"},
+      {KeyStr("g", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("h", 2U, kTypeSingleDeletion), ""},
+      {KeyStr("m", 12U, kTypeValue), "val1"},
+      {KeyStr("m", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("m", 8U, kTypeValue), "val2"},
+  });
   AddMockFile(file2);
 
-  auto file3 = mock::MakeMockFile({{KeyStr("A", 1U, kTypeValue), "val"},
-                                   {KeyStr("e", 1U, kTypeValue), "val"}});
+  auto file3 = mock::MakeMockFile({
+      {KeyStr("A", 1U, kTypeValue), "val"},
+      {KeyStr("e", 1U, kTypeValue), "val"},
+  });
   AddMockFile(file3, 2);
 
-  auto expected_results =
-      mock::MakeMockFile({{KeyStr("A", 12U, kTypeSingleDeletion), ""},
-                          {KeyStr("b", 21U, kTypeSingleDeletion), ""},
-                          {KeyStr("b", 11U, kTypeValue), "val2"},
-                          {KeyStr("e", 2U, kTypeSingleDeletion), ""}});
+  auto expected_results = mock::MakeMockFile({
+      {KeyStr("A", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("a", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("a", 11U, kTypeValue), ""},
+      {KeyStr("b", 21U, kTypeSingleDeletion), ""},
+      {KeyStr("b", 11U, kTypeValue), "val2"},
+      {KeyStr("c", 22U, kTypeSingleDeletion), ""},
+      {KeyStr("c", 21U, kTypeValue), ""},
+      {KeyStr("e", 2U, kTypeSingleDeletion), ""},
+      {KeyStr("f", 21U, kTypeSingleDeletion), ""},
+      {KeyStr("f", 1U, kTypeValue), "val1"},
+      {KeyStr("g", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("j", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("k", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("m", 12U, kTypeValue), "val1"},
+      {KeyStr("m", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("m", 8U, kTypeValue), "val2"},
+  });
 
   SetLastSequence(22U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, expected_results, {10U, 20U});
+  RunCompaction({files}, expected_results, {10U, 20U}, 10U);
+}
+
+TEST_F(CompactionJobTest, EarliestWriteConflictSnapshot) {
+  NewDB();
+
+  // Test multiple snapshots where the earliest snapshot is not a
+  // write-conflic-snapshot.
+
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("A", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("A", 23U, kTypeValue), "val"},
+      {KeyStr("B", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("B", 23U, kTypeValue), "val"},
+      {KeyStr("D", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("G", 32U, kTypeSingleDeletion), ""},
+      {KeyStr("G", 31U, kTypeValue), "val"},
+      {KeyStr("G", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("G", 23U, kTypeValue), "val2"},
+      {KeyStr("H", 31U, kTypeValue), "val"},
+      {KeyStr("H", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("H", 23U, kTypeValue), "val"},
+      {KeyStr("I", 35U, kTypeSingleDeletion), ""},
+      {KeyStr("I", 34U, kTypeValue), "val2"},
+      {KeyStr("I", 33U, kTypeSingleDeletion), ""},
+      {KeyStr("I", 32U, kTypeValue), "val3"},
+      {KeyStr("I", 31U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 34U, kTypeValue), "val"},
+      {KeyStr("J", 33U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 25U, kTypeValue), "val2"},
+      {KeyStr("J", 24U, kTypeSingleDeletion), ""},
+  });
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({
+      {KeyStr("A", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("A", 13U, kTypeValue), "val2"},
+      {KeyStr("C", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("C", 13U, kTypeValue), "val"},
+      {KeyStr("E", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("F", 4U, kTypeSingleDeletion), ""},
+      {KeyStr("F", 3U, kTypeValue), "val"},
+      {KeyStr("G", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("G", 13U, kTypeValue), "val3"},
+      {KeyStr("H", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("H", 13U, kTypeValue), "val2"},
+      {KeyStr("I", 13U, kTypeValue), "val4"},
+      {KeyStr("I", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("I", 11U, kTypeValue), "val5"},
+      {KeyStr("J", 15U, kTypeValue), "val3"},
+      {KeyStr("J", 14U, kTypeSingleDeletion), ""},
+  });
+  AddMockFile(file2);
+
+  auto expected_results = mock::MakeMockFile({
+      {KeyStr("A", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("A", 23U, kTypeValue), ""},
+      {KeyStr("B", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("B", 23U, kTypeValue), ""},
+      {KeyStr("D", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("E", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("G", 32U, kTypeSingleDeletion), ""},
+      {KeyStr("G", 31U, kTypeValue), ""},
+      {KeyStr("H", 31U, kTypeValue), "val"},
+      {KeyStr("I", 35U, kTypeSingleDeletion), ""},
+      {KeyStr("I", 34U, kTypeValue), ""},
+      {KeyStr("I", 31U, kTypeSingleDeletion), ""},
+      {KeyStr("I", 13U, kTypeValue), "val4"},
+      {KeyStr("J", 34U, kTypeValue), "val"},
+      {KeyStr("J", 33U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 25U, kTypeValue), "val2"},
+      {KeyStr("J", 24U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 15U, kTypeValue), "val3"},
+      {KeyStr("J", 14U, kTypeSingleDeletion), ""},
+  });
+
+  SetLastSequence(24U);
+  auto files = cfd_->current()->storage_info()->LevelFiles(0);
+  RunCompaction({files}, expected_results, {10U, 20U, 30U}, 20U);
 }
 
 TEST_F(CompactionJobTest, SingleDeleteZeroSeq) {
@@ -604,7 +719,7 @@ TEST_F(CompactionJobTest, SingleDeleteZeroSeq) {
   AddMockFile(file2);
 
   auto expected_results = mock::MakeMockFile({
-      {KeyStr("dummy", 0U, kTypeValue), "val2"},
+      {KeyStr("dummy", 5U, kTypeValue), "val2"},
   });
 
   SetLastSequence(22U);
@@ -616,9 +731,22 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
   // Tests three scenarios involving multiple single delete/put pairs:
   //
   // A: Put Snapshot SDel Put SDel -> Put Snapshot SDel
-  // B: Put SDel Put SDel -> (Removed)
+  // B: Snapshot Put SDel Put SDel Snapshot -> Snapshot SDel Snapshot
   // C: SDel Put SDel Snapshot Put -> Snapshot Put
-  // D: (Put) SDel Snapshot Put SDel -> (Put) SDel Snapshot
+  // D: (Put) SDel Snapshot Put SDel -> (Put) SDel Snapshot SDel
+  // E: Put SDel Snapshot Put SDel -> Snapshot SDel
+  // F: Put SDel Put Sdel Snapshot -> removed
+  // G: Snapshot SDel Put SDel Put -> Snapshot Put SDel
+  // H: (Put) Put SDel Put Sdel Snapshot -> Removed
+  // I: (Put) Snapshot Put SDel Put SDel -> SDel
+  // J: Put Put SDel Put SDel SDel Snapshot Put Put SDel SDel Put
+  //      -> Snapshot Put
+  // K: SDel SDel Put SDel Put Put Snapshot SDel Put SDel SDel Put SDel
+  //      -> Snapshot Put Snapshot SDel
+  // L: SDel Put Del Put SDel Snapshot Del Put Del SDel Put SDel
+  //      -> Snapshot SDel
+  // M: (Put) SDel Put Del Put SDel Snapshot Put Del SDel Put SDel Del
+  //      -> SDel Snapshot Del
   NewDB();
 
   auto file1 = mock::MakeMockFile({
@@ -630,6 +758,34 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
       {KeyStr("C", 14U, kTypeValue), "val3"},
       {KeyStr("D", 12U, kTypeSingleDeletion), ""},
       {KeyStr("D", 11U, kTypeValue), "val4"},
+      {KeyStr("G", 15U, kTypeValue), "val"},
+      {KeyStr("G", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("G", 13U, kTypeValue), "val"},
+      {KeyStr("I", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("I", 13U, kTypeValue), "val"},
+      {KeyStr("J", 15U, kTypeValue), "val"},
+      {KeyStr("J", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 13U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 12U, kTypeValue), "val"},
+      {KeyStr("J", 11U, kTypeValue), "val"},
+      {KeyStr("K", 16U, kTypeSingleDeletion), ""},
+      {KeyStr("K", 15U, kTypeValue), "val1"},
+      {KeyStr("K", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("K", 13U, kTypeSingleDeletion), ""},
+      {KeyStr("K", 12U, kTypeValue), "val2"},
+      {KeyStr("K", 11U, kTypeSingleDeletion), ""},
+      {KeyStr("L", 16U, kTypeSingleDeletion), ""},
+      {KeyStr("L", 15U, kTypeValue), "val"},
+      {KeyStr("L", 14U, kTypeSingleDeletion), ""},
+      {KeyStr("L", 13U, kTypeDeletion), ""},
+      {KeyStr("L", 12U, kTypeValue), "val"},
+      {KeyStr("L", 11U, kTypeDeletion), ""},
+      {KeyStr("M", 16U, kTypeDeletion), ""},
+      {KeyStr("M", 15U, kTypeSingleDeletion), ""},
+      {KeyStr("M", 14U, kTypeValue), "val"},
+      {KeyStr("M", 13U, kTypeSingleDeletion), ""},
+      {KeyStr("M", 12U, kTypeDeletion), ""},
+      {KeyStr("M", 11U, kTypeValue), "val"},
   });
   AddMockFile(file1);
 
@@ -641,24 +797,87 @@ TEST_F(CompactionJobTest, MultiSingleDelete) {
       {KeyStr("C", 9U, kTypeValue), "val6"},
       {KeyStr("C", 8U, kTypeSingleDeletion), ""},
       {KeyStr("D", 10U, kTypeSingleDeletion), ""},
+      {KeyStr("E", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("E", 11U, kTypeValue), "val"},
+      {KeyStr("E", 5U, kTypeSingleDeletion), ""},
+      {KeyStr("E", 4U, kTypeValue), "val"},
+      {KeyStr("F", 6U, kTypeSingleDeletion), ""},
+      {KeyStr("F", 5U, kTypeValue), "val"},
+      {KeyStr("F", 4U, kTypeSingleDeletion), ""},
+      {KeyStr("F", 3U, kTypeValue), "val"},
+      {KeyStr("G", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("H", 6U, kTypeSingleDeletion), ""},
+      {KeyStr("H", 5U, kTypeValue), "val"},
+      {KeyStr("H", 4U, kTypeSingleDeletion), ""},
+      {KeyStr("H", 3U, kTypeValue), "val"},
+      {KeyStr("I", 12U, kTypeSingleDeletion), ""},
+      {KeyStr("I", 11U, kTypeValue), "val"},
+      {KeyStr("J", 6U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 5U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 4U, kTypeValue), "val"},
+      {KeyStr("J", 3U, kTypeSingleDeletion), ""},
+      {KeyStr("J", 2U, kTypeValue), "val"},
+      {KeyStr("K", 8U, kTypeValue), "val3"},
+      {KeyStr("K", 7U, kTypeValue), "val4"},
+      {KeyStr("K", 6U, kTypeSingleDeletion), ""},
+      {KeyStr("K", 5U, kTypeValue), "val5"},
+      {KeyStr("K", 2U, kTypeSingleDeletion), ""},
+      {KeyStr("K", 1U, kTypeSingleDeletion), ""},
+      {KeyStr("L", 5U, kTypeSingleDeletion), ""},
+      {KeyStr("L", 4U, kTypeValue), "val"},
+      {KeyStr("L", 3U, kTypeDeletion), ""},
+      {KeyStr("L", 2U, kTypeValue), "val"},
+      {KeyStr("L", 1U, kTypeSingleDeletion), ""},
+      {KeyStr("M", 10U, kTypeSingleDeletion), ""},
+      {KeyStr("M", 7U, kTypeValue), "val"},
+      {KeyStr("M", 5U, kTypeDeletion), ""},
+      {KeyStr("M", 4U, kTypeValue), "val"},
+      {KeyStr("M", 3U, kTypeSingleDeletion), ""},
   });
   AddMockFile(file2);
 
   auto file3 = mock::MakeMockFile({
-      {KeyStr("D", 11U, kTypeValue), "val"},
+      {KeyStr("D", 1U, kTypeValue), "val"},
+      {KeyStr("H", 1U, kTypeValue), "val"},
+      {KeyStr("I", 2U, kTypeValue), "val"},
   });
   AddMockFile(file3, 2);
 
-  auto expected_results = mock::MakeMockFile({
-      {KeyStr("A", 12U, kTypeSingleDeletion), ""},
-      {KeyStr("A", 10U, kTypeValue), "val"},
-      {KeyStr("C", 14U, kTypeValue), "val3"},
-      {KeyStr("D", 10U, kTypeSingleDeletion), ""},
+  auto file4 = mock::MakeMockFile({
+      {KeyStr("M", 1U, kTypeValue), "val"},
   });
+  AddMockFile(file4, 2);
+
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("A", 14U, kTypeSingleDeletion), ""},
+                          {KeyStr("A", 13U, kTypeValue), ""},
+                          {KeyStr("A", 12U, kTypeSingleDeletion), ""},
+                          {KeyStr("A", 10U, kTypeValue), "val"},
+                          {KeyStr("B", 14U, kTypeSingleDeletion), ""},
+                          {KeyStr("B", 13U, kTypeValue), ""},
+                          {KeyStr("C", 14U, kTypeValue), "val3"},
+                          {KeyStr("D", 12U, kTypeSingleDeletion), ""},
+                          {KeyStr("D", 11U, kTypeValue), ""},
+                          {KeyStr("D", 10U, kTypeSingleDeletion), ""},
+                          {KeyStr("E", 12U, kTypeSingleDeletion), ""},
+                          {KeyStr("E", 11U, kTypeValue), ""},
+                          {KeyStr("G", 15U, kTypeValue), "val"},
+                          {KeyStr("G", 12U, kTypeSingleDeletion), ""},
+                          {KeyStr("I", 14U, kTypeSingleDeletion), ""},
+                          {KeyStr("I", 13U, kTypeValue), ""},
+                          {KeyStr("J", 15U, kTypeValue), "val"},
+                          {KeyStr("K", 16U, kTypeSingleDeletion), ""},
+                          {KeyStr("K", 15U, kTypeValue), ""},
+                          {KeyStr("K", 11U, kTypeSingleDeletion), ""},
+                          {KeyStr("K", 8U, kTypeValue), "val3"},
+                          {KeyStr("L", 16U, kTypeSingleDeletion), ""},
+                          {KeyStr("L", 15U, kTypeValue), ""},
+                          {KeyStr("M", 16U, kTypeDeletion), ""},
+                          {KeyStr("M", 3U, kTypeSingleDeletion), ""}});
 
   SetLastSequence(22U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
-  RunCompaction({files}, expected_results, {10U});
+  RunCompaction({files}, expected_results, {10U}, 10U);
 }
 
 // This test documents the behavior where a corrupt key follows a deletion or a
@@ -684,7 +903,7 @@ TEST_F(CompactionJobTest, CorruptionAfterDeletion) {
       mock::MakeMockFile({{test::KeyStr("A", 0U, kTypeValue), "val3"},
                           {test::KeyStr("a", 0U, kTypeValue, true), "val"},
                           {test::KeyStr("b", 0U, kTypeValue, true), "val"},
-                          {test::KeyStr("c", 0U, kTypeValue), "val2"}});
+                          {test::KeyStr("c", 1U, kTypeValue), "val2"}});
 
   SetLastSequence(6U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);

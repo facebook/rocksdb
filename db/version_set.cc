@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -23,6 +23,7 @@
 #include <vector>
 #include <string>
 
+#include "db/compaction.h"
 #include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
@@ -30,22 +31,22 @@
 #include "db/memtable.h"
 #include "db/merge_context.h"
 #include "db/table_cache.h"
-#include "db/compaction.h"
 #include "db/version_builder.h"
 #include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "table/internal_iterator.h"
-#include "table/table_reader.h"
-#include "table/merger.h"
-#include "table/two_level_iterator.h"
 #include "table/format.h"
-#include "table/plain_table_factory.h"
-#include "table/meta_blocks.h"
 #include "table/get_context.h"
+#include "table/internal_iterator.h"
+#include "table/merger.h"
+#include "table/meta_blocks.h"
+#include "table/plain_table_factory.h"
+#include "table/table_reader.h"
+#include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"
+#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 
@@ -84,24 +85,22 @@ int FindFileInRange(const InternalKeyComparator& icmp,
 // are MergeInProgress).
 class FilePicker {
  public:
-  FilePicker(
-      std::vector<FileMetaData*>* files,
-      const Slice& user_key,
-      const Slice& ikey,
-      autovector<LevelFilesBrief>* file_levels,
-      unsigned int num_levels,
-      FileIndexer* file_indexer,
-      const Comparator* user_comparator,
-      const InternalKeyComparator* internal_comparator)
+  FilePicker(std::vector<FileMetaData*>* files, const Slice& user_key,
+             const Slice& ikey, autovector<LevelFilesBrief>* file_levels,
+             unsigned int num_levels, FileIndexer* file_indexer,
+             const Comparator* user_comparator,
+             const InternalKeyComparator* internal_comparator)
       : num_levels_(num_levels),
-        curr_level_(-1),
-        hit_file_level_(-1),
+        curr_level_(static_cast<unsigned int>(-1)),
+        returned_file_level_(static_cast<unsigned int>(-1)),
+        hit_file_level_(static_cast<unsigned int>(-1)),
         search_left_bound_(0),
         search_right_bound_(FileIndexer::kLevelMaxIndex),
 #ifndef NDEBUG
         files_(files),
 #endif
         level_files_brief_(file_levels),
+        is_hit_file_last_in_level_(false),
         user_key_(user_key),
         ikey_(ikey),
         file_indexer_(file_indexer),
@@ -120,12 +119,16 @@ class FilePicker {
     }
   }
 
+  int GetCurrentLevel() { return returned_file_level_; }
+
   FdWithKeyRange* GetNextFile() {
     while (!search_ended_) {  // Loops over different levels.
       while (curr_index_in_curr_level_ < curr_file_level_->num_files) {
         // Loops over all files in current level.
         FdWithKeyRange* f = &curr_file_level_->files[curr_index_in_curr_level_];
         hit_file_level_ = curr_level_;
+        is_hit_file_last_in_level_ =
+            curr_index_in_curr_level_ == curr_file_level_->num_files - 1;
         int cmp_largest = -1;
 
         // Do key range filtering of files or/and fractional cascading if:
@@ -190,6 +193,7 @@ class FilePicker {
         }
         prev_file_ = f;
 #endif
+        returned_file_level_ = curr_level_;
         if (curr_level_ > 0 && cmp_largest < 0) {
           // No more files to search in this level.
           search_ended_ = !PrepareNextLevel();
@@ -209,9 +213,14 @@ class FilePicker {
   // for GET_HIT_L0, GET_HIT_L1 & GET_HIT_L2_AND_UP counts
   unsigned int GetHitFileLevel() { return hit_file_level_; }
 
+  // Returns true if the most recent "hit file" (i.e., one returned by
+  // GetNextFile()) is at the last index in its level.
+  bool IsHitFileLastInLevel() { return is_hit_file_last_in_level_; }
+
  private:
   unsigned int num_levels_;
   unsigned int curr_level_;
+  unsigned int returned_file_level_;
   unsigned int hit_file_level_;
   int32_t search_left_bound_;
   int32_t search_right_bound_;
@@ -220,6 +229,7 @@ class FilePicker {
 #endif
   autovector<LevelFilesBrief>* level_files_brief_;
   bool search_ended_;
+  bool is_hit_file_last_in_level_;
   LevelFilesBrief* curr_file_level_;
   unsigned int curr_index_in_curr_level_;
   unsigned int start_index_in_curr_level_;
@@ -317,7 +327,7 @@ Version::~Version() {
       f->refs--;
       if (f->refs <= 0) {
         if (f->table_reader_handle) {
-          cfd_->table_cache()->ReleaseHandle(f->table_reader_handle);
+          cfd_->table_cache()->EraseHandle(f->fd, f->table_reader_handle);
           f->table_reader_handle = nullptr;
         }
         vset_->obsolete_files_.push_back(f);
@@ -475,19 +485,22 @@ class LevelFileNumIterator : public InternalIterator {
 
 class LevelFileIteratorState : public TwoLevelIteratorState {
  public:
+  // @param skip_filters Disables loading/accessing the filter block
   LevelFileIteratorState(TableCache* table_cache,
                          const ReadOptions& read_options,
                          const EnvOptions& env_options,
                          const InternalKeyComparator& icomparator,
                          HistogramImpl* file_read_hist, bool for_compaction,
-                         bool prefix_enabled)
+                         bool prefix_enabled, bool skip_filters, int level)
       : TwoLevelIteratorState(prefix_enabled),
         table_cache_(table_cache),
         read_options_(read_options),
         env_options_(env_options),
         icomparator_(icomparator),
         file_read_hist_(file_read_hist),
-        for_compaction_(for_compaction) {}
+        for_compaction_(for_compaction),
+        skip_filters_(skip_filters),
+        level_(level) {}
 
   InternalIterator* NewSecondaryIterator(const Slice& meta_handle) override {
     if (meta_handle.size() != sizeof(FileDescriptor)) {
@@ -499,7 +512,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
       return table_cache_->NewIterator(
           read_options_, env_options_, icomparator_, *fd,
           nullptr /* don't need reference to table*/, file_read_hist_,
-          for_compaction_);
+          for_compaction_, nullptr /* arena */, skip_filters_, level_);
     }
   }
 
@@ -514,6 +527,8 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
   const InternalKeyComparator& icomparator_;
   HistogramImpl* file_read_hist_;
   bool for_compaction_;
+  bool skip_filters_;
+  int level_;
 };
 
 // A wrapper of version builder which references the current version in
@@ -738,27 +753,45 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   // (2) keys are directly overwritten
   // (3) deletion on non-existing keys
   // (4) low number of samples
-  if (num_samples_ == 0) {
+  if (current_num_samples_ == 0) {
     return 0;
   }
 
-  if (accumulated_num_non_deletions_ <= accumulated_num_deletions_) {
+  if (current_num_non_deletions_ <= current_num_deletions_) {
     return 0;
   }
 
-  uint64_t est = accumulated_num_non_deletions_ - accumulated_num_deletions_;
+  uint64_t est = current_num_non_deletions_ - current_num_deletions_;
 
   uint64_t file_count = 0;
   for (int level = 0; level < num_levels_; ++level) {
     file_count += files_[level].size();
   }
 
-  if (num_samples_ < file_count) {
+  if (current_num_samples_ < file_count) {
     // casting to avoid overflowing
-    return (est * static_cast<double>(file_count) / num_samples_);
+    return
+      static_cast<uint64_t>(
+        (est * static_cast<double>(file_count) / current_num_samples_)
+      );
   } else {
     return est;
   }
+}
+
+double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
+    int level) const {
+  assert(level < num_levels_);
+  uint64_t sum_file_size_bytes = 0;
+  uint64_t sum_data_size_bytes = 0;
+  for (auto* file_meta : files_[level]) {
+    sum_file_size_bytes += file_meta->fd.GetFileSize();
+    sum_data_size_bytes += file_meta->raw_key_size + file_meta->raw_value_size;
+  }
+  if (sum_file_size_bytes == 0) {
+    return -1.0;
+  }
+  return static_cast<double>(sum_data_size_bytes) / sum_file_size_bytes;
 }
 
 void Version::AddIterators(const ReadOptions& read_options,
@@ -778,7 +811,8 @@ void Version::AddIterators(const ReadOptions& read_options,
     const auto& file = storage_info_.LevelFilesBrief(0).files[i];
     merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
         read_options, soptions, cfd_->internal_comparator(), file.fd, nullptr,
-        cfd_->internal_stats()->GetFileReadHist(0), false, arena));
+        cfd_->internal_stats()->GetFileReadHist(0), false, arena,
+        false /* skip_filters */, 0 /* level */));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -792,7 +826,8 @@ void Version::AddIterators(const ReadOptions& read_options,
                                  cfd_->internal_comparator(),
                                  cfd_->internal_stats()->GetFileReadHist(level),
                                  false /* for_compaction */,
-                                 cfd_->ioptions()->prefix_extractor != nullptr);
+                                 cfd_->ioptions()->prefix_extractor != nullptr,
+                                 IsFilterSkipped(level), level);
       mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
       auto* first_level_iter = new (mem) LevelFileNumIterator(
           cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
@@ -826,7 +861,9 @@ VersionStorageInfo::VersionStorageInfo(
       accumulated_raw_value_size_(0),
       accumulated_num_non_deletions_(0),
       accumulated_num_deletions_(0),
-      num_samples_(0),
+      current_num_non_deletions_(0),
+      current_num_deletions_(0),
+      current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
       finalized_(false) {
   if (ref_vstorage != nullptr) {
@@ -836,7 +873,9 @@ VersionStorageInfo::VersionStorageInfo(
     accumulated_num_non_deletions_ =
         ref_vstorage->accumulated_num_non_deletions_;
     accumulated_num_deletions_ = ref_vstorage->accumulated_num_deletions_;
-    num_samples_ = ref_vstorage->num_samples_;
+    current_num_non_deletions_ = ref_vstorage->current_num_non_deletions_;
+    current_num_deletions_ = ref_vstorage->current_num_deletions_;
+    current_num_samples_ = ref_vstorage->current_num_samples_;
   }
 }
 
@@ -864,21 +903,24 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       refs_(0),
       version_number_(version_number) {}
 
-void Version::Get(const ReadOptions& read_options,
-                  const LookupKey& k,
-                  std::string* value,
-                  Status* status,
-                  MergeContext* merge_context,
-                  bool* value_found) {
+void Version::Get(const ReadOptions& read_options, const LookupKey& k,
+                  std::string* value, Status* status,
+                  MergeContext* merge_context, bool* value_found,
+                  bool* key_exists, SequenceNumber* seq) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
 
   assert(status->ok() || status->IsMergeInProgress());
 
+  if (key_exists != nullptr) {
+    // will falsify below if not found
+    *key_exists = true;
+  }
+
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, this->env_);
+      value, value_found, merge_context, this->env_, seq);
 
   FilePicker fp(
       storage_info_.files_, user_key, ikey, &storage_info_.level_files_brief_,
@@ -888,7 +930,10 @@ void Version::Get(const ReadOptions& read_options,
   while (f != nullptr) {
     *status = table_cache_->Get(
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
-        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()));
+        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
+        IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+                        fp.IsHitFileLastInLevel()),
+        fp.GetCurrentLevel());
     // TODO: examine the behavior for corrupted key
     if (!status->ok()) {
       return;
@@ -928,9 +973,16 @@ void Version::Get(const ReadOptions& read_options,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    if (merge_operator_->FullMerge(user_key, nullptr,
-                                   merge_context->GetOperands(), value,
-                                   info_log_)) {
+    bool merge_success = false;
+    {
+      StopWatchNano timer(env_, db_statistics_ != nullptr);
+      PERF_TIMER_GUARD(merge_operator_time_nanos);
+      merge_success = merge_operator_->FullMerge(
+          user_key, nullptr, merge_context->GetOperands(), value, info_log_);
+      RecordTick(db_statistics_, MERGE_OPERATION_TOTAL_TIME,
+                 timer.ElapsedNanos());
+    }
+    if (merge_success) {
       *status = Status::OK();
     } else {
       RecordTick(db_statistics_, NUMBER_MERGE_FAILURES);
@@ -938,8 +990,19 @@ void Version::Get(const ReadOptions& read_options,
                                    user_key);
     }
   } else {
+    if (key_exists != nullptr) {
+      *key_exists = false;
+    }
     *status = Status::NotFound(); // Use an empty error message for speed
   }
+}
+
+bool Version::IsFilterSkipped(int level, bool is_file_last_in_level) {
+  // Reaching the bottom level implies misses at all upper levels, so we'll
+  // skip checking the filters when we predict a hit.
+  return cfd_->ioptions()->optimize_filters_for_hits &&
+         (level > 0 || is_file_last_in_level) &&
+         level == storage_info_.num_non_empty_levels() - 1;
 }
 
 void VersionStorageInfo::GenerateLevelFilesBrief() {
@@ -993,7 +1056,20 @@ void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
   accumulated_num_non_deletions_ +=
       file_meta->num_entries - file_meta->num_deletions;
   accumulated_num_deletions_ += file_meta->num_deletions;
-  num_samples_++;
+
+  current_num_non_deletions_ +=
+      file_meta->num_entries - file_meta->num_deletions;
+  current_num_deletions_ += file_meta->num_deletions;
+  current_num_samples_++;
+}
+
+void VersionStorageInfo::RemoveCurrentStats(FileMetaData* file_meta) {
+  if (file_meta->init_stats_from_file) {
+    current_num_non_deletions_ -=
+        file_meta->num_entries - file_meta->num_deletions;
+    current_num_deletions_ -= file_meta->num_deletions;
+    current_num_samples_--;
+  }
 }
 
 void Version::UpdateAccumulatedStats(bool update_stats) {
@@ -1018,6 +1094,12 @@ void Version::UpdateAccumulatedStats(bool update_stats) {
         if (MaybeInitializeFileMetaData(file_meta)) {
           // each FileMeta will be initialized only once.
           storage_info_.UpdateAccumulatedStats(file_meta);
+          // when option "max_open_files" is -1, all the file metadata has
+          // already been read, so MaybeInitializeFileMetaData() won't incur
+          // any I/O cost.
+          if (vset_->db_options_->max_open_files == -1) {
+            continue;
+          }
           if (++init_count >= kMaxInitCount) {
             break;
           }
@@ -1084,6 +1166,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
     const MutableCFOptions& mutable_cf_options) {
   // Only implemented for level-based compaction
   if (compaction_style_ != kCompactionStyleLevel) {
+    estimated_compaction_needed_bytes_ = 0;
     return;
   }
 
@@ -1112,10 +1195,23 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
   }
 
   // Level 1 and up.
+  uint64_t bytes_next_level = 0;
   for (int level = base_level(); level <= MaxInputLevel(); level++) {
     uint64_t level_size = 0;
-    for (auto* f : files_[level]) {
-      level_size += f->fd.GetFileSize();
+    if (bytes_next_level > 0) {
+#ifndef NDEBUG
+      uint64_t level_size2 = 0;
+      for (auto* f : files_[level]) {
+        level_size2 += f->fd.GetFileSize();
+      }
+      assert(level_size2 == bytes_next_level);
+#endif
+      level_size = bytes_next_level;
+      bytes_next_level = 0;
+    } else {
+      for (auto* f : files_[level]) {
+        level_size += f->fd.GetFileSize();
+      }
     }
     if (level == base_level() && level0_compact_triggered) {
       // Add base level size to compaction if level0 compaction triggered.
@@ -1127,11 +1223,23 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
     uint64_t level_target = MaxBytesForLevel(level);
     if (level_size > level_target) {
       bytes_compact_to_next_level = level_size - level_target;
-      // Simplify to assume the actual compaction fan-out ratio is always
-      // mutable_cf_options.max_bytes_for_level_multiplier.
-      estimated_compaction_needed_bytes_ +=
-          bytes_compact_to_next_level *
-          (1 + mutable_cf_options.max_bytes_for_level_multiplier);
+      // Estimate the actual compaction fan-out ratio as size ratio between
+      // the two levels.
+
+      assert(bytes_next_level == 0);
+      if (level + 1 < num_levels_) {
+        for (auto* f : files_[level + 1]) {
+          bytes_next_level += f->fd.GetFileSize();
+        }
+      }
+      if (bytes_next_level > 0) {
+        assert(level_size > 0);
+        estimated_compaction_needed_bytes_ += static_cast<uint64_t>(
+            static_cast<double>(bytes_compact_to_next_level) *
+            (static_cast<double>(bytes_next_level) /
+                 static_cast<double>(level_size) +
+             1));
+      }
     }
   }
 }
@@ -1139,9 +1247,6 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
 void VersionStorageInfo::ComputeCompactionScore(
     const MutableCFOptions& mutable_cf_options,
     const CompactionOptionsFIFO& compaction_options_fifo) {
-  double max_score = 0;
-  int max_score_level = 0;
-
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -1192,18 +1297,10 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
       score = static_cast<double>(level_bytes_no_compacting) /
               MaxBytesForLevel(level);
-      if (max_score < score) {
-        max_score = score;
-        max_score_level = level;
-      }
     }
     compaction_level_[level] = level;
     compaction_score_[level] = score;
   }
-
-  // update the max compaction score in levels 1 to n-1
-  max_compaction_score_ = max_score;
-  max_compaction_score_level_ = max_score_level;
 
   // sort all the levels based on their score. Higher scores get listed
   // first. Use bubble sort because the number of entries are small.
@@ -1250,7 +1347,7 @@ namespace {
 
 // used to sort files by size
 struct Fsize {
-  int index;
+  size_t index;
   FileMetaData* file;
 };
 
@@ -1343,6 +1440,47 @@ void VersionStorageInfo::UpdateNumNonEmptyLevels() {
   }
 }
 
+namespace {
+// Sort `temp` based on ratio of overlapping size over file size
+void SortFileByOverlappingRatio(
+    const InternalKeyComparator& icmp, const std::vector<FileMetaData*>& files,
+    const std::vector<FileMetaData*>& next_level_files,
+    std::vector<Fsize>* temp) {
+  std::unordered_map<uint64_t, uint64_t> file_to_order;
+  auto next_level_it = next_level_files.begin();
+
+  for (auto& file : files) {
+    uint64_t overlapping_bytes = 0;
+    // Skip files in next level that is smaller than current file
+    while (next_level_it != next_level_files.end() &&
+           icmp.Compare((*next_level_it)->largest, file->smallest) < 0) {
+      next_level_it++;
+    }
+
+    while (next_level_it != next_level_files.end() &&
+           icmp.Compare((*next_level_it)->smallest, file->largest) < 0) {
+      overlapping_bytes += (*next_level_it)->fd.file_size;
+
+      if (icmp.Compare((*next_level_it)->largest, file->largest) > 0) {
+        // next level file cross large boundary of current file.
+        break;
+      }
+      next_level_it++;
+    }
+
+    assert(file->fd.file_size != 0);
+    file_to_order[file->fd.GetNumber()] =
+        overlapping_bytes * 1024u / file->fd.file_size;
+  }
+
+  std::sort(temp->begin(), temp->end(),
+            [&](const Fsize& f1, const Fsize& f2) -> bool {
+              return file_to_order[f1.file->fd.GetNumber()] <
+                     file_to_order[f2.file->fd.GetNumber()];
+            });
+}
+}  // namespace
+
 void VersionStorageInfo::UpdateFilesByCompactionPri(
     const MutableCFOptions& mutable_cf_options) {
   if (compaction_style_ == kCompactionStyleFIFO ||
@@ -1358,7 +1496,7 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
 
     // populate a temp vector for sorting based on size
     std::vector<Fsize> temp(files.size());
-    for (unsigned int i = 0; i < files.size(); i++) {
+    for (size_t i = 0; i < files.size(); i++) {
       temp[i].index = i;
       temp[i].file = files[i];
     }
@@ -1369,15 +1507,25 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
       num = temp.size();
     }
     switch (mutable_cf_options.compaction_pri) {
-      case kCompactionPriByCompensatedSize:
+      case kByCompensatedSize:
         std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
                           CompareCompensatedSizeDescending);
         break;
-      case kCompactionPriByLargestSeq:
+      case kOldestLargestSeqFirst:
         std::sort(temp.begin(), temp.end(),
                   [this](const Fsize& f1, const Fsize& f2) -> bool {
                     return f1.file->largest_seqno < f2.file->largest_seqno;
                   });
+        break;
+      case kOldestSmallestSeqFirst:
+        std::sort(temp.begin(), temp.end(),
+                  [this](const Fsize& f1, const Fsize& f2) -> bool {
+                    return f1.file->smallest_seqno < f2.file->smallest_seqno;
+                  });
+        break;
+      case kMinOverlappingRatio:
+        SortFileByOverlappingRatio(*internal_comparator_, files_[level],
+                                   files_[level + 1], &temp);
         break;
       default:
         assert(false);
@@ -1385,8 +1533,8 @@ void VersionStorageInfo::UpdateFilesByCompactionPri(
     assert(temp.size() == files.size());
 
     // initialize files_by_compaction_pri_
-    for (unsigned int i = 0; i < temp.size(); i++) {
-      files_by_compaction_pri.push_back(temp[i].index);
+    for (size_t i = 0; i < temp.size(); i++) {
+      files_by_compaction_pri.push_back(static_cast<int>(temp[i].index));
     }
     next_file_to_compact_by_size_[level] = 0;
     assert(files_[level].size() == files_by_compaction_pri_[level].size());
@@ -1969,9 +2117,16 @@ VersionSet::VersionSet(const std::string& dbname, const DBOptions* db_options,
       env_options_(storage_options),
       env_options_compactions_(env_options_) {}
 
+void CloseTables(void* ptr, size_t) {
+  TableReader* table_reader = reinterpret_cast<TableReader*>(ptr);
+  table_reader->Close();
+}
+
 VersionSet::~VersionSet() {
   // we need to delete column_family_set_ because its destructor depends on
   // VersionSet
+  column_family_set_->get_table_cache()->ApplyToAllCacheEntries(&CloseTables,
+                                                                false);
   column_family_set_.reset();
   for (auto file : obsolete_files_) {
     delete file;
@@ -2106,7 +2261,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
       builder_guard->version_builder()->LoadTableHandlers(
-          column_family_data->internal_stats());
+          column_family_data->internal_stats(),
+          column_family_data->ioptions()->optimize_filters_for_hits);
     }
 
     // This is fine because everything inside of this block is serialized --
@@ -2158,27 +2314,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       if (!s.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
             "MANIFEST write: %s\n", s.ToString().c_str());
-        bool all_records_in = true;
-        for (auto& e : batch_edits) {
-          std::string record;
-          if (!e->EncodeTo(&record)) {
-            s = Status::Corruption(
-                "Unable to Encode VersionEdit:" + e->DebugString(true));
-            all_records_in = false;
-            break;
-          }
-          if (!ManifestContains(pending_manifest_file_number_, record)) {
-            all_records_in = false;
-            break;
-          }
-        }
-        if (all_records_in) {
-          Log(InfoLogLevel::WARN_LEVEL, db_options_->info_log,
-              "MANIFEST contains log record despite error; advancing to new "
-              "version to prevent mismatch between in-memory and logged state"
-              " If paranoid is set, then the db is now in readonly mode.");
-          s = Status::OK();
-        }
       }
     }
 
@@ -2187,15 +2322,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     if (s.ok() && new_descriptor_log) {
       s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
                          db_options_->disableDataSync ? nullptr : db_directory);
-      if (s.ok() && pending_manifest_file_number_ > manifest_file_number_) {
-        // delete old manifest file
-        Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-            "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
-            manifest_file_number_, pending_manifest_file_number_);
-        // we don't care about an error here, PurgeObsoleteFiles will take care
-        // of it later
-        env_->DeleteFile(DescriptorFileName(dbname_, manifest_file_number_));
-      }
     }
 
     if (s.ok()) {
@@ -2204,12 +2330,21 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     }
 
     if (edit->is_column_family_drop_) {
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:0");
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
       TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
     }
 
     LogFlush(db_options_->info_log);
+    TEST_SYNC_POINT("VersionSet::LogAndApply:WriteManifestDone");
     mu->Lock();
+  }
+
+  // Append the old mainfest file to the obsolete_manifests_ list to be deleted
+  // by PurgeObsoleteFiles later.
+  if (s.ok() && new_descriptor_log) {
+    obsolete_manifests_.emplace_back(
+        DescriptorFileName("", manifest_file_number_));
   }
 
   // Install the new version
@@ -2244,10 +2379,14 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     manifest_file_size_ = new_manifest_file_size;
     prev_log_number_ = edit->prev_log_number_;
   } else {
+    std::string version_edits;
+    for (auto& e : batch_edits) {
+      version_edits = version_edits + "\n" + e->DebugString(true);
+    }
     Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
-        "Error in committing version %lu to [%s]",
-        (unsigned long)v->GetVersionNumber(),
-        column_family_data->GetName().c_str());
+        "[%s] Error in committing version edit to MANIFEST: %s",
+        column_family_data ? column_family_data->GetName().c_str() : "<null>",
+        version_edits.c_str());
     delete v;
     if (new_descriptor_log) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
@@ -3031,45 +3170,6 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   return Status::OK();
 }
 
-// Opens the mainfest file and reads all records
-// till it finds the record we are looking for.
-bool VersionSet::ManifestContains(uint64_t manifest_file_num,
-                                  const std::string& record) const {
-  std::string fname = DescriptorFileName(dbname_, manifest_file_num);
-  Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-      "ManifestContains: checking %s\n", fname.c_str());
-
-  unique_ptr<SequentialFileReader> file_reader;
-  Status s;
-  {
-    unique_ptr<SequentialFile> file;
-    s = env_->NewSequentialFile(fname, &file, env_options_);
-    if (!s.ok()) {
-      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-          "ManifestContains: %s\n", s.ToString().c_str());
-      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-          "ManifestContains: is unable to reopen the manifest file  %s",
-          fname.c_str());
-      return false;
-    }
-    file_reader.reset(new SequentialFileReader(std::move(file)));
-  }
-  log::Reader reader(NULL, std::move(file_reader), nullptr,
-                     true /*checksum*/, 0, 0);
-  Slice r;
-  std::string scratch;
-  bool result = false;
-  while (reader.ReadRecord(&r, &scratch)) {
-    if (r == Slice(record)) {
-      result = true;
-      break;
-    }
-  }
-  Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-      "ManifestContains: result = %d\n", result ? 1 : 0);
-  return result;
-}
-
 // TODO(aekmekji): in CompactionJob::GenSubcompactionBoundaries(), this
 // function is called repeatedly with consecutive pairs of slices. For example
 // if the slice list is [a, b, c, d] this function is called with arguments
@@ -3216,7 +3316,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   }
 }
 
-InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
+InternalIterator* VersionSet::MakeInputIterator(const Compaction* c) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums =
@@ -3243,7 +3343,8 @@ InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
               read_options, env_options_compactions_,
               cfd->internal_comparator(), flevel->files[i].fd, nullptr,
               nullptr, /* no per level latency histogram*/
-              true /* for compaction */);
+              true /* for_compaction */, nullptr /* arena */,
+              false /* skip_filters */, (int)which /* level */);
         }
       } else {
         // Create concatenating iterator for the files from this level
@@ -3252,7 +3353,8 @@ InternalIterator* VersionSet::MakeInputIterator(Compaction* c) {
                 cfd->table_cache(), read_options, env_options_,
                 cfd->internal_comparator(),
                 nullptr /* no per level latency histogram */,
-                true /* for_compaction */, false /* prefix enabled */),
+                true /* for_compaction */, false /* prefix enabled */,
+                false /* skip_filters */, (int)which /* level */),
             new LevelFileNumIterator(cfd->internal_comparator(),
                                      c->input_levels(which)));
       }
@@ -3298,7 +3400,7 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
     for (size_t i = 0; i < c->num_input_files(input); ++i) {
       uint64_t number = c->input(input, i)->fd.GetNumber();
       bool found = false;
-      for (unsigned int j = 0; j < vstorage->files_[level].size(); j++) {
+      for (size_t j = 0; j < vstorage->files_[level].size(); j++) {
         FileMetaData* f = vstorage->files_[level][j];
         if (f->fd.GetNumber() == number) {
           found = true;
@@ -3365,7 +3467,10 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
 }
 
 void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files,
+                                  std::vector<std::string>* manifest_filenames,
                                   uint64_t min_pending_output) {
+  assert(manifest_filenames->empty());
+  obsolete_manifests_.swap(*manifest_filenames);
   std::vector<FileMetaData*> pending_files;
   for (auto f : obsolete_files_) {
     if (f->fd.GetNumber() < min_pending_output) {

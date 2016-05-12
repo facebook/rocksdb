@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -28,9 +28,21 @@ OptimisticTransactionImpl::OptimisticTransactionImpl(
     OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options)
     : TransactionBaseImpl(txn_db->GetBaseDB(), write_options), txn_db_(txn_db) {
+  Initialize(txn_options);
+}
+
+void OptimisticTransactionImpl::Initialize(
+    const OptimisticTransactionOptions& txn_options) {
   if (txn_options.set_snapshot) {
     SetSnapshot();
   }
+}
+
+void OptimisticTransactionImpl::Reinitialize(
+    OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
+    const OptimisticTransactionOptions& txn_options) {
+  TransactionBaseImpl::Reinitialize(txn_db->GetBaseDB(), write_options);
+  Initialize(txn_options);
 }
 
 OptimisticTransactionImpl::~OptimisticTransactionImpl() {
@@ -38,6 +50,11 @@ OptimisticTransactionImpl::~OptimisticTransactionImpl() {
 
 void OptimisticTransactionImpl::Clear() {
   TransactionBaseImpl::Clear();
+}
+
+Status OptimisticTransactionImpl::Prepare() {
+  return Status::InvalidArgument(
+      "Two phase commit not supported for optimistic transactions.");
 }
 
 Status OptimisticTransactionImpl::Commit() {
@@ -54,7 +71,7 @@ Status OptimisticTransactionImpl::Commit() {
   }
 
   Status s = db_impl->WriteWithCallback(
-      write_options_, write_batch_->GetWriteBatch(), &callback);
+      write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
 
   if (s.ok()) {
     Clear();
@@ -63,11 +80,15 @@ Status OptimisticTransactionImpl::Commit() {
   return s;
 }
 
-void OptimisticTransactionImpl::Rollback() { Clear(); }
+Status OptimisticTransactionImpl::Rollback() {
+  Clear();
+  return Status::OK();
+}
 
 // Record this key so that we can check it for conflicts at commit time.
 Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                          const Slice& key, bool untracked) {
+                                          const Slice& key, bool read_only,
+                                          bool untracked) {
   if (untracked) {
     return Status::OK();
   }
@@ -77,14 +98,14 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   SequenceNumber seq;
   if (snapshot_) {
-    seq = snapshot_->snapshot()->GetSequenceNumber();
+    seq = snapshot_->GetSequenceNumber();
   } else {
     seq = db_->GetLatestSequenceNumber();
   }
 
   std::string key_str = key.ToString();
 
-  TrackKey(cfh_id, key_str, seq);
+  TrackKey(cfh_id, key_str, seq, read_only);
 
   // Always return OK. Confilct checking will happen at commit time.
   return Status::OK();
@@ -95,15 +116,23 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 // if we can not determine whether there would be any such conflicts.
 //
 // Should only be called on writer thread in order to avoid any race conditions
-// in detecting
-// write conflicts.
+// in detecting write conflicts.
 Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
   Status result;
 
   assert(dynamic_cast<DBImpl*>(db) != nullptr);
   auto db_impl = reinterpret_cast<DBImpl*>(db);
 
-  return TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys());
+  // Since we are on the write thread and do not want to block other writers,
+  // we will do a cache-only conflict check.  This can result in TryAgain
+  // getting returned if there is not sufficient memtable history to check
+  // for conflicts.
+  return TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys(),
+                                                true /* cache_only */);
+}
+
+Status OptimisticTransactionImpl::SetName(const TransactionName& name) {
+  return Status::InvalidArgument("Optimistic transactions cannot be named.");
 }
 
 }  // namespace rocksdb

@@ -2,7 +2,6 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
         org.rocksdb.AbstractComparator\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.BackupEngine\
-	org.rocksdb.BackupableDB\
 	org.rocksdb.BackupableDBOptions\
 	org.rocksdb.BlockBasedTableConfig\
 	org.rocksdb.BloomFilter\
@@ -26,7 +25,6 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.PlainTableConfig\
 	org.rocksdb.ReadOptions\
 	org.rocksdb.RemoveEmptyValueCompactionFilter\
-	org.rocksdb.RestoreBackupableDB\
 	org.rocksdb.RestoreOptions\
 	org.rocksdb.RocksDB\
 	org.rocksdb.RocksEnv\
@@ -62,8 +60,8 @@ endif
 
 JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
         org.rocksdb.BackupEngineTest\
-	org.rocksdb.BackupableDBTest\
 	org.rocksdb.BlockBasedTableConfigTest\
+        org.rocksdb.util.BytewiseComparatorTest\
 	org.rocksdb.CheckPointTest\
 	org.rocksdb.ColumnFamilyOptionsTest\
 	org.rocksdb.ColumnFamilyTest\
@@ -99,6 +97,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.StatisticsCollectorTest\
 	org.rocksdb.WriteBatchHandlerTest\
 	org.rocksdb.WriteBatchTest\
+        org.rocksdb.WriteBatchThreadedTest\
 	org.rocksdb.WriteOptionsTest\
 	org.rocksdb.WriteBatchWithIndexTest
 

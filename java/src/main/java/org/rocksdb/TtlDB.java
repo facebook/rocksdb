@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -84,9 +84,7 @@ public class TtlDB extends RocksDB {
    */
   public static TtlDB open(final Options options, final String db_path,
       final int ttl, final boolean readOnly) throws RocksDBException {
-    TtlDB ttldb = new TtlDB();
-    ttldb.open(options.nativeHandle_, db_path, ttl, readOnly);
-    return ttldb;
+    return new TtlDB(open(options.nativeHandle_, db_path, ttl, readOnly));
   }
 
   /**
@@ -114,15 +112,29 @@ public class TtlDB extends RocksDB {
       final List<Integer> ttlValues, final boolean readOnly)
       throws RocksDBException {
     if (columnFamilyDescriptors.size() != ttlValues.size()) {
-      throw new IllegalArgumentException("There must be a ttl value per column" +
-          "family handle.");
+      throw new IllegalArgumentException("There must be a ttl value per column"
+          + "family handle.");
     }
-    TtlDB ttlDB = new TtlDB();
-    List<Long> cfReferences = ttlDB.openCF(options.nativeHandle_, db_path,
-        columnFamilyDescriptors, columnFamilyDescriptors.size(),
-        ttlValues, readOnly);
-    for (int i=0; i<columnFamilyDescriptors.size(); i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, cfReferences.get(i)));
+
+    final byte[][] cfNames = new byte[columnFamilyDescriptors.size()][];
+    final long[] cfOptionHandles = new long[columnFamilyDescriptors.size()];
+    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
+      final ColumnFamilyDescriptor cfDescriptor =
+          columnFamilyDescriptors.get(i);
+      cfNames[i] = cfDescriptor.columnFamilyName();
+      cfOptionHandles[i] = cfDescriptor.columnFamilyOptions().nativeHandle_;
+    }
+
+    final int ttlVals[] = new int[ttlValues.size()];
+    for(int i = 0; i < ttlValues.size(); i++) {
+      ttlVals[i] = ttlValues.get(i);
+    }
+    final long[] handles = openCF(options.nativeHandle_, db_path,
+            cfNames, cfOptionHandles, ttlVals, readOnly);
+
+    final TtlDB ttlDB = new TtlDB(handles[0]);
+    for (int i = 1; i < handles.length; i++) {
+      columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, handles[i]));
     }
     return ttlDB;
   }
@@ -146,10 +158,10 @@ public class TtlDB extends RocksDB {
   public ColumnFamilyHandle createColumnFamilyWithTtl(
       final ColumnFamilyDescriptor columnFamilyDescriptor,
       final int ttl) throws RocksDBException {
-    assert(isInitialized());
     return new ColumnFamilyHandle(this,
         createColumnFamilyWithTtl(nativeHandle_,
-            columnFamilyDescriptor, ttl));
+            columnFamilyDescriptor.columnFamilyName(),
+            columnFamilyDescriptor.columnFamilyOptions().nativeHandle_, ttl));
   }
 
   /**
@@ -161,10 +173,9 @@ public class TtlDB extends RocksDB {
    * c++ {@code rocksdb::TtlDB} and should be transparent to
    * Java developers.</p>
    */
-  @Override public synchronized void close() {
-    if (isInitialized()) {
+  @Override
+  public void close() {
       super.close();
-    }
   }
 
   /**
@@ -175,23 +186,26 @@ public class TtlDB extends RocksDB {
    * {@link #open(DBOptions, String, java.util.List, java.util.List,
    * java.util.List, boolean)}.
    * </p>
+   *
+   * @param nativeHandle The native handle of the C++ TtlDB object
    */
-  protected TtlDB() {
-    super();
+  protected TtlDB(final long nativeHandle) {
+    super(nativeHandle);
   }
 
   @Override protected void finalize() throws Throwable {
-    close();
+    close(); //TODO(AR) revisit here when implementing AutoCloseable
     super.finalize();
   }
 
-  private native void open(long optionsHandle, String db_path, int ttl,
-      boolean readOnly) throws RocksDBException;
-  private native List<Long> openCF(long optionsHandle, String db_path,
-      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      int columnFamilyDescriptorsLength, List<Integer> ttlValues,
-      boolean readOnly) throws RocksDBException;
-  private native long createColumnFamilyWithTtl(long handle,
-      ColumnFamilyDescriptor columnFamilyDescriptor, int ttl)
+  private native static long open(final long optionsHandle,
+      final String db_path, final int ttl, final boolean readOnly)
+      throws RocksDBException;
+  private native static long[] openCF(final long optionsHandle,
+      final String db_path, final byte[][] columnFamilyNames,
+      final long[] columnFamilyOptions, final int[] ttlValues,
+      final boolean readOnly) throws RocksDBException;
+  private native long createColumnFamilyWithTtl(final long handle,
+      final byte[] columnFamilyName, final long columnFamilyOptions, int ttl)
       throws RocksDBException;
 }

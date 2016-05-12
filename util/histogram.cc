@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -7,11 +7,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/histogram.h"
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
 
+#include <inttypes.h>
 #include <cassert>
 #include <math.h>
 #include <stdio.h>
+#include "util/histogram.h"
 #include "port/port.h"
 
 namespace rocksdb {
@@ -73,88 +77,126 @@ namespace {
   const HistogramBucketMapper bucketMapper;
 }
 
-void HistogramImpl::Clear() {
-  min_ = bucketMapper.LastValue();
-  max_ = 0;
-  num_ = 0;
-  sum_ = 0;
-  sum_squares_ = 0;
-  memset(buckets_, 0, sizeof buckets_);
+HistogramStat::HistogramStat()
+  : num_buckets_(bucketMapper.BucketCount()) {
+  assert(num_buckets_ == sizeof(buckets_) / sizeof(*buckets_));
+  Clear();
 }
 
-bool HistogramImpl::Empty() { return num_ == 0; }
+void HistogramStat::Clear() {
+  min_.store(bucketMapper.LastValue(), std::memory_order_relaxed);
+  max_.store(0, std::memory_order_relaxed);
+  num_.store(0, std::memory_order_relaxed);
+  sum_.store(0, std::memory_order_relaxed);
+  sum_squares_.store(0, std::memory_order_relaxed);
+  for (unsigned int b = 0; b < num_buckets_; b++) {
+    buckets_[b].store(0, std::memory_order_relaxed);
+  }
+};
 
-void HistogramImpl::Add(uint64_t value) {
+bool HistogramStat::Empty() const { return num() == 0; }
+
+void HistogramStat::Add(uint64_t value) {
+  // This function is designed to be lock free, as it's in the critical path
+  // of any operation. Each individual value is atomic and the order of updates
+  // by concurrent threads is tolerable.
   const size_t index = bucketMapper.IndexForValue(value);
-  buckets_[index] += 1;
-  if (min_ > value) min_ = value;
-  if (max_ < value) max_ = value;
-  num_++;
-  sum_ += value;
-  sum_squares_ += (value * value);
+  assert(index < num_buckets_);
+  buckets_[index].fetch_add(1, std::memory_order_relaxed);
+
+  uint64_t old_min = min();
+  while (value < old_min && !min_.compare_exchange_weak(old_min, value)) {}
+
+  uint64_t old_max = max();
+  while (value > old_max && !max_.compare_exchange_weak(old_max, value)) {}
+
+  num_.fetch_add(1, std::memory_order_relaxed);
+  sum_.fetch_add(value, std::memory_order_relaxed);
+  sum_squares_.fetch_add(value * value, std::memory_order_relaxed);
 }
 
-void HistogramImpl::Merge(const HistogramImpl& other) {
-  if (other.min_ < min_) min_ = other.min_;
-  if (other.max_ > max_) max_ = other.max_;
-  num_ += other.num_;
-  sum_ += other.sum_;
-  sum_squares_ += other.sum_squares_;
-  for (unsigned int b = 0; b < bucketMapper.BucketCount(); b++) {
-    buckets_[b] += other.buckets_[b];
+void HistogramStat::Merge(const HistogramStat& other) {
+  // This function needs to be performned with the outer lock acquired
+  // However, atomic operation on every member is still need, since Add()
+  // requires no lock and value update can still happen concurrently
+  uint64_t old_min = min();
+  uint64_t other_min = other.min();
+  while (other_min < old_min &&
+         !min_.compare_exchange_weak(old_min, other_min)) {}
+
+  uint64_t old_max = max();
+  uint64_t other_max = other.max();
+  while (other_max > old_max &&
+         !max_.compare_exchange_weak(old_max, other_max)) {}
+
+  num_.fetch_add(other.num(), std::memory_order_relaxed);
+  sum_.fetch_add(other.sum(), std::memory_order_relaxed);
+  sum_squares_.fetch_add(other.sum_squares(), std::memory_order_relaxed);
+  for (unsigned int b = 0; b < num_buckets_; b++) {
+    buckets_[b].fetch_add(other.bucket_at(b), std::memory_order_relaxed);
   }
 }
 
-double HistogramImpl::Median() const {
+double HistogramStat::Median() const {
   return Percentile(50.0);
 }
 
-double HistogramImpl::Percentile(double p) const {
-  double threshold = num_ * (p / 100.0);
-  double sum = 0;
-  for (unsigned int b = 0; b < bucketMapper.BucketCount(); b++) {
-    sum += buckets_[b];
-    if (sum >= threshold) {
+double HistogramStat::Percentile(double p) const {
+  double threshold = num() * (p / 100.0);
+  uint64_t cumulative_sum = 0;
+  for (unsigned int b = 0; b < num_buckets_; b++) {
+    uint64_t bucket_value = bucket_at(b);
+    cumulative_sum += bucket_value;
+    if (cumulative_sum >= threshold) {
       // Scale linearly within this bucket
-      double left_point = (b == 0) ? 0 : bucketMapper.BucketLimit(b-1);
-      double right_point = bucketMapper.BucketLimit(b);
-      double left_sum = sum - buckets_[b];
-      double right_sum = sum;
+      uint64_t left_point = (b == 0) ? 0 : bucketMapper.BucketLimit(b-1);
+      uint64_t right_point = bucketMapper.BucketLimit(b);
+      uint64_t left_sum = cumulative_sum - bucket_value;
+      uint64_t right_sum = cumulative_sum;
       double pos = 0;
-      double right_left_diff = right_sum - left_sum;
+      uint64_t right_left_diff = right_sum - left_sum;
       if (right_left_diff != 0) {
-       pos = (threshold - left_sum) / (right_sum - left_sum);
+       pos = (threshold - left_sum) / right_left_diff;
       }
       double r = left_point + (right_point - left_point) * pos;
-      if (r < min_) r = min_;
-      if (r > max_) r = max_;
+      uint64_t cur_min = min();
+      uint64_t cur_max = max();
+      if (r < cur_min) r = static_cast<double>(cur_min);
+      if (r > cur_max) r = static_cast<double>(cur_max);
       return r;
     }
   }
-  return max_;
+  return static_cast<double>(max());
 }
 
-double HistogramImpl::Average() const {
-  if (num_ == 0.0) return 0;
-  return sum_ / num_;
+double HistogramStat::Average() const {
+  uint64_t cur_num = num();
+  uint64_t cur_sum = sum();
+  if (cur_num == 0) return 0;
+  return static_cast<double>(cur_sum) / static_cast<double>(cur_num);
 }
 
-double HistogramImpl::StandardDeviation() const {
-  if (num_ == 0.0) return 0;
-  double variance = (sum_squares_ * num_ - sum_ * sum_) / (num_ * num_);
+double HistogramStat::StandardDeviation() const {
+  uint64_t cur_num = num();
+  uint64_t cur_sum = sum();
+  uint64_t cur_sum_squares = sum_squares();
+  if (cur_num == 0) return 0;
+  double variance =
+      static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
+      static_cast<double>(cur_num * cur_num);
   return sqrt(variance);
 }
-
-std::string HistogramImpl::ToString() const {
+std::string HistogramStat::ToString() const {
+  uint64_t cur_num = num();
   std::string r;
   char buf[200];
   snprintf(buf, sizeof(buf),
-           "Count: %.0f  Average: %.4f  StdDev: %.2f\n",
-           num_, Average(), StandardDeviation());
+           "Count: %" PRIu64 " Average: %.4f  StdDev: %.2f\n",
+           cur_num, Average(), StandardDeviation());
   r.append(buf);
   snprintf(buf, sizeof(buf),
-           "Min: %.4f  Median: %.4f  Max: %.4f\n",
-           (num_ == 0.0 ? 0.0 : min_), Median(), max_);
+           "Min: %" PRIu64 "  Median: %.4f  Max: %" PRIu64 "\n",
+           (cur_num == 0 ? 0 : min()), Median(), (cur_num == 0 ? 0 : max()));
   r.append(buf);
   snprintf(buf, sizeof(buf),
            "Percentiles: "
@@ -163,36 +205,84 @@ std::string HistogramImpl::ToString() const {
            Percentile(99.99));
   r.append(buf);
   r.append("------------------------------------------------------\n");
-  const double mult = 100.0 / num_;
-  double sum = 0;
-  for (unsigned int b = 0; b < bucketMapper.BucketCount(); b++) {
-    if (buckets_[b] <= 0.0) continue;
-    sum += buckets_[b];
+  const double mult = 100.0 / cur_num;
+  uint64_t cumulative_sum = 0;
+  for (unsigned int b = 0; b < num_buckets_; b++) {
+    uint64_t bucket_value = bucket_at(b);
+    if (bucket_value <= 0.0) continue;
+    cumulative_sum += bucket_value;
     snprintf(buf, sizeof(buf),
-             "[ %7lu, %7lu ) %8lu %7.3f%% %7.3f%% ",
-             // left
-             (unsigned long)((b == 0) ? 0 : bucketMapper.BucketLimit(b-1)),
-             (unsigned long)bucketMapper.BucketLimit(b), // right
-             (unsigned long)buckets_[b],                 // count
-             (mult * buckets_[b]),        // percentage
-             (mult * sum));               // cumulative percentage
+             "[ %7" PRIu64 ", %7" PRIu64 " ) %8" PRIu64 " %7.3f%% %7.3f%% ",
+             (b == 0) ? 0 : bucketMapper.BucketLimit(b-1),  // left
+              bucketMapper.BucketLimit(b),  // right
+              bucket_value,                   // count
+             (mult * bucket_value),           // percentage
+             (mult * cumulative_sum));       // cumulative percentage
     r.append(buf);
 
     // Add hash marks based on percentage; 20 marks for 100%.
-    int marks = static_cast<int>(20*(buckets_[b] / num_) + 0.5);
+    size_t marks = static_cast<size_t>(mult * bucket_value / 5 + 0.5);
     r.append(marks, '#');
     r.push_back('\n');
   }
   return r;
 }
 
-void HistogramImpl::Data(HistogramData * const data) const {
+void HistogramStat::Data(HistogramData * const data) const {
   assert(data);
   data->median = Median();
   data->percentile95 = Percentile(95);
   data->percentile99 = Percentile(99);
   data->average = Average();
   data->standard_deviation = StandardDeviation();
+}
+
+void HistogramImpl::Clear() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  stats_.Clear();
+}
+
+bool HistogramImpl::Empty() const {
+  return stats_.Empty();
+}
+
+void HistogramImpl::Add(uint64_t value) {
+  stats_.Add(value);
+}
+
+void HistogramImpl::Merge(const Histogram& other) {
+  if (strcmp(Name(), other.Name()) == 0) {
+    Merge(dynamic_cast<const HistogramImpl&>(other));
+  }
+}
+
+void HistogramImpl::Merge(const HistogramImpl& other) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  stats_.Merge(other.stats_);
+}
+
+double HistogramImpl::Median() const {
+  return stats_.Median();
+}
+
+double HistogramImpl::Percentile(double p) const {
+  return stats_.Percentile(p);
+}
+
+double HistogramImpl::Average() const {
+  return stats_.Average();
+}
+
+double HistogramImpl::StandardDeviation() const {
+ return stats_.StandardDeviation();
+}
+
+std::string HistogramImpl::ToString() const {
+  return stats_.ToString();
+}
+
+void HistogramImpl::Data(HistogramData * const data) const {
+  stats_.Data(data);
 }
 
 } // namespace levedb

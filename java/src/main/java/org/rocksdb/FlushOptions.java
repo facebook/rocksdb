@@ -10,8 +10,7 @@ public class FlushOptions extends RocksObject {
    * Construct a new instance of FlushOptions.
    */
   public FlushOptions(){
-    super();
-    newFlushOptions();
+    super(newFlushOptions());
   }
 
   /**
@@ -23,7 +22,7 @@ public class FlushOptions extends RocksObject {
    * @return instance of current FlushOptions.
    */
   public FlushOptions setWaitForFlush(final boolean waitForFlush) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setWaitForFlush(nativeHandle_, waitForFlush);
     return this;
   }
@@ -35,16 +34,12 @@ public class FlushOptions extends RocksObject {
    *     waits for termination of the flush process.
    */
   public boolean waitForFlush() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return waitForFlush(nativeHandle_);
   }
 
-  @Override protected void disposeInternal() {
-    disposeInternal(nativeHandle_);
-  }
-
-  private native void newFlushOptions();
-  private native void disposeInternal(long handle);
+  private native static long newFlushOptions();
+  @Override protected final native void disposeInternal(final long handle);
   private native void setWaitForFlush(long handle,
       boolean wait);
   private native boolean waitForFlush(long handle);

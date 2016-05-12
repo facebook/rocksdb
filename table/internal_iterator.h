@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -6,10 +6,13 @@
 
 #pragma once
 
+#include <string>
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
+
+class PinnedIteratorsManager;
 
 class InternalIterator : public Cleanable {
  public:
@@ -59,6 +62,27 @@ class InternalIterator : public Cleanable {
   // If non-blocking IO is requested and this operation cannot be
   // satisfied without doing some IO, then this returns Status::Incomplete().
   virtual Status status() const = 0;
+
+  // Pass the PinnedIteratorsManager to the Iterator, most Iterators dont
+  // communicate with PinnedIteratorsManager so default implementation is no-op
+  // but for Iterators that need to communicate with PinnedIteratorsManager
+  // they will implement this function and use the passed pointer to communicate
+  // with PinnedIteratorsManager.
+  virtual void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {}
+
+  // If true, this means that the Slice returned by key() is valid as long as
+  // PinnedIteratorsManager::ReleasePinnedIterators is not called and the
+  // Iterator is not deleted.
+  //
+  // IsKeyPinned() is guaranteed to always return true if
+  //  - Iterator is created with ReadOptions::pin_data = true
+  //  - DB tables were created with BlockBasedTableOptions::use_delta_encoding
+  //    set to false.
+  virtual bool IsKeyPinned() const { return false; }
+
+  virtual Status GetProperty(std::string prop_name, std::string* prop) {
+    return Status::NotSupported("");
+  }
 
  private:
   // No copying allowed

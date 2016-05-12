@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -18,6 +18,7 @@
 #include <list>
 
 #ifdef OS_LINUX
+#include <fcntl.h>
 #include <linux/fs.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -26,12 +27,12 @@
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 #include <errno.h>
-#include <fcntl.h>
 #endif
 
-#include "rocksdb/env.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
 #include "util/coding.h"
+#include "util/env_chroot.h"
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
 #include "util/string_util.h"
@@ -52,19 +53,25 @@ class EnvPosixTest : public testing::Test {
   EnvPosixTest() : env_(Env::Default()) { }
 };
 
+class EnvPosixTestWithParam : public EnvPosixTest,
+                              public ::testing::WithParamInterface<Env*> {
+ public:
+  EnvPosixTestWithParam() { env_ = GetParam(); }
+};
+
 static void SetBool(void* ptr) {
   reinterpret_cast<std::atomic<bool>*>(ptr)
       ->store(true, std::memory_order_relaxed);
 }
 
-TEST_F(EnvPosixTest, RunImmediately) {
+TEST_P(EnvPosixTestWithParam, RunImmediately) {
   std::atomic<bool> called(false);
   env_->Schedule(&SetBool, &called);
   Env::Default()->SleepForMicroseconds(kDelayMicros);
   ASSERT_TRUE(called.load(std::memory_order_relaxed));
 }
 
-TEST_F(EnvPosixTest, UnSchedule) {
+TEST_P(EnvPosixTestWithParam, UnSchedule) {
   std::atomic<bool> called(false);
   env_->SetBackgroundThreads(1, Env::LOW);
 
@@ -99,7 +106,7 @@ TEST_F(EnvPosixTest, UnSchedule) {
   ASSERT_TRUE(!sleeping_task.IsSleeping() && !sleeping_task1.IsSleeping());
 }
 
-TEST_F(EnvPosixTest, RunMany) {
+TEST_P(EnvPosixTestWithParam, RunMany) {
   std::atomic<int> last_id(0);
 
   struct CB {
@@ -145,7 +152,7 @@ static void ThreadBody(void* arg) {
   s->mu.Unlock();
 }
 
-TEST_F(EnvPosixTest, StartThread) {
+TEST_P(EnvPosixTestWithParam, StartThread) {
   State state;
   state.val = 0;
   state.num_running = 3;
@@ -164,7 +171,7 @@ TEST_F(EnvPosixTest, StartThread) {
   ASSERT_EQ(state.val, 3);
 }
 
-TEST_F(EnvPosixTest, TwoPools) {
+TEST_P(EnvPosixTestWithParam, TwoPools) {
   class CB {
    public:
     CB(const std::string& pool_name, int pool_size)
@@ -281,7 +288,7 @@ TEST_F(EnvPosixTest, TwoPools) {
   env_->SetBackgroundThreads(kHighPoolSize, Env::Priority::HIGH);
 }
 
-TEST_F(EnvPosixTest, DecreaseNumBgThreads) {
+TEST_P(EnvPosixTestWithParam, DecreaseNumBgThreads) {
   std::vector<test::SleepingBackgroundTask> tasks(10);
 
   // Set number of thread to 1 first.
@@ -514,7 +521,7 @@ class IoctlFriendlyTmpdir {
         } else {
           // Diagnose ioctl-related failure only if this is the
           // directory specified via that envvar.
-          if (tmp == d) {
+          if (tmp && tmp == d) {
             fprintf(stderr, "TEST_IOCTL_FRIENDLY_TMPDIR-specified directory is "
                     "not suitable: %s\n", d.c_str());
           }
@@ -743,9 +750,9 @@ TEST_F(EnvPosixTest, RandomAccessUniqueIDDeletes) {
 }
 
 // Only works in linux platforms
-TEST_F(EnvPosixTest, InvalidateCache) {
+TEST_P(EnvPosixTestWithParam, InvalidateCache) {
   const EnvOptions soptions;
-  std::string fname = test::TmpDir() + "/" + "testfile";
+  std::string fname = test::TmpDir(env_) + "/" + "testfile";
 
   // Create file.
   {
@@ -828,7 +835,7 @@ class TestLogger : public Logger {
   int char_0_count;
 };
 
-TEST_F(EnvPosixTest, LogBufferTest) {
+TEST_P(EnvPosixTestWithParam, LogBufferTest) {
   TestLogger test_logger;
   test_logger.SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
   test_logger.log_count = 0;
@@ -886,7 +893,7 @@ class TestLogger2 : public Logger {
   size_t max_log_size_;
 };
 
-TEST_F(EnvPosixTest, LogBufferMaxSizeTest) {
+TEST_P(EnvPosixTestWithParam, LogBufferMaxSizeTest) {
   char bytes9000[9000];
   std::fill_n(bytes9000, sizeof(bytes9000), '1');
   bytes9000[sizeof(bytes9000) - 1] = '\0';
@@ -901,8 +908,8 @@ TEST_F(EnvPosixTest, LogBufferMaxSizeTest) {
   }
 }
 
-TEST_F(EnvPosixTest, Preallocation) {
-  const std::string src = test::TmpDir() + "/" + "testfile";
+TEST_P(EnvPosixTestWithParam, Preallocation) {
+  const std::string src = test::TmpDir(env_) + "/" + "testfile";
   unique_ptr<WritableFile> srcfile;
   const EnvOptions soptions;
   ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
@@ -935,8 +942,44 @@ TEST_F(EnvPosixTest, Preallocation) {
   ASSERT_EQ(last_allocated_block, 7UL);
 }
 
+// Test that the two ways to get children file attributes (in bulk or
+// individually) behave consistently.
+TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
+  const EnvOptions soptions;
+  const int kNumChildren = 10;
+
+  std::string data;
+  for (int i = 0; i < kNumChildren; ++i) {
+    std::ostringstream oss;
+    oss << test::TmpDir(env_) << "/testfile_" << i;
+    const std::string path = oss.str();
+    unique_ptr<WritableFile> file;
+    ASSERT_OK(env_->NewWritableFile(path, &file, soptions));
+    file->Append(data);
+    data.append("test");
+  }
+
+  std::vector<Env::FileAttributes> file_attrs;
+  ASSERT_OK(env_->GetChildrenFileAttributes(test::TmpDir(env_), &file_attrs));
+  for (int i = 0; i < kNumChildren; ++i) {
+    std::ostringstream oss;
+    oss << "testfile_" << i;
+    const std::string name = oss.str();
+    const std::string path = test::TmpDir(env_) + "/" + name;
+
+    auto file_attrs_iter = std::find_if(
+        file_attrs.begin(), file_attrs.end(),
+        [&name](const Env::FileAttributes& fm) { return fm.name == name; });
+    ASSERT_TRUE(file_attrs_iter != file_attrs.end());
+    uint64_t size;
+    ASSERT_OK(env_->GetFileSize(path, &size));
+    ASSERT_EQ(size, 4 * i);
+    ASSERT_EQ(size, file_attrs_iter->size_bytes);
+  }
+}
+
 // Test that all WritableFileWrapper forwards all calls to WritableFile.
-TEST_F(EnvPosixTest, WritableFileWrapper) {
+TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
   class Base : public WritableFile {
    public:
     mutable int *step_;
@@ -971,11 +1014,11 @@ TEST_F(EnvPosixTest, WritableFileWrapper) {
     }
 
    protected:
-    Status Allocate(off_t offset, off_t len) override {
+    Status Allocate(uint64_t offset, uint64_t len) override {
       inc(11);
       return Status::OK();
     }
-    Status RangeSync(off_t offset, off_t nbytes) override {
+    Status RangeSync(uint64_t offset, uint64_t nbytes) override {
       inc(12);
       return Status::OK();
     }
@@ -1016,6 +1059,15 @@ TEST_F(EnvPosixTest, WritableFileWrapper) {
 
   EXPECT_EQ(14, step);
 }
+
+INSTANTIATE_TEST_CASE_P(DefaultEnv, EnvPosixTestWithParam,
+                        ::testing::Values(Env::Default()));
+#if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
+static unique_ptr<Env> chroot_env(NewChrootEnv(Env::Default(),
+                                               test::TmpDir(Env::Default())));
+INSTANTIATE_TEST_CASE_P(ChrootEnv, EnvPosixTestWithParam,
+                        ::testing::Values(chroot_env.get()));
+#endif  // !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 }  // namespace rocksdb
 

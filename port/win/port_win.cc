@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -39,8 +39,9 @@ void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
 
   seconds secNow(duration_cast<seconds>(usNow));
 
-  tv->tv_sec = secNow.count();
-  tv->tv_usec = usNow.count() - duration_cast<microseconds>(secNow).count();
+  tv->tv_sec = static_cast<long>(secNow.count());
+  tv->tv_usec = static_cast<long>(usNow.count() -
+      duration_cast<microseconds>(secNow).count());
 }
 
 Mutex::~Mutex() {}
@@ -67,7 +68,7 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
   using namespace std::chrono;
 
   // MSVC++ library implements wait_until in terms of wait_for so
-  // we need to convert absoulte wait into relative wait.
+  // we need to convert absolute wait into relative wait.
   microseconds usAbsTime(abs_time_us);
 
   microseconds usNow(
@@ -99,8 +100,10 @@ void CondVar::Signal() { cv_.notify_one(); }
 
 void CondVar::SignalAll() { cv_.notify_all(); }
 
+int PhysicalCoreID() { return GetCurrentProcessorNumber(); }
+
 void InitOnce(OnceType* once, void (*initializer)()) {
-  std::call_once(*once, initializer);
+  std::call_once(once->flag_, initializer);
 }
 
 // Private structure, exposed only by pointer
@@ -230,6 +233,8 @@ int GetMaxOpenFiles() { return -1; }
 
 #include "jemalloc/jemalloc.h"
 
+#ifndef JEMALLOC_NON_INIT
+
 namespace rocksdb {
 
 namespace port {
@@ -274,6 +279,8 @@ JEMALLOC_SECTION(".CRT$XCT") JEMALLOC_ATTR(used) static const void(
 #endif  // _WIN64
 
 }  // extern "C"
+
+#endif // JEMALLOC_NON_INIT
 
 // Global operators to be replaced by a linker
 

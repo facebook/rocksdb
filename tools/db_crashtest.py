@@ -24,6 +24,7 @@ default_params = {
     "disable_data_sync": 0,
     "disable_wal": 0,
     "filter_deletes": lambda: random.randint(0, 1),
+    "allow_concurrent_memtable_write": 0,
     "iterpercent": 10,
     "max_background_compactions": 20,
     "max_bytes_for_level_base": 10485760,
@@ -44,6 +45,7 @@ default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 4 * 1024 * 1024,
     "writepercent": 35,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 
@@ -74,6 +76,7 @@ whitebox_default_params = {
     "ops_per_thread": 200000,
     "test_batches_snapshots": lambda: random.randint(0, 1),
     "write_buffer_size": 4 * 1024 * 1024,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 simple_default_params = {
@@ -85,6 +88,7 @@ simple_default_params = {
     "disable_data_sync": 0,
     "disable_wal": 0,
     "filter_deletes": lambda: random.randint(0, 1),
+    "allow_concurrent_memtable_write": lambda: random.randint(0, 1),
     "iterpercent": 10,
     "max_background_compactions": 1,
     "max_bytes_for_level_base": 67108864,
@@ -105,6 +109,7 @@ simple_default_params = {
     "verify_checksum": 1,
     "write_buffer_size": 32 * 1024 * 1024,
     "writepercent": 35,
+    "subcompactions": lambda: random.randint(1, 4),
 }
 
 blackbox_simple_default_params = {
@@ -123,7 +128,18 @@ whitebox_simple_default_params = {
     "open_files": 500000,
     "ops_per_thread": 200000,
     "write_buffer_size": 32 * 1024 * 1024,
+    "subcompactions": lambda: random.randint(1, 4),
 }
+
+
+def finalize_and_sanitize(src_params):
+    dest_params = dict([(k,  v() if callable(v) else v)
+                        for (k, v) in src_params.items()])
+    # --allow_concurrent_memtable_write with --filter_deletes is not supported.
+    if dest_params.get("allow_concurrent_memtable_write", 1) == 1:
+        dest_params["filter_deletes"] = 0
+        dest_params["memtablerep"] = "skip_list"
+    return dest_params
 
 
 def gen_cmd_params(args):
@@ -151,8 +167,8 @@ def gen_cmd_params(args):
 
 def gen_cmd(params):
     cmd = './db_stress ' + ' '.join(
-        '--{0}={1}'.format(k, v() if callable(v) else v)
-        for k, v in params.items()
+        '--{0}={1}'.format(k, v)
+        for k, v in finalize_and_sanitize(params).items()
         if k not in set(['test_type', 'simple', 'duration', 'interval'])
         and v is not None)
     return cmd
@@ -170,7 +186,8 @@ def blackbox_crash_main(args):
           + "total-duration=" + str(cmd_params['duration']) + "\n"
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
-          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n")
+          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
 
     while time.time() < exit_time:
         run_had_errors = False
@@ -232,11 +249,12 @@ def whitebox_crash_main(args):
           + "total-duration=" + str(cmd_params['duration']) + "\n"
           + "threads=" + str(cmd_params['threads']) + "\n"
           + "ops_per_thread=" + str(cmd_params['ops_per_thread']) + "\n"
-          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n")
+          + "write_buffer_size=" + str(cmd_params['write_buffer_size']) + "\n"
+          + "subcompactions=" + str(cmd_params['subcompactions']) + "\n")
 
     total_check_mode = 4
     check_mode = 0
-    kill_random_test = 97
+    kill_random_test = 888887
     kill_mode = 0
 
     while time.time() < exit_time:
@@ -255,13 +273,13 @@ def whitebox_crash_main(args):
                 })
             elif kill_mode == 1:
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 2 + 1),
+                    "kill_random_test": (kill_random_test / 10 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     + "WritableFileWriter::WriteBuffered",
                 })
             elif kill_mode == 2:
                 additional_opts.update({
-                    "kill_random_test": (kill_random_test / 4 + 1),
+                    "kill_random_test": (kill_random_test / 5000 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"
                     "WritableFileWriter::WriteBuffered,"
                     "PosixMmapFile::Allocate,WritableFileWriter::Flush",

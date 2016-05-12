@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -23,8 +23,7 @@ public class RestoreBackupableDB extends RocksObject {
    * @param options {@link org.rocksdb.BackupableDBOptions} instance
    */
   public RestoreBackupableDB(final BackupableDBOptions options) {
-    super();
-    nativeHandle_ = newRestoreBackupableDB(options.nativeHandle_);
+    super(newRestoreBackupableDB(options.nativeHandle_));
   }
 
   /**
@@ -52,7 +51,7 @@ public class RestoreBackupableDB extends RocksObject {
   public void restoreDBFromBackup(final long backupId, final String dbDir,
       final String walDir, final RestoreOptions restoreOptions)
       throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     restoreDBFromBackup0(nativeHandle_, backupId, dbDir, walDir,
         restoreOptions.nativeHandle_);
   }
@@ -70,7 +69,7 @@ public class RestoreBackupableDB extends RocksObject {
   public void restoreDBFromLatestBackup(final String dbDir,
       final String walDir, final RestoreOptions restoreOptions)
       throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     restoreDBFromLatestBackup0(nativeHandle_, dbDir, walDir,
         restoreOptions.nativeHandle_);
   }
@@ -85,7 +84,7 @@ public class RestoreBackupableDB extends RocksObject {
    */
   public void purgeOldBackups(final int numBackupsToKeep)
       throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     purgeOldBackups0(nativeHandle_, numBackupsToKeep);
   }
 
@@ -99,7 +98,7 @@ public class RestoreBackupableDB extends RocksObject {
    */
   public void deleteBackup(final int backupId)
       throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     deleteBackup0(nativeHandle_, backupId);
   }
 
@@ -110,7 +109,7 @@ public class RestoreBackupableDB extends RocksObject {
    * @return List of {@link BackupInfo} instances.
    */
   public List<BackupInfo> getBackupInfos() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return getBackupInfo(nativeHandle_);
   }
 
@@ -122,7 +121,7 @@ public class RestoreBackupableDB extends RocksObject {
    * @return array of backup ids as int ids.
    */
   public int[] getCorruptedBackups() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return getCorruptedBackups(nativeHandle_);
   }
 
@@ -135,19 +134,11 @@ public class RestoreBackupableDB extends RocksObject {
    *    native library.
    */
   public void garbageCollect() throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     garbageCollect(nativeHandle_);
   }
 
-  /**
-   * <p>Release the memory allocated for the current instance
-   * in the c++ side.</p>
-   */
-  @Override public synchronized void disposeInternal() {
-    dispose(nativeHandle_);
-  }
-
-  private native long newRestoreBackupableDB(long options);
+  private native static long newRestoreBackupableDB(final long options);
   private native void restoreDBFromBackup0(long nativeHandle, long backupId,
       String dbDir, String walDir, long restoreOptions)
       throws RocksDBException;
@@ -162,5 +153,6 @@ public class RestoreBackupableDB extends RocksObject {
   private native int[] getCorruptedBackups(long handle);
   private native void garbageCollect(long handle)
       throws RocksDBException;
-  private native void dispose(long nativeHandle);
+  @Override protected final native void disposeInternal(
+      final long nativeHandle);
 }

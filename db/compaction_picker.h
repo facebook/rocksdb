@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -60,7 +60,7 @@ class CompactionPicker {
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, int input_level, int output_level,
       uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end);
+      InternalKey** compaction_end, bool* manual_conflict);
 
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const {
@@ -83,6 +83,8 @@ class CompactionPicker {
 #endif  // ROCKSDB_LITE
 
   // Free up the files that participated in a compaction
+  //
+  // Requirement: DB mutex held
   void ReleaseCompactionFiles(Compaction* c, Status status);
 
   // Returns true if any one of the specified files are being compacted
@@ -94,7 +96,7 @@ class CompactionPicker {
       const CompactionOptions& compact_options,
       const std::vector<CompactionInputFiles>& input_files, int output_level,
       VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
-      uint32_t output_path_id) const;
+      uint32_t output_path_id);
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.
@@ -251,7 +253,7 @@ class UniversalCompactionPicker : public CompactionPicker {
 
     // sorted_run_count is added into the string to print
     void DumpSizeInfo(char* out_buf, size_t out_buf_size,
-                      int sorted_run_count) const;
+                      size_t sorted_run_count) const;
 
     int level;
     // `file` Will be null for level > 0. For level = 0, the sorted run is
@@ -302,7 +304,7 @@ class FIFOCompactionPicker : public CompactionPicker {
       const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
       VersionStorageInfo* vstorage, int input_level, int output_level,
       uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end) override;
+      InternalKey** compaction_end, bool* manual_conflict) override;
 
   // The maximum allowed output level.  Always returns 0.
   virtual int MaxOutputLevel() const override {
@@ -329,11 +331,13 @@ class NullCompactionPicker : public CompactionPicker {
   }
 
   // Always return "nullptr"
-  Compaction* CompactRange(
-      const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
-      VersionStorageInfo* vstorage, int input_level, int output_level,
-      uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
-      InternalKey** compaction_end) override {
+  Compaction* CompactRange(const std::string& cf_name,
+                           const MutableCFOptions& mutable_cf_options,
+                           VersionStorageInfo* vstorage, int input_level,
+                           int output_level, uint32_t output_path_id,
+                           const InternalKey* begin, const InternalKey* end,
+                           InternalKey** compaction_end,
+                           bool* manual_conflict) override {
     return nullptr;
   }
 
@@ -346,6 +350,7 @@ class NullCompactionPicker : public CompactionPicker {
 #endif  // !ROCKSDB_LITE
 
 CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
+                                   const VersionStorageInfo* vstorage,
                                    int level, int base_level,
                                    const bool enable_compression = true);
 

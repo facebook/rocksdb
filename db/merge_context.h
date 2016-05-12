@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -36,6 +36,11 @@ public:
   void PushOperand(const Slice& operand_slice) {
     Initialize();
     operand_list->push_front(operand_slice.ToString());
+  }
+  // Push back a merge operand
+  void PushOperandBack(const Slice& operand_slice) {
+    Initialize();
+    operand_list->push_back(operand_slice.ToString());
   }
   // return total number of operands in the list
   size_t GetNumOperands() const {

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -12,6 +12,32 @@
 #endif
 
 #include <inttypes.h>
+#include <iostream>
+#include <map>
+#include <sstream>
+#include <vector>
+
+#include "db/memtable.h"
+#include "db/write_batch_internal.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/immutable_options.h"
+#include "rocksdb/iterator.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/status.h"
+#include "rocksdb/table_properties.h"
+#include "rocksdb/utilities/ldb_cmd.h"
+#include "table/block.h"
+#include "table/block_based_table_builder.h"
+#include "table/block_based_table_factory.h"
+#include "table/block_builder.h"
+#include "table/format.h"
+#include "table/meta_blocks.h"
+#include "table/plain_table_factory.h"
+#include "table/table_reader.h"
+#include "util/random.h"
+#include "util/compression.h"
+
 #include "port/port.h"
 
 namespace rocksdb {
@@ -36,7 +62,10 @@ extern const uint64_t kLegacyPlainTableMagicNumber;
 const char* testFileName = "test_file_name";
 
 Status SstFileReader::GetTableReader(const std::string& file_path) {
-  uint64_t magic_number;
+  // Warning about 'magic_number' being uninitialized shows up only in UBsan
+  // builds. Though access is guarded by 's.ok()' checks, fix the issue to
+  // avoid any warnings.
+  uint64_t magic_number = Footer::kInvalidTableMagicNumber;
 
   // read table magic number
   Footer footer;
@@ -91,7 +120,8 @@ Status SstFileReader::NewTableReader(
 
   if (block_table_factory) {
     return block_table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, soptions_, internal_comparator_),
+        TableReaderOptions(ioptions_, soptions_, internal_comparator_,
+                           /*skip_filters=*/false),
         std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 
@@ -153,34 +183,33 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
   std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
       block_based_table_factories;
 
-  std::map<CompressionType, const char*> compress_type;
-  compress_type.insert(
-      std::make_pair(CompressionType::kNoCompression, "kNoCompression"));
-  compress_type.insert(std::make_pair(CompressionType::kSnappyCompression,
-                                      "kSnappyCompression"));
-  compress_type.insert(
-      std::make_pair(CompressionType::kZlibCompression, "kZlibCompression"));
-  compress_type.insert(
-      std::make_pair(CompressionType::kBZip2Compression, "kBZip2Compression"));
-  compress_type.insert(
-      std::make_pair(CompressionType::kLZ4Compression, "kLZ4Compression"));
-  compress_type.insert(
-      std::make_pair(CompressionType::kLZ4HCCompression, "kLZ4HCCompression"));
-  compress_type.insert(std::make_pair(CompressionType::kZSTDNotFinalCompression,
-                                      "kZSTDNotFinalCompression"));
-
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
 
-  for (CompressionType i = CompressionType::kNoCompression;
-       i <= CompressionType::kZSTDNotFinalCompression;
-       i = (i == kLZ4HCCompression) ? kZSTDNotFinalCompression
-                                    : CompressionType(i + 1)) {
-    CompressionOptions compress_opt;
-    TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i,
-                                compress_opt, false);
-    uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
-    fprintf(stdout, "Compression: %s", compress_type.find(i)->second);
-    fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
+  std::pair<CompressionType,const char*> compressions[] = {
+    { CompressionType::kNoCompression, "kNoCompression" },
+    { CompressionType::kSnappyCompression, "kSnappyCompression" },
+    { CompressionType::kZlibCompression, "kZlibCompression" },
+    { CompressionType::kBZip2Compression, "kBZip2Compression" },
+    { CompressionType::kLZ4Compression, "kLZ4Compression" },
+    { CompressionType::kLZ4HCCompression, "kLZ4HCCompression" },
+    { CompressionType::kXpressCompression, "kXpressCompression" },
+    { CompressionType::kZSTDNotFinalCompression, "kZSTDNotFinalCompression" }
+  };
+
+  for (auto& i : compressions) {
+    if (CompressionTypeSupported(i.first)) {
+      CompressionOptions compress_opt;
+      std::string column_family_name;
+      TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories,
+                                  i.first, compress_opt,
+                                  nullptr /* compression_dict */,
+                                  false /* skip_filters */, column_family_name);
+      uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
+      fprintf(stdout, "Compression: %s", i.second);
+      fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
+    } else {
+      fprintf(stdout, "Unsupported compression type: %s.\n", i.second);
+    }
   }
   return 0;
 }
@@ -319,16 +348,44 @@ namespace {
 
 void print_help() {
   fprintf(stderr,
-          "sst_dump [--command=check|scan|none|raw] [--verify_checksum] "
-          "--file=data_dir_OR_sst_file"
-          " [--output_hex]"
-          " [--input_key_hex]"
-          " [--from=<user_key>]"
-          " [--to=<user_key>]"
-          " [--read_num=NUM]"
-          " [--show_properties]"
-          " [--show_compression_sizes]"
-          " [--show_compression_sizes [--set_block_size=<block_size>]]\n");
+          R"(sst_dump --file=<data_dir_OR_sst_file> [--command=check|scan|raw]
+    --file=<data_dir_OR_sst_file>
+      Path to SST file or directory containing SST files
+
+    --command=check|scan|raw
+        check: Iterate over entries in files but dont print anything except if an error is encounterd (default command)
+        scan: Iterate over entries in files and print them to screen
+        raw: Dump all the table contents to <file_name>_dump.txt
+
+    --output_hex
+      Can be combined with scan command to print the keys and values in Hex
+
+    --from=<user_key>
+      Key to start reading from when executing check|scan
+
+    --to=<user_key>
+      Key to stop reading at when executing check|scan
+
+    --read_num=<num>
+      Maximum number of entries to read when executing check|scan
+
+    --verify_checksum
+      Verify file checksum when executing check|scan
+
+    --input_key_hex
+      Can be combined with --from and --to to indicate that these values are encoded in Hex
+
+    --show_properties
+      Print table properties after iterating over the file
+
+    --show_compression_sizes
+      Independent command that will recreate the SST file using 16K block size with different
+      compressions and report the size of the file using such compression
+
+    --set_block_size=<block_size>
+      Can be combined with --show_compression_sizes to set the block size that will be used
+      when trying different compression algorithms
+)");
 }
 
 }  // namespace

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -41,8 +41,9 @@
 
 namespace rocksdb {
 
-BlockBuilder::BlockBuilder(int block_restart_interval)
+BlockBuilder::BlockBuilder(int block_restart_interval, bool use_delta_encoding)
     : block_restart_interval_(block_restart_interval),
+      use_delta_encoding_(use_delta_encoding),
       restarts_(),
       counter_(0),
       finished_(false) {
@@ -94,17 +95,17 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   Slice last_key_piece(last_key_);
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
-  size_t shared = 0;
-  if (counter_ < block_restart_interval_) {
+  size_t shared = 0;  // number of bytes shared with prev key
+  if (counter_ >= block_restart_interval_) {
+    // Restart compression
+    restarts_.push_back(static_cast<uint32_t>(buffer_.size()));
+    counter_ = 0;
+  } else if (use_delta_encoding_) {
     // See how much sharing to do with previous string
     const size_t min_length = std::min(last_key_piece.size(), key.size());
     while ((shared < min_length) && (last_key_piece[shared] == key[shared])) {
       shared++;
     }
-  } else {
-    // Restart compression
-    restarts_.push_back(static_cast<uint32_t>(buffer_.size()));
-    counter_ = 0;
   }
   const size_t non_shared = key.size() - shared;
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -60,8 +60,8 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   // performance.
   mtx_compare->Lock();
 
-  AbstractSliceJni::setHandle(m_env, m_jSliceA, &a);
-  AbstractSliceJni::setHandle(m_env, m_jSliceB, &b);
+  AbstractSliceJni::setHandle(m_env, m_jSliceA, &a, JNI_FALSE);
+  AbstractSliceJni::setHandle(m_env, m_jSliceB, &b, JNI_FALSE);
   jint result =
     m_env->CallIntMethod(m_jComparator, m_jCompareMethodId, m_jSliceA,
       m_jSliceB);
@@ -89,7 +89,7 @@ void BaseComparatorJniCallback::FindShortestSeparator(
   // performance.
   mtx_findShortestSeparator->Lock();
 
-  AbstractSliceJni::setHandle(m_env, m_jSliceLimit, &limit);
+  AbstractSliceJni::setHandle(m_env, m_jSliceLimit, &limit, JNI_FALSE);
   jstring jsResultStart =
     (jstring)m_env->CallObjectMethod(m_jComparator,
       m_jFindShortestSeparatorMethodId, jsStart, m_jSliceLimit);

@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc. All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -72,8 +72,10 @@ class CuckooTableFactory : public TableFactory {
 
   std::string GetPrintableTableOptions() const override;
 
+  void* GetOptions() override { return &table_options_; }
+
  private:
-  const CuckooTableOptions table_options_;
+  CuckooTableOptions table_options_;
 };
 
 }  // namespace rocksdb

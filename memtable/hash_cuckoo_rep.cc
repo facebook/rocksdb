@@ -1,4 +1,4 @@
-//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -318,7 +318,7 @@ void HashCuckooRep::Get(const LookupKey& key, void* callback_args,
 }
 
 void HashCuckooRep::Insert(KeyHandle handle) {
-  static const float kMaxFullness = 0.90;
+  static const float kMaxFullness = 0.90f;
 
   auto* key = static_cast<char*>(handle);
   int initial_hash_id = 0;
@@ -620,12 +620,13 @@ MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
   // degrades as the fullness of the mem-table increases.  Setting kFullness
   // to a value around 0.7 can better avoid write performance degradation while
   // keeping efficient memory usage.
-  static const float kFullness = 0.7;
+  static const float kFullness = 0.7f;
   size_t pointer_size = sizeof(std::atomic<const char*>);
   assert(write_buffer_size_ >= (average_data_size_ + pointer_size));
   size_t bucket_count =
+    static_cast<size_t>(
       (write_buffer_size_ / (average_data_size_ + pointer_size)) / kFullness +
-      1;
+      1);
   unsigned int hash_function_count = hash_function_count_;
   if (hash_function_count < 2) {
     hash_function_count = 2;
@@ -635,7 +636,9 @@ MemTableRep* HashCuckooRepFactory::CreateMemTableRep(
   }
   return new HashCuckooRep(compare, allocator, bucket_count,
                            hash_function_count,
-                           (average_data_size_ + pointer_size) / kFullness);
+                           static_cast<size_t>(
+                             (average_data_size_ + pointer_size) / kFullness)
+                           );
 }
 
 MemTableRepFactory* NewHashCuckooRepFactory(size_t write_buffer_size,

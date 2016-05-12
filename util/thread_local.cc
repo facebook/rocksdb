@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -14,7 +14,6 @@
 
 namespace rocksdb {
 
-port::Mutex ThreadLocalPtr::StaticMeta::mutex_;
 #if ROCKSDB_SUPPORT_THREAD_LOCAL
 __thread ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 #endif
@@ -103,19 +102,56 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 
 #endif  // OS_WIN
 
-ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
-  static ThreadLocalPtr::StaticMeta inst;
-  return &inst;
+void ThreadLocalPtr::InitSingletons() {
+  ThreadLocalPtr::StaticMeta::InitSingletons();
 }
+
+ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
+  // Here we prefer function static variable instead of global
+  // static variable as function static variable is initialized
+  // when the function is first call.  As a result, we can properly
+  // control their construction order by properly preparing their
+  // first function call.
+  //
+  // Note that here we decide to make "inst" a static pointer w/o deleting
+  // it at the end instead of a static variable.  This is to avoid the following
+  // destruction order desester happens when a child thread using ThreadLocalPtr
+  // dies AFTER the main thread dies:  When a child thread happens to use
+  // ThreadLocalPtr, it will try to delete its thread-local data on its
+  // OnThreadExit when the child thread dies.  However, OnThreadExit depends
+  // on the following variable.  As a result, if the main thread dies before any
+  // child thread happen to use ThreadLocalPtr dies, then the destruction of
+  // the following variable will go first, then OnThreadExit, therefore causing
+  // invalid access.
+  //
+  // The above problem can be solved by using thread_local to store tls_ instead
+  // of using __thread.  The major difference between thread_local and __thread
+  // is that thread_local supports dynamic construction and destruction of
+  // non-primitive typed variables.  As a result, we can guarantee the
+  // desturction order even when the main thread dies before any child threads.
+  // However, thread_local requires gcc 4.8 and is not supported in all the
+  // compilers that accepts -std=c++11 (e.g., the default clang on Mac), while
+  // the current RocksDB still accept gcc 4.7.
+  static ThreadLocalPtr::StaticMeta* inst = new ThreadLocalPtr::StaticMeta();
+  return inst;
+}
+
+void ThreadLocalPtr::StaticMeta::InitSingletons() { Mutex(); }
+
+port::Mutex* ThreadLocalPtr::StaticMeta::Mutex() { return &Instance()->mutex_; }
 
 void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   auto* tls = static_cast<ThreadData*>(ptr);
   assert(tls != nullptr);
 
-  auto* inst = Instance();
+  // Use the cached StaticMeta::Instance() instead of directly calling
+  // the variable inside StaticMeta::Instance() might already go out of
+  // scope here in case this OnThreadExit is called after the main thread
+  // dies.
+  auto* inst = tls->inst;
   pthread_setspecific(inst->pthread_key_, nullptr);
 
-  MutexLock l(&mutex_);
+  MutexLock l(inst->MemberMutex());
   inst->RemoveThreadData(tls);
   // Unref stored pointers of current thread from all instances
   uint32_t id = 0;
@@ -133,7 +169,7 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   delete tls;
 }
 
-ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
+ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0), head_(this) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
     abort();
   }
@@ -175,7 +211,7 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
 }
 
 void ThreadLocalPtr::StaticMeta::AddThreadData(ThreadLocalPtr::ThreadData* d) {
-  mutex_.AssertHeld();
+  Mutex()->AssertHeld();
   d->next = &head_;
   d->prev = head_.prev;
   head_.prev->next = d;
@@ -184,7 +220,7 @@ void ThreadLocalPtr::StaticMeta::AddThreadData(ThreadLocalPtr::ThreadData* d) {
 
 void ThreadLocalPtr::StaticMeta::RemoveThreadData(
     ThreadLocalPtr::ThreadData* d) {
-  mutex_.AssertHeld();
+  Mutex()->AssertHeld();
   d->next->prev = d->prev;
   d->prev->next = d->next;
   d->next = d->prev = d;
@@ -200,18 +236,18 @@ ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
 
   if (UNLIKELY(tls_ == nullptr)) {
     auto* inst = Instance();
-    tls_ = new ThreadData();
+    tls_ = new ThreadData(inst);
     {
       // Register it in the global chain, needs to be done before thread exit
       // handler registration
-      MutexLock l(&mutex_);
+      MutexLock l(Mutex());
       inst->AddThreadData(tls_);
     }
     // Even it is not OS_MACOSX, need to register value for pthread_key_ so that
     // its exit handler will be triggered.
     if (pthread_setspecific(inst->pthread_key_, tls_) != 0) {
       {
-        MutexLock l(&mutex_);
+        MutexLock l(Mutex());
         inst->RemoveThreadData(tls_);
       }
       delete tls_;
@@ -233,7 +269,7 @@ void ThreadLocalPtr::StaticMeta::Reset(uint32_t id, void* ptr) {
   auto* tls = GetThreadLocal();
   if (UNLIKELY(id >= tls->entries.size())) {
     // Need mutex to protect entries access within ReclaimId
-    MutexLock l(&mutex_);
+    MutexLock l(Mutex());
     tls->entries.resize(id + 1);
   }
   tls->entries[id].ptr.store(ptr, std::memory_order_release);
@@ -243,7 +279,7 @@ void* ThreadLocalPtr::StaticMeta::Swap(uint32_t id, void* ptr) {
   auto* tls = GetThreadLocal();
   if (UNLIKELY(id >= tls->entries.size())) {
     // Need mutex to protect entries access within ReclaimId
-    MutexLock l(&mutex_);
+    MutexLock l(Mutex());
     tls->entries.resize(id + 1);
   }
   return tls->entries[id].ptr.exchange(ptr, std::memory_order_acquire);
@@ -254,7 +290,7 @@ bool ThreadLocalPtr::StaticMeta::CompareAndSwap(uint32_t id, void* ptr,
   auto* tls = GetThreadLocal();
   if (UNLIKELY(id >= tls->entries.size())) {
     // Need mutex to protect entries access within ReclaimId
-    MutexLock l(&mutex_);
+    MutexLock l(Mutex());
     tls->entries.resize(id + 1);
   }
   return tls->entries[id].ptr.compare_exchange_strong(
@@ -263,7 +299,7 @@ bool ThreadLocalPtr::StaticMeta::CompareAndSwap(uint32_t id, void* ptr,
 
 void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs,
     void* const replacement) {
-  MutexLock l(&mutex_);
+  MutexLock l(Mutex());
   for (ThreadData* t = head_.next; t != &head_; t = t->next) {
     if (id < t->entries.size()) {
       void* ptr =
@@ -276,12 +312,12 @@ void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs,
 }
 
 void ThreadLocalPtr::StaticMeta::SetHandler(uint32_t id, UnrefHandler handler) {
-  MutexLock l(&mutex_);
+  MutexLock l(Mutex());
   handler_map_[id] = handler;
 }
 
 UnrefHandler ThreadLocalPtr::StaticMeta::GetHandler(uint32_t id) {
-  mutex_.AssertHeld();
+  Mutex()->AssertHeld();
   auto iter = handler_map_.find(id);
   if (iter == handler_map_.end()) {
     return nullptr;
@@ -290,7 +326,7 @@ UnrefHandler ThreadLocalPtr::StaticMeta::GetHandler(uint32_t id) {
 }
 
 uint32_t ThreadLocalPtr::StaticMeta::GetId() {
-  MutexLock l(&mutex_);
+  MutexLock l(Mutex());
   if (free_instance_ids_.empty()) {
     return next_instance_id_++;
   }
@@ -301,7 +337,7 @@ uint32_t ThreadLocalPtr::StaticMeta::GetId() {
 }
 
 uint32_t ThreadLocalPtr::StaticMeta::PeekId() const {
-  MutexLock l(&mutex_);
+  MutexLock l(Mutex());
   if (!free_instance_ids_.empty()) {
     return free_instance_ids_.back();
   }
@@ -311,7 +347,7 @@ uint32_t ThreadLocalPtr::StaticMeta::PeekId() const {
 void ThreadLocalPtr::StaticMeta::ReclaimId(uint32_t id) {
   // This id is not used, go through all thread local data and release
   // corresponding value
-  MutexLock l(&mutex_);
+  MutexLock l(Mutex());
   auto unref = GetHandler(id);
   for (ThreadData* t = head_.next; t != &head_; t = t->next) {
     if (id < t->entries.size()) {

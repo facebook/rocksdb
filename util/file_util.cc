@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -8,10 +8,9 @@
 #include <string>
 #include <algorithm>
 
-#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "db/filename.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
@@ -67,12 +66,31 @@ Status CopyFile(Env* env, const std::string& source,
   return Status::OK();
 }
 
-Status DeleteOrMoveToTrash(const DBOptions* db_options,
-                           const std::string& fname) {
-  if (db_options->delete_scheduler == nullptr) {
-    return db_options->env->DeleteFile(fname);
+// Utility function to create a file with the provided contents
+Status CreateFile(Env* env, const std::string& destination,
+                  const std::string& contents) {
+  const EnvOptions soptions;
+  Status s;
+  unique_ptr<WritableFileWriter> dest_writer;
+
+  unique_ptr<WritableFile> destfile;
+  s = env->NewWritableFile(destination, &destfile, soptions);
+  if (!s.ok()) {
+    return s;
+  }
+  dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
+  return dest_writer->Append(Slice(contents));
+}
+
+Status DeleteSSTFile(const DBOptions* db_options, const std::string& fname,
+                     uint32_t path_id) {
+  // TODO(tec): support sst_file_manager for multiple path_ids
+  auto sfm =
+      static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());
+  if (sfm && path_id == 0) {
+    return sfm->ScheduleFileDeletion(fname);
   } else {
-    return db_options->delete_scheduler->DeleteFile(fname);
+    return db_options->env->DeleteFile(fname);
   }
 }
 

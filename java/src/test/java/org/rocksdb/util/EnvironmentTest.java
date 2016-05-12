@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -117,16 +117,22 @@ public class EnvironmentTest {
     assertThat(Environment.isWindows()).isTrue();
   }
 
-  @Test(expected = UnsupportedOperationException.class)
-  public void failWinJniLibraryName(){
+  @Test
+  public void win64() {
     setEnvironmentClassFields("win", "x64");
-    Environment.getJniLibraryFileName("rocksdb");
+    assertThat(Environment.isWindows()).isTrue();
+    assertThat(Environment.getJniLibraryExtension()).
+      isEqualTo(".dll");
+    assertThat(Environment.getJniLibraryFileName("rocksdb")).
+      isEqualTo("librocksdbjni-win64.dll");
+    assertThat(Environment.getSharedLibraryFileName("rocksdb")).
+      isEqualTo("librocksdbjni.dll");
   }
 
   @Test(expected = UnsupportedOperationException.class)
-  public void failWinSharedLibrary(){
-    setEnvironmentClassFields("win", "x64");
-    Environment.getSharedLibraryFileName("rocksdb");
+  public void win32(){
+    setEnvironmentClassFields("win", "32");
+    Environment.getJniLibraryFileName("rocksdb");
   }
 
   private void setEnvironmentClassFields(String osName,

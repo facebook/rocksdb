@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -165,7 +165,7 @@ class VersionBuilder::Rep {
     for (int l = 0; !found && l < base_vstorage_->num_levels(); l++) {
       const std::vector<FileMetaData*>& base_files =
           base_vstorage_->LevelFiles(l);
-      for (unsigned int i = 0; i < base_files.size(); i++) {
+      for (size_t i = 0; i < base_files.size(); i++) {
         FileMetaData* f = base_files[i];
         if (f->fd.GetNumber() == number) {
           found = true;
@@ -309,11 +309,11 @@ class VersionBuilder::Rep {
 
         auto* file_meta = files_meta[file_idx].first;
         int level = files_meta[file_idx].second;
-        table_cache_->FindTable(env_options_,
-                                *(base_vstorage_->InternalComparator()),
-                                file_meta->fd, &file_meta->table_reader_handle,
-                                false /*no_io */, true /* record_read_stats */,
-                                internal_stats->GetFileReadHist(level));
+        table_cache_->FindTable(
+            env_options_, *(base_vstorage_->InternalComparator()),
+            file_meta->fd, &file_meta->table_reader_handle, false /*no_io */,
+            true /* record_read_stats */,
+            internal_stats->GetFileReadHist(level), false, level);
         if (file_meta->table_reader_handle != nullptr) {
           // Load table_reader
           file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
@@ -338,7 +338,8 @@ class VersionBuilder::Rep {
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {
     if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
-      // File is deleted: do nothing
+      // f is to-be-delected table file
+      vstorage->RemoveCurrentStats(f);
     } else {
       vstorage->AddFile(level, f, info_log_);
     }

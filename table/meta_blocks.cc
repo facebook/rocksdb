@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -69,10 +69,24 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   Add(TablePropertiesNames::kFilterSize, props.filter_size);
   Add(TablePropertiesNames::kFormatVersion, props.format_version);
   Add(TablePropertiesNames::kFixedKeyLen, props.fixed_key_len);
+  Add(TablePropertiesNames::kColumnFamilyId, props.column_family_id);
 
   if (!props.filter_policy_name.empty()) {
-    Add(TablePropertiesNames::kFilterPolicy,
-        props.filter_policy_name);
+    Add(TablePropertiesNames::kFilterPolicy, props.filter_policy_name);
+  }
+  if (!props.comparator_name.empty()) {
+    Add(TablePropertiesNames::kComparator, props.comparator_name);
+  }
+
+  if (!props.merge_operator_name.empty()) {
+    Add(TablePropertiesNames::kMergeOperator, props.merge_operator_name);
+  }
+  if (!props.property_collectors_names.empty()) {
+    Add(TablePropertiesNames::kPropertyCollectors,
+        props.property_collectors_names);
+  }
+  if (!props.column_family_name.empty()) {
+    Add(TablePropertiesNames::kColumnFamilyName, props.column_family_name);
   }
 }
 
@@ -171,7 +185,10 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       {TablePropertiesNames::kFormatVersion,
        &new_table_properties->format_version},
       {TablePropertiesNames::kFixedKeyLen,
-       &new_table_properties->fixed_key_len}, };
+       &new_table_properties->fixed_key_len},
+      {TablePropertiesNames::kColumnFamilyId,
+       &new_table_properties->column_family_id},
+  };
 
   std::string last_key;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -203,6 +220,14 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       *(pos->second) = val;
     } else if (key == TablePropertiesNames::kFilterPolicy) {
       new_table_properties->filter_policy_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kColumnFamilyName) {
+      new_table_properties->column_family_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kComparator) {
+      new_table_properties->comparator_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kMergeOperator) {
+      new_table_properties->merge_operator_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kPropertyCollectors) {
+      new_table_properties->property_collectors_names = raw_val.ToString();
     } else {
       // handle user-collected properties
       new_table_properties->user_collected_properties.insert(

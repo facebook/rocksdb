@@ -189,17 +189,19 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Also don't need any compilation tests if compiling on fbcode
     true
 else
-    # Test whether fallocate is available
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <fcntl.h>
-      #include <linux/falloc.h>
-      int main() {
-	int fd = open("/dev/null", 0);
-  fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
-      }
+    if ! test $ROCKSDB_DISABLE_FALLOCATE; then
+        # Test whether fallocate is available
+        $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <fcntl.h>
+          #include <linux/falloc.h>
+          int main() {
+      int fd = open("/dev/null", 0);
+      fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
+          }
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_FALLOCATE_PRESENT"
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_FALLOCATE_PRESENT"
+        fi
     fi
 
     # Test whether Snappy library is installed
@@ -297,13 +299,14 @@ EOF
 
     # Test whether jemalloc is available
     if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null -ljemalloc \
-      2>/dev/null; then 
+      2>/dev/null; then
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ljemalloc"
         JAVA_LDFLAGS="$JAVA_LDFLAGS -ljemalloc"
+        JEMALLOC=1
     else
         # jemalloc is not available. Let's try tcmalloc
         if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null \
-          -ltcmalloc 2>/dev/null; then 
+          -ltcmalloc 2>/dev/null; then
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
             JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
         fi
@@ -319,6 +322,55 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
+    fi
+
+    # Test whether PTHREAD_MUTEX_ADAPTIVE_NP mutex type is available
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <pthread.h>
+      int main() {
+        int x = PTHREAD_MUTEX_ADAPTIVE_NP;
+        return 0;
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_PTHREAD_ADAPTIVE_MUTEX"
+    fi
+
+    # Test whether backtrace is available
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <execinfo.h>>
+      int main() {
+        void* frames[1];
+        backtrace_symbols(frames, backtrace(frames, 1));
+        return 0;
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+    else
+        # Test whether execinfo library is installed
+        $CXX $CFLAGS -lexecinfo -x c++ - -o /dev/null 2>/dev/null  <<EOF
+          #include <execinfo.h>
+          int main() {
+            void* frames[1];
+            backtrace_symbols(frames, backtrace(frames, 1));
+          }
+EOF
+        if [ "$?" = 0 ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_BACKTRACE"
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lexecinfo"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -lexecinfo"
+        fi
+    fi
+
+    # Test if -pg is supported
+    $CXX $CFLAGS -pg -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      int main() {
+        return 0;
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        PROFILING_FLAGS=-pg
     fi
 fi
 
@@ -359,7 +411,15 @@ if test "$USE_SSE"; then
   # if Intel SSE instruction set is supported, set USE_SSE=1
   COMMON_FLAGS="$COMMON_FLAGS -msse -msse4.2 "
 elif test -z "$PORTABLE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -march=native "
+  if test -n "`echo $TARGET_ARCHITECTURE | grep ^ppc64`"; then
+    # Tune for this POWER processor, treating '+' models as base models
+    POWER=`LD_SHOW_AUXV=1 /bin/true | grep AT_PLATFORM | grep -E -o power[0-9]+`
+    COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
+  elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
+    COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
+  else
+    COMMON_FLAGS="$COMMON_FLAGS -march=native "
+  fi
 fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
@@ -392,3 +452,7 @@ echo "ROCKSDB_MINOR=$ROCKSDB_MINOR" >> "$OUTPUT"
 echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
 echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
 echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"
+echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
+if test -n "$JEMALLOC"; then
+  echo "JEMALLOC=1" >> "$OUTPUT"
+fi

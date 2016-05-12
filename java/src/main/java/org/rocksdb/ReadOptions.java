@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -13,10 +13,9 @@ package org.rocksdb;
  */
 public class ReadOptions extends RocksObject {
   public ReadOptions() {
-    super();
-    newReadOptions();
+    super(newReadOptions());
   }
-  private native void newReadOptions();
+  private native static long newReadOptions();
 
   /**
    * If true, all data read from underlying storage will be
@@ -26,7 +25,7 @@ public class ReadOptions extends RocksObject {
    * @return true if checksum verification is on.
    */
   public boolean verifyChecksums() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return verifyChecksums(nativeHandle_);
   }
   private native boolean verifyChecksums(long handle);
@@ -42,7 +41,7 @@ public class ReadOptions extends RocksObject {
    */
   public ReadOptions setVerifyChecksums(
       final boolean verifyChecksums) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setVerifyChecksums(nativeHandle_, verifyChecksums);
     return this;
   }
@@ -59,7 +58,7 @@ public class ReadOptions extends RocksObject {
    * @return true if the fill-cache behavior is on.
    */
   public boolean fillCache() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return fillCache(nativeHandle_);
   }
   private native boolean fillCache(long handle);
@@ -74,7 +73,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setFillCache(final boolean fillCache) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setFillCache(nativeHandle_, fillCache);
     return this;
   }
@@ -92,7 +91,7 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setSnapshot(final Snapshot snapshot) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     if (snapshot != null) {
       setSnapshot(nativeHandle_, snapshot.nativeHandle_);
     } else {
@@ -109,7 +108,7 @@ public class ReadOptions extends RocksObject {
    *     is assigned null.
    */
   public Snapshot snapshot() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     long snapshotHandle = snapshot(nativeHandle_);
     if (snapshotHandle != 0) {
       return new Snapshot(snapshotHandle);
@@ -130,7 +129,7 @@ public class ReadOptions extends RocksObject {
    * @return true if tailing iterator is enabled.
    */
   public boolean tailing() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return tailing(nativeHandle_);
   }
   private native boolean tailing(long handle);
@@ -147,17 +146,13 @@ public class ReadOptions extends RocksObject {
    * @return the reference to the current ReadOptions.
    */
   public ReadOptions setTailing(final boolean tailing) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setTailing(nativeHandle_, tailing);
     return this;
   }
   private native void setTailing(
       long handle, boolean tailing);
 
-
-  @Override protected void disposeInternal() {
-    disposeInternal(nativeHandle_);
-  }
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
 
 }

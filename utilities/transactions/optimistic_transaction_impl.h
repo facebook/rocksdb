@@ -1,4 +1,4 @@
-// Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -34,18 +34,28 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
 
   virtual ~OptimisticTransactionImpl();
 
+  void Reinitialize(OptimisticTransactionDB* txn_db,
+                    const WriteOptions& write_options,
+                    const OptimisticTransactionOptions& txn_options);
+
+  Status Prepare() override;
+
   Status Commit() override;
 
-  void Rollback() override;
+  Status Rollback() override;
+
+  Status SetName(const TransactionName& name) override;
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool untracked = false) override;
+                 bool read_only, bool untracked = false) override;
 
  private:
   OptimisticTransactionDB* const txn_db_;
 
   friend class OptimisticTransactionCallback;
+
+  void Initialize(const OptimisticTransactionOptions& txn_options);
 
   // Returns OK if it is safe to commit this transaction.  Returns Status::Busy
   // if there are read or write conflicts that would prevent us from committing
@@ -55,6 +65,11 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
   Status CheckTransactionForConflicts(DB* db);
 
   void Clear() override;
+
+  void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
+                          const Slice& key) override {
+    // Nothing to unlock.
+  }
 
   // No copying allowed
   OptimisticTransactionImpl(const OptimisticTransactionImpl&);
@@ -70,6 +85,8 @@ class OptimisticTransactionCallback : public WriteCallback {
   Status Callback(DB* db) override {
     return txn_->CheckTransactionForConflicts(db);
   }
+
+  bool AllowWriteBatching() override { return false; }
 
  private:
   OptimisticTransactionImpl* txn_;

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+# Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
@@ -2714,7 +2714,7 @@ def CheckSpacing(filename, clean_lines, linenum, nesting_state, error):
 
     # Look for < that is not surrounded by spaces.  This is only
     # triggered if both sides are missing spaces, even though
-    # technically should should flag if at least one side is missing a
+    # technically should flag if at least one side is missing a
     # space.  This is done to avoid some false positives with shifts.
     match = Search(r'[^\s<]<([^\s=<].*)', reduced_line)
     if (match and

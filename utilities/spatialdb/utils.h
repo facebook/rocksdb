@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -18,8 +18,8 @@ inline uint64_t GetTileFromCoord(double x, double start, double end,
   if (x < start) {
     return 0;
   }
-  uint64_t tiles = static_cast<uint64_t>(1) << tile_bits;
-  uint64_t r = ((x - start) / (end - start)) * tiles;
+  uint64_t tiles = 1ull << tile_bits;
+  uint64_t r = static_cast<uint64_t>(((x - start) / (end - start)) * tiles);
   return std::min(r, tiles - 1);
 }
 
@@ -27,7 +27,7 @@ inline uint64_t GetQuadKeyFromTile(uint64_t tile_x, uint64_t tile_y,
                                    uint32_t tile_bits) {
   uint64_t quad_key = 0;
   for (uint32_t i = 0; i < tile_bits; ++i) {
-    uint64_t mask = static_cast<uint64_t>(1LL << i);
+    uint64_t mask = (1ull << i);
     quad_key |= (tile_x & mask) << i;
     quad_key |= (tile_y & mask) << (i + 1);
   }

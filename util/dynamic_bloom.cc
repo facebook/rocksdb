@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc. All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -48,7 +48,7 @@ DynamicBloom::DynamicBloom(uint32_t num_probes,
 
 void DynamicBloom::SetRawData(unsigned char* raw_data, uint32_t total_bits,
                               uint32_t num_blocks) {
-  data_ = raw_data;
+  data_ = reinterpret_cast<std::atomic<uint8_t>*>(raw_data);
   kTotalBits = total_bits;
   kNumBlocks = num_blocks;
 }
@@ -69,15 +69,14 @@ void DynamicBloom::SetTotalBits(Allocator* allocator,
     sz += CACHE_LINE_SIZE - 1;
   }
   assert(allocator);
-  raw_ = reinterpret_cast<unsigned char*>(
-      allocator->AllocateAligned(sz, huge_page_tlb_size, logger));
-  memset(raw_, 0, sz);
-  if (kNumBlocks > 0 && (reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE)) {
-    data_ = raw_ + CACHE_LINE_SIZE -
-            reinterpret_cast<uint64_t>(raw_) % CACHE_LINE_SIZE;
-  } else {
-    data_ = raw_;
+
+  char* raw = allocator->AllocateAligned(sz, huge_page_tlb_size, logger);
+  memset(raw, 0, sz);
+  auto cache_line_offset = reinterpret_cast<uintptr_t>(raw) % CACHE_LINE_SIZE;
+  if (kNumBlocks > 0 && cache_line_offset > 0) {
+    raw += CACHE_LINE_SIZE - cache_line_offset;
   }
+  data_ = reinterpret_cast<std::atomic<uint8_t>*>(raw);
 }
 
 }  // rocksdb

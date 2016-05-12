@@ -1,4 +1,4 @@
-// Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -28,148 +28,96 @@ public class BackupEngineTest {
 
   @Test
   public void backupDb() throws RocksDBException {
-    Options opt = null;
-    RocksDB db = null;
-    try {
-      opt = new Options().setCreateIfMissing(true);
-      // Open empty database.
-      db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath());
+    // Open empty database.
+    try(final Options opt = new Options().setCreateIfMissing(true);
+        final RocksDB db = RocksDB.open(opt,
+            dbFolder.getRoot().getAbsolutePath())) {
+
       // Fill database with some test values
       prepareDatabase(db);
+
       // Create two backups
-      BackupableDBOptions bopt = null;
-      try {
-        bopt = new BackupableDBOptions(
+      try(final BackupableDBOptions bopt = new BackupableDBOptions(
           backupFolder.getRoot().getAbsolutePath());
-        try(final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
-          be.createNewBackup(db, false);
-          be.createNewBackup(db, true);
-          verifyNumberOfValidBackups(be, 2);
-        }
-      } finally {
-        if(bopt != null) {
-          bopt.dispose();
-        }
-      }
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (opt != null) {
-        opt.dispose();
+          final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+        be.createNewBackup(db, false);
+        be.createNewBackup(db, true);
+        verifyNumberOfValidBackups(be, 2);
       }
     }
   }
 
   @Test
   public void deleteBackup() throws RocksDBException {
-    Options opt = null;
-    RocksDB db = null;
-    try {
-      opt = new Options().setCreateIfMissing(true);
-      // Open empty database.
-      db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath());
+    // Open empty database.
+    try(final Options opt = new Options().setCreateIfMissing(true);
+        final RocksDB db = RocksDB.open(opt,
+            dbFolder.getRoot().getAbsolutePath())) {
       // Fill database with some test values
       prepareDatabase(db);
       // Create two backups
-      BackupableDBOptions bopt = null;
-      try {
-        bopt = new BackupableDBOptions(
-            backupFolder.getRoot().getAbsolutePath());
-        try(final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
-          be.createNewBackup(db, false);
-          be.createNewBackup(db, true);
-          final List<BackupInfo> backupInfo =
-              verifyNumberOfValidBackups(be, 2);
-          // Delete the first backup
-          be.deleteBackup(backupInfo.get(0).backupId());
-          final List<BackupInfo> newBackupInfo =
-              verifyNumberOfValidBackups(be, 1);
+      try(final BackupableDBOptions bopt = new BackupableDBOptions(
+          backupFolder.getRoot().getAbsolutePath());
+          final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+        be.createNewBackup(db, false);
+        be.createNewBackup(db, true);
+        final List<BackupInfo> backupInfo =
+            verifyNumberOfValidBackups(be, 2);
+        // Delete the first backup
+        be.deleteBackup(backupInfo.get(0).backupId());
+        final List<BackupInfo> newBackupInfo =
+            verifyNumberOfValidBackups(be, 1);
 
-          // The second backup must remain.
-          assertThat(newBackupInfo.get(0).backupId()).
-              isEqualTo(backupInfo.get(1).backupId());
-        }
-      } finally {
-        if(bopt != null) {
-          bopt.dispose();
-        }
-      }
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (opt != null) {
-        opt.dispose();
+        // The second backup must remain.
+        assertThat(newBackupInfo.get(0).backupId()).
+            isEqualTo(backupInfo.get(1).backupId());
       }
     }
   }
 
   @Test
   public void purgeOldBackups() throws RocksDBException {
-    Options opt = null;
-    RocksDB db = null;
-    try {
-      opt = new Options().setCreateIfMissing(true);
-      // Open empty database.
-      db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath());
+    // Open empty database.
+    try(final Options opt = new Options().setCreateIfMissing(true);
+        final RocksDB db = RocksDB.open(opt,
+            dbFolder.getRoot().getAbsolutePath())) {
       // Fill database with some test values
       prepareDatabase(db);
       // Create four backups
-      BackupableDBOptions bopt = null;
-      try {
-        bopt = new BackupableDBOptions(
-            backupFolder.getRoot().getAbsolutePath());
-        try(final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
-          be.createNewBackup(db, false);
-          be.createNewBackup(db, true);
-          be.createNewBackup(db, true);
-          be.createNewBackup(db, true);
-          final List<BackupInfo> backupInfo =
-              verifyNumberOfValidBackups(be, 4);
-          // Delete everything except the latest backup
-          be.purgeOldBackups(1);
-          final List<BackupInfo> newBackupInfo =
-              verifyNumberOfValidBackups(be, 1);
-          // The latest backup must remain.
-          assertThat(newBackupInfo.get(0).backupId()).
-              isEqualTo(backupInfo.get(3).backupId());
-        }
-      } finally {
-        if(bopt != null) {
-          bopt.dispose();
-        }
-      }
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (opt != null) {
-        opt.dispose();
+      try(final BackupableDBOptions bopt = new BackupableDBOptions(
+          backupFolder.getRoot().getAbsolutePath());
+          final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+        be.createNewBackup(db, false);
+        be.createNewBackup(db, true);
+        be.createNewBackup(db, true);
+        be.createNewBackup(db, true);
+        final List<BackupInfo> backupInfo =
+            verifyNumberOfValidBackups(be, 4);
+        // Delete everything except the latest backup
+        be.purgeOldBackups(1);
+        final List<BackupInfo> newBackupInfo =
+            verifyNumberOfValidBackups(be, 1);
+        // The latest backup must remain.
+        assertThat(newBackupInfo.get(0).backupId()).
+            isEqualTo(backupInfo.get(3).backupId());
       }
     }
   }
 
   @Test
-  public void restoreLatestBackup()
-      throws RocksDBException {
-    Options opt = null;
-    RocksDB db = null;
-    try {
-      opt = new Options().setCreateIfMissing(true);
+  public void restoreLatestBackup() throws RocksDBException {
+    try(final Options opt = new Options().setCreateIfMissing(true)) {
       // Open empty database.
-      db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath());
-      // Fill database with some test values
-      prepareDatabase(db);
-      BackupableDBOptions bopt = null;
+      RocksDB db = null;
       try {
-        bopt = new BackupableDBOptions(
+        db = RocksDB.open(opt,
+            dbFolder.getRoot().getAbsolutePath());
+        // Fill database with some test values
+        prepareDatabase(db);
+
+        try (final BackupableDBOptions bopt = new BackupableDBOptions(
             backupFolder.getRoot().getAbsolutePath());
-        try (final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+             final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
           be.createNewBackup(db, true);
           verifyNumberOfValidBackups(be, 1);
           db.put("key1".getBytes(), "valueV2".getBytes());
@@ -182,30 +130,26 @@ public class BackupEngineTest {
           assertThat(new String(db.get("key2".getBytes()))).endsWith("V3");
 
           db.close();
+          db = null;
 
           verifyNumberOfValidBackups(be, 2);
           // restore db from latest backup
-          be.restoreDbFromLatestBackup(dbFolder.getRoot().getAbsolutePath(),
-              dbFolder.getRoot().getAbsolutePath(),
-              new RestoreOptions(false));
+          try(final RestoreOptions ropts = new RestoreOptions(false)) {
+            be.restoreDbFromLatestBackup(dbFolder.getRoot().getAbsolutePath(),
+                dbFolder.getRoot().getAbsolutePath(), ropts);
+          }
+
           // Open database again.
-          db = RocksDB.open(opt,
-              dbFolder.getRoot().getAbsolutePath());
+          db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath());
+
           // Values must have suffix V2 because of restoring latest backup.
           assertThat(new String(db.get("key1".getBytes()))).endsWith("V2");
           assertThat(new String(db.get("key2".getBytes()))).endsWith("V2");
         }
       } finally {
-        if(bopt != null) {
-          bopt.dispose();
+        if(db != null) {
+          db.close();
         }
-      }
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (opt != null) {
-        opt.dispose();
       }
     }
   }
@@ -213,20 +157,17 @@ public class BackupEngineTest {
   @Test
   public void restoreFromBackup()
       throws RocksDBException {
-    Options opt = null;
-    RocksDB db = null;
-    try {
-      opt = new Options().setCreateIfMissing(true);
-      // Open empty database.
-      db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath());
-      // Fill database with some test values
-      prepareDatabase(db);
-      BackupableDBOptions bopt = null;
+    try(final Options opt = new Options().setCreateIfMissing(true)) {
+      RocksDB db = null;
       try {
-        bopt = new BackupableDBOptions(
+        // Open empty database.
+        db = RocksDB.open(opt,
+            dbFolder.getRoot().getAbsolutePath());
+        // Fill database with some test values
+        prepareDatabase(db);
+        try (final BackupableDBOptions bopt = new BackupableDBOptions(
             backupFolder.getRoot().getAbsolutePath());
-        try (final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
+             final BackupEngine be = BackupEngine.open(opt.getEnv(), bopt)) {
           be.createNewBackup(db, true);
           verifyNumberOfValidBackups(be, 1);
           db.put("key1".getBytes(), "valueV2".getBytes());
@@ -240,9 +181,10 @@ public class BackupEngineTest {
 
           //close the database
           db.close();
+          db = null;
 
           //restore the backup
-          List<BackupInfo> backupInfo = verifyNumberOfValidBackups(be, 2);
+          final List<BackupInfo> backupInfo = verifyNumberOfValidBackups(be, 2);
           // restore db from first backup
           be.restoreDbFromBackup(backupInfo.get(0).backupId(),
               dbFolder.getRoot().getAbsolutePath(),
@@ -256,16 +198,9 @@ public class BackupEngineTest {
           assertThat(new String(db.get("key2".getBytes()))).endsWith("V1");
         }
       } finally {
-        if(bopt != null) {
-          bopt.dispose();
+        if(db != null) {
+          db.close();
         }
-      }
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (opt != null) {
-        opt.dispose();
       }
     }
   }

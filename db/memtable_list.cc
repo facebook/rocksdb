@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -345,8 +345,8 @@ Status MemTableList::InstallMemtableFlushResults(
         imm_flush_needed.store(true, std::memory_order_release);
       }
       ++mem_id;
-    } while (!current_->memlist_.empty() && (m = current_->memlist_.back()) &&
-             m->file_number_ == file_number);
+    } while (!current_->memlist_.empty() && (nullptr != (m = current_->memlist_.back())) &&
+             (m->file_number_ == file_number));
   }
   commit_in_progress_ = false;
   return s;
@@ -390,6 +390,26 @@ void MemTableList::InstallNewVersion() {
     current_->Ref();
     version->Unref();
   }
+}
+
+uint64_t MemTableList::GetMinLogContainingPrepSection() {
+  uint64_t min_log = 0;
+
+  for (auto& m : current_->memlist_) {
+    // this mem has been flushed it no longer
+    // needs to hold on the its prep section
+    if (m->flush_completed_) {
+      continue;
+    }
+
+    auto log = m->GetMinLogContainingPrepSection();
+
+    if (log > 0 && (min_log == 0 || log < min_log)) {
+      min_log = log;
+    }
+  }
+
+  return min_log;
 }
 
 }  // namespace rocksdb

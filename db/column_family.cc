@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -68,6 +68,20 @@ const std::string& ColumnFamilyHandleImpl::GetName() const {
   return cfd()->GetName();
 }
 
+Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
+#ifndef ROCKSDB_LITE
+  // accessing mutable cf-options requires db mutex.
+  InstrumentedMutexLock l(mutex_);
+  *desc = ColumnFamilyDescriptor(
+      cfd()->GetName(),
+      BuildColumnFamilyOptions(*cfd()->options(),
+                               *cfd()->GetLatestMutableCFOptions()));
+  return Status::OK();
+#else
+  return Status::NotSupported();
+#endif  // !ROCKSDB_LITE
+}
+
 const Comparator* ColumnFamilyHandleImpl::user_comparator() const {
   return cfd()->user_comparator();
 }
@@ -110,18 +124,33 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
   return Status::OK();
 }
 
+Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
+  if (cf_options.inplace_update_support) {
+    return Status::InvalidArgument(
+        "In-place memtable updates (inplace_update_support) is not compatible "
+        "with concurrent writes (allow_concurrent_memtable_write)");
+  }
+  if (cf_options.filter_deletes) {
+    return Status::InvalidArgument(
+        "Delete filtering (filter_deletes) is not compatible with concurrent "
+        "memtable writes (allow_concurrent_memtable_writes)");
+  }
+  if (!cf_options.memtable_factory->IsInsertConcurrentlySupported()) {
+    return Status::InvalidArgument(
+        "Memtable doesn't concurrent writes (allow_concurrent_memtable_write)");
+  }
+  return Status::OK();
+}
+
 ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                     const InternalKeyComparator* icmp,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
   result.comparator = icmp;
-#ifdef OS_MACOSX
-  // TODO(icanadi) make write_buffer_size uint64_t instead of size_t
-  ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, ((size_t)1) << 30);
-#else
-  ClipToRange(&result.write_buffer_size,
-              ((size_t)64) << 10, ((size_t)64) << 30);
-#endif
+  size_t clamp_max = std::conditional<
+      sizeof(size_t) == 4, std::integral_constant<size_t, 0xffffffff>,
+      std::integral_constant<uint64_t, 64ull << 30>>::type::value;
+  ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, clamp_max);
   // if user sets arena_block_size, we trust user to use this value. Otherwise,
   // calculate a proper value from writer_buffer_size;
   if (result.arena_block_size <= 0) {
@@ -175,6 +204,12 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
     result.level0_stop_writes_trigger = std::numeric_limits<int>::max();
   }
 
+  if (result.level0_file_num_compaction_trigger == 0) {
+    Warn(db_options.info_log.get(),
+         "level0_file_num_compaction_trigger cannot be 0");
+    result.level0_file_num_compaction_trigger = 1;
+  }
+
   if (result.level0_stop_writes_trigger <
           result.level0_slowdown_writes_trigger ||
       result.level0_slowdown_writes_trigger <
@@ -205,6 +240,17 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
          result.level0_slowdown_writes_trigger,
          result.level0_file_num_compaction_trigger);
   }
+
+  if (result.soft_pending_compaction_bytes_limit == 0) {
+    result.soft_pending_compaction_bytes_limit =
+        result.hard_pending_compaction_bytes_limit;
+  } else if (result.hard_pending_compaction_bytes_limit > 0 &&
+             result.soft_pending_compaction_bytes_limit >
+                 result.hard_pending_compaction_bytes_limit) {
+    result.soft_pending_compaction_bytes_limit =
+        result.hard_pending_compaction_bytes_limit;
+  }
+
   if (result.level_compaction_dynamic_level_bytes) {
     if (result.compaction_style != kCompactionStyleLevel ||
         db_options.db_paths.size() > 1U) {
@@ -309,7 +355,8 @@ ColumnFamilyData::ColumnFamilyData(
       log_number_(0),
       column_family_set_(column_family_set),
       pending_flush_(false),
-      pending_compaction_(false) {
+      pending_compaction_(false),
+      prev_compaction_needed_bytes_(0) {
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
@@ -427,13 +474,81 @@ void ColumnFamilyData::SetDropped() {
   column_family_set_->RemoveColumnFamily(this);
 }
 
+const double kSlowdownRatio = 1.2;
+
+namespace {
+std::unique_ptr<WriteControllerToken> SetupDelay(
+    uint64_t max_write_rate, WriteController* write_controller,
+    uint64_t compaction_needed_bytes, uint64_t prev_compaction_neeed_bytes,
+    bool auto_comapctions_disabled) {
+  const uint64_t kMinWriteRate = 1024u;  // Minimum write rate 1KB/s.
+
+  uint64_t write_rate = write_controller->delayed_write_rate();
+
+  if (auto_comapctions_disabled) {
+    // When auto compaction is disabled, always use the value user gave.
+    write_rate = max_write_rate;
+  } else if (write_controller->NeedsDelay() && max_write_rate > kMinWriteRate) {
+    // If user gives rate less than kMinWriteRate, don't adjust it.
+    //
+    // If already delayed, need to adjust based on previous compaction debt.
+    // When there are two or more column families require delay, we always
+    // increase or reduce write rate based on information for one single
+    // column family. It is likely to be OK but we can improve if there is a
+    // problem.
+    // Ignore compaction_needed_bytes = 0 case because compaction_needed_bytes
+    // is only available in level-based compaction
+    //
+    // If the compaction debt stays the same as previously, we also further slow
+    // down. It usually means a mem table is full. It's mainly for the case
+    // where both of flush and compaction are much slower than the speed we
+    // insert to mem tables, so we need to actively slow down before we get
+    // feedback signal from compaction and flushes to avoid the full stop
+    // because of hitting the max write buffer number.
+    if (prev_compaction_neeed_bytes > 0 &&
+        prev_compaction_neeed_bytes <= compaction_needed_bytes) {
+      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) /
+                                         kSlowdownRatio);
+      if (write_rate < kMinWriteRate) {
+        write_rate = kMinWriteRate;
+      }
+    } else if (prev_compaction_neeed_bytes > compaction_needed_bytes) {
+      // We are speeding up by ratio of kSlowdownRatio when we have paid
+      // compaction debt. But we'll never speed up to faster than the write rate
+      // given by users.
+      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
+                                         kSlowdownRatio);
+      if (write_rate > max_write_rate) {
+        write_rate = max_write_rate;
+      }
+    }
+  }
+  return write_controller->GetDelayToken(write_rate);
+}
+
+int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
+                                    int level0_slowdown_writes_trigger) {
+  // SanitizeOptions() ensures it.
+  assert(level0_file_num_compaction_trigger <= level0_slowdown_writes_trigger);
+
+  // 1/4 of the way between L0 compaction trigger threshold and slowdown
+  // condition.
+  // Or twice as compaction trigger, if it is smaller.
+  return std::min(level0_file_num_compaction_trigger * 2,
+                  level0_file_num_compaction_trigger +
+                      (level0_slowdown_writes_trigger -
+                       level0_file_num_compaction_trigger) /
+                          4);
+}
+}  // namespace
+
 void ColumnFamilyData::RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options) {
   if (current_ != nullptr) {
     auto* vstorage = current_->storage_info();
-    const double score = vstorage->max_compaction_score();
-    const int max_level = vstorage->max_compaction_score_level();
     auto write_controller = column_family_set_->write_controller_;
+    uint64_t compaction_needed_bytes =
+        vstorage->estimated_compaction_needed_bytes();
 
     if (imm()->NumNotFlushed() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
@@ -455,37 +570,88 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "[%s] Stopping writes because we have %d level-0 files",
           name_.c_str(), vstorage->l0_delay_trigger_count());
     } else if (mutable_cf_options.hard_pending_compaction_bytes_limit > 0 &&
-               vstorage->estimated_compaction_needed_bytes() >=
+               compaction_needed_bytes >=
                    mutable_cf_options.hard_pending_compaction_bytes_limit) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(
           InternalStats::HARD_PENDING_COMPACTION_BYTES_LIMIT, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stopping writes because estimated pending compaction "
-          "bytes exceed %" PRIu64,
-          name_.c_str(), vstorage->estimated_compaction_needed_bytes());
+          "[%s] Stopping writes because of estimated pending compaction "
+          "bytes %" PRIu64,
+          name_.c_str(), compaction_needed_bytes);
+    } else if (mutable_cf_options.max_write_buffer_number > 3 &&
+               imm()->NumNotFlushed() >=
+                   mutable_cf_options.max_write_buffer_number - 1) {
+      write_controller_token_ =
+          SetupDelay(ioptions_.delayed_write_rate, write_controller,
+                     compaction_needed_bytes, prev_compaction_needed_bytes_,
+                     mutable_cf_options.disable_auto_compactions);
+      internal_stats_->AddCFStats(InternalStats::MEMTABLE_SLOWDOWN, 1);
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+          "[%s] Stalling writes because we have %d immutable memtables "
+          "(waiting for flush), max_write_buffer_number is set to %d "
+          "rate %" PRIu64,
+          name_.c_str(), imm()->NumNotFlushed(),
+          mutable_cf_options.max_write_buffer_number,
+          write_controller->delayed_write_rate());
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
-      write_controller_token_ = write_controller->GetDelayToken();
+      write_controller_token_ =
+          SetupDelay(ioptions_.delayed_write_rate, write_controller,
+                     compaction_needed_bytes, prev_compaction_needed_bytes_,
+                     mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN_TOTAL, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
         internal_stats_->AddCFStats(
             InternalStats::LEVEL0_SLOWDOWN_WITH_COMPACTION, 1);
       }
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we have %d level-0 files",
-          name_.c_str(), vstorage->l0_delay_trigger_count());
-    } else if (mutable_cf_options.soft_rate_limit > 0.0 &&
-               score > mutable_cf_options.soft_rate_limit) {
-      write_controller_token_ = write_controller->GetDelayToken();
-      internal_stats_->RecordLevelNSlowdown(max_level, true);
+          "[%s] Stalling writes because we have %d level-0 files "
+          "rate %" PRIu64,
+          name_.c_str(), vstorage->l0_delay_trigger_count(),
+          write_controller->delayed_write_rate());
+    } else if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0 &&
+               vstorage->estimated_compaction_needed_bytes() >=
+                   mutable_cf_options.soft_pending_compaction_bytes_limit) {
+      write_controller_token_ =
+          SetupDelay(ioptions_.delayed_write_rate, write_controller,
+                     compaction_needed_bytes, prev_compaction_needed_bytes_,
+                     mutable_cf_options.disable_auto_compactions);
+      internal_stats_->AddCFStats(
+          InternalStats::SOFT_PENDING_COMPACTION_BYTES_LIMIT, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we hit soft limit on level %d",
-          name_.c_str(), max_level);
+          "[%s] Stalling writes because of estimated pending compaction "
+          "bytes %" PRIu64 " rate %" PRIu64,
+          name_.c_str(), vstorage->estimated_compaction_needed_bytes(),
+          write_controller->delayed_write_rate());
+    } else if (vstorage->l0_delay_trigger_count() >=
+               GetL0ThresholdSpeedupCompaction(
+                   mutable_cf_options.level0_file_num_compaction_trigger,
+                   mutable_cf_options.level0_slowdown_writes_trigger)) {
+      write_controller_token_ = write_controller->GetCompactionPressureToken();
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+          "[%s] Increasing compaction threads because we have %d level-0 "
+          "files ",
+          name_.c_str(), vstorage->l0_delay_trigger_count());
+    } else if (vstorage->estimated_compaction_needed_bytes() >=
+               mutable_cf_options.soft_pending_compaction_bytes_limit / 4) {
+      // Increase compaction threads if bytes needed for compaction exceeds
+      // 1/4 of threshold for slowing down.
+      // If soft pending compaction byte limit is not set, always speed up
+      // compaction.
+      write_controller_token_ = write_controller->GetCompactionPressureToken();
+      if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0) {
+        Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+            "[%s] Increasing compaction threads because of estimated pending "
+            "compaction "
+            "bytes %" PRIu64,
+            name_.c_str(), vstorage->estimated_compaction_needed_bytes());
+      }
     } else {
       write_controller_token_.reset();
     }
+    prev_compaction_needed_bytes_ = compaction_needed_bytes;
   }
 }
 
@@ -539,13 +705,12 @@ const int ColumnFamilyData::kCompactAllLevels = -1;
 const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
 Compaction* ColumnFamilyData::CompactRange(
-    const MutableCFOptions& mutable_cf_options,
-    int input_level, int output_level, uint32_t output_path_id,
-    const InternalKey* begin, const InternalKey* end,
-    InternalKey** compaction_end) {
+    const MutableCFOptions& mutable_cf_options, int input_level,
+    int output_level, uint32_t output_path_id, const InternalKey* begin,
+    const InternalKey* end, InternalKey** compaction_end, bool* conflict) {
   auto* result = compaction_picker_->CompactRange(
       GetName(), mutable_cf_options, current_->storage_info(), input_level,
-      output_level, output_path_id, begin, end, compaction_end);
+      output_level, output_path_id, begin, end, compaction_end, conflict);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -829,13 +994,6 @@ MemTable* ColumnFamilyMemTablesImpl::GetMemTable() const {
 ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
   assert(current_ != nullptr);
   return &handle_;
-}
-
-void ColumnFamilyMemTablesImpl::CheckMemtableFull() {
-  if (current_ != nullptr && current_->mem()->ShouldScheduleFlush()) {
-    flush_scheduler_->ScheduleFlush(current_);
-    current_->mem()->MarkFlushScheduled();
-  }
 }
 
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {

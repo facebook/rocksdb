@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -11,6 +11,7 @@
 
 #include "rocksdb/db.h"
 
+#include <inttypes.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -41,6 +42,7 @@ class CorruptionTest : public testing::Test {
 
   CorruptionTest() {
     tiny_cache_ = NewLRUCache(100);
+    options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = &env_;
     dbname_ = test::TmpDir() + "/corruption_test";
     DestroyDB(dbname_, options_);
@@ -104,8 +106,8 @@ class CorruptionTest : public testing::Test {
   }
 
   void Check(int min_expected, int max_expected) {
-    unsigned int next_expected = 0;
-    int missed = 0;
+    uint64_t next_expected = 0;
+    uint64_t missed = 0;
     int bad_keys = 0;
     int bad_values = 0;
     int correct = 0;
@@ -126,7 +128,7 @@ class CorruptionTest : public testing::Test {
         continue;
       }
       missed += (key - next_expected);
-      next_expected = static_cast<unsigned int>(key + 1);
+      next_expected = key + 1;
       if (iter->value() != Value(static_cast<int>(key), &value_space)) {
         bad_values++;
       } else {
@@ -136,8 +138,9 @@ class CorruptionTest : public testing::Test {
     delete iter;
 
     fprintf(stderr,
-            "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%d\n",
-            min_expected, max_expected, correct, bad_keys, bad_values, missed);
+      "expected=%d..%d; got=%d; bad_keys=%d; bad_values=%d; missed=%llu\n",
+            min_expected, max_expected, correct, bad_keys, bad_values,
+            static_cast<unsigned long long>(missed));
     ASSERT_LE(min_expected, correct);
     ASSERT_GE(max_expected, correct);
   }
@@ -183,7 +186,7 @@ class CorruptionTest : public testing::Test {
     FileType type;
     std::string fname;
     int picked_number = -1;
-    for (unsigned int i = 0; i < filenames.size(); i++) {
+    for (size_t i = 0; i < filenames.size(); i++) {
       if (ParseFileName(filenames[i], &number, &type) &&
           type == filetype &&
           static_cast<int>(number) > picked_number) {  // Pick latest file
@@ -232,8 +235,16 @@ class CorruptionTest : public testing::Test {
 
   // Return the value to associate with the specified key
   Slice Value(int k, std::string* storage) {
-    Random r(k);
-    return test::RandomString(&r, kValueSize, storage);
+    if (k == 0) {
+      // Ugh.  Random seed of 0 used to produce no entropy.  This code
+      // preserves the implementation that was in place when all of the
+      // magic values in this file were picked.
+      *storage = std::string(kValueSize, ' ');
+      return Slice(*storage);
+    } else {
+      Random r(k);
+      return test::RandomString(&r, kValueSize, storage);
+    }
   }
 };
 

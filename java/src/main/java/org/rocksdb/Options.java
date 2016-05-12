@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -12,8 +12,8 @@ import java.util.List;
  * Options to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
- * If {@link #dispose()} function is not called, then it will be GC'd automatically
- * and native resources will be released as part of the process.
+ * If {@link #dispose()} function is not called, then it will be GC'd
+ * automaticallyand native resources will be released as part of the process.
  */
 public class Options extends RocksObject
     implements DBOptionsInterface, ColumnFamilyOptionsInterface {
@@ -27,8 +27,7 @@ public class Options extends RocksObject
    * an {@code rocksdb::Options} in the c++ side.
    */
   public Options() {
-    super();
-    newOptions();
+    super(newOptions());
     env_ = Env.getDefault();
   }
 
@@ -42,28 +41,28 @@ public class Options extends RocksObject
    */
   public Options(final DBOptions dbOptions,
       final ColumnFamilyOptions columnFamilyOptions) {
-    super();
-    newOptions(dbOptions.nativeHandle_, columnFamilyOptions.nativeHandle_);
+    super(newOptions(dbOptions.nativeHandle_,
+        columnFamilyOptions.nativeHandle_));
     env_ = Env.getDefault();
   }
 
   @Override
   public Options setIncreaseParallelism(final int totalThreads) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setIncreaseParallelism(nativeHandle_, totalThreads);
     return this;
   }
 
   @Override
   public Options setCreateIfMissing(final boolean flag) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setCreateIfMissing(nativeHandle_, flag);
     return this;
   }
 
   @Override
   public Options setCreateMissingColumnFamilies(final boolean flag) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setCreateMissingColumnFamilies(nativeHandle_, flag);
     return this;
   }
@@ -77,7 +76,7 @@ public class Options extends RocksObject
    * @return the instance of the current Options.
    */
   public Options setEnv(final Env env) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setEnv(nativeHandle_, env.nativeHandle_);
     env_ = env;
     return this;
@@ -111,13 +110,13 @@ public class Options extends RocksObject
 
   @Override
   public boolean createIfMissing() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return createIfMissing(nativeHandle_);
   }
 
   @Override
   public boolean createMissingColumnFamilies() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return createMissingColumnFamilies(nativeHandle_);
   }
 
@@ -161,7 +160,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setComparator(final BuiltinComparator builtinComparator) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setComparatorHandle(nativeHandle_, builtinComparator.ordinal());
     return this;
   }
@@ -169,15 +168,15 @@ public class Options extends RocksObject
   @Override
   public Options setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
-    assert (isInitialized());
-    setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
+    assert(isOwningHandle());
+    setComparatorHandle(nativeHandle_, comparator.getNativeHandle());
     comparator_ = comparator;
     return this;
   }
 
   @Override
   public Options setMergeOperatorName(final String name) {
-    assert (isInitialized());
+    assert(isOwningHandle());
     if (name == null) {
       throw new IllegalArgumentException(
           "Merge operator name must not be null.");
@@ -194,164 +193,164 @@ public class Options extends RocksObject
 
   @Override
   public Options setWriteBufferSize(final long writeBufferSize) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
     return this;
   }
 
   @Override
   public long writeBufferSize()  {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return writeBufferSize(nativeHandle_);
   }
 
   @Override
   public Options setMaxWriteBufferNumber(final int maxWriteBufferNumber) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxWriteBufferNumber(nativeHandle_, maxWriteBufferNumber);
     return this;
   }
 
   @Override
   public int maxWriteBufferNumber() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxWriteBufferNumber(nativeHandle_);
   }
 
   @Override
   public boolean errorIfExists() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return errorIfExists(nativeHandle_);
   }
 
   @Override
   public Options setErrorIfExists(final boolean errorIfExists) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setErrorIfExists(nativeHandle_, errorIfExists);
     return this;
   }
 
   @Override
   public boolean paranoidChecks() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return paranoidChecks(nativeHandle_);
   }
 
   @Override
   public Options setParanoidChecks(final boolean paranoidChecks) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setParanoidChecks(nativeHandle_, paranoidChecks);
     return this;
   }
 
   @Override
   public int maxOpenFiles() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxOpenFiles(nativeHandle_);
   }
 
   @Override
   public Options setMaxTotalWalSize(final long maxTotalWalSize) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxTotalWalSize(nativeHandle_, maxTotalWalSize);
     return this;
   }
 
   @Override
   public long maxTotalWalSize() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxTotalWalSize(nativeHandle_);
   }
 
   @Override
   public Options setMaxOpenFiles(final int maxOpenFiles) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxOpenFiles(nativeHandle_, maxOpenFiles);
     return this;
   }
 
   @Override
   public boolean disableDataSync() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return disableDataSync(nativeHandle_);
   }
 
   @Override
   public Options setDisableDataSync(final boolean disableDataSync) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setDisableDataSync(nativeHandle_, disableDataSync);
     return this;
   }
 
   @Override
   public boolean useFsync() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return useFsync(nativeHandle_);
   }
 
   @Override
   public Options setUseFsync(final boolean useFsync) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setUseFsync(nativeHandle_, useFsync);
     return this;
   }
 
   @Override
   public String dbLogDir() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return dbLogDir(nativeHandle_);
   }
 
   @Override
   public Options setDbLogDir(final String dbLogDir) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setDbLogDir(nativeHandle_, dbLogDir);
     return this;
   }
 
   @Override
   public String walDir() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return walDir(nativeHandle_);
   }
 
   @Override
   public Options setWalDir(final String walDir) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setWalDir(nativeHandle_, walDir);
     return this;
   }
 
   @Override
   public long deleteObsoleteFilesPeriodMicros() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return deleteObsoleteFilesPeriodMicros(nativeHandle_);
   }
 
   @Override
   public Options setDeleteObsoleteFilesPeriodMicros(
       final long micros) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setDeleteObsoleteFilesPeriodMicros(nativeHandle_, micros);
     return this;
   }
 
   @Override
   public int maxBackgroundCompactions() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxBackgroundCompactions(nativeHandle_);
   }
 
   @Override
   public Options createStatistics() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     createStatistics(nativeHandle_);
     return this;
   }
 
   @Override
   public Statistics statisticsPtr() {
-    assert(isInitialized());
+    assert(isOwningHandle());
 
     long statsPtr = statisticsPtr(nativeHandle_);
     if(statsPtr == 0) {
@@ -365,74 +364,74 @@ public class Options extends RocksObject
   @Override
   public Options setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
     return this;
   }
 
   @Override
   public int maxBackgroundFlushes() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxBackgroundFlushes(nativeHandle_);
   }
 
   @Override
   public Options setMaxBackgroundFlushes(
       final int maxBackgroundFlushes) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxBackgroundFlushes(nativeHandle_, maxBackgroundFlushes);
     return this;
   }
 
   @Override
   public long maxLogFileSize() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxLogFileSize(nativeHandle_);
   }
 
   @Override
   public Options setMaxLogFileSize(final long maxLogFileSize) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);
     return this;
   }
 
   @Override
   public long logFileTimeToRoll() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return logFileTimeToRoll(nativeHandle_);
   }
 
   @Override
   public Options setLogFileTimeToRoll(final long logFileTimeToRoll) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setLogFileTimeToRoll(nativeHandle_, logFileTimeToRoll);
     return this;
   }
 
   @Override
   public long keepLogFileNum() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return keepLogFileNum(nativeHandle_);
   }
 
   @Override
   public Options setKeepLogFileNum(final long keepLogFileNum) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setKeepLogFileNum(nativeHandle_, keepLogFileNum);
     return this;
   }
 
   @Override
   public long maxManifestFileSize() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxManifestFileSize(nativeHandle_);
   }
 
   @Override
   public Options setMaxManifestFileSize(
       final long maxManifestFileSize) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxManifestFileSize(nativeHandle_, maxManifestFileSize);
     return this;
   }
@@ -441,7 +440,7 @@ public class Options extends RocksObject
   public Options setMaxTableFilesSizeFIFO(
     final long maxTableFilesSize) {
     assert(maxTableFilesSize > 0); // unsigned native type
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxTableFilesSizeFIFO(nativeHandle_, maxTableFilesSize);
     return this;
   }
@@ -453,118 +452,118 @@ public class Options extends RocksObject
 
   @Override
   public int tableCacheNumshardbits() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return tableCacheNumshardbits(nativeHandle_);
   }
 
   @Override
   public Options setTableCacheNumshardbits(
       final int tableCacheNumshardbits) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setTableCacheNumshardbits(nativeHandle_, tableCacheNumshardbits);
     return this;
   }
 
   @Override
   public long walTtlSeconds() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return walTtlSeconds(nativeHandle_);
   }
 
   @Override
   public Options setWalTtlSeconds(final long walTtlSeconds) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setWalTtlSeconds(nativeHandle_, walTtlSeconds);
     return this;
   }
 
   @Override
   public long walSizeLimitMB() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return walSizeLimitMB(nativeHandle_);
   }
 
   @Override
   public Options setWalSizeLimitMB(final long sizeLimitMB) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setWalSizeLimitMB(nativeHandle_, sizeLimitMB);
     return this;
   }
 
   @Override
   public long manifestPreallocationSize() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return manifestPreallocationSize(nativeHandle_);
   }
 
   @Override
   public Options setManifestPreallocationSize(final long size) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setManifestPreallocationSize(nativeHandle_, size);
     return this;
   }
 
   @Override
   public boolean allowOsBuffer() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return allowOsBuffer(nativeHandle_);
   }
 
   @Override
   public Options setAllowOsBuffer(final boolean allowOsBuffer) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setAllowOsBuffer(nativeHandle_, allowOsBuffer);
     return this;
   }
 
   @Override
   public boolean allowMmapReads() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return allowMmapReads(nativeHandle_);
   }
 
   @Override
   public Options setAllowMmapReads(final boolean allowMmapReads) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setAllowMmapReads(nativeHandle_, allowMmapReads);
     return this;
   }
 
   @Override
   public boolean allowMmapWrites() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return allowMmapWrites(nativeHandle_);
   }
 
   @Override
   public Options setAllowMmapWrites(final boolean allowMmapWrites) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setAllowMmapWrites(nativeHandle_, allowMmapWrites);
     return this;
   }
 
   @Override
   public boolean isFdCloseOnExec() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return isFdCloseOnExec(nativeHandle_);
   }
 
   @Override
   public Options setIsFdCloseOnExec(final boolean isFdCloseOnExec) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setIsFdCloseOnExec(nativeHandle_, isFdCloseOnExec);
     return this;
   }
 
   @Override
   public int statsDumpPeriodSec() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return statsDumpPeriodSec(nativeHandle_);
   }
 
   @Override
   public Options setStatsDumpPeriodSec(final int statsDumpPeriodSec) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setStatsDumpPeriodSec(nativeHandle_, statsDumpPeriodSec);
     return this;
   }
@@ -576,20 +575,20 @@ public class Options extends RocksObject
 
   @Override
   public Options setAdviseRandomOnOpen(final boolean adviseRandomOnOpen) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setAdviseRandomOnOpen(nativeHandle_, adviseRandomOnOpen);
     return this;
   }
 
   @Override
   public boolean useAdaptiveMutex() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return useAdaptiveMutex(nativeHandle_);
   }
 
   @Override
   public Options setUseAdaptiveMutex(final boolean useAdaptiveMutex) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setUseAdaptiveMutex(nativeHandle_, useAdaptiveMutex);
     return this;
   }
@@ -601,7 +600,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setBytesPerSync(final long bytesPerSync) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setBytesPerSync(nativeHandle_, bytesPerSync);
     return this;
   }
@@ -622,28 +621,28 @@ public class Options extends RocksObject
 
   @Override
   public Options setLogger(final Logger logger) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setLogger(nativeHandle_, logger.nativeHandle_);
     return this;
   }
 
   @Override
   public Options setInfoLogLevel(final InfoLogLevel infoLogLevel) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
     return this;
   }
 
   @Override
   public InfoLogLevel infoLogLevel() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return InfoLogLevel.getInfoLogLevel(
         infoLogLevel(nativeHandle_));
   }
 
   @Override
   public String memTableFactoryName() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return memTableFactoryName(nativeHandle_);
   }
 
@@ -656,20 +655,20 @@ public class Options extends RocksObject
 
   @Override
   public String tableFactoryName() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return tableFactoryName(nativeHandle_);
   }
 
   @Override
   public Options useFixedLengthPrefixExtractor(final int n) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     useFixedLengthPrefixExtractor(nativeHandle_, n);
     return this;
   }
 
   @Override
   public Options useCappedPrefixExtractor(final int n) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     useCappedPrefixExtractor(nativeHandle_, n);
     return this;
   }
@@ -680,11 +679,12 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setCompressionPerLevel(final List<CompressionType> compressionLevels) {
-    final List<Byte> byteCompressionTypes = new ArrayList<>(
-        compressionLevels.size());
-    for (final CompressionType compressionLevel : compressionLevels) {
-      byteCompressionTypes.add(compressionLevel.getValue());
+  public Options setCompressionPerLevel(
+      final List<CompressionType> compressionLevels) {
+    final byte[] byteCompressionTypes = new byte[
+        compressionLevels.size()];
+    for (int i = 0; i < compressionLevels.size(); i++) {
+      byteCompressionTypes[i] = compressionLevels.get(i).getValue();
     }
     setCompressionPerLevel(nativeHandle_, byteCompressionTypes);
     return this;
@@ -692,7 +692,7 @@ public class Options extends RocksObject
 
   @Override
   public List<CompressionType> compressionPerLevel() {
-    final List<Byte> byteCompressionTypes =
+    final byte[] byteCompressionTypes =
         compressionPerLevel(nativeHandle_);
     final List<CompressionType> compressionLevels = new ArrayList<>();
     for (final Byte byteCompressionType : byteCompressionTypes) {
@@ -975,7 +975,8 @@ public class Options extends RocksObject
   @Override
   public Options setMaxSequentialSkipInIterations(
       final long maxSequentialSkipInIterations) {
-    setMaxSequentialSkipInIterations(nativeHandle_, maxSequentialSkipInIterations);
+    setMaxSequentialSkipInIterations(nativeHandle_,
+        maxSequentialSkipInIterations);
     return this;
   }
 
@@ -1085,19 +1086,10 @@ public class Options extends RocksObject
     return optimizeFiltersForHits(nativeHandle_);
   }
 
-  /**
-   * Release the memory allocated for the current instance
-   * in the c++ side.
-   */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  private native void newOptions();
-  private native void newOptions(long dbOptHandle,
+  private native static long newOptions();
+  private native static long newOptions(long dbOptHandle,
       long cfOptHandle);
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
   private native void setEnv(long optHandle, long envHandle);
   private native void prepareForBulkLoad(long handle);
 
@@ -1200,7 +1192,8 @@ public class Options extends RocksObject
   private native void optimizeUniversalStyleCompaction(long handle,
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
-  private native void setComparatorHandle(long optHandle, long comparatorHandle);
+  private native void setComparatorHandle(long optHandle,
+      long comparatorHandle);
   private native void setMergeOperatorName(
       long handle, String name);
   private native void setMergeOperator(
@@ -1217,8 +1210,8 @@ public class Options extends RocksObject
   private native void setCompressionType(long handle, byte compressionType);
   private native byte compressionType(long handle);
   private native void setCompressionPerLevel(long handle,
-      List<Byte> compressionLevels);
-  private native List<Byte> compressionPerLevel(long handle);
+      byte[] compressionLevels);
+  private native byte[] compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void useCappedPrefixExtractor(

@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -16,7 +16,6 @@ import java.nio.ByteBuffer;
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
-  //TODO(AR) only needed by WriteBatchWithIndexTest until JDK8
   public final static DirectSlice NONE = new DirectSlice();
 
   /**
@@ -24,17 +23,15 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * without an underlying C++ object set
    * at creation time.
    *
-   * Note: You should be aware that
-   * {@see org.rocksdb.RocksObject#disOwnNativeHandle()} is intentionally
-   * called from the default DirectSlice constructor, and that it is marked as
-   * package-private. This is so that developers cannot construct their own default
-   * DirectSlice objects (at present). As developers cannot construct their own
-   * DirectSlice objects through this, they are not creating underlying C++
-   * DirectSlice objects, and so there is nothing to free (dispose) from Java.
+   * Note: You should be aware that it is intentionally marked as
+   * package-private. This is so that developers cannot construct their own
+   * default DirectSlice objects (at present). As developers cannot construct
+   * their own DirectSlice objects through this, they are not creating
+   * underlying C++ DirectSlice objects, and so there is nothing to free
+   * (dispose) from Java.
    */
   DirectSlice() {
     super();
-    disOwnNativeHandle();
   }
 
   /**
@@ -45,8 +42,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @param str The string
    */
   public DirectSlice(final String str) {
-    super();
-    createNewSliceFromString(str);
+    super(createNewSliceFromString(str));
   }
 
   /**
@@ -58,9 +54,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @param length The length of the data to use for the slice
    */
   public DirectSlice(final ByteBuffer data, final int length) {
-    super();
-    assert(data.isDirect());
-    createNewDirectSlice0(data, length);
+    super(createNewDirectSlice0(ensureDirect(data), length));
   }
 
   /**
@@ -71,9 +65,14 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @param data The bugger containing the data
    */
   public DirectSlice(final ByteBuffer data) {
-    super();
+    super(createNewDirectSlice1(ensureDirect(data)));
+  }
+
+  private static ByteBuffer ensureDirect(final ByteBuffer data) {
+    // TODO(AR) consider throwing a checked exception, as if it's not direct
+    // this can SIGSEGV
     assert(data.isDirect());
-    createNewDirectSlice1(data);
+    return data;
   }
 
   /**
@@ -85,16 +84,14 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @return the requested byte
    */
   public byte get(int offset) {
-    assert (isInitialized());
-    return get0(nativeHandle_, offset);
+    return get0(getNativeHandle(), offset);
   }
 
   /**
    * Clears the backing slice
    */
   public void clear() {
-    assert (isInitialized());
-    clear0(nativeHandle_);
+    clear0(getNativeHandle());
   }
 
   /**
@@ -105,12 +102,12 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * @param n The number of bytes to drop
    */
   public void removePrefix(final int n) {
-    assert (isInitialized());
-    removePrefix0(nativeHandle_, n);
+    removePrefix0(getNativeHandle(), n);
   }
 
-  private native void createNewDirectSlice0(ByteBuffer data, int length);
-  private native void createNewDirectSlice1(ByteBuffer data);
+  private native static long createNewDirectSlice0(final ByteBuffer data,
+      final int length);
+  private native static long createNewDirectSlice1(final ByteBuffer data);
   @Override protected final native ByteBuffer data0(long handle);
   private native byte get0(long handle, int offset);
   private native void clear0(long handle);

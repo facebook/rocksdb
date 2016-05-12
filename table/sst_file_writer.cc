@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -83,6 +83,7 @@ struct SstFileWriter::Rep {
   ImmutableCFOptions ioptions;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
+  std::string column_family_name;
 };
 
 SstFileWriter::SstFileWriter(const EnvOptions& env_options,
@@ -114,7 +115,9 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   TableBuilderOptions table_builder_options(
       r->ioptions, r->internal_comparator, &int_tbl_prop_collector_factories,
-      compression_type, r->ioptions.compression_opts, false);
+      compression_type, r->ioptions.compression_opts,
+      nullptr /* compression_dict */, false /* skip_filters */,
+      r->column_family_name);
   r->file_writer.reset(
       new WritableFileWriter(std::move(sst_file), r->env_options));
   r->builder.reset(r->ioptions.table_factory->NewTableBuilder(
@@ -162,6 +165,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   Rep* r = rep_;
   if (!r->builder) {
     return Status::InvalidArgument("File is not opened");
+  }
+  if (r->file_info.num_entries == 0) {
+    return Status::InvalidArgument("Cannot create sst file with no entries");
   }
 
   Status s = r->builder->Finish();

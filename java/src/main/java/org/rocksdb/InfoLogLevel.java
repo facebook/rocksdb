@@ -9,7 +9,8 @@ public enum InfoLogLevel {
   WARN_LEVEL((byte)2),
   ERROR_LEVEL((byte)3),
   FATAL_LEVEL((byte)4),
-  NUM_INFO_LOG_LEVELS((byte)5);
+  HEADER_LEVEL((byte)5),
+  NUM_INFO_LOG_LEVELS((byte)6);
 
   private final byte value_;
 

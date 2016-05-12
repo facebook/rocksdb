@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -19,6 +19,7 @@
 #endif
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -27,7 +28,6 @@
 #include <vector>
 
 #include "db/db_impl.h"
-#include "db/db_test_util.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "memtable/hash_linklist_rep.h"
@@ -39,6 +39,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "table/block_based_table_factory.h"
@@ -117,6 +118,84 @@ struct OptionsOverride {
 };
 
 }  // namespace anon
+
+// A hacky skip list mem table that triggers flush after number of entries.
+class SpecialMemTableRep : public MemTableRep {
+ public:
+  explicit SpecialMemTableRep(MemTableAllocator* allocator,
+                              MemTableRep* memtable, int num_entries_flush)
+      : MemTableRep(allocator),
+        memtable_(memtable),
+        num_entries_flush_(num_entries_flush),
+        num_entries_(0) {}
+
+  virtual KeyHandle Allocate(const size_t len, char** buf) override {
+    return memtable_->Allocate(len, buf);
+  }
+
+  // Insert key into the list.
+  // REQUIRES: nothing that compares equal to key is currently in the list.
+  virtual void Insert(KeyHandle handle) override {
+    memtable_->Insert(handle);
+    num_entries_++;
+  }
+
+  // Returns true iff an entry that compares equal to key is in the list.
+  virtual bool Contains(const char* key) const override {
+    return memtable_->Contains(key);
+  }
+
+  virtual size_t ApproximateMemoryUsage() override {
+    // Return a high memory usage when number of entries exceeds the threshold
+    // to trigger a flush.
+    return (num_entries_ < num_entries_flush_) ? 0 : 1024 * 1024 * 1024;
+  }
+
+  virtual void Get(const LookupKey& k, void* callback_args,
+                   bool (*callback_func)(void* arg,
+                                         const char* entry)) override {
+    memtable_->Get(k, callback_args, callback_func);
+  }
+
+  uint64_t ApproximateNumEntries(const Slice& start_ikey,
+                                 const Slice& end_ikey) override {
+    return memtable_->ApproximateNumEntries(start_ikey, end_ikey);
+  }
+
+  virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
+    return memtable_->GetIterator(arena);
+  }
+
+  virtual ~SpecialMemTableRep() override {}
+
+ private:
+  unique_ptr<MemTableRep> memtable_;
+  int num_entries_flush_;
+  int num_entries_;
+};
+
+// The factory for the hacky skip list mem table that triggers flush after
+// number of entries exceeds a threshold.
+class SpecialSkipListFactory : public MemTableRepFactory {
+ public:
+  // After number of inserts exceeds `num_entries_flush` in a mem table, trigger
+  // flush.
+  explicit SpecialSkipListFactory(int num_entries_flush)
+      : num_entries_flush_(num_entries_flush) {}
+
+  virtual MemTableRep* CreateMemTableRep(
+      const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
+      const SliceTransform* transform, Logger* logger) override {
+    return new SpecialMemTableRep(
+        allocator, factory_.CreateMemTableRep(compare, allocator, transform, 0),
+        num_entries_flush_);
+  }
+  virtual const char* Name() const override { return "SkipListFactory"; }
+
+ private:
+  SkipListFactory factory_;
+  int num_entries_flush_;
+};
 
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
@@ -279,23 +358,30 @@ class SpecialEnv : public EnvWrapper {
     class CountingFile : public RandomAccessFile {
      public:
       CountingFile(unique_ptr<RandomAccessFile>&& target,
-                   anon::AtomicCounter* counter)
-          : target_(std::move(target)), counter_(counter) {}
+                   anon::AtomicCounter* counter,
+                   std::atomic<size_t>* bytes_read)
+          : target_(std::move(target)),
+            counter_(counter),
+            bytes_read_(bytes_read) {}
       virtual Status Read(uint64_t offset, size_t n, Slice* result,
                           char* scratch) const override {
         counter_->Increment();
-        return target_->Read(offset, n, result, scratch);
+        Status s = target_->Read(offset, n, result, scratch);
+        *bytes_read_ += result->size();
+        return s;
       }
 
      private:
       unique_ptr<RandomAccessFile> target_;
       anon::AtomicCounter* counter_;
+      std::atomic<size_t>* bytes_read_;
     };
 
     Status s = target()->NewRandomAccessFile(f, r, soptions);
     random_file_open_counter_++;
     if (s.ok() && count_random_reads_) {
-      r->reset(new CountingFile(std::move(*r), &random_read_counter_));
+      r->reset(new CountingFile(std::move(*r), &random_read_counter_,
+                                &random_read_bytes_counter_));
     }
     return s;
   }
@@ -327,15 +413,19 @@ class SpecialEnv : public EnvWrapper {
 
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
-    if (no_sleep_) {
+    if (no_sleep_ || time_elapse_only_sleep_) {
       addon_time_.fetch_add(micros);
-    } else {
+    }
+    if (!no_sleep_) {
       target()->SleepForMicroseconds(micros);
     }
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
-    Status s = target()->GetCurrentTime(unix_time);
+    Status s;
+    if (!time_elapse_only_sleep_) {
+      s = target()->GetCurrentTime(unix_time);
+    }
     if (s.ok()) {
       *unix_time += addon_time_.load();
     }
@@ -343,11 +433,13 @@ class SpecialEnv : public EnvWrapper {
   }
 
   virtual uint64_t NowNanos() override {
-    return target()->NowNanos() + addon_time_.load() * 1000;
+    return (time_elapse_only_sleep_ ? 0 : target()->NowNanos()) +
+           addon_time_.load() * 1000;
   }
 
   virtual uint64_t NowMicros() override {
-    return target()->NowMicros() + addon_time_.load();
+    return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
+           addon_time_.load();
   }
 
   Random rnd_;
@@ -379,6 +471,7 @@ class SpecialEnv : public EnvWrapper {
 
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
+  std::atomic<size_t> random_read_bytes_counter_;
   std::atomic<int> random_file_open_counter_;
 
   bool count_sequential_reads_;
@@ -399,10 +492,40 @@ class SpecialEnv : public EnvWrapper {
   std::function<void()>* table_write_callback_;
 
   std::atomic<int64_t> addon_time_;
+
+  bool time_elapse_only_sleep_;
+
   bool no_sleep_;
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 };
+
+#ifndef ROCKSDB_LITE
+class OnFileDeletionListener : public EventListener {
+ public:
+  OnFileDeletionListener() : matched_count_(0), expected_file_name_("") {}
+
+  void SetExpectedFileName(const std::string file_name) {
+    expected_file_name_ = file_name;
+  }
+
+  void VerifyMatchedCount(size_t expected_value) {
+    ASSERT_EQ(matched_count_, expected_value);
+  }
+
+  void OnTableFileDeleted(const TableFileDeletionInfo& info) override {
+    if (expected_file_name_ != "") {
+      ASSERT_EQ(expected_file_name_, info.file_path);
+      expected_file_name_ = "";
+      matched_count_++;
+    }
+  }
+
+ private:
+  size_t matched_count_;
+  std::string expected_file_name_;
+};
+#endif
 
 class DBTestBase : public testing::Test {
  protected:
@@ -438,9 +561,11 @@ class DBTestBase : public testing::Test {
     kOptimizeFiltersForHits = 27,
     kRowCache = 28,
     kRecycleLogFiles = 29,
-    kLevelSubcompactions = 30,
-    kUniversalSubcompactions = 31,
-    kEnd = 30
+    kConcurrentSkipList = 30,
+    kEnd = 31,
+    kLevelSubcompactions = 31,
+    kUniversalSubcompactions = 32,
+    kBlockBasedTableWithIndexRestartInterval = 33,
   };
   int option_config_;
 
@@ -485,6 +610,8 @@ class DBTestBase : public testing::Test {
     snprintf(buf, sizeof(buf), "key%06d", i);
     return std::string(buf);
   }
+
+  static bool ShouldSkipOptions(int option_config, int skip_mask = kNoSkip);
 
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
@@ -574,12 +701,14 @@ class DBTestBase : public testing::Test {
 
   uint64_t SizeAtLevel(int level);
 
-  int TotalLiveFiles(int cf = 0);
+  size_t TotalLiveFiles(int cf = 0);
 
   size_t CountLiveFiles();
 #endif  // ROCKSDB_LITE
 
   int NumTableFilesAtLevel(int level, int cf = 0);
+
+  double CompressionRatioAtLevel(int level, int cf = 0);
 
   int TotalTableFiles(int cf = 0, int levels = -1);
 
@@ -622,6 +751,9 @@ class DBTestBase : public testing::Test {
 
   void GenerateNewFile(int fd, Random* rnd, int* key_idx, bool nowait = false);
 
+  static const int kNumKeysByGenerateNewRandomFile;
+  static const int KNumKeysByGenerateNewFile = 100;
+
   void GenerateNewRandomFile(Random* rnd, bool nowait = false);
 
   std::string IterStatus(Iterator* iter);
@@ -659,6 +791,20 @@ class DBTestBase : public testing::Test {
 
   void CopyFile(const std::string& source, const std::string& destination,
                 uint64_t size = 0);
+
+  std::unordered_map<std::string, uint64_t> GetAllSSTFiles(
+      uint64_t* total_size = nullptr);
+
+  std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
+
+#ifndef ROCKSDB_LITE
+  uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
+                                              std::string column_family_name);
+#endif  // ROCKSDB_LITE
+
+  uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
+    return options.statistics->getTickerCount(ticker_type);
+  }
 };
 
 }  // namespace rocksdb

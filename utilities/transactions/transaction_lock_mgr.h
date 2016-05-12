@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -24,10 +24,12 @@ struct LockMap;
 struct LockMapStripe;
 
 class Slice;
+class TransactionDBImpl;
 
 class TransactionLockMgr {
  public:
-  TransactionLockMgr(size_t default_num_stripes, int64_t max_num_locks,
+  TransactionLockMgr(TransactionDB* txn_db, size_t default_num_stripes,
+                     int64_t max_num_locks,
                      std::shared_ptr<TransactionDBMutexFactory> factory);
 
   ~TransactionLockMgr();
@@ -53,6 +55,8 @@ class TransactionLockMgr {
               const std::string& key, Env* env);
 
  private:
+  TransactionDBImpl* txn_db_impl_;
+
   // Default number of lock map stripes per column family
   const size_t default_num_stripes_;
 

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -24,6 +24,7 @@ class Env;
 struct SuperVersion;
 class ColumnFamilyData;
 class LevelIterator;
+class VersionStorageInfo;
 struct FileMetaData;
 
 class MinIterComparator {
@@ -70,11 +71,16 @@ class ForwardIterator : public InternalIterator {
   virtual Slice key() const override;
   virtual Slice value() const override;
   virtual Status status() const override;
+  virtual Status GetProperty(std::string prop_name, std::string* prop) override;
+
   bool TEST_CheckDeletedIters(int* deleted_iters, int* num_iters);
 
  private:
   void Cleanup(bool release_sv);
+  void SVCleanup();
   void RebuildIterators(bool refresh_sv);
+  void RenewIterators();
+  void BuildLevelIterators(const VersionStorageInfo* vstorage);
   void ResetIncompleteIterators();
   void SeekInternal(const Slice& internal_key, bool seek_to_first);
   void UpdateCurrent();

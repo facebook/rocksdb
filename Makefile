@@ -15,7 +15,9 @@ ARFLAGS = rs
 
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
-  -e '@a=split("\t",$$_,-1); $$t=$$a[8]; $$t =~ s,^\./,,;'		\
+  -e '@a=split("\t",$$_,-1); $$t=$$a[8];'				\
+  -e '$$t =~ /.*if\s\[\[\s"(.*?\.[\w\/]+)/ and $$t=$$1;'		\
+  -e '$$t =~ s,^\./,,;'							\
   -e '$$t =~ s, >.*,,; chomp $$t;'					\
   -e '$$t =~ /.*--gtest_filter=(.*?\.[\w\/]+)/ and $$t=$$1;'		\
   -e 'printf "%7.3f %s %s\n", $$a[3], $$a[6] == 0 ? "PASS" : "FAIL", $$t'
@@ -73,10 +75,19 @@ ifeq ($(MAKECMDGOALS),rocksdbjavastatic)
 	DEBUG_LEVEL=0
 endif
 
+ifeq ($(MAKECMDGOALS),rocksdbjavastaticrelease)
+	DEBUG_LEVEL=0
+endif
+
+ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
+	DEBUG_LEVEL=0
+endif
+
 # compile with -O2 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
 OPT += -O2 -fno-omit-frame-pointer
-ifneq ($(MACHINE),ppc64) # ppc64 doesn't support -momit-leaf-frame-pointer
+# Skip for archs that don't support -momit-leaf-frame-pointer
+ifeq (,$(shell $(CXX) -fsyntax-only -momit-leaf-frame-pointer -xc /dev/null 2>&1))
 OPT += -momit-leaf-frame-pointer
 endif
 endif
@@ -135,6 +146,9 @@ else
 OPT += -DNDEBUG
 endif
 
+ifeq ($(PLATFORM), OS_SOLARIS)
+	PLATFORM_CXXFLAGS += -D _GLIBCXX_USE_C99
+endif
 ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	# found
 	CFLAGS += -fno-exceptions
@@ -157,12 +171,22 @@ ifdef COMPILE_WITH_TSAN
 	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
         # Turn off -pg when enabling TSAN testing, because that induces
         # a link failure.  TODO: find the root cause
-	pg =
-else
-	pg = -pg
+	PROFILING_FLAGS =
+endif
+
+# USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
+ifdef COMPILE_WITH_UBSAN
+	DISABLE_JEMALLOC=1
+	EXEC_LDFLAGS += -fsanitize=undefined
+	PLATFORM_CCFLAGS += -fsanitize=undefined
+	PLATFORM_CXXFLAGS += -fsanitize=undefined
 endif
 
 ifndef DISABLE_JEMALLOC
+	ifdef JEMALLOC
+		PLATFORM_CXXFLAGS += "-DROCKSDB_JEMALLOC"
+		PLATFORM_CCFLAGS +=  "-DROCKSDB_JEMALLOC"
+	endif
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
@@ -229,17 +253,25 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
+BENCHTOOLOBJECTS = $(BENCH_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
+
 TESTS = \
 	db_test \
+	db_test2 \
+	db_block_cache_test \
+	db_bloom_filter_test \
 	db_iter_test \
 	db_log_iter_test \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_dynamic_level_test \
 	db_inplace_update_test \
+	db_iterator_test \
+	db_sst_test \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
 	db_wal_test \
+	db_properties_test \
 	db_table_properties_test \
 	block_hash_index_test \
 	autovector_test \
@@ -266,14 +298,17 @@ TESTS = \
 	block_based_filter_block_test \
 	full_filter_block_test \
 	histogram_test \
+	inlineskiplist_test \
 	log_test \
 	manual_compaction_test \
 	memenv_test \
 	mock_env_test \
 	memtable_list_test \
 	merge_helper_test \
+	memory_test \
 	merge_test \
 	merger_test \
+	options_file_test \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
@@ -301,6 +336,8 @@ TESTS = \
 	rate_limiter_test \
 	delete_scheduler_test \
 	options_test \
+	options_settable_test \
+	options_util_test \
 	event_logger_test \
 	cuckoo_table_builder_test \
 	cuckoo_table_reader_test \
@@ -320,9 +357,29 @@ TESTS = \
 	compact_on_deletion_collector_test \
 	compaction_job_stats_test \
 	transaction_test \
-	ldb_cmd_test
+	ldb_cmd_test \
+	iostats_context_test
 
-SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
+PARALLEL_TEST = \
+	backupable_db_test \
+	compact_on_deletion_collector_test \
+	db_compaction_filter_test \
+	db_compaction_test \
+	db_test \
+	db_universal_compaction_test \
+	fault_injection_test \
+	inlineskiplist_test \
+	manual_compaction_test \
+	table_test
+
+SUBSET := $(TESTS)
+ifdef ROCKSDBTESTS_START
+        SUBSET := $(shell echo $(SUBSET) | sed 's/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/')
+endif
+
+ifdef ROCKSDBTESTS_END
+        SUBSET := $(shell echo $(SUBSET) | sed 's/$(ROCKSDBTESTS_END).*//')
+endif
 
 TOOLS = \
 	sst_dump \
@@ -334,6 +391,7 @@ TOOLS = \
 	rocksdb_dump \
 	rocksdb_undump
 
+# TODO: add back forward_iterator_bench, after making it build in all environemnts.
 BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
 # if user didn't config LIBNAME, set the default
@@ -389,7 +447,7 @@ $(SHARED3): $(SHARED4)
 endif
 
 $(SHARED4):
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) \
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) $(TOOL_SOURCES) \
 		$(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
@@ -422,7 +480,26 @@ coverage:
         # Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
-# Extract the names of its tests by running db_test with --gtest_list_tests.
+ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
+# Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
+# and create a randomly-named rocksdb.XXXX directory therein.
+# We'll use that directory in the "make check" rules.
+ifeq ($(TMPD),)
+TMPD := $(shell f=/dev/shm; test -k $$f || f=/tmp;			\
+  perl -le 'use File::Temp "tempdir";'					\
+    -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
+endif
+endif
+
+# Run all tests in parallel, accumulating per-test logs in t/log-*.
+#
+# Each t/run-* file is a tiny generated bourne shell script that invokes one of
+# sub-tests. Why use a file for this?  Because that makes the invocation of
+# parallel below simpler, which in turn makes the parsing of parallel's
+# LOG simpler (the latter is for live monitoring as parallel
+# tests run).
+#
+# Test names are extracted by running tests with --gtest_list_tests.
 # This filter removes the "#"-introduced comments, and expands to
 # fully-qualified names by changing input like this:
 #
@@ -440,52 +517,33 @@ coverage:
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/0
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/1
 #
-test_names = \
-  ./db_test --gtest_list_tests						\
-    | perl -n								\
-      -e 's/ *\#.*//;'							\
-      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
-      -e 'print qq! $$p$$2!'
 
-ifeq ($(MAKECMDGOALS),check)
-# Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
-# and create a randomly-named rocksdb.XXXX directory therein.
-# We'll use that directory in the "make check" rules.
-ifeq ($(TMPD),)
-TMPD := $(shell f=/dev/shm; test -k $$f || f=/tmp;			\
-  perl -le 'use File::Temp "tempdir";'					\
-    -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
-endif
-endif
+parallel_tests = $(patsubst %,parallel_%,$(PARALLEL_TEST))
+.PHONY: gen_parallel_tests $(parallel_tests)
+$(parallel_tests): $(PARALLEL_TEST)
+	$(AM_V_at)TEST_BINARY=$(patsubst parallel_%,%,$@); \
+  TEST_NAMES=` \
+    ./$$TEST_BINARY --gtest_list_tests \
+    | perl -n \
+      -e 's/ *\#.*//;' \
+      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'	\
+      -e 'print qq! $$p$$2!'`; \
+	for TEST_NAME in $$TEST_NAMES; do \
+		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
+		echo "  GEN     " $$TEST_SCRIPT; \
+    printf '%s\n' \
+      '#!/bin/sh' \
+      "d=\$(TMPD)$$TEST_SCRIPT" \
+      'mkdir -p $$d' \
+			"TEST_TMPDIR=\$$d ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
+		> $$TEST_SCRIPT; \
+		chmod a=rx $$TEST_SCRIPT; \
+	done
 
-ifneq ($(T),)
-
-# Run all tests in parallel, accumulating per-test logs in t/log-*.
-
-# t_sanitized is each $(T) with "-" in place of each "/".
-t_sanitized = $(subst /,-,$(T))
-
-# t_run is each sanitized name with a leading "t/".
-t_run = $(patsubst %,t/%,$(t_sanitized))
-
-# Each t_run file is a tiny generated bourne shell script
-# that invokes one of db_tests's sub-tests. Why use a file
-# for this?  Because that makes the invocation of parallel
-# below simpler, which in turn makes the parsing of parallel's
-# LOG simpler (the latter is for live monitoring as parallel
-# tests run).
-filter = --gtest_filter=$(subst -,/,$(@F))
-$(t_run): Makefile db_test
-	$(AM_V_GEN)mkdir -p t
-	$(AM_V_at)rm -f $@ $@-t
-	$(AM_V_at)printf '%s\n'						\
-	    '#!/bin/sh'							\
-	    'd=$(TMPD)/$(@F)'						\
-	    'mkdir -p $$d'						\
-	    'TEST_TMPDIR=$$d ./db_test $(filter)'			\
-	  > $@-t
-	$(AM_V_at)chmod a=rx $@-t
-	$(AM_V_at)mv $@-t $@
+gen_parallel_tests:
+	$(AM_V_at)mkdir -p t
+	$(AM_V_at)rm -f t/run-*
+	$(MAKE) $(parallel_tests)
 
 # Reorder input lines (which are one per test) so that the
 # longest-running tests appear first in the output.
@@ -504,7 +562,7 @@ $(t_run): Makefile db_test
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-  ^t/DBTest\.(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$
+	^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
@@ -515,26 +573,43 @@ prioritize_long_running_tests =						\
 # Run with "make J=200% check" to run two parallel jobs per core.
 # The default is to run one job per core (J=100%).
 # See "man parallel" for its "-j ..." option.
-J = 100%
+J ?= 100%
 
 # Use this regexp to select the subset of tests whose names match.
 tests-regexp = .
 
+t_run = $(wildcard t/run-*)
 .PHONY: check_0
-check_0: $(t_run)
+check_0:
+	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD); \
+	printf '%s\n' ''						\
+	  'To monitor subtest <duration,pass/fail,name>,'		\
+	  '  run "make watch-log" in a separate window' '';		\
+	test -t 1 && eta=--eta || eta=; \
+	{ \
+		printf './%s\n' $(filter-out $(PARALLEL_TEST),$(TESTS)); \
+		printf '%s\n' $(t_run); \
+	} \
+	  | $(prioritize_long_running_tests)				\
+	  | grep -E '$(tests-regexp)'					\
+	  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
+
+.PHONY: valgrind_check_0
+valgrind_check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
 	printf '%s\n' ''						\
 	  'To monitor subtest <duration,pass/fail,name>,'		\
 	  '  run "make watch-log" in a separate window' '';		\
 	test -t 1 && eta=--eta || eta=;					\
 	{								\
-	  printf './%s\n' $(filter-out db_test, $(TESTS));		\
+	  printf './%s\n' $(filter-out $(PARALLEL_TEST) %skiplist_test options_settable_test, $(TESTS));		\
 	  printf '%s\n' $(t_run);					\
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
-endif
+	  | parallel -j$(J) --joblog=LOG $$eta --gnu \
+      'if [[ "{}" == "./"* ]] ; then $(DRIVER) {} >& t/valgrind_log-{/}; ' \
+      'else {} >& t/valgrind_log-{/}; fi'
 
 CLEAN_FILES += t LOG $(TMPD)
 
@@ -551,11 +626,11 @@ watch-log:
 # If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
 check: all
+	$(MAKE) gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
 	    && (parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
 	then                                                            \
-	    t=$$($(test_names));                                        \
 	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
 	else                                                            \
 	    for t in $(TESTS); do                                       \
@@ -577,7 +652,7 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py --simple blackbox 
+	python -u tools/db_crashtest.py --simple blackbox
 	python -u tools/db_crashtest.py blackbox
 
 whitebox_crash_test: db_stress
@@ -594,14 +669,80 @@ asan_crash_test:
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
+ubsan_check:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) check -j32
+	$(MAKE) clean
+
+ubsan_crash_test:
+	$(MAKE) clean
+	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test
+	$(MAKE) clean
+
 valgrind_check: $(TESTS)
-	for t in $(filter-out skiplist_test,$(TESTS)); do \
-		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
+	$(MAKE) gen_parallel_tests
+	$(AM_V_GEN)if test "$(J)" != 1                                  \
+	    && (parallel --gnu --help 2>/dev/null) |                    \
+	        grep -q 'GNU Parallel';                                 \
+	then                                                            \
+      $(MAKE) TMPD=$(TMPD)                                        \
+      DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" valgrind_check_0; \
+	else                                                            \
+		for t in $(filter-out %skiplist_test options_settable_test,$(TESTS)); do \
+			$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
+			ret_code=$$?; \
+			if [ $$ret_code -ne 0 ]; then \
+				exit $$ret_code; \
+			fi; \
+		done; \
+	fi
+
+
+ifneq ($(PAR_TEST),)
+parloop:
+	ret_bad=0;							\
+	for t in $(PAR_TEST); do		\
+		echo "===== Running $$t in parallel $(NUM_PAR)";\
+		if [ $(db_test) -eq 1 ]; then \
+			seq $(J) | v="$$t" parallel --gnu 's=$(TMPD)/rdb-{};  export TEST_TMPDIR=$$s;' \
+				'timeout 2m ./db_test --gtest_filter=$$v >> $$s/log-{} 2>1'; \
+		else\
+			seq $(J) | v="./$$t" parallel --gnu 's=$(TMPD)/rdb-{};' \
+			     'export TEST_TMPDIR=$$s; timeout 10m $$v >> $$s/log-{} 2>1'; \
+		fi; \
 		ret_code=$$?; \
 		if [ $$ret_code -ne 0 ]; then \
-			exit $$ret_code; \
+			ret_bad=$$ret_code; \
+			echo $$t exited with $$ret_code; \
 		fi; \
-	done
+	done; \
+	exit $$ret_bad;
+endif
+
+test_names = \
+  ./db_test --gtest_list_tests						\
+    | perl -n								\
+      -e 's/ *\#.*//;'							\
+      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
+      -e 'print qq! $$p$$2!'
+
+parallel_check: $(TESTS)
+	$(AM_V_GEN)if test "$(J)" > 1                                  \
+	    && (parallel --gnu --help 2>/dev/null) |                    \
+	        grep -q 'GNU Parallel';                                 \
+	then                                                            \
+	    echo Running in parallel $(J);			\
+	else                                                            \
+	    echo "Need to have GNU Parallel and J > 1"; exit 1;		\
+	fi;								\
+	ret_bad=0;							\
+	echo $(J);\
+	echo Test Dir: $(TMPD); \
+        seq $(J) | parallel --gnu 's=$(TMPD)/rdb-{}; rm -rf $$s; mkdir $$s'; \
+	$(MAKE)  PAR_TEST="$(shell $(test_names))" TMPD=$(TMPD) \
+		J=$(J) db_test=1 parloop; \
+	$(MAKE) PAR_TEST="$(filter-out db_test, $(TESTS))" \
+		TMPD=$(TMPD) J=$(J) db_test=0 parloop;
 
 analyze: clean
 	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
@@ -639,7 +780,7 @@ clean:
 
 tags:
 	ctags * -R
-	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
+	cscope -b `find . -name '*.cc'` `find . -name '*.h'` `find . -name '*.c'`
 
 format:
 	build_tools/format-diff.sh
@@ -654,7 +795,7 @@ $(LIBRARY): $(LIBOBJECTS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
 
-db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
+db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
 
 cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
@@ -729,6 +870,15 @@ slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_test2: db/db_test2.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_block_cache_test: db/db_block_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_bloom_filter_test: db/db_bloom_filter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_log_iter_test: db/db_log_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -744,6 +894,12 @@ db_dynamic_level_test: db/db_dynamic_level_test.o db/db_test_util.o $(LIBOBJECTS
 db_inplace_update_test: db/db_inplace_update_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_iterator_test: db/db_iterator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_tailing_iter_test: db/db_tailing_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -756,11 +912,14 @@ db_universal_compaction_test: db/db_universal_compaction_test.o db/db_test_util.
 db_wal_test: db/db_wal_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_properties_test: db/db_properties_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_table_properties_test: db/db_table_properties_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK) $(pg)
+	$(AM_LINK) $(PROFILING_FLAGS)
 
 plain_table_db_test: db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
@@ -769,7 +928,7 @@ comparator_db_test: db/comparator_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK) $(pg)
+	$(AM_LINK) $(PROFILING_FLAGS)
 
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
@@ -790,6 +949,9 @@ json_document_test: utilities/document/json_document_test.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+env_mirror_test: utilities/env_mirror_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -852,6 +1014,9 @@ table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+inlineskiplist_test: db/inlineskiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 skiplist_test: db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -882,10 +1047,16 @@ write_controller_test: db/write_controller_test.o $(LIBOBJECTS) $(TESTHARNESS)
 merge_helper_test: db/merge_helper_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+memory_test: utilities/memory/memory_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 merger_test: table/merger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+options_file_test: db/options_file_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -909,7 +1080,7 @@ cuckoo_table_reader_test: table/cuckoo_table_reader_test.o $(LIBOBJECTS) $(TESTH
 cuckoo_table_db_test: db/cuckoo_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-listener_test: db/listener_test.o $(LIBOBJECTS) $(TESTHARNESS)
+listener_test: db/listener_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -919,6 +1090,12 @@ compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+options_settable_test: util/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -942,7 +1119,7 @@ manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+auto_roll_logger_test: db/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -960,11 +1137,17 @@ transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TEST
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
+repair_test: db/repair_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
 	$(AM_LINK)
+
+iostats_context_test: util/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 #-------------------------------------------------
 # make install related stuff
@@ -1008,7 +1191,11 @@ install: install-static
 # ---------------------------------------------------------------------------
 
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
-ARCH := $(shell getconf LONG_BIT)
+ifeq ($(PLATFORM), OS_SOLARIS)
+	ARCH := $(shell isainfo -b)
+else
+	ARCH := $(shell getconf LONG_BIT)
+endif
 ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
@@ -1016,13 +1203,18 @@ ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PA
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
 
 ifeq ($(PLATFORM), OS_MACOSX)
-ROCKSDBJNILIB = librocksdbjni-osx.jnilib
-ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
+	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I $(JAVA_HOME)/include/darwin
 else
 	JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
+endif
+ifeq ($(PLATFORM), OS_SOLARIS)
+	ROCKSDBJNILIB = librocksdbjni-solaris$(ARCH).so
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
 endif
 
 libz.a:
@@ -1117,11 +1309,10 @@ jtest: rocksdbjava
 jdb_bench:
 	cd java;$(MAKE) db_bench;
 
-commit-prereq:
-	$(MAKE) clean && $(MAKE) all check;
+commit_prereq: build_tools/rocksdb-lego-determinator \
+               build_tools/precommit_checker.py
+	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit tsan asan ubsan lite
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
-	$(MAKE) clean && USE_CLANG=1 $(MAKE) all;
-	$(MAKE) clean && OPT=-DROCKSDB_LITE $(MAKE) static_lib;
 
 xfunc:
 	for xftest in $(XFUNC_TESTS); do \

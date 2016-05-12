@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -14,11 +14,12 @@
 #include <malloc.h>
 #endif
 
+#include "db/dbformat.h"
+#include "db/pinned_iterators_manager.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
-#include "db/dbformat.h"
-#include "table/block_prefix_index.h"
 #include "table/block_hash_index.h"
+#include "table/block_prefix_index.h"
 #include "table/internal_iterator.h"
 
 #include "format.h"
@@ -150,6 +151,21 @@ class BlockIter : public InternalIterator {
   virtual void SeekToFirst() override;
 
   virtual void SeekToLast() override;
+
+#ifndef NDEBUG
+  ~BlockIter() {
+    // Assert that the BlockIter is never deleted while Pinning is Enabled.
+    assert(!pinned_iters_mgr_ ||
+           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+  }
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+  }
+  PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
+#endif
+
+  virtual bool IsKeyPinned() const override { return key_.IsKeyPinned(); }
 
  private:
   const Comparator* comparator_;

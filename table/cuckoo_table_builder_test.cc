@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc. All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -89,6 +89,8 @@ class CuckooBuilderTest : public testing::Test {
     ASSERT_EQ(props->data_size, expected_unused_bucket.size() *
         (expected_table_size + expected_cuckoo_block_size - 1));
     ASSERT_EQ(props->raw_key_size, keys.size()*props->fixed_key_len);
+    ASSERT_EQ(props->column_family_id, 0);
+    ASSERT_EQ(props->column_family_name, kDefaultColumnFamilyName);
     delete props;
 
     // Check contents of the bucket.
@@ -129,6 +131,11 @@ class CuckooBuilderTest : public testing::Test {
     return n;
   }
 
+  uint64_t GetExpectedTableSize(uint64_t num) {
+    return NextPowOf2(static_cast<uint64_t>(num / kHashTableRatio));
+  }
+
+
   Env* env_;
   EnvOptions env_options_;
   std::string fname;
@@ -143,7 +150,8 @@ TEST_F(CuckooBuilderTest, SuccessWithEmptyFile) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, 4, 100,
                              BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   ASSERT_EQ(0UL, builder.FileSize());
   ASSERT_OK(builder.Finish());
@@ -169,7 +177,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
-  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
+  uint64_t expected_table_size = GetExpectedTableSize(keys.size());
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/NoCollisionFullKey";
@@ -178,7 +186,8 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              100, BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
@@ -216,7 +225,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
-  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
+  uint64_t expected_table_size = GetExpectedTableSize(keys.size());
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionFullKey";
@@ -225,7 +234,8 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              100, BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
@@ -263,7 +273,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
-  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
+  uint64_t expected_table_size = GetExpectedTableSize(keys.size());
 
   unique_ptr<WritableFile> writable_file;
   uint32_t cuckoo_block_size = 2;
@@ -271,9 +281,10 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
-  CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
-                             100, BytewiseComparator(), cuckoo_block_size,
-                             false, false, GetSliceHash);
+  CuckooTableBuilder builder(
+      file_writer.get(), kHashTableRatio, num_hash_fun, 100,
+      BytewiseComparator(), cuckoo_block_size, false, false, GetSliceHash,
+      0 /* column_family_id */, kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
@@ -316,7 +327,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
-  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
+  uint64_t expected_table_size = GetExpectedTableSize(keys.size());
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathFullKey";
@@ -325,7 +336,8 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKey) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              100, BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
@@ -365,7 +377,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
-  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
+  uint64_t expected_table_size = GetExpectedTableSize(keys.size());
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathFullKeyAndCuckooBlock";
@@ -374,7 +386,8 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              100, BytewiseComparator(), 2, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
@@ -407,7 +420,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
   hash_map = std::move(hm);
 
   std::vector<uint64_t> expected_locations = {0, 1, 2, 3};
-  uint64_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
+  uint64_t expected_table_size = GetExpectedTableSize(user_keys.size());
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/NoCollisionUserKey";
@@ -416,7 +429,8 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              100, BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(GetInternalKey(user_keys[i], true)), Slice(values[i]));
@@ -450,7 +464,7 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
   hash_map = std::move(hm);
 
   std::vector<uint64_t> expected_locations = {0, 1, 2, 3};
-  uint64_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
+  uint64_t expected_table_size = GetExpectedTableSize(user_keys.size());
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionUserKey";
@@ -459,7 +473,8 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              100, BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(GetInternalKey(user_keys[i], true)), Slice(values[i]));
@@ -495,7 +510,7 @@ TEST_F(CuckooBuilderTest, WithCollisionPathUserKey) {
   hash_map = std::move(hm);
 
   std::vector<uint64_t> expected_locations = {0, 1, 3, 4, 2};
-  uint64_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
+  uint64_t expected_table_size = GetExpectedTableSize(user_keys.size());
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathUserKey";
@@ -504,7 +519,8 @@ TEST_F(CuckooBuilderTest, WithCollisionPathUserKey) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              2, BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(GetInternalKey(user_keys[i], true)), Slice(values[i]));
@@ -548,7 +564,8 @@ TEST_F(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              2, BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(GetInternalKey(user_keys[i], false)), Slice("value"));
@@ -575,7 +592,8 @@ TEST_F(CuckooBuilderTest, FailWhenSameKeyInserted) {
       new WritableFileWriter(std::move(writable_file), EnvOptions()));
   CuckooTableBuilder builder(file_writer.get(), kHashTableRatio, num_hash_fun,
                              100, BytewiseComparator(), 1, false, false,
-                             GetSliceHash);
+                             GetSliceHash, 0 /* column_family_id */,
+                             kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
 
   builder.Add(Slice(GetInternalKey(user_key, false)), Slice("value1"));

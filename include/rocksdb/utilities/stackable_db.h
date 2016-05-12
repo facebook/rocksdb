@@ -144,6 +144,12 @@ class StackableDB : public DB {
     return db_->GetIntProperty(column_family, property, value);
   }
 
+  using DB::GetAggregatedIntProperty;
+  virtual bool GetAggregatedIntProperty(const Slice& property,
+                                        uint64_t* value) override {
+    return db_->GetAggregatedIntProperty(property, value);
+  }
+
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* r, int n, uint64_t* sizes,
@@ -175,6 +181,11 @@ class StackableDB : public DB {
   }
   virtual Status ContinueBackgroundWork() override {
     return db_->ContinueBackgroundWork();
+  }
+
+  virtual Status EnableAutoCompaction(
+      const std::vector<ColumnFamilyHandle*>& column_family_handles) override {
+    return db_->EnableAutoCompaction(column_family_handles);
   }
 
   using DB::NumberLevels;
@@ -268,9 +279,10 @@ class StackableDB : public DB {
   }
 
   using DB::SetOptions;
-  virtual Status SetOptions(
-    const std::unordered_map<std::string, std::string>& new_options) override {
-    return db_->SetOptions(new_options);
+  virtual Status SetOptions(ColumnFamilyHandle* column_family_handle,
+                            const std::unordered_map<std::string, std::string>&
+                                new_options) override {
+    return db_->SetOptions(column_family_handle, new_options);
   }
 
   using DB::GetPropertiesOfAllTables;

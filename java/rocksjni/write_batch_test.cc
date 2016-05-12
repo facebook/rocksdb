@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -28,11 +28,11 @@
 /*
  * Class:     org_rocksdb_WriteBatchTest
  * Method:    getContents
- * Signature: (Lorg/rocksdb/WriteBatch;)[B
+ * Signature: (J)[B
  */
 jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
-    JNIEnv* env, jclass jclazz, jobject jobj) {
-  rocksdb::WriteBatch* b = rocksdb::WriteBatchJni::getHandle(env, jobj);
+    JNIEnv* env, jclass jclazz, jlong jwb_handle) {
+  auto* b = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(b != nullptr);
 
   // todo: Currently the following code is directly copied from
@@ -52,7 +52,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   std::string state;
   rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem);
   rocksdb::Status s =
-      rocksdb::WriteBatchInternal::InsertInto(b, &cf_mems_default);
+      rocksdb::WriteBatchInternal::InsertInto(b, &cf_mems_default, nullptr);
   int count = 0;
   rocksdb::Arena arena;
   rocksdb::ScopedArenaIterator iter(mem->NewIterator(
@@ -60,7 +60,8 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     rocksdb::ParsedInternalKey ikey;
     memset(reinterpret_cast<void*>(&ikey), 0, sizeof(ikey));
-    assert(rocksdb::ParseInternalKey(iter->key(), &ikey));
+    bool parsed = rocksdb::ParseInternalKey(iter->key(), &ikey);
+    assert(parsed);
     switch (ikey.type) {
       case rocksdb::kTypeValue:
         state.append("Put(");
@@ -108,11 +109,11 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
 /*
  * Class:     org_rocksdb_WriteBatchTestInternalHelper
  * Method:    setSequence
- * Signature: (Lorg/rocksdb/WriteBatch;J)V
+ * Signature: (JJ)V
  */
 void Java_org_rocksdb_WriteBatchTestInternalHelper_setSequence(
-    JNIEnv* env, jclass jclazz, jobject jobj, jlong jsn) {
-  rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
+    JNIEnv* env, jclass jclazz, jlong jwb_handle, jlong jsn) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
   rocksdb::WriteBatchInternal::SetSequence(
@@ -122,11 +123,11 @@ void Java_org_rocksdb_WriteBatchTestInternalHelper_setSequence(
 /*
  * Class:     org_rocksdb_WriteBatchTestInternalHelper
  * Method:    sequence
- * Signature: (Lorg/rocksdb/WriteBatch;)J
+ * Signature: (J)J
  */
 jlong Java_org_rocksdb_WriteBatchTestInternalHelper_sequence(
-    JNIEnv* env, jclass jclazz, jobject jobj) {
-  rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
+    JNIEnv* env, jclass jclazz, jlong jwb_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
   assert(wb != nullptr);
 
   return static_cast<jlong>(rocksdb::WriteBatchInternal::Sequence(wb));
@@ -135,13 +136,13 @@ jlong Java_org_rocksdb_WriteBatchTestInternalHelper_sequence(
 /*
  * Class:     org_rocksdb_WriteBatchTestInternalHelper
  * Method:    append
- * Signature: (Lorg/rocksdb/WriteBatch;Lorg/rocksdb/WriteBatch;)V
+ * Signature: (JJ)V
  */
 void Java_org_rocksdb_WriteBatchTestInternalHelper_append(
-    JNIEnv* env, jclass jclazz, jobject jwb1, jobject jwb2) {
-  rocksdb::WriteBatch* wb1 = rocksdb::WriteBatchJni::getHandle(env, jwb1);
+    JNIEnv* env, jclass jclazz, jlong jwb_handle_1, jlong jwb_handle_2) {
+  auto* wb1 = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle_1);
   assert(wb1 != nullptr);
-  rocksdb::WriteBatch* wb2 = rocksdb::WriteBatchJni::getHandle(env, jwb2);
+  auto* wb2 = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle_2);
   assert(wb2 != nullptr);
 
   rocksdb::WriteBatchInternal::Append(wb1, wb2);

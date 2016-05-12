@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -9,15 +9,16 @@
 #include <vector>
 
 #include "rocksdb/db.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/memtablerep.h"
 #include "util/histogram.h"
+#include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/thread_status_util.h"
-#include "util/string_util.h"
-
+#include "utilities/merge_operators.h"
 
 bool FLAGS_random_key = false;
 bool FLAGS_use_set_based_memetable = false;
@@ -36,6 +37,7 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
     DB* db;
     Options options;
     options.create_if_missing = true;
+    options.max_open_files = -1;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =
@@ -278,14 +280,19 @@ void ProfileQueries(bool enabled_time = false) {
 #endif
 
   for (const int i : keys) {
+    if (i == kFlushFlag) {
+      continue;
+    }
     std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string expected_value = "v" + ToString(i);
+    std::string value;
 
     std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
-    db->Get(read_options, key, &value);
+    ASSERT_OK(db->Get(read_options, key, &value));
+    ASSERT_EQ(expected_value, value);
     hist_get_snapshot.Add(perf_context.get_snapshot_time);
     hist_get_memtable.Add(perf_context.get_from_memtable_time);
     hist_get_files.Add(perf_context.get_from_output_files_time);
@@ -374,14 +381,19 @@ void ProfileQueries(bool enabled_time = false) {
   hist_mget_num_memtable_checked.Clear();
 
   for (const int i : keys) {
+    if (i == kFlushFlag) {
+      continue;
+    }
     std::string key = "k" + ToString(i);
-    std::string value = "v" + ToString(i);
+    std::string expected_value = "v" + ToString(i);
+    std::string value;
 
     std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
-    db->Get(read_options, key, &value);
+    ASSERT_OK(db->Get(read_options, key, &value));
+    ASSERT_EQ(expected_value, value);
     hist_get_snapshot.Add(perf_context.get_snapshot_time);
     hist_get_memtable.Add(perf_context.get_from_memtable_time);
     hist_get_files.Add(perf_context.get_from_output_files_time);
@@ -543,27 +555,30 @@ TEST_F(PerfContextTest, SeekKeyComparison) {
 }
 
 TEST_F(PerfContextTest, DBMutexLockCounter) {
-  SetPerfLevel(kEnableTime);
   int stats_code[] = {0, static_cast<int>(DB_MUTEX_WAIT_MICROS)};
-  for (int c = 0; c < 2; ++c) {
+  for (PerfLevel perf_level :
+       {PerfLevel::kEnableTimeExceptForMutex, PerfLevel::kEnableTime}) {
+    for (int c = 0; c < 2; ++c) {
     InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
     mutex.Lock();
     std::thread child_thread([&] {
-      SetPerfLevel(kEnableTime);
+      SetPerfLevel(perf_level);
       perf_context.Reset();
       ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);
       mutex.Lock();
       mutex.Unlock();
-      if (stats_code[c] == DB_MUTEX_WAIT_MICROS) {
+      if (perf_level == PerfLevel::kEnableTimeExceptForMutex ||
+          stats_code[c] != DB_MUTEX_WAIT_MICROS) {
+        ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);
+      } else {
         // increment the counter only when it's a DB Mutex
         ASSERT_GT(perf_context.db_mutex_lock_nanos, 0);
-      } else {
-        ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);
       }
     });
     Env::Default()->SleepForMicroseconds(100);
     mutex.Unlock();
     child_thread.join();
+  }
   }
 }
 
@@ -584,6 +599,54 @@ TEST_F(PerfContextTest, FalseDBMutexWait) {
       ASSERT_EQ(perf_context.db_condition_wait_nanos, 0);
     }
   }
+}
+
+TEST_F(PerfContextTest, ToString) {
+  perf_context.Reset();
+  perf_context.block_read_count = 12345;
+
+  std::string zero_included = perf_context.ToString();
+  ASSERT_NE(std::string::npos, zero_included.find("= 0"));
+  ASSERT_NE(std::string::npos, zero_included.find("= 12345"));
+
+  std::string zero_excluded = perf_context.ToString(true);
+  ASSERT_EQ(std::string::npos, zero_excluded.find("= 0"));
+  ASSERT_NE(std::string::npos, zero_excluded.find("= 12345"));
+}
+
+TEST_F(PerfContextTest, MergeOperatorTime) {
+  DestroyDB(kDbName, Options());
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreateStringAppendOperator();
+  Status s = DB::Open(options, kDbName, &db);
+  EXPECT_OK(s);
+
+  std::string val;
+  ASSERT_OK(db->Merge(WriteOptions(), "k1", "val1"));
+  ASSERT_OK(db->Merge(WriteOptions(), "k1", "val2"));
+  ASSERT_OK(db->Merge(WriteOptions(), "k1", "val3"));
+  ASSERT_OK(db->Merge(WriteOptions(), "k1", "val4"));
+
+  SetPerfLevel(kEnableTime);
+  perf_context.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
+
+  ASSERT_OK(db->Flush(FlushOptions()));
+
+  perf_context.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
+
+  ASSERT_OK(db->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  perf_context.Reset();
+  ASSERT_OK(db->Get(ReadOptions(), "k1", &val));
+  EXPECT_GT(perf_context.merge_operator_time_nanos, 0);
+
+  delete db;
 }
 }
 

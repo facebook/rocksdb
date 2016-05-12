@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -25,6 +25,7 @@
 #include <string>
 #include <string.h>
 #include <mutex>
+#include <limits>
 #include <condition_variable>
 
 #include <stdint.h>
@@ -41,11 +42,6 @@
 #define strcasecmp _stricmp
 #endif
 
-// defined in stdio.h
-#ifndef snprintf
-#define snprintf _snprintf
-#endif
-
 #undef GetCurrentTime
 #undef DeleteFile
 
@@ -58,26 +54,7 @@ typedef SSIZE_T ssize_t;
 #define ROCKSDB_PRIszt "Iu"
 #endif
 
-#define ROCKSDB_NOEXCEPT
-
 #define __attribute__(A)
-
-#ifdef ZLIB
-#include <zlib.h>
-#endif
-
-#ifdef BZIP2
-#include <bzlib.h>
-#endif
-
-#if defined(LZ4)
-#include <lz4.h>
-#include <lz4hc.h>
-#endif
-
-#ifdef SNAPPY
-#include <snappy.h>
-#endif
 
 // Thread local storage on Linux
 // There is thread_local in C++11
@@ -96,16 +73,37 @@ std::string GetWindowsErrSz(DWORD err);
 
 namespace port {
 
+// VS 15
+#if (defined _MSC_VER) && (_MSC_VER >= 1900)
+
+#define ROCKSDB_NOEXCEPT noexcept
+
+// For use at db/file_indexer.h kLevelMaxIndex
+const int kMaxInt32 = std::numeric_limits<int>::max();
+const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
+
+const size_t kMaxSizet = std::numeric_limits<size_t>::max();
+
+#else //_MSC_VER
+
+// VS 15 has snprintf
+#define snprintf _snprintf
+
+#define ROCKSDB_NOEXCEPT
+// std::numeric_limits<size_t>::max() is not constexpr just yet
+// therefore, use the same limits
+
 // For use at db/file_indexer.h kLevelMaxIndex
 const int kMaxInt32 = INT32_MAX;
 const uint64_t kMaxUint64 = UINT64_MAX;
-// std::numeric_limits<size_t>::max() is not constexpr just yet
-// therefore, use the same limits
+
 #ifdef _WIN64
 const size_t kMaxSizet = UINT64_MAX;
 #else
 const size_t kMaxSizet = UINT_MAX;
 #endif
+
+#endif //_MSC_VER
 
 const bool kLittleEndian = true;
 
@@ -207,18 +205,35 @@ class CondVar {
   Mutex* mu_;
 };
 
-typedef std::once_flag OnceType;
-#define LEVELDB_ONCE_INIT std::once_flag::once_flag();
+
+// OnceInit type helps emulate
+// Posix semantics with initialization
+// adopted in the project
+struct OnceType {
+
+    struct Init {};
+
+    OnceType() {}
+    OnceType(const Init&) {}
+    OnceType(const OnceType&) = delete;
+    OnceType& operator=(const OnceType&) = delete;
+
+    std::once_flag flag_;
+};
+
+#define LEVELDB_ONCE_INIT port::OnceType::Init()
 extern void InitOnce(OnceType* once, void (*initializer)());
 
 #define CACHE_LINE_SIZE 64U
 
-#ifdef min
-#undef min
+static inline void AsmVolatilePause() {
+#if defined(_M_IX86) || defined(_M_X64)
+  YieldProcessor();
 #endif
-#ifdef max
-#undef max
-#endif
+  // it would be nice to get "wfe" on ARM here
+}
+
+extern int PhysicalCoreID();
 
 // For Thread Local Storage abstraction
 typedef DWORD pthread_key_t;
@@ -280,4 +295,4 @@ using port::truncate;
 
 }  // namespace rocksdb
 
-#endif  // STORAGE_LEVELDB_PORT_PORT_POSIX_H_
+#endif  // STORAGE_LEVELDB_PORT_PORT_WIN_H_

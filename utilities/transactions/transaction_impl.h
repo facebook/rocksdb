@@ -1,4 +1,4 @@
-// Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -38,13 +38,20 @@ class TransactionImpl : public TransactionBaseImpl {
 
   virtual ~TransactionImpl();
 
+  void Reinitialize(TransactionDB* txn_db, const WriteOptions& write_options,
+                    const TransactionOptions& txn_options);
+
+  Status Prepare() override;
+
   Status Commit() override;
 
   Status CommitBatch(WriteBatch* batch);
 
-  void Rollback() override;
+  Status Rollback() override;
 
   Status RollbackToSavePoint() override;
+
+  Status SetName(const TransactionName& name) override;
 
   // Generate a new unique transaction identifier
   static TransactionID GenTxnID();
@@ -66,27 +73,33 @@ class TransactionImpl : public TransactionBaseImpl {
     lock_timeout_ = timeout * 1000;
   }
 
+  // Returns true if locks were stolen successfully, false otherwise.
+  bool TryStealingLocks();
+
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool untracked = false) override;
+                 bool read_only, bool untracked = false) override;
 
  private:
   TransactionDBImpl* txn_db_impl_;
+  DBImpl* db_impl_;
 
   // Used to create unique ids for transactions.
   static std::atomic<TransactionID> txn_id_counter_;
 
   // Unique ID for this transaction
-  const TransactionID txn_id_;
+  TransactionID txn_id_;
 
   // If non-zero, this transaction should not be committed after this time (in
   // microseconds according to Env->NowMicros())
-  const uint64_t expiration_time_;
+  uint64_t expiration_time_;
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
 
   void Clear() override;
+
+  void Initialize(const TransactionOptions& txn_options);
 
   Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
                           SequenceNumber prev_seqno, SequenceNumber* new_seqno);
@@ -96,6 +109,9 @@ class TransactionImpl : public TransactionBaseImpl {
   Status DoCommit(WriteBatch* batch);
 
   void RollbackLastN(size_t num);
+
+  void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
+                          const Slice& key) override;
 
   // No copying allowed
   TransactionImpl(const TransactionImpl&);
@@ -115,6 +131,8 @@ class TransactionCallback : public WriteCallback {
       return Status::OK();
     }
   }
+
+  bool AllowWriteBatching() override { return true; }
 
  private:
   TransactionImpl* txn_;

@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -36,15 +36,15 @@ void Java_org_rocksdb_AbstractComparator_disposeInternal(
 /*
  * Class:     org_rocksdb_Comparator
  * Method:    createNewComparator0
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_Comparator_createNewComparator0(
+jlong Java_org_rocksdb_Comparator_createNewComparator0(
     JNIEnv* env, jobject jobj, jlong copt_handle) {
   const rocksdb::ComparatorJniCallbackOptions* copt =
     reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
   const rocksdb::ComparatorJniCallback* c =
     new rocksdb::ComparatorJniCallback(env, jobj, copt);
-  rocksdb::AbstractComparatorJni::setHandle(env, jobj, c);
+  return reinterpret_cast<jlong>(c);
 }
 // </editor-fold>
 
@@ -53,14 +53,14 @@ void Java_org_rocksdb_Comparator_createNewComparator0(
 /*
  * Class:     org_rocksdb_DirectComparator
  * Method:    createNewDirectComparator0
- * Signature: ()V
+ * Signature: ()J
  */
-void Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
+jlong Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
     JNIEnv* env, jobject jobj, jlong copt_handle) {
   const rocksdb::ComparatorJniCallbackOptions* copt =
     reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
   const rocksdb::DirectComparatorJniCallback* c =
     new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
-  rocksdb::AbstractComparatorJni::setHandle(env, jobj, c);
+  return reinterpret_cast<jlong>(c);
 }
 // </editor-fold>

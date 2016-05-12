@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -6,8 +6,10 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <array>
 #include "rocksdb/slice.h"
 #include "db/dbformat.h"
+#include "table/plain_table_reader.h"
 
 namespace rocksdb {
 
@@ -51,6 +53,74 @@ class PlainTableKeyEncoder {
   IterKey pre_prefix_;
 };
 
+class PlainTableFileReader {
+ public:
+  explicit PlainTableFileReader(const PlainTableReaderFileInfo* _file_info)
+      : file_info_(_file_info), num_buf_(0) {}
+  // In mmaped mode, the results point to mmaped area of the file, which
+  // means it is always valid before closing the file.
+  // In non-mmap mode, the results point to an internal buffer. If the caller
+  // makes another read call, the results may not be valid. So callers should
+  // make a copy when needed.
+  // In order to save read calls to files, we keep two internal buffers:
+  // the first read and the most recent read. This is efficient because it
+  // columns these two common use cases:
+  // (1) hash index only identify one location, we read the key to verify
+  //     the location, and read key and value if it is the right location.
+  // (2) after hash index checking, we identify two locations (because of
+  //     hash bucket conflicts), we binary search the two location to see
+  //     which one is what we need and start to read from the location.
+  // These two most common use cases will be covered by the two buffers
+  // so that we don't need to re-read the same location.
+  // Currently we keep a fixed size buffer. If a read doesn't exactly fit
+  // the buffer, we replace the second buffer with the location user reads.
+  //
+  // If return false, status code is stored in status_.
+  bool Read(uint32_t file_offset, uint32_t len, Slice* out) {
+    if (file_info_->is_mmap_mode) {
+      assert(file_offset + len <= file_info_->data_end_offset);
+      *out = Slice(file_info_->file_data.data() + file_offset, len);
+      return true;
+    } else {
+      return ReadNonMmap(file_offset, len, out);
+    }
+  }
+
+  // If return false, status code is stored in status_.
+  bool ReadNonMmap(uint32_t file_offset, uint32_t len, Slice* output);
+
+  // *bytes_read = 0 means eof. false means failure and status is saved
+  // in status_. Not directly returning Status to save copying status
+  // object to map previous performance of mmap mode.
+  inline bool ReadVarint32(uint32_t offset, uint32_t* output,
+                           uint32_t* bytes_read);
+
+  bool ReadVarint32NonMmap(uint32_t offset, uint32_t* output,
+                           uint32_t* bytes_read);
+
+  Status status() const { return status_; }
+
+  const PlainTableReaderFileInfo* file_info() { return file_info_; }
+
+ private:
+  const PlainTableReaderFileInfo* file_info_;
+
+  struct Buffer {
+    Buffer() : buf_start_offset(0), buf_len(0), buf_capacity(0) {}
+    std::unique_ptr<char[]> buf;
+    uint32_t buf_start_offset;
+    uint32_t buf_len;
+    uint32_t buf_capacity;
+  };
+
+  // Keep buffers for two recent reads.
+  std::array<unique_ptr<Buffer>, 2> buffers_;
+  uint32_t num_buf_;
+  Status status_;
+
+  Slice GetFromBuffer(Buffer* buf, uint32_t file_offset, uint32_t len);
+};
+
 // A helper class to decode keys from input buffer
 // Actual data format of the key is documented in plain_table_factory.h
 class PlainTableKeyDecoder {
@@ -82,43 +152,7 @@ class PlainTableKeyDecoder {
                         Slice* internal_key, uint32_t* bytes_read,
                         bool* seekable = nullptr);
 
-  class FileReader {
-   public:
-    explicit FileReader(const PlainTableReaderFileInfo* file_info)
-        : file_info_(file_info),
-          buf_start_offset_(0),
-          buf_len_(0),
-          buf_capacity_(0) {}
-    // In mmaped mode, the results point to mmaped area of the file, which
-    // means it is always valid before closing the file.
-    // In non-mmap mode, the results point to an internal buffer. If the caller
-    // makes another read call, the results will not be valid. So callers should
-    // make a copy when needed.
-    // If return false, status code is stored in status_.
-    inline bool Read(uint32_t file_offset, uint32_t len, Slice* output);
-
-    // If return false, status code is stored in status_.
-    bool ReadNonMmap(uint32_t file_offset, uint32_t len, Slice* output);
-
-    // *bytes_read = 0 means eof. false means failure and status is saved
-    // in status_. Not directly returning Status to save copying status
-    // object to map previous performance of mmap mode.
-    inline bool ReadVarint32(uint32_t offset, uint32_t* output,
-                             uint32_t* bytes_read);
-
-    bool ReadVarint32NonMmap(uint32_t offset, uint32_t* output,
-                             uint32_t* bytes_read);
-
-    Status status() const { return status_; }
-
-    const PlainTableReaderFileInfo* file_info_;
-    std::unique_ptr<char[]> buf_;
-    uint32_t buf_start_offset_;
-    uint32_t buf_len_;
-    uint32_t buf_capacity_;
-    Status status_;
-  };
-  FileReader file_reader_;
+  PlainTableFileReader file_reader_;
   EncodingType encoding_type_;
   uint32_t prefix_len_;
   uint32_t fixed_user_key_len_;

@@ -1,4 +1,4 @@
-// Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -206,8 +206,9 @@ class WriteStress {
     std::uniform_real_distribution<double> dist(0, 1);
     std::uniform_int_distribution<int> char_dist('a', 'z');
     while (!stop_.load(std::memory_order_relaxed)) {
-      Env::Default()->SleepForMicroseconds(FLAGS_prefix_mutate_period_sec *
-                                           1000 * 1000LL);
+      Env::Default()->SleepForMicroseconds(static_cast<int>(
+                                           FLAGS_prefix_mutate_period_sec *
+                                           1000 * 1000LL));
       if (dist(rng) < FLAGS_first_char_mutate_probability) {
         key_prefix_[0].store(char_dist(rng), std::memory_order_relaxed);
       }

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -18,6 +18,7 @@
 #include <iostream>
 #include <sstream>
 #include "rocksdb/status.h"
+#include "util/string_util.h"
 
 #define HDFS_EXISTS 0
 #define HDFS_DOESNT_EXIST -1
@@ -593,6 +594,11 @@ Status HdfsEnv::NewLogger(const std::string& fname,
   return Status::OK();
 }
 
+// The factory method for creating an HDFS Env
+Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
+  *hdfs_env = new HdfsEnv(fsname);
+  return Status::OK();
+}
 }  // namespace rocksdb
 
 #endif // ROCKSDB_HDFS_FILE_C
@@ -604,6 +610,10 @@ namespace rocksdb {
  Status HdfsEnv::NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) {
+   return Status::NotSupported("Not compiled with hdfs support");
+ }
+
+ Status NewHdfsEnv(Env** hdfs_env, const std::string& fsname) {
    return Status::NotSupported("Not compiled with hdfs support");
  }
 }

@@ -78,13 +78,13 @@ class PlainTableReader: public TableReader {
                      size_t index_sparseness, size_t huge_page_tlb_size,
                      bool full_scan_mode);
 
-  InternalIterator* NewIterator(const ReadOptions&,
-                                Arena* arena = nullptr) override;
+  InternalIterator* NewIterator(const ReadOptions&, Arena* arena = nullptr,
+                                bool skip_filters = false) override;
 
   void Prepare(const Slice& target) override;
 
-  Status Get(const ReadOptions&, const Slice& key,
-             GetContext* get_context) override;
+  Status Get(const ReadOptions&, const Slice& key, GetContext* get_context,
+             bool skip_filters = false) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key) override;
 
@@ -219,9 +219,9 @@ class PlainTableReader: public TableReader {
   // Get file offset for key target.
   // return value prefix_matched is set to true if the offset is confirmed
   // for a key with the same prefix as target.
-  Status GetOffset(const Slice& target, const Slice& prefix,
-                   uint32_t prefix_hash, bool& prefix_matched,
-                   uint32_t* offset) const;
+  Status GetOffset(PlainTableKeyDecoder* decoder, const Slice& target,
+                   const Slice& prefix, uint32_t prefix_hash,
+                   bool& prefix_matched, uint32_t* offset) const;
 
   bool IsTotalOrderMode() const { return (prefix_extractor_ == nullptr); }
 

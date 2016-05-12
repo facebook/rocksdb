@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc. All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -98,8 +98,9 @@ class CuckooReaderTest : public testing::Test {
     unique_ptr<WritableFileWriter> file_writer(
         new WritableFileWriter(std::move(writable_file), env_options));
 
-    CuckooTableBuilder builder(file_writer.get(), 0.9, kNumHashFunc, 100, ucomp,
-                               2, false, false, GetSliceHash);
+    CuckooTableBuilder builder(
+        file_writer.get(), 0.9, kNumHashFunc, 100, ucomp, 2, false, false,
+        GetSliceHash, 0 /* column_family_id */, kDefaultColumnFamilyName);
     ASSERT_OK(builder.status());
     for (uint32_t key_idx = 0; key_idx < num_items; ++key_idx) {
       builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
@@ -405,9 +406,10 @@ void WriteFile(const std::vector<std::string>& keys,
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
   unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(writable_file), env_options));
-  CuckooTableBuilder builder(file_writer.get(), hash_ratio, 64, 1000,
-                             test::Uint64Comparator(), 5, false,
-                             FLAGS_identity_as_first_hash, nullptr);
+  CuckooTableBuilder builder(
+      file_writer.get(), hash_ratio, 64, 1000, test::Uint64Comparator(), 5,
+      false, FLAGS_identity_as_first_hash, nullptr, 0 /* column_family_id */,
+      kDefaultColumnFamilyName);
   ASSERT_OK(builder.status());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     // Value is just a part of key.
@@ -500,7 +502,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
                  &get_context);
     }
   }
-  float time_per_op = (env->NowMicros() - start_time) * 1.0 / num;
+  float time_per_op = (env->NowMicros() - start_time) * 1.0f / num;
   fprintf(stderr,
       "Time taken per op is %.3fus (%.1f Mqps) with batch size of %u\n",
       time_per_op, 1.0 / time_per_op, batch_size);

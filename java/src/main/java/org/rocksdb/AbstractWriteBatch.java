@@ -1,92 +1,97 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
 package org.rocksdb;
 
-public abstract class AbstractWriteBatch extends RocksObject implements WriteBatchInterface {
+public abstract class AbstractWriteBatch extends RocksObject
+    implements WriteBatchInterface {
+
+  protected AbstractWriteBatch(final long nativeHandle) {
+    super(nativeHandle);
+  }
 
   @Override
   public int count() {
-    assert (isInitialized());
-    return count0();
+    assert (isOwningHandle());
+    return count0(nativeHandle_);
   }
 
   @Override
   public void put(byte[] key, byte[] value) {
-    assert (isInitialized());
-    put(key, key.length, value, value.length);
+    assert (isOwningHandle());
+    put(nativeHandle_, key, key.length, value, value.length);
   }
 
   @Override
-  public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) {
-    assert (isInitialized());
-    put(key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
+  public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key,
+      byte[] value) {
+    assert (isOwningHandle());
+    put(nativeHandle_, key, key.length, value, value.length,
+        columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void merge(byte[] key, byte[] value) {
-    assert (isInitialized());
-    merge(key, key.length, value, value.length);
+    assert (isOwningHandle());
+    merge(nativeHandle_, key, key.length, value, value.length);
   }
 
   @Override
-  public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) {
-    assert (isInitialized());
-    merge(key, key.length, value, value.length, columnFamilyHandle.nativeHandle_);
+  public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key,
+      byte[] value) {
+    assert (isOwningHandle());
+    merge(nativeHandle_, key, key.length, value, value.length,
+        columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void remove(byte[] key) {
-    assert (isInitialized());
-    remove(key, key.length);
+    assert (isOwningHandle());
+    remove(nativeHandle_, key, key.length);
   }
 
   @Override
   public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
-    assert (isInitialized());
-    remove(key, key.length, columnFamilyHandle.nativeHandle_);
+    assert (isOwningHandle());
+    remove(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void putLogData(byte[] blob) {
-    assert (isInitialized());
-    putLogData(blob, blob.length);
+    assert (isOwningHandle());
+    putLogData(nativeHandle_, blob, blob.length);
   }
 
   @Override
   public void clear() {
-    assert (isInitialized());
-    clear0();
+    assert (isOwningHandle());
+    clear0(nativeHandle_);
   }
 
-  /**
-   * Delete the c++ side pointer.
-   */
-  @Override
-  protected void disposeInternal() {
-    assert (isInitialized());
-    disposeInternal(nativeHandle_);
-  }
+  abstract int count0(final long handle);
 
-  abstract void disposeInternal(long handle);
+  abstract void put(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen);
 
-  abstract int count0();
+  abstract void put(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen, final long cfHandle);
 
-  abstract void put(byte[] key, int keyLen, byte[] value, int valueLen);
+  abstract void merge(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen);
 
-  abstract void put(byte[] key, int keyLen, byte[] value, int valueLen, long cfHandle);
+  abstract void merge(final long handle, final byte[] key, final int keyLen,
+      final byte[] value, final int valueLen, final long cfHandle);
 
-  abstract void merge(byte[] key, int keyLen, byte[] value, int valueLen);
+  abstract void remove(final long handle, final byte[] key,
+      final int keyLen);
 
-  abstract void merge(byte[] key, int keyLen, byte[] value, int valueLen, long cfHandle);
+  abstract void remove(final long handle, final byte[] key,
+      final int keyLen, final long cfHandle);
 
-  abstract void remove(byte[] key, int keyLen);
+  abstract void putLogData(final long handle, final byte[] blob,
+      final int blobLen);
 
-  abstract void remove(byte[] key, int keyLen, long cfHandle);
-
-  abstract void putLogData(byte[] blob, int blobLen);
-
-  abstract void clear0();
+  abstract void clear0(final long handle);
 }

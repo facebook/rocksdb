@@ -1,16 +1,19 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include <thread>
 #include <atomic>
+#include <string>
 
 #include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/autovector.h"
-#include "util/thread_local.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "util/thread_local.h"
 
 namespace rocksdb {
 
@@ -165,7 +168,9 @@ TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
     auto& p = *static_cast<Params*>(ptr);
 
     p.mu->Lock();
-    int own = ++(p.started);
+    // Size_T switches size along with the ptr size
+    // we want to cast to.
+    size_t own = ++(p.started);
     p.cv->SignalAll();
     while (p.started != p.total) {
       p.cv->Wait();
@@ -183,16 +188,16 @@ TEST_F(ThreadLocalTest, ConcurrentReadWriteTest) {
     auto* env = Env::Default();
     auto start = env->NowMicros();
 
-    p.tls1.Reset(reinterpret_cast<int*>(own));
-    p.tls2->Reset(reinterpret_cast<int*>(own + 1));
+    p.tls1.Reset(reinterpret_cast<size_t*>(own));
+    p.tls2->Reset(reinterpret_cast<size_t*>(own + 1));
     // Loop for 1 second
     while (env->NowMicros() - start < 1000 * 1000) {
       for (int iter = 0; iter < 100000; ++iter) {
-        ASSERT_TRUE(p.tls1.Get() == reinterpret_cast<int*>(own));
-        ASSERT_TRUE(p.tls2->Get() == reinterpret_cast<int*>(own + 1));
+        ASSERT_TRUE(p.tls1.Get() == reinterpret_cast<size_t*>(own));
+        ASSERT_TRUE(p.tls2->Get() == reinterpret_cast<size_t*>(own + 1));
         if (p.doWrite) {
-          p.tls1.Reset(reinterpret_cast<int*>(own));
-          p.tls2->Reset(reinterpret_cast<int*>(own + 1));
+          p.tls1.Reset(reinterpret_cast<size_t*>(own));
+          p.tls2->Reset(reinterpret_cast<size_t*>(own + 1));
         }
       }
     }
@@ -463,6 +468,47 @@ TEST_F(ThreadLocalTest, CompareAndSwap) {
   expected = reinterpret_cast<void*>(2);
   ASSERT_TRUE(tls.CompareAndSwap(reinterpret_cast<void*>(3), expected));
   ASSERT_EQ(tls.Get(), reinterpret_cast<void*>(3));
+}
+
+namespace {
+
+void* AccessThreadLocal(void* arg) {
+  TEST_SYNC_POINT("AccessThreadLocal:Start");
+  ThreadLocalPtr tlp;
+  tlp.Reset(new std::string("hello RocksDB"));
+  TEST_SYNC_POINT("AccessThreadLocal:End");
+  return nullptr;
+}
+
+}  // namespace
+
+// The following test is disabled as it requires manual steps to run it
+// correctly.
+//
+// Currently we have no way to acess SyncPoint w/o ASAN error when the
+// child thread dies after the main thread dies.  So if you manually enable
+// this test and only see an ASAN error on SyncPoint, it means you pass the
+// test.
+TEST_F(ThreadLocalTest, DISABLED_MainThreadDiesFirst) {
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"AccessThreadLocal:Start", "MainThreadDiesFirst:End"},
+       {"PosixEnv::~PosixEnv():End", "AccessThreadLocal:End"}});
+
+  // Triggers the initialization of singletons.
+  Env::Default();
+
+#ifndef ROCKSDB_LITE
+  try {
+#endif  // ROCKSDB_LITE
+    std::thread th(&AccessThreadLocal, nullptr);
+    th.detach();
+    TEST_SYNC_POINT("MainThreadDiesFirst:End");
+#ifndef ROCKSDB_LITE
+  } catch (const std::system_error& ex) {
+    std::cerr << "Start thread: " << ex.code() << std::endl;
+    ASSERT_TRUE(false);
+  }
+#endif  // ROCKSDB_LITE
 }
 
 }  // namespace rocksdb

@@ -64,6 +64,12 @@ struct BlockBasedTableOptions {
   // block during table initialization.
   bool cache_index_and_filter_blocks = false;
 
+  // if cache_index_and_filter_blocks is true and the below is true, then
+  // filter and index blocks are stored in the cache, but a reference is
+  // held in the "table reader" object so the blocks are pinned and only
+  // evicted from cache when the table reader is freed.
+  bool pin_l0_filter_and_index_blocks_in_cache = false;
+
   // The index type that will be used for this table.
   enum IndexType : char {
     // A space efficient index block that is optimized for
@@ -116,8 +122,18 @@ struct BlockBasedTableOptions {
 
   // Number of keys between restart points for delta encoding of keys.
   // This parameter can be changed dynamically.  Most clients should
-  // leave this parameter alone.
+  // leave this parameter alone.  The minimum value allowed is 1.  Any smaller
+  // value will be silently overwritten with 1.
   int block_restart_interval = 16;
+
+  // Same as block_restart_interval but used for the index block.
+  int index_block_restart_interval = 1;
+
+  // Use delta encoding to compress keys in blocks.
+  // ReadOptions::pin_data requires this option to be disabled.
+  //
+  // Default: true
+  bool use_delta_encoding = true;
 
   // If non-nullptr, use the specified filter policy to reduce disk reads.
   // Many applications will benefit from passing the result of
@@ -128,20 +144,20 @@ struct BlockBasedTableOptions {
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
 
-  // If true, block will not be explictly flushed to disk during building
-  // a SstTable. Instead, buffer in WritableFileWriter will take 
-  // care of the flushing when it is full. 
+  // If true, block will not be explicitly flushed to disk during building
+  // a SstTable. Instead, buffer in WritableFileWriter will take
+  // care of the flushing when it is full.
   //
-  // On Windows, this option helps a lot when unbuffered I/O 
-  // (allow_os_buffer = false) is used, since it avoids small 
-  // unbuffered disk write. 
+  // On Windows, this option helps a lot when unbuffered I/O
+  // (allow_os_buffer = false) is used, since it avoids small
+  // unbuffered disk write.
   //
-  // User may also adjust writable_file_max_buffer_size to optimize disk I/O 
-  // size. 
+  // User may also adjust writable_file_max_buffer_size to optimize disk I/O
+  // size.
   //
   // Default: false
   bool skip_table_builder_flush = false;
-  
+
   // We currently have three versions:
   // 0 -- This version is currently written out by all RocksDB's versions by
   // default.  Can be read by really old RocksDB's. Doesn't support changing
@@ -156,7 +172,7 @@ struct BlockBasedTableOptions {
   // this.
   // This option only affects newly written tables. When reading exising tables,
   // the information about version is read from the footer.
-  uint32_t format_version = 0;
+  uint32_t format_version = 2;
 };
 
 // Table Properties that are specific to block-based table properties.
@@ -402,6 +418,22 @@ class TableFactory {
   // Return a string that contains printable format of table configurations.
   // RocksDB prints configurations at DB Open().
   virtual std::string GetPrintableTableOptions() const = 0;
+
+  // Returns the raw pointer of the table options that is used by this
+  // TableFactory, or nullptr if this function is not supported.
+  // Since the return value is a raw pointer, the TableFactory owns the
+  // pointer and the caller should not delete the pointer.
+  //
+  // In certan case, it is desirable to alter the underlying options when the
+  // TableFactory is not used by any open DB by casting the returned pointer
+  // to the right class.   For instance, if BlockBasedTableFactory is used,
+  // then the pointer can be casted to BlockBasedTableOptions.
+  //
+  // Note that changing the underlying TableFactory options while the
+  // TableFactory is currently used by any open DB is undefined behavior.
+  // Developers should use DB::SetOption() instead to dynamically change
+  // options while the DB is open.
+  virtual void* GetOptions() { return nullptr; }
 };
 
 #ifndef ROCKSDB_LITE

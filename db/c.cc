@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -446,6 +446,12 @@ void rocksdb_backup_engine_create_new_backup(rocksdb_backup_engine_t* be,
   SaveError(errptr, be->rep->CreateNewBackup(db->rep));
 }
 
+void rocksdb_backup_engine_purge_old_backups(rocksdb_backup_engine_t* be,
+                                             uint32_t num_backups_to_keep,
+                                             char** errptr) {
+  SaveError(errptr, be->rep->PurgeOldBackups(num_backups_to_keep));
+}
+
 rocksdb_restore_options_t* rocksdb_restore_options_create() {
   return new rocksdb_restore_options_t;
 }
@@ -823,6 +829,31 @@ rocksdb_iterator_t* rocksdb_create_iterator_cf(
   rocksdb_iterator_t* result = new rocksdb_iterator_t;
   result->rep = db->rep->NewIterator(options->rep, column_family->rep);
   return result;
+}
+
+void rocksdb_create_iterators(
+    rocksdb_t *db,
+    rocksdb_readoptions_t* opts,
+    rocksdb_column_family_handle_t** column_families,
+    rocksdb_iterator_t** iterators,
+    size_t size,
+    char** errptr) {
+  std::vector<ColumnFamilyHandle*> column_families_vec;
+  for (size_t i = 0; i < size; i++) {
+    column_families_vec.push_back(column_families[i]->rep);
+  }
+
+  std::vector<Iterator*> res;
+  Status status = db->rep->NewIterators(opts->rep, column_families_vec, &res);
+  assert(res.size() == size);
+  if (SaveError(errptr, status)) {
+    return;
+  }
+
+  for (size_t i = 0; i < size; i++) {
+    iterators[i] = new rocksdb_iterator_t;
+    iterators[i]->rep = res[i];
+  }
 }
 
 const rocksdb_snapshot_t* rocksdb_create_snapshot(
@@ -1288,6 +1319,11 @@ void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
   options->rep.cache_index_and_filter_blocks = v;
 }
 
+void rocksdb_block_based_options_set_pin_l0_filter_and_index_blocks_in_cache(
+    rocksdb_block_based_table_options_t* options, unsigned char v) {
+  options->rep.pin_l0_filter_and_index_blocks_in_cache = v;
+}
+
 void rocksdb_block_based_options_set_skip_table_builder_flush(
     rocksdb_block_based_table_options_t* options, unsigned char v) {
   options->rep.skip_table_builder_flush = v;
@@ -1386,6 +1422,11 @@ void rocksdb_options_set_compaction_filter_factory(
     rocksdb_options_t* opt, rocksdb_compactionfilterfactory_t* factory) {
   opt->rep.compaction_filter_factory =
       std::shared_ptr<CompactionFilterFactory>(factory);
+}
+
+void rocksdb_options_compaction_readahead_size(
+    rocksdb_options_t* opt, size_t s) {
+  opt->rep.compaction_readahead_size = s;
 }
 
 void rocksdb_options_set_comparator(
@@ -1531,11 +1572,13 @@ void rocksdb_options_set_compression_per_level(rocksdb_options_t* opt,
   }
 }
 
-void rocksdb_options_set_compression_options(
-    rocksdb_options_t* opt, int w_bits, int level, int strategy) {
+void rocksdb_options_set_compression_options(rocksdb_options_t* opt, int w_bits,
+                                             int level, int strategy,
+                                             int max_dict_bytes) {
   opt->rep.compression_opts.window_bits = w_bits;
   opt->rep.compression_opts.level = level;
   opt->rep.compression_opts.strategy = strategy;
+  opt->rep.compression_opts.max_dict_bytes = max_dict_bytes;
 }
 
 void rocksdb_options_set_prefix_extractor(
@@ -1766,6 +1809,11 @@ void rocksdb_options_set_memtable_prefix_bloom_probes(
   opt->rep.memtable_prefix_bloom_probes = v;
 }
 
+void rocksdb_options_set_memtable_prefix_bloom_huge_page_tlb_size(
+    rocksdb_options_t* opt, size_t v) {
+  opt->rep.memtable_prefix_bloom_huge_page_tlb_size = v;
+}
+
 void rocksdb_options_set_hash_skip_list_rep(
     rocksdb_options_t *opt, size_t bucket_count,
     int32_t skiplist_height, int32_t skiplist_branching_factor) {
@@ -1965,7 +2013,7 @@ void rocksdb_filterpolicy_destroy(rocksdb_filterpolicy_t* filter) {
   delete filter;
 }
 
-rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_format(int bits_per_key, bool original_format) {
   // Make a rocksdb_filterpolicy_t, but override all of its methods so
   // they delegate to a NewBloomFilterPolicy() instead of user
   // supplied C functions.
@@ -1983,11 +2031,19 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
     static void DoNothing(void*) { }
   };
   Wrapper* wrapper = new Wrapper;
-  wrapper->rep_ = NewBloomFilterPolicy(bits_per_key);
+  wrapper->rep_ = NewBloomFilterPolicy(bits_per_key, original_format);
   wrapper->state_ = nullptr;
   wrapper->delete_filter_ = nullptr;
   wrapper->destructor_ = &Wrapper::DoNothing;
   return wrapper;
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom_full(int bits_per_key) {
+  return rocksdb_filterpolicy_create_bloom_format(bits_per_key, false);
+}
+
+rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
+  return rocksdb_filterpolicy_create_bloom_format(bits_per_key, true);
 }
 
 rocksdb_mergeoperator_t* rocksdb_mergeoperator_create(
@@ -2111,6 +2167,13 @@ rocksdb_env_t* rocksdb_create_default_env() {
   rocksdb_env_t* result = new rocksdb_env_t;
   result->rep = Env::Default();
   result->is_default = true;
+  return result;
+}
+
+rocksdb_env_t* rocksdb_create_mem_env() {
+  rocksdb_env_t* result = new rocksdb_env_t;
+  result->rep = rocksdb::NewMemEnv(Env::Default());
+  result->is_default = false;
   return result;
 }
 

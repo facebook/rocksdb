@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -61,7 +61,7 @@ struct CompactionJobStats {
   uint64_t num_corrupt_keys;
 
   // Following counters are only populated if
-  // options.compaction_measure_io_stats = true;
+  // options.report_bg_io_stats = true;
 
   // Time spent on file's Append() call.
   uint64_t file_write_nanos;

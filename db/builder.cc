@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -15,6 +15,7 @@
 
 #include "db/compaction_iterator.h"
 #include "db/dbformat.h"
+#include "db/event_helpers.h"
 #include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/merge_helper.h"
@@ -41,13 +42,18 @@ TableBuilder* NewTableBuilder(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    uint32_t column_family_id, WritableFileWriter* file,
-    const CompressionType compression_type,
-    const CompressionOptions& compression_opts, const bool skip_filters) {
+    uint32_t column_family_id, const std::string& column_family_name,
+    WritableFileWriter* file, const CompressionType compression_type,
+    const CompressionOptions& compression_opts,
+    const std::string* compression_dict, const bool skip_filters) {
+  assert((column_family_id ==
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
+         column_family_name.empty());
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
-                          compression_opts, skip_filters),
+                          compression_opts, compression_dict, skip_filters,
+                          column_family_name),
       column_family_id, file);
 }
 
@@ -58,11 +64,17 @@ Status BuildTable(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    uint32_t column_family_id, std::vector<SequenceNumber> snapshots,
+    uint32_t column_family_id, const std::string& column_family_name,
+    std::vector<SequenceNumber> snapshots,
+    SequenceNumber earliest_write_conflict_snapshot,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    InternalStats* internal_stats, const Env::IOPriority io_priority,
-    TableProperties* table_properties) {
+    InternalStats* internal_stats, TableFileCreationReason reason,
+    EventLogger* event_logger, int job_id, const Env::IOPriority io_priority,
+    TableProperties* table_properties, int level) {
+  assert((column_family_id ==
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
+         column_family_name.empty());
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
@@ -71,6 +83,12 @@ Status BuildTable(
 
   std::string fname = TableFileName(ioptions.db_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
+#ifndef ROCKSDB_LITE
+  EventHelpers::NotifyTableFileCreationStarted(
+      ioptions.listeners, dbname, column_family_name, fname, job_id, reason);
+#endif  // !ROCKSDB_LITE
+  TableProperties tp;
+
   if (iter->Valid()) {
     TableBuilder* builder;
     unique_ptr<WritableFileWriter> file_writer;
@@ -78,6 +96,9 @@ Status BuildTable(
       unique_ptr<WritableFile> file;
       s = NewWritableFile(env, fname, &file, env_options);
       if (!s.ok()) {
+        EventHelpers::LogAndNotifyTableFileCreationFinished(
+            event_logger, ioptions.listeners, dbname, column_family_name, fname,
+            job_id, meta->fd, tp, reason, s);
         return s;
       }
       file->SetIOPriority(io_priority);
@@ -86,7 +107,8 @@ Status BuildTable(
 
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
-          column_family_id, file_writer.get(), compression, compression_opts);
+          column_family_id, column_family_name, file_writer.get(), compression,
+          compression_opts);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
@@ -96,7 +118,8 @@ Status BuildTable(
                       snapshots.empty() ? 0 : snapshots.back());
 
     CompactionIterator c_iter(iter, internal_comparator.user_comparator(),
-                              &merge, kMaxSequenceNumber, &snapshots, env,
+                              &merge, kMaxSequenceNumber, &snapshots,
+                              earliest_write_conflict_snapshot, env,
                               true /* internal key corruption is not ok */);
     c_iter.SeekToFirst();
     for (; c_iter.Valid(); c_iter.Next()) {
@@ -123,11 +146,13 @@ Status BuildTable(
     }
 
     if (s.ok() && !empty) {
-      meta->fd.file_size = builder->FileSize();
+      uint64_t file_size = builder->FileSize();
+      meta->fd.file_size = file_size;
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
+      tp = builder->GetTableProperties();
       if (table_properties) {
-        *table_properties = builder->GetTableProperties();
+        *table_properties = tp;
       }
     }
     delete builder;
@@ -147,7 +172,8 @@ Status BuildTable(
           ReadOptions(), env_options, internal_comparator, meta->fd, nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
-          false));
+          false /* for_compaction */, nullptr /* arena */,
+          false /* skip_filter */, level));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {
@@ -165,6 +191,12 @@ Status BuildTable(
   if (!s.ok() || meta->fd.GetFileSize() == 0) {
     env->DeleteFile(fname);
   }
+
+  // Output to event logger and fire events.
+  EventHelpers::LogAndNotifyTableFileCreationFinished(
+      event_logger, ioptions.listeners, dbname, column_family_name, fname,
+      job_id, meta->fd, tp, reason, s);
+
   return s;
 }
 

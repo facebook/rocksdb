@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -131,34 +131,20 @@ public class BlockBasedTableConfigTest {
 
   @Test
   public void blockBasedTableWithFilter() {
-    Options options = null;
-    try {
-      options = new Options();
-      options.setTableFormatConfig(
-          new BlockBasedTableConfig().setFilter(
-              new BloomFilter(10)));
+    try(final Options options = new Options()
+        .setTableFormatConfig(new BlockBasedTableConfig()
+        .setFilter(new BloomFilter(10)))) {
       assertThat(options.tableFactoryName()).
           isEqualTo("BlockBasedTable");
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void blockBasedTableWithoutFilter() {
-    Options options = null;
-    try {
-      options = new Options();
-      options.setTableFormatConfig(
-          new BlockBasedTableConfig().setFilter(null));
+    try(final Options options = new Options().setTableFormatConfig(
+        new BlockBasedTableConfig().setFilter(null))) {
       assertThat(options.tableFactoryName()).
           isEqualTo("BlockBasedTable");
-    } finally {
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 

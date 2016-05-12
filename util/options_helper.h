@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -7,6 +7,8 @@
 
 #include <string>
 #include <stdexcept>
+#include <vector>
+
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -64,6 +66,9 @@ Status GetTableFactoryFromMap(
 Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
                                  const std::string& delimiter = ";  ");
 
+ColumnFamilyOptions BuildColumnFamilyOptions(
+    const Options& options, const MutableCFOptions& mutable_cf_options);
+
 enum class OptionType {
   kBoolean,
   kInt,
@@ -88,18 +93,23 @@ enum class OptionType {
   kFlushBlockPolicyFactory,
   kChecksumType,
   kEncodingType,
+  kWALRecoveryMode,
+  kAccessHint,
+  kInfoLogLevel,
   kUnknown
 };
 
 enum class OptionVerificationType {
   kNormal,
-  kByName,     // The option is pointer typed so we can only verify
-               // based on it's name.
-  kDeprecated  // The option is no longer used in rocksdb. The RocksDB
-               // OptionsParser will still accept this option if it
-               // happen to exists in some Options file.  However, the
-               // parser will not include it in serialization and
-               // verification processes.
+  kByName,           // The option is pointer typed so we can only verify
+                     // based on it's name.
+  kByNameAllowNull,  // Same as kByName, but it also allows the case
+                     // where one of them is a nullptr.
+  kDeprecated        // The option is no longer used in rocksdb. The RocksDB
+                     // OptionsParser will still accept this option if it
+                     // happen to exists in some Options file.  However, the
+                     // parser will not include it in serialization and
+                     // verification processes.
 };
 
 // A struct for storing constant option information such as option name,
@@ -115,13 +125,28 @@ struct OptionTypeInfo {
 bool SerializeSingleOptionHelper(const char* opt_address,
                                  const OptionType opt_type, std::string* value);
 
+// In addition to its public version defined in rocksdb/convenience.h,
+// this further takes an optional output vector "unsupported_options_names",
+// which stores the name of all the unsupported options specified in "opts_map".
+Status GetDBOptionsFromMapInternal(
+    const DBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    DBOptions* new_options, bool input_strings_escaped,
+    std::vector<std::string>* unsupported_options_names = nullptr);
+
+// In addition to its public version defined in rocksdb/convenience.h,
+// this further takes an optional output vector "unsupported_options_names",
+// which stores the name of all the unsupported options specified in "opts_map".
+Status GetColumnFamilyOptionsFromMapInternal(
+    const ColumnFamilyOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    ColumnFamilyOptions* new_options, bool input_strings_escaped,
+    std::vector<std::string>* unsupported_options_names = nullptr);
+
 static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     /*
      // not yet supported
-      AccessHint access_hint_on_compaction_start;
       Env* env;
-      InfoLogLevel info_log_level;
-      WALRecoveryMode wal_recovery_mode;
       std::shared_ptr<Cache> row_cache;
       std::shared_ptr<DeleteScheduler> delete_scheduler;
       std::shared_ptr<Logger> info_log;
@@ -141,6 +166,9 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal}},
     {"allow_mmap_writes",
      {offsetof(struct DBOptions, allow_mmap_writes), OptionType::kBoolean,
+      OptionVerificationType::kNormal}},
+    {"allow_2pc",
+     {offsetof(struct DBOptions, allow_2pc), OptionType::kBoolean,
       OptionVerificationType::kNormal}},
     {"allow_os_buffer",
      {offsetof(struct DBOptions, allow_os_buffer), OptionType::kBoolean,
@@ -185,7 +213,7 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
      {offsetof(struct DBOptions, random_access_max_buffer_size),
       OptionType::kSizeT, OptionVerificationType::kNormal}},
     {"writable_file_max_buffer_size",
-     {offsetof(struct DBOptions, writable_file_max_buffer_size),  
+     {offsetof(struct DBOptions, writable_file_max_buffer_size),
       OptionType::kSizeT, OptionVerificationType::kNormal}},
     {"use_adaptive_mutex",
      {offsetof(struct DBOptions, use_adaptive_mutex), OptionType::kBoolean,
@@ -195,6 +223,9 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal}},
     {"max_background_compactions",
      {offsetof(struct DBOptions, max_background_compactions), OptionType::kInt,
+      OptionVerificationType::kNormal}},
+    {"base_background_compactions",
+     {offsetof(struct DBOptions, base_background_compactions), OptionType::kInt,
       OptionVerificationType::kNormal}},
     {"max_background_flushes",
      {offsetof(struct DBOptions, max_background_flushes), OptionType::kInt,
@@ -261,6 +292,33 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal}},
     {"stats_dump_period_sec",
      {offsetof(struct DBOptions, stats_dump_period_sec), OptionType::kUInt,
+      OptionVerificationType::kNormal}},
+    {"fail_if_options_file_error",
+     {offsetof(struct DBOptions, fail_if_options_file_error),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"allow_concurrent_memtable_write",
+     {offsetof(struct DBOptions, allow_concurrent_memtable_write),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"wal_recovery_mode",
+     {offsetof(struct DBOptions, wal_recovery_mode),
+      OptionType::kWALRecoveryMode, OptionVerificationType::kNormal}},
+    {"enable_write_thread_adaptive_yield",
+     {offsetof(struct DBOptions, enable_write_thread_adaptive_yield),
+      OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"write_thread_slow_yield_usec",
+     {offsetof(struct DBOptions, write_thread_slow_yield_usec),
+      OptionType::kUInt64T, OptionVerificationType::kNormal}},
+    {"write_thread_max_yield_usec",
+     {offsetof(struct DBOptions, write_thread_max_yield_usec),
+      OptionType::kUInt64T, OptionVerificationType::kNormal}},
+    {"access_hint_on_compaction_start",
+     {offsetof(struct DBOptions, access_hint_on_compaction_start),
+      OptionType::kAccessHint, OptionVerificationType::kNormal}},
+    {"info_log_level",
+     {offsetof(struct DBOptions, info_log_level), OptionType::kInfoLogLevel,
+      OptionVerificationType::kNormal}},
+    {"dump_malloc_stats",
+     {offsetof(struct DBOptions, dump_malloc_stats), OptionType::kBoolean,
       OptionVerificationType::kNormal}}};
 
 static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
@@ -277,9 +335,12 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
                                      std::string* merged_value);
     std::vector<int> max_bytes_for_level_multiplier_additional;
      */
-    {"compaction_measure_io_stats",
-     {offsetof(struct ColumnFamilyOptions, compaction_measure_io_stats),
+    {"report_bg_io_stats",
+     {offsetof(struct ColumnFamilyOptions, report_bg_io_stats),
       OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"compaction_measure_io_stats",
+     {offsetof(struct ColumnFamilyOptions, report_bg_io_stats),
+      OptionType::kBoolean, OptionVerificationType::kDeprecated}},
     {"disable_auto_compactions",
      {offsetof(struct ColumnFamilyOptions, disable_auto_compactions),
       OptionType::kBoolean, OptionVerificationType::kNormal}},
@@ -305,6 +366,9 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     {"verify_checksums_in_compaction",
      {offsetof(struct ColumnFamilyOptions, verify_checksums_in_compaction),
       OptionType::kBoolean, OptionVerificationType::kNormal}},
+    {"soft_pending_compaction_bytes_limit",
+     {offsetof(struct ColumnFamilyOptions, soft_pending_compaction_bytes_limit),
+      OptionType::kUInt64T, OptionVerificationType::kNormal}},
     {"hard_pending_compaction_bytes_limit",
      {offsetof(struct ColumnFamilyOptions, hard_pending_compaction_bytes_limit),
       OptionType::kUInt64T, OptionVerificationType::kNormal}},
@@ -399,12 +463,15 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     {"compression_per_level",
      {offsetof(struct ColumnFamilyOptions, compression_per_level),
       OptionType::kVectorCompressionType, OptionVerificationType::kNormal}},
+    {"bottommost_compression",
+     {offsetof(struct ColumnFamilyOptions, bottommost_compression),
+      OptionType::kCompressionType, OptionVerificationType::kNormal}},
     {"comparator",
      {offsetof(struct ColumnFamilyOptions, comparator), OptionType::kComparator,
       OptionVerificationType::kByName}},
     {"prefix_extractor",
      {offsetof(struct ColumnFamilyOptions, prefix_extractor),
-      OptionType::kSliceTransform, OptionVerificationType::kByName}},
+      OptionType::kSliceTransform, OptionVerificationType::kByNameAllowNull}},
     {"memtable_factory",
      {offsetof(struct ColumnFamilyOptions, memtable_factory),
       OptionType::kMemTableRepFactory, OptionVerificationType::kByName}},
@@ -424,78 +491,139 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
      {offsetof(struct ColumnFamilyOptions, compaction_style),
       OptionType::kCompactionStyle, OptionVerificationType::kNormal}}};
 
-static std::unordered_map<std::string,
-                          OptionTypeInfo> block_based_table_type_info = {
-    /* currently not supported
-      std::shared_ptr<Cache> block_cache = nullptr;
-      std::shared_ptr<Cache> block_cache_compressed = nullptr;
-     */
-    {"flush_block_policy_factory",
-     {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
-      OptionType::kFlushBlockPolicyFactory, OptionVerificationType::kByName}},
-    {"cache_index_and_filter_blocks",
-     {offsetof(struct BlockBasedTableOptions, cache_index_and_filter_blocks),
-      OptionType::kBoolean, OptionVerificationType::kNormal}},
-    {"index_type",
-     {offsetof(struct BlockBasedTableOptions, index_type),
-      OptionType::kBlockBasedTableIndexType, OptionVerificationType::kNormal}},
-    {"hash_index_allow_collision",
-     {offsetof(struct BlockBasedTableOptions, hash_index_allow_collision),
-      OptionType::kBoolean, OptionVerificationType::kNormal}},
-    {"checksum",
-     {offsetof(struct BlockBasedTableOptions, checksum),
-      OptionType::kChecksumType, OptionVerificationType::kNormal}},
-    {"no_block_cache",
-     {offsetof(struct BlockBasedTableOptions, no_block_cache),
-      OptionType::kBoolean, OptionVerificationType::kNormal}},
-    {"block_size",
-     {offsetof(struct BlockBasedTableOptions, block_size), OptionType::kSizeT,
-      OptionVerificationType::kNormal}},
-    {"block_size_deviation",
-     {offsetof(struct BlockBasedTableOptions, block_size_deviation),
-      OptionType::kInt, OptionVerificationType::kNormal}},
-    {"block_restart_interval",
-     {offsetof(struct BlockBasedTableOptions, block_restart_interval),
-      OptionType::kInt, OptionVerificationType::kNormal}},
-    {"filter_policy",
-     {offsetof(struct BlockBasedTableOptions, filter_policy),
-      OptionType::kFilterPolicy, OptionVerificationType::kByName}},
-    {"whole_key_filtering",
-     {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
-      OptionType::kBoolean, OptionVerificationType::kNormal}},
-    {"skip_table_builder_flush",
-     {offsetof(struct BlockBasedTableOptions, skip_table_builder_flush),  
-      OptionType::kBoolean, OptionVerificationType::kNormal}},
-    {"format_version",
-     {offsetof(struct BlockBasedTableOptions, format_version),
-      OptionType::kUInt32T, OptionVerificationType::kNormal}}};
+static std::unordered_map<std::string, OptionTypeInfo>
+    block_based_table_type_info = {
+        /* currently not supported
+          std::shared_ptr<Cache> block_cache = nullptr;
+          std::shared_ptr<Cache> block_cache_compressed = nullptr;
+         */
+        {"flush_block_policy_factory",
+         {offsetof(struct BlockBasedTableOptions, flush_block_policy_factory),
+          OptionType::kFlushBlockPolicyFactory,
+          OptionVerificationType::kByName}},
+        {"cache_index_and_filter_blocks",
+         {offsetof(struct BlockBasedTableOptions,
+                   cache_index_and_filter_blocks),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"pin_l0_filter_and_index_blocks_in_cache",
+         {offsetof(struct BlockBasedTableOptions,
+                   pin_l0_filter_and_index_blocks_in_cache),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"index_type",
+         {offsetof(struct BlockBasedTableOptions, index_type),
+          OptionType::kBlockBasedTableIndexType,
+          OptionVerificationType::kNormal}},
+        {"hash_index_allow_collision",
+         {offsetof(struct BlockBasedTableOptions, hash_index_allow_collision),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"checksum",
+         {offsetof(struct BlockBasedTableOptions, checksum),
+          OptionType::kChecksumType, OptionVerificationType::kNormal}},
+        {"no_block_cache",
+         {offsetof(struct BlockBasedTableOptions, no_block_cache),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"block_size",
+         {offsetof(struct BlockBasedTableOptions, block_size),
+          OptionType::kSizeT, OptionVerificationType::kNormal}},
+        {"block_size_deviation",
+         {offsetof(struct BlockBasedTableOptions, block_size_deviation),
+          OptionType::kInt, OptionVerificationType::kNormal}},
+        {"block_restart_interval",
+         {offsetof(struct BlockBasedTableOptions, block_restart_interval),
+          OptionType::kInt, OptionVerificationType::kNormal}},
+        {"index_block_restart_interval",
+         {offsetof(struct BlockBasedTableOptions, index_block_restart_interval),
+          OptionType::kInt, OptionVerificationType::kNormal}},
+        {"filter_policy",
+         {offsetof(struct BlockBasedTableOptions, filter_policy),
+          OptionType::kFilterPolicy, OptionVerificationType::kByName}},
+        {"whole_key_filtering",
+         {offsetof(struct BlockBasedTableOptions, whole_key_filtering),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"skip_table_builder_flush",
+         {offsetof(struct BlockBasedTableOptions, skip_table_builder_flush),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"format_version",
+         {offsetof(struct BlockBasedTableOptions, format_version),
+          OptionType::kUInt32T, OptionVerificationType::kNormal}}};
 
-static std::unordered_map<std::string, 
-                          OptionTypeInfo> plain_table_type_info = {
-      {"user_key_len", 
-       {offsetof(struct PlainTableOptions, user_key_len),
-        OptionType::kUInt32T, OptionVerificationType::kNormal}},
-      {"bloom_bits_per_key", 
-       {offsetof(struct PlainTableOptions, bloom_bits_per_key),
-        OptionType::kInt, OptionVerificationType::kNormal}},
-      {"hash_table_ratio", 
-       {offsetof(struct PlainTableOptions, hash_table_ratio),
-        OptionType::kDouble, OptionVerificationType::kNormal}},
-      {"index_sparseness", 
-       {offsetof(struct PlainTableOptions, index_sparseness),
-        OptionType::kSizeT, OptionVerificationType::kNormal}},
-      {"huge_page_tlb_size", 
-       {offsetof(struct PlainTableOptions, huge_page_tlb_size),
-        OptionType::kSizeT, OptionVerificationType::kNormal}},
-      {"encoding_type", 
-       {offsetof(struct PlainTableOptions, encoding_type),
-        OptionType::kEncodingType, OptionVerificationType::kByName}},
-      {"full_scan_mode", 
-       {offsetof(struct PlainTableOptions, full_scan_mode),
-        OptionType::kBoolean, OptionVerificationType::kNormal}},
-      {"store_index_in_file", 
-       {offsetof(struct PlainTableOptions, store_index_in_file),
-        OptionType::kBoolean, OptionVerificationType::kNormal}}};  
+static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
+    {"user_key_len",
+     {offsetof(struct PlainTableOptions, user_key_len), OptionType::kUInt32T,
+      OptionVerificationType::kNormal}},
+    {"bloom_bits_per_key",
+     {offsetof(struct PlainTableOptions, bloom_bits_per_key), OptionType::kInt,
+      OptionVerificationType::kNormal}},
+    {"hash_table_ratio",
+     {offsetof(struct PlainTableOptions, hash_table_ratio), OptionType::kDouble,
+      OptionVerificationType::kNormal}},
+    {"index_sparseness",
+     {offsetof(struct PlainTableOptions, index_sparseness), OptionType::kSizeT,
+      OptionVerificationType::kNormal}},
+    {"huge_page_tlb_size",
+     {offsetof(struct PlainTableOptions, huge_page_tlb_size),
+      OptionType::kSizeT, OptionVerificationType::kNormal}},
+    {"encoding_type",
+     {offsetof(struct PlainTableOptions, encoding_type),
+      OptionType::kEncodingType, OptionVerificationType::kByName}},
+    {"full_scan_mode",
+     {offsetof(struct PlainTableOptions, full_scan_mode), OptionType::kBoolean,
+      OptionVerificationType::kNormal}},
+    {"store_index_in_file",
+     {offsetof(struct PlainTableOptions, store_index_in_file),
+      OptionType::kBoolean, OptionVerificationType::kNormal}}};
+
+static std::unordered_map<std::string, CompressionType>
+    compression_type_string_map = {
+        {"kNoCompression", kNoCompression},
+        {"kSnappyCompression", kSnappyCompression},
+        {"kZlibCompression", kZlibCompression},
+        {"kBZip2Compression", kBZip2Compression},
+        {"kLZ4Compression", kLZ4Compression},
+        {"kLZ4HCCompression", kLZ4HCCompression},
+        {"kXpressCompression", kXpressCompression},
+        {"kZSTDNotFinalCompression", kZSTDNotFinalCompression},
+        {"kDisableCompressionOption", kDisableCompressionOption}};
+
+static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
+    block_base_table_index_type_string_map = {
+        {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
+        {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch}};
+
+static std::unordered_map<std::string, EncodingType> encoding_type_string_map =
+    {{"kPlain", kPlain}, {"kPrefix", kPrefix}};
+
+static std::unordered_map<std::string, ChecksumType> checksum_type_string_map =
+    {{"kNoChecksum", kNoChecksum}, {"kCRC32c", kCRC32c}, {"kxxHash", kxxHash}};
+
+static std::unordered_map<std::string, CompactionStyle>
+    compaction_style_string_map = {
+        {"kCompactionStyleLevel", kCompactionStyleLevel},
+        {"kCompactionStyleUniversal", kCompactionStyleUniversal},
+        {"kCompactionStyleFIFO", kCompactionStyleFIFO},
+        {"kCompactionStyleNone", kCompactionStyleNone}};
+
+static std::unordered_map<std::string,
+                          WALRecoveryMode> wal_recovery_mode_string_map = {
+    {"kTolerateCorruptedTailRecords",
+     WALRecoveryMode::kTolerateCorruptedTailRecords},
+    {"kAbsoluteConsistency", WALRecoveryMode::kAbsoluteConsistency},
+    {"kPointInTimeRecovery", WALRecoveryMode::kPointInTimeRecovery},
+    {"kSkipAnyCorruptedRecords", WALRecoveryMode::kSkipAnyCorruptedRecords}};
+
+static std::unordered_map<std::string, DBOptions::AccessHint>
+    access_hint_string_map = {{"NONE", DBOptions::AccessHint::NONE},
+                              {"NORMAL", DBOptions::AccessHint::NORMAL},
+                              {"SEQUENTIAL", DBOptions::AccessHint::SEQUENTIAL},
+                              {"WILLNEED", DBOptions::AccessHint::WILLNEED}};
+
+static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
+    {{"DEBUG_LEVEL", InfoLogLevel::DEBUG_LEVEL},
+     {"INFO_LEVEL", InfoLogLevel::INFO_LEVEL},
+     {"WARN_LEVEL", InfoLogLevel::WARN_LEVEL},
+     {"ERROR_LEVEL", InfoLogLevel::ERROR_LEVEL},
+     {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
+     {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
 
 }  // namespace rocksdb
 

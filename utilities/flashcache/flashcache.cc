@@ -1,11 +1,11 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-#include "rocksdb/utilities/flashcache.h"
-
 #include "utilities/flashcache/flashcache.h"
+
+#include "rocksdb/utilities/flashcache.h"
 
 #ifdef OS_LINUX
 #include <fcntl.h>
@@ -91,7 +91,7 @@ class FlashcacheAwareEnv : public EnvWrapper {
   }
 
   void Schedule(void (*f)(void* arg), void* a, Priority pri,
-                void* tag = nullptr) override {
+                void* tag = nullptr, void (*u)(void* arg) = 0) override {
     EnvWrapper::Schedule(&BgThreadWrapper, new Arg(f, a, cachedev_fd_), pri,
                          tag);
   }
@@ -103,7 +103,7 @@ class FlashcacheAwareEnv : public EnvWrapper {
 std::unique_ptr<Env> NewFlashcacheAwareEnv(Env* base,
                                            const int cachedev_fd) {
   std::unique_ptr<Env> ret(new FlashcacheAwareEnv(base, cachedev_fd));
-  return std::move(ret);
+  return ret;
 }
 
 int FlashcacheBlacklistCurrentThread(Env* flashcache_aware_env) {

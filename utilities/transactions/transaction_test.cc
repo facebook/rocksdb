@@ -1,4 +1,4 @@
-//  Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -6,12 +6,21 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+#include <thread>
 
+#include "db/db_impl.h"
 #include "rocksdb/db.h"
+#include "rocksdb/options.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
+#include "table/mock_table.h"
+#include "util/fault_injection_test_env.h"
 #include "util/logging.h"
+#include "util/random.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
+#include "util/transaction_test_util.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
@@ -22,6 +31,7 @@ namespace rocksdb {
 class TransactionTest : public testing::Test {
  public:
   TransactionDB* db;
+  FaultInjectionTestEnv* env_;
   string dbname;
   Options options;
 
@@ -30,7 +40,11 @@ class TransactionTest : public testing::Test {
   TransactionTest() {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
+    options.write_buffer_size = 4 * 1024;
+    options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+    env_ = new FaultInjectionTestEnv(Env::Default());
+    options.env = env_;
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
@@ -44,7 +58,37 @@ class TransactionTest : public testing::Test {
     delete db;
     DestroyDB(dbname, options);
   }
+
+  Status ReOpenNoDelete() {
+    delete db;
+    db = nullptr;
+    env_->AssertNoOpenFile();
+    env_->DropUnsyncedFileData();
+    env_->ResetState();
+    Status s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+    return s;
+  }
+
+  Status ReOpen() {
+    delete db;
+    DestroyDB(dbname, options);
+
+    Status s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+
+    return s;
+  }
 };
+
+TEST_F(TransactionTest, DoubleEmptyWrite) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+
+  WriteBatch batch;
+
+  ASSERT_OK(db->Write(write_options, &batch));
+  ASSERT_OK(db->Write(write_options, &batch));
+}
 
 TEST_F(TransactionTest, SuccessTest) {
   WriteOptions write_options;
@@ -79,6 +123,802 @@ TEST_F(TransactionTest, SuccessTest) {
   s = db->Get(read_options, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar2");
+
+  delete txn;
+}
+
+TEST_F(TransactionTest, CommitTimeBatchFailTest) {
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+
+  string value;
+  Status s;
+
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  txn1->GetCommitTimeWriteBatch()->Put("cat", "dog");
+
+  s = txn1->Put("foo", "bar");
+  ASSERT_OK(s);
+
+  // fails due to non-empty commit-time batch
+  s = txn1->Commit();
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  delete txn1;
+}
+
+TEST_F(TransactionTest, SimpleTwoPhaseTransactionTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+
+  TransactionOptions txn_options;
+
+  string value;
+  Status s;
+
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("xid");
+  ASSERT_OK(s);
+
+  ASSERT_EQ(db->GetTransactionByName("xid"), txn);
+
+  // transaction put
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+  ASSERT_EQ(1, txn->GetNumPuts());
+
+  // regular db put
+  s = db->Put(write_options, Slice("foo2"), Slice("bar2"));
+  ASSERT_OK(s);
+  ASSERT_EQ(1, txn->GetNumPuts());
+
+  // regular db read
+  db->Get(read_options, "foo2", &value);
+  ASSERT_EQ(value, "bar2");
+
+  // commit time put
+  txn->GetCommitTimeWriteBatch()->Put(Slice("gtid"), Slice("dogs"));
+  txn->GetCommitTimeWriteBatch()->Put(Slice("gtid2"), Slice("cats"));
+
+  // nothing has been prepped yet
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  // data not im mem yet
+  s = db->Get(read_options, Slice("foo"), &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = db->Get(read_options, Slice("gtid"), &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // find trans in list of prepared transactions
+  std::vector<Transaction*> prepared_trans;
+  db->GetAllPreparedTransactions(&prepared_trans);
+  ASSERT_EQ(prepared_trans.size(), 1);
+  ASSERT_EQ(prepared_trans.front()->GetName(), "xid");
+
+  auto log_containing_prep =
+      db_impl->TEST_FindMinLogContainingOutstandingPrep();
+  ASSERT_GT(log_containing_prep, 0);
+
+  // make commit
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  // value is now available
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar");
+
+  s = db->Get(read_options, "gtid", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "dogs");
+
+  s = db->Get(read_options, "gtid2", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "cats");
+
+  // we already committed
+  s = txn->Commit();
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  // no longer is prpared results
+  db->GetAllPreparedTransactions(&prepared_trans);
+  ASSERT_EQ(prepared_trans.size(), 0);
+  ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
+
+  // heap should not care about prepared section anymore
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+
+  // but now our memtable should be referencing the prep section
+  ASSERT_EQ(log_containing_prep,
+            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+
+  db_impl->TEST_FlushMemTable(true);
+
+  // after memtable flush we can now relese the log
+  ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+
+  delete txn;
+}
+
+TEST_F(TransactionTest, TwoPhaseNameTest) {
+  Status s;
+
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  Transaction* txn3 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn3);
+  delete txn3;
+
+  // cant prepare txn without name
+  s = txn1->Prepare();
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  // name too short
+  s = txn1->SetName("");
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  // name too long
+  s = txn1->SetName(std::string(513, 'x'));
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  // valid set name
+  s = txn1->SetName("name1");
+  ASSERT_OK(s);
+
+  // cant have duplicate name
+  s = txn2->SetName("name1");
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  // shouldn't be able to prepare
+  s = txn2->Prepare();
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  // valid name set
+  s = txn2->SetName("name2");
+  ASSERT_OK(s);
+
+  // cant reset name
+  s = txn2->SetName("name3");
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  ASSERT_EQ(txn1->GetName(), "name1");
+  ASSERT_EQ(txn2->GetName(), "name2");
+
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  // can't rename after prepare
+  s = txn1->SetName("name4");
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  delete txn1;
+  delete txn2;
+}
+
+TEST_F(TransactionTest, TwoPhaseEmptyWriteTest) {
+  Status s;
+  std::string value;
+
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn2);
+
+  s = txn1->SetName("joe");
+  ASSERT_OK(s);
+
+  s = txn2->SetName("bob");
+  ASSERT_OK(s);
+
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  delete txn1;
+
+  txn2->GetCommitTimeWriteBatch()->Put(Slice("foo"), Slice("bar"));
+
+  s = txn2->Prepare();
+  ASSERT_OK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar");
+
+  delete txn2;
+}
+
+TEST_F(TransactionTest, TwoPhaseExpirationTest) {
+  Status s;
+
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+  txn_options.expiration = 500;  // 500ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+  ASSERT_TRUE(txn1);
+
+  s = txn1->SetName("joe");
+  ASSERT_OK(s);
+  s = txn2->SetName("bob");
+  ASSERT_OK(s);
+
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  /* sleep override */
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = txn2->Prepare();
+  ASSERT_EQ(s, Status::Expired());
+
+  delete txn1;
+  delete txn2;
+}
+
+TEST_F(TransactionTest, TwoPhaseRollbackTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+
+  TransactionOptions txn_options;
+
+  string value;
+  Status s;
+
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("xid");
+  ASSERT_OK(s);
+
+  // transaction put
+  s = txn->Put(Slice("tfoo"), Slice("tbar"));
+  ASSERT_OK(s);
+
+  // value is readable form txn
+  s = txn->Get(read_options, Slice("tfoo"), &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "tbar");
+
+  // issue rollback
+  s = txn->Rollback();
+  ASSERT_OK(s);
+
+  // value is nolonger readable
+  s = txn->Get(read_options, Slice("tfoo"), &value);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ(txn->GetNumPuts(), 0);
+
+  // put new txn values
+  s = txn->Put(Slice("tfoo2"), Slice("tbar2"));
+  ASSERT_OK(s);
+
+  // new value is readable from txn
+  s = txn->Get(read_options, Slice("tfoo2"), &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "tbar2");
+
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  // flush to next wal
+  s = db->Put(write_options, Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+  db_impl->TEST_FlushMemTable(true);
+
+  // issue rollback (marker written to WAL)
+  s = txn->Rollback();
+  ASSERT_OK(s);
+
+  // value is nolonger readable
+  s = txn->Get(read_options, Slice("tfoo2"), &value);
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ(txn->GetNumPuts(), 0);
+
+  // make commit
+  s = txn->Commit();
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  // try rollback again
+  s = txn->Rollback();
+  ASSERT_EQ(s, Status::InvalidArgument());
+}
+
+TEST_F(TransactionTest, PersistentTwoPhaseTransactionTest) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ReadOptions read_options;
+
+  TransactionOptions txn_options;
+
+  string value;
+  Status s;
+
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("xid");
+  ASSERT_OK(s);
+
+  ASSERT_EQ(db->GetTransactionByName("xid"), txn);
+
+  // transaction put
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+  ASSERT_EQ(1, txn->GetNumPuts());
+
+  // txn read
+  s = txn->Get(read_options, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar");
+
+  // regular db put
+  s = db->Put(write_options, Slice("foo2"), Slice("bar2"));
+  ASSERT_OK(s);
+  ASSERT_EQ(1, txn->GetNumPuts());
+
+  db_impl->TEST_FlushMemTable(true);
+
+  // regular db read
+  db->Get(read_options, "foo2", &value);
+  ASSERT_EQ(value, "bar2");
+
+  // nothing has been prepped yet
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+
+  // prepare
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  // still not available to db
+  s = db->Get(read_options, Slice("foo"), &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // kill and reopen
+  s = ReOpenNoDelete();
+  ASSERT_OK(s);
+  db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+
+  // find trans in list of prepared transactions
+  std::vector<Transaction*> prepared_trans;
+  db->GetAllPreparedTransactions(&prepared_trans);
+  ASSERT_EQ(prepared_trans.size(), 1);
+
+  txn = prepared_trans.front();
+  ASSERT_TRUE(txn);
+  ASSERT_EQ(txn->GetName(), "xid");
+  ASSERT_EQ(db->GetTransactionByName("xid"), txn);
+
+  // log has been marked
+  auto log_containing_prep =
+      db_impl->TEST_FindMinLogContainingOutstandingPrep();
+  ASSERT_GT(log_containing_prep, 0);
+
+  // value is readable from txn
+  s = txn->Get(read_options, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar");
+
+  // make commit
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  // value is now available
+  db->Get(read_options, "foo", &value);
+  ASSERT_EQ(value, "bar");
+
+  // we already committed
+  s = txn->Commit();
+  ASSERT_EQ(s, Status::InvalidArgument());
+
+  // no longer is prpared results
+  prepared_trans.clear();
+  db->GetAllPreparedTransactions(&prepared_trans);
+  ASSERT_EQ(prepared_trans.size(), 0);
+
+  // transaction should no longer be visible
+  ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
+
+  // heap should not care about prepared section anymore
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+
+  // but now our memtable should be referencing the prep section
+  ASSERT_EQ(log_containing_prep,
+            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+
+  db_impl->TEST_FlushMemTable(true);
+
+  // after memtable flush we can now relese the log
+  ASSERT_EQ(0, db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+
+  delete txn;
+
+  // deleting transaction should unregister transaction
+  ASSERT_EQ(db->GetTransactionByName("xid"), nullptr);
+}
+
+TEST_F(TransactionTest, TwoPhaseMultiThreadTest) {
+  // mix transaction writes and regular writes
+  const uint32_t NUM_TXN_THREADS = 50;
+  std::atomic<uint32_t> txn_thread_num(0);
+
+  std::function<void()> txn_write_thread = [&]() {
+    uint32_t id = txn_thread_num.fetch_add(1);
+
+    WriteOptions write_options;
+    write_options.sync = true;
+    write_options.disableWAL = false;
+    TransactionOptions txn_options;
+    txn_options.lock_timeout = 1000000;
+    if (id % 2 == 0) {
+      txn_options.expiration = 1000000;
+    }
+    TransactionName name("xid_" + std::string(1, 'A' + id));
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(txn->SetName(name));
+    for (int i = 0; i < 10; i++) {
+      std::string key(name + "_" + std::string(1, 'A' + i));
+      ASSERT_OK(txn->Put(key, "val"));
+    }
+    ASSERT_OK(txn->Prepare());
+    ASSERT_OK(txn->Commit());
+    delete txn;
+  };
+
+  // assure that all thread are in the same write group
+  std::atomic<uint32_t> t_wait_on_prepare(0);
+  std::atomic<uint32_t> t_wait_on_commit(0);
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
+        auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+
+        if (writer->ShouldWriteToWAL()) {
+          t_wait_on_prepare.fetch_add(1);
+          // wait for friends
+          while (t_wait_on_prepare.load() < NUM_TXN_THREADS) {
+          }
+        } else if (writer->ShouldWriteToMemtable()) {
+          t_wait_on_commit.fetch_add(1);
+          // wait for friends
+          while (t_wait_on_commit.load() < NUM_TXN_THREADS) {
+          }
+        } else {
+          ASSERT_TRUE(false);
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // do all the writes
+  std::vector<std::thread> threads;
+  for (uint32_t i = 0; i < NUM_TXN_THREADS; i++) {
+    threads.emplace_back(txn_write_thread);
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  ReadOptions read_options;
+  std::string value;
+  Status s;
+  for (uint32_t t = 0; t < NUM_TXN_THREADS; t++) {
+    TransactionName name("xid_" + std::string(1, 'A' + t));
+    for (int i = 0; i < 10; i++) {
+      std::string key(name + "_" + std::string(1, 'A' + i));
+      s = db->Get(read_options, key, &value);
+      ASSERT_OK(s);
+      ASSERT_EQ(value, "val");
+    }
+  }
+}
+
+TEST_F(TransactionTest, TwoPhaseSequenceTest) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ReadOptions read_options;
+
+  TransactionOptions txn_options;
+
+  std::string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("xid");
+  ASSERT_OK(s);
+
+  // transaction put
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+  s = txn->Put(Slice("foo2"), Slice("bar2"));
+  ASSERT_OK(s);
+  s = txn->Put(Slice("foo3"), Slice("bar3"));
+  ASSERT_OK(s);
+  s = txn->Put(Slice("foo4"), Slice("bar4"));
+  ASSERT_OK(s);
+
+  // prepare
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  // make commit
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  delete txn;
+
+  // kill and reopen
+  env_->SetFilesystemActive(false);
+  ReOpenNoDelete();
+
+  // value is now available
+  s = db->Get(read_options, "foo4", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar4");
+}
+
+TEST_F(TransactionTest, TwoPhaseDoubleRecoveryTest) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ReadOptions read_options;
+
+  TransactionOptions txn_options;
+
+  std::string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("a");
+  ASSERT_OK(s);
+
+  // transaction put
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+
+  // prepare
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  delete txn;
+
+  // kill and reopen
+  env_->SetFilesystemActive(false);
+  ReOpenNoDelete();
+
+  // commit old txn
+  txn = db->GetTransactionByName("a");
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar");
+
+  delete txn;
+
+  txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("b");
+  ASSERT_OK(s);
+
+  s = txn->Put(Slice("foo2"), Slice("bar2"));
+  ASSERT_OK(s);
+
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  // kill and reopen
+  env_->SetFilesystemActive(false);
+  ReOpenNoDelete();
+
+  // value is now available
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar");
+
+  s = db->Get(read_options, "foo2", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar2");
+}
+
+TEST_F(TransactionTest, TwoPhaseLogRollingTest) {
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+
+  Status s;
+  string v;
+  ColumnFamilyHandle *cfa, *cfb;
+
+  // Create 2 new column families
+  ColumnFamilyOptions cf_options;
+  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
+  ASSERT_OK(s);
+  s = db->CreateColumnFamily(cf_options, "CFB", &cfb);
+  ASSERT_OK(s);
+
+  WriteOptions wopts;
+  wopts.disableWAL = false;
+  wopts.sync = true;
+
+  TransactionOptions topts1;
+  Transaction* txn1 = db->BeginTransaction(wopts, topts1);
+  s = txn1->SetName("xid1");
+  ASSERT_OK(s);
+
+  TransactionOptions topts2;
+  Transaction* txn2 = db->BeginTransaction(wopts, topts2);
+  s = txn2->SetName("xid2");
+  ASSERT_OK(s);
+
+  // transaction put in two column families
+  s = txn1->Put(cfa, "ka1", "va1");
+  ASSERT_OK(s);
+
+  // transaction put in two column families
+  s = txn2->Put(cfa, "ka2", "va2");
+  ASSERT_OK(s);
+  s = txn2->Put(cfb, "kb2", "vb2");
+  ASSERT_OK(s);
+
+  // write prep section to wal
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  // our log should be in the heap
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
+            txn1->GetLogNumber());
+  ASSERT_EQ(db_impl->TEST_LogfileNumber(), txn1->GetLogNumber());
+
+  // flush default cf to crate new log
+  s = db->Put(wopts, "foo", "bar");
+  ASSERT_OK(s);
+  s = db_impl->TEST_FlushMemTable(true);
+  ASSERT_OK(s);
+
+  // make sure we are on a new log
+  ASSERT_GT(db_impl->TEST_LogfileNumber(), txn1->GetLogNumber());
+
+  // put txn2 prep section in this log
+  s = txn2->Prepare();
+  ASSERT_OK(s);
+  ASSERT_EQ(db_impl->TEST_LogfileNumber(), txn2->GetLogNumber());
+
+  // heap should still see first log
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
+            txn1->GetLogNumber());
+
+  // commit txn1
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  // heap should now show txn2s log
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
+            txn2->GetLogNumber());
+
+  // we should see txn1s log refernced by the memtables
+  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
+            txn1->GetLogNumber());
+
+  // flush default cf to crate new log
+  s = db->Put(wopts, "foo", "bar2");
+  ASSERT_OK(s);
+  s = db_impl->TEST_FlushMemTable(true);
+  ASSERT_OK(s);
+
+  // make sure we are on a new log
+  ASSERT_GT(db_impl->TEST_LogfileNumber(), txn2->GetLogNumber());
+
+  // commit txn2
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  // heap should not show any logs
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+
+  // should show the first txn log
+  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
+            txn1->GetLogNumber());
+
+  // flush only cfa memtable
+  s = db_impl->TEST_FlushMemTable(true, cfa);
+  ASSERT_OK(s);
+
+  // should show the first txn log
+  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(),
+            txn2->GetLogNumber());
+
+  // flush only cfb memtable
+  s = db_impl->TEST_FlushMemTable(true, cfb);
+  ASSERT_OK(s);
+
+  // should show not dependency on logs
+  ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
+
+  delete txn1;
+  delete txn2;
+  delete cfa;
+  delete cfb;
+}
+
+TEST_F(TransactionTest, FirstWriteTest) {
+  WriteOptions write_options;
+
+  // Test conflict checking against the very first write to a db.
+  // The transaction's snapshot will have seq 1 and the following write
+  // will have sequence 1.
+  Status s = db->Put(write_options, "A", "a");
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  txn->SetSnapshot();
+
+  ASSERT_OK(s);
+
+  s = txn->Put("A", "b");
+  ASSERT_OK(s);
+
+  delete txn;
+}
+
+TEST_F(TransactionTest, FirstWriteTest2) {
+  WriteOptions write_options;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  txn->SetSnapshot();
+
+  // Test conflict checking against the very first write to a db.
+  // The transaction's snapshot is a seq 0 while the following write
+  // will have sequence 1.
+  Status s = db->Put(write_options, "A", "a");
+  ASSERT_OK(s);
+
+  s = txn->Put("A", "b");
+  ASSERT_TRUE(s.IsBusy());
+
+  delete txn;
+}
+
+TEST_F(TransactionTest, WriteOptionsTest) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = true;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  ASSERT_TRUE(txn->GetWriteOptions()->sync);
+
+  write_options.sync = false;
+  txn->SetWriteOptions(write_options);
+  ASSERT_FALSE(txn->GetWriteOptions()->sync);
+  ASSERT_TRUE(txn->GetWriteOptions()->disableWAL);
 
   delete txn;
 }
@@ -266,68 +1106,154 @@ TEST_F(TransactionTest, FlushTest) {
 }
 
 TEST_F(TransactionTest, FlushTest2) {
-  WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
-  TransactionOptions txn_options;
-  string value;
-  Status s;
+  const size_t num_tests = 3;
 
-  db->Put(write_options, Slice("foo"), Slice("bar"));
-  db->Put(write_options, Slice("foo2"), Slice("bar"));
+  for (size_t n = 0; n < num_tests; n++) {
+    // Test different table factories
+    switch (n) {
+      case 0:
+        break;
+      case 1:
+        options.table_factory.reset(new mock::MockTableFactory());
+        break;
+      case 2: {
+        PlainTableOptions pt_opts;
+        pt_opts.hash_table_ratio = 0;
+        options.table_factory.reset(NewPlainTableFactory(pt_opts));
+        break;
+      }
+    }
 
-  txn_options.set_snapshot = true;
-  Transaction* txn = db->BeginTransaction(write_options, txn_options);
-  ASSERT_TRUE(txn);
+    Status s = ReOpen();
+    ASSERT_OK(s);
 
-  snapshot_read_options.snapshot = txn->GetSnapshot();
+    WriteOptions write_options;
+    ReadOptions read_options, snapshot_read_options;
+    TransactionOptions txn_options;
+    string value;
 
-  txn->GetForUpdate(snapshot_read_options, "foo", &value);
-  ASSERT_EQ(value, "bar");
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetBaseDB());
 
-  s = txn->Put(Slice("foo"), Slice("bar2"));
-  ASSERT_OK(s);
+    db->Put(write_options, Slice("foo"), Slice("bar"));
+    db->Put(write_options, Slice("foo2"), Slice("bar2"));
+    db->Put(write_options, Slice("foo3"), Slice("bar3"));
 
-  txn->GetForUpdate(snapshot_read_options, "foo", &value);
-  ASSERT_EQ(value, "bar2");
+    txn_options.set_snapshot = true;
+    Transaction* txn = db->BeginTransaction(write_options, txn_options);
+    ASSERT_TRUE(txn);
 
-  // Put a random key so we have a MemTable to flush
-  s = db->Put(write_options, "dummy", "dummy");
-  ASSERT_OK(s);
+    snapshot_read_options.snapshot = txn->GetSnapshot();
 
-  // force a memtable flush
-  FlushOptions flush_ops;
-  db->Flush(flush_ops);
+    txn->GetForUpdate(snapshot_read_options, "foo", &value);
+    ASSERT_EQ(value, "bar");
 
-  // Put a random key so we have a MemTable to flush
-  s = db->Put(write_options, "dummy", "dummy2");
-  ASSERT_OK(s);
+    s = txn->Put(Slice("foo"), Slice("bar2"));
+    ASSERT_OK(s);
 
-  // force a memtable flush
-  db->Flush(flush_ops);
+    txn->GetForUpdate(snapshot_read_options, "foo", &value);
+    ASSERT_EQ(value, "bar2");
+    // verify foo is locked by txn
+    s = db->Delete(write_options, "foo");
+    ASSERT_TRUE(s.IsTimedOut());
 
-  s = db->Put(write_options, "dummy", "dummy3");
-  ASSERT_OK(s);
+    s = db->Put(write_options, "Z", "z");
+    ASSERT_OK(s);
+    s = db->Put(write_options, "dummy", "dummy");
+    ASSERT_OK(s);
 
-  // force a memtable flush
-  // Since our test db has max_write_buffer_number=2, this flush will cause
-  // the first memtable to get purged from the MemtableList history.
-  db->Flush(flush_ops);
+    s = db->Put(write_options, "S", "s");
+    ASSERT_OK(s);
+    s = db->SingleDelete(write_options, "S");
+    ASSERT_OK(s);
 
-  s = txn->Put("X", "Y");
-  // Put should fail since MemTableList History is not older than the snapshot.
-  ASSERT_TRUE(s.IsTryAgain());
+    s = txn->Delete("S");
+    // Should fail after encountering a write to S in memtable
+    ASSERT_TRUE(s.IsBusy());
 
-  s = txn->Commit();
-  ASSERT_OK(s);
+    // force a memtable flush
+    s = db_impl->TEST_FlushMemTable(true);
+    ASSERT_OK(s);
 
-  // Transaction should only write the keys that succeeded.
-  s = db->Get(read_options, "foo", &value);
-  ASSERT_EQ(value, "bar2");
+    // Put a random key so we have a MemTable to flush
+    s = db->Put(write_options, "dummy", "dummy2");
+    ASSERT_OK(s);
 
-  s = db->Get(read_options, "X", &value);
-  ASSERT_TRUE(s.IsNotFound());
+    // force a memtable flush
+    ASSERT_OK(db_impl->TEST_FlushMemTable(true));
+
+    s = db->Put(write_options, "dummy", "dummy3");
+    ASSERT_OK(s);
+
+    // force a memtable flush
+    // Since our test db has max_write_buffer_number=2, this flush will cause
+    // the first memtable to get purged from the MemtableList history.
+    ASSERT_OK(db_impl->TEST_FlushMemTable(true));
+
+    s = txn->Put("X", "Y");
+    // Should succeed after verifying there is no write to X in SST file
+    ASSERT_OK(s);
+
+    s = txn->Put("Z", "zz");
+    // Should fail after encountering a write to Z in SST file
+    ASSERT_TRUE(s.IsBusy());
+
+    s = txn->GetForUpdate(read_options, "foo2", &value);
+    // should succeed since key was written before txn started
+    ASSERT_OK(s);
+    // verify foo2 is locked by txn
+    s = db->Delete(write_options, "foo2");
+    ASSERT_TRUE(s.IsTimedOut());
+
+    s = txn->Delete("S");
+    // Should fail after encountering a write to S in SST file
+    ASSERT_TRUE(s.IsBusy());
+
+    // Write a bunch of keys to db to force a compaction
+    Random rnd(47);
+    for (int i = 0; i < 1000; i++) {
+      s = db->Put(write_options, std::to_string(i),
+                  test::CompressibleString(&rnd, 0.8, 100, &value));
+      ASSERT_OK(s);
+    }
+
+    s = txn->Put("X", "yy");
+    // Should succeed after verifying there is no write to X in SST file
+    ASSERT_OK(s);
+
+    s = txn->Put("Z", "zzz");
+    // Should fail after encountering a write to Z in SST file
+    ASSERT_TRUE(s.IsBusy());
+
+    s = txn->Delete("S");
+    // Should fail after encountering a write to S in SST file
+    ASSERT_TRUE(s.IsBusy());
+
+    s = txn->GetForUpdate(read_options, "foo3", &value);
+    // should succeed since key was written before txn started
+    ASSERT_OK(s);
+    // verify foo3 is locked by txn
+    s = db->Delete(write_options, "foo3");
+    ASSERT_TRUE(s.IsTimedOut());
+
+    db_impl->TEST_WaitForCompact();
+
+    s = txn->Commit();
+    ASSERT_OK(s);
+
+    // Transaction should only write the keys that succeeded.
+    s = db->Get(read_options, "foo", &value);
+    ASSERT_EQ(value, "bar2");
+
+    s = db->Get(read_options, "X", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("yy", value);
+
+    s = db->Get(read_options, "Z", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ("z", value);
 
   delete txn;
+  }
 }
 
 TEST_F(TransactionTest, NoSnapshotTest) {
@@ -1041,6 +1967,112 @@ TEST_F(TransactionTest, ExpiredTransaction) {
   delete txn2;
 }
 
+TEST_F(TransactionTest, ReinitializeTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  // Set txn expiration timeout to 0 microseconds (expires instantly)
+  txn_options.expiration = 0;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  // Reinitialize transaction to no long expire
+  txn_options.expiration = -1;
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Put("Z", "z");
+  ASSERT_OK(s);
+
+  // Should commit since not expired
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->Put("Z", "zz");
+  ASSERT_OK(s);
+
+  // Reinitilize txn1 and verify that Z gets unlocked
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options, nullptr);
+  s = txn2->Put("Z", "zzz");
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzz");
+
+  // Verify snapshots get reinitialized correctly
+  txn1->SetSnapshot();
+  s = txn1->Put("Z", "zzzz");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
+
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  const Snapshot* snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot);
+
+  txn_options.set_snapshot = true;
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+  ASSERT_TRUE(snapshot);
+
+  s = txn1->Put("Z", "a");
+  ASSERT_OK(s);
+
+  txn1->Rollback();
+
+  s = txn1->Put("Y", "y");
+  ASSERT_OK(s);
+
+  txn_options.set_snapshot = false;
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+  snapshot = txn1->GetSnapshot();
+  ASSERT_FALSE(snapshot);
+
+  s = txn1->Put("X", "x");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
+
+  s = db->Get(read_options, "Y", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->SetName("name");
+  ASSERT_OK(s);
+
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  txn1 = db->BeginTransaction(write_options, txn_options, txn1);
+
+  s = txn1->SetName("name");
+  ASSERT_OK(s);
+
+  delete txn1;
+}
+
 TEST_F(TransactionTest, Rollback) {
   WriteOptions write_options;
   ReadOptions read_options;
@@ -1559,9 +2591,8 @@ TEST_F(TransactionTest, SavepointTest) {
 
 TEST_F(TransactionTest, SavepointTest2) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
   TransactionOptions txn_options;
-  string value;
   Status s;
 
   txn_options.lock_timeout = 1;  // 1 ms
@@ -1653,6 +2684,356 @@ TEST_F(TransactionTest, SavepointTest2) {
 
   s = txn2->Commit();
   ASSERT_OK(s);
+  delete txn2;
+}
+
+TEST_F(TransactionTest, UndoGetForUpdateTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  txn1->UndoGetForUpdate("A");
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  txn1 = db->BeginTransaction(write_options, txn_options);
+
+  txn1->UndoGetForUpdate("A");
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Verify that A is locked
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->UndoGetForUpdate("A");
+
+  // Verify that A is now unlocked
+  s = txn2->Put("A", "a2");
+  ASSERT_OK(s);
+  txn2->Commit();
+  delete txn2;
+  s = db->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a2", value);
+
+  s = txn1->Delete("A");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("B", "b3");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+
+  // Verify that A and B are still locked
+  txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a4");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b4");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->Rollback();
+  delete txn1;
+
+  // Verify that A and B are no longer locked
+  s = txn2->Put("A", "a5");
+  ASSERT_OK(s);
+  s = txn2->Put("B", "b5");
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  delete txn2;
+  ASSERT_OK(s);
+
+  txn1 = db->BeginTransaction(write_options, txn_options);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+  s = txn1->Put("B", "b5");
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify A,B,C are locked
+  txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("X", "x6");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify A,B are locked and C is not
+  s = txn2->Put("A", "a6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c6");
+  ASSERT_OK(s);
+  s = txn2->Put("X", "x6");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify B is locked and A and C are not
+  s = txn2->Put("A", "a7");
+  ASSERT_OK(s);
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c7");
+  ASSERT_OK(s);
+  s = txn2->Put("X", "x7");
+  ASSERT_OK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+}
+
+TEST_F(TransactionTest, UndoGetForUpdateTest2) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  s = db->Put(write_options, "A", "");
+  ASSERT_OK(s);
+
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("F", "f");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 1
+
+  txn1->UndoGetForUpdate("A");
+
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("E", "e");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "E", &value);
+  ASSERT_OK(s);
+
+  s = txn1->GetForUpdate(read_options, "F", &value);
+  ASSERT_OK(s);
+
+  // Verify A,B,C,D,E,F are still locked
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f1");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("E");
+
+  // Verify A,B,D,E,F are still locked and C is not.
+  s = txn2->Put("A", "a2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c2");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 2
+
+  s = txn1->Put("H", "h");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify A,B,D,E,F,H are still locked and C,G are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("H", "h3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+
+  txn1->RollbackToSavePoint();  // rollback to 2
+
+  // Verify A,B,D,E,F are still locked and C,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify A,B,E,F are still locked and C,D,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->RollbackToSavePoint();  // rollback to 1
+
+  // Verify A,B,F are still locked and C,D,E,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("E", "e3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify F is still locked and A,B,C,D,E,G,H are not.
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("A", "a3");
+  ASSERT_OK(s);
+  s = txn2->Put("B", "b3");
+  ASSERT_OK(s);
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("E", "e3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  delete txn1;
   delete txn2;
 }
 
@@ -2161,6 +3542,65 @@ TEST_F(TransactionTest, DeferSnapshotSavePointTest) {
   delete txn1;
 }
 
+TEST_F(TransactionTest, SetSnapshotOnNextOperationWithNotification) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+
+  class Notifier : public TransactionNotifier {
+   private:
+    const Snapshot** snapshot_ptr_;
+
+   public:
+    explicit Notifier(const Snapshot** snapshot_ptr)
+        : snapshot_ptr_(snapshot_ptr) {}
+
+    void SnapshotCreated(const Snapshot* newSnapshot) {
+      *snapshot_ptr_ = newSnapshot;
+    }
+  };
+
+  std::shared_ptr<Notifier> notifier =
+      std::make_shared<Notifier>(&read_options.snapshot);
+  Status s;
+
+  s = db->Put(write_options, "B", "0");
+  ASSERT_OK(s);
+
+  Transaction* txn1 = db->BeginTransaction(write_options);
+
+  txn1->SetSnapshotOnNextOperation(notifier);
+  ASSERT_FALSE(read_options.snapshot);
+
+  s = db->Put(write_options, "B", "1");
+  ASSERT_OK(s);
+
+  // A Get does not generate the snapshot
+  s = txn1->Get(read_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_FALSE(read_options.snapshot);
+  ASSERT_EQ(value, "1");
+
+  // Any other operation does
+  s = txn1->Put("A", "0");
+  ASSERT_OK(s);
+
+  // Now change "B".
+  s = db->Put(write_options, "B", "2");
+  ASSERT_OK(s);
+
+  // The original value should still be read
+  s = txn1->Get(read_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_TRUE(read_options.snapshot);
+  ASSERT_EQ(value, "1");
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  delete txn1;
+}
+
 TEST_F(TransactionTest, ClearSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
@@ -2206,6 +3646,178 @@ TEST_F(TransactionTest, ClearSnapshotTest) {
   ASSERT_OK(s);
 
   delete txn;
+}
+
+TEST_F(TransactionTest, ToggleAutoCompactionTest) {
+  Status s;
+
+  TransactionOptions txn_options;
+  ColumnFamilyHandle *cfa, *cfb;
+  ColumnFamilyOptions cf_options;
+
+  // Create 2 new column families
+  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
+  ASSERT_OK(s);
+  s = db->CreateColumnFamily(cf_options, "CFB", &cfb);
+  ASSERT_OK(s);
+
+  delete cfa;
+  delete cfb;
+  delete db;
+
+  // open DB with three column families
+  std::vector<ColumnFamilyDescriptor> column_families;
+  // have to open default column family
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  // open the new column families
+  column_families.push_back(
+      ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
+  column_families.push_back(
+      ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
+
+  ColumnFamilyOptions* cf_opt_default = &column_families[0].options;
+  ColumnFamilyOptions* cf_opt_cfa = &column_families[1].options;
+  ColumnFamilyOptions* cf_opt_cfb = &column_families[2].options;
+  cf_opt_default->disable_auto_compactions = false;
+  cf_opt_cfa->disable_auto_compactions = true;
+  cf_opt_cfb->disable_auto_compactions = false;
+
+  std::vector<ColumnFamilyHandle*> handles;
+
+  s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
+                          &handles, &db);
+  ASSERT_OK(s);
+
+  auto cfh_default = reinterpret_cast<ColumnFamilyHandleImpl*>(handles[0]);
+  auto opt_default = *cfh_default->cfd()->GetLatestMutableCFOptions();
+
+  auto cfh_a = reinterpret_cast<ColumnFamilyHandleImpl*>(handles[1]);
+  auto opt_a = *cfh_a->cfd()->GetLatestMutableCFOptions();
+
+  auto cfh_b = reinterpret_cast<ColumnFamilyHandleImpl*>(handles[2]);
+  auto opt_b = *cfh_b->cfd()->GetLatestMutableCFOptions();
+
+  ASSERT_EQ(opt_default.disable_auto_compactions, false);
+  ASSERT_EQ(opt_a.disable_auto_compactions, true);
+  ASSERT_EQ(opt_b.disable_auto_compactions, false);
+
+  for (auto handle : handles) {
+    delete handle;
+  }
+}
+
+TEST_F(TransactionTest, ExpiredTransactionDataRace1) {
+  // In this test, txn1 should succeed committing,
+  // as the callback is called after txn1 starts committing.
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"TransactionTest::ExpirableTransactionDataRace:1"}});
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TransactionTest::ExpirableTransactionDataRace:1", [&](void* arg) {
+        WriteOptions write_options;
+        TransactionOptions txn_options;
+
+        // Force txn1 to expire
+        /* sleep override */
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+
+        Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+        Status s;
+        s = txn2->Put("X", "2");
+        ASSERT_TRUE(s.IsTimedOut());
+        s = txn2->Commit();
+        ASSERT_OK(s);
+        delete txn2;
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions write_options;
+  TransactionOptions txn_options;
+
+  txn_options.expiration = 100;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  Status s;
+  s = txn1->Put("X", "1");
+  ASSERT_OK(s);
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  ReadOptions read_options;
+  string value;
+  s = db->Get(read_options, "X", &value);
+  ASSERT_EQ("1", value);
+
+  delete txn1;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+namespace {
+Status TransactionStressTestInserter(TransactionDB* db,
+                                     const size_t num_transactions,
+                                     const size_t num_sets,
+                                     const size_t num_keys_per_set) {
+  size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+  Random64 _rand(seed);
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  txn_options.set_snapshot = true;
+
+  RandomTransactionInserter inserter(&_rand, write_options, read_options,
+                                     num_keys_per_set,
+                                     static_cast<uint16_t>(num_sets));
+
+  for (size_t t = 0; t < num_transactions; t++) {
+    bool success = inserter.TransactionDBInsert(db, txn_options);
+    if (!success) {
+      // unexpected failure
+      return inserter.GetLastStatus();
+    }
+  }
+
+  // Make sure at least some of the transactions succeeded.  It's ok if
+  // some failed due to write-conflicts.
+  if (inserter.GetFailureCount() > num_transactions / 2) {
+    return Status::TryAgain("Too many transactions failed! " +
+                            std::to_string(inserter.GetFailureCount()) + " / " +
+                            std::to_string(num_transactions));
+  }
+
+  return Status::OK();
+}
+}  // namespace
+
+TEST_F(TransactionTest, TransactionStressTest) {
+  const size_t num_threads = 4;
+  const size_t num_transactions_per_thread = 10000;
+  const size_t num_sets = 3;
+  const size_t num_keys_per_set = 100;
+  // Setting the key-space to be 100 keys should cause enough write-conflicts
+  // to make this test interesting.
+
+  std::vector<std::thread> threads;
+
+  std::function<void()> call_inserter = [&] {
+    ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,
+                                            num_sets, num_keys_per_set));
+  };
+
+  // Create N threads that use RandomTransactionInserter to write
+  // many transactions.
+  for (uint32_t i = 0; i < num_threads; i++) {
+    threads.emplace_back(call_inserter);
+  }
+
+  // Wait for all threads to run
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  // Verify that data is consistent
+  Status s = RandomTransactionInserter::Verify(db, num_sets);
+  ASSERT_OK(s);
 }
 
 }  // namespace rocksdb

@@ -1,4 +1,4 @@
-//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -32,13 +32,9 @@ public class WriteBatchWithIndexTest {
 
   @Test
   public void readYourOwnWrites() throws RocksDBException {
-    RocksDB db = null;
-    Options options = null;
-    try {
-      options = new Options();
-      // Setup options
-      options.setCreateIfMissing(true);
-      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())) {
 
       final byte[] k1 = "key1".getBytes();
       final byte[] v1 = "value1".getBytes();
@@ -48,13 +44,9 @@ public class WriteBatchWithIndexTest {
       db.put(k1, v1);
       db.put(k2, v2);
 
-      final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
-
-      RocksIterator base = null;
-      RocksIterator it = null;
-      try {
-        base = db.newIterator();
-        it = wbwi.newIteratorWithBase(base);
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+           final RocksIterator base = db.newIterator();
+           final RocksIterator it = wbwi.newIteratorWithBase(base)) {
 
         it.seek(k1);
         assertThat(it.isValid()).isTrue();
@@ -95,167 +87,121 @@ public class WriteBatchWithIndexTest {
         assertThat(it.isValid()).isTrue();
         assertThat(it.key()).isEqualTo(k1);
         assertThat(it.value()).isEqualTo(v1Other);
-      } finally {
-        if (it != null) {
-          it.dispose();
-        }
-        if (base != null) {
-          base.dispose();
-        }
-      }
-
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (options != null) {
-        options.dispose();
       }
     }
   }
 
   @Test
   public void write_writeBatchWithIndex() throws RocksDBException {
-    RocksDB db = null;
-    Options options = null;
-    try {
-      options = new Options();
-      // Setup options
-      options.setCreateIfMissing(true);
-      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+    try (final Options options = new Options().setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())) {
 
       final byte[] k1 = "key1".getBytes();
       final byte[] v1 = "value1".getBytes();
       final byte[] k2 = "key2".getBytes();
       final byte[] v2 = "value2".getBytes();
 
-      WriteBatchWithIndex wbwi = null;
-
-      try {
-        wbwi = new WriteBatchWithIndex();
-
-
+      try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex()) {
         wbwi.put(k1, v1);
         wbwi.put(k2, v2);
 
         db.write(new WriteOptions(), wbwi);
-      } finally {
-        if(wbwi != null) {
-          wbwi.dispose();
-        }
       }
 
       assertThat(db.get(k1)).isEqualTo(v1);
       assertThat(db.get(k2)).isEqualTo(v2);
-
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (options != null) {
-        options.dispose();
-      }
     }
   }
 
   @Test
   public void iterator() throws RocksDBException {
-    final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true)) {
 
-    final String k1 = "key1";
-    final String v1 = "value1";
-    final String k2 = "key2";
-    final String v2 = "value2";
-    final String k3 = "key3";
-    final String v3 = "value3";
-    final byte[] k1b = k1.getBytes();
-    final byte[] v1b = v1.getBytes();
-    final byte[] k2b = k2.getBytes();
-    final byte[] v2b = v2.getBytes();
-    final byte[] k3b = k3.getBytes();
-    final byte[] v3b = v3.getBytes();
+      final String k1 = "key1";
+      final String v1 = "value1";
+      final String k2 = "key2";
+      final String v2 = "value2";
+      final String k3 = "key3";
+      final String v3 = "value3";
+      final byte[] k1b = k1.getBytes();
+      final byte[] v1b = v1.getBytes();
+      final byte[] k2b = k2.getBytes();
+      final byte[] v2b = v2.getBytes();
+      final byte[] k3b = k3.getBytes();
+      final byte[] v3b = v3.getBytes();
 
-    //add put records
-    wbwi.put(k1b, v1b);
-    wbwi.put(k2b, v2b);
-    wbwi.put(k3b, v3b);
+      //add put records
+      wbwi.put(k1b, v1b);
+      wbwi.put(k2b, v2b);
+      wbwi.put(k3b, v3b);
 
-    //add a deletion record
-    final String k4 = "key4";
-    final byte[] k4b = k4.getBytes();
-    wbwi.remove(k4b);
+      //add a deletion record
+      final String k4 = "key4";
+      final byte[] k4b = k4.getBytes();
+      wbwi.remove(k4b);
 
-    WBWIRocksIterator.WriteEntry[] expected = {
-        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
-            new DirectSlice(k1), new DirectSlice(v1)),
-        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
-            new DirectSlice(k2), new DirectSlice(v2)),
-        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
-            new DirectSlice(k3), new DirectSlice(v3)),
-        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.DELETE,
-            new DirectSlice(k4), DirectSlice.NONE)
-    };
+      final WBWIRocksIterator.WriteEntry[] expected = {
+          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
+              new DirectSlice(k1), new DirectSlice(v1)),
+          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
+              new DirectSlice(k2), new DirectSlice(v2)),
+          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
+              new DirectSlice(k3), new DirectSlice(v3)),
+          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.DELETE,
+              new DirectSlice(k4), DirectSlice.NONE)
+      };
 
-    WBWIRocksIterator it = null;
-    try {
-      it = wbwi.newIterator();
+      try (final WBWIRocksIterator it = wbwi.newIterator()) {
+        //direct access - seek to key offsets
+        final int[] testOffsets = {2, 0, 1, 3};
 
-      //direct access - seek to key offsets
-      final int[] testOffsets = {2, 0, 1, 3};
+        for (int i = 0; i < testOffsets.length; i++) {
+          final int testOffset = testOffsets[i];
+          final byte[] key = toArray(expected[testOffset].getKey().data());
 
-      for(int i = 0; i < testOffsets.length; i++) {
-        final int testOffset = testOffsets[i];
-        final byte[] key = toArray(expected[testOffset].getKey().data());
+          it.seek(key);
+          assertThat(it.isValid()).isTrue();
 
-        it.seek(key);
-        assertThat(it.isValid()).isTrue();
-        assertThat(it.entry().equals(expected[testOffset])).isTrue();
-      }
+          final WBWIRocksIterator.WriteEntry entry = it.entry();
+          assertThat(entry.equals(expected[testOffset])).isTrue();
+        }
 
-      //forward iterative access
-      int i = 0;
-      for(it.seekToFirst(); it.isValid(); it.next()) {
-        assertThat(it.entry().equals(expected[i++])).isTrue();
-      }
+        //forward iterative access
+        int i = 0;
+        for (it.seekToFirst(); it.isValid(); it.next()) {
+          assertThat(it.entry().equals(expected[i++])).isTrue();
+        }
 
-      //reverse iterative access
-      i = expected.length - 1;
-      for(it.seekToLast(); it.isValid(); it.prev()) {
-        assertThat(it.entry().equals(expected[i--])).isTrue();
-      }
-
-    } finally {
-      if(it != null) {
-        it.dispose();
+        //reverse iterative access
+        i = expected.length - 1;
+        for (it.seekToLast(); it.isValid(); it.prev()) {
+          assertThat(it.entry().equals(expected[i--])).isTrue();
+        }
       }
     }
   }
 
   @Test
   public void zeroByteTests() {
-    final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
-    byte[] zeroByteValue = new byte[] { 0, 0 };
+    try (final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true)) {
+      final byte[] zeroByteValue = new byte[]{0, 0};
+      //add zero byte value
+      wbwi.put(zeroByteValue, zeroByteValue);
 
-    //add zero byte value
-    wbwi.put(zeroByteValue, zeroByteValue);
+      final ByteBuffer buffer = ByteBuffer.allocateDirect(zeroByteValue.length);
+      buffer.put(zeroByteValue);
 
-    ByteBuffer buffer = ByteBuffer.allocateDirect(zeroByteValue.length);
-    buffer.put(zeroByteValue);
+      WBWIRocksIterator.WriteEntry[] expected = {
+          new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
+              new DirectSlice(buffer, zeroByteValue.length),
+              new DirectSlice(buffer, zeroByteValue.length))
+      };
 
-    WBWIRocksIterator.WriteEntry[] expected = {
-        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
-            new DirectSlice(buffer, zeroByteValue.length),
-            new DirectSlice(buffer, zeroByteValue.length))
-    };
-    WBWIRocksIterator it = null;
-    try {
-      it = wbwi.newIterator();
-      it.seekToFirst();
-      assertThat(it.entry().equals(expected[0])).isTrue();
-      assertThat(it.entry().hashCode() == expected[0].hashCode()).isTrue();
-    } finally {
-      if(it != null) {
-        it.dispose();
+      try (final WBWIRocksIterator it = wbwi.newIterator()) {
+        it.seekToFirst();
+        assertThat(it.entry().equals(expected[0])).isTrue();
+        assertThat(it.entry().hashCode() == expected[0].hashCode()).isTrue();
       }
     }
   }

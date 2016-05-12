@@ -1,6 +1,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -40,10 +40,11 @@ class MockTableReader : public TableReader {
  public:
   explicit MockTableReader(const stl_wrappers::KVMap& table) : table_(table) {}
 
-  InternalIterator* NewIterator(const ReadOptions&, Arena* arena) override;
+  InternalIterator* NewIterator(const ReadOptions&, Arena* arena,
+                                bool skip_filters = false) override;
 
-  Status Get(const ReadOptions&, const Slice& key,
-             GetContext* get_context) override;
+  Status Get(const ReadOptions&, const Slice& key, GetContext* get_context,
+             bool skip_filters = false) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key) override { return 0; }
 

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -344,6 +344,50 @@ TEST_F(DBTest, CheckpointCF) {
   delete snapshotDB;
   snapshotDB = nullptr;
   ASSERT_OK(DestroyDB(snapshot_name, options));
+}
+
+TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing) {
+  const std::string kSnapshotName = test::TmpDir(env_) + "/snapshot";
+  ASSERT_OK(DestroyDB(kSnapshotName, CurrentOptions()));
+  env_->DeleteDir(kSnapshotName);
+
+  Options options = CurrentOptions();
+  options.max_manifest_file_size = 0;  // always rollover manifest for file add
+  Reopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {// Get past the flush in the checkpoint thread before adding any keys to
+       // the db so the checkpoint thread won't hit the WriteManifest
+       // syncpoints.
+       {"DBImpl::GetLiveFiles:1",
+        "DBTest::CurrentFileModifiedWhileCheckpointing:PrePut"},
+       // Roll the manifest during checkpointing right after live files are
+       // snapshotted.
+       {"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
+        "VersionSet::LogAndApply:WriteManifest"},
+       {"VersionSet::LogAndApply:WriteManifestDone",
+        "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread t([&]() {
+    Checkpoint* checkpoint;
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(checkpoint->CreateCheckpoint(kSnapshotName));
+    delete checkpoint;
+  });
+  TEST_SYNC_POINT("DBTest::CurrentFileModifiedWhileCheckpointing:PrePut");
+  ASSERT_OK(Put("Default", "Default1"));
+  ASSERT_OK(Flush());
+  t.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  DB* snapshotDB;
+  // Successful Open() implies that CURRENT pointed to the manifest in the
+  // checkpoint.
+  ASSERT_OK(DB::Open(options, kSnapshotName, &snapshotDB));
+  delete snapshotDB;
+  snapshotDB = nullptr;
 }
 
 }  // namespace rocksdb

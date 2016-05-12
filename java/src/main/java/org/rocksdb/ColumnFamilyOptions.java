@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -13,8 +13,8 @@ import java.util.Properties;
  * ColumnFamilyOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
  *
- * If {@link #dispose()} function is not called, then it will be GC'd automatically
- * and native resources will be released as part of the process.
+ * If {@link #dispose()} function is not called, then it will be GC'd
+ * automatically and native resources will be released as part of the process.
  */
 public class ColumnFamilyOptions extends RocksObject
     implements ColumnFamilyOptionsInterface {
@@ -29,8 +29,7 @@ public class ColumnFamilyOptions extends RocksObject
    * an {@code rocksdb::DBOptions} in the c++ side.
    */
   public ColumnFamilyOptions() {
-    super();
-    newColumnFamilyOptions();
+    super(newColumnFamilyOptions());
   }
 
   /**
@@ -113,8 +112,9 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setComparator(final BuiltinComparator builtinComparator) {
-    assert(isInitialized());
+  public ColumnFamilyOptions setComparator(
+      final BuiltinComparator builtinComparator) {
+    assert(isOwningHandle());
     setComparatorHandle(nativeHandle_, builtinComparator.ordinal());
     return this;
   }
@@ -122,15 +122,15 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
-    assert (isInitialized());
-    setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
+    assert (isOwningHandle());
+    setComparatorHandle(nativeHandle_, comparator.getNativeHandle());
     comparator_ = comparator;
     return this;
   }
 
   @Override
   public ColumnFamilyOptions setMergeOperatorName(final String name) {
-    assert (isInitialized());
+    assert (isOwningHandle());
     if (name == null) {
       throw new IllegalArgumentException(
           "Merge operator name must not be null.");
@@ -140,13 +140,15 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMergeOperator(final MergeOperator mergeOperator) {
+  public ColumnFamilyOptions setMergeOperator(
+      final MergeOperator mergeOperator) {
     setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
     return this;
   }
 
   public ColumnFamilyOptions setCompactionFilter(
-        final AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter) {
+        final AbstractCompactionFilter<? extends AbstractSlice<?>>
+            compactionFilter) {
     setCompactionFilterHandle(nativeHandle_, compactionFilter.nativeHandle_);
     compactionFilter_ = compactionFilter;
     return this;
@@ -154,28 +156,28 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
     return this;
   }
 
   @Override
   public long writeBufferSize()  {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return writeBufferSize(nativeHandle_);
   }
 
   @Override
   public ColumnFamilyOptions setMaxWriteBufferNumber(
       final int maxWriteBufferNumber) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxWriteBufferNumber(nativeHandle_, maxWriteBufferNumber);
     return this;
   }
 
   @Override
   public int maxWriteBufferNumber() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return maxWriteBufferNumber(nativeHandle_);
   }
 
@@ -193,20 +195,21 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions useFixedLengthPrefixExtractor(final int n) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     useFixedLengthPrefixExtractor(nativeHandle_, n);
     return this;
   }
 
   @Override
   public ColumnFamilyOptions useCappedPrefixExtractor(final int n) {
-    assert(isInitialized());
+    assert(isOwningHandle());
     useCappedPrefixExtractor(nativeHandle_, n);
     return this;
   }
 
   @Override
-  public ColumnFamilyOptions setCompressionType(final CompressionType compressionType) {
+  public ColumnFamilyOptions setCompressionType(
+      final CompressionType compressionType) {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
   }
@@ -219,10 +222,10 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setCompressionPerLevel(
       final List<CompressionType> compressionLevels) {
-    final List<Byte> byteCompressionTypes = new ArrayList<>(
-        compressionLevels.size());
-    for (final CompressionType compressionLevel : compressionLevels) {
-      byteCompressionTypes.add(compressionLevel.getValue());
+    final byte[] byteCompressionTypes = new byte[
+        compressionLevels.size()];
+    for (int i = 0; i < compressionLevels.size(); i++) {
+      byteCompressionTypes[i] = compressionLevels.get(i).getValue();
     }
     setCompressionPerLevel(nativeHandle_, byteCompressionTypes);
     return this;
@@ -230,7 +233,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public List<CompressionType> compressionPerLevel() {
-    final List<Byte> byteCompressionTypes =
+    final byte[] byteCompressionTypes =
         compressionPerLevel(nativeHandle_);
     final List<CompressionType> compressionLevels = new ArrayList<>();
     for (final Byte byteCompressionType : byteCompressionTypes) {
@@ -485,7 +488,7 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions setMaxTableFilesSizeFIFO(
       final long maxTableFilesSize) {
     assert(maxTableFilesSize > 0); // unsigned native type
-    assert(isInitialized());
+    assert(isOwningHandle());
     setMaxTableFilesSizeFIFO(nativeHandle_, maxTableFilesSize);
     return this;
   }
@@ -523,7 +526,8 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setMaxSequentialSkipInIterations(
       final long maxSequentialSkipInIterations) {
-    setMaxSequentialSkipInIterations(nativeHandle_, maxSequentialSkipInIterations);
+    setMaxSequentialSkipInIterations(nativeHandle_,
+        maxSequentialSkipInIterations);
     return this;
   }
 
@@ -542,7 +546,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public String memTableFactoryName() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return memTableFactoryName(nativeHandle_);
   }
 
@@ -556,7 +560,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public String tableFactoryName() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return tableFactoryName(nativeHandle_);
   }
 
@@ -656,30 +660,20 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
-   * Release the memory allocated for the current instance
-   * in the c++ side.
-   */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
-
-  /**
    * <p>Private constructor to be used by
    * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
    *
    * @param handle native handle to ColumnFamilyOptions instance.
    */
   private ColumnFamilyOptions(final long handle) {
-    super();
-    nativeHandle_ = handle;
+    super(handle);
   }
 
   private static native long getColumnFamilyOptionsFromProps(
       String optString);
 
-  private native void newColumnFamilyOptions();
-  private native void disposeInternal(long handle);
+  private static native long newColumnFamilyOptions();
+  @Override protected final native void disposeInternal(final long handle);
 
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);
@@ -688,12 +682,12 @@ public class ColumnFamilyOptions extends RocksObject
   private native void optimizeUniversalStyleCompaction(long handle,
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
-  private native void setComparatorHandle(long optHandle, long comparatorHandle);
-  private native void setMergeOperatorName(
-      long handle, String name);
-  private native void setMergeOperator(
-      long handle, long mergeOperatorHandle);
-  private native void setCompactionFilterHandle(long handle, long compactionFilterHandle);
+  private native void setComparatorHandle(long optHandle,
+      long comparatorHandle);
+  private native void setMergeOperatorName(long handle, String name);
+  private native void setMergeOperator(long handle, long mergeOperatorHandle);
+  private native void setCompactionFilterHandle(long handle,
+      long compactionFilterHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
       throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
@@ -706,8 +700,8 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setCompressionType(long handle, byte compressionType);
   private native byte compressionType(long handle);
   private native void setCompressionPerLevel(long handle,
-      List<Byte> compressionLevels);
-  private native List<Byte> compressionPerLevel(long handle);
+      byte[] compressionLevels);
+  private native byte[] compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void useCappedPrefixExtractor(

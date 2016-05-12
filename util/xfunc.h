@@ -1,4 +1,4 @@
-//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -6,6 +6,8 @@
 
 #include <cstdlib>
 #include <string>
+
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
@@ -31,25 +33,12 @@ namespace rocksdb {
 #define XFUNC_TEST(condition, location, lfname, fname, ...)
 #else
 
-struct Options;
-struct WriteOptions;
-class ManagedIterator;
-class DBImpl;
 void GetXFTestOptions(Options* options, int skip_policy);
-void xf_manage_release(ManagedIterator* iter);
-void xf_manage_new(DBImpl* db, ReadOptions* readoptions,
-                   bool is_snapshot_supported);
-void xf_manage_create(ManagedIterator* iter);
 void xf_manage_options(ReadOptions* read_options);
 void xf_transaction_set_memtable_history(
     int32_t* max_write_buffer_number_to_maintain);
 void xf_transaction_clear_memtable_history(
     int32_t* max_write_buffer_number_to_maintain);
-void xf_transaction_write(const WriteOptions& write_options,
-                          const DBOptions& db_options,
-                          class WriteBatch* my_batch,
-                          class WriteCallback* callback, DBImpl* db_impl,
-                          Status* success, bool* write_attempted);
 
 // This class provides the facility to run custom code to test a specific
 // feature typically with all existing unit tests.

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -24,8 +24,8 @@
 namespace rocksdb {
 
 BlockBasedTableFactory::BlockBasedTableFactory(
-    const BlockBasedTableOptions& table_options)
-    : table_options_(table_options) {
+    const BlockBasedTableOptions& _table_options)
+    : table_options_(_table_options) {
   if (table_options_.flush_block_policy_factory == nullptr) {
     table_options_.flush_block_policy_factory.reset(
         new FlushBlockBySizePolicyFactory());
@@ -38,6 +38,12 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   if (table_options_.block_size_deviation < 0 ||
       table_options_.block_size_deviation > 100) {
     table_options_.block_size_deviation = 0;
+  }
+  if (table_options_.block_restart_interval < 1) {
+    table_options_.block_restart_interval = 1;
+  }
+  if (table_options_.index_block_restart_interval < 1) {
+    table_options_.index_block_restart_interval = 1;
   }
 }
 
@@ -57,7 +63,8 @@ Status BlockBasedTableFactory::NewTableReader(
   return BlockBasedTable::Open(
       table_reader_options.ioptions, table_reader_options.env_options,
       table_options_, table_reader_options.internal_comparator, std::move(file),
-      file_size, table_reader, prefetch_enabled);
+      file_size, table_reader, prefetch_enabled,
+      table_reader_options.skip_filters, table_reader_options.level);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
@@ -69,7 +76,9 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
       table_builder_options.int_tbl_prop_collector_factories, column_family_id,
       file, table_builder_options.compression_type,
       table_builder_options.compression_opts,
-      table_builder_options.skip_filters);
+      table_builder_options.compression_dict,
+      table_builder_options.skip_filters,
+      table_builder_options.column_family_name);
 
   return table_builder;
 }
@@ -85,6 +94,12 @@ Status BlockBasedTableFactory::SanitizeOptions(
   if (table_options_.cache_index_and_filter_blocks &&
       table_options_.no_block_cache) {
     return Status::InvalidArgument("Enable cache_index_and_filter_blocks, "
+        ", but block cache is disabled");
+  }
+  if (table_options_.pin_l0_filter_and_index_blocks_in_cache &&
+      table_options_.no_block_cache) {
+    return Status::InvalidArgument(
+        "Enable pin_l0_filter_and_index_blocks_in_cache, "
         ", but block cache is disabled");
   }
   if (!BlockBasedTableSupportedVersion(table_options_.format_version)) {
@@ -103,10 +118,14 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
 
   snprintf(buffer, kBufferSize, "  flush_block_policy_factory: %s (%p)\n",
            table_options_.flush_block_policy_factory->Name(),
-           table_options_.flush_block_policy_factory.get());
+           static_cast<void*>(table_options_.flush_block_policy_factory.get()));
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  cache_index_and_filter_blocks: %d\n",
            table_options_.cache_index_and_filter_blocks);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
+           "  pin_l0_filter_and_index_blocks_in_cache: %d\n",
+           table_options_.pin_l0_filter_and_index_blocks_in_cache);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_type: %d\n",
            table_options_.index_type);
@@ -121,7 +140,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            table_options_.no_block_cache);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_cache: %p\n",
-           table_options_.block_cache.get());
+           static_cast<void*>(table_options_.block_cache.get()));
   ret.append(buffer);
   if (table_options_.block_cache) {
     snprintf(buffer, kBufferSize, "  block_cache_size: %" ROCKSDB_PRIszt "\n",
@@ -129,7 +148,7 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
     ret.append(buffer);
   }
   snprintf(buffer, kBufferSize, "  block_cache_compressed: %p\n",
-           table_options_.block_cache_compressed.get());
+           static_cast<void*>(table_options_.block_cache_compressed.get()));
   ret.append(buffer);
   if (table_options_.block_cache_compressed) {
     snprintf(buffer, kBufferSize,
@@ -145,6 +164,9 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  block_restart_interval: %d\n",
            table_options_.block_restart_interval);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  index_block_restart_interval: %d\n",
+           table_options_.index_block_restart_interval);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  filter_policy: %s\n",
            table_options_.filter_policy == nullptr ?
@@ -162,13 +184,13 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   return ret;
 }
 
-const BlockBasedTableOptions& BlockBasedTableFactory::GetTableOptions() const {
+const BlockBasedTableOptions& BlockBasedTableFactory::table_options() const {
   return table_options_;
 }
 
 TableFactory* NewBlockBasedTableFactory(
-    const BlockBasedTableOptions& table_options) {
-  return new BlockBasedTableFactory(table_options);
+    const BlockBasedTableOptions& _table_options) {
+  return new BlockBasedTableFactory(_table_options);
 }
 
 const std::string BlockBasedTablePropertyNames::kIndexType =

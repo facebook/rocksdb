@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -162,7 +162,7 @@ class WritableFileWriter {
   Status WriteUnbuffered();
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
-  Status RangeSync(off_t offset, off_t nbytes);
+  Status RangeSync(uint64_t offset, uint64_t nbytes);
   size_t RequestToken(size_t bytes, bool align);
   Status SyncInternal(bool use_fsync);
 };

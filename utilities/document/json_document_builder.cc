@@ -1,9 +1,12 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #ifndef ROCKSDB_LITE
+#include <assert.h>
+#include <limits>
+#include <stdint.h>
 #include "rocksdb/utilities/json_document.h"
 #include "third-party/fbson/FbsonWriter.h"
 
@@ -38,7 +41,9 @@ bool JSONDocumentBuilder::WriteEndObject() {
 
 bool JSONDocumentBuilder::WriteKeyValue(const std::string& key,
                                         const JSONDocument& value) {
-  size_t bytesWritten = writer_->writeKey(key.c_str(), key.size());
+  assert(key.size() <= std::numeric_limits<uint8_t>::max());
+  size_t bytesWritten = writer_->writeKey(key.c_str(),
+    static_cast<uint8_t>(key.size()));
   if (bytesWritten == 0) {
     return false;
   }

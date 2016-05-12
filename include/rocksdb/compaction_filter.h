@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -93,10 +93,26 @@ class CompactionFilter {
   // The compaction process invokes this method on every merge operand. If this
   // method returns true, the merge operand will be ignored and not written out
   // in the compaction output
+  //
+  // Note: If you are using a TransactionDB, it is not recommended to implement
+  // FilterMergeOperand().  If a Merge operation is filtered out, TransactionDB
+  // may not realize there is a write conflict and may allow a Transaction to
+  // Commit that should have failed.  Instead, it is better to implement any
+  // Merge filtering inside the MergeOperator.
   virtual bool FilterMergeOperand(int level, const Slice& key,
                                   const Slice& operand) const {
     return false;
   }
+
+  // By default, compaction will only call Filter() on keys written after the
+  // most recent call to GetSnapshot(). However, if the compaction filter
+  // overrides IgnoreSnapshots to make it return false, the compaction filter
+  // will be called even if the keys were written before the last snapshot.
+  // This behavior is to be used only when we want to delete a set of keys
+  // irrespective of snapshots. In particular, care should be taken
+  // to understand that the values of thesekeys will change even if we are
+  // using a snapshot.
+  virtual bool IgnoreSnapshots() const { return false; }
 
   // Returns a name that identifies this compaction filter.
   // The name will be printed to LOG file on start up for diagnosis.

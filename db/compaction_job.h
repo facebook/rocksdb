@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -56,8 +56,10 @@ class CompactionJob {
                 const EnvOptions& env_options, VersionSet* versions,
                 std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
                 Directory* db_directory, Directory* output_directory,
-                Statistics* stats,
+                Statistics* stats, InstrumentedMutex* db_mutex,
+                Status* db_bg_error,
                 std::vector<SequenceNumber> existing_snapshots,
+                SequenceNumber earliest_write_conflict_snapshot,
                 std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
                 bool paranoid_file_checks, bool measure_io_stats,
                 const std::string& dbname,
@@ -76,8 +78,7 @@ class CompactionJob {
   Status Run();
 
   // REQUIRED: mutex held
-  Status Install(const MutableCFOptions& mutable_cf_options,
-                 InstrumentedMutex* db_mutex);
+  Status Install(const MutableCFOptions& mutable_cf_options);
 
  private:
   struct SubcompactionState;
@@ -94,8 +95,7 @@ class CompactionJob {
 
   Status FinishCompactionOutputFile(const Status& input_status,
                                     SubcompactionState* sub_compact);
-  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
-                                  InstrumentedMutex* db_mutex);
+  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);
   void RecordCompactionIOStats();
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact);
   void CleanupCompaction();
@@ -129,11 +129,19 @@ class CompactionJob {
   Directory* db_directory_;
   Directory* output_directory_;
   Statistics* stats_;
+  InstrumentedMutex* db_mutex_;
+  Status* db_bg_error_;
   // If there were two snapshots with seq numbers s1 and
   // s2 and s1 < s2, and if we find two instances of a key k1 then lies
   // entirely within s1 and s2, then the earlier version of k1 can be safely
   // deleted because that version is not visible in any snapshot.
   std::vector<SequenceNumber> existing_snapshots_;
+
+  // This is the earliest snapshot that could be used for write-conflict
+  // checking by a transaction.  For any user-key newer than this snapshot, we
+  // should make sure not to remove evidence that a write occurred.
+  SequenceNumber earliest_write_conflict_snapshot_;
+
   std::shared_ptr<Cache> table_cache_;
 
   EventLogger* event_logger_;

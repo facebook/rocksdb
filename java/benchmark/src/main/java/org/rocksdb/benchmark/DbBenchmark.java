@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -21,10 +21,14 @@
  */
 package org.rocksdb.benchmark;
 
+import java.io.IOException;
 import java.lang.Runnable;
 import java.lang.Math;
 import java.io.File;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.util.Collection;
 import java.util.Date;
 import java.util.EnumMap;
@@ -601,6 +605,11 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_successive_merges));
     options.setWalTtlSeconds((Long)flags_.get(Flag.wal_ttl_seconds));
     options.setWalSizeLimitMB((Long)flags_.get(Flag.wal_size_limit_MB));
+    if(flags_.get(Flag.java_comparator) != null) {
+      options.setComparator(
+          (AbstractComparator)flags_.get(Flag.java_comparator));
+    }
+
     /* TODO(yhchiang): enable the following parameters
     options.setCompressionType((String)flags_.get(Flag.compression_type));
     options.setCompressionLevel((Integer)flags_.get(Flag.compression_level));
@@ -774,6 +783,7 @@ public class DbBenchmark {
   }
 
   private void open(Options options) throws RocksDBException {
+    System.out.println("Using database directory: " + databaseDir_);
     db_ = RocksDB.open(options, databaseDir_);
   }
 
@@ -1475,7 +1485,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    db("/tmp/rocksdbjni-bench",
+    db(getTempDir("rocksdb-jni"),
        "Use the db with the following name.") {
       @Override public Object parseValue(String value) {
         return value;
@@ -1485,6 +1495,31 @@ public class DbBenchmark {
         "environment.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
+      }
+    },
+    java_comparator(null, "Class name of a Java Comparator to use instead\n" +
+        "\tof the default C++ ByteWiseComparatorImpl. Must be available on\n" +
+        "\tthe classpath") {
+      @Override
+      protected Object parseValue(final String value) {
+        try {
+          final ComparatorOptions copt = new ComparatorOptions();
+          final Class<AbstractComparator> clsComparator =
+              (Class<AbstractComparator>)Class.forName(value);
+          final Constructor cstr =
+              clsComparator.getConstructor(ComparatorOptions.class);
+          return cstr.newInstance(copt);
+        } catch(final ClassNotFoundException cnfe) {
+          throw new IllegalArgumentException("Java Comparator '" + value + "'" +
+              " not found on the classpath", cnfe);
+        } catch(final NoSuchMethodException nsme) {
+          throw new IllegalArgumentException("Java Comparator '" + value + "'" +
+              " does not have a public ComparatorOptions constructor", nsme);
+        } catch(final IllegalAccessException | InstantiationException
+            | InvocationTargetException ie) {
+          throw new IllegalArgumentException("Unable to construct Java" +
+              " Comparator '" + value + "'", ie);
+        }
       }
     };
 
@@ -1514,6 +1549,18 @@ public class DbBenchmark {
 
     private final Object defaultValue_;
     private final String desc_;
+  }
+
+  private final static String DEFAULT_TEMP_DIR = "/tmp";
+
+  private static String getTempDir(final String dirName) {
+    try {
+      return Files.createTempDirectory(dirName).toAbsolutePath().toString();
+    } catch(final IOException ioe) {
+      System.err.println("Unable to create temp directory, defaulting to: " +
+          DEFAULT_TEMP_DIR);
+      return DEFAULT_TEMP_DIR + File.pathSeparator + dirName;
+    }
   }
 
   private static class RandomGenerator {

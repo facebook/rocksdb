@@ -65,6 +65,7 @@ You can contact the author at :
 // Disable some Visual warning messages
 #ifdef _MSC_VER  // Visual Studio
 #  pragma warning(disable : 4127)      // disable: C4127: conditional expression is constant
+#  pragma warning(disable : 4804)      // disable: C4804: 'operation' : unsafe use of type 'bool' in operation (static assert line 313)
 #endif
 
 #ifdef _MSC_VER    // Visual Studio

@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -17,6 +17,7 @@
 #include "rocksdb/db.h"
 #include "util/options_helper.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 
 #include "port/port.h"
 
@@ -34,6 +35,7 @@ Status PersistRocksDBOptions(const DBOptions& db_opt,
                              const std::vector<std::string>& cf_names,
                              const std::vector<ColumnFamilyOptions>& cf_opts,
                              const std::string& file_name, Env* env) {
+  TEST_SYNC_POINT("PersistRocksDBOptions:start");
   if (cf_names.size() != cf_opts.size()) {
     return Status::InvalidArgument(
         "cf_names.size() and cf_opts.size() must be the same");
@@ -508,6 +510,7 @@ bool AreEqualOptions(
     const std::unordered_map<std::string, std::string>* opt_map) {
   const char* offset1 = opt1 + type_info.offset;
   const char* offset2 = opt2 + type_info.offset;
+  static const std::string kNullptrString = "nullptr";
   switch (type_info.type) {
     case OptionType::kBoolean:
       return (*reinterpret_cast<const bool*>(offset1) ==
@@ -554,8 +557,18 @@ bool AreEqualOptions(
           *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(
               offset1) ==
           *reinterpret_cast<const BlockBasedTableOptions::IndexType*>(offset2));
+    case OptionType::kWALRecoveryMode:
+      return (*reinterpret_cast<const WALRecoveryMode*>(offset1) ==
+              *reinterpret_cast<const WALRecoveryMode*>(offset2));
+    case OptionType::kAccessHint:
+      return (*reinterpret_cast<const DBOptions::AccessHint*>(offset1) ==
+              *reinterpret_cast<const DBOptions::AccessHint*>(offset2));
+    case OptionType::kInfoLogLevel:
+      return (*reinterpret_cast<const InfoLogLevel*>(offset1) ==
+              *reinterpret_cast<const InfoLogLevel*>(offset2));
     default:
-      if (type_info.verification == OptionVerificationType::kByName) {
+      if (type_info.verification == OptionVerificationType::kByName ||
+          type_info.verification == OptionVerificationType::kByNameAllowNull) {
         std::string value1;
         bool result =
             SerializeSingleOptionHelper(offset1, type_info.type, &value1);
@@ -569,6 +582,12 @@ bool AreEqualOptions(
         if (iter == opt_map->end()) {
           return true;
         } else {
+          if (type_info.verification ==
+              OptionVerificationType::kByNameAllowNull) {
+            if (iter->second == kNullptrString || value1 == kNullptrString) {
+              return true;
+            }
+          }
           return (value1 == iter->second);
         }
       }
@@ -581,7 +600,8 @@ bool AreEqualOptions(
 Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
     const DBOptions& db_opt, const std::vector<std::string>& cf_names,
     const std::vector<ColumnFamilyOptions>& cf_opts,
-    const std::string& file_name, Env* env) {
+    const std::string& file_name, Env* env,
+    OptionsSanityCheckLevel sanity_check_level) {
   RocksDBOptionsParser parser;
   std::unique_ptr<SequentialFile> seq_file;
   Status s = parser.Parse(file_name, env);
@@ -590,20 +610,28 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
   }
 
   // Verify DBOptions
-  s = VerifyDBOptions(db_opt, *parser.db_opt(), parser.db_opt_map());
+  s = VerifyDBOptions(db_opt, *parser.db_opt(), parser.db_opt_map(),
+                      sanity_check_level);
   if (!s.ok()) {
     return s;
   }
 
   // Verify ColumnFamily Name
   if (cf_names.size() != parser.cf_names()->size()) {
-    return Status::Corruption(
-        "[RocksDBOptionParser Error] The persisted options does not have"
-        "the same number of column family names as the db instance.");
+    if (sanity_check_level >= kSanityLevelLooselyCompatible) {
+      return Status::InvalidArgument(
+          "[RocksDBOptionParser Error] The persisted options does not have "
+          "the same number of column family names as the db instance.");
+    } else if (cf_opts.size() > parser.cf_opts()->size()) {
+      return Status::InvalidArgument(
+          "[RocksDBOptionsParser Error]",
+          "The persisted options file has less number of column family "
+          "names than that of the specified one.");
+    }
   }
   for (size_t i = 0; i < cf_names.size(); ++i) {
     if (cf_names[i] != parser.cf_names()->at(i)) {
-      return Status::Corruption(
+      return Status::InvalidArgument(
           "[RocksDBOptionParser Error] The persisted options and the db"
           "instance does not have the same name for column family ",
           ToString(i));
@@ -612,18 +640,27 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 
   // Verify Column Family Options
   if (cf_opts.size() != parser.cf_opts()->size()) {
-    return Status::Corruption(
-        "[RocksDBOptionParser Error] The persisted options does not have"
-        "the same number of column families as the db instance.");
+    if (sanity_check_level >= kSanityLevelLooselyCompatible) {
+      return Status::InvalidArgument(
+          "[RocksDBOptionsParser Error]",
+          "The persisted options does not have the same number of "
+          "column families as the db instance.");
+    } else if (cf_opts.size() > parser.cf_opts()->size()) {
+      return Status::InvalidArgument(
+          "[RocksDBOptionsParser Error]",
+          "The persisted options file has less number of column families "
+          "than that of the specified number.");
+    }
   }
   for (size_t i = 0; i < cf_opts.size(); ++i) {
     s = VerifyCFOptions(cf_opts[i], parser.cf_opts()->at(i),
-                        &(parser.cf_opt_maps()->at(i)));
+                        &(parser.cf_opt_maps()->at(i)), sanity_check_level);
     if (!s.ok()) {
       return s;
     }
     s = VerifyTableFactory(cf_opts[i].table_factory.get(),
-                           parser.cf_opts()->at(i).table_factory.get());
+                           parser.cf_opts()->at(i).table_factory.get(),
+                           sanity_check_level);
     if (!s.ok()) {
       return s;
     }
@@ -633,42 +670,75 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 }
 
 Status RocksDBOptionsParser::VerifyDBOptions(
-    const DBOptions& base_opt, const DBOptions& new_opt,
-    const std::unordered_map<std::string, std::string>* opt_map) {
+    const DBOptions& base_opt, const DBOptions& persisted_opt,
+    const std::unordered_map<std::string, std::string>* opt_map,
+    OptionsSanityCheckLevel sanity_check_level) {
   for (auto pair : db_options_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
       continue;
     }
-    if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                         reinterpret_cast<const char*>(&new_opt), pair.second,
-                         pair.first, nullptr)) {
-      return Status::Corruption(
-          "[RocksDBOptionsParser]: "
-          "failed the verification on DBOptions::",
-          pair.first);
+    if (DBOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
+      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
+                           reinterpret_cast<const char*>(&persisted_opt),
+                           pair.second, pair.first, nullptr)) {
+        const size_t kBufferSize = 2048;
+        char buffer[kBufferSize];
+        std::string base_value;
+        std::string persisted_value;
+        SerializeSingleOptionHelper(
+            reinterpret_cast<const char*>(&base_opt) + pair.second.offset,
+            pair.second.type, &base_value);
+        SerializeSingleOptionHelper(
+            reinterpret_cast<const char*>(&persisted_opt) + pair.second.offset,
+            pair.second.type, &persisted_value);
+        snprintf(buffer, sizeof(buffer),
+                 "[RocksDBOptionsParser]: "
+                 "failed the verification on DBOptions::%s --- "
+                 "The specified one is %s while the persisted one is %s.\n",
+                 pair.first.c_str(), base_value.c_str(),
+                 persisted_value.c_str());
+        return Status::InvalidArgument(Slice(buffer, strlen(buffer)));
+      }
     }
   }
   return Status::OK();
 }
 
 Status RocksDBOptionsParser::VerifyCFOptions(
-    const ColumnFamilyOptions& base_opt, const ColumnFamilyOptions& new_opt,
-    const std::unordered_map<std::string, std::string>* new_opt_map) {
+    const ColumnFamilyOptions& base_opt,
+    const ColumnFamilyOptions& persisted_opt,
+    const std::unordered_map<std::string, std::string>* persisted_opt_map,
+    OptionsSanityCheckLevel sanity_check_level) {
   for (auto& pair : cf_options_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {
       // We skip checking deprecated variables as they might
       // contain random values since they might not be initialized
       continue;
     }
-    if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                         reinterpret_cast<const char*>(&new_opt), pair.second,
-                         pair.first, new_opt_map)) {
-      return Status::Corruption(
-          "[RocksDBOptionsParser]: "
-          "failed the verification on ColumnFamilyOptions::",
-          pair.first);
+    if (CFOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
+      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
+                           reinterpret_cast<const char*>(&persisted_opt),
+                           pair.second, pair.first, persisted_opt_map)) {
+        const size_t kBufferSize = 2048;
+        char buffer[kBufferSize];
+        std::string base_value;
+        std::string persisted_value;
+        SerializeSingleOptionHelper(
+            reinterpret_cast<const char*>(&base_opt) + pair.second.offset,
+            pair.second.type, &base_value);
+        SerializeSingleOptionHelper(
+            reinterpret_cast<const char*>(&persisted_opt) + pair.second.offset,
+            pair.second.type, &persisted_value);
+        snprintf(buffer, sizeof(buffer),
+                 "[RocksDBOptionsParser]: "
+                 "failed the verification on ColumnFamilyOptions::%s --- "
+                 "The specified one is %s while the persisted one is %s.\n",
+                 pair.first.c_str(), base_value.c_str(),
+                 persisted_value.c_str());
+        return Status::InvalidArgument(Slice(buffer, sizeof(buffer)));
+      }
     }
   }
   return Status::OK();
@@ -676,8 +746,10 @@ Status RocksDBOptionsParser::VerifyCFOptions(
 
 Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
     const BlockBasedTableFactory* base_tf,
-    const BlockBasedTableFactory* file_tf) {
-  if ((base_tf != nullptr) != (file_tf != nullptr)) {
+    const BlockBasedTableFactory* file_tf,
+    OptionsSanityCheckLevel sanity_check_level) {
+  if ((base_tf != nullptr) != (file_tf != nullptr) &&
+      sanity_check_level > kSanityLevelNone) {
     return Status::Corruption(
         "[RocksDBOptionsParser]: Inconsistent TableFactory class type");
   }
@@ -685,8 +757,8 @@ Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
     return Status::OK();
   }
 
-  const auto& base_opt = base_tf->GetTableOptions();
-  const auto& file_opt = file_tf->GetTableOptions();
+  const auto& base_opt = base_tf->table_options();
+  const auto& file_opt = file_tf->table_options();
 
   for (auto& pair : block_based_table_type_info) {
     if (pair.second.verification == OptionVerificationType::kDeprecated) {
@@ -694,29 +766,34 @@ Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
       // contain random values since they might not be initialized
       continue;
     }
-    if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
-                         reinterpret_cast<const char*>(&file_opt), pair.second,
-                         pair.first, nullptr)) {
-      return Status::Corruption(
-          "[RocksDBOptionsParser]: "
-          "failed the verification on BlockBasedTableOptions::",
-          pair.first);
+    if (BBTOptionSanityCheckLevel(pair.first) <= sanity_check_level) {
+      if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
+                           reinterpret_cast<const char*>(&file_opt),
+                           pair.second, pair.first, nullptr)) {
+        return Status::Corruption(
+            "[RocksDBOptionsParser]: "
+            "failed the verification on BlockBasedTableOptions::",
+            pair.first);
+      }
     }
   }
   return Status::OK();
 }
 
-Status RocksDBOptionsParser::VerifyTableFactory(const TableFactory* base_tf,
-                                                const TableFactory* file_tf) {
+Status RocksDBOptionsParser::VerifyTableFactory(
+    const TableFactory* base_tf, const TableFactory* file_tf,
+    OptionsSanityCheckLevel sanity_check_level) {
   if (base_tf && file_tf) {
-    if (base_tf->Name() != file_tf->Name()) {
+    if (sanity_check_level > kSanityLevelNone &&
+        base_tf->Name() != file_tf->Name()) {
       return Status::Corruption(
           "[RocksDBOptionsParser]: "
           "failed the verification on TableFactory->Name()");
     }
     auto s = VerifyBlockBasedTableFactory(
         dynamic_cast<const BlockBasedTableFactory*>(base_tf),
-        dynamic_cast<const BlockBasedTableFactory*>(file_tf));
+        dynamic_cast<const BlockBasedTableFactory*>(file_tf),
+        sanity_check_level);
     if (!s.ok()) {
       return s;
     }

@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -30,7 +30,17 @@ class Status {
 
   // Copy the specified status.
   Status(const Status& s);
-  void operator=(const Status& s);
+  Status& operator=(const Status& s);
+  Status(Status&& s)
+#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
+    noexcept
+#endif
+  ;
+  Status& operator=(Status&& s)
+#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
+    noexcept
+#endif
+  ;
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
@@ -48,7 +58,7 @@ class Status {
     kAborted = 10,
     kBusy = 11,
     kExpired = 12,
-    kTryAgain = 13
+    kTryAgain = 13,
   };
 
   Code code() const { return code_; }
@@ -214,15 +224,41 @@ class Status {
 inline Status::Status(const Status& s) : code_(s.code_), subcode_(s.subcode_) {
   state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
 }
-inline void Status::operator=(const Status& s) {
+inline Status& Status::operator=(const Status& s) {
   // The following condition catches both aliasing (when this == &s),
   // and the common case where both s and *this are ok.
-  code_ = s.code_;
-  subcode_ = s.subcode_;
-  if (state_ != s.state_) {
+  if(this != &s) {
+    code_ = s.code_;
+    subcode_ = s.subcode_;
     delete[] state_;
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
   }
+  return *this;
+}
+
+inline Status::Status(Status&& s)
+#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
+noexcept
+#endif
+  : Status() {
+  *this = std::move(s);
+}
+
+inline Status& Status::operator=(Status&& s)
+#if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
+noexcept
+#endif
+{
+  if(this != &s) {
+    code_ = std::move(s.code_);
+    s.code_ = kOk;
+    subcode_ = std::move(s.subcode_);
+    s.subcode_ = kNone;
+    delete [] state_;
+    state_ = nullptr;
+    std::swap(state_, s.state_);
+  }
+  return *this;
 }
 
 inline bool Status::operator==(const Status& rhs) const {

@@ -43,8 +43,8 @@ done
 
 # v2.1 or older doesn't pass the debug build but OK with release build
 declare -a need_release_tags=("v1.5.7" "v2.1")
-declare -a tags=("v2.5" "v2.4" "v2.3" "v2.2" "v2.8" "v3.0" "v3.1" "v3.2" "v3.3" "v3.4" "rocksdb-3.5.1" "rocksdb-3.6.2" "rocksdb-3.7" "rocksdb-3.8" "rocksdb-3.9" "v3.10")
-declare -a forward_compatible_tags=("rocksdb-3.8" "rocksdb-3.9" "v3.10")
+declare -a tags=("v2.5" "v2.4" "v2.3" "v2.2" "v2.8" "v3.0" "v3.1" "v3.2" "v3.3" "v3.4" "rocksdb-3.5.1" "rocksdb-3.6.2" "rocksdb-3.7" "rocksdb-3.8" "rocksdb-3.9" "v3.10" "v3.11" "v3.12.1" "v3.13.1" "v4.0" "v4.1" "v4.2" "v4.3" "v4.3.1" "v4.4")
+declare -a forward_compatible_tags=("v3.10" "v3.11" "v3.12.1" "v3.13.1" "v4.0" "v4.1" "v4.2" "v4.3.1" "v4.4")
 
 generate_db()
 {

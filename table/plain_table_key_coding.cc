@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -164,47 +164,62 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key,
   return Status::OK();
 }
 
-inline bool PlainTableKeyDecoder::FileReader::Read(uint32_t file_offset,
-                                                   uint32_t len, Slice* out) {
-  if (file_info_->is_mmap_mode) {
-    assert(file_offset + len <= file_info_->data_end_offset);
-    *out = Slice(file_info_->file_data.data() + file_offset, len);
-    return true;
-  } else {
-    return ReadNonMmap(file_offset, len, out);
-  }
+Slice PlainTableFileReader::GetFromBuffer(Buffer* buffer, uint32_t file_offset,
+                                          uint32_t len) {
+  assert(file_offset + len <= file_info_->data_end_offset);
+  return Slice(buffer->buf.get() + (file_offset - buffer->buf_start_offset),
+               len);
 }
 
-bool PlainTableKeyDecoder::FileReader::ReadNonMmap(uint32_t file_offset,
-                                                   uint32_t len, Slice* out) {
+bool PlainTableFileReader::ReadNonMmap(uint32_t file_offset, uint32_t len,
+                                       Slice* out) {
   const uint32_t kPrefetchSize = 256u;
-  if (file_offset < buf_start_offset_ ||
-      file_offset + len > buf_start_offset_ + buf_len_) {
-    // Load buffer
-    assert(file_offset + len <= file_info_->data_end_offset);
-    uint32_t size_to_read = std::min(file_info_->data_end_offset - file_offset,
-                                     std::max(kPrefetchSize, len));
-    if (size_to_read > buf_capacity_) {
-      buf_.reset(new char[size_to_read]);
-      buf_capacity_ = size_to_read;
-      buf_len_ = 0;
+
+  // Try to read from buffers.
+  for (uint32_t i = 0; i < num_buf_; i++) {
+    Buffer* buffer = buffers_[num_buf_ - 1 - i].get();
+    if (file_offset >= buffer->buf_start_offset &&
+        file_offset + len <= buffer->buf_start_offset + buffer->buf_len) {
+      *out = GetFromBuffer(buffer, file_offset, len);
+      return true;
     }
-    Slice read_result;
-    Status s = file_info_->file->Read(file_offset, size_to_read, &read_result,
-                                      buf_.get());
-    if (!s.ok()) {
-      status_ = s;
-      return false;
-    }
-    buf_start_offset_ = file_offset;
-    buf_len_ = size_to_read;
   }
-  *out = Slice(buf_.get() + (file_offset - buf_start_offset_), len);
+
+  Buffer* new_buffer;
+  // Data needed is not in any of the buffer. Allocate a new buffer.
+  if (num_buf_ < buffers_.size()) {
+    // Add a new buffer
+    new_buffer = new Buffer();
+    buffers_[num_buf_++].reset(new_buffer);
+  } else {
+    // Now simply replace the last buffer. Can improve the placement policy
+    // if needed.
+    new_buffer = buffers_[num_buf_ - 1].get();
+  }
+
+  assert(file_offset + len <= file_info_->data_end_offset);
+  uint32_t size_to_read = std::min(file_info_->data_end_offset - file_offset,
+                                   std::max(kPrefetchSize, len));
+  if (size_to_read > new_buffer->buf_capacity) {
+    new_buffer->buf.reset(new char[size_to_read]);
+    new_buffer->buf_capacity = size_to_read;
+    new_buffer->buf_len = 0;
+  }
+  Slice read_result;
+  Status s = file_info_->file->Read(file_offset, size_to_read, &read_result,
+                                    new_buffer->buf.get());
+  if (!s.ok()) {
+    status_ = s;
+    return false;
+  }
+  new_buffer->buf_start_offset = file_offset;
+  new_buffer->buf_len = size_to_read;
+  *out = GetFromBuffer(new_buffer, file_offset, len);
   return true;
 }
 
-inline bool PlainTableKeyDecoder::FileReader::ReadVarint32(
-    uint32_t offset, uint32_t* out, uint32_t* bytes_read) {
+inline bool PlainTableFileReader::ReadVarint32(uint32_t offset, uint32_t* out,
+                                               uint32_t* bytes_read) {
   if (file_info_->is_mmap_mode) {
     const char* start = file_info_->file_data.data() + offset;
     const char* limit =
@@ -218,8 +233,8 @@ inline bool PlainTableKeyDecoder::FileReader::ReadVarint32(
   }
 }
 
-bool PlainTableKeyDecoder::FileReader::ReadVarint32NonMmap(
-    uint32_t offset, uint32_t* out, uint32_t* bytes_read) {
+bool PlainTableFileReader::ReadVarint32NonMmap(uint32_t offset, uint32_t* out,
+                                               uint32_t* bytes_read) {
   const char* start;
   const char* limit;
   const uint32_t kMaxVarInt32Size = 6u;
@@ -298,7 +313,7 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(uint32_t start_offset,
   if (!s.ok()) {
     return s;
   }
-  if (!file_reader_.file_info_->is_mmap_mode) {
+  if (!file_reader_.file_info()->is_mmap_mode) {
     cur_key_.SetInternalKey(*parsed_key);
     parsed_key->user_key = Slice(cur_key_.GetKey().data(), user_key_size);
     if (internal_key != nullptr) {
@@ -348,14 +363,14 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
         if (!s.ok()) {
           return s;
         }
-        if (!file_reader_.file_info_->is_mmap_mode ||
+        if (!file_reader_.file_info()->is_mmap_mode ||
             (internal_key != nullptr && !decoded_internal_key_valid)) {
           // In non-mmap mode, always need to make a copy of keys returned to
           // users, because after reading value for the key, the key might
           // be invalid.
           cur_key_.SetInternalKey(*parsed_key);
           saved_user_key_ = cur_key_.GetKey();
-          if (!file_reader_.file_info_->is_mmap_mode) {
+          if (!file_reader_.file_info()->is_mmap_mode) {
             parsed_key->user_key = Slice(cur_key_.GetKey().data(), size);
           }
           if (internal_key != nullptr) {
@@ -394,7 +409,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
         if (!s.ok()) {
           return s;
         }
-        if (!file_reader_.file_info_->is_mmap_mode) {
+        if (!file_reader_.file_info()->is_mmap_mode) {
           // In non-mmap mode, we need to make a copy of keys returned to
           // users, because after reading value for the key, the key might
           // be invalid.

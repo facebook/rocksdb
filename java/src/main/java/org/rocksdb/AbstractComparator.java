@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -15,7 +15,11 @@ package org.rocksdb;
  *   @see org.rocksdb.DirectComparator
  */
 public abstract class AbstractComparator<T extends AbstractSlice<?>>
-    extends RocksObject {
+    extends AbstractImmutableNativeReference {
+
+  protected AbstractComparator() {
+    super(true);
+  }
 
   /**
    * The name of the comparator.  Used to check for comparator
@@ -91,10 +95,12 @@ public abstract class AbstractComparator<T extends AbstractSlice<?>>
    * RocksDB instances referencing the comparator are closed.
    * Otherwise an undefined behavior will occur.
    */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
+  @Override
+  protected void disposeInternal() {
+    disposeInternal(getNativeHandle());
   }
 
-  private native void disposeInternal(long handle);
+  protected abstract long getNativeHandle();
+
+  private native void disposeInternal(final long handle);
 }

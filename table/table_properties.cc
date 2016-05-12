@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -40,6 +40,19 @@ namespace {
         props, key, ToString(value), prop_delim, kv_delim
     );
   }
+
+  // Seek to the specified meta block.
+  // Return true if it successfully seeks to that block.
+  Status SeekToMetaBlock(InternalIterator* meta_iter,
+                         const std::string& block_name, bool* is_found) {
+    *is_found = true;
+    meta_iter->Seek(block_name);
+    if (meta_iter->status().ok() &&
+        (!meta_iter->Valid() || meta_iter->key() != block_name)) {
+      *is_found = false;
+    }
+    return meta_iter->status();
+  }
 }
 
 std::string TableProperties::ToString(
@@ -75,6 +88,31 @@ std::string TableProperties::ToString(
       filter_policy_name.empty() ? std::string("N/A") : filter_policy_name,
       prop_delim, kv_delim);
 
+  AppendProperty(result, "column family ID",
+                 column_family_id == rocksdb::TablePropertiesCollectorFactory::
+                                         Context::kUnknownColumnFamily
+                     ? std::string("N/A")
+                     : rocksdb::ToString(column_family_id),
+                 prop_delim, kv_delim);
+  AppendProperty(
+      result, "column family name",
+      column_family_name.empty() ? std::string("N/A") : column_family_name,
+      prop_delim, kv_delim);
+
+  AppendProperty(result, "comparator name",
+                 comparator_name.empty() ? std::string("N/A") : comparator_name,
+                 prop_delim, kv_delim);
+
+  AppendProperty(
+      result, "merge operator name",
+      merge_operator_name.empty() ? std::string("N/A") : merge_operator_name,
+      prop_delim, kv_delim);
+
+  AppendProperty(result, "property collectors names",
+                 property_collectors_names.empty() ? std::string("N/A")
+                                                   : property_collectors_names,
+                 prop_delim, kv_delim);
+
   return result;
 }
 
@@ -108,25 +146,35 @@ const std::string TablePropertiesNames::kFormatVersion =
     "rocksdb.format.version";
 const std::string TablePropertiesNames::kFixedKeyLen =
     "rocksdb.fixed.key.length";
+const std::string TablePropertiesNames::kColumnFamilyId =
+    "rocksdb.column.family.id";
+const std::string TablePropertiesNames::kColumnFamilyName =
+    "rocksdb.column.family.name";
+const std::string TablePropertiesNames::kComparator = "rocksdb.comparator";
+const std::string TablePropertiesNames::kMergeOperator =
+    "rocksdb.merge.operator";
+const std::string TablePropertiesNames::kPropertyCollectors =
+    "rocksdb.property.collectors";
 
 extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility
 extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
+extern const std::string kCompressionDictBlock = "rocksdb.compression_dict";
 
 // Seek to the properties block.
 // Return true if it successfully seeks to the properties block.
 Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
-  *is_found = true;
-  meta_iter->Seek(kPropertiesBlock);
-  if (meta_iter->status().ok() &&
-      (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlock)) {
-    meta_iter->Seek(kPropertiesBlockOldName);
-    if (meta_iter->status().ok() &&
-        (!meta_iter->Valid() || meta_iter->key() != kPropertiesBlockOldName)) {
-      *is_found = false;
-    }
+  Status status = SeekToMetaBlock(meta_iter, kPropertiesBlock, is_found);
+  if (!*is_found && status.ok()) {
+    status = SeekToMetaBlock(meta_iter, kPropertiesBlockOldName, is_found);
   }
-  return meta_iter->status();
+  return status;
+}
+
+// Seek to the compression dictionary block.
+// Return true if it successfully seeks to that block.
+Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found) {
+  return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found);
 }
 
 }  // namespace rocksdb

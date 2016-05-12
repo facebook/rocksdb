@@ -1,4 +1,4 @@
-//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -82,8 +82,8 @@ void MutableCFOptions::Dump(Logger* log) const {
       filter_deletes);
   Log(log, "                 disable_auto_compactions: %d",
       disable_auto_compactions);
-  Log(log, "                          soft_rate_limit: %lf",
-      soft_rate_limit);
+  Log(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
+      soft_pending_compaction_bytes_limit);
   Log(log, "      hard_pending_compaction_bytes_limit: %" PRIu64,
       hard_pending_compaction_bytes_limit);
   Log(log, "       level0_file_num_compaction_trigger: %d",

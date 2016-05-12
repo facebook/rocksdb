@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -47,8 +47,8 @@ TEST_F(WritableFileWriterTest, RangeSync) {
     }
 
    protected:
-    Status Allocate(off_t offset, off_t len) override { return Status::OK(); }
-    Status RangeSync(off_t offset, off_t nbytes) override {
+    Status Allocate(uint64_t offset, uint64_t len) override { return Status::OK(); }
+    Status RangeSync(uint64_t offset, uint64_t nbytes) override {
       EXPECT_EQ(offset % 4096, 0u);
       EXPECT_EQ(nbytes % 4096, 0u);
 

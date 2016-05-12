@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc. All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc. All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -51,8 +51,14 @@ class DynamicBloom {
   // Assuming single threaded access to this function.
   void Add(const Slice& key);
 
+  // Like Add, but may be called concurrent with other functions.
+  void AddConcurrently(const Slice& key);
+
   // Assuming single threaded access to this function.
   void AddHash(uint32_t hash);
+
+  // Like AddHash, but may be called concurrent with other functions.
+  void AddHashConcurrently(uint32_t hash);
 
   // Multithreaded access to this function is OK
   bool MayContain(const Slice& key) const;
@@ -81,11 +87,39 @@ class DynamicBloom {
   const uint32_t kNumProbes;
 
   uint32_t (*hash_func_)(const Slice& key);
-  unsigned char* data_;
-  unsigned char* raw_;
+  std::atomic<uint8_t>* data_;
+
+  // or_func(ptr, mask) should effect *ptr |= mask with the appropriate
+  // concurrency safety, working with bytes.
+  template <typename OrFunc>
+  void AddHash(uint32_t hash, const OrFunc& or_func);
 };
 
 inline void DynamicBloom::Add(const Slice& key) { AddHash(hash_func_(key)); }
+
+inline void DynamicBloom::AddConcurrently(const Slice& key) {
+  AddHashConcurrently(hash_func_(key));
+}
+
+inline void DynamicBloom::AddHash(uint32_t hash) {
+  AddHash(hash, [](std::atomic<uint8_t>* ptr, uint8_t mask) {
+    ptr->store(ptr->load(std::memory_order_relaxed) | mask,
+               std::memory_order_relaxed);
+  });
+}
+
+inline void DynamicBloom::AddHashConcurrently(uint32_t hash) {
+  AddHash(hash, [](std::atomic<uint8_t>* ptr, uint8_t mask) {
+    // Happens-before between AddHash and MaybeContains is handled by
+    // access to versions_->LastSequence(), so all we have to do here is
+    // avoid races (so we don't give the compiler a license to mess up
+    // our code) and not lose bits.  std::memory_order_relaxed is enough
+    // for that.
+    if ((mask & ptr->load(std::memory_order_relaxed)) != mask) {
+      ptr->fetch_or(mask, std::memory_order_relaxed);
+    }
+  });
+}
 
 inline bool DynamicBloom::MayContain(const Slice& key) const {
   return (MayContainHash(hash_func_(key)));
@@ -107,7 +141,8 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
       // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
       //  to a simple and operation by compiler.
       const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      if (((data_[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
+      uint8_t byteval = data_[bitpos / 8].load(std::memory_order_relaxed);
+      if ((byteval & (1 << (bitpos % 8))) == 0) {
         return false;
       }
       // Rotate h so that we don't reuse the same bytes.
@@ -118,7 +153,8 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
   } else {
     for (uint32_t i = 0; i < kNumProbes; ++i) {
       const uint32_t bitpos = h % kTotalBits;
-      if (((data_[bitpos / 8]) & (1 << (bitpos % 8))) == 0) {
+      uint8_t byteval = data_[bitpos / 8].load(std::memory_order_relaxed);
+      if ((byteval & (1 << (bitpos % 8))) == 0) {
         return false;
       }
       h += delta;
@@ -127,7 +163,8 @@ inline bool DynamicBloom::MayContainHash(uint32_t h) const {
   return true;
 }
 
-inline void DynamicBloom::AddHash(uint32_t h) {
+template <typename OrFunc>
+inline void DynamicBloom::AddHash(uint32_t h, const OrFunc& or_func) {
   assert(IsInitialized());
   const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
   if (kNumBlocks != 0) {
@@ -136,7 +173,7 @@ inline void DynamicBloom::AddHash(uint32_t h) {
       // Since CACHE_LINE_SIZE is defined as 2^n, this line will be optimized
       // to a simple and operation by compiler.
       const uint32_t bitpos = b + (h % (CACHE_LINE_SIZE * 8));
-      data_[bitpos / 8] |= (1 << (bitpos % 8));
+      or_func(&data_[bitpos / 8], (1 << (bitpos % 8)));
       // Rotate h so that we don't reuse the same bytes.
       h = h / (CACHE_LINE_SIZE * 8) +
           (h % (CACHE_LINE_SIZE * 8)) * (0x20000000U / CACHE_LINE_SIZE);
@@ -145,7 +182,7 @@ inline void DynamicBloom::AddHash(uint32_t h) {
   } else {
     for (uint32_t i = 0; i < kNumProbes; ++i) {
       const uint32_t bitpos = h % kTotalBits;
-      data_[bitpos / 8] |= (1 << (bitpos % 8));
+      or_func(&data_[bitpos / 8], (1 << (bitpos % 8)));
       h += delta;
     }
   }

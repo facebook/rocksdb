@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -551,8 +551,9 @@ uint64_t EstimatedFileSize(
   const size_t kFooterSize = 512;
 
   uint64_t data_size =
+    static_cast<uint64_t>(
       num_records * (key_size + value_size * compression_ratio +
-                     kPerKeyOverhead);
+                     kPerKeyOverhead));
 
   return data_size + kFooterSize
          + num_records * bloom_bits_per_key / 8      // filter block
@@ -623,7 +624,10 @@ CompressionType GetAnyCompression() {
     return kBZip2Compression;
   } else if (LZ4_Supported()) {
     return kLZ4Compression;
+  } else if (XPRESS_Supported()) {
+    return kXpressCompression;
   }
+
   return kNoCompression;
 }
 
@@ -659,7 +663,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
   options.max_subcompactions = max_subcompactions_;
   options.bytes_per_sync = 512 * 1024;
 
-  options.compaction_measure_io_stats = true;
+  options.report_bg_io_stats = true;
   for (int test = 0; test < 2; ++test) {
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);

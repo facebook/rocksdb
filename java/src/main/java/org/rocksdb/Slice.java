@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -29,7 +29,6 @@ public class Slice extends AbstractSlice<byte[]> {
    */
   private Slice() {
     super();
-    disOwnNativeHandle();
   }
 
   /**
@@ -39,8 +38,7 @@ public class Slice extends AbstractSlice<byte[]> {
    * @param str String value.
    */
   public Slice(final String str) {
-    super();
-    createNewSliceFromString(str);
+    super(createNewSliceFromString(str));
   }
 
   /**
@@ -51,8 +49,7 @@ public class Slice extends AbstractSlice<byte[]> {
    * @param offset offset within the byte array.
    */
   public Slice(final byte[] data, final int offset) {
-    super();
-    createNewSlice0(data, offset);
+    super(createNewSlice0(data, offset));
   }
 
   /**
@@ -62,8 +59,7 @@ public class Slice extends AbstractSlice<byte[]> {
    * @param data byte array.
    */
   public Slice(final byte[] data) {
-    super();
-    createNewSlice1(data);
+    super(createNewSlice1(data));
   }
 
   /**
@@ -77,12 +73,14 @@ public class Slice extends AbstractSlice<byte[]> {
    */
   @Override
   protected void disposeInternal() {
-    disposeInternalBuf(nativeHandle_);
-    super.disposeInternal();
+    final long nativeHandle = getNativeHandle();
+    disposeInternalBuf(nativeHandle);
+    super.disposeInternal(nativeHandle);
   }
 
   @Override protected final native byte[] data0(long handle);
-  private native void createNewSlice0(byte[] data, int length);
-  private native void createNewSlice1(byte[] data);
-  private native void disposeInternalBuf(long handle);
+  private native static long createNewSlice0(final byte[] data,
+      final int length);
+  private native static long createNewSlice1(final byte[] data);
+  private native void disposeInternalBuf(final long handle);
 }

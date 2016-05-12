@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -21,7 +21,7 @@ struct PerfContext {
 
   void Reset(); // reset all performance counters to zero
 
-  std::string ToString() const;
+  std::string ToString(bool exclude_zero_counters = false) const;
 
   uint64_t user_key_comparison_count; // total number of user key comparisons
   uint64_t block_cache_hit_count;     // total number of block cache hits
@@ -30,10 +30,32 @@ struct PerfContext {
   uint64_t block_read_time;           // total nanos spent on block reads
   uint64_t block_checksum_time;       // total nanos spent on block checksum
   uint64_t block_decompress_time;  // total nanos spent on block decompression
-  // total number of internal keys skipped over during iteration (overwritten or
-  // deleted, to be more specific, hidden by a put or delete of the same key)
+  // total number of internal keys skipped over during iteration.
+  // There are several reasons for it:
+  // 1. when calling Next(), the iterator is in the position of the previous
+  //    key, so that we'll need to skip it. It means this counter will always
+  //    be incremented in Next().
+  // 2. when calling Next(), we need to skip internal entries for the previous
+  //    keys that are overwritten.
+  // 3. when calling Next(), Seek() or SeekToFirst(), after previous key
+  //    before calling Next(), the seek key in Seek() or the beginning for
+  //    SeekToFirst(), there may be one or more deleted keys before the next
+  //    valid key that the operation should place the iterator to. We need
+  //    to skip both of the tombstone and updates hidden by the tombstones. The
+  //    tombstones are not included in this counter, while previous updates
+  //    hidden by the tombstones will be included here.
+  // 4. symmetric cases for Prev() and SeekToLast()
+  // We sometimes also skip entries of more recent updates than the snapshot
+  // we read from, but they are not included in this counter.
+  //
   uint64_t internal_key_skipped_count;
-  // total number of deletes and single deletes skipped over during iteration
+  // Total number of deletes and single deletes skipped over during iteration
+  // When calling Next(), Seek() or SeekToFirst(), after previous position
+  // before calling Next(), the seek key in Seek() or the beginning for
+  // SeekToFirst(), there may be one or more deleted keys before the next valid
+  // key. Every deleted key is counted once. We don't recount here if there are
+  // still older updates invalidated by the tombstones.
+  //
   uint64_t internal_delete_skipped_count;
 
   uint64_t get_snapshot_time;       // total nanos spent on getting snapshot

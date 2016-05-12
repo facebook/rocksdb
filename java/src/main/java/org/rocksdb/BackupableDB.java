@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -21,8 +21,8 @@ public class BackupableDB extends RocksDB {
    *
    * @param opt {@link org.rocksdb.Options} to set for the database.
    * @param bopt {@link org.rocksdb.BackupableDBOptions} to use.
-   * @param db_path Path to store data to. The path for storing the backup should be
-   *     specified in the {@link org.rocksdb.BackupableDBOptions}.
+   * @param db_path Path to store data to. The path for storing the backup
+   *   should be specified in the {@link org.rocksdb.BackupableDBOptions}.
    *
    * @return {@link BackupableDB} reference to the opened database.
    *
@@ -33,9 +33,9 @@ public class BackupableDB extends RocksDB {
       final Options opt, final BackupableDBOptions bopt, final String db_path)
       throws RocksDBException {
 
-    RocksDB db = RocksDB.open(opt, db_path);
-    BackupableDB bdb = new BackupableDB();
-    bdb.open(db.nativeHandle_, bopt.nativeHandle_);
+    final RocksDB db = RocksDB.open(opt, db_path);
+    final BackupableDB bdb = new BackupableDB(open(db.nativeHandle_,
+        bopt.nativeHandle_));
 
     // Prevent the RocksDB object from attempting to delete
     // the underly C++ DB object.
@@ -56,7 +56,7 @@ public class BackupableDB extends RocksDB {
    */
   public void createNewBackup(final boolean flushBeforeBackup)
       throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     createNewBackup(nativeHandle_, flushBeforeBackup);
   }
 
@@ -70,7 +70,7 @@ public class BackupableDB extends RocksDB {
    */
   public void purgeOldBackups(final int numBackupsToKeep)
       throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     purgeOldBackups(nativeHandle_, numBackupsToKeep);
   }
 
@@ -83,7 +83,7 @@ public class BackupableDB extends RocksDB {
    *    native library.
    */
   public void deleteBackup(final int backupId) throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     deleteBackup0(nativeHandle_, backupId);
   }
 
@@ -94,7 +94,7 @@ public class BackupableDB extends RocksDB {
    * @return List of {@link BackupInfo} instances.
    */
   public List<BackupInfo> getBackupInfos() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return getBackupInfo(nativeHandle_);
   }
 
@@ -106,7 +106,7 @@ public class BackupableDB extends RocksDB {
    * @return array of backup ids as int ids.
    */
   public int[] getCorruptedBackups() {
-    assert(isInitialized());
+    assert(isOwningHandle());
     return getCorruptedBackups(nativeHandle_);
   }
 
@@ -119,7 +119,7 @@ public class BackupableDB extends RocksDB {
    *    native library.
    */
   public void garbageCollect() throws RocksDBException {
-    assert(isInitialized());
+    assert(isOwningHandle());
     garbageCollect(nativeHandle_);
   }
 
@@ -132,19 +132,19 @@ public class BackupableDB extends RocksDB {
    * of the c++ {@code rocksdb::BackupableDB} and should be transparent
    * to Java developers.</p>
    */
-  @Override public synchronized void close() {
-    if (isInitialized()) {
+  @Override public void close() {
       super.close();
-    }
   }
 
   /**
    * <p>A protected construction that will be used in the static
    * factory method {@link #open(Options, BackupableDBOptions, String)}.
    * </p>
+   *
+   * @param nativeHandle The native handle of the C++ BackupableDB object
    */
-  protected BackupableDB() {
-    super();
+  protected BackupableDB(final long nativeHandle) {
+    super(nativeHandle);
   }
 
   @Override protected void finalize() throws Throwable {
@@ -152,7 +152,8 @@ public class BackupableDB extends RocksDB {
     super.finalize();
   }
 
-  protected native void open(long rocksDBHandle, long backupDBOptionsHandle);
+  protected native static long open(final long rocksDBHandle,
+      final long backupDBOptionsHandle);
   protected native void createNewBackup(long handle, boolean flag)
       throws RocksDBException;
   protected native void purgeOldBackups(long handle, int numBackupsToKeep)

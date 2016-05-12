@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -15,6 +15,7 @@
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
+#include "db/pinned_iterators_manager.h"
 #include "db/writebuffer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
@@ -60,7 +61,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
-      arena_(moptions_.arena_block_size),
+      arena_(moptions_.arena_block_size, 0),
       allocator_(&arena_, write_buffer),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
@@ -74,16 +75,17 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       first_seqno_(0),
       earliest_seqno_(earliest_seq),
       mem_next_logfile_number_(0),
+      min_prep_log_referenced_(0),
       locks_(moptions_.inplace_update_support
                  ? moptions_.inplace_update_num_locks
                  : 0),
       prefix_extractor_(ioptions.prefix_extractor),
-      should_flush_(ShouldFlushNow()),
-      flush_scheduled_(false),
+      flush_state_(FLUSH_NOT_REQUESTED),
       env_(ioptions.env) {
-  // if should_flush_ == true without an entry inserted, something must have
-  // gone wrong already.
-  assert(!should_flush_);
+  UpdateFlushState();
+  // something went wrong if we need to flush before inserting anything
+  assert(!ShouldScheduleFlush());
+
   if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
         &allocator_,
@@ -167,6 +169,17 @@ bool MemTable::ShouldFlushNow() const {
   return arena_.AllocatedAndUnused() < kArenaBlockSize / 4;
 }
 
+void MemTable::UpdateFlushState() {
+  auto state = flush_state_.load(std::memory_order_relaxed);
+  if (state == FLUSH_NOT_REQUESTED && ShouldFlushNow()) {
+    // ignore CAS failure, because that means somebody else requested
+    // a flush
+    flush_state_.compare_exchange_strong(state, FLUSH_REQUESTED,
+                                         std::memory_order_relaxed,
+                                         std::memory_order_relaxed);
+  }
+}
+
 int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
                                         const char* prefix_len_key2) const {
   // Internal keys are encoded as length-prefixed strings.
@@ -220,12 +233,26 @@ class MemTableIterator : public InternalIterator {
   }
 
   ~MemTableIterator() {
+#ifndef NDEBUG
+    // Assert that the MemTableIterator is never deleted while
+    // Pinning is Enabled.
+    assert(!pinned_iters_mgr_ ||
+           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
+#endif
     if (arena_mode_) {
       iter_->~Iterator();
     } else {
       delete iter_;
     }
   }
+
+#ifndef NDEBUG
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+  }
+  PinnedIteratorsManager* pinned_iters_mgr_ = nullptr;
+#endif
 
   virtual bool Valid() const override { return valid_; }
   virtual void Seek(const Slice& k) override {
@@ -274,6 +301,11 @@ class MemTableIterator : public InternalIterator {
 
   virtual Status status() const override { return Status::OK(); }
 
+  virtual bool IsKeyPinned() const override {
+    // memtable data is always pinned
+    return true;
+  }
+
  private:
   DynamicBloom* bloom_;
   const SliceTransform* const prefix_extractor_;
@@ -320,7 +352,7 @@ uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
 
 void MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
-                   const Slice& value) {
+                   const Slice& value, bool allow_concurrent) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -334,7 +366,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
                                val_size;
   char* buf = nullptr;
   KeyHandle handle = table_->Allocate(encoded_len, &buf);
-  assert(buf != nullptr);
+
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
   p += key_size;
@@ -344,32 +376,64 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
-  table_->Insert(handle);
-  num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
+  if (!allow_concurrent) {
+    table_->Insert(handle);
+
+    // this is a bit ugly, but is the way to avoid locked instructions
+    // when incrementing an atomic
+    num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
+                       std::memory_order_relaxed);
+    data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
                      std::memory_order_relaxed);
-  data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
-                   std::memory_order_relaxed);
-  if (type == kTypeDeletion) {
-    num_deletes_++;
-  }
-
-  if (prefix_bloom_) {
-    assert(prefix_extractor_);
-    prefix_bloom_->Add(prefix_extractor_->Transform(key));
-  }
-
-  // The first sequence number inserted into the memtable
-  assert(first_seqno_ == 0 || s > first_seqno_);
-  if (first_seqno_ == 0) {
-    first_seqno_ = s;
-
-    if (earliest_seqno_ == kMaxSequenceNumber) {
-      earliest_seqno_ = first_seqno_;
+    if (type == kTypeDeletion) {
+      num_deletes_.store(num_deletes_.load(std::memory_order_relaxed) + 1,
+                         std::memory_order_relaxed);
     }
-    assert(first_seqno_ >= earliest_seqno_);
+
+    if (prefix_bloom_) {
+      assert(prefix_extractor_);
+      prefix_bloom_->Add(prefix_extractor_->Transform(key));
+    }
+
+    // The first sequence number inserted into the memtable
+    assert(first_seqno_ == 0 || s > first_seqno_);
+    if (first_seqno_ == 0) {
+      first_seqno_.store(s, std::memory_order_relaxed);
+
+      if (earliest_seqno_ == kMaxSequenceNumber) {
+        earliest_seqno_.store(GetFirstSequenceNumber(),
+                              std::memory_order_relaxed);
+      }
+      assert(first_seqno_.load() >= earliest_seqno_.load());
+    }
+  } else {
+    table_->InsertConcurrently(handle);
+
+    num_entries_.fetch_add(1, std::memory_order_relaxed);
+    data_size_.fetch_add(encoded_len, std::memory_order_relaxed);
+    if (type == kTypeDeletion) {
+      num_deletes_.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    if (prefix_bloom_) {
+      assert(prefix_extractor_);
+      prefix_bloom_->AddConcurrently(prefix_extractor_->Transform(key));
+    }
+
+    // atomically update first_seqno_ and earliest_seqno_.
+    uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
+    while ((cur_seq_num == 0 || s < cur_seq_num) &&
+           !first_seqno_.compare_exchange_weak(cur_seq_num, s)) {
+    }
+    uint64_t cur_earliest_seqno =
+        earliest_seqno_.load(std::memory_order_relaxed);
+    while (
+        (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
+        !first_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
+    }
   }
 
-  should_flush_ = ShouldFlushNow();
+  UpdateFlushState();
 }
 
 // Callback from MemTable::Get()
@@ -442,7 +506,7 @@ static bool SaveValue(void* arg, const char* entry) {
             *(s->status) =
                 Status::Corruption("Error: Could not perform merge.");
           }
-        } else {
+        } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
         if (s->inplace_update_support) {
@@ -670,16 +734,16 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
               }
             }
             RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
-            should_flush_ = ShouldFlushNow();
+            UpdateFlushState();
             return true;
           } else if (status == UpdateStatus::UPDATED) {
             Add(seq, kTypeValue, key, Slice(str_value));
             RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
-            should_flush_ = ShouldFlushNow();
+            UpdateFlushState();
             return true;
           } else if (status == UpdateStatus::UPDATE_FAILED) {
             // No action required. Return.
-            should_flush_ = ShouldFlushNow();
+            UpdateFlushState();
             return true;
           }
         }
@@ -735,6 +799,19 @@ void MemTableRep::Get(const LookupKey& k, void* callback_args,
        iter->Valid() && callback_func(callback_args, iter->key());
        iter->Next()) {
   }
+}
+
+void MemTable::RefLogContainingPrepSection(uint64_t log) {
+  assert(log > 0);
+  auto cur = min_prep_log_referenced_.load();
+  while ((log < cur || cur == 0) &&
+         !min_prep_log_referenced_.compare_exchange_strong(cur, log)) {
+    cur = min_prep_log_referenced_.load();
+  }
+}
+
+uint64_t MemTable::GetMinLogContainingPrepSection() {
+  return min_prep_log_referenced_.load();
 }
 
 }  // namespace rocksdb

@@ -1,4 +1,4 @@
-// Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -18,6 +18,7 @@ SpecialEnv::SpecialEnv(Env* base)
       rnd_(301),
       sleep_counter_(this),
       addon_time_(0),
+      time_elapse_only_sleep_(false),
       no_sleep_(false) {
   delay_sstable_sync_.store(false, std::memory_order_release);
   drop_writes_.store(false, std::memory_order_release);
@@ -55,6 +56,7 @@ DBTestBase::DBTestBase(const std::string path)
   EXPECT_OK(DestroyDB(dbname_, options));
   db_ = nullptr;
   Reopen(options);
+  Random::GetTLSInstance()->Reset(0xdeadbeef);
 }
 
 DBTestBase::~DBTestBase() {
@@ -71,63 +73,69 @@ DBTestBase::~DBTestBase() {
   delete env_;
 }
 
-// Switch to a fresh database with the next option configuration to
-// test.  Return false if there are no more configurations to test.
-bool DBTestBase::ChangeOptions(int skip_mask) {
-  for (option_config_++; option_config_ < kEnd; option_config_++) {
+bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
 #ifdef ROCKSDB_LITE
     // These options are not supported in ROCKSDB_LITE
-    if (option_config_ == kHashSkipList ||
-        option_config_ == kPlainTableFirstBytePrefix ||
-        option_config_ == kPlainTableCappedPrefix ||
-        option_config_ == kPlainTableCappedPrefixNonMmap ||
-        option_config_ == kPlainTableAllBytesPrefix ||
-        option_config_ == kVectorRep || option_config_ == kHashLinkList ||
-        option_config_ == kHashCuckoo ||
-        option_config_ == kUniversalCompaction ||
-        option_config_ == kUniversalCompactionMultiLevel ||
-        option_config_ == kUniversalSubcompactions ||
-        option_config_ == kFIFOCompaction) {
-      continue;
+  if (option_config == kHashSkipList ||
+      option_config == kPlainTableFirstBytePrefix ||
+      option_config == kPlainTableCappedPrefix ||
+      option_config == kPlainTableCappedPrefixNonMmap ||
+      option_config == kPlainTableAllBytesPrefix ||
+      option_config == kVectorRep || option_config == kHashLinkList ||
+      option_config == kHashCuckoo || option_config == kUniversalCompaction ||
+      option_config == kUniversalCompactionMultiLevel ||
+      option_config == kUniversalSubcompactions ||
+      option_config == kFIFOCompaction ||
+      option_config == kConcurrentSkipList) {
+    return true;
     }
 #endif
 
     if ((skip_mask & kSkipDeletesFilterFirst) &&
-        option_config_ == kDeletesFilterFirst) {
-      continue;
+        option_config == kDeletesFilterFirst) {
+      return true;
     }
     if ((skip_mask & kSkipUniversalCompaction) &&
-        (option_config_ == kUniversalCompaction ||
-         option_config_ == kUniversalCompactionMultiLevel)) {
-      continue;
+        (option_config == kUniversalCompaction ||
+         option_config == kUniversalCompactionMultiLevel)) {
+      return true;
     }
-    if ((skip_mask & kSkipMergePut) && option_config_ == kMergePut) {
-      continue;
+    if ((skip_mask & kSkipMergePut) && option_config == kMergePut) {
+      return true;
     }
     if ((skip_mask & kSkipNoSeekToLast) &&
-        (option_config_ == kHashLinkList || option_config_ == kHashSkipList)) {
-      continue;
+        (option_config == kHashLinkList || option_config == kHashSkipList)) {
+      return true;
     }
     if ((skip_mask & kSkipPlainTable) &&
-        (option_config_ == kPlainTableAllBytesPrefix ||
-         option_config_ == kPlainTableFirstBytePrefix ||
-         option_config_ == kPlainTableCappedPrefix ||
-         option_config_ == kPlainTableCappedPrefixNonMmap)) {
-      continue;
+        (option_config == kPlainTableAllBytesPrefix ||
+         option_config == kPlainTableFirstBytePrefix ||
+         option_config == kPlainTableCappedPrefix ||
+         option_config == kPlainTableCappedPrefixNonMmap)) {
+      return true;
     }
     if ((skip_mask & kSkipHashIndex) &&
-        (option_config_ == kBlockBasedTableWithPrefixHashIndex ||
-         option_config_ == kBlockBasedTableWithWholeKeyHashIndex)) {
-      continue;
+        (option_config == kBlockBasedTableWithPrefixHashIndex ||
+         option_config == kBlockBasedTableWithWholeKeyHashIndex)) {
+      return true;
     }
-    if ((skip_mask & kSkipHashCuckoo) && (option_config_ == kHashCuckoo)) {
-      continue;
+    if ((skip_mask & kSkipHashCuckoo) && (option_config == kHashCuckoo)) {
+      return true;
     }
-    if ((skip_mask & kSkipFIFOCompaction) &&
-        option_config_ == kFIFOCompaction) {
-      continue;
+    if ((skip_mask & kSkipFIFOCompaction) && option_config == kFIFOCompaction) {
+      return true;
     }
-    if ((skip_mask & kSkipMmapReads) && option_config_ == kWalDirAndMmapReads) {
+    if ((skip_mask & kSkipMmapReads) && option_config == kWalDirAndMmapReads) {
+      return true;
+    }
+    return false;
+}
+
+// Switch to a fresh database with the next option configuration to
+// test.  Return false if there are no more configurations to test.
+bool DBTestBase::ChangeOptions(int skip_mask) {
+  for (option_config_++; option_config_ < kEnd; option_config_++) {
+    if (ShouldSkipOptions(option_config_, skip_mask)) {
       continue;
     }
     break;
@@ -202,6 +210,13 @@ Options DBTestBase::CurrentOptions(
     const anon::OptionsOverride& options_override) {
   Options options;
   options.write_buffer_size = 4090 * 4096;
+  options.target_file_size_base = 2 * 1024 * 1024;
+  options.max_bytes_for_level_base = 10 * 1024 * 1024;
+  options.max_open_files = 5000;
+  options.base_background_compactions = -1;
+  options.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
+  options.compaction_pri = CompactionPri::kByCompensatedSize;
+
   return CurrentOptions(options, options_override);
 }
 
@@ -293,6 +308,7 @@ Options DBTestBase::CurrentOptions(
     case kPerfOptions:
       options.soft_rate_limit = 2.0;
       options.delayed_write_rate = 8 * 1024 * 1024;
+      options.report_bg_io_stats = true;
       // TODO(3.13) -- test more options
       break;
     case kDeletesFilterFirst:
@@ -331,6 +347,10 @@ Options DBTestBase::CurrentOptions(
       options.prefix_extractor.reset(NewNoopTransform());
       break;
     }
+    case kBlockBasedTableWithIndexRestartInterval: {
+      table_options.index_block_restart_interval = 8;
+      break;
+    }
     case kOptimizeFiltersForHits: {
       options.optimize_filters_for_hits = true;
       set_block_based_table_factory = true;
@@ -354,6 +374,11 @@ Options DBTestBase::CurrentOptions(
       options.max_subcompactions = 4;
       break;
     }
+    case kConcurrentSkipList: {
+      options.allow_concurrent_memtable_write = true;
+      options.enable_write_thread_adaptive_yield = true;
+      break;
+    }
 
     default:
       break;
@@ -367,6 +392,7 @@ Options DBTestBase::CurrentOptions(
   }
   options.env = env_;
   options.create_if_missing = true;
+  options.fail_if_options_file_error = true;
   return options;
 }
 
@@ -658,14 +684,14 @@ uint64_t DBTestBase::SizeAtLevel(int level) {
   return sum;
 }
 
-int DBTestBase::TotalLiveFiles(int cf) {
+size_t DBTestBase::TotalLiveFiles(int cf) {
   ColumnFamilyMetaData cf_meta;
   if (cf == 0) {
     db_->GetColumnFamilyMetaData(&cf_meta);
   } else {
     db_->GetColumnFamilyMetaData(handles_[cf], &cf_meta);
   }
-  int num_files = 0;
+  size_t num_files = 0;
   for (auto& level : cf_meta.levels) {
     num_files += level.files.size();
   }
@@ -691,6 +717,22 @@ int DBTestBase::NumTableFilesAtLevel(int level, int cf) {
         &property));
   }
   return atoi(property.c_str());
+}
+
+double DBTestBase::CompressionRatioAtLevel(int level, int cf) {
+  std::string property;
+  if (cf == 0) {
+    // default cfd
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.compression-ratio-at-level" + NumberToString(level),
+        &property));
+  } else {
+    EXPECT_TRUE(db_->GetProperty(
+        handles_[cf],
+        "rocksdb.compression-ratio-at-level" + NumberToString(level),
+        &property));
+  }
+  return std::stod(property);
 }
 
 int DBTestBase::TotalTableFiles(int cf, int levels) {
@@ -830,7 +872,7 @@ int DBTestBase::GetSstFileCount(std::string path) {
 // this will generate non-overlapping files since it keeps increasing key_idx
 void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
                                  bool nowait) {
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < KNumKeysByGenerateNewFile; i++) {
     ASSERT_OK(Put(cf, Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
@@ -842,7 +884,7 @@ void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
 
 // this will generate non-overlapping files since it keeps increasing key_idx
 void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < KNumKeysByGenerateNewFile; i++) {
     ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
@@ -852,8 +894,10 @@ void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
   }
 }
 
+const int DBTestBase::kNumKeysByGenerateNewRandomFile = 51;
+
 void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
-  for (int i = 0; i < 51; i++) {
+  for (int i = 0; i < kNumKeysByGenerateNewRandomFile; i++) {
     ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 2000)));
   }
   ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 200)));
@@ -994,5 +1038,60 @@ void DBTestBase::CopyFile(const std::string& source,
   }
   ASSERT_OK(destfile->Close());
 }
+
+std::unordered_map<std::string, uint64_t> DBTestBase::GetAllSSTFiles(
+    uint64_t* total_size) {
+  std::unordered_map<std::string, uint64_t> res;
+
+  if (total_size) {
+    *total_size = 0;
+  }
+  std::vector<std::string> files;
+  env_->GetChildren(dbname_, &files);
+  for (auto& file_name : files) {
+    uint64_t number;
+    FileType type;
+    std::string file_path = dbname_ + "/" + file_name;
+    if (ParseFileName(file_name, &number, &type) && type == kTableFile) {
+      uint64_t file_size = 0;
+      env_->GetFileSize(file_path, &file_size);
+      res[file_path] = file_size;
+      if (total_size) {
+        *total_size += file_size;
+      }
+    }
+  }
+  return res;
+}
+
+std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
+                                                      const std::string& path) {
+  std::vector<std::string> files;
+  std::vector<uint64_t> file_numbers;
+  env->GetChildren(path, &files);
+  uint64_t number;
+  FileType type;
+  for (size_t i = 0; i < files.size(); ++i) {
+    if (ParseFileName(files[i], &number, &type)) {
+      if (type == kTableFile) {
+        file_numbers.push_back(number);
+      }
+    }
+  }
+  return file_numbers;
+}
+
+#ifndef ROCKSDB_LITE
+uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
+    DB* db, std::string column_family_name) {
+  std::vector<LiveFileMetaData> metadata;
+  db->GetLiveFilesMetaData(&metadata);
+  uint64_t result = 0;
+  for (auto& fileMetadata : metadata) {
+    result += (fileMetadata.column_family_name == column_family_name);
+  }
+  return result;
+}
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

@@ -1,4 +1,4 @@
-//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -11,17 +11,18 @@
 // to WriteBuffer so we can track and enforce overall write buffer limits.
 
 #pragma once
+
+#include <atomic>
 #include "util/allocator.h"
 
 namespace rocksdb {
 
-class Arena;
 class Logger;
 class WriteBuffer;
 
 class MemTableAllocator : public Allocator {
  public:
-  explicit MemTableAllocator(Arena* arena, WriteBuffer* write_buffer);
+  explicit MemTableAllocator(Allocator* allocator, WriteBuffer* write_buffer);
   ~MemTableAllocator();
 
   // Allocator interface
@@ -35,9 +36,9 @@ class MemTableAllocator : public Allocator {
   void DoneAllocating();
 
  private:
-  Arena* arena_;
+  Allocator* allocator_;
   WriteBuffer* write_buffer_;
-  size_t bytes_allocated_;
+  std::atomic<size_t> bytes_allocated_;
 
   // No copying allowed
   MemTableAllocator(const MemTableAllocator&);

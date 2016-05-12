@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -9,6 +9,7 @@
 
 #include "table/two_level_iterator.h"
 
+#include "db/pinned_iterators_manager.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/block.h"
@@ -26,6 +27,10 @@ class TwoLevelIterator : public InternalIterator {
                             bool need_free_iter_and_state);
 
   virtual ~TwoLevelIterator() {
+    // Assert that the TwoLevelIterator is never deleted while Pinning is
+    // Enabled.
+    assert(!pinned_iters_mgr_ ||
+           (pinned_iters_mgr_ && !pinned_iters_mgr_->PinningEnabled()));
     first_level_iter_.DeleteIter(!need_free_iter_and_state_);
     second_level_iter_.DeleteIter(false);
     if (need_free_iter_and_state_) {
@@ -61,6 +66,18 @@ class TwoLevelIterator : public InternalIterator {
       return status_;
     }
   }
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override {
+    pinned_iters_mgr_ = pinned_iters_mgr;
+    first_level_iter_.SetPinnedItersMgr(pinned_iters_mgr);
+    if (second_level_iter_.iter()) {
+      second_level_iter_.SetPinnedItersMgr(pinned_iters_mgr);
+    }
+  }
+  virtual bool IsKeyPinned() const override {
+    return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
+           second_level_iter_.iter() && second_level_iter_.IsKeyPinned();
+  }
 
  private:
   void SaveError(const Status& s) {
@@ -75,6 +92,7 @@ class TwoLevelIterator : public InternalIterator {
   IteratorWrapper first_level_iter_;
   IteratorWrapper second_level_iter_;  // May be nullptr
   bool need_free_iter_and_state_;
+  PinnedIteratorsManager* pinned_iters_mgr_;
   Status status_;
   // If second_level_iter is non-nullptr, then "data_block_handle_" holds the
   // "index_value" passed to block_function_ to create the second_level_iter.
@@ -86,7 +104,8 @@ TwoLevelIterator::TwoLevelIterator(TwoLevelIteratorState* state,
                                    bool need_free_iter_and_state)
     : state_(state),
       first_level_iter_(first_level_iter),
-      need_free_iter_and_state_(need_free_iter_and_state) {}
+      need_free_iter_and_state_(need_free_iter_and_state),
+      pinned_iters_mgr_(nullptr) {}
 
 void TwoLevelIterator::Seek(const Slice& target) {
   if (state_->check_prefix_may_match &&
@@ -172,7 +191,17 @@ void TwoLevelIterator::SetSecondLevelIterator(InternalIterator* iter) {
   if (second_level_iter_.iter() != nullptr) {
     SaveError(second_level_iter_.status());
   }
-  second_level_iter_.Set(iter);
+
+  if (pinned_iters_mgr_ && iter) {
+    iter->SetPinnedItersMgr(pinned_iters_mgr_);
+  }
+
+  InternalIterator* old_iter = second_level_iter_.Set(iter);
+  if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
+    pinned_iters_mgr_->PinIteratorIfNeeded(old_iter);
+  } else {
+    delete old_iter;
+  }
 }
 
 void TwoLevelIterator::InitDataBlock() {

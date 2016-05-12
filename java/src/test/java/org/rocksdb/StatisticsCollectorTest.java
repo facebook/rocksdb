@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -26,19 +26,18 @@ public class StatisticsCollectorTest {
   @Test
   public void statisticsCollector()
       throws InterruptedException, RocksDBException {
-    Options opt = null;
-    RocksDB db = null;
-    try {
-      opt = new Options().createStatistics().setCreateIfMissing(true);
-      Statistics stats = opt.statisticsPtr();
+    try (final Options opt = new Options()
+        .createStatistics()
+        .setCreateIfMissing(true);
+         final RocksDB db = RocksDB.open(opt,
+             dbFolder.getRoot().getAbsolutePath())) {
+      final Statistics stats = opt.statisticsPtr();
 
-      db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath());
+      final StatsCallbackMock callback = new StatsCallbackMock();
+      final StatsCollectorInput statsInput =
+          new StatsCollectorInput(stats, callback);
 
-      StatsCallbackMock callback = new StatsCallbackMock();
-      StatsCollectorInput statsInput = new StatsCollectorInput(stats, callback);
-
-      StatisticsCollector statsCollector = new StatisticsCollector(
+      final StatisticsCollector statsCollector = new StatisticsCollector(
           Collections.singletonList(statsInput), 100);
       statsCollector.start();
 
@@ -48,13 +47,6 @@ public class StatisticsCollectorTest {
       assertThat(callback.histCallbackCount).isGreaterThan(0);
 
       statsCollector.shutDown(1000);
-    } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (opt != null) {
-        opt.dispose();
-      }
     }
   }
 }

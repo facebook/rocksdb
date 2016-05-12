@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -92,6 +92,10 @@ TablePropertiesCollection
 DBTablePropertiesTest::TestGetPropertiesOfTablesInRange(
     std::vector<Range> ranges, std::size_t* num_properties,
     std::size_t* num_files) {
+
+  // Since we deref zero element in the vector it can not be empty
+  // otherwise we pass an address to some random memory
+  EXPECT_GT(ranges.size(), 0U);
   // run the query
   TablePropertiesCollection props;
   EXPECT_OK(db_->GetPropertiesOfTablesInRange(
@@ -101,10 +105,10 @@ DBTablePropertiesTest::TestGetPropertiesOfTablesInRange(
   // only which fall within requested ranges
   std::vector<LiveFileMetaData> vmd;
   db_->GetLiveFilesMetaData(&vmd);
-  for (auto md : vmd) {
+  for (auto& md : vmd) {
     std::string fn = md.db_path + md.name;
     bool in_range = false;
-    for (auto r : ranges) {
+    for (auto& r : ranges) {
       // smallestkey < limit && largestkey >= start
       if (r.limit.compare(md.smallestkey) >= 0 &&
           r.start.compare(md.largestkey) <= 0) {
@@ -187,10 +191,19 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   for (int j = 0; j < 100; j++) {
     // create a bunch of ranges
     std::vector<std::string> random_keys;
-    auto n = 2 * rnd.Uniform(50);
+    // Random returns numbers with zero included
+    // when we pass empty ranges TestGetPropertiesOfTablesInRange()
+    // derefs random memory in the empty ranges[0]
+    // so want to be greater than zero and even since
+    // the below loop requires that random_keys.size() to be even.
+    auto n = 2 * (rnd.Uniform(50) + 1);
+
     for (uint32_t i = 0; i < n; ++i) {
       random_keys.push_back(test::RandomKey(&rnd, 5));
     }
+
+    ASSERT_GT(random_keys.size(), 0U);
+    ASSERT_EQ((random_keys.size() % 2), 0U);
 
     std::vector<Range> ranges;
     auto it = random_keys.begin();
@@ -202,6 +215,34 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
     TestGetPropertiesOfTablesInRange(std::move(ranges));
   }
 }
+
+TEST_F(DBTablePropertiesTest, GetColumnFamilyNameProperty) {
+  std::string kExtraCfName = "pikachu";
+  CreateAndReopenWithCF({kExtraCfName}, CurrentOptions());
+
+  // Create one table per CF, then verify it was created with the column family
+  // name property.
+  for (int cf = 0; cf < 2; ++cf) {
+    Put(cf, "key", "val");
+    Flush(cf);
+
+    TablePropertiesCollection fname_to_props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(handles_[cf], &fname_to_props));
+    ASSERT_EQ(1U, fname_to_props.size());
+
+    std::string expected_cf_name;
+    if (cf > 0) {
+      expected_cf_name = kExtraCfName;
+    } else {
+      expected_cf_name = kDefaultColumnFamilyName;
+    }
+    ASSERT_EQ(expected_cf_name,
+              fname_to_props.begin()->second->column_family_name);
+    ASSERT_EQ(cf, static_cast<uint32_t>(
+                      fname_to_props.begin()->second->column_family_id));
+  }
+}
+
 }  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE

@@ -1,4 +1,4 @@
-// Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -19,15 +19,9 @@ public class RocksMemEnv extends Env {
    * <p>{@code *base_env} must remain live while the result is in use.</p>
    */
   public RocksMemEnv() {
-    super();
-    nativeHandle_ = createMemEnv();
-  }
-
-  @Override
-  protected void disposeInternal() {
-    disposeInternal(nativeHandle_);
+    super(createMemEnv());
   }
 
   private static native long createMemEnv();
-  private native void disposeInternal(long handle);
+  @Override protected final native void disposeInternal(final long handle);
 }

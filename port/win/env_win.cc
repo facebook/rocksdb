@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -61,12 +61,6 @@ ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
 }
 
-// A wrapper for fadvise, if the platform doesn't support fadvise,
-// it will simply return Status::NotSupport.
-int Fadvise(int fd, off_t offset, size_t len, int advice) {
-  return 0;  // simply do nothing.
-}
-
 inline Status IOErrorFromWindowsError(const std::string& context, DWORD err) {
   return Status::IOError(context, GetWindowsErrSz(err));
 }
@@ -107,6 +101,7 @@ typedef std::unique_ptr<void, decltype(CloseHandleFunc)> UniqueCloseHandlePtr;
 // rely on the current file offset.
 SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
                uint64_t offset) {
+  assert(numBytes <= std::numeric_limits<DWORD>::max());
   OVERLAPPED overlapped = {0};
   ULARGE_INTEGER offsetUnion;
   offsetUnion.QuadPart = offset;
@@ -118,7 +113,8 @@ SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
 
   unsigned long bytesWritten = 0;
 
-  if (FALSE == WriteFile(hFile, src, numBytes, &bytesWritten, &overlapped)) {
+  if (FALSE == WriteFile(hFile, src, static_cast<DWORD>(numBytes), &bytesWritten,
+    &overlapped)) {
     result = -1;
   } else {
     result = bytesWritten;
@@ -129,6 +125,7 @@ SSIZE_T pwrite(HANDLE hFile, const char* src, size_t numBytes,
 
 // See comments for pwrite above
 SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset) {
+  assert(numBytes <= std::numeric_limits<DWORD>::max());
   OVERLAPPED overlapped = {0};
   ULARGE_INTEGER offsetUnion;
   offsetUnion.QuadPart = offset;
@@ -140,7 +137,8 @@ SSIZE_T pread(HANDLE hFile, char* src, size_t numBytes, uint64_t offset) {
 
   unsigned long bytesRead = 0;
 
-  if (FALSE == ReadFile(hFile, src, numBytes, &bytesRead, &overlapped)) {
+  if (FALSE == ReadFile(hFile, src, static_cast<DWORD>(numBytes), &bytesRead,
+    &overlapped)) {
     return -1;
   } else {
     result = bytesRead;
@@ -264,8 +262,11 @@ class WinMmapFile : public WritableFile {
                             // page size or SSD page size
   const size_t
       allocation_granularity_;  // View must start at such a granularity
-  size_t mapping_size_;         // We want file mapping to be of a specific size
-                                // because then the file is expandable
+
+  size_t reserved_size_;      // Preallocated size
+
+  size_t mapping_size_;         // The max size of the mapping object
+                                // we want to guess the final file size to minimize the remapping
   size_t view_size_;            // How much memory to map into a view at a time
 
   char* mapped_begin_;  // Must begin at the file offset that is aligned with
@@ -285,15 +286,6 @@ class WinMmapFile : public WritableFile {
     return ftruncate(filename_, hFile_, toSize);
   }
 
-  // Can only truncate or reserve to a sector size aligned if
-  // used on files that are opened with Unbuffered I/O
-  // Normally it does not present a problem since in memory mapped files
-  // we do not disable buffering
-  Status ReserveFileSpace(uint64_t toSize) {
-    IOSTATS_TIMER_GUARD(allocate_nanos);
-    return fallocate(filename_, hFile_, toSize);
-  }
-
   Status UnmapCurrentRegion() {
     Status status;
 
@@ -303,82 +295,57 @@ class WinMmapFile : public WritableFile {
             "Failed to unmap file view: " + filename_, GetLastError());
       }
 
-      // UnmapView automatically sends data to disk but not the metadata
-      // which is good and provides some equivalent of fdatasync() on Linux
-      // therefore, we donot need separate flag for metadata
-      pending_sync_ = false;
-      mapped_begin_ = nullptr;
-      mapped_end_ = nullptr;
-      dst_ = nullptr;
-      last_sync_ = nullptr;
-
       // Move on to the next portion of the file
       file_offset_ += view_size_;
 
-      // Increase the amount we map the next time, but capped at 1MB
-      view_size_ *= 2;
-      view_size_ = std::min(view_size_, c_OneMB);
+      // UnmapView automatically sends data to disk but not the metadata
+      // which is good and provides some equivalent of fdatasync() on Linux
+      // therefore, we donot need separate flag for metadata
+      mapped_begin_ = nullptr;
+      mapped_end_ = nullptr;
+      dst_ = nullptr;
+
+      last_sync_ = nullptr;
+      pending_sync_ = false;
     }
 
     return status;
   }
 
   Status MapNewRegion() {
+
     Status status;
 
     assert(mapped_begin_ == nullptr);
 
-    size_t minMappingSize = file_offset_ + view_size_;
+    size_t minDiskSize = file_offset_ + view_size_;
 
-    // Check if we need to create a new mapping since we want to write beyond
-    // the current one
-    // If the mapping view is now too short
-    // CreateFileMapping will extend the size of the file automatically if the
-    // mapping size is greater than
-    // the current length of the file, which reserves the space and makes
-    // writing faster, except, windows can not map an empty file.
-    // Thus the first time around we must actually extend the file ourselves
-    if (hMap_ == NULL || minMappingSize > mapping_size_) {
-      if (NULL == hMap_) {
-        // Creating mapping for the first time so reserve the space on disk
-        status = ReserveFileSpace(minMappingSize);
-        if (!status.ok()) {
-          return status;
-        }
+    if (minDiskSize > reserved_size_) {
+      status = Allocate(file_offset_, view_size_);
+      if (!status.ok()) {
+        return status;
       }
+    }
 
-      if (hMap_) {
+    // Need to remap
+    if (hMap_ == NULL || reserved_size_ > mapping_size_) {
+
+      if (hMap_ != NULL) {
         // Unmap the previous one
         BOOL ret = ::CloseHandle(hMap_);
         assert(ret);
         hMap_ = NULL;
       }
 
-      // Calculate the new mapping size which will hopefully reserve space for
-      // several consecutive sliding views
-      // Query preallocation block size if set
-      size_t preallocationBlockSize = 0;
-      size_t lastAllocatedBlockSize = 0;  // Not used
-      GetPreallocationStatus(&preallocationBlockSize, &lastAllocatedBlockSize);
-
-      if (preallocationBlockSize) {
-        preallocationBlockSize =
-            Roundup(preallocationBlockSize, allocation_granularity_);
-      } else {
-        preallocationBlockSize = 2 * view_size_;
-      }
-
-      mapping_size_ += preallocationBlockSize;
-
       ULARGE_INTEGER mappingSize;
-      mappingSize.QuadPart = mapping_size_;
+      mappingSize.QuadPart = reserved_size_;
 
       hMap_ = CreateFileMappingA(
           hFile_,
           NULL,                  // Security attributes
           PAGE_READWRITE,        // There is not a write only mode for mapping
           mappingSize.HighPart,  // Enable mapping the whole file but the actual
-                                 // amount mapped is determined by MapViewOfFile
+                                  // amount mapped is determined by MapViewOfFile
           mappingSize.LowPart,
           NULL);  // Mapping name
 
@@ -387,6 +354,8 @@ class WinMmapFile : public WritableFile {
             "WindowsMmapFile failed to create file mapping for: " + filename_,
             GetLastError());
       }
+
+      mapping_size_ = reserved_size_;
     }
 
     ULARGE_INTEGER offset;
@@ -418,6 +387,7 @@ class WinMmapFile : public WritableFile {
         hMap_(NULL),
         page_size_(page_size),
         allocation_granularity_(allocation_granularity),
+        reserved_size_(0),
         mapping_size_(0),
         view_size_(0),
         mapped_begin_(nullptr),
@@ -437,25 +407,10 @@ class WinMmapFile : public WritableFile {
     // Only for memory mapped writes
     assert(options.use_mmap_writes);
 
-    // Make sure buffering is not disabled. It is ignored for mapping
-    // purposes but also imposes restriction on moving file position
-    // it is not a problem so much with reserving space since it is probably a
-    // factor
-    // of allocation_granularity but we also want to truncate the file in
-    // Close() at
-    // arbitrary position so we do not have to feel this with zeros.
-    assert(options.use_os_buffer);
-
     // View size must be both the multiple of allocation_granularity AND the
-    // page size
-    if ((allocation_granularity_ % page_size_) == 0) {
-      view_size_ = 2 * allocation_granularity;
-    } else if ((page_size_ % allocation_granularity_) == 0) {
-      view_size_ = 2 * page_size_;
-    } else {
-      // we can multiply them together
-      assert(false);
-    }
+    // page size and the granularity is usually a multiple of a page size.
+    const size_t viewSize = 32 * 1024; // 32Kb similar to the Windows File Cache in buffered mode
+    view_size_ = Roundup(viewSize, allocation_granularity_);
   }
 
   ~WinMmapFile() {
@@ -481,14 +436,20 @@ class WinMmapFile : public WritableFile {
         if (!s.ok()) {
           return s;
         }
+      } else {
+        size_t n = std::min(left, avail);
+        memcpy(dst_, src, n);
+        dst_ += n;
+        src += n;
+        left -= n;
+        pending_sync_ = true;
       }
+    }
 
-      size_t n = std::min(left, avail);
-      memcpy(dst_, src, n);
-      dst_ += n;
-      src += n;
-      left -= n;
-      pending_sync_ = true;
+    // Now make sure that the last partial page is padded with zeros if needed
+    size_t bytesToPad = Roundup(size_t(dst_), page_size_) - size_t(dst_);
+    if (bytesToPad > 0) {
+      memset(dst_, 0, bytesToPad);
     }
 
     return Status::OK();
@@ -510,7 +471,13 @@ class WinMmapFile : public WritableFile {
     // which we use does not write zeros and it is good.
     uint64_t targetSize = GetFileSize();
 
-    s = UnmapCurrentRegion();
+    if (mapped_begin_ != nullptr) {
+      // Sync before unmapping to make sure everything
+      // is on disk and there is not a lazy writing
+      // so we are deterministic with the tests
+      Sync();
+      s = UnmapCurrentRegion();
+    }
 
     if (NULL != hMap_) {
       BOOL ret = ::CloseHandle(hMap_);
@@ -523,15 +490,18 @@ class WinMmapFile : public WritableFile {
       hMap_ = NULL;
     }
 
-    TruncateFile(targetSize);
+    if (hFile_ != NULL) {
 
-    BOOL ret = ::CloseHandle(hFile_);
-    hFile_ = NULL;
+      TruncateFile(targetSize);
 
-    if (!ret && s.ok()) {
-      auto lastError = GetLastError();
-      s = IOErrorFromWindowsError(
-          "Failed to close file map handle: " + filename_, lastError);
+      BOOL ret = ::CloseHandle(hFile_);
+      hFile_ = NULL;
+
+      if (!ret && s.ok()) {
+        auto lastError = GetLastError();
+        s = IOErrorFromWindowsError(
+            "Failed to close file map handle: " + filename_, lastError);
+      }
     }
 
     return s;
@@ -544,7 +514,7 @@ class WinMmapFile : public WritableFile {
     Status s;
 
     // Some writes occurred since last sync
-    if (pending_sync_) {
+    if (dst_ > last_sync_) {
       assert(mapped_begin_);
       assert(dst_);
       assert(dst_ > mapped_begin_);
@@ -554,16 +524,15 @@ class WinMmapFile : public WritableFile {
           TruncateToPageBoundary(page_size_, last_sync_ - mapped_begin_);
       size_t page_end =
           TruncateToPageBoundary(page_size_, dst_ - mapped_begin_ - 1);
-      last_sync_ = dst_;
 
       // Flush only the amount of that is a multiple of pages
       if (!::FlushViewOfFile(mapped_begin_ + page_begin,
-                             (page_end - page_begin) + page_size_)) {
+                              (page_end - page_begin) + page_size_)) {
         s = IOErrorFromWindowsError("Failed to FlushViewOfFile: " + filename_,
                                     GetLastError());
+      } else {
+        last_sync_ = dst_;
       }
-
-      pending_sync_ = false;
     }
 
     return s;
@@ -573,19 +542,15 @@ class WinMmapFile : public WritableFile {
   * Flush data as well as metadata to stable storage.
   */
   virtual Status Fsync() override {
-    Status s;
-
-    // Flush metadata if pending
-    const bool pending = pending_sync_;
-
-    s = Sync();
+    Status s = Sync();
 
     // Flush metadata
-    if (s.ok() && pending) {
+    if (s.ok() && pending_sync_) {
       if (!::FlushFileBuffers(hFile_)) {
         s = IOErrorFromWindowsError("Failed to FlushFileBuffers: " + filename_,
                                     GetLastError());
       }
+      pending_sync_ = false;
     }
 
     return s;
@@ -605,8 +570,25 @@ class WinMmapFile : public WritableFile {
     return Status::OK();
   }
 
-  virtual Status Allocate(off_t offset, off_t len) override {
-    return Status::OK();
+  virtual Status Allocate(uint64_t offset, uint64_t len) override {
+    Status status;
+    TEST_KILL_RANDOM("WinMmapFile::Allocate", rocksdb_kill_odds);
+
+    // Make sure that we reserve an aligned amount of space
+    // since the reservation block size is driven outside so we want
+    // to check if we are ok with reservation here
+    size_t spaceToReserve = Roundup(offset + len, view_size_);
+    // Nothing to do
+    if (spaceToReserve <= reserved_size_) {
+      return status;
+    }
+
+    IOSTATS_TIMER_GUARD(allocate_nanos);
+    status = fallocate(filename_, hFile_, spaceToReserve);
+    if (status.ok()) {
+      reserved_size_ = spaceToReserve;
+    }
+    return status;
   }
 };
 
@@ -616,7 +598,7 @@ class WinSequentialFile : public SequentialFile {
   HANDLE file_;
 
   // There is no equivalent of advising away buffered pages as in posix.
-  // To implement this flag we would need to do unbuffered reads which 
+  // To implement this flag we would need to do unbuffered reads which
   // will need to be aligned (not sure there is a guarantee that the buffer
   // passed in is aligned).
   // Hence we currently ignore this flag. It is used only in a few cases
@@ -768,6 +750,18 @@ class WinRandomAccessFile : public RandomAccessFile {
     return read;
   }
 
+  void CalculateReadParameters(uint64_t offset, size_t bytes_requested,
+                                size_t& actual_bytes_toread,
+                                uint64_t& first_page_start) const {
+
+    const size_t alignment = buffer_.Alignment();
+
+    first_page_start = TruncateToPageBoundary(alignment, offset);
+    const uint64_t last_page_start =
+      TruncateToPageBoundary(alignment, offset + bytes_requested - 1);
+    actual_bytes_toread = (last_page_start - first_page_start) + alignment;
+  }
+
  public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
                       const EnvOptions& options)
@@ -799,66 +793,87 @@ class WinRandomAccessFile : public RandomAccessFile {
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
+
     Status s;
     SSIZE_T r = -1;
     size_t left = n;
     char* dest = scratch;
 
+    if (n == 0) {
+      *result = Slice(scratch, 0);
+      return s;
+    }
+
     // When in unbuffered mode we need to do the following changes:
     // - use our own aligned buffer
     // - always read at the offset of that is a multiple of alignment
     if (!use_os_buffer_) {
-      std::unique_lock<std::mutex> lock(buffer_mut_);
 
-      // Let's see if at least some of the requested data is already
-      // in the buffer
-      if (offset >= buffered_start_ &&
+      uint64_t first_page_start = 0;
+      size_t actual_bytes_toread = 0;
+      size_t bytes_requested = left;
+
+      if (!read_ahead_ && random_access_max_buffer_size_ == 0) {
+        CalculateReadParameters(offset, bytes_requested, actual_bytes_toread,
+          first_page_start);
+
+        assert(actual_bytes_toread > 0);
+
+        r = ReadIntoOneShotBuffer(offset, first_page_start,
+          actual_bytes_toread, left, dest);
+      } else {
+
+        std::unique_lock<std::mutex> lock(buffer_mut_);
+
+        // Let's see if at least some of the requested data is already
+        // in the buffer
+        if (offset >= buffered_start_ &&
           offset < (buffered_start_ + buffer_.CurrentSize())) {
-        size_t buffer_offset = offset - buffered_start_;
-        r = buffer_.Read(dest, buffer_offset, left);
-        assert(r >= 0);
+          size_t buffer_offset = offset - buffered_start_;
+          r = buffer_.Read(dest, buffer_offset, left);
+          assert(r >= 0);
 
-        left -= size_t(r);
-        offset += r;
-        dest += r;
-      }
-
-      // Still some left or none was buffered
-      if (left > 0) {
-        // Figure out the start/end offset for reading and amount to read
-        const size_t alignment = buffer_.Alignment();
-        const size_t first_page_start =
-            TruncateToPageBoundary(alignment, offset);
-
-        size_t bytes_requested = left;
-        if (read_ahead_ && bytes_requested < compaction_readahead_size_) {
-          bytes_requested = compaction_readahead_size_;
+          left -= size_t(r);
+          offset += r;
+          dest += r;
         }
 
-        const size_t last_page_start =
-            TruncateToPageBoundary(alignment, offset + bytes_requested - 1);
-        const size_t actual_bytes_toread =
-            (last_page_start - first_page_start) + alignment;
+        // Still some left or none was buffered
+        if (left > 0) {
+          // Figure out the start/end offset for reading and amount to read
+          bytes_requested = left;
 
-        if (buffer_.Capacity() < actual_bytes_toread) {
-          // If we are in read-ahead mode or the requested size
-          // exceeds max buffer size then use one-shot
-          // big buffer otherwise reallocate main buffer
-          if (read_ahead_ ||
-              (actual_bytes_toread > random_access_max_buffer_size_)) {
-            // Unlock the mutex since we are not using instance buffer
-            lock.unlock();
-            r = ReadIntoOneShotBuffer(offset, first_page_start,
-                                      actual_bytes_toread, left, dest);
-          } else {
-            buffer_.AllocateNewBuffer(actual_bytes_toread);
-            r = ReadIntoInstanceBuffer(offset, first_page_start,
-                                       actual_bytes_toread, left, dest);
+          if (read_ahead_ && bytes_requested < compaction_readahead_size_) {
+            bytes_requested = compaction_readahead_size_;
           }
-        } else {
-          buffer_.Clear();
-          r = ReadIntoInstanceBuffer(offset, first_page_start,
-                                     actual_bytes_toread, left, dest);
+
+          CalculateReadParameters(offset, bytes_requested, actual_bytes_toread,
+            first_page_start);
+
+          assert(actual_bytes_toread > 0);
+
+          if (buffer_.Capacity() < actual_bytes_toread) {
+            // If we are in read-ahead mode or the requested size
+            // exceeds max buffer size then use one-shot
+            // big buffer otherwise reallocate main buffer
+            if (read_ahead_ ||
+              (actual_bytes_toread > random_access_max_buffer_size_)) {
+              // Unlock the mutex since we are not using instance buffer
+              lock.unlock();
+              r = ReadIntoOneShotBuffer(offset, first_page_start,
+                actual_bytes_toread, left, dest);
+            }
+            else {
+              buffer_.AllocateNewBuffer(actual_bytes_toread);
+              r = ReadIntoInstanceBuffer(offset, first_page_start,
+                actual_bytes_toread, left, dest);
+            }
+          }
+          else {
+            buffer_.Clear();
+            r = ReadIntoInstanceBuffer(offset, first_page_start,
+              actual_bytes_toread, left, dest);
+          }
         }
       }
     } else {
@@ -954,13 +969,13 @@ class WinWritableFile : public WritableFile {
 
     // Used for buffered access ONLY
     assert(use_os_buffer_);
-    assert(data.size() < std::numeric_limits<int>::max());
+    assert(data.size() < std::numeric_limits<DWORD>::max());
 
     Status s;
 
     DWORD bytesWritten = 0;
     if (!WriteFile(hFile_, data.data(),
-        data.size(), &bytesWritten, NULL)) {
+        static_cast<DWORD>(data.size()), &bytesWritten, NULL)) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError(
         "Failed to WriteFile: " + filename_,
@@ -976,8 +991,7 @@ class WinWritableFile : public WritableFile {
   virtual Status PositionedAppend(const Slice& data, uint64_t offset) override {
     Status s;
 
-    SSIZE_T ret = pwrite(hFile_, data.data(), 
-      data.size(), offset);
+    SSIZE_T ret = pwrite(hFile_, data.data(), data.size(), offset);
 
     // Error break
     if (ret < 0) {
@@ -1053,7 +1067,7 @@ class WinWritableFile : public WritableFile {
     return filesize_;
   }
 
-  virtual Status Allocate(off_t offset, off_t len) override {
+  virtual Status Allocate(uint64_t offset, uint64_t len) override {
     Status status;
     TEST_KILL_RANDOM("WinWritableFile::Allocate", rocksdb_kill_odds);
 
@@ -1107,6 +1121,8 @@ void WinthreadCall(const char* label, std::error_code result) {
   }
 }
 }
+
+typedef VOID(WINAPI * FnGetSystemTimePreciseAsFileTime)(LPFILETIME);
 
 class WinEnv : public Env {
  public:
@@ -1552,7 +1568,8 @@ class WinEnv : public Env {
   }
 
   virtual void Schedule(void (*function)(void*), void* arg, Priority pri = LOW,
-                        void* tag = nullptr) override;
+                        void* tag = nullptr,
+                        void (*unschedFunction)(void* arg) = 0) override;
 
   virtual int UnSchedule(void* arg, Priority pri) override;
 
@@ -1645,25 +1662,29 @@ class WinEnv : public Env {
   }
 
   virtual uint64_t NowMicros() override {
-    // all std::chrono clocks on windows proved to return
-    // values that may repeat that is not good enough for some uses.
-    const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
-    const int64_t c_FtToMicroSec = 10;
+    if (GetSystemTimePreciseAsFileTime_ != NULL) {
+      // all std::chrono clocks on windows proved to return
+      // values that may repeat that is not good enough for some uses.
+      const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
+      const int64_t c_FtToMicroSec = 10;
 
-    // This interface needs to return system time and not
-    // just any microseconds because it is often used as an argument
-    // to TimedWait() on condition variable
-    FILETIME ftSystemTime;
-    GetSystemTimePreciseAsFileTime(&ftSystemTime);
+      // This interface needs to return system time and not
+      // just any microseconds because it is often used as an argument
+      // to TimedWait() on condition variable
+      FILETIME ftSystemTime;
+      GetSystemTimePreciseAsFileTime_(&ftSystemTime);
 
-    LARGE_INTEGER li;
-    li.LowPart = ftSystemTime.dwLowDateTime;
-    li.HighPart = ftSystemTime.dwHighDateTime;
-    // Subtract unix epoch start
-    li.QuadPart -= c_UnixEpochStartTicks;
-    // Convert to microsecs
-    li.QuadPart /= c_FtToMicroSec;
-    return li.QuadPart;
+      LARGE_INTEGER li;
+      li.LowPart = ftSystemTime.dwLowDateTime;
+      li.HighPart = ftSystemTime.dwHighDateTime;
+      // Subtract unix epoch start
+      li.QuadPart -= c_UnixEpochStartTicks;
+      // Convert to microsecs
+      li.QuadPart /= c_FtToMicroSec;
+      return li.QuadPart;
+    }
+    using namespace std::chrono;
+    return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
   }
 
   virtual uint64_t NowNanos() override {
@@ -1686,7 +1707,8 @@ class WinEnv : public Env {
 
   virtual Status GetHostName(char* name, uint64_t len) override {
     Status s;
-    DWORD nSize = len;
+    DWORD nSize = static_cast<DWORD>(
+        std::min<uint64_t>(len, std::numeric_limits<DWORD>::max()));
 
     if (!::GetComputerNameA(name, &nSize)) {
       auto lastError = GetLastError();
@@ -1890,7 +1912,7 @@ class WinEnv : public Env {
           // generation time.
           std::thread& terminating_thread = bgthreads_.back();
           auto tid = terminating_thread.get_id();
-          // Ensure that that this thread is ours
+          // Ensure that this thread is ours
           assert(tid == std::this_thread::get_id());
           terminating_thread.detach();
           bgthreads_.pop_back();
@@ -1981,7 +2003,8 @@ class WinEnv : public Env {
       }
     }
 
-    void Schedule(void (*function)(void* arg1), void* arg, void* tag) {
+    void Schedule(void (*function)(void* arg1), void* arg, void* tag,
+                  void (*unschedFunction)(void* arg)) {
       std::lock_guard<std::mutex> lg(mu_);
 
       if (exit_all_threads_) {
@@ -1995,6 +2018,7 @@ class WinEnv : public Env {
       queue_.back().function = function;
       queue_.back().arg = arg;
       queue_.back().tag = tag;
+      queue_.back().unschedFunction = unschedFunction;
       queue_len_.store(queue_.size(), std::memory_order_relaxed);
 
       if (!HasExcessiveThread()) {
@@ -2016,6 +2040,11 @@ class WinEnv : public Env {
       BGQueue::iterator it = queue_.begin();
       while (it != queue_.end()) {
         if (arg == (*it).tag) {
+          void (*unschedFunction)(void*) = (*it).unschedFunction;
+          void* arg1 = (*it).arg;
+          if (unschedFunction != nullptr) {
+            (*unschedFunction)(arg1);
+          }
           it = queue_.erase(it);
           count++;
         } else {
@@ -2039,6 +2068,7 @@ class WinEnv : public Env {
       void* arg;
       void (*function)(void*);
       void* tag;
+      void (*unschedFunction)(void*);
     };
 
     typedef std::deque<BGItem> BGQueue;
@@ -2063,6 +2093,7 @@ class WinEnv : public Env {
   std::vector<ThreadPool> thread_pools_;
   mutable std::mutex mu_;
   std::vector<std::thread> threads_to_join_;
+  FnGetSystemTimePreciseAsFileTime GetSystemTimePreciseAsFileTime_;
 };
 
 WinEnv::WinEnv()
@@ -2071,7 +2102,15 @@ WinEnv::WinEnv()
       page_size_(4 * 1012),
       allocation_granularity_(page_size_),
       perf_counter_frequency_(0),
-      thread_pools_(Priority::TOTAL) {
+      thread_pools_(Priority::TOTAL),
+      GetSystemTimePreciseAsFileTime_(NULL) {
+
+  HMODULE module = GetModuleHandle("kernel32.dll");
+  if (module != NULL) {
+    GetSystemTimePreciseAsFileTime_ = (FnGetSystemTimePreciseAsFileTime)GetProcAddress(
+      module, "GetSystemTimePreciseAsFileTime");
+  }
+
   SYSTEM_INFO sinfo;
   GetSystemInfo(&sinfo);
 
@@ -2097,9 +2136,9 @@ WinEnv::WinEnv()
 }
 
 void WinEnv::Schedule(void (*function)(void*), void* arg, Priority pri,
-                      void* tag) {
+                      void* tag, void (*unschedFunction)(void* arg)) {
   assert(pri >= Priority::LOW && pri <= Priority::HIGH);
-  thread_pools_[pri].Schedule(function, arg, tag);
+  thread_pools_[pri].Schedule(function, arg, tag, unschedFunction);
 }
 
 int WinEnv::UnSchedule(void* arg, Priority pri) {

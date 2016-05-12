@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -38,13 +38,14 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZJIJIIZIZZJIBBI)J
+ * Signature: (ZJIJIIZIZZZJIBBI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv* env, jobject jobj, jboolean no_block_cache, jlong block_cache_size,
     jint block_cache_num_shardbits, jlong block_size, jint block_size_deviation,
     jint block_restart_interval, jboolean whole_key_filtering,
     jlong jfilterPolicy, jboolean cache_index_and_filter_blocks,
+    jboolean pin_l0_filter_and_index_blocks_in_cache,
     jboolean hash_index_allow_collision, jlong block_cache_compressed_size,
     jint block_cache_compressd_num_shard_bits, jbyte jchecksum_type,
     jbyte jindex_type, jint jformat_version) {
@@ -70,6 +71,8 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     options.filter_policy = *pFilterPolicy;
   }
   options.cache_index_and_filter_blocks = cache_index_and_filter_blocks;
+  options.pin_l0_filter_and_index_blocks_in_cache =
+      pin_l0_filter_and_index_blocks_in_cache;
   options.hash_index_allow_collision = hash_index_allow_collision;
   if (block_cache_compressed_size > 0) {
     if (block_cache_compressd_num_shard_bits > 0) {

@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -165,7 +165,7 @@ class Repairer {
   Status FindFiles() {
     std::vector<std::string> filenames;
     bool found_file = false;
-    for (uint32_t path_id = 0; path_id < options_.db_paths.size(); path_id++) {
+    for (size_t path_id = 0; path_id < options_.db_paths.size(); path_id++) {
       Status status =
           env_->GetChildren(options_.db_paths[path_id].path, &filenames);
       if (!status.ok()) {
@@ -190,7 +190,8 @@ class Repairer {
               assert(path_id == 0);
               logs_.push_back(number);
             } else if (type == kTableFile) {
-              table_fds_.emplace_back(number, path_id, 0);
+              table_fds_.emplace_back(number, static_cast<uint32_t>(path_id),
+                                      0);
             } else {
               // Ignore other files
             }
@@ -264,13 +265,13 @@ class Repairer {
     mem->Ref();
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {
-      if (record.size() < 12) {
+      if (record.size() < WriteBatchInternal::kHeader) {
         reporter.Corruption(
             record.size(), Status::Corruption("log record too small"));
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
-      status = WriteBatchInternal::InsertInto(&batch, cf_mems_default);
+      status = WriteBatchInternal::InsertInto(&batch, cf_mems_default, nullptr);
       if (status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
       } else {
@@ -293,8 +294,10 @@ class Repairer {
       status = BuildTable(
           dbname_, env_, ioptions_, env_options_, table_cache_, iter.get(),
           &meta, icmp_, &int_tbl_prop_collector_factories_,
-          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily, {},
-          kNoCompression, CompressionOptions(), false, nullptr);
+          TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
+          std::string() /* column_family_name */, {}, kMaxSequenceNumber,
+          kNoCompression, CompressionOptions(), false,
+          nullptr /* internal_stats */, TableFileCreationReason::kRecovery);
     }
     delete mem->Unref();
     delete cf_mems_default;

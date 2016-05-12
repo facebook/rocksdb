@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -37,6 +37,7 @@ class DeleteFileTest : public testing::Test {
   DeleteFileTest() {
     db_ = nullptr;
     env_ = Env::Default();
+    options_.delete_obsolete_files_period_micros = 0;  // always do full purge
     options_.enable_thread_tracking = true;
     options_.write_buffer_size = 1024*1024*1000;
     options_.target_file_size_base = 1024*1024*1000;
@@ -74,6 +75,7 @@ class DeleteFileTest : public testing::Test {
 
   void CloseDB() {
     delete db_;
+    db_ = nullptr;
   }
 
   void AddKeys(int numkeys, int startkey = 0) {

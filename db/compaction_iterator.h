@@ -1,6 +1,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -39,9 +39,10 @@ class CompactionIterator {
  public:
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
-                     std::vector<SequenceNumber>* snapshots, Env* env,
+                     std::vector<SequenceNumber>* snapshots,
+                     SequenceNumber earliest_write_conflict_snapshot, Env* env,
                      bool expect_valid_internal_key,
-                     Compaction* compaction = nullptr,
+                     const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      LogBuffer* log_buffer = nullptr);
 
@@ -88,9 +89,10 @@ class CompactionIterator {
   const Comparator* cmp_;
   MergeHelper* merge_helper_;
   const std::vector<SequenceNumber>* snapshots_;
+  const SequenceNumber earliest_write_conflict_snapshot_;
   Env* env_;
   bool expect_valid_internal_key_;
-  Compaction* compaction_;
+  const Compaction* compaction_;
   const CompactionFilter* compaction_filter_;
   LogBuffer* log_buffer_;
   bool bottommost_level_;
@@ -98,6 +100,7 @@ class CompactionIterator {
   SequenceNumber visible_at_tip_;
   SequenceNumber earliest_snapshot_;
   SequenceNumber latest_snapshot_;
+  bool ignore_snapshots_;
 
   // State
   //
@@ -124,6 +127,14 @@ class CompactionIterator {
   Slice current_user_key_;
   SequenceNumber current_user_key_sequence_;
   SequenceNumber current_user_key_snapshot_;
+
+  // True if the iterator has already returned a record for the current key.
+  bool has_outputted_key_ = false;
+
+  // truncated the value of the next key and output it without applying any
+  // compaction rules.  This is used for outputting a put after a single delete.
+  bool clear_and_output_next_key_ = false;
+
   MergeOutputIterator merge_out_iter_;
   std::string compaction_filter_value_;
   // "level_ptrs" holds indices that remember which file of an associated

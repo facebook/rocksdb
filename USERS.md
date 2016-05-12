@@ -9,7 +9,7 @@ At Facebook, we use RocksDB as a backend for many different stateful services. W
 ## LinkedIn
 Two different use cases at Linkedin are using RocksDB as a storage engine:
 
-1. LinkedIn's follow feed for storing user's activities
+1. LinkedIn's follow feed for storing user's activities. Check out the blog post: https://engineering.linkedin.com/blog/2016/03/followfeed--linkedin-s-feed-made-faster-and-smarter
 2. Apache Samza, open source framework for stream processing
 
 Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasundaram: http://www.youtube.com/watch?v=plqVp_OnSzg
@@ -37,3 +37,22 @@ Check out our RocksDB Protobuf merge operator at: https://github.com/vladb38/roc
 
 ## Santanader UK/Cloudera Profession Services
 Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santanders-near-real-time-data-ingest-architecture/
+
+## Airbnb
+Airbnb is using RocksDB as a storage engine for their personalized search service. You can learn more about it here: https://www.youtube.com/watch?v=ASQ6XMtogMs
+
+## Pinterest
+Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtube.com/watch?v=MtFEVEs_2Vo
+
+## Smyte
+[Smyte](https://www.smyte.com/) uses RocksDB as the storage layer for their core key-value storage, high-performance counters and time-windowed HyperLogLog services.
+
+## Rakuten Marketing
+[Rakuten Marketing](https://marketing.rakuten.com/) uses RocksDB as the disk cache layer for the real-time bidding service in their Performance DSP.
+
+## VWO, Wingify
+[VWO's](https://vwo.com/) Smart Code checker and URL helper uses RocksDB to store all the URLs where VWO's Smart Code is installed.
+
+## quasardb
+[quasardb](https://www.quasardb.net) is a high-performance, distributed, transactional key-value database that integrates well with in-memory analytics engines such as Apache Spark. 
+quasardb uses a heavily tuned RocksDB as its persistence layer.

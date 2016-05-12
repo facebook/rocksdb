@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -21,63 +21,29 @@ namespace rocksdb {
 class MemTableList;
 class DBImpl;
 
-// IMPORTANT: If you add a new property here, also add it to the list in
-//            include/rocksdb/db.h
-enum DBPropertyType : uint32_t {
-  kUnknown,
-  kNumFilesAtLevel,  // Number of files at a specific level
-  kLevelStats,       // Return number of files and total sizes of each level
-  kCFStats,          // Return general statitistics of CF
-  kDBStats,          // Return general statitistics of DB
-  kStats,            // Return general statitistics of both DB and CF
-  kSsTables,         // Return a human readable string of current SST files
-  kStartIntTypes,    // ---- Dummy value to indicate the start of integer values
-  kNumImmutableMemTable,         // Return number of immutable mem tables that
-                                 // have not been flushed.
-  kNumImmutableMemTableFlushed,  // Return number of immutable mem tables
-                                 // in memory that have already been flushed
-  kMemtableFlushPending,         // Return 1 if mem table flushing is pending,
-                                 // otherwise 0.
-  kNumRunningFlushes,      // Return the number of currently running flushes.
-  kCompactionPending,      // Return 1 if a compaction is pending. Otherwise 0.
-  kNumRunningCompactions,  // Return the number of currently running
-                           // compactions.
-  kBackgroundErrors,       // Return accumulated background errors encountered.
-  kCurSizeActiveMemTable,  // Return current size of the active memtable
-  kCurSizeAllMemTables,    // Return current size of unflushed
-                           // (active + immutable) memtables
-  kSizeAllMemTables,       // Return current size of all (active + immutable
-                           // + pinned) memtables
-  kNumEntriesInMutableMemtable,    // Return number of deletes in the mutable
-                                   // memtable.
-  kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
-                                   // the immutable mem tables.
-  kNumDeletesInMutableMemtable,    // Return number of deletion entries in the
-                                   // mutable memtable.
-  kNumDeletesInImmutableMemtable,  // Return the total number of deletion
-                                   // entries in all the immutable mem tables.
-  kEstimatedNumKeys,  // Estimated total number of keys in the database.
-  kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
-  kIsFileDeletionEnabled,         // Equals disable_delete_obsolete_files_,
-                                  // 0 means file deletions enabled
-  kNumSnapshots,                  // Number of snapshots in the system
-  kOldestSnapshotTime,            // Unix timestamp of the first snapshot
-  kNumLiveVersions,
-  kEstimateLiveDataSize,            // Estimated amount of live data in bytes
-  kTotalSstFilesSize,               // Total size of all sst files.
-  kBaseLevel,                       // The level that L0 data is compacted to
-  kEstimatePendingCompactionBytes,  // Estimated bytes to compaction
-  kAggregatedTableProperties,  // Return a string that contains the aggregated
-                               // table properties.
-  kAggregatedTablePropertiesAtLevel,  // Return a string that contains the
-                                      // aggregated
-  // table properties at the specified level.
+// Config for retrieving a property's value.
+struct DBPropertyInfo {
+  bool need_out_of_mutex;
+
+  // gcc had an internal error for initializing union of pointer-to-member-
+  // functions. Workaround is to populate exactly one of the following function
+  // pointers with a non-nullptr value.
+
+  // @param value Value-result argument for storing the property's string value
+  // @param suffix Argument portion of the property. For example, suffix would
+  //      be "5" for the property "rocksdb.num-files-at-level5". So far, only
+  //      certain string properties take an argument.
+  bool (InternalStats::*handle_string)(std::string* value, Slice suffix);
+
+  // @param value Value-result argument for storing the property's uint64 value
+  // @param db Many of the int properties rely on DBImpl methods.
+  // @param version Version is needed in case the property is retrieved without
+  //      holding db mutex, which is only supported for int properties.
+  bool (InternalStats::*handle_int)(uint64_t* value, DBImpl* db,
+                                    Version* version);
 };
 
-extern DBPropertyType GetPropertyType(const Slice& property,
-                                      bool* is_int_property,
-                                      bool* need_out_of_mutex);
-
+extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #ifndef ROCKSDB_LITE
 class InternalStats {
@@ -86,8 +52,10 @@ class InternalStats {
     LEVEL0_SLOWDOWN_TOTAL,
     LEVEL0_SLOWDOWN_WITH_COMPACTION,
     MEMTABLE_COMPACTION,
+    MEMTABLE_SLOWDOWN,
     LEVEL0_NUM_FILES_TOTAL,
     LEVEL0_NUM_FILES_WITH_COMPACTION,
+    SOFT_PENDING_COMPACTION_BYTES_LIMIT,
     HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
@@ -107,30 +75,16 @@ class InternalStats {
   };
 
   InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd)
-      : db_stats_(INTERNAL_DB_STATS_ENUM_MAX),
-        cf_stats_value_(INTERNAL_CF_STATS_ENUM_MAX),
-        cf_stats_count_(INTERNAL_CF_STATS_ENUM_MAX),
+      : db_stats_{},
+        cf_stats_value_{},
+        cf_stats_count_{},
         comp_stats_(num_levels),
-        stall_leveln_slowdown_count_hard_(num_levels),
-        stall_leveln_slowdown_count_soft_(num_levels),
         file_read_latency_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
         env_(env),
         cfd_(cfd),
-        started_at_(env->NowMicros()) {
-    for (int i = 0; i< INTERNAL_DB_STATS_ENUM_MAX; ++i) {
-      db_stats_[i] = 0;
-    }
-    for (int i = 0; i< INTERNAL_CF_STATS_ENUM_MAX; ++i) {
-      cf_stats_value_[i] = 0;
-      cf_stats_count_[i] = 0;
-    }
-    for (int i = 0; i < num_levels; ++i) {
-      stall_leveln_slowdown_count_hard_[i] = 0;
-      stall_leveln_slowdown_count_soft_[i] = 0;
-    }
-  }
+        started_at_(env->NowMicros()) {}
 
   // Per level compaction stats.  comp_stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
@@ -237,21 +191,19 @@ class InternalStats {
     comp_stats_[level].bytes_moved += amount;
   }
 
-  void RecordLevelNSlowdown(int level, bool soft) {
-    if (soft) {
-      ++stall_leveln_slowdown_count_soft_[level];
-    } else {
-      ++stall_leveln_slowdown_count_hard_[level];
-    }
-  }
-
   void AddCFStats(InternalCFStatsType type, uint64_t value) {
     cf_stats_value_[type] += value;
     ++cf_stats_count_[type];
   }
 
   void AddDBStats(InternalDBStatsType type, uint64_t value) {
-    db_stats_[type] += value;
+    auto& v = db_stats_[type];
+    v.store(v.load(std::memory_order_relaxed) + value,
+            std::memory_order_relaxed);
+  }
+
+  uint64_t GetDBStats(InternalDBStatsType type) {
+    return db_stats_[type].load(std::memory_order_relaxed);
   }
 
   HistogramImpl* GetFileReadHist(int level) {
@@ -262,29 +214,30 @@ class InternalStats {
 
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
 
-  bool GetStringProperty(DBPropertyType property_type, const Slice& property,
-                         std::string* value);
+  bool GetStringProperty(const DBPropertyInfo& property_info,
+                         const Slice& property, std::string* value);
 
-  bool GetIntProperty(DBPropertyType property_type, uint64_t* value,
-                      DBImpl* db) const;
+  bool GetIntProperty(const DBPropertyInfo& property_info, uint64_t* value,
+                      DBImpl* db);
 
-  bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
-                                uint64_t* value) const;
+  bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
+                                Version* version, uint64_t* value);
+
+  // Store a mapping from the user-facing DB::Properties string to our
+  // DBPropertyInfo struct used internally for retrieving properties.
+  static const std::unordered_map<std::string, DBPropertyInfo> ppt_name_to_info;
 
  private:
   void DumpDBStats(std::string* value);
   void DumpCFStats(std::string* value);
 
   // Per-DB stats
-  std::vector<uint64_t> db_stats_;
+  std::atomic<uint64_t> db_stats_[INTERNAL_DB_STATS_ENUM_MAX];
   // Per-ColumnFamily stats
-  std::vector<uint64_t> cf_stats_value_;
-  std::vector<uint64_t> cf_stats_count_;
+  uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
+  uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
   // Per-ColumnFamily/level compaction stats
   std::vector<CompactionStats> comp_stats_;
-  // These count the number of microseconds for which MakeRoomForWrite stalls.
-  std::vector<uint64_t> stall_leveln_slowdown_count_hard_;
-  std::vector<uint64_t> stall_leveln_slowdown_count_soft_;
   std::vector<HistogramImpl> file_read_latency_;
 
   // Used to compute per-interval statistics
@@ -293,11 +246,20 @@ class InternalStats {
     CompactionStats comp_stats;
     uint64_t ingest_bytes;            // Bytes written to L0
     uint64_t stall_count;             // Stall count
+    // Stats from compaction jobs - bytes written, bytes read, duration.
+    uint64_t compact_bytes_write;
+    uint64_t compact_bytes_read;
+    uint64_t compact_micros;
+    double seconds_up;
 
     CFStatsSnapshot()
         : comp_stats(0),
           ingest_bytes(0),
-          stall_count(0) {}
+          stall_count(0),
+          compact_bytes_write(0),
+          compact_bytes_read(0),
+          compact_micros(0),
+          seconds_up(0) {}
   } cf_stats_snapshot_;
 
   struct DBStatsSnapshot {
@@ -310,10 +272,6 @@ class InternalStats {
     // another thread.
     uint64_t write_other;
     uint64_t write_self;
-    // Stats from compaction jobs - bytes written, bytes read, duration.
-    uint64_t compact_bytes_write;
-    uint64_t compact_bytes_read;
-    uint64_t compact_micros;
     // Total number of keys written. write_self and write_other measure number
     // of write requests written, Each of the write request can contain updates
     // to multiple keys. num_keys_written is total number of keys updated by all
@@ -330,13 +288,61 @@ class InternalStats {
           write_with_wal(0),
           write_other(0),
           write_self(0),
-          compact_bytes_write(0),
-          compact_bytes_read(0),
-          compact_micros(0),
           num_keys_written(0),
           write_stall_micros(0),
           seconds_up(0) {}
   } db_stats_snapshot_;
+
+  // Handler functions for getting property values. They use "value" as a value-
+  // result argument, and return true upon successfully setting "value".
+  bool HandleNumFilesAtLevel(std::string* value, Slice suffix);
+  bool HandleCompressionRatioAtLevelPrefix(std::string* value, Slice suffix);
+  bool HandleLevelStats(std::string* value, Slice suffix);
+  bool HandleStats(std::string* value, Slice suffix);
+  bool HandleCFStats(std::string* value, Slice suffix);
+  bool HandleDBStats(std::string* value, Slice suffix);
+  bool HandleSsTables(std::string* value, Slice suffix);
+  bool HandleAggregatedTableProperties(std::string* value, Slice suffix);
+  bool HandleAggregatedTablePropertiesAtLevel(std::string* value, Slice suffix);
+  bool HandleNumImmutableMemTable(uint64_t* value, DBImpl* db,
+                                  Version* version);
+  bool HandleNumImmutableMemTableFlushed(uint64_t* value, DBImpl* db,
+                                         Version* version);
+  bool HandleMemTableFlushPending(uint64_t* value, DBImpl* db,
+                                  Version* version);
+  bool HandleNumRunningFlushes(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleCompactionPending(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleNumRunningCompactions(uint64_t* value, DBImpl* db,
+                                   Version* version);
+  bool HandleBackgroundErrors(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleCurSizeActiveMemTable(uint64_t* value, DBImpl* db,
+                                   Version* version);
+  bool HandleCurSizeAllMemTables(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleSizeAllMemTables(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleNumEntriesActiveMemTable(uint64_t* value, DBImpl* db,
+                                      Version* version);
+  bool HandleNumEntriesImmMemTables(uint64_t* value, DBImpl* db,
+                                    Version* version);
+  bool HandleNumDeletesActiveMemTable(uint64_t* value, DBImpl* db,
+                                      Version* version);
+  bool HandleNumDeletesImmMemTables(uint64_t* value, DBImpl* db,
+                                    Version* version);
+  bool HandleEstimateNumKeys(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleNumSnapshots(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleOldestSnapshotTime(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleNumLiveVersions(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleCurrentSuperVersionNumber(uint64_t* value, DBImpl* db,
+                                       Version* version);
+  bool HandleIsFileDeletionsEnabled(uint64_t* value, DBImpl* db,
+                                    Version* version);
+  bool HandleBaseLevel(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleTotalSstFilesSize(uint64_t* value, DBImpl* db, Version* version);
+  bool HandleEstimatePendingCompactionBytes(uint64_t* value, DBImpl* db,
+                                            Version* version);
+  bool HandleEstimateTableReadersMem(uint64_t* value, DBImpl* db,
+                                     Version* version);
+  bool HandleEstimateLiveDataSize(uint64_t* value, DBImpl* db,
+                                  Version* version);
 
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can
@@ -359,8 +365,10 @@ class InternalStats {
     LEVEL0_SLOWDOWN_TOTAL,
     LEVEL0_SLOWDOWN_WITH_COMPACTION,
     MEMTABLE_COMPACTION,
+    MEMTABLE_SLOWDOWN,
     LEVEL0_NUM_FILES_TOTAL,
     LEVEL0_NUM_FILES_WITH_COMPACTION,
+    SOFT_PENDING_COMPACTION_BYTES_LIMIT,
     HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
@@ -407,8 +415,6 @@ class InternalStats {
 
   void IncBytesMoved(int level, uint64_t amount) {}
 
-  void RecordLevelNSlowdown(int level, bool soft) {}
-
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 
   void AddDBStats(InternalDBStatsType type, uint64_t value) {}
@@ -419,14 +425,20 @@ class InternalStats {
 
   uint64_t BumpAndGetBackgroundErrorCount() { return 0; }
 
-  bool GetStringProperty(DBPropertyType property_type, const Slice& property,
-                         std::string* value) { return false; }
+  bool GetStringProperty(const DBPropertyInfo& property_info,
+                         const Slice& property, std::string* value) {
+    return false;
+  }
 
-  bool GetIntProperty(DBPropertyType property_type, uint64_t* value,
-                      DBImpl* db) const { return false; }
+  bool GetIntProperty(const DBPropertyInfo& property_info, uint64_t* value,
+                      DBImpl* db) const {
+    return false;
+  }
 
-  bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
-                                uint64_t* value) const { return false; }
+  bool GetIntPropertyOutOfMutex(const DBPropertyInfo& property_info,
+                                Version* version, uint64_t* value) const {
+    return false;
+  }
 };
 #endif  // !ROCKSDB_LITE
 

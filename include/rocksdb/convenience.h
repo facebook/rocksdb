@@ -1,4 +1,4 @@
-// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -7,6 +7,7 @@
 
 #include <unordered_map>
 #include <string>
+#include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
@@ -17,7 +18,7 @@ namespace rocksdb {
 // base_options, and return the new options as a result.
 //
 // If input_strings_escaped is set to true, then each escaped characters
-// prefixed by '\' in the the values of the opts_map will be further
+// prefixed by '\' in the values of the opts_map will be further
 // converted back to the raw string before assigning to the associated
 // options.
 Status GetColumnFamilyOptionsFromMap(
@@ -29,7 +30,7 @@ Status GetColumnFamilyOptionsFromMap(
 // base_options, and return the new options as a result.
 //
 // If input_strings_escaped is set to true, then each escaped characters
-// prefixed by '\' in the the values of the opts_map will be further
+// prefixed by '\' in the values of the opts_map will be further
 // converted back to the raw string before assigning to the associated
 // options.
 Status GetDBOptionsFromMap(
@@ -85,11 +86,22 @@ Status GetPlainTableOptionsFromString(
     const std::string& opts_str,
     PlainTableOptions* new_table_options);
 
+Status GetMemTableRepFactoryFromString(
+    const std::string& opts_str,
+    std::unique_ptr<MemTableRepFactory>* new_mem_factory);
+
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options);
 
-/// Request stopping background work, if wait is true wait until it's done
+// Request stopping background work, if wait is true wait until it's done
 void CancelAllBackgroundWork(DB* db, bool wait = false);
+
+// Delete files which are entirely in the given range
+// Could leave some keys in the range which are in files which are not
+// entirely in the range.
+// Snapshots before the delete might not see the data in the given range.
+Status DeleteFilesInRange(DB* db, ColumnFamilyHandle* column_family,
+                          const Slice* begin, const Slice* end);
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

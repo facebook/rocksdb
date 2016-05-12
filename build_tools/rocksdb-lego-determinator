@@ -65,10 +65,13 @@ SHM="TEST_TMPDIR=/dev/shm/rocksdb"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
 ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
-LITE="OPT=-DROCKSDB_LITE"
+LITE="OPT=\"-DROCKSDB_LITE -g\""
 TSAN="COMPILE_WITH_TSAN=1"
+UBSAN="COMPILE_WITH_UBSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
-PARSER="'parser':'egrep \'Failure|^#|Abort\''"
+HTTP_PROXY="https_proxy=http://fwdproxy.29.prn1:8080 http_proxy=http://fwdproxy.29.prn1:8080 ftp_proxy=http://fwdproxy.29.prn1:8080"
+SETUP_JAVA_ENV="export $HTTP_PROXY; export JAVA_HOME=/usr/local/jdk-7u10-64/; export PATH=\$PATH:\$JAVA_HOME/bin"
+PARSER="'parser':'python build_tools/error_filter.py $1'"
 
 ARTIFACTS=" 'artifacts': [
     {
@@ -254,7 +257,7 @@ LITE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'$LITE $DEBUG make J=1 static_lib',
+                'shell':'$LITE make J=1 static_lib',
                 'user':'root',
                 $PARSER
             },
@@ -274,7 +277,7 @@ LITE_UNIT_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB debug version',
-                'shell':'$SHM $LITE $DEBUG make J=1 check',
+                'shell':'$SHM $LITE make J=1 check',
                 'user':'root',
                 $PARSER
             },
@@ -312,6 +315,28 @@ STRESS_CRASH_TEST_COMMANDS="[
     }
 ]"
 
+# RocksDB write stress test.
+# We run on disk device on purpose (i.e. no $SHM)
+# because we want to add some randomness to fsync commands
+WRITE_STRESS_COMMANDS="[
+    {
+        'name':'Rocksdb Write Stress Test',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB write stress tests',
+                'shell':'make write_stress && python tools/write_stress_runner.py --runtime_sec=3600 --db=/tmp/rocksdb_write_stress',
+                'user':'root',
+                $PARSER
+            }
+        ],
+        'artifacts': [{'name': 'database', 'paths': ['/tmp/rocksdb_write_stress']}],
+        $REPORT
+    }
+]"
+
+
 #
 # RocksDB test under address sanitizer
 #
@@ -346,6 +371,48 @@ ASAN_CRASH_TEST_COMMANDS="[
                 'name':'Build and run RocksDB debug asan_crash_test',
                 'timeout': 86400,
                 'shell':'$SHM $DEBUG make J=1 asan_crash_test',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB test under undefined behavior sanitizer
+#
+UBSAN_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Unit Test under UBSAN',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Test RocksDB debug under UBSAN',
+                'shell':'set -o pipefail && $SHM $UBSAN $DEBUG make J=1 ubsan_check',
+                'user':'root',
+                $PARSER
+            }
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB crash testing under udnefined behavior sanitizer
+#
+UBSAN_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb crash test under UBSAN',
+        'oncall':'$ONCALL',
+        'timeout': 86400,
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and run RocksDB debug ubsan_crash_test',
+                'timeout': 86400,
+                'shell':'$SHM $DEBUG make J=1 ubsan_crash_test',
                 'user':'root',
                 $PARSER
             },
@@ -440,9 +507,9 @@ run_format_compatible()
   if [ -e "build_detect_platform" ]
   then
     sed "s/tcmalloc/nothingnothingnothing/g" build_detect_platform > $TEST_TMPDIR/temp_build_file
-    rm -rf build_detect_platform 
+    rm -rf build_detect_platform
     cp $TEST_TMPDIR/temp_build_file build_detect_platform
-    chmod +x build_detect_platform 
+    chmod +x build_detect_platform
   fi
 
   make ldb -j32
@@ -570,6 +637,27 @@ REGRESSION_COMMANDS="[
     }
 ]"
 
+#
+# RocksDB Java build
+#
+JAVA_BUILD_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Java Build',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build RocksDB for Java',
+                'shell':'$SETUP_JAVA_ENV; $SHM make rocksdbjava',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+
 case $1 in
   punit)
     echo $PARALLEL_UNIT_TEST_COMMANDS
@@ -601,11 +689,20 @@ case $1 in
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS
     ;;
+  write_stress)
+    echo $WRITE_STRESS_COMMANDS
+    ;;
   asan)
     echo $ASAN_TEST_COMMANDS
     ;;
   asan_crash)
     echo $ASAN_CRASH_TEST_COMMANDS
+    ;;
+  ubsan)
+    echo $UBSAN_TEST_COMMANDS
+    ;;
+  ubsan_crash)
+    echo $UBSAN_CRASH_TEST_COMMANDS
     ;;
   valgrind)
     echo $VALGRIND_TEST_COMMANDS
@@ -633,6 +730,9 @@ case $1 in
     ;;
   run_regression)
     run_regression
+    ;;
+  java_build)
+    echo $JAVA_BUILD_TEST_COMMANDS
     ;;
   *)
     echo "Invalid determinator command"

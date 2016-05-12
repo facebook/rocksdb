@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -9,46 +9,53 @@
 
 #pragma once
 
+#include <set>
+
 #include "table/internal_iterator.h"
 
 namespace rocksdb {
 
-// A internal wrapper class with an interface similar to Iterator that
-// caches the valid() and key() results for an underlying iterator.
+// A internal wrapper class with an interface similar to Iterator that caches
+// the valid(), key() and IsKeyPinned() results for an underlying iterator.
 // This can help avoid virtual function calls and also gives better
 // cache locality.
 class IteratorWrapper {
  public:
-  IteratorWrapper(): iter_(nullptr), valid_(false) { }
+  IteratorWrapper() : iter_(nullptr), valid_(false) {}
   explicit IteratorWrapper(InternalIterator* _iter) : iter_(nullptr) {
     Set(_iter);
   }
   ~IteratorWrapper() {}
   InternalIterator* iter() const { return iter_; }
 
-  // Takes ownership of "iter" and will delete it when destroyed, or
-  // when Set() is invoked again.
-  void Set(InternalIterator* _iter) {
-    delete iter_;
+  // Set the underlying Iterator to _iter and return
+  // previous underlying Iterator.
+  InternalIterator* Set(InternalIterator* _iter) {
+    InternalIterator* old_iter = iter_;
+
     iter_ = _iter;
     if (iter_ == nullptr) {
       valid_ = false;
     } else {
       Update();
     }
+    return old_iter;
   }
 
   void DeleteIter(bool is_arena_mode) {
-    if (!is_arena_mode) {
-      delete iter_;
-    } else {
-      iter_->~InternalIterator();
+    if (iter_) {
+      if (!is_arena_mode) {
+        delete iter_;
+      } else {
+        iter_->~InternalIterator();
+      }
     }
   }
 
   // Iterator interface methods
   bool Valid() const        { return valid_; }
   Slice key() const         { assert(Valid()); return key_; }
+  bool IsKeyPinned() const  { assert(Valid()); return is_key_pinned_; }
   Slice value() const       { assert(Valid()); return iter_->value(); }
   // Methods below require iter() != nullptr
   Status status() const     { assert(iter_); return iter_->status(); }
@@ -57,18 +64,25 @@ class IteratorWrapper {
   void Seek(const Slice& k) { assert(iter_); iter_->Seek(k);       Update(); }
   void SeekToFirst()        { assert(iter_); iter_->SeekToFirst(); Update(); }
   void SeekToLast()         { assert(iter_); iter_->SeekToLast();  Update(); }
+  void SetPinnedItersMgr(PinnedIteratorsManager* pinned_iters_mgr) {
+    assert(iter_);
+    iter_->SetPinnedItersMgr(pinned_iters_mgr);
+    Update();
+  }
 
  private:
   void Update() {
     valid_ = iter_->Valid();
     if (valid_) {
       key_ = iter_->key();
+      is_key_pinned_ = iter_->IsKeyPinned();
     }
   }
 
   InternalIterator* iter_;
   bool valid_;
   Slice key_;
+  bool is_key_pinned_;
 };
 
 class Arena;

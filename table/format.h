@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -14,6 +14,8 @@
 #include "rocksdb/status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+
+#include "port/port.h" // noexcept
 
 namespace rocksdb {
 
@@ -69,6 +71,7 @@ inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
                                             uint32_t version) {
   // snappy is not versioned
   assert(compression_type != kSnappyCompression &&
+         compression_type != kXpressCompression &&
          compression_type != kNoCompression);
   // As of version 2, we encode compressed block with
   // compress_format_version == 2. Before that, the version is 1.
@@ -192,7 +195,7 @@ struct BlockContents {
         compression_type(_compression_type),
         allocation(std::move(_data)) {}
 
-  BlockContents(BlockContents&& other) { *this = std::move(other); }
+  BlockContents(BlockContents&& other) ROCKSDB_NOEXCEPT { *this = std::move(other); }
 
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);
@@ -210,7 +213,8 @@ extern Status ReadBlockContents(RandomAccessFileReader* file,
                                 const ReadOptions& options,
                                 const BlockHandle& handle,
                                 BlockContents* contents, Env* env,
-                                bool do_uncompress);
+                                bool do_uncompress,
+                                const Slice& compression_dict = Slice());
 
 // The 'data' points to the raw block contents read in from file.
 // This method allocates a new heap buffer and the raw block
@@ -221,7 +225,8 @@ extern Status ReadBlockContents(RandomAccessFileReader* file,
 // util/compression.h
 extern Status UncompressBlockContents(const char* data, size_t n,
                                       BlockContents* contents,
-                                      uint32_t compress_format_version);
+                                      uint32_t compress_format_version,
+                                      const Slice& compression_dict);
 
 // Implementation details follow.  Clients should ignore,
 

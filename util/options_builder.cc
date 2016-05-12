@@ -1,4 +1,4 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
@@ -26,7 +26,7 @@ CompactionStyle PickCompactionStyle(size_t write_buffer_size,
   // Otherwise, calculate a score based on threshold and expected value of
   // two styles, weighing reads 4X important than writes.
   int expected_levels = static_cast<int>(ceil(
-      ::log(target_db_size / write_buffer_size) / ::log(kBytesForLevelMultiplier)));
+      std::log(target_db_size / write_buffer_size) / std::log(kBytesForLevelMultiplier)));
 
   int expected_max_files_universal =
       static_cast<int>(ceil(log2(target_db_size / write_buffer_size)));
@@ -117,8 +117,8 @@ void OptimizeForLevel(int read_amplification_threshold,
                       int write_amplification_threshold,
                       uint64_t target_db_size, Options* options) {
   int expected_levels_one_level0_file =
-      static_cast<int>(ceil(::log(target_db_size / options->write_buffer_size) /
-                            ::log(kBytesForLevelMultiplier)));
+      static_cast<int>(ceil(std::log(target_db_size / options->write_buffer_size) /
+                            std::log(kBytesForLevelMultiplier)));
 
   int level0_stop_writes_trigger =
       read_amplification_threshold - expected_levels_one_level0_file;
@@ -127,8 +127,8 @@ void OptimizeForLevel(int read_amplification_threshold,
   const int kMaxFileNumCompactionTrigger = 4;
   const int kMinLevel0StopTrigger = 3;
 
-  int file_num_buffer =
-      kInitialLevel0TotalSize / options->write_buffer_size + 1;
+  int file_num_buffer = static_cast<int>(
+      kInitialLevel0TotalSize / options->write_buffer_size + 1);
 
   if (level0_stop_writes_trigger > file_num_buffer) {
     // Have sufficient room for multiple level 0 files

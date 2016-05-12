@@ -1,5 +1,5 @@
 /*
- *  Copyright (c) 2014, Facebook, Inc.
+ *  Copyright (c) 2011-present, Facebook, Inc.
  *  All rights reserved.
  *
  *  This source code is licensed under the BSD-style license found in the
@@ -567,7 +567,7 @@ class FbsonJsonParserT {
         ++precision;
       } else if (ch == '.') {
         // note we don't pop out '.'
-        return parseDouble(in, val, precision, sign);
+        return parseDouble(in, static_cast<double>(val), precision, sign);
       } else {
         err_ = FbsonErrType::E_INVALID_DECIMAL;
         return false;
@@ -578,7 +578,7 @@ class FbsonJsonParserT {
       // if the number overflows int64_t, first parse it as double iff we see a
       // decimal point later. Otherwise, will treat it as overflow
       if (val < 0 && val > std::numeric_limits<int64_t>::min()) {
-        return parseDouble(in, (uint64_t)val, precision, sign);
+        return parseDouble(in, static_cast<double>(val), precision, sign);
       }
 
       ch = in.peek();

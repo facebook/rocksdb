@@ -142,31 +142,33 @@ class PlainTableFactory : public TableFactory {
   // huge_page_tlb_size determines whether to allocate hash indexes from huge
   // page TLB and the page size if allocating from there. See comments of
   // Arena::AllocateAligned() for details.
-  explicit PlainTableFactory(const PlainTableOptions& table_options =
-                             PlainTableOptions())
-      : table_options_(table_options) {};
+  explicit PlainTableFactory(
+      const PlainTableOptions& _table_options = PlainTableOptions())
+      : table_options_(_table_options) {}
 
   const char* Name() const override { return "PlainTable"; }
   Status NewTableReader(const TableReaderOptions& table_reader_options,
                         unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size,
                         unique_ptr<TableReader>* table) const override;
-  
+
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_family_id, WritableFileWriter* file) const override;
 
   std::string GetPrintableTableOptions() const override;
 
-  const PlainTableOptions& GetTableOptions() const;
+  const PlainTableOptions& table_options() const;
 
-  static const char kValueTypeSeqId0 = 0xFF;
+  static const char kValueTypeSeqId0 = char(0xFF);
 
   // Sanitizes the specified DB Options.
   Status SanitizeOptions(const DBOptions& db_opts,
                          const ColumnFamilyOptions& cf_opts) const override {
     return Status::OK();
   }
+
+  void* GetOptions() override { return &table_options_; }
 
  private:
   PlainTableOptions table_options_;
