@@ -773,7 +773,6 @@ class WinRandomAccessFile : public RandomAccessFile {
         random_access_max_buffer_size_(options.random_access_max_buffer_size),
         buffer_(),
         buffered_start_(0) {
-    assert(!options.use_mmap_reads);
 
     // Unbuffered access, use internal buffer for reads
     if (!use_os_buffer_) {
@@ -1229,7 +1228,7 @@ class WinEnv : public Env {
     UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
 
     // CAUTION! This will map the entire file into the process address space
-    if (options.use_mmap_reads && sizeof(void*) >= 8) {
+    if (options.use_mmap_reads) {
       // Use mmap when virtual address-space is plentiful.
       uint64_t fileSize;
 
