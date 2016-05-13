@@ -53,10 +53,12 @@ class LDBCommand {
   static const std::string ARG_CREATE_IF_MISSING;
   static const std::string ARG_NO_VALUE;
 
+  template <typename Selector>
   static LDBCommand* InitFromCmdLineArgs(
       const std::vector<std::string>& args, const Options& options,
       const LDBOptions& ldb_options,
-      const std::vector<ColumnFamilyDescriptor>* column_families);
+      const std::vector<ColumnFamilyDescriptor>* column_families,
+      Selector selector = SelectCommand);
 
   static LDBCommand* InitFromCmdLineArgs(
       int argc, char** argv, const Options& options,
@@ -104,6 +106,11 @@ class LDBCommand {
   static std::string StringToHex(const std::string& str);
 
   static const char* DELIM;
+
+  static LDBCommand* SelectCommand(
+      const std::string& cmd, const std::vector<std::string>& cmdParams,
+      const std::map<std::string, std::string>& option_map,
+      const std::vector<std::string>& flags);
 
  protected:
   LDBCommandExecuteResult exec_state_;
@@ -223,11 +230,6 @@ class LDBCommand {
    * Otherwise an exception is thrown.
    */
   bool StringToBool(std::string val);
-
-  static LDBCommand* SelectCommand(
-      const std::string& cmd, const std::vector<std::string>& cmdParams,
-      const std::map<std::string, std::string>& option_map,
-      const std::vector<std::string>& flags);
 };
 
 class LDBCommandRunner {

@@ -86,7 +86,8 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
   for (int i = 1; i < argc; i++) {
     args.push_back(argv[i]);
   }
-  return InitFromCmdLineArgs(args, options, ldb_options, column_families);
+  return InitFromCmdLineArgs(args, options, ldb_options, column_families,
+                             SelectCommand);
 }
 
 /**
@@ -99,10 +100,12 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
  * Command name is not included in args.
  * Returns nullptr if the command-line cannot be parsed.
  */
+template <typename Selector>
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
     const vector<string>& args, const Options& options,
     const LDBOptions& ldb_options,
-    const std::vector<ColumnFamilyDescriptor>* column_families) {
+    const std::vector<ColumnFamilyDescriptor>* column_families,
+    Selector selector) {
   // --x=y command line arguments are added as x->y map entries.
   map<string, string> option_map;
 
@@ -137,12 +140,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
 
   string cmd = cmdTokens[0];
   vector<string> cmdParams(cmdTokens.begin()+1, cmdTokens.end());
-  LDBCommand* command = LDBCommand::SelectCommand(
-    cmd,
-    cmdParams,
-    option_map,
-    flags
-  );
+  LDBCommand* command = selector(cmd, cmdParams, option_map, flags);
 
   if (command) {
     command->SetDBOptions(options);
