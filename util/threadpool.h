@@ -7,8 +7,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+
+#ifdef OS_WIN
+#  define ROCKSDB_STD_THREADPOOL
+#endif
+
 #include "rocksdb/env.h"
 #include "util/thread_status_util.h"
+
+#ifdef ROCKSDB_STD_THREADPOOL
+#  include <thread>
+#  include <mutex>
+#  include <condition_variable>
+#endif
+
+#include <atomic>
+#include <vector>
 
 namespace rocksdb {
 
@@ -33,28 +47,28 @@ class ThreadPool {
   }
 
   void SetHostEnv(Env* env) { env_ = env; }
-  Env* GetHostEnv() { return env_; }
+  Env* GetHostEnv() const { return env_; }
 
   // Return true if there is at least one thread needs to terminate.
-  bool HasExcessiveThread() {
+  bool HasExcessiveThread() const {
     return static_cast<int>(bgthreads_.size()) > total_threads_limit_;
   }
 
   // Return true iff the current thread is the excessive thread to terminate.
   // Always terminate the running thread that is added last, even if there are
   // more than one thread to terminate.
-  bool IsLastExcessiveThread(size_t thread_id) {
+  bool IsLastExcessiveThread(size_t thread_id) const {
     return HasExcessiveThread() && thread_id == bgthreads_.size() - 1;
   }
 
   // Is one of the threads to terminate.
-  bool IsExcessiveThread(size_t thread_id) {
+  bool IsExcessiveThread(size_t thread_id) const {
     return static_cast<int>(thread_id) >= total_threads_limit_;
   }
 
   // Return the thread priority.
   // This would allow its member-thread to know its priority.
-  Env::Priority GetThreadPriority() { return priority_; }
+  Env::Priority GetThreadPriority() const { return priority_; }
 
   // Set the thread priority.
   void SetThreadPriority(Env::Priority priority) { priority_ = priority; }
@@ -69,12 +83,20 @@ class ThreadPool {
     void* tag;
     void (*unschedFunction)(void*);
   };
+
   typedef std::deque<BGItem> BGQueue;
 
+  int total_threads_limit_;
+
+#ifdef ROCKSDB_STD_THREADPOOL
+  std::mutex mu_;
+  std::condition_variable bgsignal_;
+  std::vector<std::thread> bgthreads_;
+#else
   pthread_mutex_t mu_;
   pthread_cond_t bgsignal_;
-  int total_threads_limit_;
   std::vector<pthread_t> bgthreads_;
+#endif
   BGQueue queue_;
   std::atomic_uint queue_len_;  // Queue length. Used for stats reporting
   bool exit_all_threads_;

@@ -42,7 +42,7 @@
 #include "rocksdb/slice.h"
 #include "util/coding.h"
 #include "util/io_posix.h"
-#include "util/thread_posix.h"
+#include "util/threadpool.h"
 #include "util/iostats_context_imp.h"
 #include "util/logging.h"
 #include "util/posix_logger.h"
