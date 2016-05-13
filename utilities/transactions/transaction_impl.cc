@@ -86,12 +86,6 @@ TransactionImpl::~TransactionImpl() {
   if (!name_.empty() && exec_status_ != COMMITED) {
     txn_db_impl_->UnregisterTransaction(this);
   }
-  // if we have a prep section that was never committed
-  // and we are releasing the transaction then we
-  // can release that prep section
-  if (log_number_ != 0 && exec_status_ != COMMITED) {
-    dbimpl_->MarkLogAsHavingPrepSectionFlushed(log_number_);
-  }
 }
 
 void TransactionImpl::Clear() {
@@ -104,12 +98,6 @@ void TransactionImpl::Reinitialize(TransactionDB* txn_db,
                                    const TransactionOptions& txn_options) {
   if (!name_.empty() && exec_status_ != COMMITED) {
     txn_db_impl_->UnregisterTransaction(this);
-  }
-  // if we have a prep section that was never committed
-  // and we are releasing the transaction then we
-  // can release that prep section
-  if (log_number_ != 0 && exec_status_ != COMMITED) {
-    dbimpl_->MarkLogAsHavingPrepSectionFlushed(log_number_);
   }
   TransactionBaseImpl::Reinitialize(txn_db->GetBaseDB(), write_options);
   Initialize(txn_options);

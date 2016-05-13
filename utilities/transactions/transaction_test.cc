@@ -31,7 +31,7 @@ namespace rocksdb {
 class TransactionTest : public testing::Test {
  public:
   TransactionDB* db;
-  FaultInjectionTestEnv* env_;
+  FaultInjectionTestEnv* env;
   string dbname;
   Options options;
 
@@ -43,8 +43,8 @@ class TransactionTest : public testing::Test {
     options.write_buffer_size = 4 * 1024;
     options.level0_file_num_compaction_trigger = 2;
     options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
-    env_ = new FaultInjectionTestEnv(Env::Default());
-    options.env = env_;
+    env = new FaultInjectionTestEnv(Env::Default());
+    options.env = env;
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
@@ -57,15 +57,15 @@ class TransactionTest : public testing::Test {
   ~TransactionTest() {
     delete db;
     DestroyDB(dbname, options);
-    delete env_;
+    delete env;
   }
 
   Status ReOpenNoDelete() {
     delete db;
     db = nullptr;
-    env_->AssertNoOpenFile();
-    env_->DropUnsyncedFileData();
-    env_->ResetState();
+    env->AssertNoOpenFile();
+    env->DropUnsyncedFileData();
+    env->ResetState();
     Status s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     return s;
   }
@@ -643,6 +643,69 @@ TEST_F(TransactionTest, TwoPhaseMultiThreadTest) {
   }
 }
 
+TEST_F(TransactionTest, TwoPhaseLongPrepareTest) {
+  WriteOptions write_options;
+  write_options.sync = true;
+  write_options.disableWAL = false;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+
+  std::string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("bob");
+  ASSERT_OK(s);
+
+  // transaction put
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+
+  // prepare
+  s = txn->Prepare();
+  ASSERT_OK(s);
+
+  delete txn;
+
+  for (int i = 0; i < 1000; i++) {
+    std::string key(i, 'k');
+    std::string val(1000, 'v');
+    s = db->Put(write_options, key, val);
+    ASSERT_OK(s);
+
+    if (i % 29 == 0) {
+      // crash
+      env->SetFilesystemActive(false);
+      ReOpenNoDelete();
+    } else if (i % 37 == 0) {
+      // close
+      ReOpenNoDelete();
+    }
+  }
+
+  // commit old txn
+  txn = db->GetTransactionByName("bob");
+  ASSERT_TRUE(txn);
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  // verify data txn data
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar");
+
+  // verify non txn data
+  for (int i = 0; i < 1000; i++) {
+    std::string key(i, 'k');
+    std::string val(1000, 'v');
+    s = db->Get(read_options, key, &value);
+    ASSERT_EQ(s, Status::OK());
+    ASSERT_EQ(value, val);
+  }
+
+  delete txn;
+}
+
 TEST_F(TransactionTest, TwoPhaseSequenceTest) {
   WriteOptions write_options;
   write_options.sync = true;
@@ -679,7 +742,7 @@ TEST_F(TransactionTest, TwoPhaseSequenceTest) {
   delete txn;
 
   // kill and reopen
-  env_->SetFilesystemActive(false);
+  env->SetFilesystemActive(false);
   ReOpenNoDelete();
 
   // value is now available
@@ -714,7 +777,7 @@ TEST_F(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   delete txn;
 
   // kill and reopen
-  env_->SetFilesystemActive(false);
+  env->SetFilesystemActive(false);
   ReOpenNoDelete();
 
   // commit old txn
@@ -744,7 +807,7 @@ TEST_F(TransactionTest, TwoPhaseDoubleRecoveryTest) {
   delete txn;
 
   // kill and reopen
-  env_->SetFilesystemActive(false);
+  env->SetFilesystemActive(false);
   ReOpenNoDelete();
 
   // value is now available

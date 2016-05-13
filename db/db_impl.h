@@ -476,6 +476,14 @@ class DBImpl : public DB {
     delete trx;
   }
 
+  void DeleteAllRecoveredTransactions() {
+    for (auto it = recovered_transactions_.begin();
+         it != recovered_transactions_.end(); it++) {
+      delete it->second;
+    }
+    recovered_transactions_.clear();
+  }
+
   void MarkLogAsHavingPrepSectionFlushed(uint64_t log);
   void MarkLogAsContainingPrepSection(uint64_t log);
 

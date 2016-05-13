@@ -33,6 +33,12 @@ TransactionDBImpl::TransactionDBImpl(DB* db,
   assert(db_impl_ != nullptr);
 }
 
+TransactionDBImpl::~TransactionDBImpl() {
+  while (!transactions_.empty()) {
+    delete transactions_.begin()->second;
+  }
+}
+
 Transaction* TransactionDBImpl::BeginTransaction(
     const WriteOptions& write_options, const TransactionOptions& txn_options,
     Transaction* old_txn) {
@@ -157,6 +163,9 @@ Status TransactionDB::Open(
       if (!s.ok()) {
         break;
       }
+    }
+    if (s.ok()) {
+      dbimpl->DeleteAllRecoveredTransactions();
     }
   }
 

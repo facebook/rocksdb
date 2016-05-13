@@ -25,7 +25,7 @@ class TransactionDBImpl : public TransactionDB {
   explicit TransactionDBImpl(DB* db,
                              const TransactionDBOptions& txn_db_options);
 
-  ~TransactionDBImpl() {}
+  ~TransactionDBImpl();
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
