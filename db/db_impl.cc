@@ -460,6 +460,10 @@ DBImpl::~DBImpl() {
   // so the cache can be safely destroyed.
   table_cache_->EraseUnRefEntries();
 
+  for (auto& txn_entry : recovered_transactions_) {
+    delete txn_entry.second;
+  }
+
   // versions need to be destroyed before table_cache since it can hold
   // references to table_cache.
   versions_.reset();

@@ -57,6 +57,7 @@ class TransactionTest : public testing::Test {
   ~TransactionTest() {
     delete db;
     DestroyDB(dbname, options);
+    delete env_;
   }
 
   Status ReOpenNoDelete() {
@@ -442,6 +443,8 @@ TEST_F(TransactionTest, TwoPhaseRollbackTest) {
   // try rollback again
   s = txn->Rollback();
   ASSERT_EQ(s, Status::InvalidArgument());
+
+  delete txn;
 }
 
 TEST_F(TransactionTest, PersistentTwoPhaseTransactionTest) {
@@ -495,6 +498,7 @@ TEST_F(TransactionTest, PersistentTwoPhaseTransactionTest) {
   s = db->Get(read_options, Slice("foo"), &value);
   ASSERT_TRUE(s.IsNotFound());
 
+  delete txn;
   // kill and reopen
   s = ReOpenNoDelete();
   ASSERT_OK(s);
@@ -734,6 +738,8 @@ TEST_F(TransactionTest, TwoPhaseDoubleRecoveryTest) {
 
   s = txn->Commit();
   ASSERT_OK(s);
+
+  delete txn;
 
   // kill and reopen
   env_->SetFilesystemActive(false);
