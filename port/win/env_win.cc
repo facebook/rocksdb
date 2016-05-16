@@ -27,6 +27,7 @@
 #include "port/win/win_logger.h"
 
 #include "util/random.h"
+#include "util/coding.h"
 #include "util/iostats_context_imp.h"
 #include "util/rate_limiter.h"
 #include "util/sync_point.h"
@@ -54,13 +55,14 @@ std::string GetWindowsErrSz(DWORD err) {
   return Err;
 }
 
-namespace {
-
-const size_t c_OneMB = (1 << 20);
 
 ThreadStatusUpdater* CreateThreadStatusUpdater() {
   return new ThreadStatusUpdater();
 }
+
+namespace {
+
+const size_t c_OneMB = (1 << 20);
 
 inline Status IOErrorFromWindowsError(const std::string& context, DWORD err) {
   return Status::IOError(context, GetWindowsErrSz(err));
@@ -198,6 +200,31 @@ inline Status ftruncate(const std::string& filename, HANDLE hFile,
   return status;
 }
 
+size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
+
+  if (max_size < kMaxVarint64Length * 3) {
+    return 0;
+  }
+
+  BY_HANDLE_FILE_INFORMATION FileInfo;
+
+  BOOL result = GetFileInformationByHandle(hFile, &FileInfo);
+
+  TEST_SYNC_POINT_CALLBACK("GetUniqueIdFromFile:FS_IOC_GETVERSION", &result);
+
+  if (!result) {
+    return 0;
+  }
+
+  char* rid = id;
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.dwVolumeSerialNumber));
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.nFileIndexHigh));
+  rid = EncodeVarint64(rid, uint64_t(FileInfo.nFileIndexLow));
+
+  assert(rid >= id);
+  return static_cast<size_t>(rid - id);
+}
+
 // mmap() based random-access
 class WinMmapReadableFile : public RandomAccessFile {
   const std::string fileName_;
@@ -245,6 +272,10 @@ class WinMmapReadableFile : public RandomAccessFile {
 
   virtual Status InvalidateCache(size_t offset, size_t length) override {
     return Status::OK();
+  }
+
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
+    return GetUniqueIdFromFile(hFile_, id, max_size);
   }
 };
 
@@ -591,6 +622,10 @@ class WinMmapFile : public WritableFile {
     }
     return status;
   }
+
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
+    return GetUniqueIdFromFile(hFile_, id, max_size);
+  }
 };
 
 class WinSequentialFile : public SequentialFile {
@@ -915,6 +950,10 @@ class WinRandomAccessFile : public RandomAccessFile {
   virtual Status InvalidateCache(size_t offset, size_t length) override {
     return Status::OK();
   }
+
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
+    return GetUniqueIdFromFile(hFile_, id, max_size);
+  }
 };
 
 // This is a sequential write class. It has been mimicked (as others) after
@@ -1087,6 +1126,10 @@ class WinWritableFile : public WritableFile {
       reservedsize_ = spaceToReserve;
     }
     return status;
+  }
+
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
+    return GetUniqueIdFromFile(hFile_, id, max_size);
   }
 };
 
