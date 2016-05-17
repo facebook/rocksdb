@@ -153,7 +153,9 @@ set(SOURCES
         memtable/skiplistrep.cc
         memtable/vectorrep.cc
         port/stack_trace.cc
+        port/win/io_win.cc
         port/win/env_win.cc
+        port/win/env_default.cc
         port/win/port_win.cc
         port/win/win_logger.cc
         port/win/xpress_win.cc

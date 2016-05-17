@@ -11,6 +11,7 @@
 // where enough posix functionality is available.
 
 #include "port/win/win_logger.h"
+#include "port/win/io_win.h"
 
 #include <algorithm>
 #include <stdio.h>
@@ -24,6 +25,8 @@
 #include "util/iostats_context_imp.h"
 
 namespace rocksdb {
+
+namespace port {
 
 WinLogger::WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,
                      const InfoLogLevel log_level)
@@ -151,5 +154,7 @@ void WinLogger::Logv(const char* format, va_list ap) {
 }
 
 size_t WinLogger::GetLogFileSize() const { return log_size_; }
+
+}
 
 }  // namespace rocksdb
