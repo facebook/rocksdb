@@ -122,6 +122,7 @@ class CompactionJob {
   const std::string& dbname_;
   const DBOptions& db_options_;
   const EnvOptions& env_options_;
+
   Env* env_;
   VersionSet* versions_;
   std::atomic<bool>* shutting_down_;

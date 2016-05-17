@@ -754,9 +754,8 @@ TEST_F(DBSSTTest, AddExternalSstFile) {
     env_->CreateDir(sst_files_folder);
     Options options = CurrentOptions();
     options.env = env_;
-    const ImmutableCFOptions ioptions(options);
 
-    SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
 
     // file1.sst (0 => 99)
     std::string file1 = sst_files_folder + "file1.sst";
@@ -934,9 +933,7 @@ TEST_F(DBSSTTest, AddExternalSstFilePurgeObsoleteFilesBug) {
   env_->CreateDir(sst_files_folder);
   Options options = CurrentOptions();
   options.env = env_;
-  const ImmutableCFOptions ioptions(options);
-
-  SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
 
   // file1.sst (0 => 500)
   std::string sst_file_path = sst_files_folder + "file1.sst";
@@ -985,7 +982,7 @@ TEST_F(DBSSTTest, AddExternalSstFileNoCopy) {
   options.env = env_;
   const ImmutableCFOptions ioptions(options);
 
-  SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
 
   // file1.sst (0 => 99)
   std::string file1 = sst_files_folder + "file1.sst";
@@ -1063,7 +1060,6 @@ TEST_F(DBSSTTest, AddExternalSstFileMultiThreaded) {
   do {
     env_->CreateDir(sst_files_folder);
     Options options = CurrentOptions();
-    const ImmutableCFOptions ioptions(options);
 
     std::atomic<int> thread_num(0);
     std::function<void()> write_file_func = [&]() {
@@ -1071,7 +1067,7 @@ TEST_F(DBSSTTest, AddExternalSstFileMultiThreaded) {
       int range_start = file_idx * keys_per_file;
       int range_end = range_start + keys_per_file;
 
-      SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+      SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
 
       ASSERT_OK(sst_file_writer.Open(file_names[file_idx]));
 
@@ -1154,8 +1150,8 @@ TEST_F(DBSSTTest, AddExternalSstFileOverlappingRanges) {
     env_->CreateDir(sst_files_folder);
     Options options = CurrentOptions();
     DestroyAndReopen(options);
-    const ImmutableCFOptions ioptions(options);
-    SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+
+    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
 
     printf("Option config = %d\n", option_config_);
     std::vector<std::pair<int, int>> key_ranges;

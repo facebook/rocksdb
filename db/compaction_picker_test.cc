@@ -467,7 +467,6 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   fifo_options_.max_table_files_size = kMaxSize;
   ioptions_.compaction_options_fifo = fifo_options_;
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
-
   UpdateVersionStorageInfo();
   // must return false when there's no files.
   ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), false);

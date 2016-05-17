@@ -471,9 +471,9 @@ void CompactionJob::GenSubcompactionBoundaries() {
 
   // Group the ranges into subcompactions
   const double min_file_fill_percent = 4.0 / 5;
-  uint64_t max_output_files = static_cast<uint64_t>(std::ceil(
-      sum / min_file_fill_percent /
-      cfd->GetCurrentMutableCFOptions()->MaxFileSizeForLevel(out_lvl)));
+  uint64_t max_output_files = static_cast<uint64_t>(
+      std::ceil(sum / min_file_fill_percent /
+                c->mutable_cf_options()->MaxFileSizeForLevel(out_lvl)));
   uint64_t subcompactions =
       std::min({static_cast<uint64_t>(ranges.size()),
                 static_cast<uint64_t>(db_options_.max_subcompactions),
@@ -704,7 +704,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   MergeHelper merge(
       env_, cfd->user_comparator(), cfd->ioptions()->merge_operator,
       compaction_filter, db_options_.info_log.get(),
-      cfd->ioptions()->min_partial_merge_operands,
+      mutable_cf_options->min_partial_merge_operands,
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
       compact_->compaction->level(), db_options_.statistics.get());

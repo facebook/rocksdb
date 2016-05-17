@@ -19,6 +19,7 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "util/event_logger.h"
+#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
@@ -61,8 +62,8 @@ TableBuilder* NewTableBuilder(
 //    by column_family_id, or empty string if unknown.
 extern Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& options,
-    const EnvOptions& env_options, TableCache* table_cache,
-    InternalIterator* iter, FileMetaData* meta,
+    const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
+    TableCache* table_cache, InternalIterator* iter, FileMetaData* meta,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,

@@ -622,6 +622,16 @@ bool ParseMiscOptions(const std::string& name, const std::string& value,
     new_options->max_sequential_skip_in_iterations = ParseUint64(value);
   } else if (name == "paranoid_file_checks") {
     new_options->paranoid_file_checks = ParseBoolean(name, value);
+  } else if (name == "report_bg_io_stats") {
+    new_options->report_bg_io_stats = ParseBoolean(name, value);
+  } else if (name == "compression") {
+    bool is_ok = ParseEnum<CompressionType>(compression_type_string_map, value,
+                                            &new_options->compression);
+    if (!is_ok) {
+      return false;
+    }
+  } else if (name == "min_partial_merge_operands") {
+    new_options->min_partial_merge_operands = ParseUint32(value);
   } else {
     return false;
   }

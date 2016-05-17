@@ -16,8 +16,8 @@
 #include <inttypes.h>
 #include <vector>
 
-#include "rocksdb/compaction_filter.h"
 #include "db/column_family.h"
+#include "rocksdb/compaction_filter.h"
 #include "util/logging.h"
 #include "util/sync_point.h"
 
@@ -205,8 +205,9 @@ Compaction::~Compaction() {
 bool Compaction::InputCompressionMatchesOutput() const {
   VersionStorageInfo* vstorage = input_version_->storage_info();
   int base_level = vstorage->base_level();
-  bool matches = (GetCompressionType(*cfd_->ioptions(), vstorage, start_level_,
-                                     base_level) == output_compression_);
+  bool matches =
+      (GetCompressionType(*cfd_->ioptions(), vstorage, mutable_cf_options_,
+                          start_level_, base_level) == output_compression_);
   if (matches) {
     TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:Matches");
     return true;
@@ -292,8 +293,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
   for (size_t i = 0; i < num_input_levels(); i++) {
     for (size_t j = 0; j < inputs_[i].size(); j++) {
-      assert(mark_as_compacted ? !inputs_[i][j]->being_compacted :
-                                  inputs_[i][j]->being_compacted);
+      assert(mark_as_compacted ? !inputs_[i][j]->being_compacted
+                               : inputs_[i][j]->being_compacted);
       inputs_[i][j]->being_compacted = mark_as_compacted;
     }
   }
@@ -368,10 +369,8 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
 
 void Compaction::Summary(char* output, int len) {
   int write =
-      snprintf(output, len, "Base version %" PRIu64
-                            " Base level %d, inputs: [",
-               input_version_->GetVersionNumber(),
-               start_level_);
+      snprintf(output, len, "Base version %" PRIu64 " Base level %d, inputs: [",
+               input_version_->GetVersionNumber(), start_level_);
   if (write < 0 || write >= len) {
     return;
   }

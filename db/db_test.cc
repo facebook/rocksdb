@@ -10,12 +10,12 @@
 // Introduction of SyncPoint effectively disabled building and running this test
 // in Release build.
 // which is a pity, it is a good test
+#include <fcntl.h>
 #include <algorithm>
 #include <set>
 #include <thread>
 #include <unordered_set>
 #include <utility>
-#include <fcntl.h>
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -23,10 +23,10 @@
 #include <alloca.h>
 #endif
 
-#include "db/filename.h"
-#include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
+#include "db/dbformat.h"
+#include "db/filename.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -47,27 +47,27 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
-#include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "table/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
+#include "util/compression.h"
 #include "util/file_reader_writer.h"
 #include "util/hash.h"
-#include "utilities/merge_operators.h"
 #include "util/logging.h"
-#include "util/compression.h"
+#include "util/mock_env.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/mock_env.h"
-#include "util/string_util.h"
 #include "util/thread_status_util.h"
 #include "util/xfunc.h"
+#include "utilities/merge_operators.h"
 
 namespace rocksdb {
 
@@ -125,8 +125,8 @@ TEST_F(DBTest, MockEnvTest) {
   ASSERT_TRUE(!iterator->Valid());
   delete iterator;
 
-  // TEST_FlushMemTable() is not supported in ROCKSDB_LITE
-  #ifndef ROCKSDB_LITE
+// TEST_FlushMemTable() is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
@@ -135,7 +135,7 @@ TEST_F(DBTest, MockEnvTest) {
     ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
-  #endif  // ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 
   delete db;
 }
@@ -322,7 +322,8 @@ TEST_F(DBTest, CompactedDB) {
 
   // MultiGet
   std::vector<std::string> values;
-  std::vector<Status> status_list = dbfull()->MultiGet(ReadOptions(),
+  std::vector<Status> status_list = dbfull()->MultiGet(
+      ReadOptions(),
       std::vector<Slice>({Slice("aaa"), Slice("ccc"), Slice("eee"),
                           Slice("ggg"), Slice("iii"), Slice("kkk")}),
       &values);
@@ -662,8 +663,8 @@ TEST_F(DBTest, GetFromImmutableLayer) {
 
     // Block sync calls
     env_->delay_sstable_sync_.store(true, std::memory_order_release);
-    Put(1, "k1", std::string(100000, 'x'));          // Fill memtable
-    Put(1, "k2", std::string(100000, 'y'));          // Trigger flush
+    Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
+    Put(1, "k2", std::string(100000, 'y'));  // Trigger flush
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_EQ("NOT_FOUND", Get(0, "foo"));
     // Release sync calls
@@ -3192,8 +3193,8 @@ class ModelDB : public DB {
 
   virtual Status GetUpdatesSince(
       rocksdb::SequenceNumber, unique_ptr<rocksdb::TransactionLogIterator>*,
-      const TransactionLogIterator::ReadOptions&
-          read_options = TransactionLogIterator::ReadOptions()) override {
+      const TransactionLogIterator::ReadOptions& read_options =
+          TransactionLogIterator::ReadOptions()) override {
     return Status::NotSupported("Not supported in Model DB");
   }
 
@@ -3279,8 +3280,7 @@ static bool CompareIterators(int step, DB* model, DB* db,
        ok && miter->Valid() && dbiter->Valid(); miter->Next(), dbiter->Next()) {
     count++;
     if (miter->key().compare(dbiter->key()) != 0) {
-      fprintf(stderr, "step %d: Key mismatch: '%s' vs. '%s'\n",
-              step,
+      fprintf(stderr, "step %d: Key mismatch: '%s' vs. '%s'\n", step,
               EscapeString(miter->key()).c_str(),
               EscapeString(dbiter->key()).c_str());
       ok = false;
@@ -3483,7 +3483,6 @@ TEST_F(DBTest, BlockBasedTablePrefixIndexTest) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
 
-
   Reopen(options);
   ASSERT_OK(Put("k1", "v1"));
   Flush();
@@ -3681,7 +3680,6 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
   ASSERT_OK(TryReopen(options));
 }
-
 
 // On Windows you can have either memory mapped file or a file
 // with unbuffered access. So this asserts and does not make
@@ -4912,6 +4910,48 @@ TEST_F(DBTest, DynamicMiscOptions) {
   dbfull()->TEST_FlushMemTable(true);
   // No reseek
   assert_reseek_count(300, 1);
+
+  MutableCFOptions mutable_cf_options;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  // Test soft_pending_compaction_bytes_limit,
+  // hard_pending_compaction_bytes_limit
+  ASSERT_OK(dbfull()->SetOptions(
+      handles_[1], {{"soft_pending_compaction_bytes_limit", "200"},
+                    {"hard_pending_compaction_bytes_limit", "300"}}));
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(200, mutable_cf_options.soft_pending_compaction_bytes_limit);
+  ASSERT_EQ(300, mutable_cf_options.hard_pending_compaction_bytes_limit);
+  // Test report_bg_io_stats
+  ASSERT_OK(
+      dbfull()->SetOptions(handles_[1], {{"report_bg_io_stats", "true"}}));
+  // sanity check
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
+  // Test min_partial_merge_operands
+  ASSERT_OK(
+      dbfull()->SetOptions(handles_[1], {{"min_partial_merge_operands", "4"}}));
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(4, mutable_cf_options.min_partial_merge_operands);
+  // Test compression
+  // sanity check
+  ASSERT_OK(dbfull()->SetOptions({{"compression", "kNoCompression"}}));
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(CompressionType::kNoCompression, mutable_cf_options.compression);
+  ASSERT_OK(dbfull()->SetOptions({{"compression", "kSnappyCompression"}}));
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[0],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(CompressionType::kSnappyCompression,
+            mutable_cf_options.compression);
+  // Test paranoid_file_checks already done in db_block_cache_test
+  ASSERT_OK(
+      dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "true"}}));
+  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
+                                                     &mutable_cf_options));
+  ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
 }
 #endif  // ROCKSDB_LITE
 
@@ -4960,7 +5000,7 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
   // iter 3 -- lz4HC
   // iter 4 -- xpress
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
-                                    kLZ4Compression,  kLZ4HCCompression,
+                                    kLZ4Compression, kLZ4HCCompression,
                                     kXpressCompression};
   for (auto comp : compressions) {
     if (!CompressionTypeSupported(comp)) {
@@ -5843,7 +5883,7 @@ TEST_F(DBTest, LastWriteBufferDelay) {
 
 TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
-                                    kLZ4Compression,  kLZ4HCCompression,
+                                    kLZ4Compression, kLZ4HCCompression,
                                     kXpressCompression};
   for (auto comp : compressions) {
     if (!CompressionTypeSupported(comp)) {

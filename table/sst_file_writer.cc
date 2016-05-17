@@ -71,25 +71,27 @@ class SstFileWriter::SstFileWriterPropertiesCollectorFactory
 };
 
 struct SstFileWriter::Rep {
-  Rep(const EnvOptions& _env_options, const ImmutableCFOptions& _ioptions,
+  Rep(const EnvOptions& _env_options, const Options& options,
       const Comparator* _user_comparator)
       : env_options(_env_options),
-        ioptions(_ioptions),
+        ioptions(options),
+        mutable_cf_options(options, ioptions),
         internal_comparator(_user_comparator) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
   EnvOptions env_options;
   ImmutableCFOptions ioptions;
+  MutableCFOptions mutable_cf_options;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
   std::string column_family_name;
 };
 
 SstFileWriter::SstFileWriter(const EnvOptions& env_options,
-                             const ImmutableCFOptions& ioptions,
+                             const Options& options,
                              const Comparator* user_comparator)
-    : rep_(new Rep(env_options, ioptions, user_comparator)) {}
+    : rep_(new Rep(env_options, options, user_comparator)) {}
 
 SstFileWriter::~SstFileWriter() { delete rep_; }
 
@@ -102,7 +104,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
     return s;
   }
 
-  CompressionType compression_type = r->ioptions.compression;
+  CompressionType compression_type = r->mutable_cf_options.compression;
   if (!r->ioptions.compression_per_level.empty()) {
     // Use the compression of the last level if we have per level compression
     compression_type = *(r->ioptions.compression_per_level.rbegin());

@@ -241,7 +241,9 @@ static Status ValidateOptions(
   return Status::OK();
 }
 
-CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions) {
+CompressionType GetCompressionFlush(
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options) {
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
   // latency overhead is not offset by saving much space.
@@ -258,7 +260,7 @@ CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions) {
   }
 
   if (can_compress) {
-    return ioptions.compression;
+    return mutable_cf_options.compression;
   } else {
     return kNoCompression;
   }
@@ -1629,6 +1631,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         " Level-0 table #%" PRIu64 ": started",
         cfd->GetName().c_str(), meta.fd.GetNumber());
 
+    // Get the latest mutable cf options while the mutex is still locked
+    const MutableCFOptions mutable_cf_options =
+        *cfd->GetLatestMutableCFOptions();
     bool paranoid_file_checks =
         cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
     {
@@ -1639,11 +1644,11 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
       s = BuildTable(
-          dbname_, env_, *cfd->ioptions(), env_options_, cfd->table_cache(),
-          iter.get(), &meta, cfd->internal_comparator(),
+          dbname_, env_, *cfd->ioptions(), mutable_cf_options, env_options_,
+          cfd->table_cache(), iter.get(), &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           snapshot_seqs, earliest_write_conflict_snapshot,
-          GetCompressionFlush(*cfd->ioptions()),
+          GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), TableFileCreationReason::kRecovery,
           &event_logger_, job_id);
@@ -1690,13 +1695,13 @@ Status DBImpl::FlushMemTableToOutputFile(
   std::vector<SequenceNumber> snapshot_seqs =
       snapshots_.GetAll(&earliest_write_conflict_snapshot);
 
-  FlushJob flush_job(dbname_, cfd, db_options_, mutable_cf_options,
-                     env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     snapshot_seqs, earliest_write_conflict_snapshot,
-                     job_context, log_buffer, directories_.GetDbDir(),
-                     directories_.GetDataDir(0U),
-                     GetCompressionFlush(*cfd->ioptions()), stats_,
-                     &event_logger_, mutable_cf_options.report_bg_io_stats);
+  FlushJob flush_job(
+      dbname_, cfd, db_options_, mutable_cf_options, env_options_,
+      versions_.get(), &mutex_, &shutting_down_, snapshot_seqs,
+      earliest_write_conflict_snapshot, job_context, log_buffer,
+      directories_.GetDbDir(), directories_.GetDataDir(0U),
+      GetCompressionFlush(*cfd->ioptions(), mutable_cf_options), stats_,
+      &event_logger_, mutable_cf_options.report_bg_io_stats);
 
   FileMetaData file_meta;
 

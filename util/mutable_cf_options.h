@@ -6,8 +6,9 @@
 #pragma once
 
 #include <vector>
-#include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
+#include "rocksdb/options.h"
+#include "util/compression.h"
 
 namespace rocksdb {
 
@@ -47,9 +48,9 @@ struct MutableCFOptions {
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
-        report_bg_io_stats(options.report_bg_io_stats)
-
-  {
+        report_bg_io_stats(options.report_bg_io_stats),
+        compression(options.compression),
+        min_partial_merge_operands(options.min_partial_merge_operands) {
     RefreshDerivedOptions(ioptions);
   }
   MutableCFOptions()
@@ -80,7 +81,9 @@ struct MutableCFOptions {
         max_subcompactions(1),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
-        report_bg_io_stats(false) {}
+        report_bg_io_stats(false),
+        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+        min_partial_merge_operands(2) {}
 
   // Must be called after any change to MutableCFOptions
   void RefreshDerivedOptions(const ImmutableCFOptions& ioptions);
@@ -136,6 +139,8 @@ struct MutableCFOptions {
   uint64_t max_sequential_skip_in_iterations;
   bool paranoid_file_checks;
   bool report_bg_io_stats;
+  CompressionType compression;
+  uint32_t min_partial_merge_operands;
 
   // Derived options
   // Per-level target file size.

@@ -291,9 +291,11 @@ class Repairer {
       ro.total_order_seek = true;
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
+      MutableCFOptions mutable_cf_options(options_, ioptions_);
       status = BuildTable(
-          dbname_, env_, ioptions_, env_options_, table_cache_, iter.get(),
-          &meta, icmp_, &int_tbl_prop_collector_factories_,
+          dbname_, env_, ioptions_, mutable_cf_options, env_options_,
+          table_cache_, iter.get(), &meta, icmp_,
+          &int_tbl_prop_collector_factories_,
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
           std::string() /* column_family_name */, {}, kMaxSequenceNumber,
           kNoCompression, CompressionOptions(), false,
