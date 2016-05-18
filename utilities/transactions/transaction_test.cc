@@ -602,13 +602,13 @@ TEST_F(TransactionTest, TwoPhaseMultiThreadTest) {
           t_wait_on_prepare.fetch_add(1);
           // wait for friends
           while (t_wait_on_prepare.load() < NUM_TXN_THREADS) {
-            env_->SleepForMicroseconds(10);
+            env->SleepForMicroseconds(10);
           }
         } else if (writer->ShouldWriteToMemtable()) {
           t_wait_on_commit.fetch_add(1);
           // wait for friends
           while (t_wait_on_commit.load() < NUM_TXN_THREADS) {
-            env_->SleepForMicroseconds(10);
+            env->SleepForMicroseconds(10);
           }
         } else {
           ASSERT_TRUE(false);
