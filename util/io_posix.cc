@@ -132,7 +132,30 @@ static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
   assert(rid >= id);
   return static_cast<size_t>(rid - id);
 }
+}  // namespace
+#endif
+
+#if defined(OS_MACOSX)
+namespace {
+static size_t GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
+  if (max_size < kMaxVarint64Length * 3) {
+    return 0;
+  }
+
+  struct stat buf;
+  int result = fstat(fd, &buf);
+  if (result == -1) {
+    return 0;
+  }
+
+  char* rid = id;
+  rid = EncodeVarint64(rid, buf.st_dev);
+  rid = EncodeVarint64(rid, buf.st_ino);
+  rid = EncodeVarint64(rid, buf.st_gen);
+  assert(rid >= id);
+  return static_cast<size_t>(rid - id);
 }
+}  // namespace
 #endif
 
 /*
@@ -181,7 +204,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_MACOSX)
 size_t PosixRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(fd_, id, max_size);
 }
