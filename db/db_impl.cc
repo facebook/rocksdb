@@ -2159,6 +2159,7 @@ void DBImpl::NotifyOnCompactionCompleted(
   }
   // release lock while notifying events
   mutex_.Unlock();
+  TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
   {
     CompactionJobInfo info;
     info.cf_name = cfd->GetName();
@@ -3267,11 +3268,11 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     *made_progress = true;
   }
   if (c != nullptr) {
+    c->ReleaseCompactionFiles(status);
+    *made_progress = true;
     NotifyOnCompactionCompleted(
         c->column_family_data(), c.get(), status,
         compaction_job_stats, job_context->job_id);
-    c->ReleaseCompactionFiles(status);
-    *made_progress = true;
   }
   // this will unref its input_version and column_family_data
   c.reset();

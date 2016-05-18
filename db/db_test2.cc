@@ -897,6 +897,75 @@ TEST_F(DBTest2, CompressionOptions) {
     ASSERT_EQ(listener->max_level_checked, 6);
   }
 }
+
+class CompactionStallTestListener : public EventListener {
+ public:
+  CompactionStallTestListener() : compacted_files_cnt_(0) {}
+
+  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override {
+    ASSERT_EQ(ci.cf_name, "default");
+    ASSERT_EQ(ci.base_input_level, 0);
+    ASSERT_EQ(ci.compaction_reason, CompactionReason::kLevelL0FilesNum);
+    compacted_files_cnt_ += ci.input_files.size();
+  }
+  std::atomic<size_t> compacted_files_cnt_;
+};
+
+TEST_F(DBTest2, CompactionStall) {
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:0"},
+       {"DBImpl::BGWorkCompaction", "DBTest2::CompactionStall:1"},
+       {"DBTest2::CompactionStall:2",
+        "DBImpl::NotifyOnCompactionCompleted::UnlockMutex"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 4;
+  options.max_background_compactions = 40;
+  CompactionStallTestListener* listener = new CompactionStallTestListener();
+  options.listeners.emplace_back(listener);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  // 4 Files in L0
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(RandomString(&rnd, 10), RandomString(&rnd, 10)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Wait for compaction to be triggered
+  TEST_SYNC_POINT("DBTest2::CompactionStall:0");
+
+  // Clear "DBImpl::BGWorkCompaction" SYNC_POINT since we want to hold it again
+  // at DBTest2::CompactionStall::1
+  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+
+  // Another 6 L0 files to trigger compaction again
+  for (int i = 0; i < 6; i++) {
+    for (int j = 0; j < 10; j++) {
+      ASSERT_OK(Put(RandomString(&rnd, 10), RandomString(&rnd, 10)));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Wait for another compaction to be triggered
+  TEST_SYNC_POINT("DBTest2::CompactionStall:1");
+
+  // Hold NotifyOnCompactionCompleted in the unlock mutex section
+  TEST_SYNC_POINT("DBTest2::CompactionStall:2");
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_LT(NumTableFilesAtLevel(0),
+            options.level0_file_num_compaction_trigger);
+  ASSERT_GT(listener->compacted_files_cnt_.load(),
+            10 - options.level0_file_num_compaction_trigger);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 #endif  // ROCKSDB_LITE
 
 TEST_F(DBTest2, FirstSnapshotTest) {
