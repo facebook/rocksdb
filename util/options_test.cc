@@ -836,6 +836,28 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
     opts_map.clear();
   }
 }
+
+TEST_F(OptionsTest, GetStringFromCompressionType) {
+  std::string res;
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kNoCompression));
+  ASSERT_EQ(res, "kNoCompression");
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kSnappyCompression));
+  ASSERT_EQ(res, "kSnappyCompression");
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kDisableCompressionOption));
+  ASSERT_EQ(res, "kDisableCompressionOption");
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kLZ4Compression));
+  ASSERT_EQ(res, "kLZ4Compression");
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kZlibCompression));
+  ASSERT_EQ(res, "kZlibCompression");
+
+  ASSERT_NOK(
+      GetStringFromCompressionType(&res, static_cast<CompressionType>(-10)));
+}
 #endif  // !ROCKSDB_LITE
 
 TEST_F(OptionsTest, ConvertOptionsTest) {

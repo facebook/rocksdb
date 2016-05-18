@@ -5,8 +5,10 @@
 
 #pragma once
 
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
@@ -75,6 +77,9 @@ Status GetStringFromDBOptions(std::string* opts_str,
 Status GetStringFromColumnFamilyOptions(std::string* opts_str,
                                         const ColumnFamilyOptions& db_options,
                                         const std::string& delimiter = ";  ");
+
+Status GetStringFromCompressionType(std::string* compression_str,
+                                    CompressionType compression_type);
 
 Status GetBlockBasedTableOptionsFromString(
     const BlockBasedTableOptions& table_options,

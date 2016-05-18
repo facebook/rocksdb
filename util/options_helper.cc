@@ -955,6 +955,17 @@ Status GetStringFromColumnFamilyOptions(std::string* opt_string,
   return Status::OK();
 }
 
+Status GetStringFromCompressionType(std::string* compression_str,
+                                    CompressionType compression_type) {
+  bool ok = SerializeEnum<CompressionType>(compression_type_string_map,
+                                           compression_type, compression_str);
+  if (ok) {
+    return Status::OK();
+  } else {
+    return Status::InvalidArgument("Invalid compression types");
+  }
+}
+
 bool SerializeSingleBlockBasedTableOption(
     std::string* opt_string, const BlockBasedTableOptions& bbt_options,
     const std::string& name, const std::string& delimiter) {
