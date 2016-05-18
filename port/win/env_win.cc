@@ -1705,6 +1705,7 @@ class WinEnv : public Env {
     return s;
   }
 
+#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8)
   virtual uint64_t NowMicros() override {
     if (GetSystemTimePreciseAsFileTime_ != NULL) {
       // all std::chrono clocks on windows proved to return
@@ -1730,6 +1731,18 @@ class WinEnv : public Env {
     using namespace std::chrono;
     return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
   }
+#else
+  virtual uint64_t NowMicros() override {
+      // On Windows 7 and below, where GetSystemTimePreciseAsFileTime is not
+      // available, use QueryPerformanceCounter. Note that this may cause some
+      // of the tests to fail.
+      LARGE_INTEGER li;
+      QueryPerformanceCounter(&li);
+      li.QuadPart *= std::micro::den;
+      li.QuadPart /= perf_counter_frequency_;
+      return li.QuadPart;
+  }
+#endif // (_WIN32_WINNT >= _WIN32_WINNT_WIN8)
 
   virtual uint64_t NowNanos() override {
     // all std::chrono clocks on windows have the same resolution that is only
