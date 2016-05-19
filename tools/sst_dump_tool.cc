@@ -557,6 +557,15 @@ int SSTDumpTool::Run(int argc, char** argv) {
         fprintf(stdout, "# deleted keys: %" PRIu64 "\n",
                 rocksdb::GetDeletedKeys(
                     table_properties->user_collected_properties));
+
+        bool property_present;
+        uint64_t merge_operands = rocksdb::GetMergeOperands(
+            table_properties->user_collected_properties, &property_present);
+        if (property_present) {
+          fprintf(stdout, "  # merge operands: %" PRIu64 "\n", merge_operands);
+        } else {
+          fprintf(stdout, "  # merge operands: UNKNOWN\n");
+        }
       }
     }
   }

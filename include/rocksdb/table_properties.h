@@ -193,5 +193,7 @@ struct TableProperties {
 // itself. Especially some properties regarding to the internal keys (which
 // is unknown to `table`).
 extern uint64_t GetDeletedKeys(const UserCollectedProperties& props);
+extern uint64_t GetMergeOperands(const UserCollectedProperties& props,
+                                 bool* property_present);
 
 }  // namespace rocksdb

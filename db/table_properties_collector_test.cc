@@ -368,6 +368,8 @@ void TestInternalKeyPropertiesCollector(
       InternalKey("Y       ", 5, ValueType::kTypeDeletion),
       InternalKey("Z       ", 6, ValueType::kTypeDeletion),
       InternalKey("a       ", 7, ValueType::kTypeSingleDeletion),
+      InternalKey("b       ", 8, ValueType::kTypeMerge),
+      InternalKey("c       ", 9, ValueType::kTypeMerge),
   };
 
   std::unique_ptr<TableBuilder> builder;
@@ -422,6 +424,11 @@ void TestInternalKeyPropertiesCollector(
     auto user_collected = props->user_collected_properties;
     uint64_t deleted = GetDeletedKeys(user_collected);
     ASSERT_EQ(5u, deleted);  // deletes + single-deletes
+
+    bool property_present;
+    uint64_t merges = GetMergeOperands(user_collected, &property_present);
+    ASSERT_TRUE(property_present);
+    ASSERT_EQ(2u, merges);
 
     if (sanitized) {
       uint32_t starts_with_A = 0;
