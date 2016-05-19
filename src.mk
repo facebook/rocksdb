@@ -202,6 +202,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
 	db/db_block_cache_test.cc																							\
+  db/db_io_failure_test.cc                                              \
   db/db_bloom_filter_test.cc                                            \
   db/db_compaction_filter_test.cc                                       \
   db/db_compaction_test.cc                                              \
