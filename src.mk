@@ -126,6 +126,7 @@ LIB_SOURCES =                                                   \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/put.cc                              \
+  utilities/merge_operators/max.cc                              \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/uint64add.cc                        \

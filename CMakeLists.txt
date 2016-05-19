@@ -260,6 +260,7 @@ set(SOURCES
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
         utilities/merge_operators/put.cc
+        utilities/merge_operators/max.cc
         utilities/merge_operators/uint64add.cc
         utilities/options/options_util.cc
         utilities/redis/redis_lists.cc

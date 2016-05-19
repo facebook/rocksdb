@@ -19,6 +19,7 @@ class MergeOperators {
   static std::shared_ptr<MergeOperator> CreateUInt64AddOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendOperator();
   static std::shared_ptr<MergeOperator> CreateStringAppendTESTOperator();
+  static std::shared_ptr<MergeOperator> CreateMaxOperator();
 
   // Will return a different merge operator depending on the string.
   // TODO: Hook the "name" up to the actual Name() of the MergeOperators?
@@ -32,6 +33,8 @@ class MergeOperators {
       return CreateStringAppendOperator();
     } else if (name == "stringappendtest") {
       return CreateStringAppendTESTOperator();
+    } else if (name == "max") {
+      return CreateMaxOperator();
     } else {
       // Empty or unknown, just return nullptr
       return nullptr;
