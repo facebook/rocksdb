@@ -632,7 +632,7 @@ Status BackupEngineImpl::Initialize() {
   // set up threads perform copies from files_to_copy_or_create_ in the
   // background
   for (int t = 0; t < options_.max_background_operations; t++) {
-    threads_.emplace_back([&]() {
+    threads_.emplace_back([this]() {
       CopyOrCreateWorkItem work_item;
       while (files_to_copy_or_create_.read(work_item)) {
         CopyOrCreateResult result;
