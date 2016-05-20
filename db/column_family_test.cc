@@ -447,7 +447,7 @@ TEST_F(ColumnFamilyTest, AddDrop) {
 
   std::vector<std::string> families;
   ASSERT_OK(DB::ListColumnFamilies(db_options_, dbname_, &families));
-  sort(families.begin(), families.end());
+  std::sort(families.begin(), families.end());
   ASSERT_TRUE(families ==
               std::vector<std::string>({"default", "four", "three"}));
 }

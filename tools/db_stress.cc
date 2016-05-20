@@ -2152,8 +2152,9 @@ class StressTest {
         // this is a reopen. just assert that existing column_family_names are
         // equivalent to what we remember
         auto sorted_cfn = column_family_names_;
-        sort(sorted_cfn.begin(), sorted_cfn.end());
-        sort(existing_column_families.begin(), existing_column_families.end());
+        std::sort(sorted_cfn.begin(), sorted_cfn.end());
+        std::sort(existing_column_families.begin(),
+                  existing_column_families.end());
         if (sorted_cfn != existing_column_families) {
           fprintf(stderr,
                   "Expected column families differ from the existing:\n");

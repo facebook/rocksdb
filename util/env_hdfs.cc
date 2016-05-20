@@ -471,7 +471,7 @@ Status HdfsEnv::GetChildren(const std::string& path,
     if (numEntries >= 0) {
       for(int i = 0; i < numEntries; i++) {
         char* pathname = pHdfsFileInfo[i].mName;
-        char* filename = rindex(pathname, '/');
+        char* filename = std::rindex(pathname, '/');
         if (filename != nullptr) {
           result->push_back(filename+1);
         }

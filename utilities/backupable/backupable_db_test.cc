@@ -197,8 +197,8 @@ class TestEnv : public EnvWrapper {
 
   void AssertWrittenFiles(std::vector<std::string>& should_have_written) {
     MutexLock l(&mutex_);
-    sort(should_have_written.begin(), should_have_written.end());
-    sort(written_files_.begin(), written_files_.end());
+    std::sort(should_have_written.begin(), should_have_written.end());
+    std::sort(written_files_.begin(), written_files_.end());
     ASSERT_TRUE(written_files_ == should_have_written);
   }
 

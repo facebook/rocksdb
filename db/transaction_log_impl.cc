@@ -8,8 +8,8 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include <inttypes.h>
 #include "db/transaction_log_impl.h"
+#include <inttypes.h>
 #include "db/write_batch_internal.h"
 #include "util/file_reader_writer.h"
 
@@ -250,7 +250,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   // currentBatchSeq_ can only change here
   assert(currentLastSeq_ <= versions_->LastSequence());
 
-  currentBatch_ = move(batch);
+  currentBatch_ = std::move(batch);
   isValid_ = true;
   currentStatus_ = Status::OK();
 }
@@ -262,10 +262,9 @@ Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
     return s;
   }
   assert(file);
-  currentLogReader_.reset(new log::Reader(options_->info_log,
-					  std::move(file), &reporter_,
-                                          read_options_.verify_checksums_, 0,
-                                          logFile->LogNumber()));
+  currentLogReader_.reset(new log::Reader(
+      options_->info_log, std::move(file), &reporter_,
+      read_options_.verify_checksums_, 0, logFile->LogNumber()));
   return Status::OK();
 }
 }  //  namespace rocksdb

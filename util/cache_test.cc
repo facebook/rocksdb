@@ -554,8 +554,8 @@ TEST_F(CacheTest, ApplyToAllCacheEntiresTest) {
   }
   cache_->ApplyToAllCacheEntries(callback, true);
 
-  sort(inserted.begin(), inserted.end());
-  sort(callback_state.begin(), callback_state.end());
+  std::sort(inserted.begin(), inserted.end());
+  std::sort(callback_state.begin(), callback_state.end());
   ASSERT_TRUE(inserted == callback_state);
 }
 

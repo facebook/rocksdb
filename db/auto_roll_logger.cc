@@ -6,8 +6,6 @@
 #include "db/auto_roll_logger.h"
 #include "util/mutexlock.h"
 
-using namespace std;
-
 namespace rocksdb {
 
 // -- AutoRollLogger
@@ -47,7 +45,8 @@ void AutoRollLogger::RollLogFile() {
   env_->RenameFile(log_fname_, old_fname);
 }
 
-string AutoRollLogger::ValistToString(const char* format, va_list args) const {
+std::string AutoRollLogger::ValistToString(const char* format,
+                                           va_list args) const {
   // Any log messages longer than 1024 will get truncated.
   // The user is responsible for chopping longer messages into multi line log
   static const int MAXBUFFERSIZE = 1024;
@@ -112,7 +111,7 @@ void AutoRollLogger::LogHeader(const char* format, va_list args) {
   // strings
   va_list tmp;
   va_copy(tmp, args);
-  string data = ValistToString(format, tmp);
+  std::string data = ValistToString(format, tmp);
   va_end(tmp);
 
   MutexLock l(&mutex_);

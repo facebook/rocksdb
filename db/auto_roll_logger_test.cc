@@ -19,8 +19,6 @@
 #include <sys/stat.h>
 #include <errno.h>
 
-using namespace std;
-
 namespace rocksdb {
 
 class AutoRollLoggerTest : public testing::Test {
@@ -40,23 +38,22 @@ class AutoRollLoggerTest : public testing::Test {
     Env::Default()->CreateDir(kTestDir);
   }
 
-  void RollLogFileBySizeTest(AutoRollLogger* logger,
-                             size_t log_max_size,
-                             const string& log_message);
-  uint64_t RollLogFileByTimeTest(AutoRollLogger* logger,
-                                 size_t time,
-                                 const string& log_message);
+  void RollLogFileBySizeTest(AutoRollLogger* logger, size_t log_max_size,
+                             const std::string& log_message);
+  uint64_t RollLogFileByTimeTest(AutoRollLogger* logger, size_t time,
+                                 const std::string& log_message);
 
-  static const string kSampleMessage;
-  static const string kTestDir;
-  static const string kLogFile;
+  static const std::string kSampleMessage;
+  static const std::string kTestDir;
+  static const std::string kLogFile;
   static Env* env;
 };
 
-const string AutoRollLoggerTest::kSampleMessage(
+const std::string AutoRollLoggerTest::kSampleMessage(
     "this is the message to be written to the log file!!");
-const string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
-const string AutoRollLoggerTest::kLogFile(test::TmpDir() + "/db_log_test/LOG");
+const std::string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
+const std::string AutoRollLoggerTest::kLogFile(test::TmpDir() +
+                                               "/db_log_test/LOG");
 Env* AutoRollLoggerTest::env = Env::Default();
 
 // In this test we only want to Log some simple log message with
@@ -86,7 +83,7 @@ void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
 
 void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
-                                               const string& log_message) {
+                                               const std::string& log_message) {
   logger->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
   // measure the size of each message, which is supposed
   // to be equal or greater than log_message.size()
@@ -111,7 +108,7 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
 }
 
 uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
-    AutoRollLogger* logger, size_t time, const string& log_message) {
+    AutoRollLogger* logger, size_t time, const std::string& log_message) {
   uint64_t expected_create_time;
   uint64_t actual_create_time;
   uint64_t total_log_size;
@@ -361,13 +358,13 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
 
 // Test the logger Header function for roll over logs
 // We expect the new logs creates as roll over to carry the headers specified
-static std::vector<string> GetOldFileNames(const string& path) {
-  std::vector<string> ret;
+static std::vector<std::string> GetOldFileNames(const std::string& path) {
+  std::vector<std::string> ret;
 
-  const string dirname = path.substr(/*start=*/ 0, path.find_last_of("/"));
-  const string fname = path.substr(path.find_last_of("/") + 1);
+  const std::string dirname = path.substr(/*start=*/0, path.find_last_of("/"));
+  const std::string fname = path.substr(path.find_last_of("/") + 1);
 
-  std::vector<string> children;
+  std::vector<std::string> children;
   Env::Default()->GetChildren(dirname, &children);
 
   // We know that the old log files are named [path]<something>
@@ -382,12 +379,13 @@ static std::vector<string> GetOldFileNames(const string& path) {
 }
 
 // Return the number of lines where a given pattern was found in the file
-static size_t GetLinesCount(const string& fname, const string& pattern) {
-  stringstream ssbuf;
-  string line;
+static size_t GetLinesCount(const std::string& fname,
+                            const std::string& pattern) {
+  std::stringstream ssbuf;
+  std::string line;
   size_t count = 0;
 
-  ifstream inFile(fname.c_str());
+  std::ifstream inFile(fname.c_str());
   ssbuf << inFile.rdbuf();
 
   while (getline(ssbuf, line)) {
@@ -426,7 +424,7 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
       }
     }
 
-    const string newfname = logger.TEST_log_fname();
+    const std::string newfname = logger.TEST_log_fname();
 
     // Log enough data to cause a roll over
     int i = 0;
@@ -466,7 +464,7 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
     [](char ch) { return ch == '/'; }, '\\');
   std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
 #else
-  string deleteCmd = "rm -rf " + kTestDir;
+  std::string deleteCmd = "rm -rf " + kTestDir;
 #endif
   ASSERT_EQ(system(deleteCmd.c_str()), 0);
   options.max_log_file_size = 100 * 1024 * 1024;

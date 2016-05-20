@@ -2681,7 +2681,7 @@ TEST_F(DBTest, GroupCommitTest) {
     for (int i = 0; i < kGCNumThreads * kGCNumKeys; ++i) {
       expected_db.push_back(ToString(i));
     }
-    sort(expected_db.begin(), expected_db.end());
+    std::sort(expected_db.begin(), expected_db.end());
 
     Iterator* itr = db_->NewIterator(ReadOptions());
     itr->SeekToFirst();

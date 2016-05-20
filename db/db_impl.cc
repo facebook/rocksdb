@@ -909,9 +909,11 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
 
   // dedup state.candidate_files so we don't try to delete the same
   // file twice
-  sort(candidate_files.begin(), candidate_files.end(), CompareCandidateFile);
-  candidate_files.erase(unique(candidate_files.begin(), candidate_files.end()),
-                        candidate_files.end());
+  std::sort(candidate_files.begin(), candidate_files.end(),
+            CompareCandidateFile);
+  candidate_files.erase(
+      std::unique(candidate_files.begin(), candidate_files.end()),
+      candidate_files.end());
 
   std::vector<std::string> old_info_log_files;
   InfoLogPrefix info_log_prefix(!db_options_.db_log_dir.empty(), dbname_);

@@ -189,9 +189,8 @@ char* Decompress(const char* input_data, size_t input_length,
 
   if (!success) {
 #ifdef _DEBUG
-    std::cerr << 
-      "XPRESS: Failed to create Decompressor LastError " <<
-       GetLastError() << std::endl;
+    std::cerr << "XPRESS: Failed to create Decompressor LastError "
+              << GetLastError() << std::endl;
 #endif
     return nullptr;
   }
@@ -215,9 +214,9 @@ char* Decompress(const char* input_data, size_t input_length,
 
     if (lastError != ERROR_INSUFFICIENT_BUFFER) {
 #ifdef _DEBUG
-      std::cerr << 
-        "XPRESS: Failed to estimate decompressed buffer size LastError " <<
-        lastError << std::endl;
+      std::cerr
+          << "XPRESS: Failed to estimate decompressed buffer size LastError "
+          << lastError << std::endl;
 #endif
       return nullptr;
     }
@@ -266,5 +265,3 @@ char* Decompress(const char* input_data, size_t input_length,
 }
 
 #endif
-
-
