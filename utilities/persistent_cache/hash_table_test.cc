@@ -13,6 +13,8 @@
 #include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/hash_table_evictable.h"
 
+#ifndef ROCKSDB_LITE
+
 namespace rocksdb {
 
 struct HashTableTest : public testing::Test {
@@ -145,6 +147,7 @@ TEST_F(EvictableHashTableTest, TestEvict) {
 }
 
 }  // namespace rocksdb
+#endif
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

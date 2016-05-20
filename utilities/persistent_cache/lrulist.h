@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #include <atomic>
 
 #include "util/mutexlock.h"
@@ -168,3 +170,5 @@ class LRUList {
 };
 
 }  // namespace rocksdb
+
+#endif

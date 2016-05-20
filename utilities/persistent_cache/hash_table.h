@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #include <assert.h>
 #include <sys/mman.h>
 #include <list>
@@ -224,3 +226,5 @@ class HashTable {
 };
 
 }  // namespace rocksdb
+
+#endif

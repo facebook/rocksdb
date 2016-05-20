@@ -4,6 +4,8 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
+#ifndef ROCKSDB_LITE
+
 #include <gflags/gflags.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -292,3 +294,6 @@ int main(int argc, char** argv) {
 
   return 0;
 }
+#else
+int main(int /*argc*/, char** /*argv*/) { return 0; }
+#endif

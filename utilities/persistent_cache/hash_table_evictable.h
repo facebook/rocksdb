@@ -5,6 +5,8 @@
 //
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/lrulist.h"
 
@@ -158,3 +160,5 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
 };
 
 }  // namespace rocksdb
+
+#endif
