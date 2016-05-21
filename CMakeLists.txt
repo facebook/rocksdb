@@ -166,7 +166,6 @@ set(SOURCES
         table/block_based_table_factory.cc
         table/block_based_table_reader.cc
         table/block_builder.cc
-        table/block_hash_index.cc
         table/block_prefix_index.cc
         table/bloom_block.cc
         table/cuckoo_table_builder.cc
@@ -383,7 +382,6 @@ set(TESTS
         db/write_callback_test.cc
         db/write_controller_test.cc
         table/block_based_filter_block_test.cc
-        table/block_hash_index_test.cc
         table/block_test.cc
         table/cuckoo_table_builder_test.cc
         table/cuckoo_table_reader_test.cc

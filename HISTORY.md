@@ -1,3 +1,8 @@
+# Unreleased
+### Public API Change
+* Deprecate BlockBaseTableOptions.hash_index_allow_collision=false
+
+
 # Rocksdb Change Log
 ## Unreleased
 ### Public API changes
@@ -39,7 +44,7 @@
 ### New Features
 * ldb tool now supports operations to non-default column families.
 * Add kPersistedTier to ReadTier.  This option allows Get and MultiGet to read only the persited data and skip mem-tables if writes were done with disableWAL = true.
-* Add DBOptions::sst_file_manager. Use NewSstFileManager() in include/rocksdb/sst_file_manager.h to create a SstFileManager that can be used to track the total size of SST files and control the SST files deletion rate.  
+* Add DBOptions::sst_file_manager. Use NewSstFileManager() in include/rocksdb/sst_file_manager.h to create a SstFileManager that can be used to track the total size of SST files and control the SST files deletion rate.
 
 ## 4.4.0 (1/14/2016)
 ### Public API Changes

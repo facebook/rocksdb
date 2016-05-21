@@ -27,7 +27,6 @@
 #include "table/block.h"
 #include "table/block_based_filter_block.h"
 #include "table/block_based_table_factory.h"
-#include "table/block_hash_index.h"
 #include "table/block_prefix_index.h"
 #include "table/filter_block.h"
 #include "table/format.h"
@@ -278,28 +277,12 @@ class HashIndexReader : public IndexReader {
       return Status::OK();
     }
 
-    if (!hash_index_allow_collision) {
-      // TODO: deprecate once hash_index_allow_collision proves to be stable.
-      BlockHashIndex* hash_index = nullptr;
-      s = CreateBlockHashIndex(hash_key_extractor,
-                               prefixes_contents.data,
-                               prefixes_meta_contents.data,
-                               &hash_index);
-      // TODO: log error
-      if (s.ok()) {
-        new_index_reader->index_block_->SetBlockHashIndex(hash_index);
-        new_index_reader->OwnPrefixesContents(std::move(prefixes_contents));
-      }
-    } else {
-      BlockPrefixIndex* prefix_index = nullptr;
-      s = BlockPrefixIndex::Create(hash_key_extractor,
-                                   prefixes_contents.data,
-                                   prefixes_meta_contents.data,
-                                   &prefix_index);
-      // TODO: log error
-      if (s.ok()) {
-        new_index_reader->index_block_->SetBlockPrefixIndex(prefix_index);
-      }
+    BlockPrefixIndex* prefix_index = nullptr;
+    s = BlockPrefixIndex::Create(hash_key_extractor, prefixes_contents.data,
+                                 prefixes_meta_contents.data, &prefix_index);
+    // TODO: log error
+    if (s.ok()) {
+      new_index_reader->index_block_->SetBlockPrefixIndex(prefix_index);
     }
 
     return Status::OK();
@@ -329,10 +312,6 @@ class HashIndexReader : public IndexReader {
   }
 
   ~HashIndexReader() {
-  }
-
-  void OwnPrefixesContents(BlockContents&& prefixes_contents) {
-    prefixes_contents_ = std::move(prefixes_contents);
   }
 
   std::unique_ptr<Block> index_block_;

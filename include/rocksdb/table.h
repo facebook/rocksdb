@@ -84,10 +84,8 @@ struct BlockBasedTableOptions {
 
   IndexType index_type = kBinarySearch;
 
-  // Influence the behavior when kHashSearch is used.
-  // if false, stores a precise prefix to block range mapping
-  // if true, does not store prefix and allows prefix hash collision
-  // (less memory consumption)
+  // This option is now deprecated. No matter what value it is set to,
+  // it will behave as if hash_index_allow_collision=true.
   bool hash_index_allow_collision = true;
 
   // Use the specified checksum type. Newly created table files will be

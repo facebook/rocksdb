@@ -274,7 +274,6 @@ TESTS = \
 	db_io_failure_test \
 	db_properties_test \
 	db_table_properties_test \
-	block_hash_index_test \
 	autovector_test \
 	column_family_test \
 	table_properties_collector_test \
@@ -805,9 +804,6 @@ cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 memtablerep_bench: db/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
-
-block_hash_index_test: table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)

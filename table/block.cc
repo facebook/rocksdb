@@ -18,7 +18,6 @@
 
 #include "rocksdb/comparator.h"
 #include "table/format.h"
-#include "table/block_hash_index.h"
 #include "table/block_prefix_index.h"
 #include "util/coding.h"
 #include "util/logging.h"
@@ -92,8 +91,7 @@ void BlockIter::Seek(const Slice& target) {
   if (prefix_index_) {
     ok = PrefixSeek(target, &index);
   } else {
-    ok = hash_index_ ? HashSeek(target, &index)
-      : BinarySeek(target, 0, num_restarts_ - 1, &index);
+    ok = BinarySeek(target, 0, num_restarts_ - 1, &index);
   }
 
   if (!ok) {
@@ -273,21 +271,6 @@ bool BlockIter::BinaryBlockIndexSeek(const Slice& target, uint32_t* block_ids,
   }
 }
 
-bool BlockIter::HashSeek(const Slice& target, uint32_t* index) {
-  assert(hash_index_);
-  auto restart_index = hash_index_->GetRestartIndex(target);
-  if (restart_index == nullptr) {
-    current_ = restarts_;
-    return false;
-  }
-
-  // the elements in restart_array[index : index + num_blocks]
-  // are all with same prefix. We'll do binary search in that small range.
-  auto left = restart_index->first_index;
-  auto right = restart_index->first_index + restart_index->num_blocks - 1;
-  return BinarySeek(target, left, right, index);
-}
-
 bool BlockIter::PrefixSeek(const Slice& target, uint32_t* index) {
   assert(prefix_index_);
   uint32_t* block_ids = nullptr;
@@ -342,25 +325,19 @@ InternalIterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
       return NewEmptyInternalIterator();
     }
   } else {
-    BlockHashIndex* hash_index_ptr =
-        total_order_seek ? nullptr : hash_index_.get();
     BlockPrefixIndex* prefix_index_ptr =
         total_order_seek ? nullptr : prefix_index_.get();
 
     if (iter != nullptr) {
       iter->Initialize(cmp, data_, restart_offset_, num_restarts,
-                    hash_index_ptr, prefix_index_ptr);
+                       prefix_index_ptr);
     } else {
       iter = new BlockIter(cmp, data_, restart_offset_, num_restarts,
-                           hash_index_ptr, prefix_index_ptr);
+                           prefix_index_ptr);
     }
   }
 
   return iter;
-}
-
-void Block::SetBlockHashIndex(BlockHashIndex* hash_index) {
-  hash_index_.reset(hash_index);
 }
 
 void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
@@ -369,9 +346,6 @@ void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
 
 size_t Block::ApproximateMemoryUsage() const {
   size_t usage = usable_size();
-  if (hash_index_) {
-    usage += hash_index_->ApproximateMemoryUsage();
-  }
   if (prefix_index_) {
     usage += prefix_index_->ApproximateMemoryUsage();
   }

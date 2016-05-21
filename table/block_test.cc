@@ -18,7 +18,6 @@
 #include "table/block.h"
 #include "table/block_builder.h"
 #include "table/format.h"
-#include "table/block_hash_index.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -159,30 +158,16 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
 
-  {
-    auto iter1 = reader1.NewIterator(nullptr);
-    auto iter2 = reader1.NewIterator(nullptr);
-    reader1.SetBlockHashIndex(CreateBlockHashIndexOnTheFly(
-        iter1, iter2, static_cast<uint32_t>(keys.size()), BytewiseComparator(),
-        prefix_extractor.get()));
-
-    delete iter1;
-    delete iter2;
-  }
-
-  std::unique_ptr<InternalIterator> hash_iter(
-      reader1.NewIterator(BytewiseComparator(), nullptr, false));
-
   std::unique_ptr<InternalIterator> regular_iter(
       reader2.NewIterator(BytewiseComparator()));
 
   // Seek existent keys
   for (size_t i = 0; i < keys.size(); i++) {
-    hash_iter->Seek(keys[i]);
-    ASSERT_OK(hash_iter->status());
-    ASSERT_TRUE(hash_iter->Valid());
+    regular_iter->Seek(keys[i]);
+    ASSERT_OK(regular_iter->status());
+    ASSERT_TRUE(regular_iter->Valid());
 
-    Slice v = hash_iter->value();
+    Slice v = regular_iter->value();
     ASSERT_EQ(v.ToString().compare(values[i]), 0);
   }
 
@@ -192,9 +177,6 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   // return the one that is closest.
   for (int i = 1; i < max_key - 1; i += 2) {
     auto key = GenerateKey(i, 0, 0, nullptr);
-    hash_iter->Seek(key);
-    ASSERT_TRUE(!hash_iter->Valid());
-
     regular_iter->Seek(key);
     ASSERT_TRUE(regular_iter->Valid());
   }
