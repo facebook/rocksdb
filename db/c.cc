@@ -1875,6 +1875,11 @@ void rocksdb_options_set_inplace_update_num_locks(
   opt->rep.inplace_update_num_locks = v;
 }
 
+void rocksdb_options_set_report_bg_io_stats(
+    rocksdb_options_t* opt, int v) {
+  opt->rep.report_bg_io_stats = v;
+}
+
 void rocksdb_options_set_compaction_style(rocksdb_options_t *opt, int style) {
   opt->rep.compaction_style = static_cast<rocksdb::CompactionStyle>(style);
 }
