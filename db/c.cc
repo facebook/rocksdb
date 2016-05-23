@@ -2388,6 +2388,31 @@ void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
                                  &new_options->rep));
 }
 
+void rocksdb_delete_file_in_range(rocksdb_t* db, const char* start_key,
+                                  size_t start_key_len, const char* limit_key,
+                                  size_t limit_key_len, char** errptr) {
+  Slice a, b;
+  SaveError(
+      errptr,
+      DeleteFilesInRange(
+          db->rep, db->rep->DefaultColumnFamily(),
+          (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+          (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr)));
+}
+
+void rocksdb_delete_file_in_range_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    const char* start_key, size_t start_key_len, const char* limit_key,
+    size_t limit_key_len, char** errptr) {
+  Slice a, b;
+  SaveError(
+      errptr,
+      DeleteFilesInRange(
+          db->rep, column_family->rep,
+          (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+          (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr)));
+}
+
 void rocksdb_free(void* ptr) { free(ptr); }
 
 }  // end extern "C"
