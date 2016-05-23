@@ -626,11 +626,7 @@ Compaction* CompactionPicker::CompactRange(
   // takes running compactions into account (by skipping files that are already
   // being compacted). Since we just changed compaction score, we recalculate it
   // here
-  {  // this piece of code recomputes compaction score
-    CompactionOptionsFIFO dummy_compaction_options_fifo;
-    vstorage->ComputeCompactionScore(mutable_cf_options,
-                                     dummy_compaction_options_fifo);
-  }
+  vstorage->ComputeCompactionScore(mutable_cf_options);
 
   return compaction;
 }
@@ -1038,11 +1034,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
   // takes running compactions into account (by skipping files that are already
   // being compacted). Since we just changed compaction score, we recalculate it
   // here
-  {  // this piece of code recomputes compaction score
-    CompactionOptionsFIFO dummy_compaction_options_fifo;
-    vstorage->ComputeCompactionScore(mutable_cf_options,
-                                     dummy_compaction_options_fifo);
-  }
+  vstorage->ComputeCompactionScore(mutable_cf_options);
 
   TEST_SYNC_POINT_CALLBACK("LevelCompactionPicker::PickCompaction:Return", c);
 

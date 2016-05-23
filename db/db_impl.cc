@@ -2081,11 +2081,7 @@ Status DBImpl::CompactFilesImpl(
   // takes running compactions into account (by skipping files that are already
   // being compacted). Since we just changed compaction score, we recalculate it
   // here.
-  {
-    CompactionOptionsFIFO dummy_compaction_options_fifo;
-    version->storage_info()->ComputeCompactionScore(
-        *c->mutable_cf_options(), dummy_compaction_options_fifo);
-  }
+  version->storage_info()->ComputeCompactionScore(*c->mutable_cf_options());
 
   compaction_job.Prepare();
 

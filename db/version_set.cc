@@ -1245,8 +1245,7 @@ void VersionStorageInfo::EstimateCompactionBytesNeeded(
 }
 
 void VersionStorageInfo::ComputeCompactionScore(
-    const MutableCFOptions& mutable_cf_options,
-    const CompactionOptionsFIFO& compaction_options_fifo) {
+    const MutableCFOptions& mutable_cf_options) {
   for (int level = 0; level <= MaxInputLevel(); level++) {
     double score;
     if (level == 0) {
@@ -1282,7 +1281,7 @@ void VersionStorageInfo::ComputeCompactionScore(
 
       if (compaction_style_ == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
-                compaction_options_fifo.max_table_files_size;
+                mutable_cf_options.compaction_options_fifo.max_table_files_size;
       } else {
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
@@ -2138,8 +2137,7 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
                                Version* v) {
   // compute new compaction score
   v->storage_info()->ComputeCompactionScore(
-      *column_family_data->GetLatestMutableCFOptions(),
-      column_family_data->ioptions()->compaction_options_fifo);
+      *column_family_data->GetLatestMutableCFOptions());
 
   // Mark v finalized
   v->storage_info_.SetFinalized();
