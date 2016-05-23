@@ -153,12 +153,22 @@ class PosixEnv : public Env {
       *result = nullptr;
       return IOError(fname, errno);
     } else if (options.use_direct_reads && !options.use_mmap_writes) {
+#ifdef OS_MACOSX
+      int flags = O_RDONLY;
+#else
       int flags = O_RDONLY | O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewSequentialFile:O_DIRECT", &flags);
+#endif
       int fd = open(fname.c_str(), flags, 0644);
       if (fd < 0) {
         return IOError(fname, errno);
       }
+#ifdef OS_MACOSX
+      if (fcntl(fd, F_NOCACHE, 1) == -1) {
+        close(fd);
+        return IOError(fname, errno);
+      }
+#endif
       std::unique_ptr<PosixDirectIOSequentialFile> file(
           new PosixDirectIOSequentialFile(fname, fd));
       *result = std::move(file);
@@ -201,8 +211,12 @@ class PosixEnv : public Env {
       }
       close(fd);
     } else if (options.use_direct_reads) {
+#ifdef OS_MACOSX
+      int flags = O_RDONLY;
+#else
       int flags = O_RDONLY | O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
+#endif
       fd = open(fname.c_str(), flags, 0644);
       if (fd < 0) {
         s = IOError(fname, errno);
@@ -211,6 +225,12 @@ class PosixEnv : public Env {
             new PosixDirectIORandomAccessFile(fname, fd));
         *result = std::move(file);
         s = Status::OK();
+#ifdef OS_MACOSX
+        if (fcntl(fd, F_NOCACHE, 1) == -1) {
+          close(fd);
+          s = IOError(fname, errno);
+        }
+#endif
       }
     } else {
       result->reset(new PosixRandomAccessFile(fname, fd, options));
@@ -245,7 +265,11 @@ class PosixEnv : public Env {
       if (options.use_mmap_writes && !forceMmapOff) {
         result->reset(new PosixMmapFile(fname, fd, page_size_, options));
       } else if (options.use_direct_writes) {
+#ifdef OS_MACOSX
+        int flags = O_WRONLY | O_APPEND | O_TRUNC | O_CREAT;
+#else
         int flags = O_WRONLY | O_APPEND | O_TRUNC | O_CREAT | O_DIRECT;
+#endif
         TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
         fd = open(fname.c_str(), flags, 0644);
         if (fd < 0) {
@@ -255,6 +279,12 @@ class PosixEnv : public Env {
               new PosixDirectIOWritableFile(fname, fd));
           *result = std::move(file);
           s = Status::OK();
+#ifdef OS_MACOSX
+          if (fcntl(fd, F_NOCACHE, 1) == -1) {
+            close(fd);
+            s = IOError(fname, errno);
+          }
+#endif
         }
       } else {
         // disable mmap writes

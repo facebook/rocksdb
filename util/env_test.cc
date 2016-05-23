@@ -794,6 +794,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     // Create file.
     {
       unique_ptr<WritableFile> wfile;
+#ifndef OS_MACOSX
       if (soptions.use_direct_writes) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -801,7 +802,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
               *val &= ~O_DIRECT;
             });
       }
-
+#endif
       ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
       ASSERT_OK(wfile.get()->Append(slice));
       ASSERT_OK(wfile.get()->InvalidateCache(0, 0));
@@ -813,6 +814,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<RandomAccessFile> file;
       char scratch[kSectorSize];
       Slice result;
+#ifndef OS_MACOSX
       if (soptions.use_direct_reads) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
@@ -820,7 +822,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
               *val &= ~O_DIRECT;
             });
       }
-
+#endif
       ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
       ASSERT_OK(file.get()->Read(0, kSectorSize, &result, scratch));
       ASSERT_EQ(memcmp(scratch, data.get(), kSectorSize), 0);
@@ -833,6 +835,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<SequentialFile> file;
       char scratch[kSectorSize];
       Slice result;
+#ifndef OS_MACOSX
       if (soptions.use_direct_reads) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewSequentialFile:O_DIRECT", [&](void* arg) {
@@ -840,7 +843,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
               *val &= ~O_DIRECT;
             });
       }
-
+#endif
       ASSERT_OK(env_->NewSequentialFile(fname, &file, soptions));
       ASSERT_OK(file.get()->Read(kSectorSize, &result, scratch));
       ASSERT_EQ(memcmp(scratch, data.get(), kSectorSize), 0);
@@ -978,6 +981,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
     unique_ptr<WritableFile> srcfile;
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = directio;
+#ifndef OS_MACOSX
     if (soptions.use_direct_writes) {
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -985,7 +989,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
             *val &= ~O_DIRECT;
           });
     }
-
+#endif
     ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
     srcfile->SetPreallocationBlockSize(1024 * 1024);
 
@@ -1041,6 +1045,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       oss << test::TmpDir(env_) << "/testfile_" << i;
       const std::string path = oss.str();
       unique_ptr<WritableFile> file;
+#ifndef OS_MACOSX
       if (soptions.use_direct_writes) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -1048,7 +1053,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
               *val &= ~O_DIRECT;
             });
       }
-
+#endif
       ASSERT_OK(env_->NewWritableFile(path, &file, soptions));
       auto buf_ptr = NewAligned(data.size(), 'T');
       Slice buf(buf_ptr.get(), data.size());
