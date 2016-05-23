@@ -932,6 +932,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_get_options_from_string(
     const rocksdb_options_t* base_options, const char* opts_str,
     rocksdb_options_t* new_options, char** errptr);
 
+extern ROCKSDB_LIBRARY_API void rocksdb_delete_file_in_range(
+    rocksdb_t* db, const char* start_key, size_t start_key_len,
+    const char* limit_key, size_t limit_key_len, char** errptr);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_delete_file_in_range_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    const char* start_key, size_t start_key_len, const char* limit_key,
+    size_t limit_key_len, char** errptr);
+
 // referring to convention (3), this should be used by client
 // to free memory that was malloc()ed
 extern ROCKSDB_LIBRARY_API void rocksdb_free(void* ptr);
