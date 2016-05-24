@@ -381,6 +381,7 @@ set(TESTS
         db/write_batch_test.cc
         db/write_callback_test.cc
         db/write_controller_test.cc
+        db/db_io_failure_test.cc
         table/block_based_filter_block_test.cc
         table/block_test.cc
         table/cuckoo_table_builder_test.cc
