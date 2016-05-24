@@ -11,72 +11,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "rocksdb/cache.h"
 #include "port/port.h"
+#include "rocksdb/cache.h"
 #include "util/autovector.h"
 #include "util/hash.h"
+#include "util/lru_cache_handle.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
 
-Cache::~Cache() {
-}
-
 namespace {
 
 // LRU cache implementation
-
-// An entry is a variable length heap-allocated structure.
-// Entries are referenced by cache and/or by any external entity.
-// The cache keeps all its entries in table. Some elements
-// are also stored on LRU list.
-//
-// LRUHandle can be in these states:
-// 1. Referenced externally AND in hash table.
-//  In that case the entry is *not* in the LRU. (refs > 1 && in_cache == true)
-// 2. Not referenced externally and in hash table. In that case the entry is
-// in the LRU and can be freed. (refs == 1 && in_cache == true)
-// 3. Referenced externally and not in hash table. In that case the entry is
-// in not on LRU and not in table. (refs >= 1 && in_cache == false)
-//
-// All newly created LRUHandles are in state 1. If you call LRUCache::Release
-// on entry in state 1, it will go into state 2. To move from state 1 to
-// state 3, either call LRUCache::Erase or LRUCache::Insert with the same key.
-// To move from state 2 to state 1, use LRUCache::Lookup.
-// Before destruction, make sure that no handles are in state 1. This means
-// that any successful LRUCache::Lookup/LRUCache::Insert have a matching
-// RUCache::Release (to move into state 2) or LRUCache::Erase (for state 3)
-
-struct LRUHandle {
-  void* value;
-  void (*deleter)(const Slice&, void* value);
-  LRUHandle* next_hash;
-  LRUHandle* next;
-  LRUHandle* prev;
-  size_t charge;      // TODO(opt): Only allow uint32_t?
-  size_t key_length;
-  uint32_t refs;      // a number of refs to this entry
-                      // cache itself is counted as 1
-  bool in_cache;      // true, if this entry is referenced by the hash table
-  uint32_t hash;      // Hash of key(); used for fast sharding and comparisons
-  char key_data[1];   // Beginning of key
-
-  Slice key() const {
-    // For cheaper lookups, we allow a temporary Handle object
-    // to store a pointer to a key in "value".
-    if (next == this) {
-      return *(reinterpret_cast<Slice*>(value));
-    } else {
-      return Slice(key_data, key_length);
-    }
-  }
-
-  void Free() {
-    assert((refs == 1 && in_cache) || (refs == 0 && !in_cache));
-    (*deleter)(key(), value);
-    delete[] reinterpret_cast<char*>(this);
-  }
-};
 
 // We provide our own simple hash table since it removes a whole bunch
 // of porting hacks and is also faster than some of the built-in hash
@@ -151,8 +97,7 @@ class HandleTable {
   // pointer to the trailing slot in the corresponding linked list.
   LRUHandle** FindPointer(const Slice& key, uint32_t hash) {
     LRUHandle** ptr = &list_[hash & (length_ - 1)];
-    while (*ptr != nullptr &&
-           ((*ptr)->hash != hash || key != (*ptr)->key())) {
+    while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
       ptr = &(*ptr)->next_hash;
     }
     return ptr;
@@ -238,8 +183,7 @@ class LRUCache {
   // to hold (usage_ + charge) is freed or the lru list is empty
   // This function is not thread safe - it needs to be executed while
   // holding the mutex_
-  void EvictFromLRU(size_t charge,
-                    autovector<LRUHandle*>* deleted);
+  void EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted);
 
   // Initialized before use.
   size_t capacity_;
@@ -310,9 +254,8 @@ void LRUCache::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
   if (thread_safe) {
     mutex_.Lock();
   }
-  table_.ApplyToAllCacheEntries([callback](LRUHandle* h) {
-    callback(h->value, h->charge);
-  });
+  table_.ApplyToAllCacheEntries(
+      [callback](LRUHandle* h) { callback(h->value, h->charge); });
   if (thread_safe) {
     mutex_.Unlock();
   }
@@ -338,8 +281,7 @@ void LRUCache::LRU_Append(LRUHandle* e) {
   lru_usage_ += e->charge;
 }
 
-void LRUCache::EvictFromLRU(size_t charge,
-                            autovector<LRUHandle*>* deleted) {
+void LRUCache::EvictFromLRU(size_t charge, autovector<LRUHandle*>* deleted) {
   while (usage_ + charge > capacity_ && lru_.next != &lru_) {
     LRUHandle* old = lru_.next;
     assert(old->in_cache);
@@ -430,7 +372,7 @@ Status LRUCache::Insert(const Slice& key, uint32_t hash, void* value,
   // If the cache is full, we'll have to release it
   // It shouldn't happen very often though.
   LRUHandle* e = reinterpret_cast<LRUHandle*>(
-                    new char[sizeof(LRUHandle) - 1 + key.size()]);
+      new char[sizeof(LRUHandle) - 1 + key.size()]);
   Status s;
   autovector<LRUHandle*> last_reference_list;
 
@@ -556,9 +498,7 @@ class ShardedLRUCache : public Cache {
       shards_[s].SetStrictCapacityLimit(strict_capacity_limit);
     }
   }
-  virtual ~ShardedLRUCache() {
-    delete[] shards_;
-  }
+  virtual ~ShardedLRUCache() { delete[] shards_; }
   virtual void SetCapacity(size_t capacity) override {
     int num_shards = 1 << num_shard_bits_;
     const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
@@ -651,16 +591,16 @@ class ShardedLRUCache : public Cache {
 
 }  // end anonymous namespace
 
-shared_ptr<Cache> NewLRUCache(size_t capacity) {
+std::shared_ptr<Cache> NewLRUCache(size_t capacity) {
   return NewLRUCache(capacity, kNumShardBits, false);
 }
 
-shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits) {
+std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits) {
   return NewLRUCache(capacity, num_shard_bits, false);
 }
 
-shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
-                              bool strict_capacity_limit) {
+std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
+                                   bool strict_capacity_limit) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }

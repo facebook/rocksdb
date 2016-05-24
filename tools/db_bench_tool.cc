@@ -51,6 +51,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/utilities/flashcache.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/write_batch.h"
@@ -334,8 +335,13 @@ DEFINE_int32(universal_compression_size_percent, -1,
 DEFINE_bool(universal_allow_trivial_move, false,
             "Allow trivial move in universal compaction.");
 
-DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
-             "data. Negative means use default settings.");
+DEFINE_int64(cache_size, -1,
+             "Number of bytes to use as a cache of uncompressed"
+             " data. Negative means use default settings.");
+
+DEFINE_int64(simcache_size, -1,
+             "Number of bytes to use as a simcache of "
+             "uncompressed data. Negative means use default settings.");
 
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
@@ -1808,6 +1814,16 @@ class Benchmark {
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
         report_file_operations_(FLAGS_report_file_operations),
         cachedev_fd_(-1) {
+    // use simcache instead of cache
+    if (FLAGS_simcache_size >= 0) {
+      if (FLAGS_cache_numshardbits >= 1) {
+        cache_ =
+            NewSimCache(cache_, FLAGS_simcache_size, FLAGS_cache_numshardbits);
+      } else {
+        cache_ = NewSimCache(cache_, FLAGS_simcache_size, 0);
+      }
+    }
+
     if (report_file_operations_) {
       if (!FLAGS_hdfs.empty()) {
         fprintf(stderr,
@@ -2100,6 +2116,10 @@ class Benchmark {
     }
     if (FLAGS_statistics) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
+    }
+    if (FLAGS_simcache_size) {
+      fprintf(stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
+              std::dynamic_pointer_cast<SimCache>(cache_)->ToString().c_str());
     }
   }
 

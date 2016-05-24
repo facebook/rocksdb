@@ -322,6 +322,7 @@ TESTS = \
 	backupable_db_test \
 	document_db_test \
 	json_document_test \
+	sim_cache_test \
 	spatial_db_test \
 	version_edit_test \
 	version_set_test \
@@ -951,6 +952,9 @@ document_db_test: utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARN
 	$(AM_LINK)
 
 json_document_test: utilities/document/json_document_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+sim_cache_test: utilities/simulator_cache/sim_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
