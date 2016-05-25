@@ -119,7 +119,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
 }
 
 // Test specific cases in dynamic max bytes
-TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
+TEST_F(DBTestDynamicLevel, DISABLED_DynamicLevelMaxBytesBase2) {
   Random rnd(301);
   int kMaxKey = 1000000;
 
