@@ -2117,7 +2117,7 @@ class Benchmark {
     if (FLAGS_statistics) {
       fprintf(stdout, "STATISTICS:\n%s\n", dbstats->ToString().c_str());
     }
-    if (FLAGS_simcache_size) {
+    if (FLAGS_simcache_size >= 0) {
       fprintf(stdout, "SIMULATOR CACHE STATISTICS:\n%s\n",
               std::dynamic_pointer_cast<SimCache>(cache_)->ToString().c_str());
     }
