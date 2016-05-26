@@ -723,7 +723,39 @@ TEST_F(EventListenerTest, TableFileCreationListenersTest) {
   dbfull()->TEST_WaitForCompact();
   listener->CheckAndResetCounters(1, 1, 0, 1, 1, 1);
 }
-}  // namespace rocksdb
+
+class MemTableSealedListener : public EventListener {
+private:
+  SequenceNumber latest_seq_number_;
+public:
+  MemTableSealedListener() {}
+  void OnMemTableSealed(const MemTableInfo& info) override {
+    latest_seq_number_ = info.first_seqno;
+  }
+
+  void OnFlushCompleted(DB* /*db*/,
+    const FlushJobInfo& flush_job_info) override {
+    ASSERT_LE(flush_job_info.smallest_seqno, latest_seq_number_);
+  }
+};
+
+TEST_F(EventListenerTest, MemTableSealedListenerTest) {
+  auto listener = std::make_shared<MemTableSealedListener>();
+  Options options;
+  options.create_if_missing = true;
+  options.listeners.push_back(listener);
+  DestroyAndReopen(options);
+
+  for (unsigned int i = 0; i < 10; i++) {
+    std::string tag = std::to_string(i);
+    ASSERT_OK(Put("foo"+tag, "aaa"));
+    ASSERT_OK(Put("bar"+tag, "bbb"));
+
+    ASSERT_OK(Flush());
+  }
+}
+} // namespace rocksdb
+
 
 #endif  // ROCKSDB_LITE
 

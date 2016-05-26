@@ -4865,6 +4865,23 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   return Status::OK();
 }
 
+void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* cfd, 
+                                    const MemTableInfo& mem_table_info) {
+#ifndef ROCKSDB_LITE
+  if (db_options_.listeners.size() == 0U) {
+    return;
+  }
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  for (auto listener : db_options_.listeners) {
+    listener->OnMemTableSealed(mem_table_info);
+  }  
+#endif  // ROCKSDB_LITE
+}
+
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
@@ -4887,6 +4904,17 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
   SuperVersion* new_superversion = nullptr;
   const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+
+  // Set current_memtble_info for memtable sealed callback
+  MemTableInfo memtable_info;
+#ifndef ROCKSDB_LITE
+  memtable_info.cf_name = cfd->GetName();
+  memtable_info.first_seqno = cfd->mem()->GetFirstSequenceNumber();
+  memtable_info.earliest_seqno = cfd->mem()->GetEarliestSequenceNumber();
+  memtable_info.num_entries = cfd->mem()->num_entries();
+  memtable_info.num_deletes = cfd->mem()->num_deletes();
+#endif  // ROCKSDB_LITE
+
   mutex_.Unlock();
   Status s;
   {
@@ -4923,10 +4951,16 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
       new_superversion = new SuperVersion();
     }
+
+    // PLEASE NOTE: We assume that there are no failable operations
+    // after lock is acquired below since we are already notifying
+    // client about mem table becoming immutable.
+    NotifyOnMemTableSealed(cfd, memtable_info);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
       "[%s] New memtable created with log file: #%" PRIu64 "\n",
       cfd->GetName().c_str(), new_log_number);
+
   mutex_.Lock();
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
@@ -4953,6 +4987,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       }
     }
   }
+
   cfd->mem()->SetNextLogNumber(logfile_number_);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
