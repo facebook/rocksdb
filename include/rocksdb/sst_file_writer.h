@@ -8,7 +8,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/immutable_options.h"
 #include "rocksdb/types.h"
-#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
