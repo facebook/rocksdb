@@ -98,12 +98,11 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
  * Command name is not included in args.
  * Returns nullptr if the command-line cannot be parsed.
  */
-template <typename Selector>
 LDBCommand* LDBCommand::InitFromCmdLineArgs(
     const std::vector<std::string>& args, const Options& options,
     const LDBOptions& ldb_options,
     const std::vector<ColumnFamilyDescriptor>* column_families,
-    Selector selector) {
+    const RocksDBLDBSelectFunc& selector) {
   // --x=y command line arguments are added as x->y map entries.
   std::map<std::string, std::string> option_map;
 

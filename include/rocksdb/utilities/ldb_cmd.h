@@ -53,12 +53,19 @@ class LDBCommand {
   static const std::string ARG_CREATE_IF_MISSING;
   static const std::string ARG_NO_VALUE;
 
-  template <typename Selector>
+  // parameters: cmd, cmdParams, option_map, flags
+  // The same interface as SelectCommand()
+  typedef std::function<LDBCommand*(const std::string&,
+                                    const std::vector<std::string>&,
+                                    const std::map<std::string, std::string>&,
+                                    const std::vector<std::string>&)>
+      RocksDBLDBSelectFunc;
+
   static LDBCommand* InitFromCmdLineArgs(
       const std::vector<std::string>& args, const Options& options,
       const LDBOptions& ldb_options,
       const std::vector<ColumnFamilyDescriptor>* column_families,
-      Selector selector = SelectCommand);
+      const RocksDBLDBSelectFunc& selector = SelectCommand);
 
   static LDBCommand* InitFromCmdLineArgs(
       int argc, char** argv, const Options& options,
