@@ -21,11 +21,12 @@
 #include <vector>
 
 #ifndef ROCKSDB_USING_THREAD_STATUS
-#define ROCKSDB_USING_THREAD_STATUS \
-    !defined(ROCKSDB_LITE) && \
-    !defined(NROCKSDB_THREAD_STATUS) && \
-    !defined(OS_MACOSX) && \
-    !defined(IOS_CROSS_COMPILE)
+#if (!defined(ROCKSDB_LITE) && \
+  !defined(NROCKSDB_THREAD_STATUS) && \
+  !defined(OS_MACOSX) && \
+  !defined(IOS_CROSS_COMPILE))
+#define ROCKSDB_USING_THREAD_STATUS
+#endif
 #endif
 
 namespace rocksdb {
