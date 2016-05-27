@@ -38,8 +38,7 @@ struct Lock {
 
 using Condition = std::condition_variable;
 
-inline
-int MutexLock(Lock& mutex) {
+inline int ThreadPoolMutexLock(Lock& mutex) {
   mutex.ul_.lock();
   return 0;
 }
@@ -84,8 +83,7 @@ int ThreadDetach(std::thread& thread) {
 using Lock = pthread_mutex_t&;
 using Condition = pthread_cond_t&;
 
-inline
-int MutexLock(Lock mutex) {
+inline int ThreadPoolMutexLock(Lock mutex) {
   return pthread_mutex_lock(&mutex);
 }
 
@@ -140,7 +138,7 @@ ThreadPool::~ThreadPool() { assert(bgthreads_.size() == 0U); }
 void ThreadPool::JoinAllThreads() {
 
   Lock lock(mu_);
-  PthreadCall("lock", MutexLock(lock));
+  PthreadCall("lock", ThreadPoolMutexLock(lock));
   assert(!exit_all_threads_);
   exit_all_threads_ = true;
   PthreadCall("signalall", ConditionSignalAll(bgsignal_));
@@ -166,7 +164,7 @@ void ThreadPool::BGThread(size_t thread_id) {
   while (true) {
 // Wait until there is an item that is ready to run
     Lock uniqueLock(mu_);
-    PthreadCall("lock", MutexLock(uniqueLock));
+    PthreadCall("lock", ThreadPoolMutexLock(uniqueLock));
     // Stop waiting if the thread needs to do work or needs to terminate.
     while (!exit_all_threads_ && !IsLastExcessiveThread(thread_id) &&
            (queue_.empty() || IsExcessiveThread(thread_id))) {
@@ -261,7 +259,7 @@ void ThreadPool::WakeUpAllThreads() {
 
 void ThreadPool::SetBackgroundThreadsInternal(int num, bool allow_reduce) {
   Lock lock(mu_);
-  PthreadCall("lock", MutexLock(lock));
+  PthreadCall("lock", ThreadPoolMutexLock(lock));
   if (exit_all_threads_) {
     PthreadCall("unlock", MutexUnlock(lock));
     return;
@@ -314,7 +312,7 @@ void ThreadPool::Schedule(void (*function)(void* arg1), void* arg, void* tag,
                           void (*unschedFunction)(void* arg)) {
 
   Lock lock(mu_);
-  PthreadCall("lock", MutexLock(lock));
+  PthreadCall("lock", ThreadPoolMutexLock(lock));
 
   if (exit_all_threads_) {
     PthreadCall("unlock", MutexUnlock(lock));
@@ -348,7 +346,7 @@ int ThreadPool::UnSchedule(void* arg) {
   int count = 0;
 
   Lock lock(mu_);
-  PthreadCall("lock", MutexLock(lock));
+  PthreadCall("lock", ThreadPoolMutexLock(lock));
 
   // Remove from priority queue
   BGQueue::iterator it = queue_.begin();
