@@ -407,6 +407,7 @@ else
 endif
 endif
 LIBRARY = ${LIBNAME}.a
+TOOLS_LIBRARY = ${LIBNAME}_tools.a
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -458,16 +459,18 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
-	analyze tools
+	analyze tools tools_lib
 
 
-all: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
+all: $(LIBRARY) $(BENCHMARKS) tools tools_lib $(TESTS)
 
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
 
 tools: $(TOOLS)
+
+tools_lib: $(TOOLS_LIBRARY)
 
 dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
@@ -797,6 +800,10 @@ package:
 $(LIBRARY): $(LIBOBJECTS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
+
+$(TOOLS_LIBRARY): $(BENCH_SOURCES:.cc=.o) $(TOOL_SOURCES:.cc=.o) $(LIB_SOURCES:.cc=.o) $(TESTUTIL)
+	$(AM_V_AR)rm -f $@
+	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
 db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
