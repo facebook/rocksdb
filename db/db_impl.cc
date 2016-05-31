@@ -676,6 +676,7 @@ void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
 }
 
 uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
+  std::lock_guard<std::mutex> lock(prep_heap_mutex_);
   uint64_t min_log = 0;
 
   // first we look in the prepared heap where we keep
