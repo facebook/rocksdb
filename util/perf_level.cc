@@ -4,9 +4,10 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
+#include <assert.h>
 #include <sstream>
-#include "util/perf_level_imp.h"
 #include "port/port.h"
+#include "util/perf_level_imp.h"
 
 namespace rocksdb {
 
@@ -17,6 +18,8 @@ __thread PerfLevel perf_level = kEnableCount;
 #endif
 
 void SetPerfLevel(PerfLevel level) {
+  assert(level > kUninitialized);
+  assert(level < kOutOfBounds);
   perf_level = level;
 }
 
