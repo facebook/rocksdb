@@ -121,9 +121,7 @@ class VersionStorageInfo {
   // We use compaction scores to figure out which compaction to do next
   // REQUIRES: db_mutex held!!
   // TODO find a better way to pass compaction_options_fifo.
-  void ComputeCompactionScore(
-      const MutableCFOptions& mutable_cf_options,
-      const CompactionOptionsFIFO& compaction_options_fifo);
+  void ComputeCompactionScore(const MutableCFOptions& mutable_cf_options);
 
   // Estimate est_comp_needed_bytes_
   void EstimateCompactionBytesNeeded(

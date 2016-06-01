@@ -60,10 +60,7 @@ class GenericRateLimiter : public RateLimiter {
 
  private:
   void Refill();
-  int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec) {
-    return std::max(kMinRefillBytesPerPeriod,
-                    rate_bytes_per_sec * refill_period_us_ / 1000000);
-  }
+  int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;

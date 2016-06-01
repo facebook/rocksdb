@@ -211,15 +211,14 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
     std::vector<std::string> subchildren;
     db_->GetEnv()->GetChildren(full_private_path, &subchildren);
     for (auto& subchild : subchildren) {
-      Status s1 = db_->GetEnv()->DeleteFile(full_private_path + subchild);
-      if (s1.ok()) {
-        Log(db_->GetOptions().info_log, "Deleted %s",
-            (full_private_path + subchild).c_str());
-      }
+      std::string subchild_path = full_private_path + "/" + subchild;
+      Status s1 = db_->GetEnv()->DeleteFile(subchild_path);
+      Log(db_->GetOptions().info_log, "Delete file %s -- %s",
+          subchild_path.c_str(), s1.ToString().c_str());
     }
     // finally delete the private dir
     Status s1 = db_->GetEnv()->DeleteDir(full_private_path);
-    Log(db_->GetOptions().info_log, "Deleted dir %s -- %s",
+    Log(db_->GetOptions().info_log, "Delete dir %s -- %s",
         full_private_path.c_str(), s1.ToString().c_str());
     return s;
   }

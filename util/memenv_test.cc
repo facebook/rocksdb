@@ -124,7 +124,7 @@ TEST_F(MemEnvTest, ReadWrite) {
   ASSERT_EQ(0, result.compare("d"));
 
   // Too high offset.
-  ASSERT_TRUE(!rand_file->Read(1000, 5, &result, scratch).ok());
+  ASSERT_TRUE(rand_file->Read(1000, 5, &result, scratch).ok());
 }
 
 TEST_F(MemEnvTest, Locks) {

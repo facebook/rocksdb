@@ -197,6 +197,7 @@ Status FlushJob::Run(FileMetaData* file_meta) {
     stream << vstorage->NumLevelFiles(level);
   }
   stream.EndArray();
+  stream << "immutable_memtables" << cfd_->imm()->NumNotFlushed();
 
   if (measure_io_stats_) {
     if (prev_perf_level != PerfLevel::kEnableTime) {

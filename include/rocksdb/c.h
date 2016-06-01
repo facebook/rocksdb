@@ -691,6 +691,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_inplace_update_support(
     rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_inplace_update_num_locks(
     rocksdb_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
+    rocksdb_options_t*, int);
 
 enum {
   rocksdb_no_compression = 0,
@@ -817,6 +819,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_read_tier(
     rocksdb_readoptions_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_tailing(
     rocksdb_readoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_readahead_size(
+    rocksdb_readoptions_t*, size_t);
 
 /* Write options */
 

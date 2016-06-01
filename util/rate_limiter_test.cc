@@ -22,6 +22,11 @@ namespace rocksdb {
 
 class RateLimiterTest : public testing::Test {};
 
+TEST_F(RateLimiterTest, OverflowRate) {
+  GenericRateLimiter limiter(port::kMaxInt64, 1000, 10);
+  ASSERT_GT(limiter.GetSingleBurstBytes(), 1000000000ll);
+}
+
 TEST_F(RateLimiterTest, StartStop) {
   std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(100, 100, 10));
 }

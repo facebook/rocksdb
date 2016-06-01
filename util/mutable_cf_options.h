@@ -50,7 +50,8 @@ struct MutableCFOptions {
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
-        min_partial_merge_operands(options.min_partial_merge_operands) {
+        min_partial_merge_operands(options.min_partial_merge_operands),
+        compaction_options_fifo(ioptions.compaction_options_fifo) {
     RefreshDerivedOptions(ioptions);
   }
   MutableCFOptions()
@@ -141,6 +142,7 @@ struct MutableCFOptions {
   bool report_bg_io_stats;
   CompressionType compression;
   uint32_t min_partial_merge_operands;
+  CompactionOptionsFIFO compaction_options_fifo;
 
   // Derived options
   // Per-level target file size.

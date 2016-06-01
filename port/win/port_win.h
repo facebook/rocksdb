@@ -80,6 +80,7 @@ namespace port {
 // For use at db/file_indexer.h kLevelMaxIndex
 const int kMaxInt32 = std::numeric_limits<int>::max();
 const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
+const int64_t kMaxInt64 = std::numeric_limits<int64_t>::max();
 
 const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 
@@ -94,6 +95,7 @@ const size_t kMaxSizet = std::numeric_limits<size_t>::max();
 
 // For use at db/file_indexer.h kLevelMaxIndex
 const int kMaxInt32 = INT32_MAX;
+const int64_t kMaxInt64 = INT64_MAX;
 const uint64_t kMaxUint64 = UINT64_MAX;
 
 #ifdef _WIN64

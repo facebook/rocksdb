@@ -322,6 +322,7 @@ TESTS = \
 	backupable_db_test \
 	document_db_test \
 	json_document_test \
+	sim_cache_test \
 	spatial_db_test \
 	version_edit_test \
 	version_set_test \
@@ -406,6 +407,7 @@ else
 endif
 endif
 LIBRARY = ${LIBNAME}.a
+TOOLS_LIBRARY = ${LIBNAME}_tools.a
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -457,16 +459,18 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
-	analyze tools
+	analyze tools tools_lib
 
 
-all: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
+all: $(LIBRARY) $(BENCHMARKS) tools tools_lib $(TESTS)
 
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
 
 tools: $(TOOLS)
+
+tools_lib: $(TOOLS_LIBRARY)
 
 dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
@@ -797,6 +801,10 @@ $(LIBRARY): $(LIBOBJECTS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
 
+$(TOOLS_LIBRARY): $(BENCH_SOURCES:.cc=.o) $(TOOL_SOURCES:.cc=.o) $(LIB_SOURCES:.cc=.o) $(TESTUTIL)
+	$(AM_V_AR)rm -f $@
+	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
+
 db_bench: tools/db_bench.o $(BENCHTOOLOBJECTS)
 	$(AM_LINK)
 
@@ -951,6 +959,9 @@ document_db_test: utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARN
 	$(AM_LINK)
 
 json_document_test: utilities/document/json_document_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+sim_cache_test: utilities/simulator_cache/sim_cache_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNESS)

@@ -99,10 +99,7 @@ class MemFile {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
     MutexLock lock(&mutex_);
-    if (offset > Size()) {
-      return Status::IOError("Offset greater than file size.");
-    }
-    const uint64_t available = Size() - offset;
+    const uint64_t available = Size() - std::min(Size(), offset);
     if (n > available) {
       n = available;
     }

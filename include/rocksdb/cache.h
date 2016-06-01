@@ -22,14 +22,12 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_CACHE_H_
 #define STORAGE_ROCKSDB_INCLUDE_CACHE_H_
 
-#include <memory>
 #include <stdint.h>
+#include <memory>
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
-
-using std::shared_ptr;
 
 class Cache;
 
@@ -39,23 +37,23 @@ class Cache;
 //
 // The parameter num_shard_bits defaults to 4, and strict_capacity_limit
 // defaults to false.
-extern shared_ptr<Cache> NewLRUCache(size_t capacity);
-extern shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits);
-extern shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
-                                     bool strict_capacity_limit);
+extern std::shared_ptr<Cache> NewLRUCache(size_t capacity);
+extern std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits);
+extern std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
+                                          bool strict_capacity_limit);
 
 class Cache {
  public:
-  Cache() { }
+  Cache() {}
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
   //
   // @See Insert
-  virtual ~Cache();
+  virtual ~Cache() {}
 
   // Opaque handle to an entry stored in the cache.
-  struct Handle { };
+  struct Handle {};
 
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
@@ -98,9 +96,8 @@ class Cache {
   // underlying entry will be kept around until all existing handles
   // to it have been released.
   virtual void Erase(const Slice& key) = 0;
-
   // Return a new numeric id.  May be used by multiple clients who are
-  // sharing the same cache to partition the key space.  Typically the
+  // sharding the same cache to partition the key space.  Typically the
   // client will allocate a new id at startup and prepend the id to
   // its cache keys.
   virtual uint64_t NewId() = 0;
@@ -136,8 +133,8 @@ class Cache {
   // memory - call this only if you're shutting down the process.
   // Any attempts of using cache after this call will fail terribly.
   // Always delete the DB object before calling this method!
-  virtual void DisownData() {
-    // default implementation is noop
+  virtual void DisownData(){
+      // default implementation is noop
   };
 
   // Apply callback to all entries in the cache
@@ -157,7 +154,7 @@ class Cache {
 
   // No copying allowed
   Cache(const Cache&);
-  void operator=(const Cache&);
+  Cache& operator=(const Cache&);
 };
 
 }  // namespace rocksdb

@@ -676,6 +676,7 @@ void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
 }
 
 uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
+  std::lock_guard<std::mutex> lock(prep_heap_mutex_);
   uint64_t min_log = 0;
 
   // first we look in the prepared heap where we keep
@@ -2081,11 +2082,7 @@ Status DBImpl::CompactFilesImpl(
   // takes running compactions into account (by skipping files that are already
   // being compacted). Since we just changed compaction score, we recalculate it
   // here.
-  {
-    CompactionOptionsFIFO dummy_compaction_options_fifo;
-    version->storage_info()->ComputeCompactionScore(
-        *c->mutable_cf_options(), dummy_compaction_options_fifo);
-  }
+  version->storage_info()->ComputeCompactionScore(*c->mutable_cf_options());
 
   compaction_job.Prepare();
 
@@ -4957,10 +4954,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     // client about mem table becoming immutable.
     NotifyOnMemTableSealed(cfd, memtable_info);
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-      "[%s] New memtable created with log file: #%" PRIu64 "\n",
-      cfd->GetName().c_str(), new_log_number);
-
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      "[%s] New memtable created with log file: #%" PRIu64
+      ". Immutable memtables: %d.\n",
+      cfd->GetName().c_str(), new_log_number, cfd->imm()->NumNotFlushed());
   mutex_.Lock();
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
@@ -4987,7 +4984,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       }
     }
   }
-
   cfd->mem()->SetNextLogNumber(logfile_number_);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
