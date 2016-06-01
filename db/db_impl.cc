@@ -4921,9 +4921,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       new_superversion = new SuperVersion();
     }
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-      "[%s] New memtable created with log file: #%" PRIu64 "\n",
-      cfd->GetName().c_str(), new_log_number);
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      "[%s] New memtable created with log file: #%" PRIu64
+      ". Immutable memtables: %d.\n",
+      cfd->GetName().c_str(), new_log_number, cfd->imm()->NumNotFlushed());
   mutex_.Lock();
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
