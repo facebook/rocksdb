@@ -10,6 +10,10 @@
 #ifndef OS_WIN
 #include <sys/ioctl.h>
 #endif
+
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#include <malloc.h>
+#endif
 #include <sys/types.h>
 
 #include <iostream>
@@ -44,13 +48,31 @@ namespace rocksdb {
 
 static const int kDelayMicros = 100000;
 
-std::unique_ptr<char, void (&)(void*)> NewAligned(const size_t size,
-                                                  const char ch) {
-  char* ptr = nullptr;
-  if (posix_memalign(reinterpret_cast<void**>(&ptr), 4 * 1024, size) != 0) {
-    return std::unique_ptr<char, void (&)(void*)>(nullptr, free);
+struct Deleter {
+  explicit Deleter(void (*fn)(void*)) : fn_(fn) {}
+
+  void operator()(void* ptr) {
+    assert(fn_);
+    assert(ptr);
+    (*fn_)(ptr);
   }
-  std::unique_ptr<char, void (&)(void*)> uptr(ptr, free);
+
+  void (*fn_)(void*);
+};
+
+std::unique_ptr<char, Deleter> NewAligned(const size_t size, const char ch) {
+  char* ptr = nullptr;
+#ifdef OS_WIN
+  if (!(ptr = reinterpret_cast<char*>(_aligned_malloc(size, 4 * 1024)))) {
+    return std::unique_ptr<char, Deleter>(nullptr, Deleter(_aligned_free));
+  }
+  std::unique_ptr<char, Deleter> uptr(ptr, Deleter(_aligned_free));
+#else
+  if (posix_memalign(reinterpret_cast<void**>(&ptr), 4 * 1024, size) != 0) {
+    return std::unique_ptr<char, Deleter>(nullptr, Deleter(free));
+  }
+  std::unique_ptr<char, Deleter> uptr(ptr, Deleter(free));
+#endif
   memset(uptr.get(), ch, size);
   return uptr;
 }
@@ -794,7 +816,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     // Create file.
     {
       unique_ptr<WritableFile> wfile;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_WIN)
       if (soptions.use_direct_writes) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -814,7 +836,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<RandomAccessFile> file;
       char scratch[kSectorSize];
       Slice result;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_WIN)
       if (soptions.use_direct_reads) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
@@ -835,7 +857,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<SequentialFile> file;
       char scratch[kSectorSize];
       Slice result;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_WIN)
       if (soptions.use_direct_reads) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewSequentialFile:O_DIRECT", [&](void* arg) {
@@ -981,7 +1003,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
     unique_ptr<WritableFile> srcfile;
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = directio;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_WIN)
     if (soptions.use_direct_writes) {
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -1045,7 +1067,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       oss << test::TmpDir(env_) << "/testfile_" << i;
       const std::string path = oss.str();
       unique_ptr<WritableFile> file;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_WIN)
       if (soptions.use_direct_writes) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {
