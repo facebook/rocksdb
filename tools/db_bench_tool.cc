@@ -51,6 +51,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/utilities/flashcache.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/sim_cache.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
@@ -530,6 +531,23 @@ DEFINE_int32(transaction_sleep, 0,
 DEFINE_uint64(transaction_lock_timeout, 100,
               "If using a transaction_db, specifies the lock wait timeout in"
               " milliseconds before failing a transaction waiting on a lock");
+DEFINE_string(
+    options_file, "",
+    "The path to a RocksDB options file.  If specified, then db_bench will "
+    "run with the RocksDB options in the default column family of the "
+    "specified options file. "
+    "Note that with this setting, db_bench will ONLY accept the following "
+    "RocksDB options related command-line arguments, all other arguments "
+    "that are related to RocksDB options will be ignored:\n"
+    "\t--use_existing_db\n"
+    "\t--statistics\n"
+    "\t--row_cache_size\n"
+    "\t--row_cache_numshardbits\n"
+    "\t--enable_io_prio\n"
+    "\t--disable_flashcache_for_background_threads\n"
+    "\t--flashcache_dev\n"
+    "\t--dump_malloc_stats\n"
+    "\t--num_multi_db\n");
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(report_bg_io_stats, false,
@@ -2385,13 +2403,36 @@ class Benchmark {
     }
   }
 
-  void Open(Options* opts) {
+  // Returns true if the options is initialized from the specified
+  // options file.
+  bool InitializeOptionsFromFile(Options* opts) {
+#ifndef ROCKSDB_LITE
+    printf("Initializing RocksDB Options from the specified file\n");
+    DBOptions db_opts;
+    std::vector<ColumnFamilyDescriptor> cf_descs;
+    if (FLAGS_options_file != "") {
+      auto s = LoadOptionsFromFile(FLAGS_options_file, Env::Default(), &db_opts,
+                                   &cf_descs);
+      if (s.ok()) {
+        *opts = Options(db_opts, cf_descs[0].options);
+        return true;
+      }
+      fprintf(stderr, "Unable to load options file %s --- %s\n",
+              FLAGS_options_file.c_str(), s.ToString().c_str());
+      exit(1);
+    }
+#endif
+    return false;
+  }
+
+  void InitializeOptionsFromFlags(Options* opts) {
+    printf("Initializing RocksDB Options from command-line flags\n");
     Options& options = *opts;
 
     assert(db_.db == nullptr);
 
-    options.create_if_missing = !FLAGS_use_existing_db;
     options.create_missing_column_families = FLAGS_num_column_families > 1;
+    options.max_open_files = FLAGS_open_files;
     options.db_write_buffer_size = FLAGS_db_write_buffer_size;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
@@ -2417,39 +2458,14 @@ class Benchmark {
     }
     options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
     options.bloom_locality = FLAGS_bloom_locality;
-    options.max_open_files = FLAGS_open_files;
     options.max_file_opening_threads = FLAGS_file_opening_threads;
     options.new_table_reader_for_compaction_inputs =
         FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
     options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
-    options.statistics = dbstats;
-    if (FLAGS_enable_io_prio) {
-      FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
-      FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
-    }
-    if (FLAGS_disable_flashcache_for_background_threads &&
-        cachedev_fd_ == -1) {
-      // Avoid creating the env twice when an use_existing_db is true
-      cachedev_fd_ = open(FLAGS_flashcache_dev.c_str(), O_RDONLY);
-      if (cachedev_fd_ < 0) {
-        fprintf(stderr, "Open flash device failed\n");
-        exit(1);
-      }
-      flashcache_aware_env_ = NewFlashcacheAwareEnv(FLAGS_env, cachedev_fd_);
-      if (flashcache_aware_env_.get() == nullptr) {
-        fprintf(stderr, "Failed to open flashcache device at %s\n",
-                FLAGS_flashcache_dev.c_str());
-        std::abort();
-      }
-      options.env = flashcache_aware_env_.get();
-    } else {
-      options.env = FLAGS_env;
-    }
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
-    options.wal_dir = FLAGS_wal_dir;
     options.num_levels = FLAGS_num_levels;
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
@@ -2459,14 +2475,6 @@ class Benchmark {
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
     options.filter_deletes = FLAGS_filter_deletes;
-    if (FLAGS_row_cache_size) {
-      if (FLAGS_cache_numshardbits >= 1) {
-        options.row_cache =
-            NewLRUCache(FLAGS_row_cache_size, FLAGS_cache_numshardbits);
-      } else {
-        options.row_cache = NewLRUCache(FLAGS_row_cache_size);
-      }
-    }
     if ((FLAGS_prefix_size == 0) && (FLAGS_rep_factory == kPrefixHash ||
                                      FLAGS_rep_factory == kHashLinkedList)) {
       fprintf(stderr, "prefix_size should be non-zero if PrefixHash or "
@@ -2689,6 +2697,48 @@ class Benchmark {
     }
 #endif  // ROCKSDB_LITE
 
+    if (FLAGS_min_level_to_compress >= 0) {
+      options.compression_per_level.clear();
+    }
+  }
+
+  void InitializeOptionsGeneral(Options* opts) {
+    Options& options = *opts;
+
+    options.statistics = dbstats;
+    options.wal_dir = FLAGS_wal_dir;
+    options.create_if_missing = !FLAGS_use_existing_db;
+
+    if (FLAGS_row_cache_size) {
+      if (FLAGS_cache_numshardbits >= 1) {
+        options.row_cache =
+            NewLRUCache(FLAGS_row_cache_size, FLAGS_cache_numshardbits);
+      } else {
+        options.row_cache = NewLRUCache(FLAGS_row_cache_size);
+      }
+    }
+    if (FLAGS_enable_io_prio) {
+      FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
+      FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
+    }
+    if (FLAGS_disable_flashcache_for_background_threads && cachedev_fd_ == -1) {
+      // Avoid creating the env twice when an use_existing_db is true
+      cachedev_fd_ = open(FLAGS_flashcache_dev.c_str(), O_RDONLY);
+      if (cachedev_fd_ < 0) {
+        fprintf(stderr, "Open flash device failed\n");
+        exit(1);
+      }
+      flashcache_aware_env_ = NewFlashcacheAwareEnv(FLAGS_env, cachedev_fd_);
+      if (flashcache_aware_env_.get() == nullptr) {
+        fprintf(stderr, "Failed to open flashcache device at %s\n",
+                FLAGS_flashcache_dev.c_str());
+        std::abort();
+      }
+      options.env = flashcache_aware_env_.get();
+    } else {
+      options.env = FLAGS_env;
+    }
+
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
     } else {
@@ -2698,11 +2748,15 @@ class Benchmark {
         OpenDb(options, GetDbNameForMultiple(FLAGS_db, i), &multi_dbs_[i]);
       }
     }
-    if (FLAGS_min_level_to_compress >= 0) {
-      options.compression_per_level.clear();
+    options.dump_malloc_stats = FLAGS_dump_malloc_stats;
+  }
+
+  void Open(Options* opts) {
+    if (!InitializeOptionsFromFile(opts)) {
+      InitializeOptionsFromFlags(opts);
     }
 
-    options.dump_malloc_stats = FLAGS_dump_malloc_stats;
+    InitializeOptionsGeneral(opts);
   }
 
   void OpenDb(const Options& options, const std::string& db_name,
@@ -3992,8 +4046,12 @@ class Benchmark {
 
 int db_bench_tool(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
-  SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
-                  " [OPTIONS]...");
+  static bool initialized = false;
+  if (!initialized) {
+    SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+                    " [OPTIONS]...");
+    initialized = true;
+  }
   ParseCommandLineFlags(&argc, &argv, true);
 
   FLAGS_compaction_style_e = (rocksdb::CompactionStyle) FLAGS_compaction_style;

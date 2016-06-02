@@ -249,6 +249,7 @@ TEST_BENCH_SOURCES =                                                    \
   table/merger_test.cc                                                  \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
+  tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \
   tools/ldb_cmd_test.cc                                                 \
   tools/reduce_levels_test.cc                                           \
