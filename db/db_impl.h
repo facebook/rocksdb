@@ -57,6 +57,7 @@ class Arena;
 class WriteCallback;
 struct JobContext;
 struct ExternalSstFileInfo;
+struct MemTableInfo;
 
 class DBImpl : public DB {
  public:
@@ -520,6 +521,8 @@ class DBImpl : public DB {
                                    Compaction *c, const Status &st,
                                    const CompactionJobStats& job_stats,
                                    int job_id);
+  void NotifyOnMemTableSealed(ColumnFamilyData* cfd, 
+                              const MemTableInfo& mem_table_info);
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 

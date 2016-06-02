@@ -4862,6 +4862,22 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
   return Status::OK();
 }
 
+#ifndef ROCKSDB_LITE
+void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* cfd,
+                                    const MemTableInfo& mem_table_info) {
+  if (db_options_.listeners.size() == 0U) {
+    return;
+  }
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+
+  for (auto listener : db_options_.listeners) {
+    listener->OnMemTableSealed(mem_table_info);
+  }  
+}
+#endif  // ROCKSDB_LITE
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
@@ -4884,6 +4900,17 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
   SuperVersion* new_superversion = nullptr;
   const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
+
+  // Set current_memtble_info for memtable sealed callback
+#ifndef ROCKSDB_LITE
+  MemTableInfo memtable_info;
+  memtable_info.cf_name = cfd->GetName();
+  memtable_info.first_seqno = cfd->mem()->GetFirstSequenceNumber();
+  memtable_info.earliest_seqno = cfd->mem()->GetEarliestSequenceNumber();
+  memtable_info.num_entries = cfd->mem()->num_entries();
+  memtable_info.num_deletes = cfd->mem()->num_deletes();
+#endif  // ROCKSDB_LITE
+
   mutex_.Unlock();
   Status s;
   {
@@ -4920,6 +4947,13 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
       new_superversion = new SuperVersion();
     }
+
+#ifndef ROCKSDB_LITE
+    // PLEASE NOTE: We assume that there are no failable operations
+    // after lock is acquired below since we are already notifying
+    // client about mem table becoming immutable.
+    NotifyOnMemTableSealed(cfd, memtable_info);
+#endif //ROCKSDB_LITE
   }
   Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
       "[%s] New memtable created with log file: #%" PRIu64
