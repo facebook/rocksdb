@@ -322,6 +322,7 @@ set(APPS
         tools/dump/rocksdb_dump.cc
         tools/dump/rocksdb_undump.cc
         util/cache_bench.cc
+        utilities/persistent_cache/hash_table_bench.cc
 )
 
 set(C_TESTS db/c_test.c)
@@ -424,6 +425,7 @@ set(TESTS
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/options/options_util_test.cc
+        utilities/persistent_cache/hash_table_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc

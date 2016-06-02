@@ -3,12 +3,14 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#include <stdlib.h>
 #include <iostream>
 #include <set>
 #include <string>
 
 #include "db/db_test_util.h"
 #include "util/arena.h"
+#include "util/random.h"
 #include "util/testharness.h"
 #include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/hash_table_evictable.h"
@@ -101,10 +103,11 @@ TEST_F(HashTableTest, TestErase) {
     map_.Insert(Node(k, std::string(1000, k % 255)));
   }
 
+  auto rand = Random64(time(nullptr));
   // erase a few keys randomly
   std::set<uint64_t> erased;
   for (int i = 0; i < 1024; ++i) {
-    uint64_t k = random() % max_keys;
+    uint64_t k = rand.Next() % max_keys;
     if (erased.find(k) != erased.end()) {
       continue;
     }

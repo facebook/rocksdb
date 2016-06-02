@@ -8,12 +8,14 @@
 #ifndef ROCKSDB_LITE
 
 #include <assert.h>
-#include <sys/mman.h>
 #include <list>
 #include <vector>
 
+#ifdef OS_LINUX
+#include <sys/mman.h>
+#endif
+
 #include "include/rocksdb/env.h"
-#include "port/port_posix.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -64,7 +66,9 @@ class HashTable {
  public:
   explicit HashTable(const size_t capacity = 1024 * 1024,
                      const float load_factor = 2.0, const uint32_t nlocks = 256)
-      : nbuckets_(load_factor ? capacity / load_factor : 0), nlocks_(nlocks) {
+      : nbuckets_(
+            static_cast<uint32_t>(load_factor ? capacity / load_factor : 0)),
+        nlocks_(nlocks) {
     // pre-conditions
     assert(capacity);
     assert(load_factor);
@@ -72,11 +76,15 @@ class HashTable {
     assert(nlocks_);
 
     buckets_.reset(new Bucket[nbuckets_]);
+#ifdef OS_LINUX
     mlock(buckets_.get(), nbuckets_ * sizeof(Bucket));
+#endif
 
     // initialize locks
     locks_.reset(new port::RWMutex[nlocks_]);
+#ifdef OS_LINUX
     mlock(locks_.get(), nlocks_ * sizeof(port::RWMutex));
+#endif
 
     // post-conditions
     assert(buckets_);

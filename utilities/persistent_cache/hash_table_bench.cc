@@ -6,9 +6,12 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef GFLAGS
+#include <cstdio>
+int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
+#else
 #include <gflags/gflags.h>
-#include <sys/time.h>
-#include <unistd.h>
+#endif
 
 #include <atomic>
 #include <functional>
@@ -102,9 +105,10 @@ class HashTableBenchmark {
   }
 
   void RunRead() {
+    Random64 rgen(time(nullptr));
     while (!quit_) {
       std::string s;
-      size_t k = random() % max_prepop_key;
+      size_t k = rgen.Next() % max_prepop_key;
       bool status = impl_->Lookup(k, &s);
       assert(status);
       assert(s == std::string(1000, k % 255));
