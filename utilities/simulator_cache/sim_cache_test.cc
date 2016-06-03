@@ -19,7 +19,7 @@ class SimCacheTest : public DBTestBase {
 
  public:
   const size_t kNumBlocks = 5;
-  const size_t kValueSize = 100;
+  const size_t kValueSize = 1000;
 
   SimCacheTest() : DBTestBase("/sim_cache_test") {}
 
@@ -78,7 +78,7 @@ TEST_F(SimCacheTest, SimCache) {
   auto options = GetOptions(table_options);
   InitTable(options);
   std::shared_ptr<SimCache> simCache =
-      NewSimCache(NewLRUCache(0, 0, false), 10000, 0);
+      NewSimCache(NewLRUCache(0, 0, false), 20000, 0);
   table_options.block_cache = simCache;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   Reopen(options);
@@ -101,7 +101,6 @@ TEST_F(SimCacheTest, SimCache) {
   ASSERT_LT(0, usage);
   ASSERT_EQ(usage, simCache->GetSimUsage());
   simCache->SetCapacity(usage);
-  simCache->SetSimCapacity(usage * 2);
   ASSERT_EQ(usage, simCache->GetPinnedUsage());
 
   // Test with strict capacity limit.
