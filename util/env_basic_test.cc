@@ -2,31 +2,36 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef ROCKSDB_LITE
-
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "util/testharness.h"
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "rocksdb/env.h"
+#include "util/mock_env.h"
+#include "util/testharness.h"
+
 namespace rocksdb {
 
-class MemEnvTest : public testing::Test {
+class EnvBasicTestWithParam : public testing::Test,
+                              public ::testing::WithParamInterface<Env*> {
  public:
   Env* env_;
   const EnvOptions soptions_;
 
-  MemEnvTest()
-      : env_(NewMemEnv(Env::Default())) {
-  }
-  ~MemEnvTest() {
-    delete env_;
-  }
+  EnvBasicTestWithParam() { env_ = GetParam(); }
 };
 
-TEST_F(MemEnvTest, Basics) {
+static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
+INSTANTIATE_TEST_CASE_P(
+    MockEnv, EnvBasicTestWithParam,
+    ::testing::Values(mock_env.get()));
+#ifndef ROCKSDB_LITE
+static std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
+INSTANTIATE_TEST_CASE_P(MemEnv, EnvBasicTestWithParam,
+                        ::testing::Values(mem_env.get()));
+#endif  // ROCKSDB_LITE
+
+TEST_P(EnvBasicTestWithParam, Basics) {
   uint64_t file_size;
   unique_ptr<WritableFile> writable_file;
   std::vector<std::string> children;
@@ -87,7 +92,7 @@ TEST_F(MemEnvTest, Basics) {
   ASSERT_OK(env_->DeleteDir("/dir"));
 }
 
-TEST_F(MemEnvTest, ReadWrite) {
+TEST_P(EnvBasicTestWithParam, ReadWrite) {
   unique_ptr<WritableFile> writable_file;
   unique_ptr<SequentialFile> seq_file;
   unique_ptr<RandomAccessFile> rand_file;
@@ -103,31 +108,31 @@ TEST_F(MemEnvTest, ReadWrite) {
 
   // Read sequentially.
   ASSERT_OK(env_->NewSequentialFile("/dir/f", &seq_file, soptions_));
-  ASSERT_OK(seq_file->Read(5, &result, scratch)); // Read "hello".
+  ASSERT_OK(seq_file->Read(5, &result, scratch));  // Read "hello".
   ASSERT_EQ(0, result.compare("hello"));
   ASSERT_OK(seq_file->Skip(1));
-  ASSERT_OK(seq_file->Read(1000, &result, scratch)); // Read "world".
+  ASSERT_OK(seq_file->Read(1000, &result, scratch));  // Read "world".
   ASSERT_EQ(0, result.compare("world"));
-  ASSERT_OK(seq_file->Read(1000, &result, scratch)); // Try reading past EOF.
+  ASSERT_OK(seq_file->Read(1000, &result, scratch));  // Try reading past EOF.
   ASSERT_EQ(0U, result.size());
-  ASSERT_OK(seq_file->Skip(100)); // Try to skip past end of file.
+  ASSERT_OK(seq_file->Skip(100));  // Try to skip past end of file.
   ASSERT_OK(seq_file->Read(1000, &result, scratch));
   ASSERT_EQ(0U, result.size());
 
   // Random reads.
   ASSERT_OK(env_->NewRandomAccessFile("/dir/f", &rand_file, soptions_));
-  ASSERT_OK(rand_file->Read(6, 5, &result, scratch)); // Read "world".
+  ASSERT_OK(rand_file->Read(6, 5, &result, scratch));  // Read "world".
   ASSERT_EQ(0, result.compare("world"));
-  ASSERT_OK(rand_file->Read(0, 5, &result, scratch)); // Read "hello".
+  ASSERT_OK(rand_file->Read(0, 5, &result, scratch));  // Read "hello".
   ASSERT_EQ(0, result.compare("hello"));
-  ASSERT_OK(rand_file->Read(10, 100, &result, scratch)); // Read "d".
+  ASSERT_OK(rand_file->Read(10, 100, &result, scratch));  // Read "d".
   ASSERT_EQ(0, result.compare("d"));
 
   // Too high offset.
   ASSERT_TRUE(rand_file->Read(1000, 5, &result, scratch).ok());
 }
 
-TEST_F(MemEnvTest, Locks) {
+TEST_P(EnvBasicTestWithParam, Locks) {
   FileLock* lock;
 
   // These are no-ops, but we test they return success.
@@ -135,7 +140,7 @@ TEST_F(MemEnvTest, Locks) {
   ASSERT_OK(env_->UnlockFile(lock));
 }
 
-TEST_F(MemEnvTest, Misc) {
+TEST_P(EnvBasicTestWithParam, Misc) {
   std::string test_dir;
   ASSERT_OK(env_->GetTestDirectory(&test_dir));
   ASSERT_TRUE(!test_dir.empty());
@@ -150,7 +155,7 @@ TEST_F(MemEnvTest, Misc) {
   writable_file.reset();
 }
 
-TEST_F(MemEnvTest, LargeWrite) {
+TEST_P(EnvBasicTestWithParam, LargeWrite) {
   const size_t kWriteSize = 300 * 1024;
   char* scratch = new char[kWriteSize * 2];
 
@@ -168,7 +173,7 @@ TEST_F(MemEnvTest, LargeWrite) {
   unique_ptr<SequentialFile> seq_file;
   Slice result;
   ASSERT_OK(env_->NewSequentialFile("/dir/f", &seq_file, soptions_));
-  ASSERT_OK(seq_file->Read(3, &result, scratch)); // Read "foo".
+  ASSERT_OK(seq_file->Read(3, &result, scratch));  // Read "foo".
   ASSERT_EQ(0, result.compare("foo"));
 
   size_t read = 0;
@@ -188,13 +193,3 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
-
-#else
-#include <stdio.h>
-
-int main(int argc, char** argv) {
-  fprintf(stderr, "SKIPPED as MemEnv is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE

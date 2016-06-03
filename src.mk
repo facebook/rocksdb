@@ -263,6 +263,7 @@ TEST_BENCH_SOURCES =                                                    \
   util/coding_test.cc                                                   \
   util/crc32c_test.cc                                                   \
   util/dynamic_bloom_test.cc                                            \
+  util/env_basic_test.cc                                                \
   util/env_test.cc                                                      \
   util/filelock_test.cc                                                 \
   util/histogram_test.cc                                                \
@@ -285,7 +286,6 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
 	util/iostats_context_test.cc																					\
   util/log_write_bench.cc                                               \
-  util/memenv_test.cc                                                   \
   util/mock_env_test.cc                                                 \
   util/options_test.cc                                                  \
   util/event_logger_test.cc                                             \

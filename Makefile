@@ -290,6 +290,7 @@ TESTS = \
 	crc32c_test \
 	slice_transform_test \
 	dbformat_test \
+	env_basic_test \
 	env_test \
 	fault_injection_test \
 	filelock_test \
@@ -302,7 +303,6 @@ TESTS = \
 	inlineskiplist_test \
 	log_test \
 	manual_compaction_test \
-	memenv_test \
 	mock_env_test \
 	memtable_list_test \
 	merge_helper_test \
@@ -1000,6 +1000,9 @@ wal_manager_test: db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
 dbformat_test: db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+env_basic_test: util/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 env_test: util/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1127,9 +1130,6 @@ event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump_test: tools/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-memenv_test : util/memenv_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 optimistic_transaction_test: utilities/transactions/optimistic_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)

@@ -403,6 +403,7 @@ set(TESTS
         util/crc32c_test.cc
         util/delete_scheduler_test.cc
         util/dynamic_bloom_test.cc
+        util/env_basic_test.cc
         util/env_test.cc
         util/event_logger_test.cc
         util/filelock_test.cc
@@ -410,7 +411,6 @@ set(TESTS
         util/heap_test.cc
         util/histogram_test.cc
         util/iostats_context_test.cc
-        util/memenv_test.cc
         util/mock_env_test.cc
         util/options_settable_test.cc
         util/options_test.cc
