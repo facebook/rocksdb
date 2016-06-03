@@ -6,7 +6,6 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
-
 #include "table/block_based_table_reader.h"
 
 #include <string>
@@ -89,6 +88,9 @@ void DeleteCachedEntry(const Slice& key, void* value) {
   delete entry;
 }
 
+void DeleteCachedFilterEntry(const Slice& key, void* value);
+void DeleteCachedIndexEntry(const Slice& key, void* value);
+
 // Release the cached entry and decrement its ref count.
 void ReleaseCachedEntry(void* arg, void* h) {
   Cache* cache = reinterpret_cast<Cache*>(arg);
@@ -137,8 +139,8 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
 // IndexReader is the interface that provide the functionality for index access.
 class BlockBasedTable::IndexReader {
  public:
-  explicit IndexReader(const Comparator* comparator)
-      : comparator_(comparator) {}
+  explicit IndexReader(const Comparator* comparator, Statistics* stats)
+      : comparator_(comparator), statistics_(stats) {}
 
   virtual ~IndexReader() {}
 
@@ -152,13 +154,17 @@ class BlockBasedTable::IndexReader {
   virtual size_t size() const = 0;
   // Memory usage of the index block
   virtual size_t usable_size() const = 0;
-
+  // return the statistics pointer
+  virtual Statistics* statistics() const { return statistics_; }
   // Report an approximation of how much memory has been used other than memory
   // that was allocated in block cache.
   virtual size_t ApproximateMemoryUsage() const = 0;
 
  protected:
   const Comparator* comparator_;
+
+ private:
+  Statistics* statistics_;
 };
 
 // Index that allows binary search lookup for the first key of each block.
@@ -173,7 +179,8 @@ class BinarySearchIndexReader : public IndexReader {
   static Status Create(RandomAccessFileReader* file, const Footer& footer,
                        const BlockHandle& index_handle, Env* env,
                        const Comparator* comparator, IndexReader** index_reader,
-                       const PersistentCacheOptions& cache_options) {
+                       const PersistentCacheOptions& cache_options,
+                       Statistics* statistics) {
     std::unique_ptr<Block> index_block;
     auto s = ReadBlockFromFile(file, footer, ReadOptions(), index_handle,
                                &index_block, env, true /* decompress */,
@@ -181,8 +188,8 @@ class BinarySearchIndexReader : public IndexReader {
                                /*info_log*/ nullptr);
 
     if (s.ok()) {
-      *index_reader =
-          new BinarySearchIndexReader(comparator, std::move(index_block));
+      *index_reader = new BinarySearchIndexReader(
+          comparator, std::move(index_block), statistics);
     }
 
     return s;
@@ -205,8 +212,9 @@ class BinarySearchIndexReader : public IndexReader {
 
  private:
   BinarySearchIndexReader(const Comparator* comparator,
-                          std::unique_ptr<Block>&& index_block)
-      : IndexReader(comparator), index_block_(std::move(index_block)) {
+                          std::unique_ptr<Block>&& index_block,
+                          Statistics* stats)
+      : IndexReader(comparator, stats), index_block_(std::move(index_block)) {
     assert(index_block_ != nullptr);
   }
   std::unique_ptr<Block> index_block_;
@@ -216,14 +224,12 @@ class BinarySearchIndexReader : public IndexReader {
 // key.
 class HashIndexReader : public IndexReader {
  public:
-  static Status Create(const SliceTransform* hash_key_extractor,
-                       const Footer& footer, RandomAccessFileReader* file,
-                       Env* env, const Comparator* comparator,
-                       const BlockHandle& index_handle,
-                       InternalIterator* meta_index_iter,
-                       IndexReader** index_reader,
-                       bool hash_index_allow_collision,
-                       const PersistentCacheOptions& cache_options) {
+  static Status Create(
+      const SliceTransform* hash_key_extractor, const Footer& footer,
+      RandomAccessFileReader* file, Env* env, const Comparator* comparator,
+      const BlockHandle& index_handle, InternalIterator* meta_index_iter,
+      IndexReader** index_reader, bool hash_index_allow_collision,
+      const PersistentCacheOptions& cache_options, Statistics* statistics) {
     std::unique_ptr<Block> index_block;
     auto s = ReadBlockFromFile(file, footer, ReadOptions(), index_handle,
                                &index_block, env, true /* decompress */,
@@ -239,7 +245,7 @@ class HashIndexReader : public IndexReader {
     // So, Create will succeed regardless, from this point on.
 
     auto new_index_reader =
-        new HashIndexReader(comparator, std::move(index_block));
+        new HashIndexReader(comparator, std::move(index_block), statistics);
     *index_reader = new_index_reader;
 
     // Get prefixes block
@@ -306,8 +312,8 @@ class HashIndexReader : public IndexReader {
 
  private:
   HashIndexReader(const Comparator* comparator,
-                  std::unique_ptr<Block>&& index_block)
-      : IndexReader(comparator), index_block_(std::move(index_block)) {
+                  std::unique_ptr<Block>&& index_block, Statistics* stats)
+      : IndexReader(comparator, stats), index_block_(std::move(index_block)) {
     assert(index_block_ != nullptr);
   }
 
@@ -678,7 +684,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
         // Set filter block
         if (rep->filter_policy) {
-          rep->filter.reset(ReadFilter(rep, nullptr));
+          rep->filter.reset(ReadFilter(rep));
         }
       } else {
         delete index_reader;
@@ -899,7 +905,7 @@ Status BlockBasedTable::PutDataBlockToCache(
   return s;
 }
 
-FilterBlockReader* BlockBasedTable::ReadFilter(Rep* rep, size_t* filter_size) {
+FilterBlockReader* BlockBasedTable::ReadFilter(Rep* rep) {
   // TODO: We might want to unify with ReadBlockFromFile() if we start
   // requiring checksum verification in Table::Open.
   if (rep->filter_type == Rep::FilterType::kNoFilter) {
@@ -915,23 +921,21 @@ FilterBlockReader* BlockBasedTable::ReadFilter(Rep* rep, size_t* filter_size) {
     return nullptr;
   }
 
-  if (filter_size) {
-    *filter_size = block.data.size();
-  }
-
   assert(rep->filter_policy);
 
   if (rep->filter_type == Rep::FilterType::kBlockFilter) {
     return new BlockBasedFilterBlockReader(
         rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
-        rep->table_options, rep->whole_key_filtering, std::move(block));
+        rep->table_options, rep->whole_key_filtering, std::move(block),
+        rep->ioptions.statistics);
   } else if (rep->filter_type == Rep::FilterType::kFullFilter) {
     auto filter_bits_reader =
         rep->filter_policy->GetFilterBitsReader(block.data);
     if (filter_bits_reader != nullptr) {
       return new FullFilterBlockReader(
           rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
-          rep->whole_key_filtering, std::move(block), filter_bits_reader);
+          rep->whole_key_filtering, std::move(block), filter_bits_reader,
+          rep->ioptions.statistics);
     }
   }
 
@@ -983,16 +987,15 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     // Do not invoke any io.
     return CachableEntry<FilterBlockReader>();
   } else {
-    size_t filter_size = 0;
-    filter = ReadFilter(rep_, &filter_size);
+    filter = ReadFilter(rep_);
     if (filter != nullptr) {
-      assert(filter_size > 0);
-      Status s = block_cache->Insert(key, filter, filter_size,
-                                     &DeleteCachedEntry<FilterBlockReader>,
-                                     &cache_handle);
+      assert(filter->size() > 0);
+      Status s = block_cache->Insert(key, filter, filter->size(),
+                                     &DeleteCachedFilterEntry, &cache_handle);
       if (s.ok()) {
         RecordTick(statistics, BLOCK_CACHE_ADD);
-        RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter_size);
+        RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter->size());
+        RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, filter->size());
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
         delete filter;
@@ -1050,13 +1053,14 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
     s = CreateIndexReader(&index_reader);
     if (s.ok()) {
       s = block_cache->Insert(key, index_reader, index_reader->usable_size(),
-                              &DeleteCachedEntry<IndexReader>, &cache_handle);
+                              &DeleteCachedIndexEntry, &cache_handle);
     }
 
     if (s.ok()) {
+      size_t usable_size = index_reader->usable_size();
       RecordTick(statistics, BLOCK_CACHE_ADD);
-      RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
-                 index_reader->usable_size());
+      RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, usable_size);
+      RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, usable_size);
     } else {
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       // make sure if something goes wrong, index_reader shall remain intact.
@@ -1537,6 +1541,7 @@ Status BlockBasedTable::CreateIndexReader(
   auto env = rep_->ioptions.env;
   auto comparator = &rep_->internal_comparator;
   const Footer& footer = rep_->footer;
+  Statistics* stats = rep_->ioptions.statistics;
 
   if (index_type_on_file == BlockBasedTableOptions::kHashSearch &&
       rep_->ioptions.prefix_extractor == nullptr) {
@@ -1551,7 +1556,7 @@ Status BlockBasedTable::CreateIndexReader(
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(
           file, footer, footer.index_handle(), env, comparator, index_reader,
-          rep_->persistent_cache_options);
+          rep_->persistent_cache_options, stats);
     }
     case BlockBasedTableOptions::kHashSearch: {
       std::unique_ptr<Block> meta_guard;
@@ -1567,7 +1572,7 @@ Status BlockBasedTable::CreateIndexReader(
               " Fall back to binary search index.");
           return BinarySearchIndexReader::Create(
               file, footer, footer.index_handle(), env, comparator,
-              index_reader, rep_->persistent_cache_options);
+              index_reader, rep_->persistent_cache_options, stats);
         }
         meta_index_iter = meta_iter_guard.get();
       }
@@ -1579,7 +1584,8 @@ Status BlockBasedTable::CreateIndexReader(
       return HashIndexReader::Create(
           rep_->internal_prefix_transform.get(), footer, file, env, comparator,
           footer.index_handle(), meta_index_iter, index_reader,
-          rep_->hash_index_allow_collision, rep_->persistent_cache_options);
+          rep_->hash_index_allow_collision, rep_->persistent_cache_options,
+          stats);
     }
     default: {
       std::string error_message =
@@ -1704,7 +1710,8 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
                 .ok()) {
           rep_->filter.reset(new BlockBasedFilterBlockReader(
               rep_->ioptions.prefix_extractor, table_options,
-              table_options.whole_key_filtering, std::move(block)));
+              table_options.whole_key_filtering, std::move(block),
+              rep_->ioptions.statistics));
         }
       }
     }
@@ -1732,6 +1739,19 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
 void BlockBasedTable::Close() {
   rep_->filter_entry.Release(rep_->table_options.block_cache.get());
   rep_->index_entry.Release(rep_->table_options.block_cache.get());
+  // cleanup index and filter blocks to avoid accessing dangling pointer
+  if (!rep_->table_options.no_block_cache) {
+    char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
+    // Get the filter block key
+    auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
+                           rep_->footer.metaindex_handle(), cache_key);
+    rep_->table_options.block_cache.get()->Erase(key);
+    // Get the index block key
+    key = GetCacheKeyFromOffset(rep_->cache_key_prefix,
+                                rep_->cache_key_prefix_size,
+                                rep_->dummy_index_reader_offset, cache_key);
+    rep_->table_options.block_cache.get()->Erase(key);
+  }
 }
 
 Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
@@ -1856,5 +1876,27 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
   }
   return Status::OK();
 }
+
+namespace {
+
+void DeleteCachedFilterEntry(const Slice& key, void* value) {
+  FilterBlockReader* filter = reinterpret_cast<FilterBlockReader*>(value);
+  if (filter->statistics() != nullptr) {
+    RecordTick(filter->statistics(), BLOCK_CACHE_FILTER_BYTES_EVICT,
+               filter->size());
+  }
+  delete filter;
+}
+
+void DeleteCachedIndexEntry(const Slice& key, void* value) {
+  IndexReader* index_reader = reinterpret_cast<IndexReader*>(value);
+  if (index_reader->statistics() != nullptr) {
+    RecordTick(index_reader->statistics(), BLOCK_CACHE_INDEX_BYTES_EVICT,
+               index_reader->usable_size());
+  }
+  delete index_reader;
+}
+
+}  // anonymous namespace
 
 }  // namespace rocksdb

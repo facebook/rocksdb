@@ -224,7 +224,7 @@ class BlockBasedTable : public TableReader {
                               std::unique_ptr<InternalIterator>* iter);
 
   // Create the filter from the filter block.
-  static FilterBlockReader* ReadFilter(Rep* rep, size_t* filter_size = nullptr);
+  static FilterBlockReader* ReadFilter(Rep* rep);
 
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 

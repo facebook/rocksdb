@@ -110,7 +110,7 @@ TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
 
   FullFilterBlockReader reader(
       nullptr, true, block,
-      table_options_.filter_policy->GetFilterBitsReader(block));
+      table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo"));
 }
@@ -126,7 +126,7 @@ TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   Slice block = builder.Finish();
   FullFilterBlockReader reader(
       nullptr, true, block,
-      table_options_.filter_policy->GetFilterBitsReader(block));
+      table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
   ASSERT_TRUE(reader.KeyMayMatch("foo"));
   ASSERT_TRUE(reader.KeyMayMatch("bar"));
   ASSERT_TRUE(reader.KeyMayMatch("box"));
@@ -155,7 +155,7 @@ TEST_F(FullFilterBlockTest, EmptyBuilder) {
 
   FullFilterBlockReader reader(
       nullptr, true, block,
-      table_options_.filter_policy->GetFilterBitsReader(block));
+      table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
   // Remain same symantic with blockbased filter
   ASSERT_TRUE(reader.KeyMayMatch("foo"));
 }
@@ -171,7 +171,7 @@ TEST_F(FullFilterBlockTest, SingleChunk) {
   Slice block = builder.Finish();
   FullFilterBlockReader reader(
       nullptr, true, block,
-      table_options_.filter_policy->GetFilterBitsReader(block));
+      table_options_.filter_policy->GetFilterBitsReader(block), nullptr);
   ASSERT_TRUE(reader.KeyMayMatch("foo"));
   ASSERT_TRUE(reader.KeyMayMatch("bar"));
   ASSERT_TRUE(reader.KeyMayMatch("box"));

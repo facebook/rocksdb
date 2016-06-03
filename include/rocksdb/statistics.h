@@ -39,10 +39,18 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_INDEX_MISS,
   // # of times cache hit when accessing index block from block cache.
   BLOCK_CACHE_INDEX_HIT,
+  // # of bytes of index blocks inserted into cache
+  BLOCK_CACHE_INDEX_BYTES_INSERT,
+  // # of bytes of index block erased from cache
+  BLOCK_CACHE_INDEX_BYTES_EVICT,
   // # of times cache miss when accessing filter block from block cache.
   BLOCK_CACHE_FILTER_MISS,
   // # of times cache hit when accessing filter block from block cache.
   BLOCK_CACHE_FILTER_HIT,
+  // # of bytes of bloom filter blocks inserted into cache
+  BLOCK_CACHE_FILTER_BYTES_INSERT,
+  // # of bytes of bloom filter block erased from cache
+  BLOCK_CACHE_FILTER_BYTES_EVICT,
   // # of times cache miss when accessing data block from block cache.
   BLOCK_CACHE_DATA_MISS,
   // # of times cache hit when accessing data block from block cache.
@@ -51,6 +59,7 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_BYTES_READ,
   // # of bytes written into cache.
   BLOCK_CACHE_BYTES_WRITE,
+
   // # of times bloom filter has avoided file reads.
   BLOOM_FILTER_USEFUL,
 
@@ -190,8 +199,13 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_ADD_FAILURES, "rocksdb.block.cache.add.failures"},
     {BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss"},
     {BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit"},
+    {BLOCK_CACHE_INDEX_BYTES_INSERT, "rocksdb.block.cache.index.bytes.insert"},
+    {BLOCK_CACHE_INDEX_BYTES_EVICT, "rocksdb.block.cache.index.bytes.evict"},
     {BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss"},
     {BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit"},
+    {BLOCK_CACHE_FILTER_BYTES_INSERT,
+     "rocksdb.block.cache.filter.bytes.insert"},
+    {BLOCK_CACHE_FILTER_BYTES_EVICT, "rocksdb.block.cache.filter.bytes.evict"},
     {BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss"},
     {BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit"},
     {BLOCK_CACHE_BYTES_READ, "rocksdb.block.cache.bytes.read"},

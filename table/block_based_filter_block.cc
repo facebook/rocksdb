@@ -161,8 +161,9 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
     const SliceTransform* prefix_extractor,
     const BlockBasedTableOptions& table_opt, bool whole_key_filtering,
-    BlockContents&& contents)
-    : policy_(table_opt.filter_policy.get()),
+    BlockContents&& contents, Statistics* stats)
+    : FilterBlockReader(contents.data.size(), stats),
+      policy_(table_opt.filter_policy.get()),
       prefix_extractor_(prefix_extractor),
       whole_key_filtering_(whole_key_filtering),
       data_(nullptr),

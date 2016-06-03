@@ -54,8 +54,10 @@ Slice FullFilterBlockBuilder::Finish() {
 
 FullFilterBlockReader::FullFilterBlockReader(
     const SliceTransform* prefix_extractor, bool whole_key_filtering,
-    const Slice& contents, FilterBitsReader* filter_bits_reader)
-    : prefix_extractor_(prefix_extractor),
+    const Slice& contents, FilterBitsReader* filter_bits_reader,
+    Statistics* stats)
+    : FilterBlockReader(contents.size(), stats),
+      prefix_extractor_(prefix_extractor),
       whole_key_filtering_(whole_key_filtering),
       contents_(contents) {
   assert(filter_bits_reader != nullptr);
@@ -64,9 +66,10 @@ FullFilterBlockReader::FullFilterBlockReader(
 
 FullFilterBlockReader::FullFilterBlockReader(
     const SliceTransform* prefix_extractor, bool whole_key_filtering,
-    BlockContents&& contents, FilterBitsReader* filter_bits_reader)
+    BlockContents&& contents, FilterBitsReader* filter_bits_reader,
+    Statistics* stats)
     : FullFilterBlockReader(prefix_extractor, whole_key_filtering,
-                            contents.data, filter_bits_reader) {
+                            contents.data, filter_bits_reader, stats) {
   block_contents_ = std::move(contents);
 }
 
