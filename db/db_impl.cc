@@ -4874,7 +4874,7 @@ void DBImpl::NotifyOnMemTableSealed(ColumnFamilyData* cfd,
 
   for (auto listener : db_options_.listeners) {
     listener->OnMemTableSealed(mem_table_info);
-  }  
+  }
 }
 #endif  // ROCKSDB_LITE
 
@@ -4910,7 +4910,9 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   memtable_info.num_entries = cfd->mem()->num_entries();
   memtable_info.num_deletes = cfd->mem()->num_deletes();
 #endif  // ROCKSDB_LITE
-
+  // Log this later after lock release. It may be outdated, e.g., if background
+  // flush happens before logging, but that should be ok.
+  int num_imm_unflushed = cfd->imm()->NumNotFlushed();
   mutex_.Unlock();
   Status s;
   {
@@ -4958,7 +4960,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
       "[%s] New memtable created with log file: #%" PRIu64
       ". Immutable memtables: %d.\n",
-      cfd->GetName().c_str(), new_log_number, cfd->imm()->NumNotFlushed());
+      cfd->GetName().c_str(), new_log_number, num_imm_unflushed);
   mutex_.Lock();
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
