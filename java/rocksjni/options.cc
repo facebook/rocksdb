@@ -2066,7 +2066,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMergeOperator(
  * Method:    setCompactionFilterHandle
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_ColumnFamilyOptions_setCompactionFilterHandle__JJ(
+void Java_org_rocksdb_ColumnFamilyOptions_setCompactionFilterHandle(
     JNIEnv* env, jobject jobj, jlong jopt_handle,
     jlong jcompactionfilter_handle) {
   reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle)->
