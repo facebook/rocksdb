@@ -970,6 +970,9 @@ spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNE
 env_mirror_test: utilities/env_mirror_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+env_registry_test: utilities/env_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
