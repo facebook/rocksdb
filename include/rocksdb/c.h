@@ -847,6 +847,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_flushoptions_set_wait(
 extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_lru(
     size_t capacity);
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_destroy(rocksdb_cache_t* cache);
+extern ROCKSDB_LIBRARY_API void rocksdb_cache_set_capacity(
+    rocksdb_cache_t* cache, size_t capacity);
 
 /* Env */
 

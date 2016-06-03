@@ -2173,6 +2173,10 @@ void rocksdb_cache_destroy(rocksdb_cache_t* cache) {
   delete cache;
 }
 
+void rocksdb_cache_set_capacity(rocksdb_cache_t* cache, size_t capacity) {
+  cache->rep->SetCapacity(capacity);
+}
+
 rocksdb_env_t* rocksdb_create_default_env() {
   rocksdb_env_t* result = new rocksdb_env_t;
   result->rep = Env::Default();
