@@ -745,16 +745,15 @@ struct ColumnFamilyOptions {
                                    Slice delta_value,
                                    std::string* merged_value);
 
-  // if prefix_extractor is set and bloom_bits is not 0, create prefix bloom
-  // for memtable
+  // if prefix_extractor is set and memtable_prefix_bloom_size_ratio is not 0,
+  // create prefix bloom for memtable with the size of
+  // write_buffer_size * memtable_prefix_bloom_size_ratio.
+  // If it is larger than 0.25, it is santinized to 0.25.
+  //
+  // Default: 0 (disable)
   //
   // Dynamically changeable through SetOptions() API
-  uint32_t memtable_prefix_bloom_bits;
-
-  // number of hash probes per key
-  //
-  // Dynamically changeable through SetOptions() API
-  uint32_t memtable_prefix_bloom_probes;
+  double memtable_prefix_bloom_size_ratio;
 
   // Page size for huge page TLB for bloom in memtable. If <=0, not allocate
   // from huge page TLB but from malloc.

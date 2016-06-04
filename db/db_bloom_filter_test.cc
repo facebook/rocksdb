@@ -615,7 +615,8 @@ class BloomStatsTestWithParam
 
     options_.create_if_missing = true;
     options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
-    options_.memtable_prefix_bloom_bits = 8 * 1024;
+    options_.memtable_prefix_bloom_size_ratio =
+        8.0 * 1024.0 / static_cast<double>(options_.write_buffer_size);
     if (use_block_table_) {
       BlockBasedTableOptions table_options;
       table_options.hash_index_allow_collision = false;

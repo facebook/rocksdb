@@ -43,8 +43,7 @@ DEFINE_int64(write_buffer_size, 33554432, "");
 DEFINE_int32(max_write_buffer_number, 2, "");
 DEFINE_int32(min_write_buffer_number_to_merge, 1, "");
 DEFINE_int32(skiplist_height, 4, "");
-DEFINE_int32(memtable_prefix_bloom_bits, 10000000, "");
-DEFINE_int32(memtable_prefix_bloom_probes, 10, "");
+DEFINE_double(memtable_prefix_bloom_size_ratio, 0.1, "");
 DEFINE_int32(memtable_prefix_bloom_huge_page_tlb_size, 2 * 1024 * 1024, "");
 DEFINE_int32(value_size, 40, "");
 
@@ -160,8 +159,8 @@ class PrefixTest : public testing::Test {
     options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
 
-    options.memtable_prefix_bloom_bits = FLAGS_memtable_prefix_bloom_bits;
-    options.memtable_prefix_bloom_probes = FLAGS_memtable_prefix_bloom_probes;
+    options.memtable_prefix_bloom_size_ratio =
+        FLAGS_memtable_prefix_bloom_size_ratio;
     options.memtable_prefix_bloom_huge_page_tlb_size =
         FLAGS_memtable_prefix_bloom_huge_page_tlb_size;
 

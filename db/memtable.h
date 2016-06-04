@@ -42,7 +42,6 @@ struct MemTableOptions {
   size_t write_buffer_size;
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
-  uint32_t memtable_prefix_bloom_probes;
   size_t memtable_prefix_bloom_huge_page_tlb_size;
   bool inplace_update_support;
   size_t inplace_update_num_locks;

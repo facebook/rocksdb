@@ -396,8 +396,9 @@ DEFINE_int32(skip_table_builder_flush, false, "Skip flushing block in "
 
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
-DEFINE_int32(memtable_bloom_bits, 0, "Bloom filter bits per key for memtable. "
-             "Negative means no bloom filter.");
+DEFINE_double(memtable_bloom_size_ratio, 0,
+              "Ratio of memtable size used for bloom filter. 0 means no bloom "
+              "filter.");
 
 DEFINE_bool(use_existing_db, false, "If true, do not destroy the existing"
             " database.  If you set this flag and also specify a benchmark that"
@@ -2461,7 +2462,7 @@ class Benchmark {
         exit(1);
       }
     }
-    options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
+    options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
     options.bloom_locality = FLAGS_bloom_locality;
     options.max_file_opening_threads = FLAGS_file_opening_threads;
     options.new_table_reader_for_compaction_inputs =

@@ -17,8 +17,8 @@ struct MutableCFOptions {
       : write_buffer_size(options.write_buffer_size),
         max_write_buffer_number(options.max_write_buffer_number),
         arena_block_size(options.arena_block_size),
-        memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
-        memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
+        memtable_prefix_bloom_size_ratio(
+            options.memtable_prefix_bloom_size_ratio),
         memtable_prefix_bloom_huge_page_tlb_size(
             options.memtable_prefix_bloom_huge_page_tlb_size),
         max_successive_merges(options.max_successive_merges),
@@ -58,8 +58,7 @@ struct MutableCFOptions {
       : write_buffer_size(0),
         max_write_buffer_number(0),
         arena_block_size(0),
-        memtable_prefix_bloom_bits(0),
-        memtable_prefix_bloom_probes(0),
+        memtable_prefix_bloom_size_ratio(0),
         memtable_prefix_bloom_huge_page_tlb_size(0),
         max_successive_merges(0),
         filter_deletes(false),
@@ -110,8 +109,7 @@ struct MutableCFOptions {
   size_t write_buffer_size;
   int max_write_buffer_number;
   size_t arena_block_size;
-  uint32_t memtable_prefix_bloom_bits;
-  uint32_t memtable_prefix_bloom_probes;
+  double memtable_prefix_bloom_size_ratio;
   size_t memtable_prefix_bloom_huge_page_tlb_size;
   size_t max_successive_merges;
   bool filter_deletes;

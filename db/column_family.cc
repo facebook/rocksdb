@@ -177,6 +177,12 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   if (result.max_write_buffer_number_to_maintain < 0) {
     result.max_write_buffer_number_to_maintain = result.max_write_buffer_number;
   }
+  // bloom filter size shouldn't exceed 1/4 of memtable size.
+  if (result.memtable_prefix_bloom_size_ratio > 0.25) {
+    result.memtable_prefix_bloom_size_ratio = 0.25;
+  } else if (result.memtable_prefix_bloom_size_ratio < 0) {
+    result.memtable_prefix_bloom_size_ratio = 0;
+  }
   XFUNC_TEST("memtablelist_history", "transaction_xftest_SanitizeOptions",
              xf_transaction_set_memtable_history1,
              xf_transaction_set_memtable_history,

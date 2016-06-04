@@ -57,7 +57,6 @@ class Version;
 class VersionSet;
 class WriteBuffer;
 class MergeContext;
-class ColumnFamilyData;
 class ColumnFamilySet;
 class TableCache;
 class MergeIteratorBuilder;

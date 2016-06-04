@@ -1732,50 +1732,27 @@ void Java_org_rocksdb_Options_setInplaceUpdateNumLocks(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    memtablePrefixBloomBits
+ * Method:    memtablePrefixBloomSizeRatio
  * Signature: (J)I
  */
-jint Java_org_rocksdb_Options_memtablePrefixBloomBits(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(
-      jhandle)->memtable_prefix_bloom_bits;
+jdouble Java_org_rocksdb_Options_memtablePrefixBloomSizeRatio(JNIEnv* env,
+                                                              jobject jobj,
+                                                              jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->memtable_prefix_bloom_size_ratio;
 }
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setMemtablePrefixBloomBits
+ * Method:    setMemtablePrefixBloomSizeRatio
  * Signature: (JI)V
  */
-void Java_org_rocksdb_Options_setMemtablePrefixBloomBits(
+void Java_org_rocksdb_Options_setMemtablePrefixBloomSizeRatio(
     JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmemtable_prefix_bloom_bits) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->memtable_prefix_bloom_bits =
-          static_cast<int32_t>(jmemtable_prefix_bloom_bits);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    memtablePrefixBloomProbes
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_memtablePrefixBloomProbes(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(
-      jhandle)->memtable_prefix_bloom_probes;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setMemtablePrefixBloomProbes
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setMemtablePrefixBloomProbes(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmemtable_prefix_bloom_probes) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->memtable_prefix_bloom_probes =
-          static_cast<int32_t>(jmemtable_prefix_bloom_probes);
+    jdouble jmemtable_prefix_bloom_size_ratio) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->memtable_prefix_bloom_size_ratio =
+      static_cast<double>(jmemtable_prefix_bloom_size_ratio);
 }
 
 /*
@@ -2915,50 +2892,26 @@ void Java_org_rocksdb_ColumnFamilyOptions_setInplaceUpdateNumLocks(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    memtablePrefixBloomBits
+ * Method:    memtablePrefixBloomSizeRatio
  * Signature: (J)I
  */
-jint Java_org_rocksdb_ColumnFamilyOptions_memtablePrefixBloomBits(
+jdouble Java_org_rocksdb_ColumnFamilyOptions_memtablePrefixBloomSizeRatio(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->memtable_prefix_bloom_bits;
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
+      ->memtable_prefix_bloom_size_ratio;
 }
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setMemtablePrefixBloomBits
+ * Method:    setMemtablePrefixBloomSizeRatio
  * Signature: (JI)V
  */
-void Java_org_rocksdb_ColumnFamilyOptions_setMemtablePrefixBloomBits(
+void Java_org_rocksdb_ColumnFamilyOptions_setMemtablePrefixBloomSizeRatio(
     JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmemtable_prefix_bloom_bits) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->memtable_prefix_bloom_bits =
-          static_cast<int32_t>(jmemtable_prefix_bloom_bits);
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    memtablePrefixBloomProbes
- * Signature: (J)I
- */
-jint Java_org_rocksdb_ColumnFamilyOptions_memtablePrefixBloomProbes(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->memtable_prefix_bloom_probes;
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setMemtablePrefixBloomProbes
- * Signature: (JI)V
- */
-void Java_org_rocksdb_ColumnFamilyOptions_setMemtablePrefixBloomProbes(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmemtable_prefix_bloom_probes) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->memtable_prefix_bloom_probes =
-          static_cast<int32_t>(jmemtable_prefix_bloom_probes);
+    jdouble jmemtable_prefix_bloom_size_ratio) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
+      ->memtable_prefix_bloom_size_ratio =
+      static_cast<double>(jmemtable_prefix_bloom_size_ratio);
 }
 
 /*

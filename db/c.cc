@@ -1799,14 +1799,9 @@ void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t *opt) {
   opt->rep.memtable_factory.reset(factory);
 }
 
-void rocksdb_options_set_memtable_prefix_bloom_bits(
-    rocksdb_options_t* opt, uint32_t v) {
-  opt->rep.memtable_prefix_bloom_bits = v;
-}
-
-void rocksdb_options_set_memtable_prefix_bloom_probes(
-    rocksdb_options_t* opt, uint32_t v) {
-  opt->rep.memtable_prefix_bloom_probes = v;
+void rocksdb_options_set_memtable_prefix_bloom_size_ratio(
+    rocksdb_options_t* opt, double v) {
+  opt->rep.memtable_prefix_bloom_size_ratio = v;
 }
 
 void rocksdb_options_set_memtable_prefix_bloom_huge_page_tlb_size(

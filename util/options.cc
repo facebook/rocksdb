@@ -121,8 +121,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       inplace_update_support(false),
       inplace_update_num_locks(10000),
       inplace_callback(nullptr),
-      memtable_prefix_bloom_bits(0),
-      memtable_prefix_bloom_probes(6),
+      memtable_prefix_bloom_size_ratio(0.0),
       memtable_prefix_bloom_huge_page_tlb_size(0),
       bloom_locality(0),
       max_successive_merges(0),
@@ -190,8 +189,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
       inplace_callback(options.inplace_callback),
-      memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
-      memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
+      memtable_prefix_bloom_size_ratio(
+          options.memtable_prefix_bloom_size_ratio),
       memtable_prefix_bloom_huge_page_tlb_size(
           options.memtable_prefix_bloom_huge_page_tlb_size),
       bloom_locality(options.bloom_locality),
@@ -596,10 +595,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Header(log, "              Options.min_partial_merge_operands: %u",
         min_partial_merge_operands);
     // TODO: easier config for bloom (maybe based on avg key/value size)
-    Header(log, "              Options.memtable_prefix_bloom_bits: %d",
-        memtable_prefix_bloom_bits);
-    Header(log, "            Options.memtable_prefix_bloom_probes: %d",
-        memtable_prefix_bloom_probes);
+    Header(log, "              Options.memtable_prefix_bloom_size_ratio: %f",
+           memtable_prefix_bloom_size_ratio);
 
     Header(log,
          "  Options.memtable_prefix_bloom_huge_page_tlb_size: %" ROCKSDB_PRIszt,

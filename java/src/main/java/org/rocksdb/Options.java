@@ -1005,26 +1005,13 @@ public class Options extends RocksObject
   }
 
   @Override
-  public int memtablePrefixBloomBits() {
-    return memtablePrefixBloomBits(nativeHandle_);
+  public double memtablePrefixBloomSizeRatio() {
+    return memtablePrefixBloomSizeRatio(nativeHandle_);
   }
 
   @Override
-  public Options setMemtablePrefixBloomBits(
-      final int memtablePrefixBloomBits) {
-    setMemtablePrefixBloomBits(nativeHandle_, memtablePrefixBloomBits);
-    return this;
-  }
-
-  @Override
-  public int memtablePrefixBloomProbes() {
-    return memtablePrefixBloomProbes(nativeHandle_);
-  }
-
-  @Override
-  public Options setMemtablePrefixBloomProbes(
-      final int memtablePrefixBloomProbes) {
-    setMemtablePrefixBloomProbes(nativeHandle_, memtablePrefixBloomProbes);
+  public Options setMemtablePrefixBloomSizeRatio(final double memtablePrefixBloomSizeRatio) {
+    setMemtablePrefixBloomSizeRatio(nativeHandle_, memtablePrefixBloomSizeRatio);
     return this;
   }
 
@@ -1293,12 +1280,9 @@ public class Options extends RocksObject
       long handle, long inplaceUpdateNumLocks)
       throws IllegalArgumentException;
   private native long inplaceUpdateNumLocks(long handle);
-  private native void setMemtablePrefixBloomBits(
-      long handle, int memtablePrefixBloomBits);
-  private native int memtablePrefixBloomBits(long handle);
-  private native void setMemtablePrefixBloomProbes(
-      long handle, int memtablePrefixBloomProbes);
-  private native int memtablePrefixBloomProbes(long handle);
+  private native void setMemtablePrefixBloomSizeRatio(
+      long handle, double memtablePrefixBloomSizeRatio);
+  private native double memtablePrefixBloomSizeRatio(long handle);
   private native void setBloomLocality(
       long handle, int bloomLocality);
   private native int bloomLocality(long handle);

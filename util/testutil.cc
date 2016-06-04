@@ -307,6 +307,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
+  cf_opt->memtable_prefix_bloom_size_ratio =
+      static_cast<double>(rnd->Uniform(10000)) / 20000.0;
 
   // int options
   cf_opt->expanded_compaction_factor = rnd->Uniform(100);
@@ -332,8 +334,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
 
   // uint32_t options
   cf_opt->bloom_locality = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_bits = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_probes = rnd->Uniform(10000);
   cf_opt->min_partial_merge_operands = rnd->Uniform(10000);
   cf_opt->max_bytes_for_level_base = rnd->Uniform(10000);
 

@@ -86,8 +86,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"report_bg_io_stats", "true"},
       {"compaction_measure_io_stats", "false"},
       {"inplace_update_num_locks", "25"},
-      {"memtable_prefix_bloom_bits", "26"},
-      {"memtable_prefix_bloom_probes", "27"},
+      {"memtable_prefix_bloom_size_ratio", "0.26"},
       {"memtable_prefix_bloom_huge_page_tlb_size", "28"},
       {"bloom_locality", "29"},
       {"max_successive_merges", "30"},
@@ -187,8 +186,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);
   ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 25U);
-  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_bits, 26U);
-  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_probes, 27U);
+  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_size_ratio, 0.26);
   ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_huge_page_tlb_size, 28U);
   ASSERT_EQ(new_cf_opt.bloom_locality, 29U);
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
@@ -300,10 +298,8 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   const int64_t tera = 1024 * giga;
 
   // Units (k)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "memtable_prefix_bloom_bits=14k;max_write_buffer_number=-15K",
-            &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_bits, 14UL * kilo);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "max_write_buffer_number=-15K", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, -15 * kilo);
   // Units (m)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,

@@ -537,9 +537,11 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
   } else if (name == "arena_block_size") {
     new_options->arena_block_size = ParseSizeT(value);
   } else if (name == "memtable_prefix_bloom_bits") {
-    new_options->memtable_prefix_bloom_bits = ParseUint32(value);
+    // deprecated
+  } else if (name == "memtable_prefix_bloom_size_ratio") {
+    new_options->memtable_prefix_bloom_size_ratio = ParseDouble(value);
   } else if (name == "memtable_prefix_bloom_probes") {
-    new_options->memtable_prefix_bloom_probes = ParseUint32(value);
+    // Deprecated
   } else if (name == "memtable_prefix_bloom_huge_page_tlb_size") {
     new_options->memtable_prefix_bloom_huge_page_tlb_size =
       ParseSizeT(value);
@@ -1437,10 +1439,8 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.write_buffer_size = mutable_cf_options.write_buffer_size;
   cf_opts.max_write_buffer_number = mutable_cf_options.max_write_buffer_number;
   cf_opts.arena_block_size = mutable_cf_options.arena_block_size;
-  cf_opts.memtable_prefix_bloom_bits =
-      mutable_cf_options.memtable_prefix_bloom_bits;
-  cf_opts.memtable_prefix_bloom_probes =
-      mutable_cf_options.memtable_prefix_bloom_probes;
+  cf_opts.memtable_prefix_bloom_size_ratio =
+      mutable_cf_options.memtable_prefix_bloom_size_ratio;
   cf_opts.memtable_prefix_bloom_huge_page_tlb_size =
       mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size;
   cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
