@@ -394,6 +394,9 @@ TOOLS = \
 	rocksdb_dump \
 	rocksdb_undump
 
+TEST_LIBS = \
+	librocksdb_env_basic_test.a
+
 # TODO: add back forward_iterator_bench, after making it build in all environemnts.
 BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
@@ -462,7 +465,7 @@ endif  # PLATFORM_SHARED_EXT
 	analyze tools tools_lib
 
 
-all: $(LIBRARY) $(BENCHMARKS) tools tools_lib $(TESTS)
+all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
 static_lib: $(LIBRARY)
 
@@ -471,6 +474,8 @@ shared_lib: $(SHARED)
 tools: $(TOOLS)
 
 tools_lib: $(TOOLS_LIBRARY)
+
+test_libs: $(TEST_LIBS)
 
 dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
@@ -802,6 +807,10 @@ $(LIBRARY): $(LIBOBJECTS)
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
 
 $(TOOLS_LIBRARY): $(BENCH_SOURCES:.cc=.o) $(TOOL_SOURCES:.cc=.o) $(LIB_SOURCES:.cc=.o) $(TESTUTIL)
+	$(AM_V_AR)rm -f $@
+	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
+
+librocksdb_env_basic_test.a: util/env_basic_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_AR)rm -f $@
 	$(AM_V_at)$(AR) $(ARFLAGS) $@ $^
 
