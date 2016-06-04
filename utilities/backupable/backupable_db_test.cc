@@ -16,6 +16,7 @@
 #include "db/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/backupable_db.h"
@@ -1117,45 +1118,58 @@ TEST_F(BackupableDBTest, KeepLogFiles) {
 }
 
 TEST_F(BackupableDBTest, RateLimiting) {
-  // iter 0 -- single threaded
-  // iter 1 -- multi threaded
-  for (int iter = 0; iter < 2; ++iter) {
-    uint64_t const KB = 1024 * 1024;
-    size_t const kMicrosPerSec = 1000 * 1000LL;
+  size_t const kMicrosPerSec = 1000 * 1000LL;
+  uint64_t const MB = 1024 * 1024;
 
-    std::vector<std::pair<uint64_t, uint64_t>> limits(
-        {{KB, 5 * KB}, {2 * KB, 3 * KB}});
+  const std::vector<std::pair<uint64_t, uint64_t>> limits(
+      {{1 * MB, 5 * MB}, {2 * MB, 3 * MB}});
 
-    for (const auto& limit : limits) {
-      // destroy old data
-      DestroyDB(dbname_, options_);
+  std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(1));
+  std::shared_ptr<RateLimiter> restoreThrottler(NewGenericRateLimiter(1));
 
-      backupable_options_->backup_rate_limit = limit.first;
-      backupable_options_->restore_rate_limit = limit.second;
-      backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
-      options_.compression = kNoCompression;
-      OpenDBAndBackupEngine(true);
-      size_t bytes_written = FillDB(db_.get(), 0, 100000);
+  for (bool makeThrottler : {false, true}) {
+    if (makeThrottler) {
+      backupable_options_->backup_rate_limiter = backupThrottler;
+      backupable_options_->restore_rate_limiter = restoreThrottler;
+    }
+    // iter 0 -- single threaded
+    // iter 1 -- multi threaded
+    for (int iter = 0; iter < 2; ++iter) {
+      for (const auto& limit : limits) {
+        // destroy old data
+        DestroyDB(dbname_, Options());
+        if (makeThrottler) {
+          backupThrottler->SetBytesPerSecond(limit.first);
+          restoreThrottler->SetBytesPerSecond(limit.second);
+        } else {
+          backupable_options_->backup_rate_limit = limit.first;
+          backupable_options_->restore_rate_limit = limit.second;
+        }
+        backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
+        options_.compression = kNoCompression;
+        OpenDBAndBackupEngine(true);
+        size_t bytes_written = FillDB(db_.get(), 0, 100000);
 
-      auto start_backup = db_chroot_env_->NowMicros();
-      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-      auto backup_time = db_chroot_env_->NowMicros() - start_backup;
-      auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) /
-                                      backupable_options_->backup_rate_limit;
-      ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
+        auto start_backup = db_chroot_env_->NowMicros();
+        ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+        auto backup_time = db_chroot_env_->NowMicros() - start_backup;
+        auto rate_limited_backup_time =
+            (bytes_written * kMicrosPerSec) / limit.first;
+        ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
 
-      CloseDBAndBackupEngine();
+        CloseDBAndBackupEngine();
 
-      OpenBackupEngine();
-      auto start_restore = db_chroot_env_->NowMicros();
-      ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-      auto restore_time = db_chroot_env_->NowMicros() - start_restore;
-      CloseBackupEngine();
-      auto rate_limited_restore_time = (bytes_written * kMicrosPerSec) /
-                                       backupable_options_->restore_rate_limit;
-      ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
+        OpenBackupEngine();
+        auto start_restore = db_chroot_env_->NowMicros();
+        ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+        auto restore_time = db_chroot_env_->NowMicros() - start_restore;
+        CloseBackupEngine();
+        auto rate_limited_restore_time =
+            (bytes_written * kMicrosPerSec) / limit.second;
+        ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
 
-      AssertBackupConsistency(0, 0, 100000, 100010);
+        AssertBackupConsistency(0, 0, 100000, 100010);
+      }
     }
   }
 }

@@ -75,10 +75,20 @@ struct BackupableDBOptions {
   // Default: 0
   uint64_t backup_rate_limit;
 
+  // Backup rate limiter. Used to control transfer speed for backup. If this is
+  // not null, backup_rate_limit is ignored.
+  // Default: nullptr
+  std::shared_ptr<RateLimiter> backup_rate_limiter{nullptr};
+
   // Max bytes that can be transferred in a second during restore.
   // If 0, go as fast as you can
   // Default: 0
   uint64_t restore_rate_limit;
+
+  // Restore rate limiter. Used to control transfer speed during restore. If
+  // this is not null, restore_rate_limit is ignored.
+  // Default: nullptr
+  std::shared_ptr<RateLimiter> restore_rate_limiter{nullptr};
 
   // Only used if share_table_files is set to true. If true, will consider that
   // backups can come from different databases, hence a sst is not uniquely

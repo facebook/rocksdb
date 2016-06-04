@@ -497,7 +497,18 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
       db_env_(db_env),
       backup_env_(options.backup_env != nullptr ? options.backup_env : db_env_),
       copy_file_buffer_size_(kDefaultCopyFileBufferSize),
-      read_only_(read_only) {}
+      read_only_(read_only) {
+  if (options_.backup_rate_limiter == nullptr &&
+      options_.backup_rate_limit > 0) {
+    options_.backup_rate_limiter.reset(
+        NewGenericRateLimiter(options_.backup_rate_limit));
+  }
+  if (options_.restore_rate_limiter == nullptr &&
+      options_.restore_rate_limit > 0) {
+    options_.restore_rate_limiter.reset(
+        NewGenericRateLimiter(options_.restore_rate_limit));
+  }
+}
 
 BackupEngineImpl::~BackupEngineImpl() {
   files_to_copy_or_create_.sendEof();
@@ -703,9 +714,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   s = backup_env_->CreateDir(
       GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)));
 
-  unique_ptr<RateLimiter> rate_limiter;
-  if (options_.backup_rate_limit > 0) {
-    rate_limiter.reset(NewGenericRateLimiter(options_.backup_rate_limit));
+  RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
+  if (rate_limiter) {
     copy_file_buffer_size_ = rate_limiter->GetSingleBurstBytes();
   }
 
@@ -758,7 +768,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     s = AddBackupFileWorkItem(
         live_dst_paths, backup_items_to_finish, new_backup_id,
         options_.share_table_files && type == kTableFile, db->GetName(),
-        live_files[i], rate_limiter.get(), size_bytes,
+        live_files[i], rate_limiter, size_bytes,
         (type == kDescriptorFile) ? manifest_file_size : 0,
         options_.share_files_with_checksum && type == kTableFile,
         progress_callback);
@@ -767,10 +777,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     // Write the current file with the manifest filename as its contents.
     s = AddBackupFileWorkItem(
         live_dst_paths, backup_items_to_finish, new_backup_id,
-        false /* shared */, "" /* src_dir */, CurrentFileName(""),
-        rate_limiter.get(), manifest_fname.size(), 0 /* size_limit */,
-        false /* shared_checksum */, progress_callback,
-        manifest_fname.substr(1) + "\n");
+        false /* shared */, "" /* src_dir */, CurrentFileName(""), rate_limiter,
+        manifest_fname.size(), 0 /* size_limit */, false /* shared_checksum */,
+        progress_callback, manifest_fname.substr(1) + "\n");
   }
 
   // Pre-fetch sizes for WAL files
@@ -797,8 +806,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
       s = AddBackupFileWorkItem(live_dst_paths, backup_items_to_finish,
                                 new_backup_id, false, /* not shared */
                                 db->GetOptions().wal_dir,
-                                live_wal_files[i]->PathName(),
-                                rate_limiter.get(), size_bytes);
+                                live_wal_files[i]->PathName(), rate_limiter,
+                                size_bytes);
     }
   }
 
@@ -1043,9 +1052,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     DeleteChildren(db_dir);
   }
 
-  unique_ptr<RateLimiter> rate_limiter;
-  if (options_.restore_rate_limit > 0) {
-    rate_limiter.reset(NewGenericRateLimiter(options_.restore_rate_limit));
+  RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
+  if (rate_limiter) {
     copy_file_buffer_size_ = rate_limiter->GetSingleBurstBytes();
   }
   Status s;
@@ -1081,7 +1089,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     Log(options_.info_log, "Restoring %s to %s\n", file.c_str(), dst.c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         GetAbsolutePath(file), dst, "" /* contents */, backup_env_, db_env_,
-        false, rate_limiter.get(), 0 /* size_limit */);
+        false, rate_limiter, 0 /* size_limit */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(),
         file_info->checksum_value);
