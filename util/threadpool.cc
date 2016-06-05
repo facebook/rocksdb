@@ -19,6 +19,11 @@
 #  include <sys/syscall.h>
 #endif
 
+#ifdef OS_FREEBSD
+#  include <stdlib.h>
+#endif
+
+
 namespace rocksdb {
 
 void ThreadPool::PthreadCall(const char* label, int result) {
