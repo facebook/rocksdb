@@ -72,8 +72,8 @@ log_variable CLANG_BASE
 
 # Libraries locations
 get_lib_base libgcc     4.9.x
-get_lib_base glibc      2.20 
-get_lib_base snappy     LATEST
+get_lib_base glibc      2.20
+get_lib_base snappy     LATEST gcc-4.9-glibc-2.20
 get_lib_base zlib       LATEST
 get_lib_base bzip2      LATEST
 get_lib_base lz4        LATEST
