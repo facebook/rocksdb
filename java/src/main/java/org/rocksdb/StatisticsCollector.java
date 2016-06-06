@@ -86,7 +86,7 @@ public class StatisticsCollector {
               // Collect histogram data
               for(HistogramType histogramType : HistogramType.values()) {
                 HistogramData histogramData =
-                    statistics.geHistogramData(histogramType);
+                    statistics.getHistogramData(histogramType);
                 statsCallback.histogramCallback(histogramType, histogramData);
               }
 
