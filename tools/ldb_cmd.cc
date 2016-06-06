@@ -37,6 +37,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <fstream>
 
 namespace rocksdb {
 
@@ -830,7 +831,10 @@ void DBLoaderCommand::DoCommand() {
 
   int bad_lines = 0;
   std::string line;
-  while (getline(std::cin, line, '\n')) {
+  // prefer ifstream getline performance vs that from std::cin istream
+  std::ifstream ifs_stdin("/dev/stdin");
+  std::istream* istream_p = ifs_stdin.is_open() ? &ifs_stdin : &std::cin;
+  while (getline(*istream_p, line, '\n')) {
     std::string key;
     std::string value;
     if (ParseKeyValue(line, &key, &value, is_key_hex_, is_value_hex_)) {
