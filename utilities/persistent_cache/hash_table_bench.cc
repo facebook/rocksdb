@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
-#ifndef ROCKSDB_LITE
+#if !defined(OS_WIN) && !defined(ROCKSDB_LITE)
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -18,8 +18,8 @@ int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #include <string>
 #include <unordered_map>
 
-#include "include/rocksdb/env.h"
 #include "port/port_posix.h"
+#include "rocksdb/env.h"
 #include "util/mutexlock.h"
 #include "utilities/persistent_cache/hash_table.h"
 

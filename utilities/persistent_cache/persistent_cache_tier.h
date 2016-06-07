@@ -192,7 +192,8 @@ struct PersistentCacheOptions {
   // file size in order to avoid dead lock.
   size_t write_buffer_count() const {
     assert(write_buffer_size);
-    return (writer_qdepth + 1.2) * cache_file_size / write_buffer_size;
+    return static_cast<size_t>((writer_qdepth + 1.2) * cache_file_size /
+                               write_buffer_size);
   }
 
   // writer-dispatch-size
