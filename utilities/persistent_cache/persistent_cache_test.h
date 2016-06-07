@@ -58,7 +58,7 @@ class PersistentCacheTierTest : public testing::Test {
       std::thread th(fn);
       threads.push_back(std::move(th));
     }
-    return std::move(threads);
+    return threads;
   }
 
   // Wait for threads to join
@@ -75,7 +75,7 @@ class PersistentCacheTierTest : public testing::Test {
     max_keys_ = max_keys;
     // spawn threads
     auto fn = std::bind(&PersistentCacheTierTest::InsertImpl, this);
-    auto threads = std::move(SpawnThreads(nthreads, fn));
+    auto threads = SpawnThreads(nthreads, fn);
     // join with threads
     Join(std::move(threads));
     // Flush cache
@@ -90,7 +90,7 @@ class PersistentCacheTierTest : public testing::Test {
     // spawn threads
     auto fn =
         std::bind(&PersistentCacheTierTest::VerifyImpl, this, eviction_enabled);
-    auto threads = std::move(SpawnThreads(nthreads, fn));
+    auto threads = SpawnThreads(nthreads, fn);
     // join with threads
     Join(std::move(threads));
   }
@@ -232,7 +232,8 @@ class PersistentCacheDBTest : public DBTestBase {
 
   static uint32_t TestGetTickerCount(const Options& options,
                                      Tickers ticker_type) {
-    return options.statistics->getTickerCount(ticker_type);
+    return static_cast<uint32_t>(
+        options.statistics->getTickerCount(ticker_type));
   }
 
   // insert data to table

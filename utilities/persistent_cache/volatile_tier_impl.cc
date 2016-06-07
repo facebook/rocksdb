@@ -32,7 +32,7 @@ std::vector<PersistentCacheTier::TierStats> VolatileCacheTier::Stats() {
 
   std::vector<PersistentCacheTier::TierStats> tier_stats;
   if (next_tier()) {
-    tier_stats = std::move(next_tier()->Stats());
+    tier_stats = next_tier()->Stats();
   }
   tier_stats.push_back(stat);
   return tier_stats;
@@ -49,7 +49,7 @@ std::string VolatileCacheTier::PrintStats() {
      << "pagecache.volatilecache.miss_pct: " << stats_.CacheMissPct()
      << std::endl
      << PersistentCacheTier::PrintStats();
-  return std::move(ss.str());
+  return ss.str();
 }
 
 Status VolatileCacheTier::Insert(const Slice& page_key, const char* data,
