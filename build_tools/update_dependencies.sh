@@ -64,7 +64,7 @@ touch "$OUTPUT"
 echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
-GCC_BASE=`ls -d1 $TP2_LATEST/gcc/4.9.x/centos6-native/*/ | head -n1`
+GCC_BASE=`readlink -f $TP2_LATEST/gcc/4.9.x/centos6-native/*/`
 CLANG_BASE=`ls -d1 /mnt/gvfs/third-party2/clang/fc904e50a9266b9d7b98cae1993afa0c5aae1440/3.7.1/centos6-native/*/ | head -n1`
 
 log_variable GCC_BASE
@@ -101,7 +101,7 @@ touch "$OUTPUT"
 echo "Writing 4.8.1 dependencies to $OUTPUT"
 
 # Compilers locations
-GCC_BASE=`ls -d1 $TP2_LATEST/gcc/4.8.1/centos6-native/*/ | head -n1`
+GCC_BASE=`readlink -f $TP2_LATEST/gcc/4.8.1/centos6-native/*/`
 CLANG_BASE=`ls -d1 /mnt/gvfs/third-party2/clang/fc904e50a9266b9d7b98cae1993afa0c5aae1440/3.7.1/centos6-native/*/ | head -n1`
 
 log_variable GCC_BASE
