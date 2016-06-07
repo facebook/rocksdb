@@ -135,7 +135,7 @@ class PersistentCacheTierTest : public testing::Test {
       auto k = prefix + PaddedNumber(i, /*count=*/8);
       Slice key(k);
       while (!cache_->Insert(key, data, sizeof(data)).ok()) {
-        /* sleep override */ sleep(1);
+        Env::Default()->SleepForMicroseconds(1 * 1000 * 1000);
       }
     }
   }
@@ -230,7 +230,7 @@ class PersistentCacheDBTest : public DBTestBase {
     return std::make_shared<VolatileCacheTier>();
   }
 
-  static uint32_t TestGetTickerCount(const Options& options,
+  static uint64_t TestGetTickerCount(const Options& options,
                                      Tickers ticker_type) {
     return static_cast<uint32_t>(
         options.statistics->getTickerCount(ticker_type));

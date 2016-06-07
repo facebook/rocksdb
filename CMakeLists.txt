@@ -266,6 +266,7 @@ set(SOURCES
         utilities/merge_operators/uint64add.cc
         utilities/options/options_util.cc
         utilities/persistent_cache/persistent_cache_tier.cc
+        utilities/persistent_cache/volatile_tier_impl.cc
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
@@ -429,6 +430,7 @@ set(TESTS
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/options/options_util_test.cc
         utilities/persistent_cache/hash_table_test.cc
+        utilities/persistent_cache/persistent_cache_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc

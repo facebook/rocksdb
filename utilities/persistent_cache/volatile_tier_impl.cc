@@ -20,15 +20,18 @@ VolatileCacheTier::~VolatileCacheTier() { index_.Clear(&DeleteCacheData); }
 
 std::vector<PersistentCacheTier::TierStats> VolatileCacheTier::Stats() {
   PersistentCacheTier::TierStats stat;
-  stat.insert({"persistent_cache.volatile_cache.hits", stats_.cache_hits_});
-  stat.insert({"persistent_cache.volatile_cache.misses", stats_.cache_misses_});
-  stat.insert(
-      {"persistent_cache.volatile_cache.inserts", stats_.cache_inserts_});
-  stat.insert({"persistent_cache.volatile_cache.evicts", stats_.cache_evicts_});
-  stat.insert(
-      {"persistent_cache.volatile_cache.hit_pct", stats_.CacheHitPct()});
-  stat.insert(
-      {"persistent_cache.volatile_cache.miss_pct", stats_.CacheMissPct()});
+  stat.insert({"persistent_cache.volatile_cache.hits",
+               static_cast<double>(stats_.cache_hits_)});
+  stat.insert({"persistent_cache.volatile_cache.misses",
+               static_cast<double>(stats_.cache_misses_)});
+  stat.insert({"persistent_cache.volatile_cache.inserts",
+               static_cast<double>(stats_.cache_inserts_)});
+  stat.insert({"persistent_cache.volatile_cache.evicts",
+               static_cast<double>(stats_.cache_evicts_)});
+  stat.insert({"persistent_cache.volatile_cache.hit_pct",
+               static_cast<double>(stats_.CacheHitPct())});
+  stat.insert({"persistent_cache.volatile_cache.miss_pct",
+               static_cast<double>(stats_.CacheMissPct())});
 
   std::vector<PersistentCacheTier::TierStats> tier_stats;
   if (next_tier()) {
