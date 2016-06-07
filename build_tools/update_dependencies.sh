@@ -65,7 +65,7 @@ echo "Writing dependencies to $OUTPUT"
 
 # Compilers locations
 GCC_BASE=`ls -d1 $TP2_LATEST/gcc/4.9.x/centos6-native/*/ | head -n1`
-CLANG_BASE=`ls -d1 /mnt/gvfs/third-party2/clang/fc904e50a9266b9d7b98cae1993afa0c5aae1440/3.7.1/centos6-native/*/ | head -n1`
+CLANG_BASE=`ls -d1 $TP2_LATEST/llvm-fb/stable/centos6-native/*/ | head -n1`
 
 log_variable GCC_BASE
 log_variable CLANG_BASE

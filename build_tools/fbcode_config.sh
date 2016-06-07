@@ -100,7 +100,7 @@ if [ -z "$USE_CLANG" ]; then
   JEMALLOC=1
 else
   # clang
-  CLANG_INCLUDE="$CLANG_LIB/clang/*/include"
+  CLANG_INCLUDE="$CLANG_LIB/clang/stable/include"
   CC="$CLANG_BIN/clang"
   CXX="$CLANG_BIN/clang++"
 
@@ -114,6 +114,7 @@ else
   CFLAGS+=" -isystem $CLANG_INCLUDE"
   CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE/linux "
   CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE "
+  CFLAGS+=" -Wno-expansion-to-defined "
   CXXFLAGS="-nostdinc++"
 fi
 
