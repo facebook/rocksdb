@@ -1,4 +1,4 @@
-GCC_BASE=/mnt/vol/engshare/fbcode/third-party2/gcc/4.8.1/centos6-native/cc6c9dc/
+GCC_BASE=/mnt/gvfs/third-party2/gcc/ebc96bc2fb751b5a0300b8d91a95bdf24ac1d88b/4.8.1/centos6-native/cc6c9dc
 CLANG_BASE=/mnt/vol/engshare/fbcode/third-party2/clang/3.7.1/centos6-native/9d9ecb9/
 LIBGCC_BASE=/mnt/gvfs/third-party2/libgcc/5710d6a0fb0d12820aac0bffcd7fcb8646e7fff7/4.8.1/gcc-4.8.1-glibc-2.17/8aac7fc
 GLIBC_BASE=/mnt/gvfs/third-party2/glibc/0600c95b31226b5e535614c590677d87c62d8016/2.17/gcc-4.8.1-glibc-2.17/99df8fc
