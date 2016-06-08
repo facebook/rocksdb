@@ -1,7 +1,7 @@
 # Unreleased
 ### Public API Change
 * Deprecate BlockBaseTableOptions.hash_index_allow_collision=false
-
+* Deprecate options builder (GetOptions()).
 
 # Rocksdb Change Log
 ## Unreleased

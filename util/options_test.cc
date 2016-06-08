@@ -38,53 +38,7 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 namespace rocksdb {
 
-Options PrintAndGetOptions(size_t total_write_buffer_limit,
-                           int read_amplification_threshold,
-                           int write_amplification_threshold,
-                           uint64_t target_db_size = 68719476736) {
-  StderrLogger logger;
-
-  if (FLAGS_enable_print) {
-    printf("---- total_write_buffer_limit: %" ROCKSDB_PRIszt
-           " "
-           "read_amplification_threshold: %d write_amplification_threshold: %d "
-           "target_db_size %" PRIu64 " ----\n",
-           total_write_buffer_limit, read_amplification_threshold,
-           write_amplification_threshold, target_db_size);
-  }
-
-  Options options =
-      GetOptions(total_write_buffer_limit, read_amplification_threshold,
-                 write_amplification_threshold, target_db_size);
-  if (FLAGS_enable_print) {
-    options.Dump(&logger);
-    printf("-------------------------------------\n\n\n");
-  }
-  return options;
-}
-
 class OptionsTest : public testing::Test {};
-
-TEST_F(OptionsTest, LooseCondition) {
-  Options options;
-  PrintAndGetOptions(static_cast<size_t>(10) * 1024 * 1024 * 1024, 100, 100);
-
-  // Less mem table memory budget
-  PrintAndGetOptions(32 * 1024 * 1024, 100, 100);
-
-  // Tight read amplification
-  options = PrintAndGetOptions(128 * 1024 * 1024, 8, 100);
-  ASSERT_EQ(options.compaction_style, kCompactionStyleLevel);
-
-#ifndef ROCKSDB_LITE  // Universal compaction is not supported in ROCKSDB_LITE
-  // Tight write amplification
-  options = PrintAndGetOptions(128 * 1024 * 1024, 64, 10);
-  ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
-#endif  // !ROCKSDB_LITE
-
-  // Both tight amplifications
-  PrintAndGetOptions(128 * 1024 * 1024, 4, 8);
-}
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST_F(OptionsTest, GetOptionsFromMapTest) {

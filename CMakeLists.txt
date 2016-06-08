@@ -222,7 +222,6 @@ set(SOURCES
         util/murmurhash.cc
         util/mutable_cf_options.cc
         util/options.cc
-        util/options_builder.cc
         util/options_helper.cc
         util/options_parser.cc
         util/options_sanity_check.cc
