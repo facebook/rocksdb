@@ -48,6 +48,36 @@ public class LoggerTest {
     }
   }
 
+  @Test
+  public void warnLogger() throws RocksDBException {
+    final AtomicInteger logMessageCounter = new AtomicInteger();
+    try (final Options options = new Options().
+        setInfoLogLevel(InfoLogLevel.WARN_LEVEL).
+        setCreateIfMissing(true);
+
+         final Logger logger = new Logger(options) {
+           // Create new logger with max log level passed by options
+           @Override
+           protected void log(InfoLogLevel infoLogLevel, String logMsg) {
+             assertThat(logMsg).isNotNull();
+             assertThat(logMsg.length()).isGreaterThan(0);
+             logMessageCounter.incrementAndGet();
+           }
+         }
+    ) {
+
+      // Set custom logger to options
+      options.setLogger(logger);
+
+      try (final RocksDB db = RocksDB.open(options,
+          dbFolder.getRoot().getAbsolutePath())) {
+        // there should be zero messages
+        // using warn level as log level.
+        assertThat(logMessageCounter.get()).isEqualTo(0);
+      }
+    }
+  }
+
 
   @Test
   public void fatalLogger() throws RocksDBException {
@@ -116,6 +146,30 @@ public class LoggerTest {
           }
         }
       }
+    }
+  }
+
+  @Test
+  public void setWarnLogLevel() {
+    final AtomicInteger logMessageCounter = new AtomicInteger();
+    try (final Options options = new Options().
+        setInfoLogLevel(InfoLogLevel.FATAL_LEVEL).
+        setCreateIfMissing(true);
+         final Logger logger = new Logger(options) {
+           // Create new logger with max log level passed by options
+           @Override
+           protected void log(InfoLogLevel infoLogLevel, String logMsg) {
+             assertThat(logMsg).isNotNull();
+             assertThat(logMsg.length()).isGreaterThan(0);
+             logMessageCounter.incrementAndGet();
+           }
+         }
+    ) {
+      assertThat(logger.infoLogLevel()).
+          isEqualTo(InfoLogLevel.FATAL_LEVEL);
+      logger.setInfoLogLevel(InfoLogLevel.WARN_LEVEL);
+      assertThat(logger.infoLogLevel()).
+          isEqualTo(InfoLogLevel.WARN_LEVEL);
     }
   }
 
