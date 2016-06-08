@@ -113,7 +113,6 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       compaction_style(kCompactionStyleLevel),
       compaction_pri(kByCompensatedSize),
       verify_checksums_in_compaction(true),
-      filter_deletes(false),
       max_sequential_skip_in_iterations(8),
       memtable_factory(std::shared_ptr<SkipListFactory>(new SkipListFactory)),
       table_factory(
@@ -179,7 +178,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       verify_checksums_in_compaction(options.verify_checksums_in_compaction),
       compaction_options_universal(options.compaction_options_universal),
       compaction_options_fifo(options.compaction_options_fifo),
-      filter_deletes(options.filter_deletes),
       max_sequential_skip_in_iterations(
           options.max_sequential_skip_in_iterations),
       memtable_factory(options.memtable_factory),
@@ -561,8 +559,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         rate_limit_delay_max_milliseconds);
     Header(log, "               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Header(log, "                          Options.filter_deletes: %d",
-        filter_deletes);
     Header(log, "          Options.verify_checksums_in_compaction: %d",
         verify_checksums_in_compaction);
     Header(log, "                        Options.compaction_style: %d",

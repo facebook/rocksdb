@@ -1534,7 +1534,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // That's why we set ignore missing column families to true
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
-          log_number, this, true, false, next_sequence);
+          log_number, this, false /* concurrent_memtable_writes */,
+          next_sequence);
       MaybeIgnoreError(&status);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
@@ -4500,7 +4501,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       w.status = WriteBatchInternal::InsertInto(
           &w, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
-          true /*dont_filter_deletes*/, true /*concurrent_memtable_writes*/);
+          true /*concurrent_memtable_writes*/);
     }
 
     if (write_thread_.CompleteParallelWorker(&w)) {
@@ -4794,7 +4795,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         status = WriteBatchInternal::InsertInto(
             write_group, current_sequence, column_family_memtables_.get(),
             &flush_scheduler_, write_options.ignore_missing_column_families,
-            0 /*log_number*/, this, false /*dont_filter_deletes*/);
+            0 /*log_number*/, this);
 
         if (status.ok()) {
           // There were no write failures. Set leader's status
@@ -4821,8 +4822,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           w.status = WriteBatchInternal::InsertInto(
               &w, &column_family_memtables, &flush_scheduler_,
               write_options.ignore_missing_column_families, 0 /*log_number*/,
-              this, true /*dont_filter_deletes*/,
-              true /*concurrent_memtable_writes*/);
+              this, true /*concurrent_memtable_writes*/);
         }
 
         // CompleteParallelWorker returns true if this thread should

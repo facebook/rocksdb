@@ -269,15 +269,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void filterDeletes() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFilterDeletes(boolValue);
-      assertThat(opt.filterDeletes()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void maxSequentialSkipInIterations() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final long longValue = rand.nextLong();

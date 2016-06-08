@@ -76,8 +76,6 @@ void MutableCFOptions::Dump(Logger* log) const {
       memtable_prefix_bloom_huge_page_tlb_size);
   Log(log, "                    max_successive_merges: %" ROCKSDB_PRIszt,
       max_successive_merges);
-  Log(log, "                           filter_deletes: %d",
-      filter_deletes);
   Log(log, "                 disable_auto_compactions: %d",
       disable_auto_compactions);
   Log(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,

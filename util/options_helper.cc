@@ -548,7 +548,7 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
   } else if (name == "max_successive_merges") {
     new_options->max_successive_merges = ParseSizeT(value);
   } else if (name == "filter_deletes") {
-    new_options->filter_deletes = ParseBoolean(name, value);
+    // Deprecated
   } else if (name == "max_write_buffer_number") {
     new_options->max_write_buffer_number = ParseInt(value);
   } else if (name == "inplace_update_num_locks") {
@@ -1446,7 +1446,6 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.memtable_prefix_bloom_huge_page_tlb_size =
       mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size;
   cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
-  cf_opts.filter_deletes = mutable_cf_options.filter_deletes;
   cf_opts.inplace_update_num_locks =
       mutable_cf_options.inplace_update_num_locks;
 

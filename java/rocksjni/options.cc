@@ -1634,27 +1634,6 @@ void Java_org_rocksdb_Options_setVerifyChecksumsInCompaction(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    filterDeletes
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_filterDeletes(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->filter_deletes;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setFilterDeletes
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setFilterDeletes(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jfilter_deletes) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->filter_deletes =
-      static_cast<bool>(jfilter_deletes);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    maxSequentialSkipInIterations
  * Signature: (J)J
  */
@@ -2789,28 +2768,6 @@ void Java_org_rocksdb_ColumnFamilyOptions_setVerifyChecksumsInCompaction(
   reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
       jhandle)->verify_checksums_in_compaction =
           static_cast<bool>(jverify_checksums_in_compaction);
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    filterDeletes
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_ColumnFamilyOptions_filterDeletes(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->
-      filter_deletes;
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setFilterDeletes
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_ColumnFamilyOptions_setFilterDeletes(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jfilter_deletes) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->filter_deletes =
-      static_cast<bool>(jfilter_deletes);
 }
 
 /*

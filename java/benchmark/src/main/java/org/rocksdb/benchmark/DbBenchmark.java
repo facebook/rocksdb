@@ -598,8 +598,6 @@ public class DbBenchmark {
         (Boolean)flags_.get(Flag.disable_auto_compactions));
     options.setSourceCompactionFactor(
         (Integer)flags_.get(Flag.source_compaction_factor));
-    options.setFilterDeletes(
-        (Boolean)flags_.get(Flag.filter_deletes));
     options.setMaxSuccessiveMerges(
         (Integer)flags_.get(Flag.max_successive_merges));
     options.setWalTtlSeconds((Long)flags_.get(Flag.wal_ttl_seconds));

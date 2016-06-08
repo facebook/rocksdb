@@ -80,7 +80,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"compaction_style", "kCompactionStyleLevel"},
       {"verify_checksums_in_compaction", "false"},
       {"compaction_options_fifo", "23"},
-      {"filter_deletes", "0"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
       {"report_bg_io_stats", "true"},
@@ -181,7 +180,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.verify_checksums_in_compaction, false);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
             static_cast<uint64_t>(23));
-  ASSERT_EQ(new_cf_opt.filter_deletes, false);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);

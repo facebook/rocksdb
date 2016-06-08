@@ -101,46 +101,6 @@ TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
       ChangeOptions(kSkipPlainTable | kSkipHashIndex | kSkipFIFOCompaction));
 }
 
-// A delete is skipped for key if KeyMayExist(key) returns False
-// Tests Writebatch consistency and proper delete behaviour
-TEST_P(DBBloomFilterTestWithParam, FilterDeletes) {
-  do {
-    anon::OptionsOverride options_override;
-    options_override.filter_policy.reset(
-        NewBloomFilterPolicy(20, use_block_based_filter_));
-    Options options = CurrentOptions(options_override);
-    options.filter_deletes = true;
-    CreateAndReopenWithCF({"pikachu"}, options);
-    WriteBatch batch;
-
-    batch.Delete(handles_[1], "a");
-    dbfull()->Write(WriteOptions(), &batch);
-    ASSERT_EQ(AllEntriesFor("a", 1), "[ ]");  // Delete skipped
-    batch.Clear();
-
-    batch.Put(handles_[1], "a", "b");
-    batch.Delete(handles_[1], "a");
-    dbfull()->Write(WriteOptions(), &batch);
-    ASSERT_EQ(Get(1, "a"), "NOT_FOUND");
-    ASSERT_EQ(AllEntriesFor("a", 1), "[ DEL, b ]");  // Delete issued
-    batch.Clear();
-
-    batch.Delete(handles_[1], "c");
-    batch.Put(handles_[1], "c", "d");
-    dbfull()->Write(WriteOptions(), &batch);
-    ASSERT_EQ(Get(1, "c"), "d");
-    ASSERT_EQ(AllEntriesFor("c", 1), "[ d ]");  // Delete skipped
-    batch.Clear();
-
-    ASSERT_OK(Flush(1));  // A stray Flush
-
-    batch.Delete(handles_[1], "c");
-    dbfull()->Write(WriteOptions(), &batch);
-    ASSERT_EQ(AllEntriesFor("c", 1), "[ DEL, d ]");  // Delete issued
-    batch.Clear();
-  } while (ChangeCompactOptions());
-}
-
 TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
   Options options = last_options_;
   options.prefix_extractor.reset(NewFixedPrefixTransform(8));

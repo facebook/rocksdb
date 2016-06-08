@@ -766,9 +766,6 @@ DEFINE_uint64(wal_bytes_per_sync,  rocksdb::Options().wal_bytes_per_sync,
               " being written, in the background. Issue one request for every"
               " wal_bytes_per_sync written. 0 turns it off.");
 
-DEFINE_bool(filter_deletes, false, " On true, deletes use bloom-filter and drop"
-            " the delete if key not present");
-
 DEFINE_bool(use_single_deletes, true,
             "Use single deletes (used in RandomReplaceKeys only).");
 
@@ -2480,7 +2477,6 @@ class Benchmark {
         FLAGS_level_compaction_dynamic_level_bytes;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
-    options.filter_deletes = FLAGS_filter_deletes;
     if ((FLAGS_prefix_size == 0) && (FLAGS_rep_factory == kPrefixHash ||
                                      FLAGS_rep_factory == kHashLinkedList)) {
       fprintf(stderr, "prefix_size should be non-zero if PrefixHash or "

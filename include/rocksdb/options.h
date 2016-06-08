@@ -632,16 +632,6 @@ struct ColumnFamilyOptions {
   // The options for FIFO compaction style
   CompactionOptionsFIFO compaction_options_fifo;
 
-  // Use KeyMayExist API to filter deletes when this is true.
-  // If KeyMayExist returns false, i.e. the key definitely does not exist, then
-  // the delete is a noop. KeyMayExist only incurs in-memory look up.
-  // This optimization avoids writing the delete to storage when appropriate.
-  //
-  // Default: false
-  //
-  // Dynamically changeable through SetOptions() API
-  bool filter_deletes;
-
   // An iteration->Next() sequentially skips over keys with the same
   // user-key unless this option is set. This number specifies the number
   // of keys (with the same userkey) that will be sequentially

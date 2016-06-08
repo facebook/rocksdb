@@ -423,7 +423,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "inplace_update_support=false;"
       "compaction_style=kCompactionStyleFIFO;"
       "purge_redundant_kvs_while_flush=true;"
-      "filter_deletes=false;"
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;",

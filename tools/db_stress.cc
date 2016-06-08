@@ -411,9 +411,6 @@ DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
 static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
 
-DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
-            " the delete if key not present");
-
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 
 enum RepFactory {
@@ -1048,7 +1045,6 @@ class StressTest {
         {"memtable_prefix_bloom_huge_page_tlb_size",
          {"0", ToString(2 * 1024 * 1024)}},
         {"max_successive_merges", {"0", "2", "4"}},
-        {"filter_deletes", {"0", "1"}},
         {"inplace_update_num_locks", {"100", "200", "300"}},
         // TODO(ljin): enable test for this option
         // {"disable_auto_compactions", {"100", "200", "300"}},
@@ -1998,7 +1994,6 @@ class StressTest {
     fprintf(stdout, "Num times DB reopens      : %d\n", FLAGS_reopen);
     fprintf(stdout, "Batches/snapshots         : %d\n",
             FLAGS_test_batches_snapshots);
-    fprintf(stdout, "Deletes use filter        : %d\n", FLAGS_filter_deletes);
     fprintf(stdout, "Do update in place        : %d\n", FLAGS_in_place_update);
     fprintf(stdout, "Num keys per lock         : %d\n",
             1 << FLAGS_log2_keys_per_lock);
@@ -2074,7 +2069,6 @@ class StressTest {
     options_.compression = FLAGS_compression_type_e;
     options_.create_if_missing = true;
     options_.max_manifest_file_size = 10 * 1024;
-    options_.filter_deletes = FLAGS_filter_deletes;
     options_.inplace_update_support = FLAGS_in_place_update;
     options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options_.allow_concurrent_memtable_write =

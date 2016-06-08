@@ -91,10 +91,6 @@ bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
     }
 #endif
 
-    if ((skip_mask & kSkipDeletesFilterFirst) &&
-        option_config == kDeletesFilterFirst) {
-      return true;
-    }
     if ((skip_mask & kSkipUniversalCompaction) &&
         (option_config == kUniversalCompaction ||
          option_config == kUniversalCompactionMultiLevel)) {
@@ -310,9 +306,6 @@ Options DBTestBase::CurrentOptions(
       options.delayed_write_rate = 8 * 1024 * 1024;
       options.report_bg_io_stats = true;
       // TODO(3.13) -- test more options
-      break;
-    case kDeletesFilterFirst:
-      options.filter_deletes = true;
       break;
     case kUniversalCompaction:
       options.compaction_style = kCompactionStyleUniversal;

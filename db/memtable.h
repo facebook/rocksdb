@@ -50,7 +50,6 @@ struct MemTableOptions {
                                    Slice delta_value,
                                    std::string* merged_value);
   size_t max_successive_merges;
-  bool filter_deletes;
   Statistics* statistics;
   MergeOperator* merge_operator;
   Logger* info_log;

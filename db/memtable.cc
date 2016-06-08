@@ -50,7 +50,6 @@ MemTableOptions::MemTableOptions(const ImmutableCFOptions& ioptions,
       inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
       inplace_callback(ioptions.inplace_callback),
       max_successive_merges(mutable_cf_options.max_successive_merges),
-      filter_deletes(mutable_cf_options.filter_deletes),
       statistics(ioptions.statistics),
       merge_operator(ioptions.merge_operator),
       info_log(ioptions.info_log) {}

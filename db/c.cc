@@ -1692,11 +1692,6 @@ void rocksdb_options_set_verify_checksums_in_compaction(
   opt->rep.verify_checksums_in_compaction = v;
 }
 
-void rocksdb_options_set_filter_deletes(
-    rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.filter_deletes = v;
-}
-
 void rocksdb_options_set_max_sequential_skip_in_iterations(
     rocksdb_options_t* opt, uint64_t v) {
   opt->rep.max_sequential_skip_in_iterations = v;

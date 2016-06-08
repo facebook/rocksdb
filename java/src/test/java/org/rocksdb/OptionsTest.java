@@ -232,15 +232,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void filterDeletes() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFilterDeletes(boolValue);
-      assertThat(opt.filterDeletes()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void maxSequentialSkipInIterations() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();

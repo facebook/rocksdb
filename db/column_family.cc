@@ -130,11 +130,6 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
         "In-place memtable updates (inplace_update_support) is not compatible "
         "with concurrent writes (allow_concurrent_memtable_write)");
   }
-  if (cf_options.filter_deletes) {
-    return Status::InvalidArgument(
-        "Delete filtering (filter_deletes) is not compatible with concurrent "
-        "memtable writes (allow_concurrent_memtable_writes)");
-  }
   if (!cf_options.memtable_factory->IsInsertConcurrentlySupported()) {
     return Status::InvalidArgument(
         "Memtable doesn't concurrent writes (allow_concurrent_memtable_write)");
