@@ -52,7 +52,7 @@ class WalFilter;
 // sequence of key,value pairs.  Each block may be compressed before
 // being stored in a file.  The following enum describes which
 // compression method (if any) is used to compress a block.
-enum CompressionType : char {
+enum CompressionType : unsigned char {
   // NOTE: do not change the values of existing entries, as these are
   // part of the persistent format on disk.
   kNoCompression = 0x0,
@@ -66,7 +66,7 @@ enum CompressionType : char {
   kZSTDNotFinalCompression = 0x40,
 
   // kDisableCompressionOption is used to disable some compression options.
-  kDisableCompressionOption = -1,
+  kDisableCompressionOption = 0xff,
 };
 
 enum CompactionStyle : char {

@@ -21,7 +21,7 @@ class Logger;
 struct Options;
 class Snapshot;
 
-enum CompressionType : char;
+enum CompressionType : unsigned char;
 
 // Options to control the behavior of a database (passed to
 // DB::Open). A LevelDBOptions object can be initialized as though
