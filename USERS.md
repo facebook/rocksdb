@@ -56,3 +56,6 @@ Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtub
 ## quasardb
 [quasardb](https://www.quasardb.net) is a high-performance, distributed, transactional key-value database that integrates well with in-memory analytics engines such as Apache Spark. 
 quasardb uses a heavily tuned RocksDB as its persistence layer.
+
+## Netflix
+[Netflix](http://techblog.netflix.com/2016/05/application-data-caching-using-ssds.html) uses RocksDB on spinning disks to cache application data.
