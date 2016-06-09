@@ -42,7 +42,7 @@ EOF
 done
 
 declare -a checkout_objs=("v2.2" "v2.3" "v2.4" "v2.5" "2.8.fb" "3.0.fb" "3.1.fb" "3.2.fb" "3.3.fb" "3.4.fb" "3.5.fb" "3.6.fb" "3.7.fb" "3.8.fb" "3.9.fb" "3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb")
-declare -a forward_compatible_checkout_objs=("3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb")
+declare -a forward_compatible_checkout_objs=("3.10.fb" "3.11.fb" "3.12.fb" "3.13.fb" "4.0.fb" "4.1.fb" "4.2.fb" "4.3.fb" "4.4.fb" "4.5.fb" "4.6.fb" "4.7.fb" "4.8.fb")
 
 generate_db()
 {
