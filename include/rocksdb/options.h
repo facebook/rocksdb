@@ -1266,8 +1266,6 @@ struct DBOptions {
   // It is strongly recommended to set enable_write_thread_adaptive_yield
   // if you are going to use this feature.
   //
-  // THIS FEATURE IS NOT STABLE YET.
-  //
   // Default: false
   bool allow_concurrent_memtable_write;
 
@@ -1275,8 +1273,6 @@ struct DBOptions {
   // wait for up to write_thread_max_yield_usec before blocking on a mutex.
   // This can substantially improve throughput for concurrent workloads,
   // regardless of whether allow_concurrent_memtable_write is enabled.
-  //
-  // THIS FEATURE IS NOT STABLE YET.
   //
   // Default: false
   bool enable_write_thread_adaptive_yield;
