@@ -96,7 +96,6 @@ class FullFilterBlockReader : public FilterBlockReader {
 
  private:
   const SliceTransform* prefix_extractor_;
-  bool whole_key_filtering_;
 
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   Slice contents_;

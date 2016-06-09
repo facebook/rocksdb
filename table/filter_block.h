@@ -65,9 +65,13 @@ class FilterBlockBuilder {
 // BlockBased/Full FilterBlock would be called in the same way.
 class FilterBlockReader {
  public:
-  explicit FilterBlockReader() : size_(0), statistics_(nullptr) {}
-  explicit FilterBlockReader(size_t s, Statistics* stats)
-      : size_(s), statistics_(stats) {}
+  explicit FilterBlockReader()
+      : whole_key_filtering_(true), size_(0), statistics_(nullptr) {}
+  explicit FilterBlockReader(size_t s, Statistics* stats,
+                             bool _whole_key_filtering)
+      : whole_key_filtering_(_whole_key_filtering),
+        size_(s),
+        statistics_(stats) {}
   virtual ~FilterBlockReader() {}
 
   virtual bool IsBlockBased() = 0;  // If is blockbased filter
@@ -79,11 +83,16 @@ class FilterBlockReader {
   virtual size_t size() const { return size_; }
   virtual Statistics* statistics() const { return statistics_; }
 
+  bool whole_key_filtering() const { return whole_key_filtering_; }
+
   // convert this object to a human readable form
   virtual std::string ToString() const {
     std::string error_msg("Unsupported filter \n");
     return error_msg;
   }
+
+ protected:
+  bool whole_key_filtering_;
 
  private:
   // No copying allowed

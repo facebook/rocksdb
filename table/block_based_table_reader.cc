@@ -1347,8 +1347,8 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
     return true;
   }
   Slice user_key = ExtractUserKey(internal_key);
-  if (!filter->KeyMayMatch(user_key)) {
-    return false;
+  if (filter->whole_key_filtering()) {
+    return filter->KeyMayMatch(user_key);
   }
   if (!read_options.total_order_seek && rep_->ioptions.prefix_extractor &&
       rep_->ioptions.prefix_extractor->InDomain(user_key) &&

@@ -92,7 +92,6 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
  private:
   const FilterPolicy* policy_;
   const SliceTransform* prefix_extractor_;
-  bool whole_key_filtering_;
   const char* data_;    // Pointer to filter data (at block-start)
   const char* offset_;  // Pointer to beginning of offset array (at block-end)
   size_t num_;          // Number of entries in offset array
