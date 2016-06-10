@@ -6,7 +6,6 @@
 * Add bottommost_compression option, This option can be used to set a specific compression algorithm for the bottommost level (Last level containing files in the DB).
 * Introduce CompactionJobInfo::compression, This field state the compression algorithm used to generate the output files of the compaction.
 * Deprecate BlockBaseTableOptions.hash_index_allow_collision=false
-* Deprecate BlockBaseTableOptions.hash_index_allow_collision=false
 * Deprecate options builder (GetOptions()).
 
 ### New Features
