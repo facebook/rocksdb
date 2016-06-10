@@ -591,7 +591,7 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setMemtablePrefixBloomSizeRatio(
       final double memtablePrefixBloomSizeRatio) {
-    setMemtablePrefixBloomBits(nativeHandle_, memtablePrefixBloomSizeRatio);
+    setMemtablePrefixBloomSizeRatio(nativeHandle_, memtablePrefixBloomSizeRatio);
     return this;
   }
 
@@ -775,7 +775,8 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, long inplaceUpdateNumLocks)
       throws IllegalArgumentException;
   private native long inplaceUpdateNumLocks(long handle);
-  private native void setMemtablePrefixBloomBits(long handle, double memtablePrefixBloomSizeRatio);
+  private native void setMemtablePrefixBloomSizeRatio(
+      long handle, double memtablePrefixBloomSizeRatio);
   private native double memtablePrefixBloomSizeRatio(long handle);
   private native void setBloomLocality(
       long handle, int bloomLocality);

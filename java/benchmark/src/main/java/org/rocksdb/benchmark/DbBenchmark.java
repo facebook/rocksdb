@@ -569,8 +569,7 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.bloom_locality));
     options.setMinWriteBufferNumberToMerge(
         (Integer)flags_.get(Flag.min_write_buffer_number_to_merge));
-    options.setMemtablePrefixBloomBits(
-        (Integer)flags_.get(Flag.memtable_bloom_bits));
+    options.setMemtablePrefixBloomSizeRatio((Double) flags_.get(Flag.memtable_bloom_size_ratio));
     options.setNumLevels(
         (Integer)flags_.get(Flag.num_levels));
     options.setTargetFileSizeBase(
@@ -1195,10 +1194,10 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    memtable_bloom_bits(0,"Bloom filter bits per key for memtable.\n" +
-        "\tNegative means no bloom filter.") {
+    memtable_bloom_size_ratio(0, "Ratio of memtable used by the bloom filter.\n"
+            + "\t0 means no bloom filter.") {
       @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
+        return Double.parseDouble(value);
       }
     },
     cache_numshardbits(-1,"Number of shards for the block cache\n" +
