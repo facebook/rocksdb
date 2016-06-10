@@ -66,7 +66,13 @@ compare_db()
     set -e
 }
 
+# Sandcastle sets us up with a remote that is just another directory on the same
+# machine and doesn't have our branches. Need to fetch them so checkout works.
+# Remote add may fail if added previously (we don't cleanup).
+git remote add github_origin "https://github.com/facebook/rocksdb.git"
 set -e
+https_proxy="fwdproxy:8080" git fetch github_origin
+
 for checkout_obj in "${checkout_objs[@]}"
 do
    echo == Generating DB from "$checkout_obj" ...
