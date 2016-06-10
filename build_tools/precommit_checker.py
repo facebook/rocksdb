@@ -87,7 +87,7 @@ class PreCommitChecker(Env):
 
     def __init__(self, args):
         Env.__init__(self, args.logfile, args.tests)
-        self.stop_on_fail = args.stop_on_fail
+        self.ignore_failure = args.ignore_failure
 
     #
     #   Get commands for a given job from the determinator file
@@ -152,7 +152,7 @@ class PreCommitChecker(Env):
             if not result:
                 self.log.error("Error running test %s" % test)
                 self.print_result("FAIL (%dm)" % elapsed_min)
-                if self.stop_on_fail:
+                if not self.ignore_failure:
                     return False
                 result = False
             else:
@@ -186,10 +186,10 @@ class PreCommitChecker(Env):
 parser = argparse.ArgumentParser(description='RocksDB pre-commit checker.')
 
 # --log <logfile>
-parser.add_argument('--logfile', default='/tmp/precommit,log',
-                    help='Log file. Default is /tmp/precommit.log')
-# --stop_on_fail
-parser.add_argument('--stop_on_fail', action='store_false', default=True,
+parser.add_argument('--logfile', default='/tmp/precommit-log',
+                    help='Log file. Default is /tmp/precommit-log')
+# --ignore_failure
+parser.add_argument('--ignore_failure', action='store_true', default=False,
                     help='Stop when an error occurs')
 # <test ....>
 parser.add_argument('tests', nargs='+',
