@@ -24,9 +24,9 @@ namespace rocksdb {
 class DeleteSchedulerTest : public testing::Test {
  public:
   DeleteSchedulerTest() : env_(Env::Default()) {
-    dummy_files_dir_ = test::TmpDir(env_) + "/dummy_data_dir";
+    dummy_files_dir_ = test::TmpDir(env_) + "/delete_scheduler_dummy_data_dir";
     DestroyAndCreateDir(dummy_files_dir_);
-    trash_dir_ = test::TmpDir(env_) + "/trash";
+    trash_dir_ = test::TmpDir(env_) + "/delete_scheduler_trash";
     DestroyAndCreateDir(trash_dir_);
   }
 
