@@ -627,6 +627,8 @@ class VersionSet {
   // Return the current manifest file number
   uint64_t manifest_file_number() const { return manifest_file_number_; }
 
+  uint64_t options_file_number() const { return options_file_number_; }
+
   uint64_t pending_manifest_file_number() const {
     return pending_manifest_file_number_;
   }
@@ -743,6 +745,7 @@ class VersionSet {
   const DBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   uint64_t manifest_file_number_;
+  uint64_t options_file_number_;
   uint64_t pending_manifest_file_number_;
   std::atomic<uint64_t> last_sequence_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted

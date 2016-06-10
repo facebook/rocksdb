@@ -20,10 +20,12 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/options_util.h"
 #include "util/env_chroot.h"
 #include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -200,6 +202,7 @@ class TestEnv : public EnvWrapper {
     MutexLock l(&mutex_);
     std::sort(should_have_written.begin(), should_have_written.end());
     std::sort(written_files_.begin(), written_files_.end());
+
     ASSERT_TRUE(written_files_ == should_have_written);
   }
 
@@ -756,8 +759,8 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   test_backup_env_->SetLimitWrittenFiles(7);
   test_backup_env_->ClearWrittenFiles();
   test_db_env_->SetLimitWrittenFiles(0);
-  dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
-                             "/CURRENT",   "/MANIFEST-01" };
+  dummy_db_->live_files_ = {"/00010.sst", "/00011.sst", "/CURRENT",
+                            "/MANIFEST-01"};
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
@@ -773,20 +776,20 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   // should not write/copy 00010.sst, since it's already there!
   test_backup_env_->SetLimitWrittenFiles(6);
   test_backup_env_->ClearWrittenFiles();
-  dummy_db_->live_files_ = { "/00010.sst", "/00015.sst",
-                             "/CURRENT",   "/MANIFEST-01" };
+
+  dummy_db_->live_files_ = {"/00010.sst", "/00015.sst", "/CURRENT",
+                            "/MANIFEST-01"};
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
-  should_have_written = {
-    "/shared/00015.sst.tmp",
-    "/private/2.tmp/CURRENT",
-    "/private/2.tmp/MANIFEST-01",
-    "/private/2.tmp/00011.log",
-    "/meta/2.tmp",
-    "/LATEST_BACKUP.tmp"
-  };
+
+  should_have_written = {"/shared/00015.sst.tmp",
+                         "/private/2.tmp/CURRENT",
+                         "/private/2.tmp/MANIFEST-01",
+                         "/private/2.tmp/00011.log",
+                         "/meta/2.tmp",
+                         "/LATEST_BACKUP.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -941,6 +944,39 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   CloseDBAndBackupEngine();
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
+}
+
+inline std::string OptionsPath(std::string ret, int backupID) {
+  ret += "/private/";
+  ret += std::to_string(backupID);
+  ret += "/";
+  return ret;
+}
+
+// Backup the LATEST options file to
+// "<backup_dir>/private/<backup_id>/OPTIONS<number>"
+
+TEST_F(BackupableDBTest, BackupOptions) {
+  OpenDBAndBackupEngine(true);
+  for (int i = 1; i < 5; i++) {
+    std::string name;
+    std::vector<std::string> filenames;
+    // Must reset() before reset(OpenDB()) again.
+    // Calling OpenDB() while *db_ is existing will cause LOCK issue
+    db_.reset();
+    db_.reset(OpenDB());
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+    rocksdb::GetLatestOptionsFileName(db_->GetName(), options_.env, &name);
+    ASSERT_OK(file_manager_->FileExists(OptionsPath(backupdir_, i) + name));
+    backup_chroot_env_->GetChildren(OptionsPath(backupdir_, i), &filenames);
+    for (auto fn : filenames) {
+      if (fn.compare(0, 7, "OPTIONS") == 0) {
+        ASSERT_EQ(name, fn);
+      }
+    }
+  }
+
+  CloseDBAndBackupEngine();
 }
 
 // This test verifies we don't delete the latest backup when read-only option is

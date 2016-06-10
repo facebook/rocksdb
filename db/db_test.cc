@@ -2067,8 +2067,8 @@ TEST_F(DBTest, SnapshotFiles) {
     dbfull()->DisableFileDeletions();
     dbfull()->GetLiveFiles(files, &manifest_size);
 
-    // CURRENT, MANIFEST, *.sst files (one for each CF)
-    ASSERT_EQ(files.size(), 4U);
+    // CURRENT, MANIFEST, OPTIONS, *.sst files (one for each CF)
+    ASSERT_EQ(files.size(), 5U);
 
     uint64_t number = 0;
     FileType type;

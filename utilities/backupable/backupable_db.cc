@@ -29,17 +29,17 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <algorithm>
-#include <vector>
+#include <atomic>
+#include <future>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
-#include <limits>
-#include <atomic>
-#include <future>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace rocksdb {
 
@@ -694,6 +694,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   TEST_SYNC_POINT("BackupEngineImpl::CreateNewBackup:SavedLiveFiles2");
 
   BackupID new_backup_id = latest_backup_id_ + 1;
+
   assert(backups_.find(new_backup_id) == backups_.end());
   auto ret = backups_.insert(
       std::make_pair(new_backup_id, unique_ptr<BackupMeta>(new BackupMeta(
@@ -745,7 +746,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     }
     // we should only get sst, manifest and current files here
     assert(type == kTableFile || type == kDescriptorFile ||
-           type == kCurrentFile);
+           type == kCurrentFile || type == kOptionsFile);
+
     if (type == kCurrentFile) {
       // We will craft the current file manually to ensure it's consistent with
       // the manifest number. This is necessary because current's file contents

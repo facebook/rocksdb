@@ -6005,8 +6005,10 @@ Status DBImpl::DeleteObsoleteOptionsFiles() {
 Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
 #ifndef ROCKSDB_LITE
   Status s;
+
+  versions_->options_file_number_ = versions_->NewFileNumber();
   std::string options_file_name =
-      OptionsFileName(GetName(), versions_->NewFileNumber());
+      OptionsFileName(GetName(), versions_->options_file_number_);
   // Retry if the file name happen to conflict with an existing one.
   s = GetEnv()->RenameFile(file_name, options_file_name);
 
