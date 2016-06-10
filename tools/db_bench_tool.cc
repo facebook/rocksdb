@@ -49,6 +49,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/utilities/env_registry.h"
 #include "rocksdb/utilities/flashcache.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
@@ -628,8 +629,12 @@ static bool ValidateTableCacheNumshardbits(const char* flagname,
 }
 DEFINE_int32(table_cache_numshardbits, 4, "");
 
-DEFINE_string(hdfs, "", "Name of hdfs environment");
-// posix or hdfs environment
+#ifndef ROCKSDB_LITE
+DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
+              " with --hdfs.");
+#endif  // ROCKSDB_LITE
+DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
+              " --env_uri.");
 static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 
 DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
@@ -4074,6 +4079,19 @@ int db_bench_tool(int argc, char** argv) {
   FLAGS_compression_type_e =
     StringToCompressionType(FLAGS_compression_type.c_str());
 
+#ifndef ROCKSDB_LITE
+  std::unique_ptr<Env> custom_env_guard;
+  if (!FLAGS_hdfs.empty() && !FLAGS_env_uri.empty()) {
+    fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
+    exit(1);
+  } else if (!FLAGS_env_uri.empty()) {
+    FLAGS_env = NewEnvFromUri(FLAGS_env_uri, &custom_env_guard);
+    if (FLAGS_env == nullptr) {
+      fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
+      exit(1);
+    }
+  }
+#endif  // ROCKSDB_LITE
   if (!FLAGS_hdfs.empty()) {
     FLAGS_env  = new rocksdb::HdfsEnv(FLAGS_hdfs);
   }
