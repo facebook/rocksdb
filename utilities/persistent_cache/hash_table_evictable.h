@@ -76,7 +76,8 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
   // Evict one of the least recently used object
   //
   T* Evict(const std::function<void(T*)>& fn = nullptr) {
-    const size_t start_idx = rand_.Next() % hash_table::nlocks_;
+    uint32_t random = Random::GetTLSInstance()->Next();
+    const size_t start_idx = random % hash_table::nlocks_;
     T* t = nullptr;
 
     // iterate from start_idx .. 0 .. start_idx
@@ -157,7 +158,6 @@ class EvictableHashTable : private HashTable<T*, Hash, Equal> {
     return hash_table::locks_[lock_idx];
   }
 
-  Random64 rand_{static_cast<uint64_t>(time(nullptr))};
   std::unique_ptr<LRUListType[]> lru_lists_;
 };
 
