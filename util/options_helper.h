@@ -546,7 +546,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kBoolean, OptionVerificationType::kNormal}},
         {"format_version",
          {offsetof(struct BlockBasedTableOptions, format_version),
-          OptionType::kUInt32T, OptionVerificationType::kNormal}}};
+          OptionType::kUInt32T, OptionVerificationType::kNormal}},
+        {"verify_compression",
+         {offsetof(struct BlockBasedTableOptions, verify_compression),
+          OptionType::kBoolean, OptionVerificationType::kNormal}}};
 
 static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
     {"user_key_len",

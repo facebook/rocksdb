@@ -403,20 +403,16 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
   return status;
 }
 
-//
-// The 'data' points to the raw block contents that was read in from file.
-// This method allocates a new heap buffer and the raw block
-// contents are uncompresed into this buffer. This
-// buffer is returned via 'result' and it is upto the caller to
-// free this buffer.
-// format_version is the block format as defined in include/rocksdb/table.h
-Status UncompressBlockContents(const char* data, size_t n,
-                               BlockContents* contents, uint32_t format_version,
-                               const Slice& compression_dict) {
+Status UncompressBlockContentsForCompressionType(
+    const char* data, size_t n, BlockContents* contents,
+    uint32_t format_version, const Slice& compression_dict,
+    CompressionType compression_type) {
   std::unique_ptr<char[]> ubuf;
+
+  assert(compression_type != kNoCompression && "Invalid compression type");
+
   int decompress_size = 0;
-  assert(data[n] != kNoCompression);
-  switch (data[n]) {
+  switch (compression_type) {
     case kSnappyCompression: {
       size_t ulength = 0;
       static char snappy_corrupt_msg[] =
@@ -507,6 +503,22 @@ Status UncompressBlockContents(const char* data, size_t n,
   }
 
   return Status::OK();
+}
+
+//
+// The 'data' points to the raw block contents that was read in from file.
+// This method allocates a new heap buffer and the raw block
+// contents are uncompresed into this buffer. This
+// buffer is returned via 'result' and it is upto the caller to
+// free this buffer.
+// format_version is the block format as defined in include/rocksdb/table.h
+Status UncompressBlockContents(const char* data, size_t n,
+                               BlockContents* contents, uint32_t format_version,
+                               const Slice& compression_dict) {
+  assert(data[n] != kNoCompression);
+  return UncompressBlockContentsForCompressionType(
+      data, n, contents, format_version, compression_dict,
+      (CompressionType)data[n]);
 }
 
 }  // namespace rocksdb

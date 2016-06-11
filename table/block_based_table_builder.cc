@@ -650,6 +650,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
 
   auto type = r->compression_type;
   Slice block_contents;
+  bool abort_compression = false;
   if (raw_block_contents.size() < kCompressionSizeLimit) {
     Slice compression_dict;
     if (is_data_block && r->compression_dict && r->compression_dict->size()) {
@@ -658,11 +659,46 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     block_contents = CompressBlock(raw_block_contents, r->compression_opts,
                                    &type, r->table_options.format_version,
                                    compression_dict, &r->compressed_output);
+
+    // Some of the compression algorithms are known to be unreliable. If
+    // the verify_compression flag is set then try to de-compress the
+    // compressed data and compare to the input.
+    if (type != kNoCompression && r->table_options.verify_compression) {
+      // Retrieve the uncompressed contents into a new buffer
+      BlockContents contents;
+      Status stat = UncompressBlockContentsForCompressionType(
+          block_contents.data(), block_contents.size(), &contents,
+          r->table_options.format_version, compression_dict, type);
+
+      if (stat.ok()) {
+        bool compressed_ok = contents.data.compare(raw_block_contents) == 0;
+        if (!compressed_ok) {
+          // The result of the compression was invalid. abort.
+          abort_compression = true;
+          Log(InfoLogLevel::ERROR_LEVEL, r->ioptions.info_log,
+              "Decompressed block did not match raw block");
+          r->status =
+              Status::Corruption("Decompressed block did not match raw block");
+        }
+      } else {
+        // Decompression reported an error. abort.
+        r->status = Status::Corruption("Could not decompress");
+        abort_compression = true;
+      }
+    }
   } else {
+    // Block is too big to be compressed.
+    abort_compression = true;
+  }
+
+  // Abort compression if the block is too big, or did not pass
+  // verification.
+  if (abort_compression) {
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;
     block_contents = raw_block_contents;
   }
+
   WriteRawBlock(block_contents, type, handle);
   r->compressed_output.clear();
 }

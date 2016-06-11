@@ -161,6 +161,11 @@ struct BlockBasedTableOptions {
   // Default: false
   bool skip_table_builder_flush = false;
 
+  // Verify that decompressing the compressed block gives back the input. This
+  // is a verification mode that we use to detect bugs in compression
+  // algorithms.
+  bool verify_compression = false;
+
   // We currently have three versions:
   // 0 -- This version is currently written out by all RocksDB's versions by
   // default.  Can be read by really old RocksDB's. Doesn't support changing

@@ -229,6 +229,14 @@ extern Status UncompressBlockContents(const char* data, size_t n,
                                       uint32_t compress_format_version,
                                       const Slice& compression_dict);
 
+// This is an extension to UncompressBlockContents that accepts
+// a specific compression type. This is used by un-wrapped blocks
+// with no compression header.
+extern Status UncompressBlockContentsForCompressionType(
+    const char* data, size_t n, BlockContents* contents,
+    uint32_t compress_format_version, const Slice& compression_dict,
+    CompressionType compression_type);
+
 // Implementation details follow.  Clients should ignore,
 
 inline BlockHandle::BlockHandle()
