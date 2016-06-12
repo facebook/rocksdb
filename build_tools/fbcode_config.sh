@@ -14,7 +14,7 @@ CFLAGS=""
 
 # libgcc
 LIBGCC_INCLUDE="$LIBGCC_BASE/include"
-LIBGCC_LIBS=" -L $LIBGCC_BASE/libs"
+LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 
 # glibc
 GLIBC_INCLUDE="$GLIBC_BASE/include"

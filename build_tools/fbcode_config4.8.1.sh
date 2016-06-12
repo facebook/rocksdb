@@ -9,7 +9,7 @@ source "$BASEDIR/dependencies_4.8.1.sh"
 
 # location of libgcc
 LIBGCC_INCLUDE="$LIBGCC_BASE/include"
-LIBGCC_LIBS=" -L $LIBGCC_BASE/libs"
+LIBGCC_LIBS=" -L $LIBGCC_BASE/lib"
 
 # location of glibc
 GLIBC_INCLUDE="$GLIBC_BASE/include"
