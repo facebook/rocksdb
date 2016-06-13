@@ -212,8 +212,8 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
 }
 
 TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
-  // This test verify UpdateAccumulatedStats is not on by observing
-  // the compaction behavior when there are many of deletion entries.
+  // This test verify UpdateAccumulatedStats is not on
+  // if options.skip_stats_update_on_db_open = true
   // The test will need to be updated if the internal behavior changes.
 
   Options options = DeletionTriggerOptions(CurrentOptions());
@@ -229,10 +229,6 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   }
   dbfull()->TEST_WaitForFlushMemTable();
   dbfull()->TEST_WaitForCompact();
-
-  for (int k = 0; k < kTestSize; ++k) {
-    ASSERT_OK(Delete(Key(k)));
-  }
 
   // Reopen the DB with stats-update disabled
   options.skip_stats_update_on_db_open = true;
