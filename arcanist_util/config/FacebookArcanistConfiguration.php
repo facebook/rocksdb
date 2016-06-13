@@ -10,7 +10,6 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
                                  ArcanistBaseWorkflow $workflow,
                                  $error_code) {
     if ($command == 'diff' && !$workflow->isRawDiffSource()) {
-      $this->startTestsInJenkins($workflow);
       $this->startTestsInSandcastle($workflow);
     }
   }
@@ -72,7 +71,7 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
     $patch = array(
       "name" => "Patch " . $diffID,
       "shell" => "HTTPS_PROXY=fwdproxy:8080 arc --arcrc-file ~/.arcrc "
-                  . "patch --diff " . $diffID,
+                  . "patch --nocommit --diff " . $diffID,
       "user" => "root"
     );
 
@@ -184,23 +183,5 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
 
     // Ask phabricator to display it on the diff UI
     $this->postURL($diffID, $sandcastle_url[1]);
-  }
-
-  //////////////////////////////////////////////////////////////////////
-  /* Send off builds to jenkins */
-  function startTestsInJenkins($workflow) {
-    $diffID = $workflow->getDiffID();
-    if ($diffID === null) {
-      return;
-    }
-
-    $results = $workflow->getTestResults();
-    if (!$results) {
-      return;
-    }
-
-    $url = "https://ci-builds.fb.com/view/rocksdb/job/rocksdb_diff_check/"
-               ."buildWithParameters?token=AUTH&DIFF_ID=$diffID";
-    system("curl --noproxy '*' \"$url\" > /dev/null 2>&1");
   }
 }
