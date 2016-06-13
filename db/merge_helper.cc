@@ -39,7 +39,8 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
     // Do the merge
     success = merge_operator->FullMerge(key, value, operands, result, logger);
 
-    RecordTick(statistics, MERGE_OPERATION_TOTAL_TIME, timer.ElapsedNanos());
+    RecordTick(statistics, MERGE_OPERATION_TOTAL_TIME,
+               statistics ? timer.ElapsedNanos() : 0);
   }
 
   if (!success) {
@@ -254,7 +255,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
             std::deque<Slice>(operands_.begin(), operands_.end()),
             &merge_result, logger_);
         RecordTick(stats_, MERGE_OPERATION_TOTAL_TIME,
-                   timer.ElapsedNanosSafe());
+                   stats_ ? timer.ElapsedNanosSafe() : 0);
       }
       if (merge_success) {
         // Merging of operands (associative merge) was successful.
