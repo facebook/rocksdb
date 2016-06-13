@@ -43,8 +43,7 @@ void BlockHandle::EncodeTo(std::string* dst) const {
   // Sanity check that all fields have been set
   assert(offset_ != ~static_cast<uint64_t>(0));
   assert(size_ != ~static_cast<uint64_t>(0));
-  PutVarint64(dst, offset_);
-  PutVarint64(dst, size_);
+  PutVarint64Varint64(dst, offset_, size_);
 }
 
 Status BlockHandle::DecodeFrom(Slice* input) {

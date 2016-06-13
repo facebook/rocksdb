@@ -241,10 +241,10 @@ class HashIndexBuilder : public IndexBuilder {
   void FlushPendingPrefix() {
     prefix_block_.append(pending_entry_prefix_.data(),
                          pending_entry_prefix_.size());
-    PutVarint32(&prefix_meta_block_,
-                static_cast<uint32_t>(pending_entry_prefix_.size()));
-    PutVarint32(&prefix_meta_block_, pending_entry_index_);
-    PutVarint32(&prefix_meta_block_, pending_block_num_);
+    PutVarint32Varint32Varint32(
+        &prefix_meta_block_,
+        static_cast<uint32_t>(pending_entry_prefix_.size()),
+        pending_entry_index_, pending_block_num_);
   }
 
   ShortenedIndexBuilder primary_index_builder_;
