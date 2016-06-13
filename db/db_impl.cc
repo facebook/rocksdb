@@ -196,6 +196,13 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.new_table_reader_for_compaction_inputs = true;
   }
 
+  // Force flush on DB open if 2PC is enabled, since with 2PC we have no
+  // guarantee that consecutive log files have consecutive sequence id, which
+  // make recovery complicated.
+  if (result.allow_2pc) {
+    result.avoid_flush_during_recovery = false;
+  }
+
   return result;
 }
 
@@ -1342,7 +1349,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   }
 #endif
 
-  bool continue_replay_log = true;
+  bool stop_replay_by_wal_filter = false;
+  bool stop_replay_for_corruption = false;
+  bool flushed = false;
+  SequenceNumber recovered_sequence = 0;
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
@@ -1350,6 +1360,23 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     versions_->MarkFileNumberUsedDuringRecovery(log_number);
     // Open the log file
     std::string fname = LogFileName(db_options_.wal_dir, log_number);
+
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "Recovering log #%" PRIu64 " mode %d", log_number,
+        db_options_.wal_recovery_mode);
+    auto logFileDropped = [this, &fname]() {
+      uint64_t bytes;
+      if (env_->GetFileSize(fname, &bytes).ok()) {
+        auto info_log = db_options_.info_log.get();
+        Log(InfoLogLevel::WARN_LEVEL, info_log, "%s: dropping %d bytes",
+            fname.c_str(), static_cast<int>(bytes));
+      }
+    };
+    if (stop_replay_by_wal_filter) {
+      logFileDropped();
+      continue;
+    }
+
     unique_ptr<SequentialFileReader> file_reader;
     {
       unique_ptr<SequentialFile> file;
@@ -1385,9 +1412,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // large sequence numbers).
     log::Reader reader(db_options_.info_log, std::move(file_reader), &reporter,
                        true /*checksum*/, 0 /*initial_offset*/, log_number);
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "Recovering log #%" PRIu64 " mode %d skip-recovery %d", log_number,
-        db_options_.wal_recovery_mode, !continue_replay_log);
 
     // Determine if we should tolerate incomplete records at the tail end of the
     // Read all the records and add to a memtable
@@ -1395,17 +1419,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     Slice record;
     WriteBatch batch;
 
-    if (!continue_replay_log) {
-      uint64_t bytes;
-      if (env_->GetFileSize(fname, &bytes).ok()) {
-        auto info_log = db_options_.info_log.get();
-        Log(InfoLogLevel::WARN_LEVEL, info_log, "%s: dropping %d bytes",
-            fname.c_str(), static_cast<int>(bytes));
-      }
-    }
-
     while (
-        continue_replay_log &&
+        !stop_replay_by_wal_filter &&
         reader.ReadRecord(&record, &scratch, db_options_.wal_recovery_mode) &&
         status.ok()) {
       if (record.size() < WriteBatchInternal::kHeader) {
@@ -1414,6 +1429,29 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
+      SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
+
+      // In point-in-time recovery mode, if sequence id of log files are
+      // consecutive, we continue recovery despite corruption. This could happen
+      // when we open and write to a corrupted DB, where sequence id will start
+      // from the last sequence id we recovered.
+      if (db_options_.wal_recovery_mode ==
+          WALRecoveryMode::kPointInTimeRecovery) {
+        if (sequence == recovered_sequence + 1) {
+          stop_replay_for_corruption = false;
+        }
+        if (stop_replay_for_corruption) {
+          logFileDropped();
+          break;
+        }
+      }
+
+      recovered_sequence = sequence;
+      if (*next_sequence == kMaxSequenceNumber) {
+        *next_sequence = sequence;
+      } else {
+        WriteBatchInternal::SetSequence(&batch, *next_sequence);
+      }
 
 #ifndef ROCKSDB_LITE
       if (db_options_.wal_filter != nullptr) {
@@ -1433,7 +1471,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
             continue;
           case WalFilter::WalProcessingOption::kStopReplay:
             // skip current record and stop replay
-            continue_replay_log = false;
+            stop_replay_by_wal_filter = true;
             continue;
           case WalFilter::WalProcessingOption::kCorruptedRecord: {
             status = Status::Corruption("Corruption reported by Wal Filter ",
@@ -1489,11 +1527,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
 #endif  // ROCKSDB_LITE
 
-      if (*next_sequence == kMaxSequenceNumber) {
-        *next_sequence = WriteBatchInternal::Sequence(&batch);
-      }
-      WriteBatchInternal::SetSequence(&batch, *next_sequence);
-
       // If column family was not found, it might mean that the WAL write
       // batch references to the column family that was dropped after the
       // insert. We don't want to fail the whole write batch in that case --
@@ -1529,6 +1562,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
             // file-systems cause the DB::Open() to fail.
             return status;
           }
+          flushed = true;
 
           cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
                                  *next_sequence);
@@ -1545,8 +1579,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                  WALRecoveryMode::kPointInTimeRecovery) {
         // We should ignore the error but not continue replaying
         status = Status::OK();
-        continue_replay_log = false;
-
+        stop_replay_for_corruption = true;
         Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
             "Point in time recovered to log #%" PRIu64 " seq #%" PRIu64,
             log_number, *next_sequence);
@@ -1588,14 +1621,20 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
       // flush the final memtable (if non-empty)
       if (cfd->mem()->GetFirstSequenceNumber() != 0) {
-        status = WriteLevel0TableForRecovery(job_id, cfd, cfd->mem(), edit);
-        if (!status.ok()) {
-          // Recovery failed
-          break;
-        }
+        // If flush happened in the middle of recovery (e.g. due to memtable
+        // being full), we flush at the end. Otherwise we'll need to record
+        // where we were on last flush, which make the logic complicated.
+        if (flushed || !db_options_.avoid_flush_during_recovery) {
+          status = WriteLevel0TableForRecovery(job_id, cfd, cfd->mem(), edit);
+          if (!status.ok()) {
+            // Recovery failed
+            break;
+          }
+          flushed = true;
 
-        cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                               *next_sequence);
+          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                                 *next_sequence);
+        }
       }
 
       // write MANIFEST with update
@@ -1604,7 +1643,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // recovered and should be ignored on next reincarnation.
       // Since we already recovered max_log_number, we want all logs
       // with numbers `<= max_log_number` (includes this one) to be ignored
-      edit->SetLogNumber(max_log_number + 1);
+      if (flushed) {
+        edit->SetLogNumber(max_log_number + 1);
+      }
       // we must mark the next log number as used, even though it's
       // not actually used. that is because VersionSet assumes
       // VersionSet::next_file_number_ always to be strictly greater than any

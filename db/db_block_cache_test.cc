@@ -39,6 +39,7 @@ class DBBlockCacheTest : public DBTestBase {
   Options GetOptions(const BlockBasedTableOptions& table_options) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
+    options.avoid_flush_during_recovery = false;
     // options.compression = kNoCompression;
     options.statistics = rocksdb::CreateDBStatistics();
     options.table_factory.reset(new BlockBasedTableFactory(table_options));

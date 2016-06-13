@@ -283,7 +283,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "access_hint_on_compaction_start=NONE;"
                              "info_log_level=DEBUG_LEVEL;"
                              "dump_malloc_stats=false;"
-                             "allow_2pc=false;",
+                             "allow_2pc=false;"
+                             "avoid_flush_during_recovery=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),

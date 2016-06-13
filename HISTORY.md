@@ -4,6 +4,9 @@
 * Deprecate BlockBaseTableOptions.hash_index_allow_collision=false
 * options.memtable_prefix_bloom_bits changes to options.memtable_prefix_bloom_bits_ratio and deprecate options.memtable_prefix_bloom_probes
 
+### New Features
+* Add avoid_flush_during_recovery option.
+
 ## 4.9.0 (6/9/2016)
 ### Public API changes
 * Add bottommost_compression option, This option can be used to set a specific compression algorithm for the bottommost level (Last level containing files in the DB).

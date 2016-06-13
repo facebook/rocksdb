@@ -319,7 +319,10 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal}},
     {"dump_malloc_stats",
      {offsetof(struct DBOptions, dump_malloc_stats), OptionType::kBoolean,
-      OptionVerificationType::kNormal}}};
+      OptionVerificationType::kNormal}},
+    {"avoid_flush_during_recovery",
+     {offsetof(struct DBOptions, avoid_flush_during_recovery),
+      OptionType::kBoolean, OptionVerificationType::kNormal}}};
 
 static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     /* not yet supported

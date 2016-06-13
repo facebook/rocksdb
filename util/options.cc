@@ -273,7 +273,8 @@ DBOptions::DBOptions()
       wal_filter(nullptr),
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(false),
-      dump_malloc_stats(false) {
+      dump_malloc_stats(false),
+      avoid_flush_during_recovery(false) {
 }
 
 DBOptions::DBOptions(const Options& options)
@@ -343,7 +344,8 @@ DBOptions::DBOptions(const Options& options)
       wal_filter(options.wal_filter),
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
-      dump_malloc_stats(options.dump_malloc_stats) {
+      dump_malloc_stats(options.dump_malloc_stats),
+      avoid_flush_during_recovery(options.avoid_flush_during_recovery) {
 }
 
 static const char* const access_hints[] = {
@@ -468,6 +470,8 @@ void DBOptions::Dump(Logger* log) const {
     Header(log, "       Options.wal_filter: %s",
            wal_filter ? wal_filter->Name() : "None");
 #endif  // ROCKDB_LITE
+    Header(log, "                    Options.avoid_flush_during_recovery: %d",
+           avoid_flush_during_recovery);
 }  // DBOptions::Dump
 
 void ColumnFamilyOptions::Dump(Logger* log) const {

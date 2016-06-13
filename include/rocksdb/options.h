@@ -1341,6 +1341,15 @@ struct DBOptions {
   // when printing to LOG.
   // DEFAULT: false
   bool dump_malloc_stats;
+
+  // By default RocksDB replay WAL logs and flush them on DB open, which may
+  // create very small SST files. If this option is enabled, RocksDB will try
+  // to avoid (but not guarantee not to) flush during recovery. Also, existing
+  // WAL logs will be kept, so that if crash happened before flush, we still
+  // have logs to recover from.
+  //
+  // DEFAULT: false
+  bool avoid_flush_during_recovery;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

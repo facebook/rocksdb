@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "util/options_helper.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -156,6 +157,7 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.disable_auto_compactions = true;
+    options.avoid_flush_during_recovery = false;
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -382,6 +384,7 @@ TEST_F(DBWALTest, RecoverCheckFileAmount) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100000;
   options.arena_block_size = 4 * 1024;
+  options.avoid_flush_during_recovery = false;
   CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
   ASSERT_OK(Put(0, Key(1), DummyString(1)));
@@ -750,6 +753,212 @@ TEST_F(DBWALTest, kSkipAnyCorruptedRecords) {
 
         if (!trunc) {
           ASSERT_TRUE(i != 0 || recovered_row_count > 0);
+        }
+      }
+    }
+  }
+}
+
+TEST_F(DBWALTest, AvoidFlushDuringRecovery) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_recovery = false;
+
+  // Test with flush after recovery.
+  Reopen(options);
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_OK(Put("bar", "v2"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "v3"));
+  ASSERT_OK(Put("bar", "v4"));
+  ASSERT_EQ(1, TotalTableFiles());
+  // Reopen DB. Check if WAL logs flushed.
+  Reopen(options);
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v4", Get("bar"));
+  ASSERT_EQ(2, TotalTableFiles());
+
+  // Test without flush after recovery.
+  options.avoid_flush_during_recovery = true;
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "v5"));
+  ASSERT_OK(Put("bar", "v6"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "v7"));
+  ASSERT_OK(Put("bar", "v8"));
+  ASSERT_EQ(1, TotalTableFiles());
+  // Reopen DB. WAL logs should not be flushed this time.
+  Reopen(options);
+  ASSERT_EQ("v7", Get("foo"));
+  ASSERT_EQ("v8", Get("bar"));
+  ASSERT_EQ(1, TotalTableFiles());
+
+  // Force flush with allow_2pc.
+  options.avoid_flush_during_recovery = true;
+  options.allow_2pc = true;
+  ASSERT_OK(Put("foo", "v9"));
+  ASSERT_OK(Put("bar", "v10"));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put("foo", "v11"));
+  ASSERT_OK(Put("bar", "v12"));
+  Reopen(options);
+  ASSERT_EQ("v11", Get("foo"));
+  ASSERT_EQ("v12", Get("bar"));
+  ASSERT_EQ(2, TotalTableFiles());
+}
+
+TEST_F(DBWALTest, RecoverWithoutFlush) {
+  Options options = CurrentOptions();
+  options.avoid_flush_during_recovery = true;
+  options.create_if_missing = false;
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 64 * 1024 * 1024;
+
+  size_t count = RecoveryTestHelper::FillData(this, &options);
+  auto validateData = [this, count]() {
+    for (size_t i = 0; i < count; i++) {
+      ASSERT_NE(Get("key" + ToString(i)), "NOT_FOUND");
+    }
+  };
+  Reopen(options);
+  validateData();
+  // Insert some data without flush
+  ASSERT_OK(Put("foo", "foo_v1"));
+  ASSERT_OK(Put("bar", "bar_v1"));
+  Reopen(options);
+  validateData();
+  ASSERT_EQ(Get("foo"), "foo_v1");
+  ASSERT_EQ(Get("bar"), "bar_v1");
+  // Insert again and reopen
+  ASSERT_OK(Put("foo", "foo_v2"));
+  ASSERT_OK(Put("bar", "bar_v2"));
+  Reopen(options);
+  validateData();
+  ASSERT_EQ(Get("foo"), "foo_v2");
+  ASSERT_EQ(Get("bar"), "bar_v2");
+  // manual flush and insert again
+  Flush();
+  ASSERT_EQ(Get("foo"), "foo_v2");
+  ASSERT_EQ(Get("bar"), "bar_v2");
+  ASSERT_OK(Put("foo", "foo_v3"));
+  ASSERT_OK(Put("bar", "bar_v3"));
+  Reopen(options);
+  validateData();
+  ASSERT_EQ(Get("foo"), "foo_v3");
+  ASSERT_EQ(Get("bar"), "bar_v3");
+}
+
+TEST_F(DBWALTest, RecoverWithoutFlushMultipleCF) {
+  const std::string kSmallValue = "v";
+  const std::string kLargeValue = DummyString(1024);
+  Options options = CurrentOptions();
+  options.avoid_flush_during_recovery = true;
+  options.create_if_missing = false;
+  options.disable_auto_compactions = true;
+
+  auto countWalFiles = [this]() {
+    VectorLogPtr log_files;
+    dbfull()->GetSortedWalFiles(log_files);
+    return log_files.size();
+  };
+
+  // Create DB with multiple column families and multiple log files.
+  CreateAndReopenWithCF({"one", "two"}, options);
+  ASSERT_OK(Put(0, "key1", kSmallValue));
+  ASSERT_OK(Put(1, "key2", kLargeValue));
+  Flush(1);
+  ASSERT_EQ(1, countWalFiles());
+  ASSERT_OK(Put(0, "key3", kSmallValue));
+  ASSERT_OK(Put(2, "key4", kLargeValue));
+  Flush(2);
+  ASSERT_EQ(2, countWalFiles());
+
+  // Reopen, insert and flush.
+  options.db_write_buffer_size = 64 * 1024 * 1024;
+  ReopenWithColumnFamilies({"default", "one", "two"}, options);
+  ASSERT_EQ(Get(0, "key1"), kSmallValue);
+  ASSERT_EQ(Get(1, "key2"), kLargeValue);
+  ASSERT_EQ(Get(0, "key3"), kSmallValue);
+  ASSERT_EQ(Get(2, "key4"), kLargeValue);
+  // Insert more data.
+  ASSERT_OK(Put(0, "key5", kLargeValue));
+  ASSERT_OK(Put(1, "key6", kLargeValue));
+  ASSERT_EQ(3, countWalFiles());
+  Flush(1);
+  ASSERT_OK(Put(2, "key7", kLargeValue));
+  ASSERT_EQ(4, countWalFiles());
+
+  // Reopen twice and validate.
+  for (int i = 0; i < 2; i++) {
+    ReopenWithColumnFamilies({"default", "one", "two"}, options);
+    ASSERT_EQ(Get(0, "key1"), kSmallValue);
+    ASSERT_EQ(Get(1, "key2"), kLargeValue);
+    ASSERT_EQ(Get(0, "key3"), kSmallValue);
+    ASSERT_EQ(Get(2, "key4"), kLargeValue);
+    ASSERT_EQ(Get(0, "key5"), kLargeValue);
+    ASSERT_EQ(Get(1, "key6"), kLargeValue);
+    ASSERT_EQ(Get(2, "key7"), kLargeValue);
+    ASSERT_EQ(4, countWalFiles());
+  }
+}
+
+// In this test we are trying to do the following:
+//   1. Create a DB with corrupted WAL log;
+//   2. Open with avoid_flush_during_recovery = true;
+//   3. Append more data without flushing, which creates new WAL log.
+//   4. Open again. See if it can correctly handle previous corruption.
+TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
+  const int jstart = RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+  const int kAppendKeys = 100;
+  Options options = CurrentOptions();
+  options.avoid_flush_during_recovery = true;
+  options.create_if_missing = false;
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 64 * 1024 * 1024;
+
+  auto getAll = [this]() {
+    std::vector<std::pair<std::string, std::string>> data;
+    ReadOptions ropt;
+    Iterator* iter = dbfull()->NewIterator(ropt);
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      data.push_back(
+          std::make_pair(iter->key().ToString(), iter->value().ToString()));
+    }
+    delete iter;
+    return data;
+  };
+  for (auto& mode : wal_recovery_mode_string_map) {
+    options.wal_recovery_mode = mode.second;
+    for (auto trunc : {true, false}) {
+      for (int i = 0; i < 4; i++) {
+        for (int j = jstart; j < jend; j++) {
+          // Create corrupted WAL
+          RecoveryTestHelper::FillData(this, &options);
+          RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
+                                         /*len%=*/.1, /*wal=*/j, trunc);
+          // Skip the test if DB won't open.
+          if (!TryReopen(options).ok()) {
+            ASSERT_TRUE(options.wal_recovery_mode ==
+                            WALRecoveryMode::kAbsoluteConsistency ||
+                        (!trunc &&
+                         options.wal_recovery_mode ==
+                             WALRecoveryMode::kTolerateCorruptedTailRecords));
+            continue;
+          }
+          ASSERT_OK(TryReopen(options));
+          // Append some more data.
+          for (int k = 0; k < kAppendKeys; k++) {
+            std::string key = "extra_key" + ToString(k);
+            std::string value = DummyString(RecoveryTestHelper::kValueSize);
+            ASSERT_OK(Put(key, value));
+          }
+          // Save data for comparision.
+          auto data = getAll();
+          // Reopen. Verify data.
+          ASSERT_OK(TryReopen(options));
+          auto actual_data = getAll();
+          ASSERT_EQ(data, actual_data);
         }
       }
     }
