@@ -18,30 +18,29 @@
 
 namespace rocksdb {
 
-// TODO(agiardullo): Clean up merge callsites to use this func
-Status MergeHelper::TimedFullMerge(const Slice& key, const Slice* value,
+Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
+                                   const Slice& key, const Slice* value,
                                    const std::deque<std::string>& operands,
-                                   const MergeOperator* merge_operator,
-                                   Statistics* statistics, Env* env,
-                                   Logger* logger, std::string* result) {
+                                   std::string* result, Logger* logger,
+                                   Statistics* statistics, Env* env) {
+  assert(merge_operator != nullptr);
+
   if (operands.size() == 0) {
     result->assign(value->data(), value->size());
     return Status::OK();
   }
 
-  if (merge_operator == nullptr) {
-    return Status::NotSupported("Provide a merge_operator when opening DB");
+  bool success;
+  {
+    // Setup to time the merge
+    StopWatchNano timer(env, statistics != nullptr);
+    PERF_TIMER_GUARD(merge_operator_time_nanos);
+
+    // Do the merge
+    success = merge_operator->FullMerge(key, value, operands, result, logger);
+
+    RecordTick(statistics, MERGE_OPERATION_TOTAL_TIME, timer.ElapsedNanos());
   }
-
-  // Setup to time the merge
-  StopWatchNano timer(env, statistics != nullptr);
-  PERF_TIMER_GUARD(merge_operator_time_nanos);
-
-  // Do the merge
-  bool success =
-      merge_operator->FullMerge(key, value, operands, result, logger);
-
-  RecordTick(statistics, MERGE_OPERATION_TOTAL_TIME, timer.ElapsedNanosSafe());
 
   if (!success) {
     RecordTick(statistics, NUMBER_MERGE_FAILURES);
@@ -140,9 +139,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       const Slice val = iter->value();
       const Slice* val_ptr = (kTypeValue == ikey.type) ? &val : nullptr;
       std::string merge_result;
-      s = TimedFullMerge(ikey.user_key, val_ptr, operands_,
-                         user_merge_operator_, stats_, env_, logger_,
-                         &merge_result);
+      s = TimedFullMerge(user_merge_operator_, ikey.user_key, val_ptr,
+                         operands_, &merge_result, logger_, stats_, env_);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
@@ -221,9 +219,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     assert(operands_.size() >= 1);
     assert(operands_.size() == keys_.size());
     std::string merge_result;
-    s = TimedFullMerge(orig_ikey.user_key, nullptr, operands_,
-                       user_merge_operator_, stats_, env_, logger_,
-                       &merge_result);
+    s = TimedFullMerge(user_merge_operator_, orig_ikey.user_key, nullptr,
+                       operands_, &merge_result, logger_, stats_, env_);
     if (s.ok()) {
       // The original key encountered
       // We are certain that keys_ is not empty here (see assertions couple of

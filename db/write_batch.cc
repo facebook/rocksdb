@@ -40,6 +40,7 @@
 #include "db/dbformat.h"
 #include "db/flush_scheduler.h"
 #include "db/memtable.h"
+#include "db/merge_context.h"
 #include "db/snapshot_impl.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/merge_operator.h"
@@ -936,20 +937,13 @@ class MemTableInserter : public WriteBatch::Handler {
       std::deque<std::string> operands;
       operands.push_front(value.ToString());
       std::string new_value;
-      bool merge_success = false;
-      {
-        StopWatchNano timer(Env::Default(), moptions->statistics != nullptr);
-        PERF_TIMER_GUARD(merge_operator_time_nanos);
-        merge_success = merge_operator->FullMerge(
-            key, &get_value_slice, operands, &new_value, moptions->info_log);
-        RecordTick(moptions->statistics, MERGE_OPERATION_TOTAL_TIME,
-                   timer.ElapsedNanos());
-      }
 
-      if (!merge_success) {
-          // Failed to merge!
-        RecordTick(moptions->statistics, NUMBER_MERGE_FAILURES);
+      Status merge_status = MergeHelper::TimedFullMerge(
+          merge_operator, key, &get_value_slice, operands, &new_value,
+          moptions->info_log, moptions->statistics, Env::Default());
 
+      if (!merge_status.ok()) {
+        // Failed to merge!
         // Store the delta in memtable
         perform_merge = false;
       } else {

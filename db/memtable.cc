@@ -15,6 +15,7 @@
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
+#include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/writebuffer.h"
 #include "rocksdb/comparator.h"
@@ -489,22 +490,10 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          assert(merge_operator);
-          bool merge_success = false;
-          {
-            StopWatchNano timer(s->env_, s->statistics != nullptr);
-            PERF_TIMER_GUARD(merge_operator_time_nanos);
-            merge_success = merge_operator->FullMerge(
-                s->key->user_key(), &v, merge_context->GetOperands(), s->value,
-                s->logger);
-            RecordTick(s->statistics, MERGE_OPERATION_TOTAL_TIME,
-                       timer.ElapsedNanos());
-          }
-          if (!merge_success) {
-            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-            *(s->status) =
-                Status::Corruption("Error: Could not perform merge.");
-          }
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), &v,
+              merge_context->GetOperands(), s->value, s->logger, s->statistics,
+              s->env_);
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
@@ -517,23 +506,11 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeDeletion:
       case kTypeSingleDeletion: {
         if (*(s->merge_in_progress)) {
-          assert(merge_operator != nullptr);
           *(s->status) = Status::OK();
-          bool merge_success = false;
-          {
-            StopWatchNano timer(s->env_, s->statistics != nullptr);
-            PERF_TIMER_GUARD(merge_operator_time_nanos);
-            merge_success = merge_operator->FullMerge(
-                s->key->user_key(), nullptr, merge_context->GetOperands(),
-                s->value, s->logger);
-            RecordTick(s->statistics, MERGE_OPERATION_TOTAL_TIME,
-                       timer.ElapsedNanos());
-          }
-          if (!merge_success) {
-            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-            *(s->status) =
-                Status::Corruption("Error: Could not perform merge.");
-          }
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), nullptr,
+              merge_context->GetOperands(), s->value, s->logger, s->statistics,
+              s->env_);
         } else {
           *(s->status) = Status::NotFound();
         }

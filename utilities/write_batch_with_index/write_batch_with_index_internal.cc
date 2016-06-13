@@ -237,9 +237,13 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         Env* env = options.env;
         Logger* logger = options.info_log.get();
 
-        *s = MergeHelper::TimedFullMerge(
-            key, entry_value, merge_context->GetOperands(), merge_operator,
-            statistics, env, logger, value);
+        if (merge_operator) {
+          *s = MergeHelper::TimedFullMerge(merge_operator, key, entry_value,
+                                           merge_context->GetOperands(), value,
+                                           logger, statistics, env);
+        } else {
+          *s = Status::InvalidArgument("Options::merge_operator must be set");
+        }
         if ((*s).ok()) {
           result = WriteBatchWithIndexInternal::Result::kFound;
         } else {

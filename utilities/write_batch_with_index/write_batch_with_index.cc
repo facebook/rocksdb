@@ -739,9 +739,13 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
         merge_data = nullptr;
       }
 
-      s = MergeHelper::TimedFullMerge(
-          key, merge_data, merge_context.GetOperands(), merge_operator,
-          statistics, env, logger, value);
+      if (merge_operator) {
+        s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
+                                        merge_context.GetOperands(), value,
+                                        logger, statistics, env);
+      } else {
+        s = Status::InvalidArgument("Options::merge_operator must be set");
+      }
     }
   }
 

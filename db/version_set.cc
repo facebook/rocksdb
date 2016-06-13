@@ -30,6 +30,7 @@
 #include "db/log_writer.h"
 #include "db/memtable.h"
 #include "db/merge_context.h"
+#include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
 #include "db/writebuffer.h"
@@ -973,22 +974,9 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    bool merge_success = false;
-    {
-      StopWatchNano timer(env_, db_statistics_ != nullptr);
-      PERF_TIMER_GUARD(merge_operator_time_nanos);
-      merge_success = merge_operator_->FullMerge(
-          user_key, nullptr, merge_context->GetOperands(), value, info_log_);
-      RecordTick(db_statistics_, MERGE_OPERATION_TOTAL_TIME,
-                 timer.ElapsedNanos());
-    }
-    if (merge_success) {
-      *status = Status::OK();
-    } else {
-      RecordTick(db_statistics_, NUMBER_MERGE_FAILURES);
-      *status = Status::Corruption("could not perform end-of-key merge for ",
-                                   user_key);
-    }
+    *status = MergeHelper::TimedFullMerge(merge_operator_, user_key, nullptr,
+                                          merge_context->GetOperands(), value,
+                                          info_log_, db_statistics_, env_);
   } else {
     if (key_exists != nullptr) {
       *key_exists = false;

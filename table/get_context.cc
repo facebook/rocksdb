@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "table/get_context.h"
+#include "db/merge_helper.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
@@ -102,18 +103,11 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           assert(merge_operator_ != nullptr);
           state_ = kFound;
           if (value_ != nullptr) {
-            bool merge_success = false;
-            {
-              StopWatchNano timer(env_, statistics_ != nullptr);
-              PERF_TIMER_GUARD(merge_operator_time_nanos);
-              merge_success = merge_operator_->FullMerge(
-                  user_key_, &value, merge_context_->GetOperands(), value_,
-                  logger_);
-              RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
-                         timer.ElapsedNanosSafe());
-            }
-            if (!merge_success) {
-              RecordTick(statistics_, NUMBER_MERGE_FAILURES);
+            Status merge_status =
+                MergeHelper::TimedFullMerge(merge_operator_, user_key_, &value,
+                                            merge_context_->GetOperands(),
+                                            value_, logger_, statistics_, env_);
+            if (!merge_status.ok()) {
               state_ = kCorrupt;
             }
           }
@@ -130,18 +124,12 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else if (kMerge == state_) {
           state_ = kFound;
           if (value_ != nullptr) {
-            bool merge_success = false;
-            {
-              StopWatchNano timer(env_, statistics_ != nullptr);
-              PERF_TIMER_GUARD(merge_operator_time_nanos);
-              merge_success = merge_operator_->FullMerge(
-                  user_key_, nullptr, merge_context_->GetOperands(), value_,
-                  logger_);
-              RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
-                         timer.ElapsedNanosSafe());
-            }
-            if (!merge_success) {
-              RecordTick(statistics_, NUMBER_MERGE_FAILURES);
+            Status merge_status =
+                MergeHelper::TimedFullMerge(merge_operator_, user_key_, nullptr,
+                                            merge_context_->GetOperands(),
+                                            value_, logger_, statistics_, env_);
+
+            if (!merge_status.ok()) {
               state_ = kCorrupt;
             }
           }
