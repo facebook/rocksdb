@@ -802,4 +802,108 @@ public interface DBOptionsInterface {
    * @return size in bytes
    */
   long bytesPerSync();
+
+  /**
+   * If true, allow multi-writers to update mem tables in parallel.
+   * Only some memtable factorys support concurrent writes; currently it
+   * is implemented only for SkipListFactory.  Concurrent memtable writes
+   * are not compatible with inplace_update_support or filter_deletes.
+   * It is strongly recommended to set
+   * {@link #setEnableWriteThreadAdaptiveYield(boolean)} if you are going to use
+   * this feature.
+   * Default: false
+   *
+   * @param allowConcurrentMemtableWrite true to enable concurrent writes
+   *     for the memtable
+   */
+  void setAllowConcurrentMemtableWrite(boolean allowConcurrentMemtableWrite);
+
+  /**
+   * If true, allow multi-writers to update mem tables in parallel.
+   * Only some memtable factorys support concurrent writes; currently it
+   * is implemented only for SkipListFactory.  Concurrent memtable writes
+   * are not compatible with inplace_update_support or filter_deletes.
+   * It is strongly recommended to set
+   * {@link #setEnableWriteThreadAdaptiveYield(boolean)} if you are going to use
+   * this feature.
+   * Default: false
+   *
+   * @return true if concurrent writes are enabled for the memtable
+   */
+  boolean allowConcurrentMemtableWrite();
+
+  /**
+   * If true, threads synchronizing with the write batch group leader will
+   * wait for up to {@link #writeThreadMaxYieldUsec()} before blocking on a
+   * mutex. This can substantially improve throughput for concurrent workloads,
+   * regardless of whether {@link #allowConcurrentMemtableWrite()} is enabled.
+   * Default: false
+   *
+   * @param enableWriteThreadAdaptiveYield true to enable adaptive yield for the
+   *     write threads
+   */
+  void setEnableWriteThreadAdaptiveYield(
+      boolean enableWriteThreadAdaptiveYield);
+
+  /**
+   * If true, threads synchronizing with the write batch group leader will
+   * wait for up to {@link #writeThreadMaxYieldUsec()} before blocking on a
+   * mutex. This can substantially improve throughput for concurrent workloads,
+   * regardless of whether {@link #allowConcurrentMemtableWrite()} is enabled.
+   * Default: false
+   *
+   * @return true if adaptive yield is enabled
+   *    for the writing threads
+   */
+  boolean enableWriteThreadAdaptiveYield();
+
+  /**
+   * The maximum number of microseconds that a write operation will use
+   * a yielding spin loop to coordinate with other write threads before
+   * blocking on a mutex.  (Assuming {@link #writeThreadSlowYieldUsec()} is
+   * set properly) increasing this value is likely to increase RocksDB
+   * throughput at the expense of increased CPU usage.
+   * Default: 100
+   *
+   * @param writeThreadMaxYieldUsec maximum number of microseconds
+   */
+  void setWriteThreadMaxYieldUsec(long writeThreadMaxYieldUsec);
+
+  /**
+   * The maximum number of microseconds that a write operation will use
+   * a yielding spin loop to coordinate with other write threads before
+   * blocking on a mutex.  (Assuming {@link #writeThreadSlowYieldUsec()} is
+   * set properly) increasing this value is likely to increase RocksDB
+   * throughput at the expense of increased CPU usage.
+   * Default: 100
+   *
+   * @return the maximum number of microseconds
+   */
+  long writeThreadMaxYieldUsec();
+
+  /**
+   * The latency in microseconds after which a std::this_thread::yield
+   * call (sched_yield on Linux) is considered to be a signal that
+   * other processes or threads would like to use the current core.
+   * Increasing this makes writer threads more likely to take CPU
+   * by spinning, which will show up as an increase in the number of
+   * involuntary context switches.
+   * Default: 3
+   *
+   * @param writeThreadSlowYieldUsec the latency in microseconds
+   */
+  void setWriteThreadSlowYieldUsec(long writeThreadSlowYieldUsec);
+
+  /**
+   * The latency in microseconds after which a std::this_thread::yield
+   * call (sched_yield on Linux) is considered to be a signal that
+   * other processes or threads would like to use the current core.
+   * Increasing this makes writer threads more likely to take CPU
+   * by spinning, which will show up as an increase in the number of
+   * involuntary context switches.
+   * Default: 3
+   *
+   * @return writeThreadSlowYieldUsec the latency in microseconds
+   */
+  long writeThreadSlowYieldUsec();
 }

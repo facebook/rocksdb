@@ -632,6 +632,50 @@ public class Options extends RocksObject
   }
 
   @Override
+  public void setAllowConcurrentMemtableWrite(
+      final boolean allowConcurrentMemtableWrite) {
+    setAllowConcurrentMemtableWrite(nativeHandle_,
+        allowConcurrentMemtableWrite);
+  }
+
+  @Override
+  public boolean allowConcurrentMemtableWrite() {
+    return allowConcurrentMemtableWrite(nativeHandle_);
+  }
+
+  @Override
+  public void setEnableWriteThreadAdaptiveYield(
+      final boolean enableWriteThreadAdaptiveYield) {
+    setEnableWriteThreadAdaptiveYield(nativeHandle_,
+        enableWriteThreadAdaptiveYield);
+  }
+
+  @Override
+  public boolean enableWriteThreadAdaptiveYield() {
+    return enableWriteThreadAdaptiveYield(nativeHandle_);
+  }
+
+  @Override
+  public void setWriteThreadMaxYieldUsec(final long writeThreadMaxYieldUsec) {
+    setWriteThreadMaxYieldUsec(nativeHandle_, writeThreadMaxYieldUsec);
+  }
+
+  @Override
+  public long writeThreadMaxYieldUsec() {
+    return writeThreadMaxYieldUsec(nativeHandle_);
+  }
+
+  @Override
+  public void setWriteThreadSlowYieldUsec(final long writeThreadSlowYieldUsec) {
+    setWriteThreadSlowYieldUsec(nativeHandle_, writeThreadSlowYieldUsec);
+  }
+
+  @Override
+  public long writeThreadSlowYieldUsec() {
+    return writeThreadSlowYieldUsec(nativeHandle_);
+  }
+
+  @Override
   public Options setMemTableConfig(final MemTableConfig config) {
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
@@ -1282,6 +1326,18 @@ public class Options extends RocksObject
   private native void setBytesPerSync(
       long handle, long bytesPerSync);
   private native long bytesPerSync(long handle);
+  private native void setAllowConcurrentMemtableWrite(long handle,
+      boolean allowConcurrentMemtableWrite);
+  private native boolean allowConcurrentMemtableWrite(long handle);
+  private native void setEnableWriteThreadAdaptiveYield(long handle,
+      boolean enableWriteThreadAdaptiveYield);
+  private native boolean enableWriteThreadAdaptiveYield(long handle);
+  private native void setWriteThreadMaxYieldUsec(long handle,
+      long writeThreadMaxYieldUsec);
+  private native long writeThreadMaxYieldUsec(long handle);
+  private native void setWriteThreadSlowYieldUsec(long handle,
+      long writeThreadSlowYieldUsec);
+  private native long writeThreadSlowYieldUsec(long handle);
   // CF native handles
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);

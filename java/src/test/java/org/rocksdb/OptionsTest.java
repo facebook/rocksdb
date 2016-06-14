@@ -662,6 +662,42 @@ public class OptionsTest {
   }
 
   @Test
+  public void allowConcurrentMemtableWrite() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllowConcurrentMemtableWrite(boolValue);
+      assertThat(opt.allowConcurrentMemtableWrite()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void enableWriteThreadAdaptiveYield() {
+    try (final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setEnableWriteThreadAdaptiveYield(boolValue);
+      assertThat(opt.enableWriteThreadAdaptiveYield()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void writeThreadMaxYieldUsec() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setWriteThreadMaxYieldUsec(longValue);
+      assertThat(opt.writeThreadMaxYieldUsec()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void writeThreadSlowYieldUsec() {
+    try (final Options opt = new Options()) {
+      final long longValue = rand.nextLong();
+      opt.setWriteThreadSlowYieldUsec(longValue);
+      assertThat(opt.writeThreadSlowYieldUsec()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void env() {
     try (final Options options = new Options();
          final Env env = Env.getDefault()) {
