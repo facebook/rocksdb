@@ -14,6 +14,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.UnsupportedEncodingException;
+import java.util.Arrays;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -115,11 +116,128 @@ public class WriteBatchTest {
     }
   }
 
+  @Test
+  public void savePoints()
+      throws UnsupportedEncodingException, RocksDBException {
+    try (final WriteBatch batch = new WriteBatch()) {
+      batch.put("k1".getBytes("US-ASCII"), "v1".getBytes("US-ASCII"));
+      batch.put("k2".getBytes("US-ASCII"), "v2".getBytes("US-ASCII"));
+      batch.put("k3".getBytes("US-ASCII"), "v3".getBytes("US-ASCII"));
+
+      assertThat(getFromWriteBatch(batch, "k1")).isEqualTo("v1");
+      assertThat(getFromWriteBatch(batch, "k2")).isEqualTo("v2");
+      assertThat(getFromWriteBatch(batch, "k3")).isEqualTo("v3");
+
+
+      batch.setSavePoint();
+
+      batch.remove("k2".getBytes("US-ASCII"));
+      batch.put("k3".getBytes("US-ASCII"), "v3-2".getBytes("US-ASCII"));
+
+      assertThat(getFromWriteBatch(batch, "k2")).isNull();
+      assertThat(getFromWriteBatch(batch, "k3")).isEqualTo("v3-2");
+
+
+      batch.setSavePoint();
+
+      batch.put("k3".getBytes("US-ASCII"), "v3-3".getBytes("US-ASCII"));
+      batch.put("k4".getBytes("US-ASCII"), "v4".getBytes("US-ASCII"));
+
+      assertThat(getFromWriteBatch(batch, "k3")).isEqualTo("v3-3");
+      assertThat(getFromWriteBatch(batch, "k4")).isEqualTo("v4");
+
+
+      batch.rollbackToSavePoint();
+
+      assertThat(getFromWriteBatch(batch, "k2")).isNull();
+      assertThat(getFromWriteBatch(batch, "k3")).isEqualTo("v3-2");
+      assertThat(getFromWriteBatch(batch, "k4")).isNull();
+
+
+      batch.rollbackToSavePoint();
+
+      assertThat(getFromWriteBatch(batch, "k1")).isEqualTo("v1");
+      assertThat(getFromWriteBatch(batch, "k2")).isEqualTo("v2");
+      assertThat(getFromWriteBatch(batch, "k3")).isEqualTo("v3");
+      assertThat(getFromWriteBatch(batch, "k4")).isNull();
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void restorePoints_withoutSavePoints() throws RocksDBException {
+    try (final WriteBatch batch = new WriteBatch()) {
+      batch.rollbackToSavePoint();
+    }
+  }
+
+  @Test(expected = RocksDBException.class)
+  public void restorePoints_withoutSavePoints_nested() throws RocksDBException {
+    try (final WriteBatch batch = new WriteBatch()) {
+
+      batch.setSavePoint();
+      batch.rollbackToSavePoint();
+
+      // without previous corresponding setSavePoint
+      batch.rollbackToSavePoint();
+    }
+  }
+
   static byte[] getContents(final WriteBatch wb) {
     return getContents(wb.nativeHandle_);
   }
 
+  static String getFromWriteBatch(final WriteBatch wb, final String key)
+      throws RocksDBException, UnsupportedEncodingException {
+    final WriteBatchGetter getter =
+        new WriteBatchGetter(key.getBytes("US-ASCII"));
+    wb.iterate(getter);
+    if(getter.getValue() != null) {
+      return new String(getter.getValue(), "US-ASCII");
+    } else {
+      return null;
+    }
+  }
+
   private static native byte[] getContents(final long writeBatchHandle);
+
+  private static class WriteBatchGetter extends WriteBatch.Handler {
+
+    private final byte[] key;
+    private byte[] value;
+
+    public WriteBatchGetter(final byte[] key) {
+      this.key = key;
+    }
+
+    public byte[] getValue() {
+      return value;
+    }
+
+    @Override
+    public void put(final byte[] key, final byte[] value) {
+      if(Arrays.equals(this.key, key)) {
+        this.value = value;
+      }
+    }
+
+    @Override
+    public void merge(final byte[] key, final byte[] value) {
+      if(Arrays.equals(this.key, key)) {
+        throw new UnsupportedOperationException();
+      }
+    }
+
+    @Override
+    public void delete(final byte[] key) {
+      if(Arrays.equals(this.key, key)) {
+        this.value = null;
+      }
+    }
+
+    @Override
+    public void logData(final byte[] blob) {
+    }
+  }
 }
 
 /**

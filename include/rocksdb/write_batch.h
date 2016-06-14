@@ -125,7 +125,7 @@ class WriteBatch : public WriteBatchBase {
   // most recent call to SetSavePoint() and removes the most recent save point.
   // If there is no previous call to SetSavePoint(), Status::NotFound()
   // will be returned.
-  // Oterwise returns Status::OK().
+  // Otherwise returns Status::OK().
   Status RollbackToSavePoint() override;
 
   // Support for iterating over the contents of a batch.

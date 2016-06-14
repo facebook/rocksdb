@@ -155,6 +155,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   @Override final native void putLogData(final long handle, final byte[] blob,
       final int blobLen);
   @Override final native void clear0(final long handle);
+  @Override final native void setSavePoint0(final long handle);
+  @Override final native void rollbackToSavePoint0(final long handle);
 
   private native static long newWriteBatchWithIndex();
   private native static long newWriteBatchWithIndex(final boolean overwriteKey);

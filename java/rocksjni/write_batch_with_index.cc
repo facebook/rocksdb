@@ -198,7 +198,39 @@ void Java_org_rocksdb_WriteBatchWithIndex_clear0(
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
   assert(wbwi != nullptr);
 
-  wbwi->GetWriteBatch()->Clear();
+  wbwi->Clear();
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    setSavePoint0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_setSavePoint0(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+
+  wbwi->SetSavePoint();
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    rollbackToSavePoint0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_rollbackToSavePoint0(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+
+  auto s = wbwi->RollbackToSavePoint();
+
+  if (s.ok()) {
+    return;
+  }
+
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 }
 
 /*
