@@ -1,5 +1,13 @@
 include ../make_config.mk
 
+ifndef DISABLE_JEMALLOC
+	ifdef JEMALLOC
+		PLATFORM_CXXFLAGS += "-DROCKSDB_JEMALLOC"
+	endif
+	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS) -lpthread
+	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
+endif
+	
 .PHONY: clean librocksdb
 
 all: simple_example column_families_example compact_files_example c_simple_example optimistic_transaction_example transaction_example
