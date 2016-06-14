@@ -186,8 +186,8 @@ class PreCommitChecker(Env):
 parser = argparse.ArgumentParser(description='RocksDB pre-commit checker.')
 
 # --log <logfile>
-parser.add_argument('--logfile', default='/tmp/precommit-log',
-                    help='Log file. Default is /tmp/precommit-log')
+parser.add_argument('--logfile', default='/tmp/precommit-check.log',
+                    help='Log file. Default is /tmp/precommit-check.log')
 # --ignore_failure
 parser.add_argument('--ignore_failure', action='store_true', default=False,
                     help='Stop when an error occurs')
