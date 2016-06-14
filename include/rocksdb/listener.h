@@ -20,7 +20,7 @@ typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
 class DB;
 class Status;
 struct CompactionJobStats;
-enum CompressionType : char;
+enum CompressionType : unsigned char;
 
 enum class TableFileCreationReason {
   kFlush,
