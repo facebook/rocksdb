@@ -363,11 +363,36 @@ public class Options extends RocksObject
   }
 
   @Override
+  public void setBaseBackgroundCompactions(
+      final int baseBackgroundCompactions) {
+    assert(isOwningHandle());
+    setBaseBackgroundCompactions(nativeHandle_, baseBackgroundCompactions);
+  }
+
+  @Override
+  public int baseBackgroundCompactions() {
+    assert(isOwningHandle());
+    return baseBackgroundCompactions(nativeHandle_);
+  }
+
+  @Override
   public Options setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
     assert(isOwningHandle());
     setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
     return this;
+  }
+
+  @Override
+  public void setMaxSubcompactions(final int maxSubcompactions) {
+    assert(isOwningHandle());
+    setMaxSubcompactions(nativeHandle_, maxSubcompactions);
+  }
+
+  @Override
+  public int maxSubcompactions() {
+    assert(isOwningHandle());
+    return maxSubcompactions(nativeHandle_);
   }
 
   @Override
@@ -1197,9 +1222,14 @@ public class Options extends RocksObject
   private native void setDeleteObsoleteFilesPeriodMicros(
       long handle, long micros);
   private native long deleteObsoleteFilesPeriodMicros(long handle);
+  private native void setBaseBackgroundCompactions(long handle,
+      int baseBackgroundCompactions);
+  private native int baseBackgroundCompactions(long handle);
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
+  private native void setMaxSubcompactions(long handle, int maxSubcompactions);
+  private native int maxSubcompactions(long handle);
   private native void setMaxBackgroundFlushes(
       long handle, int maxBackgroundFlushes);
   private native int maxBackgroundFlushes(long handle);
