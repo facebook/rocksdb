@@ -1035,6 +1035,94 @@ void Java_org_rocksdb_Options_setBytesPerSync(
 }
 
 /*
+ * Class:     org_rocksdb_Options
+ * Method:    setAllowConcurrentMemtableWrite
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setAllowConcurrentMemtableWrite(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->
+      allow_concurrent_memtable_write = static_cast<bool>(allow);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    allowConcurrentMemtableWrite
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_allowConcurrentMemtableWrite(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->
+      allow_concurrent_memtable_write;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setEnableWriteThreadAdaptiveYield
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setEnableWriteThreadAdaptiveYield(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean yield) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->
+      enable_write_thread_adaptive_yield = static_cast<bool>(yield);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    enableWriteThreadAdaptiveYield
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_enableWriteThreadAdaptiveYield(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->
+      enable_write_thread_adaptive_yield;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setWriteThreadMaxYieldUsec
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setWriteThreadMaxYieldUsec(
+    JNIEnv* env, jobject jobject, jlong jhandle, jlong max) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->
+      write_thread_max_yield_usec = static_cast<int64_t>(max);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    writeThreadMaxYieldUsec
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_writeThreadMaxYieldUsec(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->
+      write_thread_max_yield_usec;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setWriteThreadSlowYieldUsec
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setWriteThreadSlowYieldUsec(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong slow) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->
+      write_thread_slow_yield_usec = static_cast<int64_t>(slow);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    writeThreadSlowYieldUsec
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_writeThreadSlowYieldUsec(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->
+      write_thread_slow_yield_usec;
+}
+
+/*
  * Method:    tableFactoryName
  * Signature: (J)Ljava/lang/String
  */
@@ -4285,6 +4373,94 @@ void Java_org_rocksdb_DBOptions_setBytesPerSync(
 jlong Java_org_rocksdb_DBOptions_bytesPerSync(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->bytes_per_sync;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setAllowConcurrentMemtableWrite
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setAllowConcurrentMemtableWrite(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      allow_concurrent_memtable_write = static_cast<bool>(allow);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    allowConcurrentMemtableWrite
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_allowConcurrentMemtableWrite(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      allow_concurrent_memtable_write;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setEnableWriteThreadAdaptiveYield
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setEnableWriteThreadAdaptiveYield(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean yield) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      enable_write_thread_adaptive_yield = static_cast<bool>(yield);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    enableWriteThreadAdaptiveYield
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_enableWriteThreadAdaptiveYield(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      enable_write_thread_adaptive_yield;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setWriteThreadMaxYieldUsec
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setWriteThreadMaxYieldUsec(
+    JNIEnv* env, jobject jobject, jlong jhandle, jlong max) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      write_thread_max_yield_usec = static_cast<int64_t>(max);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    writeThreadMaxYieldUsec
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_writeThreadMaxYieldUsec(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      write_thread_max_yield_usec;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setWriteThreadSlowYieldUsec
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setWriteThreadSlowYieldUsec(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong slow) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      write_thread_slow_yield_usec = static_cast<int64_t>(slow);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    writeThreadSlowYieldUsec
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_writeThreadSlowYieldUsec(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      write_thread_slow_yield_usec;
 }
 
 //////////////////////////////////////////////////////////////////////////////

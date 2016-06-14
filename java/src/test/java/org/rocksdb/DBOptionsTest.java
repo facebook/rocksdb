@@ -353,6 +353,42 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void allowConcurrentMemtableWrite() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllowConcurrentMemtableWrite(boolValue);
+      assertThat(opt.allowConcurrentMemtableWrite()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void enableWriteThreadAdaptiveYield() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setEnableWriteThreadAdaptiveYield(boolValue);
+      assertThat(opt.enableWriteThreadAdaptiveYield()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void writeThreadMaxYieldUsec() {
+    try (final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setWriteThreadMaxYieldUsec(longValue);
+      assertThat(opt.writeThreadMaxYieldUsec()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void writeThreadSlowYieldUsec() {
+    try (final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setWriteThreadSlowYieldUsec(longValue);
+      assertThat(opt.writeThreadSlowYieldUsec()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void rateLimiterConfig() {
     try(final DBOptions options = new DBOptions();
         final DBOptions anotherOptions = new DBOptions()) {
