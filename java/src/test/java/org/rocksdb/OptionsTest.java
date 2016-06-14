@@ -474,11 +474,31 @@ public class OptionsTest {
   }
 
   @Test
+  public void baseBackgroundCompactions() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setBaseBackgroundCompactions(intValue);
+      assertThat(opt.baseBackgroundCompactions()).
+          isEqualTo(intValue);
+    }
+  }
+
+  @Test
   public void maxBackgroundCompactions() {
     try (final Options opt = new Options()) {
       final int intValue = rand.nextInt();
       opt.setMaxBackgroundCompactions(intValue);
       assertThat(opt.maxBackgroundCompactions()).
+          isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void maxSubcompactions() {
+    try (final Options opt = new Options()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxSubcompactions(intValue);
+      assertThat(opt.maxSubcompactions()).
           isEqualTo(intValue);
     }
   }

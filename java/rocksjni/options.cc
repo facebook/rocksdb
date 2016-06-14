@@ -455,6 +455,28 @@ void Java_org_rocksdb_Options_setDeleteObsoleteFilesPeriodMicros(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setBaseBackgroundCompactions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setBaseBackgroundCompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint max) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->base_background_compactions = static_cast<int>(max);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    baseBackgroundCompactions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_baseBackgroundCompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->base_background_compactions;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    maxBackgroundCompactions
  * Signature: (J)I
  */
@@ -473,6 +495,28 @@ void Java_org_rocksdb_Options_setMaxBackgroundCompactions(
     JNIEnv* env, jobject jobj, jlong jhandle, jint max) {
   reinterpret_cast<rocksdb::Options*>(jhandle)
       ->max_background_compactions = static_cast<int>(max);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMaxSubcompactions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMaxSubcompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint max) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->max_subcompactions = static_cast<int32_t>(max);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxSubcompactions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_maxSubcompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->max_subcompactions;
 }
 
 /*
@@ -3771,6 +3815,28 @@ jlong Java_org_rocksdb_DBOptions_deleteObsoleteFilesPeriodMicros(
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    setBaseBackgroundCompactions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_DBOptions_setBaseBackgroundCompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint max) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)
+      ->base_background_compactions = static_cast<int>(max);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    baseBackgroundCompactions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_DBOptions_baseBackgroundCompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)
+      ->base_background_compactions;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setMaxBackgroundCompactions
  * Signature: (JI)V
  */
@@ -3789,6 +3855,28 @@ jint Java_org_rocksdb_DBOptions_maxBackgroundCompactions(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(
       jhandle)->max_background_compactions;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setMaxSubcompactions
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_DBOptions_setMaxSubcompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint max) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)
+      ->max_subcompactions = static_cast<int32_t>(max);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    maxSubcompactions
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_DBOptions_maxSubcompactions(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)
+      ->max_subcompactions;
 }
 
 /*

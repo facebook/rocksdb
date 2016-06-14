@@ -171,11 +171,31 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void baseBackgroundCompactions() {
+    try (final DBOptions opt = new DBOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setBaseBackgroundCompactions(intValue);
+      assertThat(opt.baseBackgroundCompactions()).
+          isEqualTo(intValue);
+    }
+  }
+
+  @Test
   public void maxBackgroundCompactions() {
     try(final DBOptions opt = new DBOptions()) {
       final int intValue = rand.nextInt();
       opt.setMaxBackgroundCompactions(intValue);
       assertThat(opt.maxBackgroundCompactions()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void maxSubcompactions() {
+    try (final DBOptions opt = new DBOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxSubcompactions(intValue);
+      assertThat(opt.maxSubcompactions()).
+          isEqualTo(intValue);
     }
   }
 
