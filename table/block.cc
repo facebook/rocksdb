@@ -63,6 +63,40 @@ void BlockIter::Next() {
 void BlockIter::Prev() {
   assert(Valid());
 
+  assert(prev_entries_idx_ == -1 ||
+         static_cast<size_t>(prev_entries_idx_) < prev_entries_.size());
+  // Check if we can use cached prev_entries_
+  if (prev_entries_idx_ > 0 &&
+      prev_entries_[prev_entries_idx_].offset == current_) {
+    // Read cached CachedPrevEntry
+    prev_entries_idx_--;
+    const CachedPrevEntry& current_prev_entry =
+        prev_entries_[prev_entries_idx_];
+
+    const char* key_ptr = current_prev_entry.key_ptr;
+    if (current_prev_entry.key_ptr != nullptr) {
+      // The key is not delta encoded and stored in the data block
+      key_ptr = current_prev_entry.key_ptr;
+      key_pinned_ = true;
+    } else {
+      // The key is delta encoded and stored in prev_entries_keys_buff_
+      key_ptr = prev_entries_keys_buff_.data() + current_prev_entry.key_offset;
+      key_pinned_ = false;
+    }
+    const Slice current_key(key_ptr, current_prev_entry.key_size);
+
+    current_ = current_prev_entry.offset;
+    key_.SetKey(current_key, false /* copy */);
+    value_ = current_prev_entry.value;
+
+    return;
+  }
+
+  // Clear prev entries cache
+  prev_entries_idx_ = -1;
+  prev_entries_.clear();
+  prev_entries_keys_buff_.clear();
+
   // Scan backwards to a restart point before current_
   const uint32_t original = current_;
   while (GetRestartPoint(restart_index_) >= original) {
@@ -76,9 +110,28 @@ void BlockIter::Prev() {
   }
 
   SeekToRestartPoint(restart_index_);
+
   do {
+    if (!ParseNextKey()) {
+      break;
+    }
+    Slice current_key = key();
+
+    if (key_.IsKeyPinned()) {
+      // The key is not delta encoded
+      prev_entries_.emplace_back(current_, current_key.data(), 0,
+                                 current_key.size(), value());
+    } else {
+      // The key is delta encoded, cache decoded key in buffer
+      size_t new_key_offset = prev_entries_keys_buff_.size();
+      prev_entries_keys_buff_.append(current_key.data(), current_key.size());
+
+      prev_entries_.emplace_back(current_, nullptr, new_key_offset,
+                                 current_key.size(), value());
+    }
     // Loop until end of current entry hits the start of original entry
-  } while (ParseNextKey() && NextEntryOffset() < original);
+  } while (NextEntryOffset() < original);
+  prev_entries_idx_ = prev_entries_.size() - 1;
 }
 
 void BlockIter::Seek(const Slice& target) {
@@ -155,9 +208,11 @@ bool BlockIter::ParseNextKey() {
         // If this key dont share any bytes with prev key then we dont need
         // to decode it and can use it's address in the block directly.
         key_.SetKey(Slice(p, non_shared), false /* copy */);
+        key_pinned_ = true;
       } else {
         // This key share `shared` bytes with prev key, we need to decode it
         key_.TrimAppend(shared, p, non_shared);
+        key_pinned_ = false;
       }
       value_ = Slice(p + non_shared, value_length);
       while (restart_index_ + 1 < num_restarts_ &&
