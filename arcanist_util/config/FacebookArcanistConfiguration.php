@@ -7,7 +7,7 @@
 class FacebookArcanistConfiguration extends ArcanistConfiguration {
 
   public function didRunWorkflow($command,
-                                 ArcanistBaseWorkflow $workflow,
+                                 ArcanistWorkflow $workflow,
                                  $error_code) {
     if ($command == 'diff' && !$workflow->isRawDiffSource()) {
       $this->startTestsInSandcastle($workflow);

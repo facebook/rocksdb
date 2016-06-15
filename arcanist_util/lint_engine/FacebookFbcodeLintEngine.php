@@ -42,14 +42,12 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
     $python_linter = new ArcanistPEP8Linter();
     $linters[] = $python_linter;
 
-    if (!$this->getCommitHookMode()) {
-      $cpp_linters = array();
-      $cpp_linters[] = $linters[] = new ArcanistCpplintLinter();
-      $cpp_linters[] = $linters[] = new FbcodeCppLinter();
+    $cpp_linters = array();
+    $cpp_linters[] = $linters[] = new ArcanistCpplintLinter();
+    $cpp_linters[] = $linters[] = new FbcodeCppLinter();
 
-      $clang_format_linter = new FbcodeClangFormatLinter();
-      $linters[] = $clang_format_linter;
-    }
+    $clang_format_linter = new FbcodeClangFormatLinter();
+    $linters[] = $clang_format_linter;
 
     $spelling_linter = new ArcanistSpellingLinter();
     $linters[] = $spelling_linter;
