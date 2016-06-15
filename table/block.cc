@@ -131,7 +131,7 @@ void BlockIter::Prev() {
     }
     // Loop until end of current entry hits the start of original entry
   } while (NextEntryOffset() < original);
-  prev_entries_idx_ = prev_entries_.size() - 1;
+  prev_entries_idx_ = static_cast<int32_t>(prev_entries_.size()) - 1;
 }
 
 void BlockIter::Seek(const Slice& target) {
