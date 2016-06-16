@@ -59,6 +59,7 @@ class InternalStats {
     HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
+    BYTES_INGESTED_ADD_FILE,
     INTERNAL_CF_STATS_ENUM_MAX,
   };
 
@@ -244,7 +245,8 @@ class InternalStats {
   struct CFStatsSnapshot {
     // ColumnFamily-level stats
     CompactionStats comp_stats;
-    uint64_t ingest_bytes;            // Bytes written to L0
+    uint64_t ingest_bytes_flush;      // Bytes written to L0 (Flush)
+    uint64_t ingest_bytes_add_file;   // Bytes written to L0 (AddFile)
     uint64_t stall_count;             // Stall count
     // Stats from compaction jobs - bytes written, bytes read, duration.
     uint64_t compact_bytes_write;
@@ -254,7 +256,8 @@ class InternalStats {
 
     CFStatsSnapshot()
         : comp_stats(0),
-          ingest_bytes(0),
+          ingest_bytes_flush(0),
+          ingest_bytes_add_file(0),
           stall_count(0),
           compact_bytes_write(0),
           compact_bytes_read(0),
@@ -372,6 +375,7 @@ class InternalStats {
     HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
+    BYTES_INGESTED_ADD_FILE,
     INTERNAL_CF_STATS_ENUM_MAX,
   };
 

@@ -3851,6 +3851,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
+  const uint64_t start_micros = env_->NowMicros();
 
   if (file_info->num_entries == 0) {
     return Status::InvalidArgument("File contain no entries");
@@ -3960,6 +3961,15 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     if (status.ok()) {
       delete InstallSuperVersionAndScheduleWork(cfd, nullptr,
                                                 mutable_cf_options);
+
+      // Update internal stats
+      InternalStats::CompactionStats stats(1);
+      stats.micros = env_->NowMicros() - start_micros;
+      stats.bytes_written = meta.fd.GetFileSize();
+      stats.num_output_files = 1;
+      cfd->internal_stats()->AddCompactionStats(0 /* L0 */, stats);
+      cfd->internal_stats()->AddCFStats(InternalStats::BYTES_INGESTED_ADD_FILE,
+                                        meta.fd.GetFileSize());
     }
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
   }
@@ -3972,14 +3982,24 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
           "AddFile() clean up for file %s failed : %s", db_fname.c_str(),
           s.ToString().c_str());
     }
-  } else if (status.ok() && move_file) {
-    // The file was moved and added successfully, remove original file link
-    Status s = env_->DeleteFile(file_info->file_path);
-    if (!s.ok()) {
-      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-          "%s was added to DB successfully but failed to remove original file "
-          "link : %s",
-          file_info->file_path.c_str(), s.ToString().c_str());
+  } else {
+    // File was ingested successfully
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "New file %" PRIu64 " was added to L0 (Size: %.2f MB, "
+        "entries: %" PRIu64 ")",
+        meta.fd.GetNumber(),
+        static_cast<double>(meta.fd.GetFileSize()) / 1048576.0,
+        file_info->num_entries);
+
+    if (move_file) {
+      // The file was moved and added successfully, remove original file link
+      Status s = env_->DeleteFile(file_info->file_path);
+      if (!s.ok()) {
+        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+            "%s was added to DB successfully but failed to remove original "
+            "file link : %s",
+            file_info->file_path.c_str(), s.ToString().c_str());
+      }
     }
   }
   return status;
