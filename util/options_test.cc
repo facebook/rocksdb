@@ -69,9 +69,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"level_compaction_dynamic_level_bytes", "true"},
       {"max_bytes_for_level_multiplier", "15"},
       {"max_bytes_for_level_multiplier_additional", "16:17:18"},
-      {"expanded_compaction_factor", "19"},
-      {"source_compaction_factor", "20"},
-      {"max_grandparent_overlap_factor", "21"},
+      {"max_compaction_bytes", "21"},
       {"soft_rate_limit", "1.1"},
       {"hard_rate_limit", "2.1"},
       {"hard_pending_compaction_bytes_limit", "211"},
@@ -169,9 +167,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[0], 16);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[1], 17);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[2], 18);
-  ASSERT_EQ(new_cf_opt.expanded_compaction_factor, 19);
-  ASSERT_EQ(new_cf_opt.source_compaction_factor, 20);
-  ASSERT_EQ(new_cf_opt.max_grandparent_overlap_factor, 21);
+  ASSERT_EQ(new_cf_opt.max_compaction_bytes, 21);
   ASSERT_EQ(new_cf_opt.soft_rate_limit, 1.1);
   ASSERT_EQ(new_cf_opt.hard_pending_compaction_bytes_limit, 211);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);

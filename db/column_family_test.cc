@@ -1,7 +1,8 @@
 //  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under the BSD-style license found in the
-//  LICENSE file in the root directory of this source tree. An additional grant
-//  of patent rights can be found in the PATENTS file in the same directory.
+//  This source code is licensed under the BSD-style license found in
+//  the LICENSE file in the root directory of this source tree. An
+//  additional grant of patent rights can be found in the PATENTS file
+//  in the same directory.
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
@@ -1146,7 +1147,8 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = static_cast<uint64_t>(1) << 60;
+
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1218,7 +1220,7 @@ TEST_F(ColumnFamilyTest, MultipleManualCompactions) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1317,7 +1319,7 @@ TEST_F(ColumnFamilyTest, AutomaticAndManualCompactions) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1410,7 +1412,7 @@ TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1506,7 +1508,7 @@ TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1605,7 +1607,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1695,7 +1697,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1792,7 +1794,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticConflict) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1912,7 +1914,7 @@ TEST_F(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.source_compaction_factor = 100;
+  default_cf.max_compaction_bytes = default_cf.target_file_size_base * 1100;
   BlockBasedTableOptions table_options;
   table_options.no_block_cache = true;
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));

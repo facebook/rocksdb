@@ -99,9 +99,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       level_compaction_dynamic_level_bytes(false),
       max_bytes_for_level_multiplier(10),
       max_bytes_for_level_multiplier_additional(num_levels, 1),
-      expanded_compaction_factor(25),
-      source_compaction_factor(1),
-      max_grandparent_overlap_factor(10),
+      max_compaction_bytes(0),
       soft_rate_limit(0.0),
       hard_rate_limit(0.0),
       soft_pending_compaction_bytes_limit(64 * 1073741824ull),
@@ -160,9 +158,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
-      expanded_compaction_factor(options.expanded_compaction_factor),
-      source_compaction_factor(options.source_compaction_factor),
-      max_grandparent_overlap_factor(options.max_grandparent_overlap_factor),
+      max_compaction_bytes(options.max_compaction_bytes),
       soft_rate_limit(options.soft_rate_limit),
       soft_pending_compaction_bytes_limit(
           options.soft_pending_compaction_bytes_limit),
@@ -541,13 +537,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     }
     Header(log, "      Options.max_sequential_skip_in_iterations: %" PRIu64,
         max_sequential_skip_in_iterations);
-    Header(log, "             Options.expanded_compaction_factor: %d",
-        expanded_compaction_factor);
-    Header(log, "               Options.source_compaction_factor: %d",
-        source_compaction_factor);
-    Header(log, "         Options.max_grandparent_overlap_factor: %d",
-        max_grandparent_overlap_factor);
-
+    Header(log, "                   Options.max_compaction_bytes: %" PRIu64,
+           max_compaction_bytes);
     Header(log,
          "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
          arena_block_size);
@@ -641,10 +632,9 @@ Options::PrepareForBulkLoad()
   // manual compaction after all data is loaded into L0.
   disable_auto_compactions = true;
   disableDataSync = true;
-
   // A manual compaction run should pick all files in L0 in
   // a single compaction run.
-  source_compaction_factor = (1<<30);
+  max_compaction_bytes = (static_cast<uint64_t>(1) << 60);
 
   // It is better to have only 2 levels, otherwise a manual
   // compaction would compact at every possible level, thereby

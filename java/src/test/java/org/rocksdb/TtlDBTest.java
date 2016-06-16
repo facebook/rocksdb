@@ -28,12 +28,8 @@ public class TtlDBTest {
 
   @Test
   public void ttlDBOpen() throws RocksDBException, InterruptedException {
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setMaxGrandparentOverlapFactor(0);
-         final TtlDB ttlDB = TtlDB.open(options,
-             dbFolder.getRoot().getAbsolutePath())
-    ) {
+    try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
+         final TtlDB ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath())) {
       ttlDB.put("key".getBytes(), "value".getBytes());
       assertThat(ttlDB.get("key".getBytes())).
           isEqualTo("value".getBytes());
@@ -43,12 +39,8 @@ public class TtlDBTest {
 
   @Test
   public void ttlDBOpenWithTtl() throws RocksDBException, InterruptedException {
-    try (final Options options = new Options()
-        .setCreateIfMissing(true)
-        .setMaxGrandparentOverlapFactor(0);
-         final TtlDB ttlDB = TtlDB.open(options,
-             dbFolder.getRoot().getAbsolutePath(), 1, false);
-    ) {
+    try (final Options options = new Options().setCreateIfMissing(true).setMaxCompactionBytes(0);
+         final TtlDB ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath(), 1, false);) {
       ttlDB.put("key".getBytes(), "value".getBytes());
       assertThat(ttlDB.get("key".getBytes())).
           isEqualTo("value".getBytes());

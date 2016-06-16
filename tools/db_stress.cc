@@ -1089,23 +1089,11 @@ class StressTest {
              ToString(FLAGS_level0_stop_writes_trigger + 2),
              ToString(FLAGS_level0_stop_writes_trigger + 4),
          }},
-        {"max_grandparent_overlap_factor",
+        {"max_compaction_bytes",
          {
-             ToString(Options().max_grandparent_overlap_factor - 5),
-             ToString(Options().max_grandparent_overlap_factor),
-             ToString(Options().max_grandparent_overlap_factor + 5),
-         }},
-        {"expanded_compaction_factor",
-         {
-             ToString(Options().expanded_compaction_factor - 5),
-             ToString(Options().expanded_compaction_factor),
-             ToString(Options().expanded_compaction_factor + 5),
-         }},
-        {"source_compaction_factor",
-         {
-             ToString(Options().source_compaction_factor),
-             ToString(Options().source_compaction_factor * 2),
-             ToString(Options().source_compaction_factor * 4),
+             ToString(FLAGS_target_file_size_base * 5),
+             ToString(FLAGS_target_file_size_base * 15),
+             ToString(FLAGS_target_file_size_base * 100),
          }},
         {"target_file_size_base",
          {

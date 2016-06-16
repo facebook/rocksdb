@@ -1384,7 +1384,53 @@ TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
 
 INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,
                         PinL0IndexAndFilterBlocksTest, ::testing::Bool());
+
 #ifndef ROCKSDB_LITE
+TEST_F(DBTest2, MaxCompactionBytesTest) {
+  Options options = CurrentOptions();
+  options.memtable_factory.reset(
+      new SpecialSkipListFactory(DBTestBase::kNumKeysByGenerateNewRandomFile));
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 200 << 10;
+  options.arena_block_size = 4 << 10;
+  options.level0_file_num_compaction_trigger = 4;
+  options.num_levels = 4;
+  options.compression = kNoCompression;
+  options.max_bytes_for_level_base = 450 << 10;
+  options.target_file_size_base = 100 << 10;
+  // Infinite for full compaction.
+  options.max_compaction_bytes = options.target_file_size_base * 100;
+
+  Reopen(options);
+
+  Random rnd(301);
+
+  for (int num = 0; num < 8; num++) {
+    GenerateNewRandomFile(&rnd);
+  }
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  ASSERT_EQ("0,0,8", FilesPerLevel(0));
+
+  // When compact from Ln -> Ln+1, cut a file if the file overlaps with
+  // more than three files in Ln+1.
+  options.max_compaction_bytes = options.target_file_size_base * 3;
+  Reopen(options);
+
+  GenerateNewRandomFile(&rnd);
+  // Add three more small files that overlap with the previous file
+  for (int i = 0; i < 3; i++) {
+    Put("a", "z");
+    ASSERT_OK(Flush());
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  // Output files to L1 are cut to three pieces, according to
+  // options.max_compaction_bytes
+  ASSERT_EQ("0,3,8", FilesPerLevel(0));
+}
+
 static void UniqueIdCallback(void* arg) {
   int* result = reinterpret_cast<int*>(arg);
   if (*result == -1) {

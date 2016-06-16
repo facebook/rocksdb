@@ -448,6 +448,88 @@ public interface ColumnFamilyOptionsInterface {
   boolean levelCompactionDynamicLevelBytes();
 
   /**
+   * The ratio between the total size of level-(L+1) files and the total
+   * size of level-L files for all L.
+   * DEFAULT: 10
+   *
+   * @param multiplier the ratio between the total size of level-(L+1)
+   *     files and the total size of level-L files for all L.
+   * @return the reference to the current option.
+   * @see #setMaxBytesForLevelBase(long)
+   */
+  Object setMaxBytesForLevelMultiplier(int multiplier);
+
+  /**
+   * The ratio between the total size of level-(L+1) files and the total
+   * size of level-L files for all L.
+   * DEFAULT: 10
+   *
+   * @return the ratio between the total size of level-(L+1) files and
+   *     the total size of level-L files for all L.
+   * @see #maxBytesForLevelBase()
+   */
+  int maxBytesForLevelMultiplier();
+
+  /**
+   * Maximum size of each compaction (not guarantee)
+   *
+   * @param maxCompactionBytes the compaction size limit
+   * @return the reference to the current option.
+   */
+  Object setMaxCompactionBytes(long maxCompactionBytes);
+
+  /**
+   * Control maximum size of each compaction (not guaranteed)
+   *
+   * @return compaction size threshold
+   */
+  long maxCompactionBytes();
+
+  /**
+   * Puts are delayed 0-1 ms when any level has a compaction score that exceeds
+   * soft_rate_limit. This is ignored when == 0.0.
+   * CONSTRAINT: soft_rate_limit &le; hard_rate_limit. If this constraint does not
+   * hold, RocksDB will set soft_rate_limit = hard_rate_limit
+   * Default: 0 (disabled)
+   *
+   * @param softRateLimit the soft-rate-limit of a compaction score
+   *     for put delay.
+   * @return the reference to the current option.
+   */
+  Object setSoftRateLimit(double softRateLimit);
+
+  /**
+   * Puts are delayed 0-1 ms when any level has a compaction score that exceeds
+   * soft_rate_limit. This is ignored when == 0.0.
+   * CONSTRAINT: soft_rate_limit &le; hard_rate_limit. If this constraint does not
+   * hold, RocksDB will set soft_rate_limit = hard_rate_limit
+   * Default: 0 (disabled)
+   *
+   * @return soft-rate-limit for put delay.
+   */
+  double softRateLimit();
+
+  /**
+   * Puts are delayed 1ms at a time when any level has a compaction score that
+   * exceeds hard_rate_limit. This is ignored when &le; 1.0.
+   * Default: 0 (disabled)
+   *
+   * @param hardRateLimit the hard-rate-limit of a compaction score for put
+   *     delay.
+   * @return the reference to the current option.
+   */
+  Object setHardRateLimit(double hardRateLimit);
+
+  /**
+   * Puts are delayed 1ms at a time when any level has a compaction score that
+   * exceeds hard_rate_limit. This is ignored when &le; 1.0.
+   * Default: 0 (disabled)
+   *
+   * @return the hard-rate-limit of a compaction score for put delay.
+   */
+  double hardRateLimit();
+
+  /**
    * The maximum time interval a put will be stalled when hard_rate_limit
    * is enforced. If 0, then there is no limit.
    * Default: 1000

@@ -1531,74 +1531,24 @@ void Java_org_rocksdb_Options_setMaxBytesForLevelMultiplier(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    expandedCompactionFactor
+ * Method:    maxCompactionBytes
  * Signature: (J)I
  */
-jint Java_org_rocksdb_Options_expandedCompactionFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(
-      jhandle)->expanded_compaction_factor;
+jlong Java_org_rocksdb_Options_maxCompactionBytes(JNIEnv* env, jobject jobj,
+                                                  jlong jhandle) {
+  return static_cast<jlong>(
+      reinterpret_cast<rocksdb::Options*>(jhandle)->max_compaction_bytes);
 }
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setExpandedCompactionFactor
+ * Method:    setMaxCompactionBytes
  * Signature: (JI)V
  */
-void Java_org_rocksdb_Options_setExpandedCompactionFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jexpanded_compaction_factor) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->expanded_compaction_factor =
-          static_cast<int>(jexpanded_compaction_factor);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    sourceCompactionFactor
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_sourceCompactionFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(
-      jhandle)->source_compaction_factor;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setSourceCompactionFactor
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setSourceCompactionFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-        jint jsource_compaction_factor) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->source_compaction_factor =
-          static_cast<int>(jsource_compaction_factor);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    maxGrandparentOverlapFactor
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_maxGrandparentOverlapFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(
-      jhandle)->max_grandparent_overlap_factor;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setMaxGrandparentOverlapFactor
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setMaxGrandparentOverlapFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmax_grandparent_overlap_factor) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->max_grandparent_overlap_factor =
-          static_cast<int>(jmax_grandparent_overlap_factor);
+void Java_org_rocksdb_Options_setMaxCompactionBytes(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_compaction_bytes) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->max_compaction_bytes =
+      static_cast<uint64_t>(jmax_compaction_bytes);
 }
 
 /*
@@ -2882,74 +2832,26 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelMultiplier(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    expandedCompactionFactor
+ * Method:    maxCompactionBytes
  * Signature: (J)I
  */
-jint Java_org_rocksdb_ColumnFamilyOptions_expandedCompactionFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->expanded_compaction_factor;
+jlong Java_org_rocksdb_ColumnFamilyOptions_maxCompactionBytes(JNIEnv* env,
+                                                              jobject jobj,
+                                                              jlong jhandle) {
+  return static_cast<jlong>(
+      reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
+          ->max_compaction_bytes);
 }
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setExpandedCompactionFactor
+ * Method:    setMaxCompactionBytes
  * Signature: (JI)V
  */
-void Java_org_rocksdb_ColumnFamilyOptions_setExpandedCompactionFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jexpanded_compaction_factor) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->expanded_compaction_factor =
-          static_cast<int>(jexpanded_compaction_factor);
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    sourceCompactionFactor
- * Signature: (J)I
- */
-jint Java_org_rocksdb_ColumnFamilyOptions_sourceCompactionFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->source_compaction_factor;
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setSourceCompactionFactor
- * Signature: (JI)V
- */
-void Java_org_rocksdb_ColumnFamilyOptions_setSourceCompactionFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-        jint jsource_compaction_factor) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->source_compaction_factor =
-          static_cast<int>(jsource_compaction_factor);
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    maxGrandparentOverlapFactor
- * Signature: (J)I
- */
-jint Java_org_rocksdb_ColumnFamilyOptions_maxGrandparentOverlapFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->max_grandparent_overlap_factor;
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setMaxGrandparentOverlapFactor
- * Signature: (JI)V
- */
-void Java_org_rocksdb_ColumnFamilyOptions_setMaxGrandparentOverlapFactor(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmax_grandparent_overlap_factor) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->max_grandparent_overlap_factor =
-          static_cast<int>(jmax_grandparent_overlap_factor);
+void Java_org_rocksdb_ColumnFamilyOptions_setMaxCompactionBytes(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_compaction_bytes) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
+      ->max_compaction_bytes = static_cast<uint64_t>(jmax_compaction_bytes);
 }
 
 /*

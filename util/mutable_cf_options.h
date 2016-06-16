@@ -32,9 +32,7 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
         level0_stop_writes_trigger(options.level0_stop_writes_trigger),
         compaction_pri(options.compaction_pri),
-        max_grandparent_overlap_factor(options.max_grandparent_overlap_factor),
-        expanded_compaction_factor(options.expanded_compaction_factor),
-        source_compaction_factor(options.source_compaction_factor),
+        max_compaction_bytes(options.max_compaction_bytes),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
         max_bytes_for_level_base(options.max_bytes_for_level_base),
@@ -67,9 +65,7 @@ struct MutableCFOptions {
         level0_slowdown_writes_trigger(0),
         level0_stop_writes_trigger(0),
         compaction_pri(kByCompensatedSize),
-        max_grandparent_overlap_factor(0),
-        expanded_compaction_factor(0),
-        source_compaction_factor(0),
+        max_compaction_bytes(0),
         target_file_size_base(0),
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
@@ -87,11 +83,6 @@ struct MutableCFOptions {
 
   // Get the max file size in a given level.
   uint64_t MaxFileSizeForLevel(int level) const;
-  // Returns maximum total overlap bytes with grandparent
-  // level (i.e., level+2) before we stop building a single
-  // file in level->level+1 compaction.
-  uint64_t MaxGrandParentOverlapBytes(int level) const;
-  uint64_t ExpandedCompactionByteSizeLimit(int level) const;
   int MaxBytesMultiplerAdditional(int level) const {
     if (level >=
         static_cast<int>(max_bytes_for_level_multiplier_additional.size())) {
@@ -119,9 +110,7 @@ struct MutableCFOptions {
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;
   CompactionPri compaction_pri;
-  int max_grandparent_overlap_factor;
-  int expanded_compaction_factor;
-  int source_compaction_factor;
+  uint64_t max_compaction_bytes;
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;

@@ -99,6 +99,8 @@ struct CompactionJob::SubcompactionState {
     }
   }
 
+  uint64_t current_output_file_size;
+
   // State during the subcompaction
   uint64_t total_bytes;
   uint64_t num_input_records;
@@ -121,6 +123,7 @@ struct CompactionJob::SubcompactionState {
         end(_end),
         outfile(nullptr),
         builder(nullptr),
+        current_output_file_size(0),
         total_bytes(0),
         num_input_records(0),
         num_output_records(0),
@@ -161,7 +164,7 @@ struct CompactionJob::SubcompactionState {
 
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
-  bool ShouldStopBefore(const Slice& internal_key) {
+  bool ShouldStopBefore(const Slice& internal_key, uint64_t curr_file_size) {
     const InternalKeyComparator* icmp =
         &compaction->column_family_data()->internal_comparator();
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
@@ -182,7 +185,8 @@ struct CompactionJob::SubcompactionState {
     }
     seen_key = true;
 
-    if (overlapped_bytes > compaction->max_grandparent_overlap_bytes()) {
+    if (overlapped_bytes + curr_file_size >
+        compaction->max_compaction_bytes()) {
       // Too much overlap for current output; start new output
       overlapped_bytes = 0;
       return true;
@@ -757,7 +761,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (end != nullptr &&
         cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
       break;
-    } else if (sub_compact->ShouldStopBefore(key) &&
+    } else if (sub_compact->ShouldStopBefore(
+                   key, sub_compact->current_output_file_size) &&
                sub_compact->builder != nullptr) {
       status = FinishCompactionOutputFile(input->status(), sub_compact);
       if (!status.ok()) {
@@ -782,6 +787,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     assert(sub_compact->builder != nullptr);
     assert(sub_compact->current_output() != nullptr);
     sub_compact->builder->Add(key, value);
+    sub_compact->current_output_file_size = sub_compact->builder->FileSize();
     sub_compact->current_output()->meta.UpdateBoundaries(
         key, c_iter->ikey().sequence);
     sub_compact->num_output_records++;
@@ -840,7 +846,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     // during subcompactions (i.e. if output size, estimated by input size, is
     // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
     // and 0.6MB instead of 1MB and 0.2MB)
-    if (sub_compact->builder->FileSize() >=
+    if (sub_compact->current_output_file_size >=
         sub_compact->compaction->max_output_file_size()) {
       status = FinishCompactionOutputFile(input->status(), sub_compact);
       if (sub_compact->outputs.size() == 1) {
@@ -1021,6 +1027,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   }
 
   sub_compact->builder.reset();
+  sub_compact->current_output_file_size = 0;
   return s;
 }
 

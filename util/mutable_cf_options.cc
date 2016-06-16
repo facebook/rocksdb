@@ -55,12 +55,6 @@ uint64_t MutableCFOptions::MaxFileSizeForLevel(int level) const {
   assert(level < (int)max_file_size.size());
   return max_file_size[level];
 }
-uint64_t MutableCFOptions::MaxGrandParentOverlapBytes(int level) const {
-  return MaxFileSizeForLevel(level) * max_grandparent_overlap_factor;
-}
-uint64_t MutableCFOptions::ExpandedCompactionByteSizeLimit(int level) const {
-  return MaxFileSizeForLevel(level) * expanded_compaction_factor;
-}
 
 void MutableCFOptions::Dump(Logger* log) const {
   // Memtable related options
@@ -88,12 +82,8 @@ void MutableCFOptions::Dump(Logger* log) const {
       level0_slowdown_writes_trigger);
   Log(log, "               level0_stop_writes_trigger: %d",
       level0_stop_writes_trigger);
-  Log(log, "           max_grandparent_overlap_factor: %d",
-      max_grandparent_overlap_factor);
-  Log(log, "               expanded_compaction_factor: %d",
-      expanded_compaction_factor);
-  Log(log, "                 source_compaction_factor: %d",
-      source_compaction_factor);
+  Log(log, "                     max_compaction_bytes: %" PRIu64,
+      max_compaction_bytes);
   Log(log, "                    target_file_size_base: %" PRIu64,
       target_file_size_base);
   Log(log, "              target_file_size_multiplier: %d",

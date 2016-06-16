@@ -4271,10 +4271,8 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   options.level0_file_num_compaction_trigger = 3;
   options.level0_slowdown_writes_trigger = 4;
   options.level0_stop_writes_trigger = 8;
-  options.max_grandparent_overlap_factor = 10;
-  options.expanded_compaction_factor = 25;
-  options.source_compaction_factor = 1;
   options.target_file_size_base = k64KB;
+  options.max_compaction_bytes = options.target_file_size_base * 10;
   options.target_file_size_multiplier = 1;
   options.max_bytes_for_level_base = k128KB;
   options.max_bytes_for_level_multiplier = 4;
@@ -5023,7 +5021,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   options.compression = kNoCompression;
   options.max_bytes_for_level_base = 450 << 10;
   options.target_file_size_base = 98 << 10;
-  options.max_grandparent_overlap_factor = 1 << 20;  // inf
+  options.max_compaction_bytes = static_cast<uint64_t>(1) << 60;  // inf
 
   Reopen(options);
 

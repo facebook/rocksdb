@@ -733,19 +733,14 @@ DEFINE_uint64(
     "If non-zero, db_bench will rate-limit the writes going into RocksDB. This "
     "is the global rate in bytes/second.");
 
-DEFINE_int32(max_grandparent_overlap_factor, 10, "Control maximum bytes of "
-             "overlaps in grandparent (i.e., level+2) before we stop building a"
-             " single file in a level->level+1 compaction.");
+DEFINE_uint64(max_compaction_bytes, rocksdb::Options().max_compaction_bytes,
+              "Max bytes allowed in one compaction");
 
 #ifndef ROCKSDB_LITE
 DEFINE_bool(readonly, false, "Run read only benchmarks.");
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(disable_auto_compactions, false, "Do not auto trigger compactions");
-
-DEFINE_int32(source_compaction_factor, 1, "Cap the size of data in level-K for"
-             " a compaction run that compacts Level-K with Level-(K+1) (for"
-             " K >= 1)");
 
 DEFINE_uint64(wal_ttl_seconds, 0, "Set the TTL for the WAL Files in seconds.");
 DEFINE_uint64(wal_size_limit_MB, 0, "Set the size limit for the WAL Files"
@@ -2862,10 +2857,8 @@ class Benchmark {
     options.rate_limit_delay_max_milliseconds =
       FLAGS_rate_limit_delay_max_milliseconds;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;
-    options.max_grandparent_overlap_factor =
-      FLAGS_max_grandparent_overlap_factor;
+    options.max_compaction_bytes = FLAGS_max_compaction_bytes;
     options.disable_auto_compactions = FLAGS_disable_auto_compactions;
-    options.source_compaction_factor = FLAGS_source_compaction_factor;
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
 
     // fill storage options

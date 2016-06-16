@@ -241,8 +241,8 @@ class CompactionJobTest : public testing::Test {
 
     Compaction compaction(cfd->current()->storage_info(),
                           *cfd->GetLatestMutableCFOptions(),
-                          compaction_input_files, 1, 1024 * 1024, 10, 0,
-                          kNoCompression, {}, true);
+                          compaction_input_files, 1, 1024 * 1024,
+                          10 * 1024 * 1024, 0, kNoCompression, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
