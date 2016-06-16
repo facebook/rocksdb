@@ -639,6 +639,8 @@ Options::PrepareForBulkLoad()
   level0_file_num_compaction_trigger = (1<<30);
   level0_slowdown_writes_trigger = (1<<30);
   level0_stop_writes_trigger = (1<<30);
+  soft_pending_compaction_bytes_limit = 0;
+  hard_pending_compaction_bytes_limit = 0;
 
   // no auto compactions please. The application should issue a
   // manual compaction after all data is loaded into L0.
