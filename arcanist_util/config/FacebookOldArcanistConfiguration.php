@@ -3,10 +3,11 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
+
 class FacebookArcanistConfiguration extends ArcanistConfiguration {
 
   public function didRunWorkflow($command,
-                                 ArcanistWorkflow $workflow,
+                                 ArcanistBaseWorkflow $workflow,
                                  $error_code) {
     if ($command == 'diff' && !$workflow->isRawDiffSource()) {
       $this->startTestsInSandcastle($workflow);
@@ -170,37 +171,17 @@ class FacebookArcanistConfiguration extends ArcanistConfiguration {
             .'&user=krad&alias=rocksdb-precommit'
             .'&command-args=' . urlencode(json_encode($command));
 
-    if (file_exists('/home/krad/.sandcastle')) {
-      $cmd = 'cat /home/krad/.sandcastle';
-    } else {
-      $cmd = 'cat ~/.sandcastle';
-    }
-    $sandcastle_config = explode(':', rtrim(shell_exec($cmd)));
-
-    if (count($sandcastle_config) != 2) {
-      print('.sandcastle does not contain valid configuration');
-      return;
-    }
-
-    $app = $sandcastle_config[0];
-    $token = $sandcastle_config[1];
-
-    $cmd = 'https_proxy= HTTPS_PROXY= curl -s -k -F app=' . $app . ' '
-            . '-F token=' . $token . ' "' . $url . '"';
+    $cmd = 'https_proxy= HTTPS_PROXY= curl -s -k -F app=659387027470559 '
+            . '-F token=AeO_3f2Ya3TujjnxGD4 "' . $url . '"';
 
     $output = shell_exec($cmd);
 
     // extract sandcastle URL from the response
     preg_match('/url": "(.+)"/', $output, $sandcastle_url);
 
-    if (count($sandcastle_url) > 1) {
-      echo "\nSandcastle URL: " . $sandcastle_url[1] . "\n";
+    echo "\nSandcastle URL: " . $sandcastle_url[1] . "\n";
 
-      // Ask phabricator to display it on the diff UI
-      $this->postURL($diffID, $sandcastle_url[1]);
-    } else {
-      print("Error submitting job to sandcastle.");
-      print($output);
-    }
+    // Ask phabricator to display it on the diff UI
+    $this->postURL($diffID, $sandcastle_url[1]);
   }
 }
