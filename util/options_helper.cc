@@ -845,7 +845,8 @@ Status ParseColumnFamilyOption(const std::string& name,
             "Unable to parse the specified CF option " + name);
       }
       const auto& opt_info = iter->second;
-      if (ParseOptionHelper(
+      if (opt_info.verification != OptionVerificationType::kDeprecated &&
+          ParseOptionHelper(
               reinterpret_cast<char*>(new_options) + opt_info.offset,
               opt_info.type, value)) {
         return Status::OK();
@@ -1037,7 +1038,8 @@ Status ParseDBOption(const std::string& name,
         return Status::InvalidArgument("Unrecognized option DBOptions:", name);
       }
       const auto& opt_info = iter->second;
-      if (ParseOptionHelper(
+      if (opt_info.verification != OptionVerificationType::kDeprecated &&
+          ParseOptionHelper(
               reinterpret_cast<char*>(new_options) + opt_info.offset,
               opt_info.type, value)) {
         return Status::OK();
