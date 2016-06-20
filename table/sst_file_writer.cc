@@ -104,10 +104,14 @@ Status SstFileWriter::Open(const std::string& file_path) {
     return s;
   }
 
-  CompressionType compression_type = r->mutable_cf_options.compression;
-  if (!r->ioptions.compression_per_level.empty()) {
+  CompressionType compression_type;
+  if (r->ioptions.bottommost_compression != kDisableCompressionOption) {
+    compression_type = r->ioptions.bottommost_compression;
+  } else if (!r->ioptions.compression_per_level.empty()) {
     // Use the compression of the last level if we have per level compression
     compression_type = *(r->ioptions.compression_per_level.rbegin());
+  } else {
+    compression_type = r->mutable_cf_options.compression;
   }
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
