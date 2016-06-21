@@ -877,11 +877,13 @@ ColumnFamilySet::~ColumnFamilySet() {
   while (column_family_data_.size() > 0) {
     // cfd destructor will delete itself from column_family_data_
     auto cfd = column_family_data_.begin()->second;
-    cfd->Unref();
-    delete cfd;
+    if (cfd->Unref()) {
+      delete cfd;
+    }
   }
-  dummy_cfd_->Unref();
-  delete dummy_cfd_;
+  if (dummy_cfd_->Unref()) {
+    delete dummy_cfd_;
+  }
 }
 
 ColumnFamilyData* ColumnFamilySet::GetDefault() const {
