@@ -138,6 +138,15 @@ dummy := $(shell (export ROCKSDB_ROOT="$(CURDIR)"; "$(CURDIR)/build_tools/build_
 include make_config.mk
 CLEAN_FILES += make_config.mk
 
+missing_make_config_paths := $(shell				\
+	grep "\/\S*" -o $(CURDIR)/make_config.mk | 		\
+	while read path;					\
+		do [ -e $$path ] || echo $$path; 		\
+	done | sort | uniq)
+
+$(foreach path, $(missing_make_config_paths), \
+	$(warning Warning: $(path) dont exist))
+
 ifneq ($(PLATFORM), IOS)
 CFLAGS += -g
 CXXFLAGS += -g
