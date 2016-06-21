@@ -32,7 +32,6 @@ namespace rocksdb {
 class Mutex;
 class MemTableIterator;
 class MergeContext;
-class WriteBuffer;
 class InternalIterator;
 
 struct MemTableOptions {
@@ -91,7 +90,8 @@ class MemTable {
   explicit MemTable(const InternalKeyComparator& comparator,
                     const ImmutableCFOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
-                    WriteBuffer* write_buffer, SequenceNumber earliest_seq);
+                    WriteBufferManager* write_buffer_manager,
+                    SequenceNumber earliest_seq);
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();

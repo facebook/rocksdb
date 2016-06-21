@@ -20,7 +20,6 @@
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "db/writebuffer.h"
 #include "memtable/stl_wrappers.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
@@ -30,6 +29,7 @@
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
@@ -400,10 +400,10 @@ uint64_t TableConstructor::cur_uniq_id_ = 1;
 
 class MemTableConstructor: public Constructor {
  public:
-  explicit MemTableConstructor(const Comparator* cmp, WriteBuffer* wb)
+  explicit MemTableConstructor(const Comparator* cmp, WriteBufferManager* wb)
       : Constructor(cmp),
         internal_comparator_(cmp),
-        write_buffer_(wb),
+        write_buffer_manager_(wb),
         table_factory_(new SkipListFactory) {
     options_.memtable_factory = table_factory_;
     ImmutableCFOptions ioptions(options_);
@@ -423,7 +423,7 @@ class MemTableConstructor: public Constructor {
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
                              MutableCFOptions(options_, mem_ioptions),
-                             write_buffer_, kMaxSequenceNumber);
+                             write_buffer_manager_, kMaxSequenceNumber);
     memtable_->Ref();
     int seq = 1;
     for (const auto kv : kv_map) {
@@ -445,7 +445,7 @@ class MemTableConstructor: public Constructor {
   mutable Arena arena_;
   InternalKeyComparator internal_comparator_;
   Options options_;
-  WriteBuffer* write_buffer_;
+  WriteBufferManager* write_buffer_manager_;
   MemTable* memtable_;
   std::shared_ptr<SkipListFactory> table_factory_;
 };
@@ -941,7 +941,7 @@ class HarnessTest : public testing::Test {
   ImmutableCFOptions ioptions_;
   BlockBasedTableOptions table_options_ = BlockBasedTableOptions();
   Constructor* constructor_;
-  WriteBuffer write_buffer_;
+  WriteBufferManager write_buffer_;
   bool support_prev_;
   bool only_support_prefix_seek_;
   shared_ptr<InternalKeyComparator> internal_comparator_;
@@ -2237,7 +2237,7 @@ TEST_F(MemTableTest, Simple) {
   Options options;
   options.memtable_factory = table_factory;
   ImmutableCFOptions ioptions(options);
-  WriteBuffer wb(options.db_write_buffer_size);
+  WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* memtable =
       new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
                    kMaxSequenceNumber);

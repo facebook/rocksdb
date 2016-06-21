@@ -17,11 +17,11 @@
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/write_batch_internal.h"
-#include "db/writebuffer.h"
 #include "port/dirent.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "tools/ldb_cmd_impl.h"
 #include "tools/sst_dump_tool_imp.h"
@@ -868,7 +868,7 @@ void DumpManifestFile(std::string file, bool verbose, bool hex, bool json) {
   options.db_paths.emplace_back("dummy", 0);
   options.num_levels = 64;
   WriteController wc(options.delayed_write_rate);
-  WriteBuffer wb(options.db_write_buffer_size);
+  WriteBufferManager wb(options.db_write_buffer_size);
   VersionSet versions(dbname, &options, sopt, tc.get(), &wb, &wc);
   Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
@@ -1578,7 +1578,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
       NewLRUCache(opt.max_open_files - 10, opt.table_cache_numshardbits));
   const InternalKeyComparator cmp(opt.comparator);
   WriteController wc(opt.delayed_write_rate);
-  WriteBuffer wb(opt.db_write_buffer_size);
+  WriteBufferManager wb(opt.db_write_buffer_size);
   VersionSet versions(db_path_, &opt, soptions, tc.get(), &wb, &wc);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,

@@ -494,14 +494,14 @@ class RecoveryTestHelper {
 
     shared_ptr<Cache> table_cache = NewLRUCache(50000, 16);
     EnvOptions env_options;
-    WriteBuffer write_buffer(db_options.db_write_buffer_size);
+    WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
 
     unique_ptr<VersionSet> versions;
     unique_ptr<WalManager> wal_manager;
     WriteController write_controller;
 
     versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
-                                  table_cache.get(), &write_buffer,
+                                  table_cache.get(), &write_buffer_manager,
                                   &write_controller));
 
     wal_manager.reset(new WalManager(db_options, env_options));

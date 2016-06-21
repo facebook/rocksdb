@@ -7,20 +7,22 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-// WriteBuffer is for managing memory allocation for one or more MemTables.
+// WriteBufferManager is for managing memory allocation for one or more
+// MemTables.
 
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 
 namespace rocksdb {
 
-class WriteBuffer {
+class WriteBufferManager {
  public:
-  explicit WriteBuffer(size_t _buffer_size)
+  explicit WriteBufferManager(size_t _buffer_size)
       : buffer_size_(_buffer_size), memory_used_(0) {}
 
-  ~WriteBuffer() {}
+  ~WriteBufferManager() {}
 
   size_t memory_usage() const {
     return memory_used_.load(std::memory_order_relaxed);
@@ -45,8 +47,7 @@ class WriteBuffer {
   std::atomic<size_t> memory_used_;
 
   // No copying allowed
-  WriteBuffer(const WriteBuffer&);
-  void operator=(const WriteBuffer&);
+  WriteBufferManager(const WriteBufferManager&) = delete;
+  WriteBufferManager& operator=(const WriteBufferManager&) = delete;
 };
-
 }  // namespace rocksdb

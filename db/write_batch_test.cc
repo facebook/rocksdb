@@ -10,13 +10,13 @@
 #include "rocksdb/db.h"
 
 #include <memory>
-#include "db/memtable.h"
 #include "db/column_family.h"
+#include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/logging.h"
 #include "util/string_util.h"
@@ -30,7 +30,7 @@ static std::string PrintContents(WriteBatch* b) {
   Options options;
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
-  WriteBuffer wb(options.db_write_buffer_size);
+  WriteBufferManager wb(options.db_write_buffer_size);
   MemTable* mem =
       new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
                    kMaxSequenceNumber);

@@ -323,7 +323,7 @@ class ColumnFamilyData {
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
-                   WriteBuffer* write_buffer,
+                   WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
                    const DBOptions* db_options, const EnvOptions& env_options,
                    ColumnFamilySet* column_family_set);
@@ -348,7 +348,7 @@ class ColumnFamilyData {
 
   std::unique_ptr<InternalStats> internal_stats_;
 
-  WriteBuffer* write_buffer_;
+  WriteBufferManager* write_buffer_manager_;
 
   MemTable* mem_;
   MemTableList imm_;
@@ -438,7 +438,8 @@ class ColumnFamilySet {
 
   ColumnFamilySet(const std::string& dbname, const DBOptions* db_options,
                   const EnvOptions& env_options, Cache* table_cache,
-                  WriteBuffer* write_buffer, WriteController* write_controller);
+                  WriteBufferManager* write_buffer_manager,
+                  WriteController* write_controller);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -495,7 +496,7 @@ class ColumnFamilySet {
   const DBOptions* const db_options_;
   const EnvOptions env_options_;
   Cache* table_cache_;
-  WriteBuffer* write_buffer_;
+  WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
 };
 

@@ -9,17 +9,17 @@
 
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
-#include "db/writebuffer.h"
 #include "include/org_rocksdb_WriteBatch.h"
-#include "include/org_rocksdb_WriteBatch_Handler.h"
 #include "include/org_rocksdb_WriteBatchTest.h"
 #include "include/org_rocksdb_WriteBatchTestInternalHelper.h"
+#include "include/org_rocksdb_WriteBatch_Handler.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/immutable_options.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "rocksjni/portal.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/logging.h"
@@ -42,7 +42,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   rocksdb::InternalKeyComparator cmp(rocksdb::BytewiseComparator());
   auto factory = std::make_shared<rocksdb::SkipListFactory>();
   rocksdb::Options options;
-  rocksdb::WriteBuffer wb(options.db_write_buffer_size);
+  rocksdb::WriteBufferManager wb(options.db_write_buffer_size);
   options.memtable_factory = factory;
   rocksdb::MemTable* mem = new rocksdb::MemTable(
       cmp, rocksdb::ImmutableCFOptions(options),

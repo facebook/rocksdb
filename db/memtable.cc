@@ -17,12 +17,12 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
-#include "db/writebuffer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/internal_iterator.h"
 #include "table/merger.h"
 #include "util/arena.h"
@@ -57,13 +57,14 @@ MemTableOptions::MemTableOptions(const ImmutableCFOptions& ioptions,
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
-                   WriteBuffer* write_buffer, SequenceNumber earliest_seq)
+                   WriteBufferManager* write_buffer_manager,
+                   SequenceNumber earliest_seq)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
       arena_(moptions_.arena_block_size, 0),
-      allocator_(&arena_, write_buffer),
+      allocator_(&arena_, write_buffer_manager),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
           ioptions.info_log)),

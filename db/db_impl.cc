@@ -57,7 +57,6 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "db/writebuffer.h"
 #include "db/xfunc_test_points.h"
 #include "memtable/hash_linklist_rep.h"
 #include "memtable/hash_skiplist_rep.h"
@@ -73,6 +72,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/version.h"
 #include "rocksdb/wal_filter.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
 #include "table/merger.h"
@@ -146,6 +146,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
       // No place suitable for logging
       result.info_log = nullptr;
     }
+  }
+  if (!result.write_buffer_manager) {
+    result.write_buffer_manager.reset(
+        new WriteBufferManager(result.db_write_buffer_size));
   }
   if (result.base_background_compactions == -1) {
     result.base_background_compactions = result.max_background_compactions;
@@ -315,7 +319,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       total_log_size_(0),
       max_total_in_memory_state_(0),
       is_snapshot_supported_(true),
-      write_buffer_(options.db_write_buffer_size),
+      write_buffer_manager_(db_options_.write_buffer_manager.get()),
       write_thread_(options.enable_write_thread_adaptive_yield
                         ? options.write_thread_max_yield_usec
                         : 0,
@@ -355,7 +359,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       NewLRUCache(table_cache_size, db_options_.table_cache_numshardbits);
 
   versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_,
+                                 table_cache_.get(), write_buffer_manager_,
                                  &write_controller_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
@@ -4420,11 +4424,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       }
     }
     MaybeScheduleFlushOrCompaction();
-  } else if (UNLIKELY(write_buffer_.ShouldFlush())) {
+  } else if (UNLIKELY(write_buffer_manager_->ShouldFlush())) {
+    // Before a new memtable is added in SwitchMemtable(),
+    // write_buffer_manager_->ShouldFlush() will keep returning true. If another
+    // thread is writing to another DB with the same write buffer, they may also
+    // be flushed. We may end up with flushing much more DBs than needed. It's
+    // suboptimal but still correct.
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "Flushing column family with largest mem table size. Write buffer is "
         "using %" PRIu64 " bytes out of a total of %" PRIu64 ".",
-        write_buffer_.memory_usage(), write_buffer_.buffer_size());
+        write_buffer_manager_->memory_usage(),
+        write_buffer_manager_->buffer_size());
     // no need to refcount because drop is happening in write thread, so can't
     // happen while we're in the write thread
     ColumnFamilyData* largest_cfd = nullptr;

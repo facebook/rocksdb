@@ -26,7 +26,6 @@
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
-#include "db/writebuffer.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "util/autovector.h"
 #include "util/compression.h"
@@ -330,7 +329,7 @@ void SuperVersionUnrefHandle(void* ptr) {
 
 ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
-    Cache* _table_cache, WriteBuffer* write_buffer,
+    Cache* _table_cache, WriteBufferManager* write_buffer_manager,
     const ColumnFamilyOptions& cf_options, const DBOptions* db_options,
     const EnvOptions& env_options, ColumnFamilySet* column_family_set)
     : id_(id),
@@ -344,7 +343,7 @@ ColumnFamilyData::ColumnFamilyData(
                SanitizeOptions(*db_options, &internal_comparator_, cf_options)),
       ioptions_(options_),
       mutable_cf_options_(options_, ioptions_),
-      write_buffer_(write_buffer),
+      write_buffer_manager_(write_buffer_manager),
       mem_(nullptr),
       imm_(options_.min_write_buffer_number_to_merge,
            options_.max_write_buffer_number_to_maintain),
@@ -676,7 +675,7 @@ MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
   assert(current_ != nullptr);
   return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
-                      write_buffer_, earliest_seq);
+                      write_buffer_manager_, earliest_seq);
 }
 
 void ColumnFamilyData::CreateNewMemtable(
@@ -855,7 +854,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const DBOptions* db_options,
                                  const EnvOptions& env_options,
                                  Cache* table_cache,
-                                 WriteBuffer* write_buffer,
+                                 WriteBufferManager* write_buffer_manager,
                                  WriteController* write_controller)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(0, "", nullptr, nullptr, nullptr,
@@ -866,7 +865,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       db_options_(db_options),
       env_options_(env_options),
       table_cache_(table_cache),
-      write_buffer_(write_buffer),
+      write_buffer_manager_(write_buffer_manager),
       write_controller_(write_controller) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
@@ -929,10 +928,9 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,
     const ColumnFamilyOptions& options) {
   assert(column_families_.find(name) == column_families_.end());
-  ColumnFamilyData* new_cfd =
-      new ColumnFamilyData(id, name, dummy_versions, table_cache_,
-                           write_buffer_, options, db_options_,
-                           env_options_, this);
+  ColumnFamilyData* new_cfd = new ColumnFamilyData(
+      id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
+      db_options_, env_options_, this);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);

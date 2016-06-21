@@ -318,6 +318,7 @@ DBOptions::DBOptions(const Options& options)
       stats_dump_period_sec(options.stats_dump_period_sec),
       advise_random_on_open(options.advise_random_on_open),
       db_write_buffer_size(options.db_write_buffer_size),
+      write_buffer_manager(options.write_buffer_manager),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       new_table_reader_for_compaction_inputs(
           options.new_table_reader_for_compaction_inputs),

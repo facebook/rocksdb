@@ -31,13 +31,13 @@
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
-#include "db/writebuffer.h"
 #include "memtable_list.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
 #include "util/event_logger.h"
@@ -803,7 +803,7 @@ class DBImpl : public DB {
 
   Directories directories_;
 
-  WriteBuffer write_buffer_;
+  WriteBufferManager* write_buffer_manager_;
 
   WriteThread write_thread_;
 

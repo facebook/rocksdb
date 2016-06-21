@@ -7,16 +7,16 @@
 #include <map>
 #include <string>
 
-#include "db/flush_job.h"
 #include "db/column_family.h"
+#include "db/flush_job.h"
 #include "db/version_set.h"
-#include "db/writebuffer.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/write_buffer_manager.h"
+#include "table/mock_table.h"
 #include "util/file_reader_writer.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "table/mock_table.h"
 
 namespace rocksdb {
 
@@ -29,9 +29,9 @@ class FlushJobTest : public testing::Test {
       : env_(Env::Default()),
         dbname_(test::TmpDir() + "/flush_job_test"),
         table_cache_(NewLRUCache(50000, 16)),
-        write_buffer_(db_options_.db_write_buffer_size),
+        write_buffer_manager_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_buffer_,
+                                 table_cache_.get(), &write_buffer_manager_,
                                  &write_controller_)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
@@ -77,7 +77,7 @@ class FlushJobTest : public testing::Test {
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   DBOptions db_options_;
-  WriteBuffer write_buffer_;
+  WriteBufferManager write_buffer_manager_;
   ColumnFamilyOptions cf_options_;
   std::unique_ptr<VersionSet> versions_;
   InstrumentedMutex mutex_;

@@ -28,13 +28,13 @@ int main() {
 
 #include "db/dbformat.h"
 #include "db/memtable.h"
-#include "db/writebuffer.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "util/arena.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
@@ -622,7 +622,7 @@ int main(int argc, char** argv) {
       rocksdb::BytewiseComparator());
   rocksdb::MemTable::KeyComparator key_comp(internal_key_comp);
   rocksdb::Arena arena;
-  rocksdb::WriteBuffer wb(FLAGS_write_buffer_size);
+  rocksdb::WriteBufferManager wb(FLAGS_write_buffer_size);
   rocksdb::MemTableAllocator memtable_allocator(&arena, &wb);
   uint64_t sequence;
   auto createMemtableRep = [&] {

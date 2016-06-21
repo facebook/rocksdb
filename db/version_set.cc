@@ -33,9 +33,9 @@
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_builder.h"
-#include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
@@ -2086,11 +2086,11 @@ struct VersionSet::ManifestWriter {
 
 VersionSet::VersionSet(const std::string& dbname, const DBOptions* db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
-                       WriteBuffer* write_buffer,
+                       WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller)
-    : column_family_set_(new ColumnFamilySet(
-          dbname, db_options, storage_options, table_cache,
-          write_buffer, write_controller)),
+    : column_family_set_(
+          new ColumnFamilySet(dbname, db_options, storage_options, table_cache,
+                              write_buffer_manager, write_controller)),
       env_(db_options->env),
       dbname_(dbname),
       db_options_(db_options),
@@ -2837,7 +2837,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
-  WriteBuffer wb(options->db_write_buffer_size);
+  WriteBufferManager wb(options->db_write_buffer_size);
   VersionSet versions(dbname, options, env_options, tc.get(), &wb, &wc);
   Status status;
 
