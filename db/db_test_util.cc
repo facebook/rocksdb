@@ -1075,6 +1075,35 @@ std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
 }
 
 #ifndef ROCKSDB_LITE
+
+Status DBTestBase::GenerateAndAddExternalFile(const Options options,
+                                              std::vector<int> keys,
+                                              size_t file_id) {
+  std::string file_path =
+      test::TmpDir(env_) + "/sst_files/" + ToString(file_id);
+  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+
+  Status s = sst_file_writer.Open(file_path);
+  if (!s.ok()) {
+    return s;
+  }
+  for (auto& entry : keys) {
+    std::string k = Key(entry);
+    std::string v = k + ToString(file_id);
+    s = sst_file_writer.Add(k, v);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  s = sst_file_writer.Finish();
+
+  if (s.ok()) {
+    s = db_->AddFile(file_path);
+  }
+
+  return s;
+}
+
 uint64_t DBTestBase::GetNumberOfSstFilesForColumnFamily(
     DB* db, std::string column_family_name) {
   std::vector<LiveFileMetaData> metadata;

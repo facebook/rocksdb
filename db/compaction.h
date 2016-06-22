@@ -219,6 +219,8 @@ class Compaction {
     output_table_properties_ = std::move(tp);
   }
 
+  Slice GetSmallestUserKey() const { return smallest_user_key_; }
+
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
   CompactionReason compaction_reason() { return compaction_reason_; }
@@ -293,6 +295,9 @@ class Compaction {
 
   // table properties of output files
   TablePropertiesCollection output_table_properties_;
+
+  // smallest user keys in compaction
+  Slice smallest_user_key_;
 
   // largest user keys in compaction
   Slice largest_user_key_;

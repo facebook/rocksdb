@@ -39,6 +39,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
@@ -797,6 +798,9 @@ class DBTestBase : public testing::Test {
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 
 #ifndef ROCKSDB_LITE
+  Status GenerateAndAddExternalFile(const Options options,
+                                    std::vector<int> keys, size_t file_id);
+
   uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
                                               std::string column_family_name);
 #endif  // ROCKSDB_LITE

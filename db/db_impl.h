@@ -623,6 +623,11 @@ class DBImpl : public DB {
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
 #ifndef ROCKSDB_LITE
+  // Finds the lowest level in the DB that the ingested file can be added to
+  // REQUIRES: mutex_ held
+  int PickLevelForIngestedFile(ColumnFamilyData* cfd,
+                               const ExternalSstFileInfo* file_info);
+
   Status CompactFilesImpl(
       const CompactionOptions& compact_options, ColumnFamilyData* cfd,
       Version* version, const std::vector<std::string>& input_file_names,
@@ -911,6 +916,10 @@ class DBImpl : public DB {
 
   // The options to access storage files
   const EnvOptions env_options_;
+
+  // A set of compactions that are running right now
+  // REQUIRES: mutex held
+  std::unordered_set<Compaction*> running_compactions_;
 
 #ifndef ROCKSDB_LITE
   WalManager wal_manager_;

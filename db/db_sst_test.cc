@@ -1243,6 +1243,215 @@ TEST_F(DBSSTTest, AddExternalSstFileOverlappingRanges) {
                          kSkipFIFOCompaction));
 }
 
+TEST_F(DBSSTTest, AddExternalSstFilePickedLevel) {
+  std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+  env_->CreateDir(sst_files_folder);
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = false;
+  options.level0_file_num_compaction_trigger = 4;
+  options.num_levels = 4;
+  options.env = env_;
+  DestroyAndReopen(options);
+
+  std::vector<std::vector<int>> file_to_keys;
+
+  // File 0 will go to last level (L3)
+  file_to_keys.push_back({1, 10});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  EXPECT_EQ(FilesPerLevel(), "0,0,0,1");
+
+  // File 1 will go to level L2 (since it overlap with file 0 in L3)
+  file_to_keys.push_back({2, 9});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  EXPECT_EQ(FilesPerLevel(), "0,0,1,1");
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBSSTTest::AddExternalSstFilePickedLevel:0",
+       "BackgroundCallCompaction:0"},
+      {"DBImpl::BackgroundCompaction:Start",
+       "DBSSTTest::AddExternalSstFilePickedLevel:1"},
+      {"DBSSTTest::AddExternalSstFilePickedLevel:2",
+       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Flush 4 files containing the same keys
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(Put(Key(3), Key(3) + "put"));
+    ASSERT_OK(Put(Key(8), Key(8) + "put"));
+    ASSERT_OK(Flush());
+  }
+
+  // Wait for BackgroundCompaction() to be called
+  TEST_SYNC_POINT("DBSSTTest::AddExternalSstFilePickedLevel:0");
+  TEST_SYNC_POINT("DBSSTTest::AddExternalSstFilePickedLevel:1");
+
+  EXPECT_EQ(FilesPerLevel(), "4,0,1,1");
+
+  // This file overlaps with file 0 (L3), file 1 (L2) and the
+  // output of compaction going to L1
+  file_to_keys.push_back({4, 7});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  EXPECT_EQ(FilesPerLevel(), "5,0,1,1");
+
+  // This file does not overlap with any file or with the running compaction
+  file_to_keys.push_back({9000, 9001});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  EXPECT_EQ(FilesPerLevel(), "5,0,1,2");
+
+  // Hold compaction from finishing
+  TEST_SYNC_POINT("DBSSTTest::AddExternalSstFilePickedLevel:2");
+
+  dbfull()->TEST_WaitForCompact();
+  EXPECT_EQ(FilesPerLevel(), "1,1,1,2");
+
+  for (size_t file_id = 0; file_id < file_to_keys.size(); file_id++) {
+    for (auto& key_id : file_to_keys[file_id]) {
+      std::string k = Key(key_id);
+      std::string v = k + ToString(file_id);
+      if (key_id == 3 || key_id == 8) {
+        v = k + "put";
+      }
+
+      ASSERT_EQ(Get(k), v);
+    }
+  }
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBSSTTest, AddExternalSstFilePickedLevelDynamic) {
+  std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+  env_->CreateDir(sst_files_folder);
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = false;
+  options.level0_file_num_compaction_trigger = 4;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.num_levels = 4;
+  options.env = env_;
+  DestroyAndReopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBSSTTest::AddExternalSstFilePickedLevelDynamic:0",
+       "BackgroundCallCompaction:0"},
+      {"DBImpl::BackgroundCompaction:Start",
+       "DBSSTTest::AddExternalSstFilePickedLevelDynamic:1"},
+      {"DBSSTTest::AddExternalSstFilePickedLevelDynamic:2",
+       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Flush 4 files containing the same keys
+  for (int i = 0; i < 4; i++) {
+    for (int k = 20; k <= 30; k++) {
+      ASSERT_OK(Put(Key(k), Key(k) + "put"));
+    }
+    for (int k = 50; k <= 60; k++) {
+      ASSERT_OK(Put(Key(k), Key(k) + "put"));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  // Wait for BackgroundCompaction() to be called
+  TEST_SYNC_POINT("DBSSTTest::AddExternalSstFilePickedLevelDynamic:0");
+  TEST_SYNC_POINT("DBSSTTest::AddExternalSstFilePickedLevelDynamic:1");
+  std::vector<std::vector<int>> file_to_keys;
+
+  // This file overlaps with the output of the compaction (going to L3)
+  // so the file will be added to L0 since L3 is the base level
+  file_to_keys.push_back({31, 32, 33, 34});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  EXPECT_EQ(FilesPerLevel(), "5");
+
+  // This file does not overlap with the current running compactiong
+  file_to_keys.push_back({9000, 9001});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  EXPECT_EQ(FilesPerLevel(), "5,0,0,1");
+
+  // Hold compaction from finishing
+  TEST_SYNC_POINT("DBSSTTest::AddExternalSstFilePickedLevelDynamic:2");
+
+  // Output of the compaction will go to L3
+  dbfull()->TEST_WaitForCompact();
+  EXPECT_EQ(FilesPerLevel(), "1,0,0,2");
+
+  Close();
+  options.disable_auto_compactions = true;
+  Reopen(options);
+
+  file_to_keys.push_back({1, 15, 19});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  ASSERT_EQ(FilesPerLevel(), "1,0,0,3");
+
+  file_to_keys.push_back({1000, 1001, 1002});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  ASSERT_EQ(FilesPerLevel(), "1,0,0,4");
+
+  file_to_keys.push_back({500, 600, 700});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  ASSERT_EQ(FilesPerLevel(), "1,0,0,5");
+
+  // File 5 overlaps with file 2 (L3 / base level)
+  file_to_keys.push_back({2, 10});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  ASSERT_EQ(FilesPerLevel(), "2,0,0,5");
+
+  // File 6 overlaps with file 2 (L3 / base level) and file 5 (L0)
+  file_to_keys.push_back({3, 9});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  ASSERT_EQ(FilesPerLevel(), "3,0,0,5");
+
+  // Verify data in files
+  for (size_t file_id = 0; file_id < file_to_keys.size(); file_id++) {
+    for (auto& key_id : file_to_keys[file_id]) {
+      std::string k = Key(key_id);
+      std::string v = k + ToString(file_id);
+
+      ASSERT_EQ(Get(k), v);
+    }
+  }
+
+  // Write range [5 => 10] to L0
+  for (int i = 5; i <= 10; i++) {
+    std::string k = Key(i);
+    std::string v = k + "put";
+    ASSERT_OK(Put(k, v));
+  }
+  ASSERT_OK(Flush());
+  ASSERT_EQ(FilesPerLevel(), "4,0,0,5");
+
+  // File 7 overlaps with file 4 (L3)
+  file_to_keys.push_back({650, 651, 652});
+  ASSERT_OK(GenerateAndAddExternalFile(options, file_to_keys.back(),
+                                       file_to_keys.size() - 1));
+  ASSERT_EQ(FilesPerLevel(), "5,0,0,5");
+
+  for (size_t file_id = 0; file_id < file_to_keys.size(); file_id++) {
+    for (auto& key_id : file_to_keys[file_id]) {
+      std::string k = Key(key_id);
+      std::string v = k + ToString(file_id);
+      if (key_id >= 5 && key_id <= 10) {
+        v = k + "put";
+      }
+
+      ASSERT_EQ(Get(k), v);
+    }
+  }
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 #endif  // ROCKSDB_LITE
 
 // 1 Create some SST files by inserting K-V pairs into DB

@@ -800,9 +800,10 @@ class DB {
   // Current Requirements:
   // (1) Key range in loaded table file don't overlap with
   //     existing keys or tombstones in DB.
-  // (2) No other writes happen during AddFile call, otherwise
-  //     DB may get corrupted.
-  // (3) No snapshots are held.
+  // (2) No snapshots are held.
+  //
+  // Notes: We will try to ingest the file to the lowest possible level
+  //        even if the file compression dont match the level compression
   virtual Status AddFile(ColumnFamilyHandle* column_family,
                          const std::string& file_path,
                          bool move_file = false) = 0;

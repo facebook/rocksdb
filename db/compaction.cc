@@ -187,8 +187,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
     }
   }
 
-  Slice smallest_user_key;
-  GetBoundaryKeys(vstorage, inputs_, &smallest_user_key, &largest_user_key_);
+  GetBoundaryKeys(vstorage, inputs_, &smallest_user_key_, &largest_user_key_);
 }
 
 Compaction::~Compaction() {
