@@ -35,6 +35,8 @@ class EnvBasicTestWithParam : public testing::Test,
   }
 };
 
+class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
+
 static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
 INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
                         ::testing::Values(mock_env.get()));
@@ -73,6 +75,10 @@ std::vector<Env*> GetCustomEnvs() {
 
 INSTANTIATE_TEST_CASE_P(CustomEnv, EnvBasicTestWithParam,
                         ::testing::ValuesIn(GetCustomEnvs()));
+
+INSTANTIATE_TEST_CASE_P(CustomEnv, EnvMoreTestWithParam,
+                        ::testing::ValuesIn(GetCustomEnvs()));
+
 #endif  // ROCKSDB_LITE
 
 TEST_P(EnvBasicTestWithParam, Basics) {
@@ -133,7 +139,7 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/g"));
   ASSERT_OK(env_->GetChildren(test_dir_, &children));
   ASSERT_EQ(0U, children.size());
-  ASSERT_OK(env_->DeleteDir(test_dir_));
+  env_->DeleteDir(test_dir_);
 }
 
 TEST_P(EnvBasicTestWithParam, ReadWrite) {
@@ -184,10 +190,6 @@ TEST_P(EnvBasicTestWithParam, Locks) {
 }
 
 TEST_P(EnvBasicTestWithParam, Misc) {
-  std::string test_dir;
-  ASSERT_OK(env_->GetTestDirectory(&test_dir));
-  ASSERT_TRUE(!test_dir.empty());
-
   unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/b", &writable_file, soptions_));
 
@@ -230,8 +232,68 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
   delete [] scratch;
 }
 
-}  // namespace rocksdb
+TEST_P(EnvMoreTestWithParam, GetModTime) {
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/dir1"));
+  uint64_t mtime1 = 0x0;
+  ASSERT_OK(env_->GetFileModificationTime(test_dir_ + "/dir1", &mtime1));
+  ASSERT_OK(env_->DeleteFile(test_dir_ + "/dir1"));
+}
 
+TEST_P(EnvMoreTestWithParam, MakeDir) {
+  ASSERT_OK(env_->CreateDir(test_dir_ + "/j/d/f/h/s/f/s"));
+  ASSERT_OK(env_->FileExists(test_dir_ + "/j"));
+  ASSERT_OK(env_->FileExists(test_dir_ + "/j/d"));
+  std::vector<std::string> children;
+  env_->GetChildren(test_dir_, &children);
+  ASSERT_EQ(1U, children.size());
+  // fail because file already exists
+  ASSERT_TRUE(!env_->CreateDir(test_dir_ + "/j").ok());
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/j"));
+  // j exis, k not exist, okay to create
+  ASSERT_OK(env_->CreateDir(test_dir_ + "/j/k"));
+  ASSERT_OK(env_->FileExists(test_dir_ + "/j/k"));
+  ASSERT_OK(env_->DeleteDir(test_dir_ + "/j"));
+  ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/j/k"));
+}
+
+TEST_P(EnvMoreTestWithParam, GetChildren) {
+  // empty folder returns empty vector
+  std::vector<std::string> children;
+  std::vector<Env::FileAttributes> childAttr;
+  std::string path = test_dir_ + "/jwn";
+  ASSERT_OK(env_->CreateDirIfMissing(path));
+  ASSERT_OK(env_->GetChildren(path, &children));
+  ASSERT_OK(env_->FileExists(path));
+  ASSERT_OK(env_->GetChildrenFileAttributes(path, &childAttr));
+  ASSERT_EQ(0U, children.size());
+  ASSERT_EQ(0U, childAttr.size());
+
+  // folder with contents returns relative path
+  ASSERT_OK(env_->CreateDirIfMissing(path + "/linda"));
+  ASSERT_OK(env_->CreateDirIfMissing(path + "/wanning"));
+  ASSERT_OK(env_->CreateDirIfMissing(path + "/jiang"));
+  ASSERT_OK(env_->GetChildren(path, &children));
+  ASSERT_OK(env_->GetChildrenFileAttributes(path, &childAttr));
+  ASSERT_EQ(3U, children.size());
+  ASSERT_EQ(3U, childAttr.size());
+
+  // non-exist directory returns IOError
+  ASSERT_OK(env_->DeleteDir(path));
+  ASSERT_TRUE(!env_->FileExists(path).ok());
+  ASSERT_TRUE(!env_->GetChildren(path, &children).ok());
+  ASSERT_TRUE(!env_->GetChildrenFileAttributes(path, &childAttr).ok());
+
+  // if dir is a file, returns IOError
+  unique_ptr<WritableFile> writable_file;
+  ASSERT_OK(
+      env_->NewWritableFile(test_dir_ + "/file", &writable_file, soptions_));
+  writable_file.reset();
+  ASSERT_TRUE(!env_->GetChildren(test_dir_ + "/file", &children).ok());
+  ASSERT_EQ(0U, children.size());
+  ASSERT_OK(env_->DeleteFile(test_dir_ + "/file"));
+}
+
+}  // namespace rocksdb
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
