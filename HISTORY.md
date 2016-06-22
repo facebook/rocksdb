@@ -7,6 +7,7 @@
 
 ### New Features
 * Add avoid_flush_during_recovery option.
+* Add a read option background_purge_on_iterator_cleanup to avoid deleting files in foreground when destroying iterators. Instead, a job is scheduled in high priority queue and would be executed in a separate background thread.
 
 ## 4.9.0 (6/9/2016)
 ### Public API changes

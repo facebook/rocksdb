@@ -328,6 +328,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       num_running_compactions_(0),
       bg_flush_scheduled_(0),
       num_running_flushes_(0),
+      bg_purge_scheduled_(0),
       disable_delete_obsolete_files_(0),
       delete_obsolete_files_next_run_(
           options.env->NowMicros() +
@@ -407,7 +408,9 @@ DBImpl::~DBImpl() {
   bg_flush_scheduled_ -= flushes_unscheduled;
 
   // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_ ||
+         bg_purge_scheduled_) {
+    TEST_SYNC_POINT("DBImpl::~DBImpl:WaitJob");
     bg_cv_.Wait();
   }
   EraseThreadStatusDbInfo();
@@ -880,11 +883,42 @@ bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
 }
 };  // namespace
 
+// Delete obsolete files and log status and information of file deletion
+void DBImpl::DeleteObsoleteFileImpl(Status file_deletion_status, int job_id,
+                                    const std::string& fname, FileType type,
+                                    uint64_t number, uint32_t path_id) {
+  if (type == kTableFile) {
+    file_deletion_status = DeleteSSTFile(&db_options_, fname, path_id);
+  } else {
+    file_deletion_status = env_->DeleteFile(fname);
+  }
+  if (file_deletion_status.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
+        "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", job_id,
+        fname.c_str(), type, number, file_deletion_status.ToString().c_str());
+  } else if (env_->FileExists(fname).IsNotFound()) {
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "[JOB %d] Tried to delete a non-existing file %s type=%d #%" PRIu64
+        " -- %s\n",
+        job_id, fname.c_str(), type, number,
+        file_deletion_status.ToString().c_str());
+  } else {
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "[JOB %d] Failed to delete %s type=%d #%" PRIu64 " -- %s\n", job_id,
+        fname.c_str(), type, number, file_deletion_status.ToString().c_str());
+  }
+  if (type == kTableFile) {
+    EventHelpers::LogAndNotifyTableFileDeletion(
+        &event_logger_, job_id, number, fname, file_deletion_status, GetName(),
+        db_options_.listeners);
+  }
+}
+
 // Diffs the files listed in filenames and those that do not
 // belong to live files are posibly removed. Also, removes all the
 // files in sst_delete_files and log_delete_files.
 // It is not necessary to hold the mutex when invoking this method.
-void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
+void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
   // we'd better have sth to delete
   assert(state.HaveSomethingToDelete());
 
@@ -1012,33 +1046,12 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
     }
 #endif  // !ROCKSDB_LITE
     Status file_deletion_status;
-    if (type == kTableFile) {
-      file_deletion_status = DeleteSSTFile(&db_options_, fname, path_id);
+    if (schedule_only) {
+      InstrumentedMutexLock guard_lock(&mutex_);
+      SchedulePendingPurge(fname, type, number, path_id, state.job_id);
     } else {
-      file_deletion_status = env_->DeleteFile(fname);
-    }
-    if (file_deletion_status.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-          "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", state.job_id,
-          fname.c_str(), type, number,
-          file_deletion_status.ToString().c_str());
-    } else if (env_->FileExists(fname).IsNotFound()) {
-      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-          "[JOB %d] Tried to delete a non-existing file %s type=%d #%" PRIu64
-          " -- %s\n",
-          state.job_id, fname.c_str(), type, number,
-          file_deletion_status.ToString().c_str());
-    } else {
-      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-          "[JOB %d] Failed to delete %s type=%d #%" PRIu64 " -- %s\n",
-          state.job_id, fname.c_str(), type, number,
-          file_deletion_status.ToString().c_str());
-    }
-    if (type == kTableFile) {
-      EventHelpers::LogAndNotifyTableFileDeletion(
-          &event_logger_, state.job_id, number, fname,
-          file_deletion_status, GetName(),
-          db_options_.listeners);
+      DeleteObsoleteFileImpl(file_deletion_status, state.job_id, fname, type,
+                             number, path_id);
     }
   }
 
@@ -2800,6 +2813,15 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   }
 }
 
+void DBImpl::SchedulePurge() {
+  mutex_.AssertHeld();
+  assert(opened_successfully_);
+
+  // Purge operations are put into High priority queue
+  bg_purge_scheduled_++;
+  env_->Schedule(&DBImpl::BGWorkPurge, this, Env::Priority::HIGH, nullptr);
+}
+
 int DBImpl::BGCompactionsAllowed() const {
   if (write_controller_.NeedSpeedupCompaction()) {
     return db_options_.max_background_compactions;
@@ -2854,6 +2876,14 @@ void DBImpl::SchedulePendingCompaction(ColumnFamilyData* cfd) {
   }
 }
 
+void DBImpl::SchedulePendingPurge(std::string fname, FileType type,
+                                  uint64_t number, uint32_t path_id,
+                                  int job_id) {
+  mutex_.AssertHeld();
+  PurgeFileInfo file_info(fname, type, number, path_id, job_id);
+  purge_queue_.push_back(std::move(file_info));
+}
+
 void DBImpl::BGWorkFlush(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
   TEST_SYNC_POINT("DBImpl::BGWorkFlush");
@@ -2869,6 +2899,12 @@ void DBImpl::BGWorkCompaction(void* arg) {
   reinterpret_cast<DBImpl*>(ca.db)->BackgroundCallCompaction(ca.m);
 }
 
+void DBImpl::BGWorkPurge(void* db) {
+  IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
+  TEST_SYNC_POINT("DBImpl::BGWorkPurge");
+  reinterpret_cast<DBImpl*>(db)->BackgroundCallPurge();
+}
+
 void DBImpl::UnscheduleCallback(void* arg) {
   CompactionArg ca = *(reinterpret_cast<CompactionArg*>(arg));
   delete reinterpret_cast<CompactionArg*>(arg);
@@ -2876,6 +2912,34 @@ void DBImpl::UnscheduleCallback(void* arg) {
     delete ca.m->compaction;
   }
   TEST_SYNC_POINT("DBImpl::UnscheduleCallback");
+}
+
+void DBImpl::BackgroundCallPurge() {
+  mutex_.Lock();
+
+  while (!purge_queue_.empty()) {
+    auto purge_file = purge_queue_.begin();
+    auto fname = purge_file->fname;
+    auto type = purge_file->type;
+    auto number = purge_file->number;
+    auto path_id = purge_file->path_id;
+    auto job_id = purge_file->job_id;
+    purge_queue_.pop_front();
+
+    mutex_.Unlock();
+    Status file_deletion_status;
+    DeleteObsoleteFileImpl(file_deletion_status, job_id, fname, type, number,
+                           path_id);
+    mutex_.Lock();
+  }
+  bg_purge_scheduled_--;
+
+  bg_cv_.SignalAll();
+  // IMPORTANT:there should be no code after calling SignalAll. This call may
+  // signal the DB destructor that it's OK to proceed with destruction. In
+  // that case, all DB variables will be dealloacated and referencing them
+  // will cause trouble.
+  mutex_.Unlock();
 }
 
 Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
@@ -3477,12 +3541,17 @@ bool DBImpl::MCOverlap(ManualCompaction* m, ManualCompaction* m1) {
 
 namespace {
 struct IterState {
-  IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version)
-      : db(_db), mu(_mu), super_version(_super_version) {}
+  IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version,
+            const ReadOptions* _read_options)
+      : db(_db),
+        mu(_mu),
+        super_version(_super_version),
+        read_options(_read_options) {}
 
   DBImpl* db;
   InstrumentedMutex* mu;
   SuperVersion* super_version;
+  const ReadOptions* read_options;
 };
 
 static void CleanupIteratorState(void* arg1, void* arg2) {
@@ -3492,6 +3561,8 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
+    bool background_purge =
+        state->read_options->background_purge_on_iterator_cleanup;
 
     state->mu->Lock();
     state->super_version->Cleanup();
@@ -3500,7 +3571,17 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
     delete state->super_version;
     if (job_context.HaveSomethingToDelete()) {
-      state->db->PurgeObsoleteFiles(job_context);
+      if (background_purge) {
+        // PurgeObsoleteFiles here does not delete files. Instead, it adds the
+        // files to be deleted to a job queue, and deletes it in a separate
+        // background thread.
+        state->db->PurgeObsoleteFiles(job_context, true /* schedule only */);
+        state->mu->Lock();
+        state->db->SchedulePurge();
+        state->mu->Unlock();
+      } else {
+        state->db->PurgeObsoleteFiles(job_context);
+      }
     }
     job_context.Clean();
   }
@@ -3526,7 +3607,8 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
   super_version->current->AddIterators(read_options, env_options_,
                                        &merge_iter_builder);
   internal_iter = merge_iter_builder.Finish();
-  IterState* cleanup = new IterState(this, &mutex_, super_version);
+  IterState* cleanup =
+      new IterState(this, &mutex_, super_version, &read_options);
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
   return internal_iter;

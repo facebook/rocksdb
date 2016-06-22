@@ -1487,6 +1487,12 @@ struct ReadOptions {
   // Default: false
   bool pin_data;
 
+  // If true, when PurgeObsoleteFile is called in CleanupIteratorState, we
+  // schedule a background job in the flush job queue and delete obsolete files
+  // in background.
+  // Default: false
+  bool background_purge_on_iterator_cleanup;
+
   // If non-zero, NewIterator will create a new table reader which
   // performs reads of the given size. Using a large size (> 2MB) can
   // improve the performance of forward iteration on spinning disks.
