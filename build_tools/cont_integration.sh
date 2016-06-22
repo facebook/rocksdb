@@ -14,7 +14,7 @@ function log {
 }
 
 function log_err {
-  log "ERROR: $@. Error code: $?."
+  log "ERROR: $@ Error code: $?."
 }
 
 #
@@ -22,7 +22,7 @@ function log_err {
 #
 
 # Path to the determinator from the root of the RocksDB repo.
-CONTRUN_DETERMINATOR=./arcanist_util/config/RocksDBCommonDeterminator.php
+CONTRUN_DETERMINATOR=./arcanist_util/config/RocksDBCommonHelper.php
 
 # Value of the previous commit.
 PREV_COMMIT=
@@ -54,7 +54,7 @@ do
       log "There were no changes since the last time I checked. Going to sleep."
     else
       if [ ! -z "$LAST_COMMIT" ]; then
-        log "New code has been committed or previous commit not know. " \
+        log "New code has been committed or previous commit not known. " \
             "Will trigger the tests."
 
         PREV_COMMIT=$LAST_COMMIT
