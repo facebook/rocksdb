@@ -204,7 +204,7 @@ class TransactionBaseImpl : public Transaction {
   // with writes in other transactions.
   const TransactionKeyMap& GetTrackedKeys() const { return tracked_keys_; }
 
-  const WriteOptions* GetWriteOptions() override { return &write_options_; }
+  WriteOptions* GetWriteOptions() override { return &write_options_; }
 
   void SetWriteOptions(const WriteOptions& write_options) override {
     write_options_ = write_options;

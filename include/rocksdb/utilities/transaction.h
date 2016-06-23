@@ -356,7 +356,7 @@ class Transaction {
   virtual void SetLockTimeout(int64_t timeout) = 0;
 
   // Return the WriteOptions that will be used during Commit()
-  virtual const WriteOptions* GetWriteOptions() = 0;
+  virtual WriteOptions* GetWriteOptions() = 0;
 
   // Reset the WriteOptions that will be used during Commit().
   virtual void SetWriteOptions(const WriteOptions& write_options) = 0;
