@@ -450,8 +450,8 @@ struct ColumnFamilyOptions {
   // (max_bytes_for_level_base) * (max_bytes_for_level_multiplier ^ (L-1))
   // For example, if max_bytes_for_level_base is 200MB, and if
   // max_bytes_for_level_multiplier is 10, total data size for level-1
-  // will be 2GB, total file size for level-2 will be 20GB,
-  // and total file size for level-3 will be 200GB.
+  // will be 200MB, total file size for level-2 will be 2GB,
+  // and total file size for level-3 will be 20GB.
   //
   // Default: 256MB.
   //
