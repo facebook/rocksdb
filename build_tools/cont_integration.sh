@@ -30,6 +30,9 @@ PREV_COMMIT=
 log "Starting to monitor for new RocksDB changes ..."
 log "Running under `pwd` as `whoami`."
 
+git remote -v
+git status
+
 # Paranoia. Make sure that we're using the right branch.
 git checkout master
 
