@@ -8,16 +8,58 @@
 # for a certain interval.
 #
 
+SRC_GIT_REPO=/data/git/rocksdb
+error=0
+
 function log {
   DATE=`date +%Y-%m-%d:%H:%M:%S`
   echo $DATE $@
 }
 
 function log_err {
-  log "ERROR: $@ Error code: $?."
+  log "ERROR: $@ Error code: $error."
 }
 
 function update_repo_status {
+  # Update the parent first.
+  pushd $SRC_GIT_REPO
+
+  # This is a fatal error. Something in the environment isn't right and we will
+  # terminate the execution.
+  error=$?
+  if [ ! $error -eq 0 ]; then
+    log_err "Where is $SRC_GIT_REPO?"
+    exit $error
+  fi
+
+  HTTPS_PROXY=fwdproxy:8080 git fetch -f
+
+  error=$?
+  if [ ! $error -eq 0 ]; then
+    log_err "git fetch -f failed."
+    popd
+    return $error
+  fi
+
+  git update-ref refs/heads/master refs/remotes/origin/master
+
+  error=$?
+  if [ ! $error -eq 0 ]; then
+    log_err "git update-ref failed."
+    popd
+    return $error
+  fi
+
+  popd
+
+  # We're back in an instance-specific directory. Get the latest changes.
+  git pull --rebase
+
+  error=$?
+  if [ ! $error -eq 0 ]; then
+    log_err "git pull --rebase failed."
+    return $error
+  fi
 }
 
 #
@@ -33,13 +75,11 @@ PREV_COMMIT=
 log "Starting to monitor for new RocksDB changes ..."
 log "Running under `pwd` as `whoami`."
 
-git remote -v
-git status
-
 # Paranoia. Make sure that we're using the right branch.
 git checkout master
 
-if [ ! $? -eq 0 ]; then
+error=$?
+if [ ! $error -eq 0 ]; then
   log_err "This is not good. Can't checkout master. Bye-bye!"
   exit 1
 fi
@@ -49,9 +89,10 @@ fi
 while true;
 do
   # Get the latest changes committed.
-  git pull --rebase
+  update_repo_status
 
-  if [  $? -eq 0 ]; then
+  error=$?
+  if [  $error -eq 0 ]; then
     LAST_COMMIT=`git log -1 | head -1 | grep commit | awk '{ print $2; }'`
 
     log "Last commit is '$LAST_COMMIT', previous commit is '$PREV_COMMIT'."
@@ -73,7 +114,8 @@ do
         #
         POST_RECEIVE_HOOK=1 php $CONTRUN_DETERMINATOR
 
-        if [ $? -eq 0 ]; then
+        error=$?
+        if [ $error -eq 0 ]; then
           log "Sandcastle run successfully triggered."
         else
           log_err "Failed to trigger Sandcastle run."
@@ -83,7 +125,7 @@ do
       fi
     fi
   else
-    log_err "git pull --rebase failed. Will skip running tests for now."
+    log_err "Getting latest changes failed. Will skip running tests for now."
   fi
 
   # Always sleep, even if errors happens while trying to determine the latest
