@@ -17,6 +17,9 @@ function log_err {
   log "ERROR: $@ Error code: $?."
 }
 
+function update_repo_status {
+}
+
 #
 # Execution starts here.
 #
