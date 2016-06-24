@@ -127,7 +127,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
   options.level0_file_num_compaction_trigger = 0;
   options.compaction_options_universal.size_ratio = 10;
   options.compaction_options_universal.min_merge_width = 2;
-  options.compaction_options_universal.max_size_amplification_percent = 1;
+  options.compaction_options_universal.max_size_amplification_percent = 0;
 
   options.write_buffer_size = 105 << 10;  // 105KB
   options.arena_block_size = 4 << 10;
@@ -151,6 +151,9 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSingleSortedRun) {
     dbfull()->TEST_WaitForCompact();
     ASSERT_EQ(NumSortedRuns(0), 1);
   }
+  ASSERT_OK(Put(Key(key_idx), ""));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumSortedRuns(0), 1);
 }
 
 TEST_P(DBTestUniversalCompaction, OptimizeFiltersForHits) {
