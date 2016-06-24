@@ -240,50 +240,49 @@ TEST_P(EnvMoreTestWithParam, GetModTime) {
 }
 
 TEST_P(EnvMoreTestWithParam, MakeDir) {
-  ASSERT_OK(env_->CreateDir(test_dir_ + "/j/d/f/h/s/f/s"));
+  ASSERT_OK(env_->CreateDir(test_dir_ + "/j"));
   ASSERT_OK(env_->FileExists(test_dir_ + "/j"));
-  ASSERT_OK(env_->FileExists(test_dir_ + "/j/d"));
   std::vector<std::string> children;
   env_->GetChildren(test_dir_, &children);
   ASSERT_EQ(1U, children.size());
   // fail because file already exists
   ASSERT_TRUE(!env_->CreateDir(test_dir_ + "/j").ok());
   ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/j"));
-  // j exis, k not exist, okay to create
-  ASSERT_OK(env_->CreateDir(test_dir_ + "/j/k"));
-  ASSERT_OK(env_->FileExists(test_dir_ + "/j/k"));
   ASSERT_OK(env_->DeleteDir(test_dir_ + "/j"));
-  ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/j/k"));
+  ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/j"));
 }
 
 TEST_P(EnvMoreTestWithParam, GetChildren) {
   // empty folder returns empty vector
   std::vector<std::string> children;
   std::vector<Env::FileAttributes> childAttr;
-  std::string path = test_dir_ + "/jwn";
-  ASSERT_OK(env_->CreateDirIfMissing(path));
-  ASSERT_OK(env_->GetChildren(path, &children));
-  ASSERT_OK(env_->FileExists(path));
-  ASSERT_OK(env_->GetChildrenFileAttributes(path, &childAttr));
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_));
+  ASSERT_OK(env_->GetChildren(test_dir_, &children));
+  ASSERT_OK(env_->FileExists(test_dir_));
+  ASSERT_OK(env_->GetChildrenFileAttributes(test_dir_, &childAttr));
   ASSERT_EQ(0U, children.size());
   ASSERT_EQ(0U, childAttr.size());
 
-  // folder with contents returns relative path
-  ASSERT_OK(env_->CreateDirIfMissing(path + "/linda"));
-  ASSERT_OK(env_->CreateDirIfMissing(path + "/wanning"));
-  ASSERT_OK(env_->CreateDirIfMissing(path + "/jiang"));
-  ASSERT_OK(env_->GetChildren(path, &children));
-  ASSERT_OK(env_->GetChildrenFileAttributes(path, &childAttr));
+  // folder with contents returns relative path to test dir
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/linda"));
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/wanning"));
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/jiang"));
+  ASSERT_OK(env_->GetChildren(test_dir_, &children));
+  ASSERT_OK(env_->GetChildrenFileAttributes(test_dir_, &childAttr));
   ASSERT_EQ(3U, children.size());
   ASSERT_EQ(3U, childAttr.size());
+  for (auto each : children) {
+    env_->DeleteDir(test_dir_ + "/" + each);
+  }  // necessary for default POSIX env but not CustomEnv
 
   // non-exist directory returns IOError
-  ASSERT_OK(env_->DeleteDir(path));
-  ASSERT_TRUE(!env_->FileExists(path).ok());
-  ASSERT_TRUE(!env_->GetChildren(path, &children).ok());
-  ASSERT_TRUE(!env_->GetChildrenFileAttributes(path, &childAttr).ok());
+  ASSERT_OK(env_->DeleteDir(test_dir_));
+  ASSERT_TRUE(!env_->FileExists(test_dir_).ok());
+  ASSERT_TRUE(!env_->GetChildren(test_dir_, &children).ok());
+  ASSERT_TRUE(!env_->GetChildrenFileAttributes(test_dir_, &childAttr).ok());
 
   // if dir is a file, returns IOError
+  ASSERT_OK(env_->CreateDir(test_dir_));
   unique_ptr<WritableFile> writable_file;
   ASSERT_OK(
       env_->NewWritableFile(test_dir_ + "/file", &writable_file, soptions_));
