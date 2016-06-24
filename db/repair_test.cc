@@ -12,6 +12,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/transaction_log.h"
 #include "util/file_util.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -167,6 +168,44 @@ TEST_F(RepairTest, UnflushedSst) {
   GetAllSSTFiles(&total_ssts_size);
   ASSERT_GT(total_ssts_size, 0);
   ASSERT_EQ(Get("key"), "val");
+}
+
+TEST_F(RepairTest, RepairMultipleColumnFamilies) {
+  // Verify repair logic associates SST files with their original column
+  // families.
+  const int kNumCfs = 3;
+  const int kEntriesPerCf = 2;
+  DestroyAndReopen(CurrentOptions());
+  CreateAndReopenWithCF({"pikachu1", "pikachu2"}, CurrentOptions());
+  for (int i = 0; i < kNumCfs; ++i) {
+    for (int j = 0; j < kEntriesPerCf; ++j) {
+      Put(i, "key" + ToString(j), "val" + ToString(j));
+      if (j == kEntriesPerCf - 1 && i == kNumCfs - 1) {
+        // Leave one unflushed so we can verify WAL entries are properly
+        // associated with column families.
+        continue;
+      }
+      Flush(i);
+    }
+  }
+
+  // Need to get path before Close() deletes db_, but delete it after Close() to
+  // ensure Close() doesn't re-create the manifest.
+  std::string manifest_path =
+      DescriptorFileName(dbname_, dbfull()->TEST_Current_Manifest_FileNo());
+  Close();
+  ASSERT_OK(env_->FileExists(manifest_path));
+  ASSERT_OK(env_->DeleteFile(manifest_path));
+
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
+
+  ReopenWithColumnFamilies({"default", "pikachu1", "pikachu2"},
+                           CurrentOptions());
+  for (int i = 0; i < kNumCfs; ++i) {
+    for (int j = 0; j < kEntriesPerCf; ++j) {
+      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+    }
+  }
 }
 
 }  // namespace rocksdb
