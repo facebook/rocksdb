@@ -859,7 +859,24 @@ Status DestroyDB(const std::string& name, const Options& options);
 // resurrect as much of the contents of the database as possible.
 // Some data may be lost, so be careful when calling this function
 // on a database that contains important information.
+//
+// With this API, we will warn and skip data associated with column families not
+// specified in column_families.
+//
+// @param column_families Descriptors for known column families
+Status RepairDB(const std::string& dbname, const DBOptions& db_options,
+                const std::vector<ColumnFamilyDescriptor>& column_families);
+
+// @param unknown_cf_opts Options for column families encountered during the
+//                        repair that were not specified in column_families.
+Status RepairDB(const std::string& dbname, const DBOptions& db_options,
+                const std::vector<ColumnFamilyDescriptor>& column_families,
+                const ColumnFamilyOptions& unknown_cf_opts);
+
+// @param options These options will be used for the database and for ALL column
+//                families encountered during the repair
 Status RepairDB(const std::string& dbname, const Options& options);
+
 #endif
 
 }  // namespace rocksdb

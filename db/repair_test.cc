@@ -9,6 +9,7 @@
 
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
+#include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/transaction_log.h"
 #include "util/file_util.h"
@@ -208,6 +209,65 @@ TEST_F(RepairTest, RepairMultipleColumnFamilies) {
   }
 }
 
+TEST_F(RepairTest, RepairColumnFamilyOptions) {
+  // Verify repair logic uses correct ColumnFamilyOptions when repairing a
+  // database with different options for column families.
+  const int kNumCfs = 2;
+  const int kEntriesPerCf = 2;
+
+  Options opts(CurrentOptions()), rev_opts(CurrentOptions());
+  opts.comparator = BytewiseComparator();
+  rev_opts.comparator = ReverseBytewiseComparator();
+
+  DestroyAndReopen(opts);
+  CreateColumnFamilies({"reverse"}, rev_opts);
+  ReopenWithColumnFamilies({"default", "reverse"},
+                           std::vector<Options>{opts, rev_opts});
+  for (int i = 0; i < kNumCfs; ++i) {
+    for (int j = 0; j < kEntriesPerCf; ++j) {
+      Put(i, "key" + ToString(j), "val" + ToString(j));
+      if (i == kNumCfs - 1 && j == kEntriesPerCf - 1) {
+        // Leave one unflushed so we can verify RepairDB's flush logic
+        continue;
+      }
+      Flush(i);
+    }
+  }
+  Close();
+
+  // RepairDB() records the comparator in the manifest, and DB::Open would fail
+  // if a different comparator were used.
+  ASSERT_OK(RepairDB(dbname_, opts, {{"default", opts}, {"reverse", rev_opts}},
+                     opts /* unknown_cf_opts */));
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "reverse"},
+                                        std::vector<Options>{opts, rev_opts}));
+  for (int i = 0; i < kNumCfs; ++i) {
+    for (int j = 0; j < kEntriesPerCf; ++j) {
+      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+    }
+  }
+
+  // Examine table properties to verify RepairDB() used the right options when
+  // converting WAL->SST
+  TablePropertiesCollection fname_to_props;
+  db_->GetPropertiesOfAllTables(handles_[1], &fname_to_props);
+  ASSERT_EQ(fname_to_props.size(), 2U);
+  for (const auto& fname_and_props : fname_to_props) {
+    ASSERT_EQ(InternalKeyComparator(rev_opts.comparator).Name(),
+              fname_and_props.second->comparator_name);
+  }
+
+  // Also check comparator when it's provided via "unknown" CF options
+  ASSERT_OK(RepairDB(dbname_, opts, {{"default", opts}},
+                     rev_opts /* unknown_cf_opts */));
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "reverse"},
+                                        std::vector<Options>{opts, rev_opts}));
+  for (int i = 0; i < kNumCfs; ++i) {
+    for (int j = 0; j < kEntriesPerCf; ++j) {
+      ASSERT_EQ(Get(i, "key" + ToString(j)), "val" + ToString(j));
+    }
+  }
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
