@@ -49,7 +49,7 @@ TEST_F(RepairTest, LostManifest) {
   Close();
   ASSERT_OK(env_->FileExists(manifest_path));
   ASSERT_OK(env_->DeleteFile(manifest_path));
-  RepairDB(dbname_, CurrentOptions());
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
   ASSERT_EQ(Get("key"), "val");
@@ -70,7 +70,7 @@ TEST_F(RepairTest, CorruptManifest) {
   Close();
   ASSERT_OK(env_->FileExists(manifest_path));
   CreateFile(env_, manifest_path, "blah");
-  RepairDB(dbname_, CurrentOptions());
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
   ASSERT_EQ(Get("key"), "val");
@@ -96,7 +96,7 @@ TEST_F(RepairTest, IncompleteManifest) {
   ASSERT_OK(env_->FileExists(new_manifest_path));
   // Replace the manifest with one that is only aware of the first SST file.
   CopyFile(orig_manifest_path + ".tmp", new_manifest_path);
-  RepairDB(dbname_, CurrentOptions());
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
   ASSERT_EQ(Get("key"), "val");
@@ -115,7 +115,7 @@ TEST_F(RepairTest, LostSst) {
   ASSERT_OK(env_->DeleteFile(sst_path));
 
   Close();
-  RepairDB(dbname_, CurrentOptions());
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
   // Exactly one of the key-value pairs should be in the DB now.
@@ -134,7 +134,7 @@ TEST_F(RepairTest, CorruptSst) {
   CreateFile(env_, sst_path, "blah");
 
   Close();
-  RepairDB(dbname_, CurrentOptions());
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
   // Exactly one of the key-value pairs should be in the DB now.
@@ -159,7 +159,7 @@ TEST_F(RepairTest, UnflushedSst) {
   Close();
   ASSERT_OK(env_->FileExists(manifest_path));
   ASSERT_OK(env_->DeleteFile(manifest_path));
-  RepairDB(dbname_, CurrentOptions());
+  ASSERT_OK(RepairDB(dbname_, CurrentOptions()));
   Reopen(CurrentOptions());
 
   ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));

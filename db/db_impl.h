@@ -491,6 +491,8 @@ class DBImpl : public DB {
   void MarkLogAsHavingPrepSectionFlushed(uint64_t log);
   void MarkLogAsContainingPrepSection(uint64_t log);
 
+  Status NewDB();
+
  protected:
   Env* const env_;
   const std::string dbname_;
@@ -558,8 +560,6 @@ class DBImpl : public DB {
   struct WriteContext;
 
   struct PurgeFileInfo;
-
-  Status NewDB();
 
   // Recover the descriptor from persistent storage.  May do a significant
   // amount of work to recover recently logged updates.  Any changes to
