@@ -358,7 +358,7 @@ class DBImpl : public DB {
 
 #endif  // NDEBUG
 
-  // Return maximum background compaction alowed to be scheduled based on
+  // Return maximum background compaction allowed to be scheduled based on
   // compaction status.
   int BGCompactionsAllowed() const;
 

@@ -193,7 +193,7 @@ class WriteThread {
   // writer.  If w has become the leader of a write batch group, returns
   // STATE_GROUP_LEADER.  If w has been made part of a sequential batch
   // group and the leader has performed the write, returns STATE_DONE.
-  // If w has been made part of a parallel batch group and is reponsible
+  // If w has been made part of a parallel batch group and is responsible
   // for updating the memtable, returns STATE_PARALLEL_FOLLOWER.
   //
   // The db mutex SHOULD NOT be held when calling this function, because

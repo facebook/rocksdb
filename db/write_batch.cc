@@ -1012,7 +1012,7 @@ class MemTableInserter : public WriteBatch::Handler {
         // at this point individual CF lognumbers will prevent
         // duplicate re-insertion of values.
         assert(log_number_ref_ == 0);
-        // all insertes must refernce this trx log number
+        // all insertes must reference this trx log number
         log_number_ref_ = trx->log_number_;
         s = trx->batch_->Iterate(this);
         log_number_ref_ = 0;
