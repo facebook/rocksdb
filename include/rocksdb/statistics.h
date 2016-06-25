@@ -359,7 +359,7 @@ enum StatsLevel {
   kExceptTimeForMutex,
   // Collect all stats, including measuring duration of mutex operations.
   // If getting time is expensive on the platform to run, it can
-  // reduce scalability to more threads, especialy for writes.
+  // reduce scalability to more threads, especially for writes.
   kAll,
 };
 

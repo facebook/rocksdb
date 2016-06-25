@@ -40,7 +40,7 @@
  * string to an id, and store the dictionary id in FBSON to save space. The
  * purpose of using an external dictionary is more towards a collection of
  * documents (which has common keys) rather than a single document, so that
- * space saving will be siginificant.
+ * space saving will be significant.
  *
  * ** Endianness **
  * Note: FBSON serialization doesn't assume endianness of the server. However

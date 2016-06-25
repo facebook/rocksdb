@@ -164,7 +164,7 @@ class LRUList {
     }
   }
 
-  mutable port::Mutex lock_;  // syncronization primitive
+  mutable port::Mutex lock_;  // synchronization primitive
   T* head_ = nullptr;         // front (cold)
   T* tail_ = nullptr;         // back (hot)
 };

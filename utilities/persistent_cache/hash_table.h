@@ -22,7 +22,7 @@ namespace rocksdb {
 
 // HashTable<T, Hash, Equal>
 //
-// Traditional implementation of hash table with syncronization built on top
+// Traditional implementation of hash table with synchronization built on top
 // don't perform very well in multi-core scenarios. This is an implementation
 // designed for multi-core scenarios with high lock contention.
 //

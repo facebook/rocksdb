@@ -953,7 +953,7 @@ TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
             std::string value = DummyString(RecoveryTestHelper::kValueSize);
             ASSERT_OK(Put(key, value));
           }
-          // Save data for comparision.
+          // Save data for comparison.
           auto data = getAll();
           // Reopen. Verify data.
           ASSERT_OK(TryReopen(options));
