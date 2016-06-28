@@ -194,6 +194,9 @@ DEFINE_int32(
 DEFINE_int64(reads, -1, "Number of read operations to do.  "
              "If negative, do FLAGS_num reads.");
 
+DEFINE_int64(deletes, -1, "Number of delete operations to do.  "
+             "If negative, do FLAGS_num deletions.");
+
 DEFINE_int32(bloom_locality, 0, "Control bloom filter probes locality");
 
 DEFINE_int64(seed, 0, "Seed base for random number generators. "
@@ -1610,6 +1613,7 @@ class Benchmark {
   WriteOptions write_options_;
   Options open_options_;  // keep options around to properly destroy db later
   int64_t reads_;
+  int64_t deletes_;
   double read_random_exp_range_;
   int64_t writes_;
   int64_t readwrites_;
@@ -1961,6 +1965,7 @@ class Benchmark {
       num_ = FLAGS_num;
       reads_ = (FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads);
       writes_ = (FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes);
+      deletes_ = (FLAGS_deletes < 0 ? FLAGS_num : FLAGS_deletes);
       value_size_ = FLAGS_value_size;
       key_size_ = FLAGS_key_size;
       entries_per_batch_ = FLAGS_batch_size;
@@ -3320,7 +3325,7 @@ class Benchmark {
 
   void DoDelete(ThreadState* thread, bool seq) {
     WriteBatch batch;
-    Duration duration(seq ? 0 : FLAGS_duration, num_);
+    Duration duration(seq ? 0 : FLAGS_duration, deletes_);
     int64_t i = 0;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);

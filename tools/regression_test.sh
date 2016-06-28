@@ -51,12 +51,18 @@
 #       file to initialize the RocksDB options in its benchmarks.  Note that
 #       this feature only work for commits after 88acd93 or rocksdb version
 #       later than 4.9.
+#   DELETE_TEST_PATH: If true, then the test directory will be deleted
+#       after the script ends.
+#       Default: 0
 #
 # = db_bench parameters =
 #   NUM_THREADS:  The number of concurrent foreground threads that will issue
 #       database operations in the benchmark.  Default: 16.
-#   NUM_KEYS:  The number of keys issued by each thread in the benchmark.
+#   NUM_KEYS:  The key range that will be used in the entire regression test.
 #       Default: 1G.
+#   NUM_OPS:  The number of operations (reads, writes, or deletes) that will
+#       be issued in EACH thread.
+#       Default: $NUM_KEYS / $NUM_THREADS
 #   KEY_SIZE:  The size of each key in bytes in db_bench.  Default: 100.
 #   VALUE_SIZE:  The size of each value in bytes in db_bench.  Default: 900.
 #   CACHE_SIZE:  The size of RocksDB block cache used in db_bench.  Default: 1G
@@ -89,13 +95,15 @@ function main {
   setup_test_directory
 
   # an additional dot indicates we share same env variables
-  run_db_bench "fillseq" 0
+  run_db_bench "fillseq" $NUM_KEYS 1 0
   run_db_bench "overwrite"
   run_db_bench "readrandom"
   run_db_bench "readwhilewriting"
-  run_db_bench "deleterandom"
+  run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
   run_db_bench "seekrandom"
   run_db_bench "seekrandomwhilewriting"
+
+  cleanup_test_directory $test_root_dir
 
   echo ""
   echo "Benchmark completed!  Results are available in $RESULT_PATH"
@@ -123,7 +131,8 @@ function init_arguments {
   SCP=${SCP:-"scp"}
   SSH=${SSH:-"ssh"}
   NUM_THREADS=${NUM_THREADS:-16}
-  NUM_KEYS=${NUM_KEYS:-$((1 * G))}
+  NUM_KEYS=${NUM_KEYS:-$((1 * G))}  # key range
+  NUM_OPS=${NUM_OPS:-$(($NUM_KEYS / $NUM_THREADS))}
   KEY_SIZE=${KEY_SIZE:-100}
   VALUE_SIZE=${VALUE_SIZE:-900}
   CACHE_SIZE=${CACHE_SIZE:-$((1 * G))}
@@ -131,20 +140,25 @@ function init_arguments {
   COMPRESSION_RATIO=${COMPRESSION_RATIO:-0.5}
   HISTOGRAM=${HISTOGRAM:-1}
   STATS_PER_INTERVAL=${STATS_PER_INTERVAL:-1}
-  STATS_INTERVAL_SECONDS=${STATS_INTERVAL_SECONDS:-60}
+  STATS_INTERVAL_SECONDS=${STATS_INTERVAL_SECONDS:-600}
   MAX_BACKGROUND_FLUSHES=${MAX_BACKGROUND_FLUSHES:-4}
   MAX_BACKGROUND_COMPACTIONS=${MAX_BACKGROUND_COMPACTIONS:-16} 
+  DELETE_TEST_PATH=${DELETE_TEST_PATH:-0}
   SEEK_NEXTS=${SEEK_NEXTS:-10}
   SEED=${SEED:-$( date +%s )}
 }
 
 # $1 --- benchmark name
-# $2 --- use_existing_db (optional)
+# $2 --- number of operations.  Default: $NUM_KEYS
+# $3 --- number of threads.  Default $NUM_THREADS
+# $4 --- use_existing_db.  Default: 1
 function run_db_bench {
   # this will terminate all currently-running db_bench
   find_db_bench_cmd="ps aux | grep db_bench | grep -v grep | grep -v aux | awk '{print \$2}'"
 
-  USE_EXISTING_DB=${2:-1}
+  USE_EXISTING_DB=${4:-1}
+  ops=${2:-$NUM_OPS}
+  threads=${3:-$NUM_THREADS}
   echo ""
   echo "======================================================================="
   echo "Benchmark $1"
@@ -152,11 +166,15 @@ function run_db_bench {
   echo ""
   db_bench_error=0
   options_file_arg=$(setup_options_file)
+  echo "$options_file_arg"
   db_bench_cmd="$DB_BENCH_DIR/db_bench \
       --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
-      --threads=$NUM_THREADS \
+      --threads=$threads \
       --num=$NUM_KEYS \
+      --reads=$ops \
+      --writes=$ops \
+      --deletes=$ops \
       --key_size=$KEY_SIZE \
       --value_size=$VALUE_SIZE \
       --cache_size=$CACHE_SIZE \
@@ -208,7 +226,11 @@ function run_db_bench {
   eval $cmd
   exit_on_error $db_bench_error
 
-  update_report "$1" "$RESULT_PATH/$1"
+  update_report "$1" "$RESULT_PATH/$1" $ops $threads
+}
+
+function multiply {
+  echo "$1 * $2" | bc
 }
 
 # $1 --- name of the benchmark
@@ -234,9 +256,18 @@ function update_report {
   perc[3]=${BASH_REMATCH[4]}  # p99.9
   perc[4]=${BASH_REMATCH[5]}  # p99.99
 
-  printf "$COMMIT_ID, %30s, %10.2f, %10.2f, %10.2f, %10.2f, %10.2f, %10.2f\n" \
-      $1 $micros_op ${perc[0]} ${perc[1]} ${perc[2]} ${perc[3]} ${perc[4]} \
-      >> $SUMMARY_FILE 
+  (printf "$COMMIT_ID,%25s,%30s,%9s,%8s,%10s,%13.0f,%14s,%11s,%12s,%7s,%11s,%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f\n" \
+    $1 $REMOTE_USER_AT_HOST $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
+       $(multiply $COMPRESSION_RATIO 100) \
+       $3 $4 $CACHE_SIZE \
+       $MAX_BACKGROUND_FLUSHES $MAX_BACKGROUND_COMPACTIONS \
+       $(multiply $micros_op 1000) \
+       $(multiply ${perc[0]} 1000) \
+       $(multiply ${perc[1]} 1000) \
+       $(multiply ${perc[2]} 1000) \
+       $(multiply ${perc[3]} 1000) \
+       $(multiply ${perc[4]} 1000) \
+       >> $SUMMARY_FILE)
   exit_on_error $?
 }
 
@@ -314,16 +345,34 @@ function setup_test_directory {
   run_remote "mkdir -p $WAL_PATH"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     run_remote "mkdir -p $DB_BENCH_DIR"
+    run_remote "ls -l $DB_BENCH_DIR"
     run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
   fi
   
   run_local "rm -rf $RESULT_PATH"
   run_local "mkdir -p $RESULT_PATH"
 
-  printf "%40s, %30s, %10s, %10s, %10s, %10s, %10s, %10s\n" \
-      "commit id" "benchmark" "ms-per-op" "p50" "p75" "p99" "p99.9" "p99.99" \
-       $micros_op ${perc[0]} ${perc[1]} ${perc[2]} ${perc[3]} ${perc[4]} \
-      >> $SUMMARY_FILE 
+  (printf "%40s,%25s,%30s,%9s,%8s,%10s,%13s,%14s,%11s,%12s,%7s,%11s,%9s,%10s,%10s,%10s,%10s,%10s\n" \
+      "commit id" "benchmark" "user@host" \
+      "key-range" "key-size" "value-size" "compress-rate" \
+      "ops-per-thread" "num-threads" "cache-size" \
+      "flushes" "compactions" \
+      "us-per-op" "p50" "p75" "p99" "p99.9" "p99.99" \
+      >> $SUMMARY_FILE)
+  exit_on_error $?
+}
+
+function cleanup_test_directory {
+
+  if [ $DELETE_TEST_PATH -ne 0 ]; then
+    echo "Clear old regression test directories and creating new ones"
+    run_remote "rm -rf $DB_PATH"
+    run_remote "rm -rf $WAL_PATH"
+    if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
+      run_remote "rm -rf $DB_BENCH_DIR"
+    fi
+    run_remote "rm -rf $1"
+  fi
 }
 
 ############################################################################
