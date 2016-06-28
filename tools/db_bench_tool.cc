@@ -662,7 +662,7 @@ DEFINE_int32(thread_status_per_interval, 0,
              "Takes and report a snapshot of the current status of each thread"
              " when this is greater than 0.");
 
-DEFINE_int32(perf_level, 0, "Level of perf collection");
+DEFINE_int32(perf_level, 1, "Level of perf collection");
 
 static bool ValidateRateLimit(const char* flagname, double value) {
   const double EPSILON = 1e-10;
