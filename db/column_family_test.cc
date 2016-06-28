@@ -1950,6 +1950,9 @@ TEST_F(ColumnFamilyTest, FlushStaleColumnFamilies) {
   // 3 files for default column families, 1 file for column family [two], zero
   // files for column family [one], because it's empty
   AssertCountLiveFiles(4);
+
+  Flush(0);
+  ASSERT_EQ(0, dbfull()->TEST_total_log_size());
   Close();
 }
 

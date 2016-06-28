@@ -76,6 +76,9 @@ struct JobContext {
   uint64_t prev_log_number;
 
   uint64_t min_pending_output = 0;
+  uint64_t prev_total_log_size = 0;
+  size_t num_alive_log_files = 0;
+  uint64_t size_log_to_delete = 0;
 
   explicit JobContext(int _job_id, bool create_superversion = false) {
     job_id = _job_id;

@@ -838,6 +838,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
 
   if (!alive_log_files_.empty()) {
     uint64_t min_log_number = job_context->log_number;
+    size_t num_alive_log_files = alive_log_files_.size();
     // find newly obsoleted log files
     while (alive_log_files_.begin()->number < min_log_number) {
       auto& earliest = *alive_log_files_.begin();
@@ -848,6 +849,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       } else {
         job_context->log_delete_files.push_back(earliest.number);
       }
+      if (job_context->size_log_to_delete == 0) {
+        job_context->prev_total_log_size = total_log_size_;
+        job_context->num_alive_log_files = num_alive_log_files;
+      }
+      job_context->size_log_to_delete += earliest.size;
       total_log_size_ -= earliest.size;
       alive_log_files_.pop_front();
       // Current log should always stay alive since it can't have
@@ -971,6 +977,15 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
       std::unique(candidate_files.begin(), candidate_files.end()),
       candidate_files.end());
 
+  if (state.prev_total_log_size > 0) {
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "[JOB %d] Try to delete WAL files size %" PRIu64
+        ", prev total WAL file size %" PRIu64
+        ", number of live WAL files %" ROCKSDB_PRIszt ".\n",
+        state.job_id, state.size_log_to_delete, state.prev_total_log_size,
+        state.num_alive_log_files);
+  }
+
   std::vector<std::string> old_info_log_files;
   InfoLogPrefix info_log_prefix(!db_options_.db_log_dir.empty(), dbname_);
   for (const auto& candidate_file : candidate_files) {
@@ -1049,6 +1064,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
       continue;
     }
 #endif  // !ROCKSDB_LITE
+
     Status file_deletion_status;
     if (schedule_only) {
       InstrumentedMutexLock guard_lock(&mutex_);
