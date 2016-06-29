@@ -62,3 +62,6 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 
 ## TiKV
 [TiKV](https://github.com/pingcap/tikv) is a GEO-replicated, high-performance, distributed, transactional key-value database. TiKV is powered by Rust and Raft. TiKV uses RocksDB as its persistence layer.
+
+## Apache Flink
+[Apache Flink](https://flink.apache.org/news/2016/03/08/release-1.0.0.html) uses RocksDB to store state locally on a machine.
