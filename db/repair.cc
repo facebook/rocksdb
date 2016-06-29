@@ -449,7 +449,7 @@ class Repairer {
             AddColumnFamily(props->column_family_name, t->column_family_id);
       }
     }
-    ColumnFamilyData* cfd;
+    ColumnFamilyData* cfd = nullptr;
     if (status.ok()) {
       cfd = vset_.GetColumnFamilySet()->GetColumnFamily(t->column_family_id);
       if (cfd->GetName() != props->column_family_name) {
