@@ -113,6 +113,7 @@ set(SOURCES
         db/db_impl.cc
         db/db_impl_debug.cc
         db/db_impl_experimental.cc
+        db/db_impl_add_file.cc
         db/db_impl_readonly.cc
         db/db_info_dumper.cc
         db/db_iter.cc
@@ -266,6 +267,7 @@ set(SOURCES
         utilities/persistent_cache/persistent_cache_tier.cc
         utilities/persistent_cache/volatile_tier_impl.cc
         utilities/redis/redis_lists.cc
+        utilities/simulator_cache/sim_cache.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/transactions/optimistic_transaction_impl.cc
