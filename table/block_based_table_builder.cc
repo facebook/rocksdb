@@ -651,11 +651,15 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   auto type = r->compression_type;
   Slice block_contents;
   bool abort_compression = false;
+  
+  StopWatchNano timer(Env::Default(), true);
+
   if (raw_block_contents.size() < kCompressionSizeLimit) {
     Slice compression_dict;
     if (is_data_block && r->compression_dict && r->compression_dict->size()) {
       compression_dict = *r->compression_dict;
     }
+
     block_contents = CompressBlock(raw_block_contents, r->compression_opts,
                                    &type, r->table_options.format_version,
                                    compression_dict, &r->compressed_output);
@@ -668,7 +672,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
       BlockContents contents;
       Status stat = UncompressBlockContentsForCompressionType(
           block_contents.data(), block_contents.size(), &contents,
-          r->table_options.format_version, compression_dict, type);
+          r->table_options.format_version, compression_dict, type,
+          r->ioptions.statistics);
 
       if (stat.ok()) {
         bool compressed_ok = contents.data.compare(raw_block_contents) == 0;
@@ -697,6 +702,13 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;
     block_contents = raw_block_contents;
+  }
+  else{
+    MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS, 
+      timer.ElapsedNanos());
+    MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED, 
+      raw_block_contents.size());
+    RecordTick(r->ioptions.statistics, NUMBER_BLOCK_COMPRESSED);
   }
 
   WriteRawBlock(block_contents, type, handle);
