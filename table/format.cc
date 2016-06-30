@@ -23,6 +23,9 @@
 #include "util/perf_context_imp.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
+#include "util/statistics.h"
+#include "util/stop_watch.h"
+
 
 namespace rocksdb {
 
@@ -301,7 +304,7 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
                          Env* env, bool decompression_requested,
                          const Slice& compression_dict,
                          const PersistentCacheOptions& cache_options,
-                         Logger* info_log) {
+                         Logger* info_log, Statistics* statistics) {
   Status status;
   Slice slice;
   size_t n = static_cast<size_t>(handle.size());
@@ -379,7 +382,8 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
   if (decompression_requested && compression_type != kNoCompression) {
     // compressed page, uncompress, update cache
     status = UncompressBlockContents(slice.data(), n, contents,
-                                     footer.version(), compression_dict);
+                                     footer.version(), compression_dict,
+                                     statistics);
   } else if (slice.data() != used_buf) {
     // the slice content is not the buffer provided
     *contents = BlockContents(Slice(slice.data(), n), false, compression_type);
@@ -406,11 +410,12 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
 Status UncompressBlockContentsForCompressionType(
     const char* data, size_t n, BlockContents* contents,
     uint32_t format_version, const Slice& compression_dict,
-    CompressionType compression_type) {
+    CompressionType compression_type, Statistics* statistics) {
   std::unique_ptr<char[]> ubuf;
 
   assert(compression_type != kNoCompression && "Invalid compression type");
 
+  StopWatchNano timer(Env::Default(), true);
   int decompress_size = 0;
   switch (compression_type) {
     case kSnappyCompression: {
@@ -502,6 +507,10 @@ Status UncompressBlockContentsForCompressionType(
       return Status::Corruption("bad block type");
   }
 
+  MeasureTime(statistics, DECOMPRESSION_TIMES_NANOS, timer.ElapsedNanos());
+  MeasureTime(statistics, BYTES_DECOMPRESSED, contents->data.size());
+  RecordTick(statistics, NUMBER_BLOCK_DECOMPRESSED);
+
   return Status::OK();
 }
 
@@ -514,11 +523,12 @@ Status UncompressBlockContentsForCompressionType(
 // format_version is the block format as defined in include/rocksdb/table.h
 Status UncompressBlockContents(const char* data, size_t n,
                                BlockContents* contents, uint32_t format_version,
-                               const Slice& compression_dict) {
+                               const Slice& compression_dict,
+                               Statistics* statistics) {
   assert(data[n] != kNoCompression);
   return UncompressBlockContentsForCompressionType(
       data, n, contents, format_version, compression_dict,
-      (CompressionType)data[n]);
+      (CompressionType)data[n], statistics);
 }
 
 }  // namespace rocksdb

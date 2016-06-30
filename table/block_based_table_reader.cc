@@ -63,11 +63,11 @@ Status ReadBlockFromFile(RandomAccessFileReader* file, const Footer& footer,
                          std::unique_ptr<Block>* result, Env* env,
                          bool do_uncompress, const Slice& compression_dict,
                          const PersistentCacheOptions& cache_options,
-                         Logger* info_log) {
+                         Logger* info_log, Statistics* statistics) {
   BlockContents contents;
   Status s = ReadBlockContents(file, footer, options, handle, &contents, env,
                                do_uncompress, compression_dict, cache_options,
-                               info_log);
+                               info_log, statistics);
   if (s.ok()) {
     result->reset(new Block(std::move(contents)));
   }
@@ -185,7 +185,7 @@ class BinarySearchIndexReader : public IndexReader {
     auto s = ReadBlockFromFile(file, footer, ReadOptions(), index_handle,
                                &index_block, env, true /* decompress */,
                                Slice() /*compression dict*/, cache_options,
-                               /*info_log*/ nullptr);
+                               /*info_log*/ nullptr, statistics);
 
     if (s.ok()) {
       *index_reader = new BinarySearchIndexReader(
@@ -234,7 +234,7 @@ class HashIndexReader : public IndexReader {
     auto s = ReadBlockFromFile(file, footer, ReadOptions(), index_handle,
                                &index_block, env, true /* decompress */,
                                Slice() /*compression dict*/, cache_options,
-                               /*info_log*/ nullptr);
+                               /*info_log*/ nullptr, statistics);
 
     if (!s.ok()) {
       return s;
@@ -270,14 +270,16 @@ class HashIndexReader : public IndexReader {
     BlockContents prefixes_contents;
     s = ReadBlockContents(file, footer, ReadOptions(), prefixes_handle,
                           &prefixes_contents, env, true /* decompress */,
-                          Slice() /*compression dict*/, cache_options);
+                          Slice() /*compression dict*/, cache_options,
+                          nullptr, statistics);
     if (!s.ok()) {
       return s;
     }
     BlockContents prefixes_meta_contents;
     s = ReadBlockContents(file, footer, ReadOptions(), prefixes_meta_handle,
                           &prefixes_meta_contents, env, true /* decompress */,
-                          Slice() /*compression dict*/, cache_options);
+                          Slice() /*compression dict*/, cache_options,
+                          nullptr, statistics);
     if (!s.ok()) {
       // TODO: log error
       return Status::OK();
@@ -747,7 +749,8 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
       rep->file.get(), rep->footer, ReadOptions(),
       rep->footer.metaindex_handle(), &meta, rep->ioptions.env,
       true /* decompress */, Slice() /*compression dict*/,
-      rep->persistent_cache_options, rep->ioptions.info_log);
+      rep->persistent_cache_options, rep->ioptions.info_log,
+      rep->ioptions.statistics);
 
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, rep->ioptions.info_log,
@@ -811,7 +814,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   BlockContents contents;
   s = UncompressBlockContents(compressed_block->data(),
                               compressed_block->size(), &contents,
-                              format_version, compression_dict);
+                              format_version, compression_dict,
+                              statistics);
 
   // Insert uncompressed block into block cache
   if (s.ok()) {
@@ -851,7 +855,7 @@ Status BlockBasedTable::PutDataBlockToCache(
   BlockContents contents;
   if (raw_block->compression_type() != kNoCompression) {
     s = UncompressBlockContents(raw_block->data(), raw_block->size(), &contents,
-                                format_version, compression_dict);
+                                format_version, compression_dict, statistics);
   }
   if (!s.ok()) {
     delete raw_block;
@@ -915,7 +919,8 @@ FilterBlockReader* BlockBasedTable::ReadFilter(Rep* rep) {
   if (!ReadBlockContents(rep->file.get(), rep->footer, ReadOptions(),
                          rep->filter_handle, &block, rep->ioptions.env,
                          false /* decompress */, Slice() /*compression dict*/,
-                         rep->persistent_cache_options)
+                         rep->persistent_cache_options, nullptr,
+                         rep->ioptions.statistics)
            .ok()) {
     // Error reading the block
     return nullptr;
@@ -1155,7 +1160,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
                               &raw_block, rep->ioptions.env,
                               block_cache_compressed == nullptr,
                               compression_dict, rep->persistent_cache_options,
-                              rep->ioptions.info_log);
+                              rep->ioptions.info_log, statistics);
       }
 
       if (s.ok()) {
@@ -1182,7 +1187,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
     s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
                           &block_value, rep->ioptions.env, true /* compress */,
                           compression_dict, rep->persistent_cache_options,
-                          rep->ioptions.info_log);
+                          rep->ioptions.info_log, rep->ioptions.statistics);
     if (s.ok()) {
       block.value = block_value.release();
     }
@@ -1504,7 +1509,8 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                   handle, cache_key_storage);
   Slice ckey;
 
-  s = GetDataBlockFromCache(cache_key, ckey, block_cache, nullptr, nullptr,
+  s = GetDataBlockFromCache(cache_key, ckey, block_cache, nullptr, 
+                            rep_->ioptions.statistics,
                             options, &block, rep_->table_options.format_version,
                             rep_->compression_dict_block
                                 ? rep_->compression_dict_block->data
@@ -1706,7 +1712,8 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         if (ReadBlockContents(
                 rep_->file.get(), rep_->footer, ReadOptions(), handle, &block,
                 rep_->ioptions.env, false /*decompress*/,
-                Slice() /*compression dict*/, rep_->persistent_cache_options)
+                Slice() /*compression dict*/, rep_->persistent_cache_options,
+                nullptr, rep_->ioptions.statistics)
                 .ok()) {
           rep_->filter.reset(new BlockBasedFilterBlockReader(
               rep_->ioptions.prefix_extractor, table_options,
