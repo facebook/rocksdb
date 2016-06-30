@@ -94,6 +94,7 @@ TEST_P(EnvBasicTestWithParam, Basics) {
 
   // Create a file.
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/f", &writable_file, soptions_));
+  ASSERT_OK(writable_file->Close());
   writable_file.reset();
 
   // Check that the file exists.
@@ -107,6 +108,7 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   // Write to the file.
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/f", &writable_file, soptions_));
   ASSERT_OK(writable_file->Append("abc"));
+  ASSERT_OK(writable_file->Close());
   writable_file.reset();
 
   // Check for expected size.
@@ -152,6 +154,7 @@ TEST_P(EnvBasicTestWithParam, ReadWrite) {
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/f", &writable_file, soptions_));
   ASSERT_OK(writable_file->Append("hello "));
   ASSERT_OK(writable_file->Append("world"));
+  ASSERT_OK(writable_file->Close());
   writable_file.reset();
 
   // Read sequentially.
@@ -213,6 +216,7 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/f", &writable_file, soptions_));
   ASSERT_OK(writable_file->Append("foo"));
   ASSERT_OK(writable_file->Append(write_data));
+  ASSERT_OK(writable_file->Close());
   writable_file.reset();
 
   unique_ptr<SequentialFile> seq_file;
@@ -286,6 +290,7 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   unique_ptr<WritableFile> writable_file;
   ASSERT_OK(
       env_->NewWritableFile(test_dir_ + "/file", &writable_file, soptions_));
+  ASSERT_OK(writable_file->Close());
   writable_file.reset();
   ASSERT_TRUE(!env_->GetChildren(test_dir_ + "/file", &children).ok());
   ASSERT_EQ(0U, children.size());

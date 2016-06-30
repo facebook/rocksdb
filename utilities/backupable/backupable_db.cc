@@ -1278,6 +1278,9 @@ Status BackupEngineImpl::CopyOrCreateFile(
   if (s.ok() && sync) {
     s = dest_writer->Sync(false);
   }
+  if (s.ok()) {
+    s = dest_writer->Close();
+  }
   return s;
 }
 
