@@ -560,7 +560,7 @@ Status BackupEngineImpl::Initialize() {
   {
     auto s = backup_env_->GetChildren(GetBackupMetaDir(), &backup_meta_files);
     if (!s.ok()) {
-      return s;
+      return Status::NotFound("%s not found", GetBackupMetaDir());
     }
   }
   // create backups_ structure
