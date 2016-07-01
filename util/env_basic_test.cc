@@ -13,6 +13,41 @@
 
 namespace rocksdb {
 
+// Normalizes trivial differences across Envs such that these test cases can
+// run on all Envs.
+class NormalizingEnvWrapper : public EnvWrapper {
+ public:
+  explicit NormalizingEnvWrapper(Env* base) : EnvWrapper(base) {}
+
+  // Removes . and .. from directory listing
+  virtual Status GetChildren(const std::string& dir,
+                             std::vector<std::string>* result) override {
+    Status status = EnvWrapper::GetChildren(dir, result);
+    if (status.ok()) {
+      result->erase(std::remove_if(result->begin(), result->end(),
+                                   [](const std::string& s) {
+                                     return s == "." || s == "..";
+                                   }),
+                    result->end());
+    }
+    return status;
+  }
+
+  // Removes . and .. from directory listing
+  virtual Status GetChildrenFileAttributes(
+      const std::string& dir, std::vector<FileAttributes>* result) override {
+    Status status = EnvWrapper::GetChildrenFileAttributes(dir, result);
+    if (status.ok()) {
+      result->erase(std::remove_if(result->begin(), result->end(),
+                                   [](const FileAttributes& fa) {
+                                     return fa.name == "." || fa.name == "..";
+                                   }),
+                    result->end());
+    }
+    return status;
+  }
+};
+
 class EnvBasicTestWithParam : public testing::Test,
                               public ::testing::WithParamInterface<Env*> {
  public:
@@ -20,8 +55,7 @@ class EnvBasicTestWithParam : public testing::Test,
   const EnvOptions soptions_;
   std::string test_dir_;
 
-  EnvBasicTestWithParam() {
-    env_ = GetParam();
+  EnvBasicTestWithParam() : env_(GetParam()) {
     test_dir_ = test::TmpDir(env_) + "/env_basic_test";
   }
 
@@ -45,6 +79,12 @@ class EnvBasicTestWithParam : public testing::Test,
 };
 
 class EnvMoreTestWithParam : public EnvBasicTestWithParam {};
+
+static std::unique_ptr<Env> def_env(new NormalizingEnvWrapper(Env::Default()));
+INSTANTIATE_TEST_CASE_P(EnvDefault, EnvBasicTestWithParam,
+                        ::testing::Values(def_env.get()));
+INSTANTIATE_TEST_CASE_P(EnvDefault, EnvMoreTestWithParam,
+                        ::testing::Values(def_env.get()));
 
 static std::unique_ptr<Env> mock_env(new MockEnv(Env::Default()));
 INSTANTIATE_TEST_CASE_P(MockEnv, EnvBasicTestWithParam,
