@@ -231,15 +231,6 @@ TEST_P(EnvBasicTestWithParam, ReadWrite) {
   ASSERT_TRUE(rand_file->Read(1000, 5, &result, scratch).ok());
 }
 
-TEST_P(EnvBasicTestWithParam, Locks) {
-  FileLock* lock;
-
-  // only test they return success.
-  // TODO(andrewkr): verify functionality
-  ASSERT_OK(env_->LockFile(test_dir_ + "lock_file", &lock));
-  ASSERT_OK(env_->UnlockFile(lock));
-}
-
 TEST_P(EnvBasicTestWithParam, Misc) {
   unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env_->NewWritableFile(test_dir_ + "/b", &writable_file, soptions_));
