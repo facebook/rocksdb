@@ -11,12 +11,13 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include "util/rate_limiter.h"
 #include <inttypes.h>
 #include <limits>
-#include "util/testharness.h"
-#include "util/rate_limiter.h"
-#include "util/random.h"
 #include "rocksdb/env.h"
+#include "util/random.h"
+#include "util/sync_point.h"
+#include "util/testharness.h"
 
 namespace rocksdb {
 
@@ -88,6 +89,55 @@ TEST_F(RateLimiterTest, Rate) {
 
       ASSERT_GE(rate / target, 0.9);
       ASSERT_LE(rate / target, 1.1);
+    }
+  }
+}
+
+TEST_F(RateLimiterTest, LimitChangeTest) {
+  // starvation test when limit changes to a smaller value
+  int64_t refill_period = 1000 * 1000;
+  auto* env = Env::Default();
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  struct Arg {
+    Arg(int32_t _request_size, Env::IOPriority _pri,
+        std::shared_ptr<RateLimiter> _limiter)
+        : request_size(_request_size), pri(_pri), limiter(_limiter) {}
+    int32_t request_size;
+    Env::IOPriority pri;
+    std::shared_ptr<RateLimiter> limiter;
+  };
+
+  auto writer = [](void* p) {
+    auto* arg = static_cast<Arg*>(p);
+    arg->limiter->Request(arg->request_size, arg->pri);
+  };
+
+  for (uint32_t i = 1; i <= 16; i <<= 1) {
+    int32_t target = i * 1024 * 10;
+    // refill per second
+    for (int iter = 0; iter < 2; iter++) {
+      std::shared_ptr<RateLimiter> limiter =
+          std::make_shared<GenericRateLimiter>(target, refill_period, 10);
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"GenericRateLimiter::Request",
+            "RateLimiterTest::LimitChangeTest:changeLimitStart"},
+           {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
+            "GenericRateLimiter::Refill"}});
+      Arg arg(target, Env::IO_HIGH, limiter);
+      // The idea behind is to start a request first, then before it refills,
+      // update limit to a different value (2X/0.5X). No starvation should
+      // be guaranteed under any situation
+      // TODO(lightmark): more test cases are welcome.
+      env->StartThread(writer, &arg);
+      int32_t new_limit = (target << 1) >> (iter << 1);
+      TEST_SYNC_POINT("RateLimiterTest::LimitChangeTest:changeLimitStart");
+      arg.limiter->SetBytesPerSecond(new_limit);
+      TEST_SYNC_POINT("RateLimiterTest::LimitChangeTest:changeLimitEnd");
+      env->WaitForJoin();
+      fprintf(stderr,
+              "[COMPLETE] request size %" PRIi32 " KB, new limit %" PRIi32
+              "KB/sec, refill period %" PRIi64 " ms\n",
+              target / 1024, new_limit / 1024, refill_period / 1000);
     }
   }
 }
