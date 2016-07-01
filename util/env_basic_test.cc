@@ -27,10 +27,19 @@ class EnvBasicTestWithParam : public testing::Test,
 
   void SetUp() {
     env_->CreateDirIfMissing(test_dir_);
+  }
+
+  void TearDown() {
     std::vector<std::string> files;
     env_->GetChildren(test_dir_, &files);
     for (const auto& file : files) {
-      env_->DeleteFile(test_dir_ + "/" + file);
+      // don't know whether it's file or directory, try both. The tests must
+      // only create files or empty directories, so one must succeed, else the
+      // directory's corrupted.
+      Status s = env_->DeleteFile(test_dir_ + "/" + file);
+      if (!s.ok()) {
+        ASSERT_OK(env_->DeleteDir(test_dir_ + "/" + file));
+      }
     }
   }
 };
@@ -141,7 +150,6 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/g"));
   ASSERT_OK(env_->GetChildren(test_dir_, &children));
   ASSERT_EQ(0U, children.size());
-  env_->DeleteDir(test_dir_);
 }
 
 TEST_P(EnvBasicTestWithParam, ReadWrite) {
@@ -240,7 +248,6 @@ TEST_P(EnvMoreTestWithParam, GetModTime) {
   ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/dir1"));
   uint64_t mtime1 = 0x0;
   ASSERT_OK(env_->GetFileModificationTime(test_dir_ + "/dir1", &mtime1));
-  ASSERT_OK(env_->DeleteFile(test_dir_ + "/dir1"));
 }
 
 TEST_P(EnvMoreTestWithParam, MakeDir) {
@@ -277,7 +284,7 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   ASSERT_EQ(3U, childAttr.size());
   for (auto each : children) {
     env_->DeleteDir(test_dir_ + "/" + each);
-  }  // necessary for default POSIX env but not CustomEnv
+  }  // necessary for default POSIX env
 
   // non-exist directory returns IOError
   ASSERT_OK(env_->DeleteDir(test_dir_));
@@ -294,7 +301,6 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   writable_file.reset();
   ASSERT_TRUE(!env_->GetChildren(test_dir_ + "/file", &children).ok());
   ASSERT_EQ(0U, children.size());
-  ASSERT_OK(env_->DeleteFile(test_dir_ + "/file"));
 }
 
 }  // namespace rocksdb
