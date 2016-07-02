@@ -64,3 +64,5 @@ java/javadoc
 scan_build_report/
 t
 LOG
+
+db_logs/

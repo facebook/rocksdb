@@ -128,7 +128,7 @@ Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
 
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               ioptions.env, ioptions.info_log, &props);
+                               ioptions, &props);
   if (!s.ok()) {
     return s;
   }
@@ -293,13 +293,13 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   BlockContents bloom_block_contents;
   auto s = ReadMetaBlock(file_info_.file.get(), file_size_,
-                         kPlainTableMagicNumber, ioptions_.env,
+                         kPlainTableMagicNumber, ioptions_,
                          BloomBlockBuilder::kBloomBlock, &bloom_block_contents);
   bool index_in_file = s.ok();
 
   BlockContents index_block_contents;
   s = ReadMetaBlock(
-      file_info_.file.get(), file_size_, kPlainTableMagicNumber, ioptions_.env,
+      file_info_.file.get(), file_size_, kPlainTableMagicNumber, ioptions_,
       PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_contents);
 
   index_in_file &= s.ok();

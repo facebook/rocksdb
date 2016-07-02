@@ -2064,7 +2064,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
 
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),
-                               kPlainTableMagicNumber, Env::Default(), nullptr,
+                               kPlainTableMagicNumber, ioptions,
                                &props);
   std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);

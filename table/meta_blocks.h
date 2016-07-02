@@ -94,7 +94,7 @@ bool NotifyCollectTableCollectorsOnFinish(
 //          *table_properties will point to a heap-allocated TableProperties
 //          object, otherwise value of `table_properties` will not be modified.
 Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
-                      const Footer& footer, Env* env, Logger* logger,
+                      const Footer& footer, const ImmutableCFOptions &ioptions,
                       TableProperties** table_properties);
 
 // Directly read the properties from the properties block of a plain table.
@@ -102,8 +102,9 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 //          *table_properties will point to a heap-allocated TableProperties
 //          object, otherwise value of `table_properties` will not be modified.
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
-                           uint64_t table_magic_number, Env* env,
-                           Logger* info_log, TableProperties** properties);
+                           uint64_t table_magic_number,
+                           const ImmutableCFOptions &ioptions,
+                           TableProperties** properties);
 
 // Find the meta block from the meta index block.
 Status FindMetaBlock(InternalIterator* meta_index_iter,
@@ -112,7 +113,8 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 
 // Find the meta block
 Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
-                     uint64_t table_magic_number, Env* env,
+                     uint64_t table_magic_number,
+                     const ImmutableCFOptions &ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle);
 
@@ -120,7 +122,8 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 // from `file` and initialize `contents` with contents of this block.
 // Return Status::OK in case of success.
 Status ReadMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
-                     uint64_t table_magic_number, Env* env,
+                     uint64_t table_magic_number,
+                     const ImmutableCFOptions &ioptions,
                      const std::string& meta_block_name,
                      BlockContents* contents);
 

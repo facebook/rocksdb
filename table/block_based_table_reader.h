@@ -177,8 +177,8 @@ class BlockBasedTable : public TableReader {
   //    dictionary.
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
-      Cache* block_cache, Cache* block_cache_compressed, Statistics* statistics,
-      const ReadOptions& read_options,
+      Cache* block_cache, Cache* block_cache_compressed,
+      const ImmutableCFOptions &ioptions, const ReadOptions& read_options,
       BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
       const Slice& compression_dict);
 
@@ -195,7 +195,7 @@ class BlockBasedTable : public TableReader {
   static Status PutDataBlockToCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
-      const ReadOptions& read_options, Statistics* statistics,
+      const ReadOptions& read_options, const ImmutableCFOptions &ioptions,
       CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
       const Slice& compression_dict);
 

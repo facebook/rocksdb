@@ -276,7 +276,7 @@ void TestCustomizedTablePropertiesCollector(
           new test::StringSource(fwf->contents())));
   TableProperties* props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, Env::Default(), nullptr, &props);
+                                 magic_number, ioptions, &props);
   std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
@@ -417,7 +417,7 @@ void TestInternalKeyPropertiesCollector(
     TableProperties* props;
     Status s =
         ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
-                            Env::Default(), nullptr, &props);
+                            ioptions, &props);
     ASSERT_OK(s);
 
     std::unique_ptr<TableProperties> props_guard(props);
