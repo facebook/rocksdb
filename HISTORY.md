@@ -2,7 +2,7 @@
 ## Unreleased
 ### Public API Change
 * options.memtable_prefix_bloom_bits changes to options.memtable_prefix_bloom_bits_ratio and deprecate options.memtable_prefix_bloom_probes
-* enum type #movebot Rocksdb Users Group and PerfLevel changes from char to unsigned char. Value of all PerfLevel shift by one.
+* enum type CompressionType and PerfLevel changes from char to unsigned char. Value of all PerfLevel shift by one.
 * Deprecate options.filter_deletes.
 
 ### New Features
