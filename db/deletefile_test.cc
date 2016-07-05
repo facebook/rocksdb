@@ -279,6 +279,43 @@ TEST_F(DeleteFileTest, BackgroundPurgeTest) {
   CloseDB();
 }
 
+// This test is to reproduce a bug that read invalid ReadOption in iterator
+// cleanup function
+TEST_F(DeleteFileTest, BackgroundPurgeCopyOptions) {
+  std::string first("0"), last("999999");
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 2;
+  Slice first_slice(first), last_slice(last);
+
+  // We keep an iterator alive
+  Iterator* itr = 0;
+  CreateTwoLevels();
+  ReadOptions* options = new ReadOptions();
+  options->background_purge_on_iterator_cleanup = true;
+  itr = db_->NewIterator(*options);
+  // ReadOptions is deleted, but iterator cleanup function should not be
+  // affected
+  delete options;
+
+  db_->CompactRange(compact_options, &first_slice, &last_slice);
+  // 3 sst after compaction with live iterator
+  CheckFileTypeCounts(dbname_, 0, 3, 1);
+  delete itr;
+
+  test::SleepingBackgroundTask sleeping_task_after;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_after, Env::Priority::HIGH);
+
+  // Make sure all background purges are executed
+  sleeping_task_after.WakeUp();
+  sleeping_task_after.WaitUntilDone();
+  // 1 sst after iterator deletion
+  CheckFileTypeCounts(dbname_, 0, 1, 1);
+
+  CloseDB();
+}
+
 TEST_F(DeleteFileTest, BackgroundPurgeTestMultipleJobs) {
   std::string first("0"), last("999999");
   CompactRangeOptions compact_options;

@@ -3542,16 +3542,16 @@ bool DBImpl::MCOverlap(ManualCompaction* m, ManualCompaction* m1) {
 namespace {
 struct IterState {
   IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version,
-            const ReadOptions* _read_options)
+            bool _background_purge)
       : db(_db),
         mu(_mu),
         super_version(_super_version),
-        read_options(_read_options) {}
+        background_purge(_background_purge) {}
 
   DBImpl* db;
   InstrumentedMutex* mu;
   SuperVersion* super_version;
-  const ReadOptions* read_options;
+  bool background_purge;
 };
 
 static void CleanupIteratorState(void* arg1, void* arg2) {
@@ -3561,8 +3561,6 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
-    bool background_purge =
-        state->read_options->background_purge_on_iterator_cleanup;
 
     state->mu->Lock();
     state->super_version->Cleanup();
@@ -3571,7 +3569,7 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
     delete state->super_version;
     if (job_context.HaveSomethingToDelete()) {
-      if (background_purge) {
+      if (state->background_purge) {
         // PurgeObsoleteFiles here does not delete files. Instead, it adds the
         // files to be deleted to a job queue, and deletes it in a separate
         // background thread.
@@ -3608,7 +3606,8 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
                                        &merge_iter_builder);
   internal_iter = merge_iter_builder.Finish();
   IterState* cleanup =
-      new IterState(this, &mutex_, super_version, &read_options);
+      new IterState(this, &mutex_, super_version,
+                    read_options.background_purge_on_iterator_cleanup);
   internal_iter->RegisterCleanup(CleanupIteratorState, cleanup, nullptr);
 
   return internal_iter;
