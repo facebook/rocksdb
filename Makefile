@@ -254,6 +254,9 @@ LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 LIBOBJECTS += $(TOOL_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
 
+LIB_SHARED_OBJECTS = $(LIB_SOURCES:.cc=.pic.o)
+LIB_SHARED_OBJECTS += $(TOOL_SOURCES:.cc=.pic.o)
+
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./util/testutil.o
 TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(GTEST)
@@ -463,9 +466,8 @@ $(SHARED3): $(SHARED4)
 	ln -fs $(SHARED4) $(SHARED3)
 endif
 
-$(SHARED4):
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) $(TOOL_SOURCES) \
-		$(LDFLAGS) -o $@
+$(SHARED4): $(LIB_SHARED_OBJECTS)
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS) $(CXXFLAGS) $(LIB_SHARED_OBJECTS) $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 
@@ -479,7 +481,7 @@ all: $(LIBRARY) $(BENCHMARKS) tools tools_lib test_libs $(TESTS)
 
 static_lib: $(LIBRARY)
 
-shared_lib: $(SHARED)
+shared_lib: $(SHARED4)
 
 tools: $(TOOLS)
 
@@ -1398,9 +1400,13 @@ else
 .cc.o:
 	$(AM_V_CC)$(CXX) $(CXXFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
 
+%.pic.o: %.cc
+	$(AM_V_CC)$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -c $< -o $@ $(COVERAGEFLAGS)
+
 .c.o:
 	$(AM_V_CC)$(CC) $(CFLAGS) -c $< -o $@
 endif
+
 
 # ---------------------------------------------------------------------------
 #  	Source files dependencies detection
