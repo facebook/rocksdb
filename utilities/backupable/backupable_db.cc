@@ -99,6 +99,8 @@ class BackupEngineImpl : public BackupEngine {
   }
   Status GarbageCollect() override;
 
+  // The returned BackupInfos are in chronological order, which means the
+  // latest backup comes last.
   void GetBackupInfo(std::vector<BackupInfo>* backup_info) override;
   void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override;
   Status RestoreDBFromBackup(
@@ -1769,6 +1771,8 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
 
   virtual ~BackupEngineReadOnlyImpl() {}
 
+  // The returned BackupInfos are in chronological order, which means the
+  // latest backup comes last.
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) override {
     backup_engine_->GetBackupInfo(backup_info);
   }
