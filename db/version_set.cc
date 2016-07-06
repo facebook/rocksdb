@@ -2160,10 +2160,12 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   if (num_edits == 0) {
     return Status::OK();
   } else if (num_edits > 1) {
+#ifndef NDEBUG
     // no group commits for column family add or drop
     for (auto& edit : edit_list) {
       assert(!edit->IsColumnFamilyManipulation());
     }
+#endif
   }
 
   // column_family_data can be nullptr only if this is column_family_add.
