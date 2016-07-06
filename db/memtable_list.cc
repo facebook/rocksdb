@@ -306,17 +306,28 @@ Status MemTableList::InstallMemtableFlushResults(
   // scan all memtables from the earliest, and commit those
   // (in that order) that have finished flushing. Memetables
   // are always committed in the order that they were created.
-  while (!current_->memlist_.empty() && s.ok()) {
-    MemTable* m = current_->memlist_.back();  // get the last element
+  uint64_t batch_file_number = 0;
+  size_t batch_count = 0;
+  autovector<VersionEdit*> edit_list;
+  auto& memlist = current_->memlist_;
+  // enumerate from the last (earliest) element to see how many batch finished
+  for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
+    MemTable* m = *it;
     if (!m->flush_completed_) {
       break;
     }
+    if (it == memlist.rbegin() || batch_file_number != m->file_number_) {
+      batch_file_number = m->file_number_;
+      LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64 " started",
+                  cfd->GetName().c_str(), m->file_number_);
+      edit_list.push_back(&m->edit_);
+    }
+    batch_count++;
+  }
 
-    LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64 " started",
-                cfd->GetName().c_str(), m->file_number_);
-
+  if (batch_count > 0) {
     // this can release and reacquire the mutex.
-    s = vset->LogAndApply(cfd, mutable_cf_options, &m->edit_, mu, db_directory);
+    s = vset->LogAndApply(cfd, mutable_cf_options, edit_list, mu, db_directory);
 
     // we will be changing the version in the next code path,
     // so we better create a new one, since versions are immutable
@@ -325,14 +336,19 @@ Status MemTableList::InstallMemtableFlushResults(
     // All the later memtables that have the same filenum
     // are part of the same batch. They can be committed now.
     uint64_t mem_id = 1;  // how many memtables have been flushed.
-    do {
-      if (s.ok()) { // commit new state
+    if (s.ok()) {         // commit new state
+      while (batch_count-- > 0) {
+        MemTable* m = current_->memlist_.back();
         LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64
                                 ": memtable #%" PRIu64 " done",
                     cfd->GetName().c_str(), m->file_number_, mem_id);
         assert(m->file_number_ > 0);
         current_->Remove(m, to_delete);
-      } else {
+        ++mem_id;
+      }
+    } else {
+      for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; it++) {
+        MemTable* m = *it;
         // commit failed. setup state so that we can flush again.
         LogToBuffer(log_buffer, "Level-0 commit table #%" PRIu64
                                 ": memtable #%" PRIu64 " failed",
@@ -343,10 +359,9 @@ Status MemTableList::InstallMemtableFlushResults(
         num_flush_not_started_++;
         m->file_number_ = 0;
         imm_flush_needed.store(true, std::memory_order_release);
+        ++mem_id;
       }
-      ++mem_id;
-    } while (!current_->memlist_.empty() && (nullptr != (m = current_->memlist_.back())) &&
-             (m->file_number_ == file_number));
+    }
   }
   commit_in_progress_ = false;
   return s;
