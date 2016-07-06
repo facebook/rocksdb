@@ -703,7 +703,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     type = kNoCompression;
     block_contents = raw_block_contents;
   }
-  else if(type != kNoCompression){
+  else if (type != kNoCompression) {
     MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS, 
       timer.ElapsedNanos());
     MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED, 
