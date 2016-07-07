@@ -352,7 +352,8 @@ uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
 
 void MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
-                   const Slice& value, bool allow_concurrent) {
+                   const Slice& value, bool allow_concurrent,
+                   MemTablePostProcessInfo* post_process_info) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -406,13 +407,16 @@ void MemTable::Add(SequenceNumber s, ValueType type,
       }
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
+    assert(post_process_info == nullptr);
+    UpdateFlushState();
   } else {
     table_->InsertConcurrently(handle);
 
-    num_entries_.fetch_add(1, std::memory_order_relaxed);
-    data_size_.fetch_add(encoded_len, std::memory_order_relaxed);
+    assert(post_process_info != nullptr);
+    post_process_info->num_entries++;
+    post_process_info->data_size += encoded_len;
     if (type == kTypeDeletion) {
-      num_deletes_.fetch_add(1, std::memory_order_relaxed);
+      post_process_info->num_deletes++;
     }
 
     if (prefix_bloom_) {
@@ -432,8 +436,6 @@ void MemTable::Add(SequenceNumber s, ValueType type,
         !first_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
     }
   }
-
-  UpdateFlushState();
 }
 
 // Callback from MemTable::Get()

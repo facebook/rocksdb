@@ -54,6 +54,15 @@ struct MemTableOptions {
   Logger* info_log;
 };
 
+// Batched counters to updated when inserting keys in one write batch.
+// In post process of the write batch, these can be updated together.
+// Only used in concurrent memtable insert case.
+struct MemTablePostProcessInfo {
+  uint64_t data_size = 0;
+  uint64_t num_entries = 0;
+  uint64_t num_deletes = 0;
+};
+
 // Note:  Many of the methods in this class have comments indicating that
 // external synchromization is required as these methods are not thread-safe.
 // It is up to higher layers of code to decide how to prevent concurrent
@@ -157,7 +166,8 @@ class MemTable {
   // REQUIRES: if allow_concurrent = false, external synchronization to prevent
   // simultaneous operations on the same MemTable.
   void Add(SequenceNumber seq, ValueType type, const Slice& key,
-           const Slice& value, bool allow_concurrent = false);
+           const Slice& value, bool allow_concurrent = false,
+           MemTablePostProcessInfo* post_process_info = nullptr);
 
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
@@ -215,6 +225,17 @@ class MemTable {
   // entry for the key up to the last non-merge entry or last entry for the
   // key in the memtable.
   size_t CountSuccessiveMergeEntries(const LookupKey& key);
+
+  // Update counters and flush status after inserting a whole write batch
+  // Used in concurrent memtable inserts.
+  void BatchPostProcess(const MemTablePostProcessInfo& update_counters) {
+    num_entries_.fetch_add(update_counters.num_entries,
+                           std::memory_order_relaxed);
+    data_size_.fetch_add(update_counters.data_size, std::memory_order_relaxed);
+    num_deletes_.fetch_add(update_counters.num_deletes,
+                           std::memory_order_relaxed);
+    UpdateFlushState();
+  }
 
   // Get total number of entries in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous

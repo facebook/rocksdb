@@ -31,6 +31,7 @@
 
 #include "rocksdb/write_batch.h"
 
+#include <map>
 #include <stack>
 #include <stdexcept>
 #include <vector>
@@ -693,6 +694,8 @@ class MemTableInserter : public WriteBatch::Handler {
   uint64_t log_number_ref_;
   DBImpl* db_;
   const bool concurrent_memtable_writes_;
+  typedef std::map<MemTable*, MemTablePostProcessInfo> MemPostInfoMap;
+  MemPostInfoMap mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
 
@@ -717,6 +720,12 @@ class MemTableInserter : public WriteBatch::Handler {
   void set_log_number_ref(uint64_t log) { log_number_ref_ = log; }
 
   SequenceNumber get_final_sequence() { return sequence_; }
+
+  void PostProcess() {
+    for (auto& pair : mem_post_info_map_) {
+      pair.first->BatchPostProcess(pair.second);
+    }
+  }
 
   bool SeekToColumnFamily(uint32_t column_family_id, Status* s) {
     // If we are in a concurrent mode, it is the caller's responsibility
@@ -770,7 +779,8 @@ class MemTableInserter : public WriteBatch::Handler {
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetMemTableOptions();
     if (!moptions->inplace_update_support) {
-      mem->Add(sequence_, kTypeValue, key, value, concurrent_memtable_writes_);
+      mem->Add(sequence_, kTypeValue, key, value, concurrent_memtable_writes_,
+               get_post_process_info(mem));
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
       mem->Update(sequence_, key, value);
@@ -821,7 +831,8 @@ class MemTableInserter : public WriteBatch::Handler {
   Status DeleteImpl(uint32_t column_family_id, const Slice& key,
                     ValueType delete_type) {
     MemTable* mem = cf_mems_->GetMemTable();
-    mem->Add(sequence_, delete_type, key, Slice(), concurrent_memtable_writes_);
+    mem->Add(sequence_, delete_type, key, Slice(), concurrent_memtable_writes_,
+             get_post_process_info(mem));
     sequence_++;
     CheckMemtableFull();
     return Status::OK();
@@ -1046,6 +1057,15 @@ class MemTableInserter : public WriteBatch::Handler {
 
     return Status::OK();
   }
+
+ private:
+  MemTablePostProcessInfo* get_post_process_info(MemTable* mem) {
+    if (!concurrent_memtable_writes_) {
+      // No need to batch counters locally if we don't use concurrent mode.
+      return nullptr;
+    }
+    return &mem_post_info_map_[mem];
+  }
 };
 
 // This function can only be called in these conditions:
@@ -1087,7 +1107,11 @@ Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
                             concurrent_memtable_writes);
   assert(writer->ShouldWriteToMemtable());
   inserter.set_log_number_ref(writer->log_ref);
-  return writer->batch->Iterate(&inserter);
+  Status s = writer->batch->Iterate(&inserter);
+  if (concurrent_memtable_writes) {
+    inserter.PostProcess();
+  }
+  return s;
 }
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* batch,
@@ -1103,6 +1127,9 @@ Status WriteBatchInternal::InsertInto(const WriteBatch* batch,
   Status s = batch->Iterate(&inserter);
   if (last_seq_used != nullptr) {
     *last_seq_used = inserter.get_final_sequence();
+  }
+  if (concurrent_memtable_writes) {
+    inserter.PostProcess();
   }
   return s;
 }
