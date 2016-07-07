@@ -225,12 +225,8 @@ Transaction* TransactionDBImpl::BeginInternalTransaction(
   TransactionOptions txn_options;
   Transaction* txn = BeginTransaction(options, txn_options, nullptr);
 
-  assert(dynamic_cast<TransactionImpl*>(txn) != nullptr);
-  auto txn_impl = reinterpret_cast<TransactionImpl*>(txn);
-
   // Use default timeout for non-transactional writes
-  txn_impl->SetLockTimeout(txn_db_options_.default_lock_timeout);
-
+  txn->SetLockTimeout(txn_db_options_.default_lock_timeout);
   return txn;
 }
 
