@@ -25,23 +25,31 @@ MemTableAllocator::~MemTableAllocator() { DoneAllocating(); }
 
 char* MemTableAllocator::Allocate(size_t bytes) {
   assert(write_buffer_manager_ != nullptr);
-  bytes_allocated_.fetch_add(bytes, std::memory_order_relaxed);
-  write_buffer_manager_->ReserveMem(bytes);
+  if (write_buffer_manager_->enabled()) {
+    bytes_allocated_.fetch_add(bytes, std::memory_order_relaxed);
+    write_buffer_manager_->ReserveMem(bytes);
+  }
   return allocator_->Allocate(bytes);
 }
 
 char* MemTableAllocator::AllocateAligned(size_t bytes, size_t huge_page_size,
                                          Logger* logger) {
   assert(write_buffer_manager_ != nullptr);
-  bytes_allocated_.fetch_add(bytes, std::memory_order_relaxed);
-  write_buffer_manager_->ReserveMem(bytes);
+  if (write_buffer_manager_->enabled()) {
+    bytes_allocated_.fetch_add(bytes, std::memory_order_relaxed);
+    write_buffer_manager_->ReserveMem(bytes);
+  }
   return allocator_->AllocateAligned(bytes, huge_page_size, logger);
 }
 
 void MemTableAllocator::DoneAllocating() {
   if (write_buffer_manager_ != nullptr) {
-    write_buffer_manager_->FreeMem(
-        bytes_allocated_.load(std::memory_order_relaxed));
+    if (write_buffer_manager_->enabled()) {
+      write_buffer_manager_->FreeMem(
+          bytes_allocated_.load(std::memory_order_relaxed));
+    } else {
+      assert(bytes_allocated_.load(std::memory_order_relaxed) == 0);
+    }
     write_buffer_manager_ = nullptr;
   }
 }
