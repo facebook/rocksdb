@@ -1189,6 +1189,12 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
   } else if (LZ4_Supported()) {
     type = kLZ4Compression;
     fprintf(stderr, "using lz4\n");
+  } else if (XPRESS_Supported()) {
+    type = kXpressCompression;
+    fprintf(stderr, "using xpress\n");
+  } else if (ZSTD_Supported()) {
+    type = kZSTDNotFinalCompression;
+    fprintf(stderr, "using ZSTD\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");
     return false;
@@ -4698,6 +4704,12 @@ TEST_F(DBTest, CompressionStatsTest) {
   } else if (LZ4_Supported()) {
     type = kLZ4Compression;
     fprintf(stderr, "using lz4\n");
+  } else if (XPRESS_Supported()) {
+    type = kXpressCompression;
+    fprintf(stderr, "using xpress\n");
+  } else if (ZSTD_Supported()) {
+    type = kZSTDNotFinalCompression;
+    fprintf(stderr, "using ZSTD\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");
     return;
