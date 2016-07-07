@@ -273,35 +273,24 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   ASSERT_TRUE(auto_roll_logger);
   std::thread flush_thread;
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      // Need to pin the old logger before beginning the roll, as rolling grabs
-      // the mutex, which would prevent us from accessing the old logger.
-      {"AutoRollLogger::Flush:PinnedLogger",
-       "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
-      // Need to finish the flush thread init before this callback because the
-      // callback accesses flush_thread.get_id() in order to apply certain sync
-      // points only to the flush thread.
-      {"AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit",
-       "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallbackBegin"},
-      // Need to reset logger at this point in Flush() to exercise a race
-      // condition case, which is executing the flush with the pinned (old)
-      // logger after the roll has cut over to a new logger.
-      {"AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback1",
-       "AutoRollLogger::ResetLogger:BeforeNewLogger"},
-      {"AutoRollLogger::ResetLogger:AfterNewLogger",
-       "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback2"},
-  });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "PosixLogger::Flush:BeginCallback", [&](void* arg) {
-        TEST_SYNC_POINT(
-            "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallbackBegin");
-        if (std::this_thread::get_id() == flush_thread.get_id()) {
-          TEST_SYNC_POINT(
-              "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback1");
-          TEST_SYNC_POINT(
-              "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback2");
-        }
-      });
+  // Notes:
+  // (1) Need to pin the old logger before beginning the roll, as rolling grabs
+  //     the mutex, which would prevent us from accessing the old logger. This
+  //     also marks flush_thread with AutoRollLogger::Flush:PinnedLogger.
+  // (2) Need to reset logger during PosixLogger::Flush() to exercise a race
+  //     condition case, which is executing the flush with the pinned (old)
+  //     logger after auto-roll logger has cut over to a new logger.
+  // (3) PosixLogger::Flush() happens in both threads but its SyncPoints only
+  //     are enabled in flush_thread (the one pinning the old logger).
+  rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
+      {{"AutoRollLogger::Flush:PinnedLogger",
+        "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
+       {"PosixLogger::Flush:Begin1",
+        "AutoRollLogger::ResetLogger:BeforeNewLogger"},
+       {"AutoRollLogger::ResetLogger:AfterNewLogger",
+        "PosixLogger::Flush:Begin2"}},
+      {{"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin1"},
+       {"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin2"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
