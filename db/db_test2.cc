@@ -6,7 +6,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#include <atomic>
 #include <cstdlib>
+#include <functional>
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
@@ -1437,6 +1439,52 @@ TEST_F(DBTest2, PersistentCache) {
       ASSERT_GT(miss, 0);
     }
   }
+}
+
+namespace {
+void CountSyncPoint() {
+  TEST_SYNC_POINT_CALLBACK("DBTest2::MarkedPoint", nullptr /* arg */);
+}
+}  // namespace
+
+TEST_F(DBTest2, SyncPointMarker) {
+  std::atomic<int> sync_point_called(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBTest2::MarkedPoint",
+      [&](void* arg) { sync_point_called.fetch_add(1); });
+
+  // The first dependency enforces Marker can be loaded before MarkedPoint.
+  // The second checks that thread 1's MarkedPoint should be disabled here.
+  // Execution order:
+  // |   Thread 1    |  Thread 2   |
+  // |               |   Marker    |
+  // |  MarkedPoint  |             |
+  // | Thread1First  |             |
+  // |               | MarkedPoint |
+  rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
+      {{"DBTest2::SyncPointMarker:Thread1First", "DBTest2::MarkedPoint"}},
+      {{"DBTest2::SyncPointMarker:Marker", "DBTest2::MarkedPoint"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::function<void()> func1 = [&]() {
+    CountSyncPoint();
+    TEST_SYNC_POINT("DBTest2::SyncPointMarker:Thread1First");
+  };
+
+  std::function<void()> func2 = [&]() {
+    TEST_SYNC_POINT("DBTest2::SyncPointMarker:Marker");
+    CountSyncPoint();
+  };
+
+  auto thread1 = std::thread(func1);
+  auto thread2 = std::thread(func2);
+  thread1.join();
+  thread2.join();
+
+  // Callback is only executed once
+  ASSERT_EQ(sync_point_called.load(), 1);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 #endif
 }  // namespace rocksdb

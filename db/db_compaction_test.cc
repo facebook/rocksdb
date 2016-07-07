@@ -949,19 +949,21 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
       "DBImpl::BackgroundCompaction:NonTrivial",
       [&](void* arg) { non_trivial_move++; });
   bool first = true;
-  bool second = true;
+  // Purpose of dependencies:
+  // 4 -> 1: ensure the order of two non-trivial compactions
+  // 5 -> 2 and 5 -> 3: ensure we do a check before two non-trivial compactions
+  // are installed
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"DBCompaction::ManualPartial:4", "DBCompaction::ManualPartial:1"},
-       {"DBCompaction::ManualPartial:2", "DBCompaction::ManualPartial:3"},
-       {"DBCompaction::ManualPartial:5",
-        "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"}});
+       {"DBCompaction::ManualPartial:5", "DBCompaction::ManualPartial:2"},
+       {"DBCompaction::ManualPartial:5", "DBCompaction::ManualPartial:3"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
         if (first) {
-          TEST_SYNC_POINT("DBCompaction::ManualPartial:4");
           first = false;
+          TEST_SYNC_POINT("DBCompaction::ManualPartial:4");
           TEST_SYNC_POINT("DBCompaction::ManualPartial:3");
-        } else if (second) {
+        } else {  // second non-trivial compaction
           TEST_SYNC_POINT("DBCompaction::ManualPartial:2");
         }
       });
@@ -1038,6 +1040,7 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
     std::string end_string = Key(199);
     Slice begin(begin_string);
     Slice end(end_string);
+    // First non-trivial compaction is triggered
     ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
   });
 
@@ -1061,15 +1064,17 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
     values[i] = RandomString(&rnd, value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
+  // Second non-trivial compaction is triggered
   ASSERT_OK(Flush());
 
-  // 3 files in L0
+  // Before two non-trivial compactions are installed, there are 3 files in L0
   ASSERT_EQ("3,0,0,0,0,1,2", FilesPerLevel(0));
   TEST_SYNC_POINT("DBCompaction::ManualPartial:5");
 
-  // 1 file in L6, 1 file in L1
   dbfull()->TEST_WaitForFlushMemTable();
   dbfull()->TEST_WaitForCompact();
+  // After two non-trivial compactions are installed, there is 1 file in L6, and
+  // 1 file in L1
   ASSERT_EQ("0,1,0,0,0,0,1", FilesPerLevel(0));
   threads.join();
 

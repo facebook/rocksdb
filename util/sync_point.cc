@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "util/sync_point.h"
+#include <thread>
 #include "port/port.h"
 #include "util/random.h"
 
@@ -39,7 +40,7 @@ SyncPoint* SyncPoint::GetInstance() {
   return &sync_point;
 }
 
-void SyncPoint::LoadDependency(const std::vector<Dependency>& dependencies) {
+void SyncPoint::LoadDependency(const std::vector<SyncPointPair>& dependencies) {
   std::unique_lock<std::mutex> lock(mutex_);
   successors_.clear();
   predecessors_.clear();
@@ -47,6 +48,27 @@ void SyncPoint::LoadDependency(const std::vector<Dependency>& dependencies) {
   for (const auto& dependency : dependencies) {
     successors_[dependency.predecessor].push_back(dependency.successor);
     predecessors_[dependency.successor].push_back(dependency.predecessor);
+  }
+  cv_.notify_all();
+}
+
+void SyncPoint::LoadDependencyAndMarkers(
+    const std::vector<SyncPointPair>& dependencies,
+    const std::vector<SyncPointPair>& markers) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  successors_.clear();
+  predecessors_.clear();
+  cleared_points_.clear();
+  markers_.clear();
+  marked_thread_id_.clear();
+  for (const auto& dependency : dependencies) {
+    successors_[dependency.predecessor].push_back(dependency.successor);
+    predecessors_[dependency.successor].push_back(dependency.predecessor);
+  }
+  for (const auto& marker : markers) {
+    successors_[marker.predecessor].push_back(marker.successor);
+    predecessors_[marker.successor].push_back(marker.predecessor);
+    markers_[marker.predecessor].push_back(marker.successor);
   }
   cv_.notify_all();
 }
@@ -89,10 +111,38 @@ void SyncPoint::ClearTrace() {
   cleared_points_.clear();
 }
 
+bool SyncPoint::DisabledByMarker(const std::string& point,
+                                 std::thread::id thread_id) {
+  auto marked_point_iter = marked_thread_id_.find(point);
+  return marked_point_iter != marked_thread_id_.end() &&
+         thread_id != marked_point_iter->second;
+}
+
 void SyncPoint::Process(const std::string& point, void* cb_arg) {
   std::unique_lock<std::mutex> lock(mutex_);
+  auto thread_id = std::this_thread::get_id();
 
-  if (!enabled_) return;
+  auto marker_iter = markers_.find(point);
+  if (marker_iter != markers_.end()) {
+    for (auto marked_point : marker_iter->second) {
+      marked_thread_id_.insert(std::make_pair(marked_point, thread_id));
+    }
+  }
+
+  if (DisabledByMarker(point, thread_id)) {
+    return;
+  }
+
+  if (!enabled_) {
+    return;
+  }
+
+  while (!PredecessorsAllCleared(point)) {
+    cv_.wait(lock);
+    if (DisabledByMarker(point, thread_id)) {
+      return;
+    }
+  }
 
   auto callback_pair = callbacks_.find(point);
   if (callback_pair != callbacks_.end()) {
@@ -102,10 +152,6 @@ void SyncPoint::Process(const std::string& point, void* cb_arg) {
     mutex_.lock();
     num_callbacks_running_--;
     cv_.notify_all();
-  }
-
-  while (!PredecessorsAllCleared(point)) {
-    cv_.wait(lock);
   }
 
   cleared_points_.insert(point);
