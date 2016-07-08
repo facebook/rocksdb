@@ -232,8 +232,10 @@ class MemTable {
     num_entries_.fetch_add(update_counters.num_entries,
                            std::memory_order_relaxed);
     data_size_.fetch_add(update_counters.data_size, std::memory_order_relaxed);
-    num_deletes_.fetch_add(update_counters.num_deletes,
-                           std::memory_order_relaxed);
+    if (update_counters.num_deletes != 0) {
+      num_deletes_.fetch_add(update_counters.num_deletes,
+                             std::memory_order_relaxed);
+    }
     UpdateFlushState();
   }
 
