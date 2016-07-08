@@ -237,6 +237,7 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
         &_stream, reinterpret_cast<const Bytef*>(compression_dict.data()),
         static_cast<unsigned int>(compression_dict.size()));
     if (st != Z_OK) {
+      deflateEnd(&_stream);
       return false;
     }
   }
@@ -249,27 +250,18 @@ inline bool Zlib_Compress(const CompressionOptions& opts,
   _stream.avail_out = static_cast<unsigned int>(length);
   _stream.next_out = reinterpret_cast<Bytef*>(&(*output)[output_header_len]);
 
-  bool done = false;
-  while (!done) {
-    st = deflate(&_stream, Z_FINISH);
-    switch (st) {
-      case Z_STREAM_END:
-        done = true;
-        break;
-      case Z_OK:
-        // No output space. This means the compression is bigger than
-        // decompressed size. Just fail the compression in that case.
-        // Intentional fallback (to failure case)
-      case Z_BUF_ERROR:
-      default:
-        deflateEnd(&_stream);
-        return false;
-    }
+  bool compressed = false;
+  st = deflate(&_stream, Z_FINISH);
+  if (st == Z_STREAM_END) {
+    compressed = true;
+    output->resize(output->size() - _stream.avail_out);
   }
+  // The only return value we really care about is Z_STREAM_END.
+  // Z_OK means insufficient output space. This means the compression is
+  // bigger than decompressed size. Just fail the compression in that case.
 
-  output->resize(output->size() - _stream.avail_out + output_header_len);
   deflateEnd(&_stream);
-  return true;
+  return compressed;
 #endif
   return false;
 }
@@ -416,25 +408,18 @@ inline bool BZip2_Compress(const CompressionOptions& opts,
   _stream.avail_out = static_cast<unsigned int>(length);
   _stream.next_out = reinterpret_cast<char*>(&(*output)[output_header_len]);
 
-  while (_stream.next_in != nullptr && _stream.avail_in != 0) {
-    st = BZ2_bzCompress(&_stream, BZ_FINISH);
-    switch (st) {
-      case BZ_STREAM_END:
-        break;
-      case BZ_FINISH_OK:
-        // No output space. This means the compression is bigger than
-        // decompressed size. Just fail the compression in that case
-        // Intentional fallback (to failure case)
-      case BZ_SEQUENCE_ERROR:
-      default:
-        BZ2_bzCompressEnd(&_stream);
-        return false;
-    }
+  bool compressed = false;
+  st = BZ2_bzCompress(&_stream, BZ_FINISH);
+  if (st == BZ_STREAM_END) {
+    compressed = true;
+    output->resize(output->size() - _stream.avail_out);
   }
+  // The only return value we really care about is BZ_STREAM_END.
+  // BZ_FINISH_OK means insufficient output space. This means the compression
+  // is bigger than decompressed size. Just fail the compression in that case.
 
-  output->resize(output->size() - _stream.avail_out + output_header_len);
   BZ2_bzCompressEnd(&_stream);
-  return true;
+  return compressed;
 #endif
   return false;
 }
