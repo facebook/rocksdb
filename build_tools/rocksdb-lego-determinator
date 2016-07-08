@@ -147,6 +147,26 @@ UNIT_TEST_COMMANDS="[
 ]"
 
 #
+# RocksDB release build and unit tests
+#
+RELEASE_UNIT_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Release Unit Test',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and test RocksDB debug version',
+                'shell':'$SHM $DEBUG make J=1 release',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB unit test on gcc-4.8.1
 #
 UNIT_TEST_COMMANDS_481="[
@@ -664,6 +684,9 @@ case $1 in
     ;;
   unit)
     echo $UNIT_TEST_COMMANDS
+    ;;
+  release)
+    echo $RELEASE_UNIT_TEST_COMMANDS
     ;;
   unit_481)
     echo $UNIT_TEST_COMMANDS_481

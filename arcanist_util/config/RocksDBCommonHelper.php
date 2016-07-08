@@ -224,7 +224,7 @@ function getSandcastleConfig() {
     // Manually list of tests we want to run in Sandcastle.
     $tests = array(
       "unit", "unit_481", "clang_unit", "tsan", "asan", "lite_test",
-      "valgrind"
+      "valgrind", "release"
     );
   }
 
