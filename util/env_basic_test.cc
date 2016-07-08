@@ -153,24 +153,36 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   ASSERT_OK(env_->GetChildren(test_dir_, &children));
   ASSERT_EQ(1U, children.size());
   ASSERT_EQ("f", children[0]);
+  ASSERT_OK(env_->DeleteFile(test_dir_ + "/f"));
 
   // Write to the file.
-  ASSERT_OK(env_->NewWritableFile(test_dir_ + "/f", &writable_file, soptions_));
+  ASSERT_OK(
+      env_->NewWritableFile(test_dir_ + "/f1", &writable_file, soptions_));
   ASSERT_OK(writable_file->Append("abc"));
+  ASSERT_OK(writable_file->Close());
+  writable_file.reset();
+  ASSERT_OK(
+      env_->NewWritableFile(test_dir_ + "/f2", &writable_file, soptions_));
   ASSERT_OK(writable_file->Close());
   writable_file.reset();
 
   // Check for expected size.
-  ASSERT_OK(env_->GetFileSize(test_dir_ + "/f", &file_size));
+  ASSERT_OK(env_->GetFileSize(test_dir_ + "/f1", &file_size));
   ASSERT_EQ(3U, file_size);
 
   // Check that renaming works.
-  ASSERT_TRUE(!env_->RenameFile(test_dir_ + "/non_existent", "/g").ok());
-  ASSERT_OK(env_->RenameFile(test_dir_ + "/f", test_dir_ + "/g"));
-  ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/f"));
+  ASSERT_TRUE(
+      !env_->RenameFile(test_dir_ + "/non_existent", test_dir_ + "/g").ok());
+  ASSERT_OK(env_->RenameFile(test_dir_ + "/f1", test_dir_ + "/g"));
+  ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/f1"));
   ASSERT_OK(env_->FileExists(test_dir_ + "/g"));
   ASSERT_OK(env_->GetFileSize(test_dir_ + "/g", &file_size));
   ASSERT_EQ(3U, file_size);
+
+  // Check that renaming overwriting works
+  ASSERT_OK(env_->RenameFile(test_dir_ + "/f2", test_dir_ + "/g"));
+  ASSERT_OK(env_->GetFileSize(test_dir_ + "/g", &file_size));
+  ASSERT_EQ(0U, file_size);
 
   // Check that opening non-existent file fails.
   unique_ptr<SequentialFile> seq_file;
