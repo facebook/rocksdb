@@ -136,6 +136,7 @@ class BlockPrefixIndex::Builder {
         assert(prefixes_per_bucket[i]->next == nullptr);
         buckets[i] = prefixes_per_bucket[i]->start_block;
       } else {
+        assert(total_block_array_entries > 0);
         assert(prefixes_per_bucket[i] != nullptr);
         buckets[i] = EncodeIndex(offset);
         block_array_buffer[offset] = num_blocks;

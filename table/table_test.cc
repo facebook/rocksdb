@@ -1765,7 +1765,6 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
     ASSERT_GT(props.GetCacheBytesRead(), last_cache_bytes_read);
     ASSERT_EQ(props.GetCacheBytesWrite(),
               table_options.block_cache->GetUsage());
-    last_cache_bytes_read = props.GetCacheBytesRead();
   }
   // release the iterator so that the block cache can reset correctly.
   iter.reset();

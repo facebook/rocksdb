@@ -73,7 +73,7 @@ void BlockIter::Prev() {
     const CachedPrevEntry& current_prev_entry =
         prev_entries_[prev_entries_idx_];
 
-    const char* key_ptr = current_prev_entry.key_ptr;
+    const char* key_ptr = nullptr;
     if (current_prev_entry.key_ptr != nullptr) {
       // The key is not delta encoded and stored in the data block
       key_ptr = current_prev_entry.key_ptr;

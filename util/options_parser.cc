@@ -756,6 +756,7 @@ Status RocksDBOptionsParser::VerifyBlockBasedTableFactory(
   if (base_tf == nullptr) {
     return Status::OK();
   }
+  assert(file_tf != nullptr);
 
   const auto& base_opt = base_tf->table_options();
   const auto& file_opt = file_tf->table_options();

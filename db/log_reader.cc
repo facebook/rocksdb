@@ -91,7 +91,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   Slice fragment;
   while (true) {
     uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
-    size_t drop_size;
+    size_t drop_size = 0;
     const unsigned int record_type = ReadPhysicalRecord(&fragment, &drop_size);
     switch (record_type) {
       case kFullType:
@@ -199,10 +199,11 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
           scratch->clear();
           return false;
         }
-	if (record_type == kBadRecordLen)
-	  ReportCorruption(drop_size, "bad record length");
-	else
-	  ReportCorruption(drop_size, "checksum mismatch");
+        if (record_type == kBadRecordLen) {
+          ReportCorruption(drop_size, "bad record length");
+        } else {
+          ReportCorruption(drop_size, "checksum mismatch");
+        }
         if (in_fragmented_record) {
           ReportCorruption(scratch->size(), "error in middle of record");
           in_fragmented_record = false;
@@ -343,7 +344,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     if (buffer_.size() < (size_t)kHeaderSize) {
       int r;
       if (!ReadMore(drop_size, &r)) {
-	return r;
+        return r;
       }
       continue;
     }
@@ -362,11 +363,11 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       header_size = kRecyclableHeaderSize;
       // We need enough for the larger header
       if (buffer_.size() < (size_t)kRecyclableHeaderSize) {
-	int r;
-	if (!ReadMore(drop_size, &r)) {
+        int r;
+        if (!ReadMore(drop_size, &r)) {
           return r;
         }
-	continue;
+        continue;
       }
       const uint32_t log_num = DecodeFixed32(header + 7);
       if (log_num != log_number_) {

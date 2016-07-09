@@ -1052,6 +1052,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
     Status s;
     s = CreateIndexReader(&index_reader);
     if (s.ok()) {
+      assert(index_reader != nullptr);
       s = block_cache->Insert(key, index_reader, index_reader->usable_size(),
                               &DeleteCachedIndexEntry, &cache_handle);
     }
@@ -1062,6 +1063,9 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
       RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, usable_size);
       RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, usable_size);
     } else {
+      if (index_reader != nullptr) {
+        delete index_reader;
+      }
       RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
       // make sure if something goes wrong, index_reader shall remain intact.
       if (input_iter != nullptr) {
@@ -1189,7 +1193,8 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
   }
 
   InternalIterator* iter;
-  if (s.ok() && block.value != nullptr) {
+  if (s.ok()) {
+    assert(block.value != nullptr);
     iter = block.value->NewIterator(&rep->internal_comparator, input_iter);
     if (block.cache_handle != nullptr) {
       iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
@@ -1198,6 +1203,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
       iter->RegisterCleanup(&DeleteHeldResource<Block>, block.value, nullptr);
     }
   } else {
+    assert(block.value == nullptr);
     if (input_iter != nullptr) {
       input_iter->SetStatus(s);
       iter = input_iter;

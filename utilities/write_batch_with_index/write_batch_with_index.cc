@@ -226,6 +226,8 @@ class BaseDeltaIterator : public Iterator {
   bool BaseValid() const { return base_iterator_->Valid(); }
   bool DeltaValid() const { return delta_iterator_->Valid(); }
   void UpdateCurrent() {
+// Suppress false positive clang analyzer warnings.
+#ifndef __clang_analyzer__
     while (true) {
       WriteEntry delta_entry;
       if (DeltaValid()) {
@@ -275,6 +277,7 @@ class BaseDeltaIterator : public Iterator {
     }
 
     AssertInvariants();
+#endif  // __clang_analyzer__
   }
 
   bool forward_;

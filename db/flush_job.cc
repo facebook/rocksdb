@@ -292,9 +292,6 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
   }
   base->Unref();
 
-  // re-acquire the most current version
-  base = cfd_->current();
-
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   if (s.ok() && meta->fd.GetFileSize() > 0) {

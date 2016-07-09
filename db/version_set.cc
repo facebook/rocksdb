@@ -2746,7 +2746,7 @@ Status VersionSet::Recover(
     }
   }
 
-  for (auto builder : builders) {
+  for (auto& builder : builders) {
     delete builder.second;
   }
 

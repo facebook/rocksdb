@@ -57,6 +57,8 @@ class IDChecker : public ThreadLocalPtr {
 
 }  // anonymous namespace
 
+// Suppress false positive clang analyzer warnings.
+#ifndef __clang_analyzer__
 TEST_F(ThreadLocalTest, UniqueIdTest) {
   port::Mutex mu;
   port::CondVar cv(&mu);
@@ -103,6 +105,7 @@ TEST_F(ThreadLocalTest, UniqueIdTest) {
   // After exit, id sequence in queue:
   // 3, 1, 2, 0
 }
+#endif  // __clang_analyzer__
 
 TEST_F(ThreadLocalTest, SequentialReadWriteTest) {
   // global id list carries over 3, 1, 2, 0

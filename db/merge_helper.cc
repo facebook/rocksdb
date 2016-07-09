@@ -26,6 +26,7 @@ Status MergeHelper::TimedFullMerge(const MergeOperator* merge_operator,
   assert(merge_operator != nullptr);
 
   if (operands.size() == 0) {
+    assert(value != nullptr && result != nullptr);
     result->assign(value->data(), value->size());
     return Status::OK();
   }

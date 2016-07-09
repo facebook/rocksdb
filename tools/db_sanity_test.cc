@@ -230,6 +230,9 @@ class SanityTestBloomFilter : public SanityTest {
 
 namespace {
 bool RunSanityTests(const std::string& command, const std::string& path) {
+  bool result = true;
+// Suppress false positive clang static anaylzer warnings.
+#ifndef __clang_analyzer__
   std::vector<SanityTest*> sanity_tests = {
       new SanityTestBasic(path),
       new SanityTestSpecialComparator(path),
@@ -248,7 +251,6 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
   } else {
     fprintf(stderr, "Verifying...\n");
   }
-  bool result = true;
   for (auto sanity_test : sanity_tests) {
     Status s;
     fprintf(stderr, "%s -- ", sanity_test->Name().c_str());
@@ -266,6 +268,7 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
 
     delete sanity_test;
   }
+#endif  // __clang_analyzer__
   return result;
 }
 }  // namespace
