@@ -733,7 +733,7 @@ extern void Error(const shared_ptr<Logger>& info_log, const char* format, ...);
 extern void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...);
 
 // Log the specified data to *info_log if info_log is non-nullptr.
-// The default info log level is InfoLogLevel::ERROR.
+// The default info log level is InfoLogLevel::INFO_LEVEL.
 extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
@@ -745,7 +745,7 @@ extern void LogFlush(Logger *info_log);
 extern void Log(const InfoLogLevel log_level, Logger* info_log,
                 const char* format, ...);
 
-// The default info log level is InfoLogLevel::ERROR.
+// The default info log level is InfoLogLevel::INFO_LEVEL.
 extern void Log(Logger* info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
