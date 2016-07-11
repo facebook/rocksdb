@@ -1118,13 +1118,13 @@ TEST_F(DBSSTTest, AddExternalSstFileListAtomicity) {
     // files[1].sst (100 => 199)
     // ...
     // file[8].sst (800 => 899)
-    size_t n = 9;
+    int n = 9;
     std::vector<std::string> files(n);
     std::vector<ExternalSstFileInfo> files_info(n);
-    for (size_t i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++) {
       files[i] = sst_files_folder + "file" + std::to_string(i) + ".sst";
       ASSERT_OK(sst_file_writer.Open(files[i]));
-      for (size_t k = i * 100; k < (i + 1) * 100; k++) {
+      for (int k = i * 100; k < (i + 1) * 100; k++) {
         ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
       }
       Status s = sst_file_writer.Finish(&files_info[i]);
@@ -1137,12 +1137,12 @@ TEST_F(DBSSTTest, AddExternalSstFileListAtomicity) {
     files.push_back(sst_files_folder + "file" + std::to_string(n) + ".sst");
     auto s = db_->AddFile(files);
     ASSERT_NOK(s) << s.ToString();
-    for (size_t k = 0; k < n * 100; k++) {
+    for (int k = 0; k < n * 100; k++) {
       ASSERT_EQ("NOT_FOUND", Get(Key(k)));
     }
     s = db_->AddFile(files_info);
     ASSERT_OK(s);
-    for (size_t k = 0; k < n * 100; k++) {
+    for (int k = 0; k < n * 100; k++) {
       std::string value = Key(k) + "_val";
       ASSERT_EQ(Get(Key(k)), value);
     }
