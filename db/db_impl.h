@@ -258,10 +258,11 @@ class DBImpl : public DB {
 
   using DB::AddFile;
   virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const ExternalSstFileInfo* file_info,
+                         const std::vector<ExternalSstFileInfo>& file_info_list,
                          bool move_file) override;
   virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const std::string& file_path, bool move_file) override;
+                         const std::vector<std::string>& file_path_list,
+                         bool move_file) override;
 
 #endif  // ROCKSDB_LITE
 
@@ -637,13 +638,17 @@ class DBImpl : public DB {
   // Finds the lowest level in the DB that the ingested file can be added to
   // REQUIRES: mutex_ held
   int PickLevelForIngestedFile(ColumnFamilyData* cfd,
-                               const ExternalSstFileInfo* file_info);
+                               const ExternalSstFileInfo& file_info);
 
   Status CompactFilesImpl(
       const CompactionOptions& compact_options, ColumnFamilyData* cfd,
       Version* version, const std::vector<std::string>& input_file_names,
       const int output_level, int output_path_id, JobContext* job_context,
       LogBuffer* log_buffer);
+  Status ReadExternalSstFileInfo(ColumnFamilyHandle* column_family,
+                                 const std::string& file_path,
+                                 ExternalSstFileInfo* file_info);
+
 #endif  // ROCKSDB_LITE
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);

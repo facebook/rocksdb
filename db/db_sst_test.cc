@@ -843,7 +843,7 @@ TEST_F(DBSSTTest, AddExternalSstFile) {
 
     DestroyAndReopen(options);
     // Add file using file path
-    s = db_->AddFile(file1);
+    s = db_->AddFile(std::vector<std::string>(1, file1));
     ASSERT_TRUE(s.ok()) << s.ToString();
     ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
     for (int k = 0; k < 100; k++) {
@@ -853,23 +853,23 @@ TEST_F(DBSSTTest, AddExternalSstFile) {
     // Add file while holding a snapshot will fail
     const Snapshot* s1 = db_->GetSnapshot();
     if (s1 != nullptr) {
-      ASSERT_NOK(db_->AddFile(&file2_info));
+      ASSERT_NOK(db_->AddFile(std::vector<ExternalSstFileInfo>(1, file2_info)));
       db_->ReleaseSnapshot(s1);
     }
     // We can add the file after releaseing the snapshot
-    ASSERT_OK(db_->AddFile(&file2_info));
+    ASSERT_OK(db_->AddFile(std::vector<ExternalSstFileInfo>(1, file2_info)));
 
     ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
     for (int k = 0; k < 200; k++) {
       ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
     }
 
-    // This file have overlapping values with the exisitng data
-    s = db_->AddFile(file3);
+    // This file has overlapping values with the exisitng data
+    s = db_->AddFile(std::vector<std::string>(1, file3));
     ASSERT_FALSE(s.ok()) << s.ToString();
 
-    // This file have overlapping values with the exisitng data
-    s = db_->AddFile(&file4_info);
+    // This file has overlapping values with the exisitng data
+    s = db_->AddFile(std::vector<ExternalSstFileInfo>(1, file4_info));
     ASSERT_FALSE(s.ok()) << s.ToString();
 
     // Overwrite values of keys divisible by 5
@@ -879,7 +879,7 @@ TEST_F(DBSSTTest, AddExternalSstFile) {
     ASSERT_NE(db_->GetLatestSequenceNumber(), 0U);
 
     // Key range of file5 (400 => 499) dont overlap with any keys in DB
-    ASSERT_OK(db_->AddFile(file5));
+    ASSERT_OK(db_->AddFile(std::vector<std::string>(1, file5)));
 
     // Make sure values are correct before and after flush/compaction
     for (int i = 0; i < 2; i++) {
@@ -908,13 +908,13 @@ TEST_F(DBSSTTest, AddExternalSstFile) {
     }
     // We deleted range (400 => 499) but cannot add file5 because
     // of the range tombstones
-    ASSERT_NOK(db_->AddFile(file5));
+    ASSERT_NOK(db_->AddFile(std::vector<std::string>(1, file5)));
 
     // Compacting the DB will remove the tombstones
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 
     // Now we can add the file
-    ASSERT_OK(db_->AddFile(file5));
+    ASSERT_OK(db_->AddFile(std::vector<std::string>(1, file5)));
 
     // Verify values of file5 in DB
     for (int k = 400; k < 500; k++) {
@@ -925,6 +925,230 @@ TEST_F(DBSSTTest, AddExternalSstFile) {
                          kSkipFIFOCompaction));
 }
 
+TEST_F(DBSSTTest, AddExternalSstFileList) {
+  do {
+    std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+    env_->CreateDir(sst_files_folder);
+    Options options = CurrentOptions();
+    options.env = env_;
+
+    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+
+    // file1.sst (0 => 99)
+    std::string file1 = sst_files_folder + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    for (int k = 0; k < 100; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    }
+    ExternalSstFileInfo file1_info;
+    Status s = sst_file_writer.Finish(&file1_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file1_info.file_path, file1);
+    ASSERT_EQ(file1_info.num_entries, 100);
+    ASSERT_EQ(file1_info.smallest_key, Key(0));
+    ASSERT_EQ(file1_info.largest_key, Key(99));
+    // sst_file_writer already finished, cannot add this value
+    s = sst_file_writer.Add(Key(100), "bad_val");
+    ASSERT_FALSE(s.ok()) << s.ToString();
+
+    // file2.sst (100 => 199)
+    std::string file2 = sst_files_folder + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    for (int k = 100; k < 200; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    }
+    // Cannot add this key because it's not after last added key
+    s = sst_file_writer.Add(Key(99), "bad_val");
+    ASSERT_FALSE(s.ok()) << s.ToString();
+    ExternalSstFileInfo file2_info;
+    s = sst_file_writer.Finish(&file2_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file2_info.file_path, file2);
+    ASSERT_EQ(file2_info.num_entries, 100);
+    ASSERT_EQ(file2_info.smallest_key, Key(100));
+    ASSERT_EQ(file2_info.largest_key, Key(199));
+
+    // file3.sst (195 => 199)
+    // This file values overlap with file2 values
+    std::string file3 = sst_files_folder + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    for (int k = 195; k < 200; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+    }
+    ExternalSstFileInfo file3_info;
+    s = sst_file_writer.Finish(&file3_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file3_info.file_path, file3);
+    ASSERT_EQ(file3_info.num_entries, 5);
+    ASSERT_EQ(file3_info.smallest_key, Key(195));
+    ASSERT_EQ(file3_info.largest_key, Key(199));
+
+    // file4.sst (30 => 39)
+    // This file values overlap with file1 values
+    std::string file4 = sst_files_folder + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    for (int k = 30; k < 40; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+    }
+    ExternalSstFileInfo file4_info;
+    s = sst_file_writer.Finish(&file4_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file4_info.file_path, file4);
+    ASSERT_EQ(file4_info.num_entries, 10);
+    ASSERT_EQ(file4_info.smallest_key, Key(30));
+    ASSERT_EQ(file4_info.largest_key, Key(39));
+
+    // file5.sst (200 => 299)
+    std::string file5 = sst_files_folder + "file5.sst";
+    ASSERT_OK(sst_file_writer.Open(file5));
+    for (int k = 200; k < 300; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    }
+    ExternalSstFileInfo file5_info;
+    s = sst_file_writer.Finish(&file5_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file5_info.file_path, file5);
+    ASSERT_EQ(file5_info.num_entries, 100);
+    ASSERT_EQ(file5_info.smallest_key, Key(200));
+    ASSERT_EQ(file5_info.largest_key, Key(299));
+
+    // list 1 has internal key range conflict
+    std::vector<std::string> file_list0({file1, file2});
+    std::vector<std::string> file_list1({file3, file2, file1});
+    std::vector<std::string> file_list2({file5});
+    std::vector<std::string> file_list3({file3, file4});
+
+    std::vector<ExternalSstFileInfo> info_list0({file1_info, file2_info});
+    std::vector<ExternalSstFileInfo> info_list1(
+        {file3_info, file2_info, file1_info});
+    std::vector<ExternalSstFileInfo> info_list2({file5_info});
+    std::vector<ExternalSstFileInfo> info_list3({file3_info, file4_info});
+
+    DestroyAndReopen(options);
+
+    // This list of files have key ranges are overlapping with each other
+    s = db_->AddFile(file_list1);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+    s = db_->AddFile(info_list1);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+
+    // Add files using file path list
+    s = db_->AddFile(file_list0);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 200; k++) {
+      ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+    }
+
+    // Add file while holding a snapshot will fail
+    const Snapshot* s1 = db_->GetSnapshot();
+    if (s1 != nullptr) {
+      ASSERT_NOK(db_->AddFile(info_list2));
+      db_->ReleaseSnapshot(s1);
+    }
+    // We can add the file after releaseing the snapshot
+    ASSERT_OK(db_->AddFile(info_list2));
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 300; k++) {
+      ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+    }
+
+    // This file list has overlapping values with the exisitng data
+    s = db_->AddFile(file_list3);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+    s = db_->AddFile(info_list3);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+
+    // Overwrite values of keys divisible by 5
+    for (int k = 0; k < 200; k += 5) {
+      ASSERT_OK(Put(Key(k), Key(k) + "_val_new"));
+    }
+    ASSERT_NE(db_->GetLatestSequenceNumber(), 0U);
+
+    // Make sure values are correct before and after flush/compaction
+    for (int i = 0; i < 2; i++) {
+      for (int k = 0; k < 200; k++) {
+        std::string value = Key(k) + "_val";
+        if (k % 5 == 0) {
+          value += "_new";
+        }
+        ASSERT_EQ(Get(Key(k)), value);
+      }
+      for (int k = 200; k < 300; k++) {
+        std::string value = Key(k) + "_val";
+        ASSERT_EQ(Get(Key(k)), value);
+      }
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    }
+
+    // Delete keys in range (200 => 299)
+    for (int k = 200; k < 300; k++) {
+      ASSERT_OK(Delete(Key(k)));
+    }
+    // We deleted range (200 => 299) but cannot add file5 because
+    // of the range tombstones
+    ASSERT_NOK(db_->AddFile(file_list2));
+
+    // Compacting the DB will remove the tombstones
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+    // Now we can add the file
+    ASSERT_OK(db_->AddFile(file_list2));
+
+    // Verify values of file5 in DB
+    for (int k = 200; k < 300; k++) {
+      std::string value = Key(k) + "_val";
+      ASSERT_EQ(Get(Key(k)), value);
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
+                         kSkipFIFOCompaction));
+}
+
+TEST_F(DBSSTTest, AddExternalSstFileListAtomicity) {
+  do {
+    std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+    env_->CreateDir(sst_files_folder);
+    Options options = CurrentOptions();
+    options.env = env_;
+
+    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+
+    // files[0].sst (0 => 99)
+    // files[1].sst (100 => 199)
+    // ...
+    // file[8].sst (800 => 899)
+    size_t n = 9;
+    std::vector<std::string> files(n);
+    std::vector<ExternalSstFileInfo> files_info(n);
+    for (size_t i = 0; i < n; i++) {
+      files[i] = sst_files_folder + "file" + std::to_string(i) + ".sst";
+      ASSERT_OK(sst_file_writer.Open(files[i]));
+      for (size_t k = i * 100; k < (i + 1) * 100; k++) {
+        ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+      }
+      Status s = sst_file_writer.Finish(&files_info[i]);
+      ASSERT_TRUE(s.ok()) << s.ToString();
+      ASSERT_EQ(files_info[i].file_path, files[i]);
+      ASSERT_EQ(files_info[i].num_entries, 100);
+      ASSERT_EQ(files_info[i].smallest_key, Key(i * 100));
+      ASSERT_EQ(files_info[i].largest_key, Key((i + 1) * 100 - 1));
+    }
+    files.push_back(sst_files_folder + "file" + std::to_string(n) + ".sst");
+    auto s = db_->AddFile(files);
+    ASSERT_NOK(s) << s.ToString();
+    for (size_t k = 0; k < n * 100; k++) {
+      ASSERT_EQ("NOT_FOUND", Get(Key(k)));
+    }
+    s = db_->AddFile(files_info);
+    ASSERT_OK(s);
+    for (size_t k = 0; k < n * 100; k++) {
+      std::string value = Key(k) + "_val";
+      ASSERT_EQ(Get(Key(k)), value);
+    }
+  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
+                         kSkipFIFOCompaction));
+}
 // This test reporduce a bug that can happen in some cases if the DB started
 // purging obsolete files when we are adding an external sst file.
 // This situation may result in deleting the file while it's being added.
@@ -963,7 +1187,7 @@ TEST_F(DBSSTTest, AddExternalSstFilePurgeObsoleteFilesBug) {
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  s = db_->AddFile(sst_file_path);
+  s = db_->AddFile(std::vector<std::string>(1, sst_file_path));
   ASSERT_OK(s);
 
   for (int i = 0; i < 500; i++) {
@@ -1025,17 +1249,19 @@ TEST_F(DBSSTTest, AddExternalSstFileNoCopy) {
   ASSERT_EQ(file3_info.num_entries, 15);
   ASSERT_EQ(file3_info.smallest_key, Key(110));
   ASSERT_EQ(file3_info.largest_key, Key(124));
-
-  s = db_->AddFile(&file1_info, true /* move file */);
+  s = db_->AddFile(std::vector<ExternalSstFileInfo>(1, file1_info),
+                   true /* move file */);
   ASSERT_TRUE(s.ok()) << s.ToString();
   ASSERT_EQ(Status::NotFound(), env_->FileExists(file1));
 
-  s = db_->AddFile(&file2_info, false /* copy file */);
+  s = db_->AddFile(std::vector<ExternalSstFileInfo>(1, file2_info),
+                   false /* copy file */);
   ASSERT_TRUE(s.ok()) << s.ToString();
   ASSERT_OK(env_->FileExists(file2));
 
   // This file have overlapping values with the exisitng data
-  s = db_->AddFile(&file3_info, true /* move file */);
+  s = db_->AddFile(std::vector<ExternalSstFileInfo>(1, file2_info),
+                   true /* move file */);
   ASSERT_FALSE(s.ok()) << s.ToString();
   ASSERT_OK(env_->FileExists(file3));
 
@@ -1101,7 +1327,8 @@ TEST_F(DBSSTTest, AddExternalSstFileMultiThreaded) {
       // sometimes we use copy, sometimes link .. the result should be the same
       bool move_file = (thread_id % 3 == 0);
 
-      Status s = db_->AddFile(file_names[file_idx], move_file);
+      Status s = db_->AddFile(std::vector<std::string>(1, file_names[file_idx]),
+                              move_file);
       if (s.ok()) {
         files_added++;
       }
@@ -1198,7 +1425,7 @@ TEST_F(DBSSTTest, AddExternalSstFileOverlappingRanges) {
         ASSERT_OK(s);
 
         // Insert the generated file
-        s = db_->AddFile(&file_info);
+        s = db_->AddFile(std::vector<ExternalSstFileInfo>(1, file_info));
 
         auto it = true_data.lower_bound(Key(range_start));
         if (it != true_data.end() && it->first <= Key(range_end)) {

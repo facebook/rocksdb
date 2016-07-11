@@ -12,15 +12,16 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <memory>
-#include <vector>
 #include <string>
 #include <unordered_map>
+#include <vector>
 #include "rocksdb/immutable_options.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
 #include "rocksdb/options.h"
 #include "rocksdb/snapshot.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/thread_status.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
@@ -580,14 +581,14 @@ class DB {
   }
 
 #if defined(__GNUC__) || defined(__clang__)
-  __attribute__((deprecated))
+  __attribute__((__deprecated__))
 #elif _WIN32
   __declspec(deprecated)
 #endif
-   virtual Status
-      CompactRange(ColumnFamilyHandle* column_family, const Slice* begin,
-                   const Slice* end, bool change_level = false,
-                   int target_level = -1, uint32_t target_path_id = 0) {
+  virtual Status
+  CompactRange(ColumnFamilyHandle* column_family, const Slice* begin,
+               const Slice* end, bool change_level = false,
+               int target_level = -1, uint32_t target_path_id = 0) {
     CompactRangeOptions options;
     options.change_level = change_level;
     options.target_level = target_level;
@@ -595,14 +596,13 @@ class DB {
     return CompactRange(options, column_family, begin, end);
   }
 #if defined(__GNUC__) || defined(__clang__)
-  __attribute__((deprecated))
+  __attribute__((__deprecated__))
 #elif _WIN32
   __declspec(deprecated)
 #endif
-    virtual Status
-      CompactRange(const Slice* begin, const Slice* end,
-                   bool change_level = false, int target_level = -1,
-                   uint32_t target_path_id = 0) {
+  virtual Status
+  CompactRange(const Slice* begin, const Slice* end, bool change_level = false,
+               int target_level = -1, uint32_t target_path_id = 0) {
     CompactRangeOptions options;
     options.change_level = change_level;
     options.target_level = target_level;
@@ -792,32 +792,77 @@ class DB {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
 
-  // Load table file located at "file_path" into "column_family", a pointer to
-  // ExternalSstFileInfo can be used instead of "file_path" to do a blind add
-  // that wont need to read the file, move_file can be set to true to
-  // move the file instead of copying it.
+  // Batch load table files whose paths stored in  "file_path_list" into
+  // "column_family", a vector of  ExternalSstFileInfo can be used
+  // instead of "file_path_list" to do a blind batch add that wont
+  // need to read the file, move_file can be set to true to
+  // move the files instead of copying them.
   //
   // Current Requirements:
-  // (1) Key range in loaded table file don't overlap with
+  // (1) The key ranges of the files don't overlap with each other
+  // (1) The key range of any file in list doesn't overlap with
   //     existing keys or tombstones in DB.
   // (2) No snapshots are held.
   //
-  // Notes: We will try to ingest the file to the lowest possible level
+  // Notes: We will try to ingest the files to the lowest possible level
   //        even if the file compression dont match the level compression
   virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const std::string& file_path,
+                         const std::vector<std::string>& file_path_list,
                          bool move_file = false) = 0;
-  virtual Status AddFile(const std::string& file_path, bool move_file = false) {
-    return AddFile(DefaultColumnFamily(), file_path, move_file);
+  virtual Status AddFile(const std::vector<std::string>& file_path_list,
+                         bool move_file = false) {
+    return AddFile(DefaultColumnFamily(), file_path_list, move_file);
+  }
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((__deprecated__))
+#elif _WIN32
+  __declspec(deprecated)
+#endif
+  virtual Status
+  AddFile(ColumnFamilyHandle* column_family, const std::string& file_path,
+          bool move_file = false) {
+    return AddFile(column_family, std::vector<std::string>(1, file_path),
+                   move_file);
+  }
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((__deprecated__))
+#elif _WIN32
+  __declspec(deprecated)
+#endif
+  virtual Status
+  AddFile(const std::string& file_path, bool move_file = false) {
+    return AddFile(DefaultColumnFamily(),
+                   std::vector<std::string>(1, file_path), move_file);
   }
 
   // Load table file with information "file_info" into "column_family"
   virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const ExternalSstFileInfo* file_info,
+                         const std::vector<ExternalSstFileInfo>& file_info_list,
                          bool move_file = false) = 0;
-  virtual Status AddFile(const ExternalSstFileInfo* file_info,
+  virtual Status AddFile(const std::vector<ExternalSstFileInfo>& file_info_list,
                          bool move_file = false) {
-    return AddFile(DefaultColumnFamily(), file_info, move_file);
+    return AddFile(DefaultColumnFamily(), file_info_list, move_file);
+  }
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((__deprecated__))
+#elif _WIN32
+  __declspec(deprecated)
+#endif
+  virtual Status
+  AddFile(ColumnFamilyHandle* column_family,
+          const ExternalSstFileInfo* file_info, bool move_file = false) {
+    return AddFile(column_family,
+                   std::vector<ExternalSstFileInfo>(1, *file_info), move_file);
+  }
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((__deprecated__))
+#elif _WIN32
+  __declspec(deprecated)
+#endif
+  virtual Status
+  AddFile(const ExternalSstFileInfo* file_info, bool move_file = false) {
+    return AddFile(DefaultColumnFamily(),
+                   std::vector<ExternalSstFileInfo>(1, *file_info), move_file);
   }
 
 #endif  // ROCKSDB_LITE

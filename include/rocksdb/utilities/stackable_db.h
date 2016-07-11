@@ -65,14 +65,14 @@ class StackableDB : public DB {
 
   using DB::AddFile;
   virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const ExternalSstFileInfo* file_info,
+                         const std::vector<ExternalSstFileInfo>& file_info_list,
                          bool move_file) override {
-    return db_->AddFile(column_family, file_info, move_file);
+    return db_->AddFile(column_family, file_info_list, move_file);
   }
   virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const std::string& file_path,
+                         const std::vector<std::string>& file_path_list,
                          bool move_file) override {
-    return db_->AddFile(column_family, file_path, move_file);
+    return db_->AddFile(column_family, file_path_list, move_file);
   }
 
   using DB::KeyMayExist;

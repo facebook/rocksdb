@@ -1098,7 +1098,7 @@ Status DBTestBase::GenerateAndAddExternalFile(const Options options,
   s = sst_file_writer.Finish();
 
   if (s.ok()) {
-    s = db_->AddFile(file_path);
+    s = db_->AddFile(std::vector<std::string>(1, file_path));
   }
 
   return s;
