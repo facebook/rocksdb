@@ -177,20 +177,25 @@ LIB_SOURCES =                                                   \
   util/xfunc.cc                                                 \
   util/xxhash.cc                                                \
 
-TOOL_SOURCES = \
+TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
   tools/ldb_tool.cc                                              \
   tools/sst_dump_tool.cc                                         \
 
-MOCK_SOURCES = \
+MOCK_LIB_SOURCES = \
   table/mock_table.cc \
   util/mock_env.cc \
   util/fault_injection_test_env.cc
 
-BENCH_SOURCES = \
+BENCH_LIB_SOURCES = \
   tools/db_bench_tool.cc
 
-TEST_BENCH_SOURCES =                                                    \
+TEST_LIB_SOURCES = \
+  util/testharness.cc                                                   \
+  util/testutil.cc                                                      \
+  db/db_test_util.cc
+
+MAIN_SOURCES =                                                    \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
   db/auto_roll_logger_test.cc                                           \
   db/column_family_test.cc                                              \
@@ -200,7 +205,6 @@ TEST_BENCH_SOURCES =                                                    \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
-  tools/db_bench_tool.cc                                                \
   db/dbformat_test.cc                                                   \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
@@ -235,7 +239,6 @@ TEST_BENCH_SOURCES =                                                    \
   db/prefix_test.cc                                                     \
   db/skiplist_test.cc                                                   \
   db/table_properties_collector_test.cc                                 \
-  db/db_test_util.cc                                                    \
   db/version_builder_test.cc                                            \
   db/version_edit_test.cc                                               \
   db/version_set_test.cc                                                \
@@ -251,6 +254,7 @@ TEST_BENCH_SOURCES =                                                    \
   table/merger_test.cc                                                  \
   table/table_reader_bench.cc                                           \
   table/table_test.cc                                                   \
+  tools/db_bench.cc                                                     \
   tools/db_bench_tool_test.cc                                           \
   tools/db_sanity_test.cc                                               \
   tools/ldb_cmd_test.cc                                                 \
@@ -292,8 +296,6 @@ TEST_BENCH_SOURCES =                                                    \
   util/event_logger_test.cc                                             \
   util/rate_limiter_test.cc                                             \
   util/slice_transform_test.cc                                          \
-  util/testharness.cc                                                   \
-  util/testutil.cc                                                      \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc
 
