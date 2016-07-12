@@ -217,6 +217,7 @@ MAIN_SOURCES =                                                    \
   db/db_inplace_update_test.cc                                          \
 	db/db_iterator_test.cc																								\
   db/db_log_iter_test.cc                                                \
+	db/db_options_test.cc																									\
 	db/db_sst_test.cc																											\
   db/db_tailing_iter_test.cc                                            \
   db/db_universal_compaction_test.cc                                    \

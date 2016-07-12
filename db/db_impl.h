@@ -670,6 +670,11 @@ class DBImpl : public DB {
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
 
+  // Compare options before and after to see whether flush or compaction is
+  // needed immediately after dynamic option change.
+  bool NeedFlushOrCompaction(const MutableCFOptions& base_options,
+                             const MutableCFOptions& new_options);
+
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG
