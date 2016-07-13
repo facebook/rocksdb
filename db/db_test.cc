@@ -4718,6 +4718,7 @@ TEST_F(DBTest, CompressionStatsTest) {
   Options options = CurrentOptions();
   options.compression = type;
   options.statistics = rocksdb::CreateDBStatistics();
+  options.statistics->stats_level_ = StatsLevel::kAll;
   DestroyAndReopen(options);
 
   int kNumKeysWritten = 100000;
