@@ -42,6 +42,11 @@ const uint64_t kPlainTableMagicNumber = 0;
 #endif
 const uint32_t DefaultStackBufferSize = 5000;
 
+bool ShouldReportDetailedTime(Env* env, Statistics* stats) {
+  return env != nullptr && stats != nullptr &&
+         stats->stats_level_ > kExceptDetailedTimers;
+}
+
 void BlockHandle::EncodeTo(std::string* dst) const {
   // Sanity check that all fields have been set
   assert(offset_ != ~static_cast<uint64_t>(0));
@@ -414,7 +419,8 @@ Status UncompressBlockContentsForCompressionType(
 
   assert(compression_type != kNoCompression && "Invalid compression type");
 
-  StopWatchNano timer(ioptions.env, true);
+  StopWatchNano timer(ioptions.env,
+    ShouldReportDetailedTime(ioptions.env, ioptions.statistics));
   int decompress_size = 0;
   switch (compression_type) {
     case kSnappyCompression: {
@@ -506,9 +512,12 @@ Status UncompressBlockContentsForCompressionType(
       return Status::Corruption("bad block type");
   }
 
-  MeasureTime(ioptions.statistics, DECOMPRESSION_TIMES_NANOS, timer.ElapsedNanos());
-  MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
-  RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
+  if(ShouldReportDetailedTime(ioptions.env, ioptions.statistics)){
+    MeasureTime(ioptions.statistics, DECOMPRESSION_TIMES_NANOS,
+      timer.ElapsedNanos());
+    MeasureTime(ioptions.statistics, BYTES_DECOMPRESSED, contents->data.size());
+    RecordTick(ioptions.statistics, NUMBER_BLOCK_DECOMPRESSED);
+  }
 
   return Status::OK();
 }

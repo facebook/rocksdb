@@ -376,6 +376,9 @@ enum StatsLevel {
   // Collect all stats except the counters requiring to get time inside the
   // mutex lock.
   kExceptTimeForMutex,
+  // Collect all stats expect time inside mutex lock AND time spent on
+  // compression
+  kExceptDetailedTimers,
   // Collect all stats, including measuring duration of mutex operations.
   // If getting time is expensive on the platform to run, it can
   // reduce scalability to more threads, especially for writes.

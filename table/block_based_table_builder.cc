@@ -652,7 +652,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   Slice block_contents;
   bool abort_compression = false;
   
-  StopWatchNano timer(r->ioptions.env, true);
+  StopWatchNano timer(r->ioptions.env,
+    ShouldReportDetailedTime(r->ioptions.env, r->ioptions.statistics));
 
   if (raw_block_contents.size() < kCompressionSizeLimit) {
     Slice compression_dict;
@@ -703,7 +704,9 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
     type = kNoCompression;
     block_contents = raw_block_contents;
   }
-  else if (type != kNoCompression) {
+  else if (type != kNoCompression &&
+            ShouldReportDetailedTime(r->ioptions.env, 
+              r->ioptions.statistics)) {
     MeasureTime(r->ioptions.statistics, COMPRESSION_TIMES_NANOS, 
       timer.ElapsedNanos());
     MeasureTime(r->ioptions.statistics, BYTES_COMPRESSED, 
@@ -762,7 +765,7 @@ Status BlockBasedTableBuilder::status() const {
   return rep_->status;
 }
 
-static void DeleteCachelock(const Slice& key, void* value) {
+static void DeleteCachedBlock(const Slice& key, void* value) {
   Block* block = reinterpret_cast<Block*>(value);
   delete block;
 }

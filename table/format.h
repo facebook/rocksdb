@@ -24,6 +24,8 @@ class Block;
 class RandomAccessFile;
 struct ReadOptions;
 
+extern bool ShouldReportDetailedTime(Env* env, Statistics* stats);
+
 // the length of the magic number in bytes.
 const int kMagicNumberLengthByte = 8;
 
