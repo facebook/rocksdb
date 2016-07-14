@@ -1546,8 +1546,6 @@ Status BlockBasedTable::CreateIndexReader(
   auto file = rep_->file.get();
   auto comparator = &rep_->internal_comparator;
   const Footer& footer = rep_->footer;
-  Statistics* stats = rep_->ioptions.statistics;
-
   if (index_type_on_file == BlockBasedTableOptions::kHashSearch &&
       rep_->ioptions.prefix_extractor == nullptr) {
     Log(InfoLogLevel::WARN_LEVEL, rep_->ioptions.info_log,
