@@ -147,7 +147,9 @@ class DB {
   // in rocksdb::kDefaultColumnFamilyName.
   // If everything is OK, handles will on return be the same size
   // as column_families --- handles[i] will be a handle that you
-  // will use to operate on column family column_family[i]
+  // will use to operate on column family column_family[i].
+  // Before delete DB, you have to close All column families by calling
+  // DestroyColumnFamilyHandle() with all the handles.
   static Status Open(const DBOptions& db_options, const std::string& name,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles, DB** dbptr);
@@ -173,6 +175,11 @@ class DB {
   // only records a drop record in the manifest and prevents the column
   // family from flushing and compacting.
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
+  // Close a column family specified by column_family handle and destroy
+  // the column family handle specified to avoid double deletion. This call
+  // deletes the column family handle by default. Use this method to
+  // close column family instead of deleting column family handle directly
+  virtual Status DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family);
 
   // Set the database entry for "key" to "value".
   // If "key" already exists, it will be overwritten.

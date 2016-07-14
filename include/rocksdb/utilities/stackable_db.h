@@ -40,6 +40,11 @@ class StackableDB : public DB {
     return db_->DropColumnFamily(column_family);
   }
 
+  virtual Status DestroyColumnFamilyHandle(
+      ColumnFamilyHandle* column_family) override {
+    return db_->DestroyColumnFamilyHandle(column_family);
+  }
+
   using DB::Put;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,

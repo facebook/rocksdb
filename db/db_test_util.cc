@@ -442,7 +442,7 @@ void DBTestBase::Reopen(const Options& options) {
 
 void DBTestBase::Close() {
   for (auto h : handles_) {
-    delete h;
+    db_->DestroyColumnFamilyHandle(h);
   }
   handles_.clear();
   delete db_;

@@ -147,7 +147,7 @@ class ColumnFamilyTest : public testing::Test {
   void Close() {
     for (auto h : handles_) {
       if (h) {
-        delete h;
+        db_->DestroyColumnFamilyHandle(h);
       }
     }
     handles_.clear();
@@ -258,7 +258,7 @@ class ColumnFamilyTest : public testing::Test {
   void DropColumnFamilies(const std::vector<int>& cfs) {
     for (auto cf : cfs) {
       ASSERT_OK(db_->DropColumnFamily(handles_[cf]));
-      delete handles_[cf];
+      db_->DestroyColumnFamilyHandle(handles_[cf]);
       handles_[cf] = nullptr;
       names_[cf] = "";
     }
@@ -2046,7 +2046,7 @@ TEST_F(ColumnFamilyTest, ReadDroppedColumnFamily) {
         ASSERT_OK(db_->DropColumnFamily(handles_[2]));
       } else {
         // delete CF two
-        delete handles_[2];
+        db_->DestroyColumnFamilyHandle(handles_[2]);
         handles_[2] = nullptr;
       }
       // Make sure iterator created can still be used.

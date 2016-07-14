@@ -5557,6 +5557,10 @@ Status DB::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
 Status DB::DropColumnFamily(ColumnFamilyHandle* column_family) {
   return Status::NotSupported("");
 }
+Status DB::DestroyColumnFamilyHandle(ColumnFamilyHandle* column_family) {
+  delete column_family;
+  return Status::OK();
+}
 
 DB::~DB() { }
 
