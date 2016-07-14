@@ -20,6 +20,8 @@
 #include "port/dirent.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/env_registry.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
@@ -216,6 +218,9 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
                                        parsed_params.flags);
   } else if (parsed_params.cmd == RepairCommand::Name()) {
     return new RepairCommand(parsed_params.cmd_params, parsed_params.option_map,
+                             parsed_params.flags);
+  } else if (parsed_params.cmd == BackupCommand::Name()) {
+    return new BackupCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
   }
   return nullptr;
@@ -2515,6 +2520,77 @@ void RepairCommand::DoCommand() {
     printf("OK\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+const std::string BackupCommand::ARG_THREAD = "num_threads";
+const std::string BackupCommand::ARG_BACKUP_ENV = "backup_env_uri";
+const std::string BackupCommand::ARG_BACKUP_DIR = "backup_dir";
+
+BackupCommand::BackupCommand(const std::vector<std::string>& params,
+                             const std::map<std::string, std::string>& options,
+                             const std::vector<std::string>& flags)
+    : LDBCommand(
+          options, flags, false,
+          BuildCmdLineOptions({ARG_BACKUP_ENV, ARG_BACKUP_DIR, ARG_THREAD})),
+      thread_num_(1) {
+  auto itr = options.find(ARG_THREAD);
+  if (itr != options.end()) {
+    thread_num_ = std::stoi(itr->second);
+  }
+  itr = options.find(ARG_BACKUP_ENV);
+  if (itr == options.end()) {
+    exec_state_ = LDBCommandExecuteResult::Failed("--" + ARG_BACKUP_ENV +
+                                                  ": missing backup env");
+  } else {
+    test_cluster_ = itr->second;
+  }
+  itr = options.find(ARG_BACKUP_DIR);
+  if (itr == options.end()) {
+    exec_state_ = LDBCommandExecuteResult::Failed("--" + ARG_BACKUP_DIR +
+                                                  ": missing backup directory");
+  } else {
+    test_path_ = itr->second;
+  }
+}
+
+void BackupCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(BackupCommand::Name());
+  ret.append(" [--" + ARG_BACKUP_ENV + "] ");
+  ret.append(" [--" + ARG_BACKUP_DIR + "] ");
+  ret.append(" [--" + ARG_THREAD + "] ");
+  ret.append("\n");
+}
+
+void BackupCommand::DoCommand() {
+  BackupEngine* backup_engine;
+  Status status;
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  printf("open db OK\n");
+  std::unique_ptr<Env> custom_env_guard;
+  Env* custom_env = NewEnvFromUri(test_cluster_, &custom_env_guard);
+  BackupableDBOptions backup_options =
+      BackupableDBOptions(test_path_, custom_env);
+  backup_options.max_background_operations = thread_num_;
+  status = BackupEngine::Open(Env::Default(), backup_options, &backup_engine);
+  if (status.ok()) {
+    printf("open backup engine OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
+    return;
+  }
+  status = backup_engine->CreateNewBackup(db_);
+  if (status.ok()) {
+    printf("create new backup OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
+    return;
   }
 }
 

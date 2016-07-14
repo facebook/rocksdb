@@ -446,4 +446,26 @@ class RepairCommand : public LDBCommand {
   static void Help(std::string& ret);
 };
 
+class BackupCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "backup"; }
+
+  BackupCommand(const std::vector<std::string>& params,
+                const std::map<std::string, std::string>& options,
+                const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string test_cluster_;
+  std::string test_path_;
+  int thread_num_;
+
+  static const std::string ARG_BACKUP_DIR;
+  static const std::string ARG_BACKUP_ENV;
+  static const std::string ARG_THREAD;
+};
+
 }  // namespace rocksdb
