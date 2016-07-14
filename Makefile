@@ -374,6 +374,7 @@ TESTS = \
 	heap_test \
 	compact_on_deletion_collector_test \
 	compaction_job_stats_test \
+	option_change_migration_test \
 	transaction_test \
 	ldb_cmd_test \
 	iostats_context_test \
@@ -884,6 +885,9 @@ cache_test: util/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+option_change_migration_test: utilities/option_change_migration/option_change_migration_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
