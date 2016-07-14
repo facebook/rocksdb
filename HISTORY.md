@@ -11,6 +11,7 @@
 * Add a read option background_purge_on_iterator_cleanup to avoid deleting files in foreground when destroying iterators. Instead, a job is scheduled in high priority queue and would be executed in a separate background thread.
 * RepairDB support for column families. RepairDB now associates data with non-default column families using information embedded in the SST/WAL files (4.7 or later). For data written by 4.6 or earlier, RepairDB associates it with the default column family.
 * Add options.write_buffer_manager which allows users to control total memtable sizes across multiple DB instances.
+* A tool to migrate DB after options change. See include/rocksdb/utilities/option_change_migration.h.
 
 ## 4.9.0 (6/9/2016)
 ### Public API changes
