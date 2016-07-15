@@ -13,6 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "rocksdb/slice.h"
+
 namespace rocksdb {
 
 extern uint32_t Hash(const char* data, size_t n, uint32_t seed);

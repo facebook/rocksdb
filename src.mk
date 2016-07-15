@@ -88,7 +88,6 @@ LIB_SOURCES =                                                   \
   util/arena.cc                                                 \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
-  util/cache.cc                                                 \
   util/coding.cc                                                \
   util/comparator.cc                                            \
   util/compaction_job_stats_impl.cc                             \
@@ -100,18 +99,20 @@ LIB_SOURCES =                                                   \
   util/env_chroot.cc                                            \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
-  util/io_posix.cc                                              \
-  util/threadpool.cc                                            \
-  util/transaction_test_util.cc                                 \
-  util/sst_file_manager_impl.cc                                 \
   util/file_util.cc                                             \
   util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/histogram.cc                                             \
-  util/histogram_windowing.cc                                    \
+  util/histogram_windowing.cc                                   \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
+  util/io_posix.cc                                              \
+  util/lru_cache.cc                                             \
+  util/threadpool.cc                                            \
+  util/transaction_test_util.cc                                 \
+	util/sharded_cache.cc       																	\
+  util/sst_file_manager_impl.cc                                 \
   utilities/backupable/backupable_db.cc                         \
   utilities/convenience/info_log_finder.cc                      \
   utilities/checkpoint/checkpoint.cc                            \

@@ -193,7 +193,6 @@ set(SOURCES
         util/arena.cc
         util/bloom.cc
         util/build_version.cc
-        util/cache.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -214,6 +213,7 @@ set(SOURCES
         util/histogram_windowing.cc
         util/instrumented_mutex.cc
         util/iostats_context.cc
+        util/lru_cache.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
         util/logging.cc
@@ -229,6 +229,7 @@ set(SOURCES
         util/perf_level.cc
         util/random.cc
         util/rate_limiter.cc
+        util/sharded_cache.cc
         util/slice.cc
         util/statistics.cc
         util/status.cc

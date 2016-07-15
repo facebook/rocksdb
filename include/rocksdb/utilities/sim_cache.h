@@ -11,7 +11,6 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "util/lru_cache_handle.h"
 
 namespace rocksdb {
 

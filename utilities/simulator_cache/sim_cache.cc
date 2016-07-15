@@ -65,9 +65,7 @@ class SimCacheImpl : public SimCache {
     key_only_cache_->Erase(key);
   }
 
-  virtual void* Value(Handle* handle) override {
-    return reinterpret_cast<LRUHandle*>(handle)->value;
-  }
+  virtual void* Value(Handle* handle) override { return cache_->Value(handle); }
 
   virtual uint64_t NewId() override { return cache_->NewId(); }
 
@@ -80,7 +78,7 @@ class SimCacheImpl : public SimCache {
   virtual size_t GetUsage() const override { return cache_->GetUsage(); }
 
   virtual size_t GetUsage(Handle* handle) const override {
-    return reinterpret_cast<LRUHandle*>(handle)->charge;
+    return cache_->GetUsage(handle);
   }
 
   virtual size_t GetPinnedUsage() const override {
@@ -113,12 +111,21 @@ class SimCacheImpl : public SimCache {
     key_only_cache_->SetCapacity(capacity);
   }
 
-  virtual uint64_t get_lookup_counter() const override { return lookup_times_; }
-  virtual uint64_t get_hit_counter() const override { return hit_times_; }
-  virtual double get_hit_rate() const override {
-    return hit_times_ * 1.0f / lookup_times_;
+  virtual uint64_t get_lookup_counter() const override {
+    return lookup_times_.load(std::memory_order_relaxed);
   }
-  virtual void reset_counter() override { hit_times_ = lookup_times_ = 0; }
+
+  virtual uint64_t get_hit_counter() const override {
+    return hit_times_.load(std::memory_order_relaxed);
+  }
+
+  virtual double get_hit_rate() const override {
+    return get_hit_counter() * 1.0f / get_lookup_counter();
+  }
+  virtual void reset_counter() override {
+    lookup_times_.store(0, std::memory_order_relaxed);
+    hit_times_.store(0, std::memory_order_relaxed);
+  }
 
   virtual std::string ToString() const override {
     std::string res;
@@ -137,8 +144,10 @@ class SimCacheImpl : public SimCache {
   std::shared_ptr<Cache> key_only_cache_;
   std::atomic<uint64_t> lookup_times_;
   std::atomic<uint64_t> hit_times_;
-  void inc_lookup_counter() { lookup_times_++; }
-  void inc_hit_counter() { hit_times_++; }
+  void inc_lookup_counter() {
+    lookup_times_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void inc_hit_counter() { hit_times_.fetch_add(1, std::memory_order_relaxed); }
 };
 
 }  // end anonymous namespace
