@@ -102,7 +102,7 @@
                                 <name>Xenu</name>
                             </defaults>
                             <source>
-                                String fileContents = new File("${project.basedir}/../include/rocksdb/version.h").getText('UTF-8')
+                                String fileContents = new File(project.basedir.absolutePath + '/../include/rocksdb/version.h').getText('UTF-8')
                                 matcher = (fileContents =~ /(?s).*ROCKSDB_MAJOR ([0-9]+).*?/)
                                 String major_version = matcher.getAt(0).getAt(1)
                                 matcher = (fileContents =~ /(?s).*ROCKSDB_MINOR ([0-9]+).*?/)
