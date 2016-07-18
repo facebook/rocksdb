@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 2.6)
+
 set(JNI_NATIVE_SOURCES
         rocksjni/backupenginejni.cc
         rocksjni/backupablejni.cc
