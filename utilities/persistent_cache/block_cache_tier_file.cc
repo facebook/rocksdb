@@ -38,7 +38,7 @@ Status NewRandomAccessCacheFile(Env* const env, const std::string& filepath,
 //
 // BlockCacheFile
 //
-Status BlockCacheFile::Delete(size_t* size) {
+Status BlockCacheFile::Delete(uint64_t* size) {
   Status status = env_->GetFileSize(Path(), size);
   if (!status.ok()) {
     return status;

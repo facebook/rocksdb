@@ -133,8 +133,13 @@ class SimCacheImpl : public SimCache {
                "\n");
     res.append("SimCache HITs:    " + std::to_string(get_hit_counter()) + "\n");
     char buff[100];
+#ifdef OS_WIN
+    _snprintf(buff, sizeof(buff), "SimCache HITRATE: %.2f%%\n",
+              get_hit_rate() * 100);
+#else
     snprintf(buff, sizeof(buff), "SimCache HITRATE: %.2f%%\n",
              get_hit_rate() * 100);
+#endif
     res.append(buff);
     return res;
   }
