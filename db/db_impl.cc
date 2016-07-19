@@ -1478,9 +1478,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
 
       recovered_sequence = sequence;
+      bool no_prev_seq = true;
       if (*next_sequence == kMaxSequenceNumber) {
         *next_sequence = sequence;
       } else {
+        no_prev_seq = false;
         WriteBatchInternal::SetSequence(&batch, *next_sequence);
       }
 
@@ -1563,10 +1565,18 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // insert. We don't want to fail the whole write batch in that case --
       // we just ignore the update.
       // That's why we set ignore missing column families to true
+      bool has_valid_writes = false;
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
           log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence);
+          next_sequence, &has_valid_writes);
+      // If it is the first log file and there is no column family updated
+      // after replaying the file, this file may be a stale file. We ignore
+      // sequence IDs from the file. Otherwise, if a newer stale log file that
+      // has been deleted, the sequenceID may be wrong.
+      if (no_prev_seq && !has_valid_writes) {
+        *next_sequence = kMaxSequenceNumber;
+      }
       MaybeIgnoreError(&status);
       if (!status.ok()) {
         // We are treating this as a failure while reading since we read valid
@@ -1575,7 +1585,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         continue;
       }
 
-      if (!read_only) {
+      if (has_valid_writes && !read_only) {
         // we can do this because this is called before client has access to the
         // DB and there is only a single thread operating on DB
         ColumnFamilyData* cfd;

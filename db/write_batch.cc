@@ -694,6 +694,7 @@ class MemTableInserter : public WriteBatch::Handler {
   uint64_t log_number_ref_;
   DBImpl* db_;
   const bool concurrent_memtable_writes_;
+  bool* has_valid_writes_;
   typedef std::map<MemTable*, MemTablePostProcessInfo> MemPostInfoMap;
   MemPostInfoMap mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
@@ -704,7 +705,8 @@ class MemTableInserter : public WriteBatch::Handler {
                    FlushScheduler* flush_scheduler,
                    bool ignore_missing_column_families,
                    uint64_t recovering_log_number, DB* db,
-                   bool concurrent_memtable_writes)
+                   bool concurrent_memtable_writes,
+                   bool* has_valid_writes = nullptr)
       : sequence_(sequence),
         cf_mems_(cf_mems),
         flush_scheduler_(flush_scheduler),
@@ -713,6 +715,7 @@ class MemTableInserter : public WriteBatch::Handler {
         log_number_ref_(0),
         db_(reinterpret_cast<DBImpl*>(db)),
         concurrent_memtable_writes_(concurrent_memtable_writes),
+        has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr) {
     assert(cf_mems_);
   }
@@ -754,6 +757,10 @@ class MemTableInserter : public WriteBatch::Handler {
       // update
       *s = Status::OK();
       return false;
+    }
+
+    if (has_valid_writes_ != nullptr) {
+      *has_valid_writes_ = true;
     }
 
     if (log_number_ref_ > 0) {
@@ -976,6 +983,9 @@ class MemTableInserter : public WriteBatch::Handler {
 
       // we are now iterating through a prepared section
       rebuilding_trx_ = new WriteBatch();
+      if (has_valid_writes_ != nullptr) {
+        *has_valid_writes_ = true;
+      }
     } else {
       // in non-recovery we ignore prepare markers
       // and insert the values directly. making sure we have a
@@ -1028,6 +1038,9 @@ class MemTableInserter : public WriteBatch::Handler {
 
         if (s.ok()) {
           db_->DeleteRecoveredTransaction(name.ToString());
+        }
+        if (has_valid_writes_ != nullptr) {
+          *has_valid_writes_ = true;
         }
       }
     } else {
@@ -1112,16 +1125,15 @@ Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
   return s;
 }
 
-Status WriteBatchInternal::InsertInto(const WriteBatch* batch,
-                                      ColumnFamilyMemTables* memtables,
-                                      FlushScheduler* flush_scheduler,
-                                      bool ignore_missing_column_families,
-                                      uint64_t log_number, DB* db,
-                                      bool concurrent_memtable_writes,
-                                      SequenceNumber* last_seq_used) {
+Status WriteBatchInternal::InsertInto(
+    const WriteBatch* batch, ColumnFamilyMemTables* memtables,
+    FlushScheduler* flush_scheduler, bool ignore_missing_column_families,
+    uint64_t log_number, DB* db, bool concurrent_memtable_writes,
+    SequenceNumber* last_seq_used, bool* has_valid_writes) {
   MemTableInserter inserter(WriteBatchInternal::Sequence(batch), memtables,
                             flush_scheduler, ignore_missing_column_families,
-                            log_number, db, concurrent_memtable_writes);
+                            log_number, db, concurrent_memtable_writes,
+                            has_valid_writes);
   Status s = batch->Iterate(&inserter);
   if (last_seq_used != nullptr) {
     *last_seq_used = inserter.get_final_sequence();
