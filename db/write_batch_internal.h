@@ -160,7 +160,8 @@ class WriteBatchInternal {
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false,
-                           SequenceNumber* last_seq_used = nullptr);
+                           SequenceNumber* last_seq_used = nullptr,
+                           bool* has_valid_writes = nullptr);
 
   static Status InsertInto(WriteThread::Writer* writer,
                            ColumnFamilyMemTables* memtables,

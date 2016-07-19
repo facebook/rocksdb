@@ -18,6 +18,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "util/coding.h"
+#include "util/fault_injection_test_env.h"
 #include "util/options_parser.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -499,6 +500,135 @@ TEST_F(ColumnFamilyTest, DontReuseColumnFamilyID) {
     Destroy();
   }
 }
+
+class FlushEmptyCFTestWithParam : public ColumnFamilyTest,
+                                  public testing::WithParamInterface<bool> {
+ public:
+  FlushEmptyCFTestWithParam() { allow_2pc_ = GetParam(); }
+
+  // Required if inheriting from testing::WithParamInterface<>
+  static void SetUpTestCase() {}
+  static void TearDownTestCase() {}
+
+  bool allow_2pc_;
+};
+
+TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  db_options_.env = fault_env.get();
+  db_options_.allow_2pc = allow_2pc_;
+  Open();
+  CreateColumnFamilies({"one", "two"});
+  // Generate log file A.
+  ASSERT_OK(Put(1, "foo", "v1"));  // seqID 1
+
+  Reopen();
+  // Log file A is not dropped after reopening because default column family's
+  // min log number is 0.
+  // It flushes to SST file X
+  ASSERT_OK(Put(1, "foo", "v1"));  // seqID 2
+  ASSERT_OK(Put(1, "bar", "v2"));  // seqID 3
+  // Current log file is file B now. While flushing, a new log file C is created
+  // and is set to current. Boths' min log number is set to file C in memory, so
+  // after flushing file B is deleted. At the same time, the min log number of
+  // default CF is not written to manifest. Log file A still remains.
+  // Flushed to SST file Y.
+  Flush(1);
+  Flush(0);
+  ASSERT_OK(Put(1, "bar", "v3"));  // seqID 4
+  ASSERT_OK(Put(1, "foo", "v4"));  // seqID 5
+
+  // Preserve file system state up to here to simulate a crash condition.
+  fault_env->SetFilesystemActive(false);
+  std::vector<std::string> names;
+  for (auto name : names_) {
+    if (name != "") {
+      names.push_back(name);
+    }
+  }
+
+  Close();
+  fault_env->ResetState();
+
+  // Before opening, there are four files:
+  //   Log file A contains seqID 1
+  //   Log file C contains seqID 4, 5
+  //   SST file X contains seqID 1
+  //   SST file Y contains seqID 2, 3
+  // Min log number:
+  //   default CF: 0
+  //   CF one, two: C
+  // When opening the DB, all the seqID should be preserved.
+  Open(names, {});
+  ASSERT_EQ("v4", Get(1, "foo"));
+  ASSERT_EQ("v3", Get(1, "bar"));
+  Close();
+
+  db_options_.env = env_;
+}
+
+TEST_P(FlushEmptyCFTestWithParam, FlushEmptyCFTest2) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  db_options_.env = fault_env.get();
+  db_options_.allow_2pc = allow_2pc_;
+  Open();
+  CreateColumnFamilies({"one", "two"});
+  // Generate log file A.
+  ASSERT_OK(Put(1, "foo", "v1"));  // seqID 1
+
+  Reopen();
+  // Log file A is not dropped after reopening because default column family's
+  // min log number is 0.
+  // It flushes to SST file X
+  ASSERT_OK(Put(1, "foo", "v1"));  // seqID 2
+  ASSERT_OK(Put(1, "bar", "v2"));  // seqID 3
+  // Current log file is file B now. While flushing, a new log file C is created
+  // and is set to current. Both CFs' min log number is set to file C so after
+  // flushing file B is deleted. Log file A still remains.
+  // Flushed to SST file Y.
+  Flush(1);
+  ASSERT_OK(Put(0, "bar", "v2"));  // seqID 4
+  ASSERT_OK(Put(2, "bar", "v2"));  // seqID 5
+  ASSERT_OK(Put(1, "bar", "v3"));  // seqID 6
+  // Flushing all column families. This forces all CFs' min log to current. This
+  // is written to the manifest file. Log file C is cleared.
+  Flush(0);
+  Flush(1);
+  Flush(2);
+  // Write to log file D
+  ASSERT_OK(Put(1, "bar", "v4"));  // seqID 7
+  ASSERT_OK(Put(1, "bar", "v5"));  // seqID 8
+  // Preserve file system state up to here to simulate a crash condition.
+  fault_env->SetFilesystemActive(false);
+  std::vector<std::string> names;
+  for (auto name : names_) {
+    if (name != "") {
+      names.push_back(name);
+    }
+  }
+
+  Close();
+  fault_env->ResetState();
+  // Before opening, there are two logfiles:
+  //   Log file A contains seqID 1
+  //   Log file D contains seqID 7, 8
+  // Min log number:
+  //   default CF: D
+  //   CF one, two: D
+  // When opening the DB, log file D should be replayed using the seqID
+  // specified in the file.
+  Open(names, {});
+  ASSERT_EQ("v1", Get(1, "foo"));
+  ASSERT_EQ("v5", Get(1, "bar"));
+  Close();
+
+  db_options_.env = env_;
+}
+
+INSTANTIATE_TEST_CASE_P(FlushEmptyCFTestWithParam, FlushEmptyCFTestWithParam,
+                        ::testing::Bool());
 
 TEST_F(ColumnFamilyTest, AddDrop) {
   Open();
