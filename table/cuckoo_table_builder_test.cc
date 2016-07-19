@@ -49,12 +49,16 @@ class CuckooBuilderTest : public testing::Test {
     uint64_t read_file_size;
     ASSERT_OK(env_->GetFileSize(fname, &read_file_size));
 
+	Options options;
+	options.allow_mmap_reads = true;
+	ImmutableCFOptions ioptions(options);
+
     // Assert Table Properties.
     TableProperties* props = nullptr;
     unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(read_file)));
     ASSERT_OK(ReadTableProperties(file_reader.get(), read_file_size,
-                                  kCuckooTableMagicNumber, env_, nullptr,
+                                  kCuckooTableMagicNumber, ioptions,
                                   &props));
     // Check unused bucket.
     std::string unused_key = props->user_collected_properties[
