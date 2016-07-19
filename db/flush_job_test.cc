@@ -94,7 +94,11 @@ TEST_F(FlushJobTest, Empty) {
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
                      {}, kMaxSequenceNumber, &job_context, nullptr, nullptr,
                      nullptr, kNoCompression, nullptr, &event_logger, false);
-  ASSERT_OK(flush_job.Run());
+  {
+    InstrumentedMutexLock l(&mutex_);
+    flush_job.PickMemTable();
+    ASSERT_OK(flush_job.Run());
+  }
   job_context.Clean();
 }
 
@@ -135,6 +139,7 @@ TEST_F(FlushJobTest, NonEmpty) {
                      nullptr, kNoCompression, nullptr, &event_logger, true);
   FileMetaData fd;
   mutex_.Lock();
+  flush_job.PickMemTable();
   ASSERT_OK(flush_job.Run(&fd));
   mutex_.Unlock();
   ASSERT_EQ(ToString(0), fd.smallest.user_key().ToString());
@@ -198,6 +203,7 @@ TEST_F(FlushJobTest, Snapshots) {
       &shutting_down_, snapshots, kMaxSequenceNumber, &job_context, nullptr,
       nullptr, nullptr, kNoCompression, nullptr, &event_logger, true);
   mutex_.Lock();
+  flush_job.PickMemTable();
   ASSERT_OK(flush_job.Run());
   mutex_.Unlock();
   mock_table_factory_->AssertSingleFile(inserted_keys);

@@ -1771,6 +1771,49 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   return s;
 }
 
+Status DBImpl::SyncClosedLogs(JobContext* job_context) {
+  mutex_.AssertHeld();
+  autovector<log::Writer*, 1> logs_to_sync;
+  uint64_t current_log_number = logfile_number_;
+  while (logs_.front().number < current_log_number &&
+         logs_.front().getting_synced) {
+    log_sync_cv_.Wait();
+  }
+  for (auto it = logs_.begin();
+       it != logs_.end() && it->number < current_log_number; ++it) {
+    auto& log = *it;
+    assert(!log.getting_synced);
+    log.getting_synced = true;
+    logs_to_sync.push_back(log.writer);
+  }
+
+  Status s;
+  if (!logs_to_sync.empty()) {
+    mutex_.Unlock();
+
+    for (log::Writer* log : logs_to_sync) {
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+          "[JOB %d] Syncing log #%" PRIu64, job_context->job_id,
+          log->get_log_number());
+      s = log->file()->Sync(db_options_.use_fsync);
+    }
+    if (s.ok()) {
+      s = directories_.GetWalDir()->Fsync();
+    }
+
+    mutex_.Lock();
+
+    // "number <= current_log_number - 1" is equivalent to
+    // "number < current_log_number".
+    MarkLogsSynced(current_log_number - 1, true, s);
+    if (!s.ok()) {
+      bg_error_ = s;
+      return s;
+    }
+  }
+  return s;
+}
+
 Status DBImpl::FlushMemTableToOutputFile(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     bool* made_progress, JobContext* job_context, LogBuffer* log_buffer) {
@@ -1792,13 +1835,30 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   FileMetaData file_meta;
 
+  flush_job.PickMemTable();
+
+  Status s;
+  if (logfile_number_ > 0 &&
+      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0 &&
+      !db_options_.disableDataSync) {
+    // If there are more than one column families, we need to make sure that
+    // all the log files except the most recent one are synced. Otherwise if
+    // the host crashes after flushing and before WAL is persistent, the
+    // flushed SST may contain data from write batches whose updates to
+    // other column families are missing.
+    // SyncClosedLogs() may unlock and re-lock the db_mutex.
+    s = SyncClosedLogs(job_context);
+  }
+
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
   //
   // Note that flush_job.Run will unlock and lock the db_mutex,
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
-  Status s = flush_job.Run(&file_meta);
+  if (s.ok()) {
+    s = flush_job.Run(&file_meta);
+  }
 
   if (s.ok()) {
     InstallSuperVersionAndScheduleWorkWrapper(cfd, job_context,
@@ -2549,12 +2609,11 @@ Status DBImpl::SyncWAL() {
   }
 
   TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:1");
-  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
-
   {
     InstrumentedMutexLock l(&mutex_);
     MarkLogsSynced(current_log_number, need_log_dir_sync, status);
   }
+  TEST_SYNC_POINT("DBImpl::SyncWAL:BeforeMarkLogsSynced:2");
 
   return status;
 }

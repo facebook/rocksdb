@@ -66,6 +66,8 @@ class FlushJob {
 
   ~FlushJob();
 
+  // Require db_mutex held
+  void PickMemTable();
   Status Run(FileMetaData* file_meta = nullptr);
   TableProperties GetTableProperties() const { return table_properties_; }
 
@@ -73,8 +75,7 @@ class FlushJob {
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
-  Status WriteLevel0Table(const autovector<MemTable*>& mems, VersionEdit* edit,
-                          FileMetaData* meta);
+  Status WriteLevel0Table();
   const std::string& dbname_;
   ColumnFamilyData* cfd_;
   const DBOptions& db_options_;
@@ -94,6 +95,13 @@ class FlushJob {
   EventLogger* event_logger_;
   TableProperties table_properties_;
   bool measure_io_stats_;
+
+  // Variables below are set by PickMemTable():
+  FileMetaData meta_;
+  autovector<MemTable*> mems_;
+  VersionEdit* edit_;
+  Version* base_;
+  bool pick_memtable_called;
 };
 
 }  // namespace rocksdb

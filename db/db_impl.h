@@ -601,6 +601,8 @@ class DBImpl : public DB {
   // and blocked by any other pending_outputs_ calls)
   void ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator v);
 
+  Status SyncClosedLogs(JobContext* job_context);
+
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
   Status FlushMemTableToOutputFile(ColumnFamilyData* cfd,

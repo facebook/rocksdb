@@ -384,6 +384,7 @@ PARALLEL_TEST = \
 	compact_on_deletion_collector_test \
 	db_compaction_filter_test \
 	db_compaction_test \
+	db_sst_test \
 	db_test \
 	db_universal_compaction_test \
 	fault_injection_test \

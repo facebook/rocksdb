@@ -18,6 +18,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "util/coding.h"
+#include "util/fault_injection_test_env.h"
 #include "util/options_parser.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -780,6 +781,38 @@ TEST_F(ColumnFamilyTest, LogDeletionTest) {
   // [0, (1)] [1, (2)], [2, (3)] [3]
   AssertCountLiveLogFiles(4);
   Close();
+}
+
+TEST_F(ColumnFamilyTest, CrashAfterFlush) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  db_options_.env = fault_env.get();
+  Open();
+  CreateColumnFamilies({"one"});
+
+  WriteBatch batch;
+  batch.Put(handles_[0], Slice("foo"), Slice("bar"));
+  batch.Put(handles_[1], Slice("foo"), Slice("bar"));
+  ASSERT_OK(db_->Write(WriteOptions(), &batch));
+  Flush(0);
+  fault_env->SetFilesystemActive(false);
+
+  std::vector<std::string> names;
+  for (auto name : names_) {
+    if (name != "") {
+      names.push_back(name);
+    }
+  }
+  Close();
+  fault_env->DropUnsyncedFileData();
+  fault_env->ResetState();
+  Open(names, {});
+
+  // Write batch should be atomic.
+  ASSERT_EQ(Get(0, "foo"), Get(1, "foo"));
+
+  Close();
+  db_options_.env = env_;
 }
 
 // Makes sure that obsolete log files get deleted
