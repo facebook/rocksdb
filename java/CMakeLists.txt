@@ -95,11 +95,11 @@ set(JAVA_ASSERTJ_JAR ${JAVA_TEST_LIBDIR}/assertj-core-1.7.1.jar)
 set(JAVA_TESTCLASSPATH "${JAVA_JUNIT_JAR}\;${JAVA_HAMCR_JAR}\;${JAVA_MOCKITO_JAR}\;${JAVA_CGLIB_JAR}\;${JAVA_ASSERTJ_JAR}")
 
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/java/classes)
-  execute_process(COMMAND mkdir ${PROJECT_SOURCE_DIR}/java/classes)
+  file(MAKE_DIRECTORY ${PROJECT_SOURCE_DIR}/java/classes)
 endif()
 
 if(NOT EXISTS ${JAVA_TEST_LIBDIR})
-  execute_process(COMMAND mkdir ${JAVA_TEST_LIBDIR})
+  file(MAKE_DIRECTORY mkdir ${JAVA_TEST_LIBDIR})
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
