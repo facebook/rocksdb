@@ -150,7 +150,7 @@ bool NotifyCollectTableCollectorsOnFinish(
 }
 
 Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
-                      const Footer& footer, Env* env, Logger* logger,
+                      const Footer& footer, const ImmutableCFOptions &ioptions, 
                       TableProperties** table_properties) {
   assert(table_properties);
 
@@ -165,7 +165,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   read_options.verify_checksums = false;
   Status s;
   s = ReadBlockContents(file, footer, read_options, handle, &block_contents,
-                        env, false /* decompress */);
+                        ioptions, false /* decompress */);
 
   if (!s.ok()) {
     return s;
@@ -219,7 +219,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
         auto error_msg =
           "Detect malformed value in properties meta-block:"
           "\tkey: " + key + "\tval: " + raw_val.ToString();
-        Log(InfoLogLevel::ERROR_LEVEL, logger, "%s", error_msg.c_str());
+        Log(InfoLogLevel::ERROR_LEVEL, ioptions.info_log, "%s",
+        error_msg.c_str());
         continue;
       }
       *(pos->second) = val;
@@ -251,8 +252,9 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
 }
 
 Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
-                           uint64_t table_magic_number, Env* env,
-                           Logger* info_log, TableProperties** properties) {
+                           uint64_t table_magic_number,
+                           const ImmutableCFOptions &ioptions,
+                           TableProperties** properties) {
   // -- Read metaindex block
   Footer footer;
   auto s = ReadFooterFromFile(file, file_size, &footer, table_magic_number);
@@ -265,7 +267,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   ReadOptions read_options;
   read_options.verify_checksums = false;
   s = ReadBlockContents(file, footer, read_options, metaindex_handle,
-                        &metaindex_contents, env, false /* decompress */);
+                        &metaindex_contents, ioptions, false /* decompress */);
   if (!s.ok()) {
     return s;
   }
@@ -282,8 +284,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
 
   TableProperties table_properties;
   if (found_properties_block == true) {
-    s = ReadProperties(meta_iter->value(), file, footer, env, info_log,
-                       properties);
+    s = ReadProperties(meta_iter->value(), file, footer, ioptions, properties);
   } else {
     s = Status::NotFound();
   }
@@ -305,7 +306,8 @@ Status FindMetaBlock(InternalIterator* meta_index_iter,
 }
 
 Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
-                     uint64_t table_magic_number, Env* env,
+                     uint64_t table_magic_number,
+                     const ImmutableCFOptions &ioptions,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle) {
   Footer footer;
@@ -319,7 +321,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   ReadOptions read_options;
   read_options.verify_checksums = false;
   s = ReadBlockContents(file, footer, read_options, metaindex_handle,
-                        &metaindex_contents, env, false /* do decompression */);
+                        &metaindex_contents, ioptions, false /* do decompression */);
   if (!s.ok()) {
     return s;
   }
@@ -332,7 +334,8 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 }
 
 Status ReadMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
-                     uint64_t table_magic_number, Env* env,
+                     uint64_t table_magic_number,
+                     const ImmutableCFOptions &ioptions,
                      const std::string& meta_block_name,
                      BlockContents* contents) {
   Status status;
@@ -348,7 +351,8 @@ Status ReadMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   ReadOptions read_options;
   read_options.verify_checksums = false;
   status = ReadBlockContents(file, footer, read_options, metaindex_handle,
-                             &metaindex_contents, env, false /* decompress */);
+                             &metaindex_contents, ioptions,
+                             false /* decompress */);
   if (!status.ok()) {
     return status;
   }
@@ -368,7 +372,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
 
   // Reading metablock
   return ReadBlockContents(file, footer, read_options, block_handle, contents,
-                           env, false /* decompress */);
+                           ioptions, false /* decompress */);
 }
 
 }  // namespace rocksdb

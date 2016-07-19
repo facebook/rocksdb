@@ -154,7 +154,8 @@ inline void EncodeFixed64(char* buf, uint64_t value) {
 // Pull the last 8 bits and cast it to a character
 inline void PutFixed32(std::string* dst, uint32_t value) {
 #if __BYTE_ORDER__ == __LITTLE_ENDIAN__
-  dst->append(static_cast<const char*>(&value), sizeof(value));
+  dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
+    sizeof(value));
 #else
   char buf[sizeof(value)];
   EncodeFixed32(buf, value);
@@ -164,7 +165,8 @@ inline void PutFixed32(std::string* dst, uint32_t value) {
 
 inline void PutFixed64(std::string* dst, uint64_t value) {
 #if __BYTE_ORDER__ == __LITTLE_ENDIAN__
-  dst->append(static_const<const char*>(&value), sizeof(value));
+  dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
+    sizeof(value));
 #else
   char buf[sizeof(value)];
   EncodeFixed64(buf, value);

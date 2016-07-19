@@ -219,8 +219,7 @@ Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
                                           uint64_t file_size) {
   TableProperties* table_properties = nullptr;
   Status s = rocksdb::ReadTableProperties(file, file_size, table_magic_number,
-                                          options_.env, options_.info_log.get(),
-                                          &table_properties);
+                                          ioptions_, &table_properties);
   if (s.ok()) {
     table_properties_.reset(table_properties);
   } else {

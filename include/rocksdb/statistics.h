@@ -179,6 +179,11 @@ enum Tickers : uint32_t {
   NUMBER_SUPERVERSION_ACQUIRES,
   NUMBER_SUPERVERSION_RELEASES,
   NUMBER_SUPERVERSION_CLEANUPS,
+
+  // # of compressions/decompressions executed
+  NUMBER_BLOCK_COMPRESSED,
+  NUMBER_BLOCK_DECOMPRESSED,
+
   NUMBER_BLOCK_NOT_COMPRESSED,
   MERGE_OPERATION_TOTAL_TIME,
   FILTER_OPERATION_TOTAL_TIME,
@@ -272,6 +277,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
     {NUMBER_SUPERVERSION_RELEASES, "rocksdb.number.superversion_releases"},
     {NUMBER_SUPERVERSION_CLEANUPS, "rocksdb.number.superversion_cleanups"},
+    {NUMBER_BLOCK_COMPRESSED, "rocksdb.number.block.compressed"},
+    {NUMBER_BLOCK_DECOMPRESSED, "rocksdb.number.block.decompressed"},
     {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"},
     {MERGE_OPERATION_TOTAL_TIME, "rocksdb.merge.operation.time.nanos"},
     {FILTER_OPERATION_TOTAL_TIME, "rocksdb.filter.operation.time.nanos"},
@@ -316,6 +323,14 @@ enum Histograms : uint32_t {
   BYTES_PER_READ,
   BYTES_PER_WRITE,
   BYTES_PER_MULTIGET,
+
+  // number of bytes compressed/decompressed
+  // number of bytes is when uncompressed; i.e. before/after respectively
+  BYTES_COMPRESSED,
+  BYTES_DECOMPRESSED,
+  COMPRESSION_TIMES_NANOS,
+  DECOMPRESSION_TIMES_NANOS,
+
   HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
 };
 
@@ -346,6 +361,10 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {BYTES_PER_READ, "rocksdb.bytes.per.read"},
     {BYTES_PER_WRITE, "rocksdb.bytes.per.write"},
     {BYTES_PER_MULTIGET, "rocksdb.bytes.per.multiget"},
+    {BYTES_COMPRESSED, "rocksdb.bytes.compressed"},
+    {BYTES_DECOMPRESSED, "rocksdb.bytes.decompressed"},
+    {COMPRESSION_TIMES_NANOS, "rocksdb.compression.times.nanos"},
+    {DECOMPRESSION_TIMES_NANOS, "rocksdb.decompression.times.nanos"},
 };
 
 struct HistogramData {
@@ -360,6 +379,9 @@ enum StatsLevel {
   // Collect all stats except the counters requiring to get time inside the
   // mutex lock.
   kExceptTimeForMutex,
+  // Collect all stats expect time inside mutex lock AND time spent on
+  // compression
+  kExceptDetailedTimers,
   // Collect all stats, including measuring duration of mutex operations.
   // If getting time is expensive on the platform to run, it can
   // reduce scalability to more threads, especially for writes.
