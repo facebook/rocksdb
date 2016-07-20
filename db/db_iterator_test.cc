@@ -11,6 +11,7 @@
 #include "port/stack_trace.h"
 #include "rocksdb/iostats_context.h"
 #include "rocksdb/perf_context.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -979,7 +980,7 @@ TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
 
     {
       // Test Seek to random keys
-      printf("Testing seek on %zu keys\n", random_keys.size());
+      printf("Testing seek on %" ROCKSDB_PRIszt " keys\n", random_keys.size());
       std::vector<Slice> keys_slices;
       std::vector<std::string> true_keys;
       for (auto& k : random_keys) {

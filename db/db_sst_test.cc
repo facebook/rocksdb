@@ -12,6 +12,7 @@
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/sst_file_manager_impl.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -1455,7 +1456,7 @@ TEST_F(DBSSTTest, AddExternalSstFileOverlappingRanges) {
     }
 
     printf(
-        "Total: %zu ranges\n"
+        "Total: %" ROCKSDB_PRIszt " ranges\n"
         "AddFile()|Success: %d ranges\n"
         "AddFile()|RangeConflict: %d ranges\n"
         "Put(): %d ranges\n",
