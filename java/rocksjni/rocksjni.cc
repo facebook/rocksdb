@@ -115,7 +115,7 @@ jlongArray rocksdb_open_helper(JNIEnv* env, jlong jopt_handle,
   // check if open operation was successful
   if (s.ok()) {
     jsize resultsLen = 1 + len_cols; //db handle + column family handles
-    jlong results[resultsLen];
+    jlong* results = new jlong[resultsLen];
     results[0] = reinterpret_cast<jlong>(db);
     for(int i = 1; i <= len_cols; i++) {
       results[i] = reinterpret_cast<jlong>(handles[i - 1]);
