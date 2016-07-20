@@ -1104,7 +1104,7 @@ std::vector<rocksdb::CompressionType> rocksdb_compression_vector_helper(
  */
 jbyteArray rocksdb_compression_list_helper(JNIEnv* env,
     std::vector<rocksdb::CompressionType> compressionLevels) {
-  jbyte* jbuf = new jbyte[compressionLevels.size()];
+  std::unique_ptr<jbyte[]> jbuf = std::make_unique<jbyte[]>(compressionLevels.size());
   for (std::vector<rocksdb::CompressionType>::size_type i = 0;
         i != compressionLevels.size(); i++) {
       jbuf[i] = compressionLevels[i];
@@ -1113,7 +1113,7 @@ jbyteArray rocksdb_compression_list_helper(JNIEnv* env,
   jbyteArray jcompressionLevels = env->NewByteArray(
       static_cast<jsize>(compressionLevels.size()));
   env->SetByteArrayRegion(jcompressionLevels, 0,
-      static_cast<jsize>(compressionLevels.size()), jbuf);
+      static_cast<jsize>(compressionLevels.size()), jbuf.get());
   return jcompressionLevels;
 }
 
