@@ -218,12 +218,13 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator : public InternalIterator {
  public:
-  MemTableIterator(
-      const MemTable& mem, const ReadOptions& read_options, Arena* arena)
+  MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
+                   Arena* arena)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
         valid_(false),
-        arena_mode_(arena != nullptr) {
+        arena_mode_(arena != nullptr),
+        value_pinned_(!mem.GetMemTableOptions()->inplace_update_support) {
     if (prefix_extractor_ != nullptr && !read_options.total_order_seek) {
       bloom_ = mem.prefix_bloom_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(arena);
@@ -306,12 +307,18 @@ class MemTableIterator : public InternalIterator {
     return true;
   }
 
+  virtual bool IsValuePinned() const override {
+    // memtable value is always pinned, except if we allow inplace update.
+    return value_pinned_;
+  }
+
  private:
   DynamicBloom* bloom_;
   const SliceTransform* const prefix_extractor_;
   MemTableRep::Iterator* iter_;
   bool valid_;
   bool arena_mode_;
+  bool value_pinned_;
 
   // No copying allowed
   MemTableIterator(const MemTableIterator&);
@@ -508,7 +515,6 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeDeletion:
       case kTypeSingleDeletion: {
         if (*(s->merge_in_progress)) {
-          *(s->status) = Status::OK();
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
@@ -532,7 +538,8 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->merge_in_progress) = true;
-        merge_context->PushOperand(v);
+        merge_context->PushOperand(
+            v, s->inplace_update_support == false /* operand_pinned */);
         return true;
       }
       default:

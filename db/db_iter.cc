@@ -155,7 +155,9 @@ class DBIter: public Iterator {
   virtual Slice value() const override {
     assert(valid_);
     if (current_entry_is_merged_) {
-      return saved_value_;
+      // If pinned_value_ is set then the result of merge operator is one of
+      // the merge operands and we should return it.
+      return pinned_value_.data() ? pinned_value_ : saved_value_;
     } else if (direction_ == kReverse) {
       return pinned_value_;
     } else {
@@ -286,9 +288,9 @@ inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
 void DBIter::Next() {
   assert(valid_);
 
+  // Release temporarily pinned blocks from last operation
+  ReleaseTempPinnedData();
   if (direction_ == kReverse) {
-    // We only pin blocks when doing kReverse
-    ReleaseTempPinnedData();
     FindNextUserKey();
     direction_ = kForward;
     if (!iter_->Valid()) {
@@ -433,9 +435,12 @@ void DBIter::MergeValuesNewToOld() {
     return;
   }
 
+  // Temporarily pin the blocks that hold merge operands
+  TempPinData();
   merge_context_.Clear();
   // Start the merge process by pushing the first operand
-  merge_context_.PushOperand(iter_->value());
+  merge_context_.PushOperand(iter_->value(),
+                             iter_->IsValuePinned() /* operand_pinned */);
 
   ParsedInternalKey ikey;
   for (iter_->Next(); iter_->Valid(); iter_->Next()) {
@@ -459,15 +464,15 @@ void DBIter::MergeValuesNewToOld() {
       const Slice val = iter_->value();
       MergeHelper::TimedFullMerge(merge_operator_, ikey.user_key, &val,
                                   merge_context_.GetOperands(), &saved_value_,
-                                  logger_, statistics_, env_);
+                                  logger_, statistics_, env_, &pinned_value_);
       // iter_ is positioned after put
       iter_->Next();
       return;
     } else if (kTypeMerge == ikey.type) {
       // hit a merge, add the value as an operand and run associative merge.
       // when complete, add result to operands and continue.
-      const Slice& val = iter_->value();
-      merge_context_.PushOperand(val);
+      merge_context_.PushOperand(iter_->value(),
+                                 iter_->IsValuePinned() /* operand_pinned */);
     } else {
       assert(false);
     }
@@ -479,15 +484,15 @@ void DBIter::MergeValuesNewToOld() {
   // client can differentiate this scenario and do things accordingly.
   MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), nullptr,
                               merge_context_.GetOperands(), &saved_value_,
-                              logger_, statistics_, env_);
+                              logger_, statistics_, env_, &pinned_value_);
 }
 
 void DBIter::Prev() {
   assert(valid_);
+  ReleaseTempPinnedData();
   if (direction_ == kForward) {
     ReverseToBackward();
   }
-  ReleaseTempPinnedData();
   PrevInternal();
   if (statistics_ != nullptr) {
     local_stats_.prev_count_++;
@@ -580,6 +585,9 @@ bool DBIter::FindValueForCurrentKey() {
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kReverse);
 
+  // Temporarily pin blocks that hold (merge operands / the value)
+  ReleaseTempPinnedData();
+  TempPinData();
   size_t num_skipped = 0;
   while (iter_->Valid() && ikey.sequence <= sequence_ &&
          user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
@@ -592,8 +600,7 @@ bool DBIter::FindValueForCurrentKey() {
     switch (last_key_entry_type) {
       case kTypeValue:
         merge_context_.Clear();
-        ReleaseTempPinnedData();
-        TempPinData();
+        assert(iter_->IsValuePinned());
         pinned_value_ = iter_->value();
         last_not_merge_type = kTypeValue;
         break;
@@ -605,7 +612,8 @@ bool DBIter::FindValueForCurrentKey() {
         break;
       case kTypeMerge:
         assert(merge_operator_ != nullptr);
-        merge_context_.PushOperandBack(iter_->value());
+        merge_context_.PushOperandBack(
+            iter_->value(), iter_->IsValuePinned() /* operand_pinned */);
         break;
       default:
         assert(false);
@@ -628,13 +636,14 @@ bool DBIter::FindValueForCurrentKey() {
       if (last_not_merge_type == kTypeDeletion) {
         MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
                                     nullptr, merge_context_.GetOperands(),
-                                    &saved_value_, logger_, statistics_, env_);
+                                    &saved_value_, logger_, statistics_, env_,
+                                    &pinned_value_);
       } else {
         assert(last_not_merge_type == kTypeValue);
         MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
                                     &pinned_value_,
                                     merge_context_.GetOperands(), &saved_value_,
-                                    logger_, statistics_, env_);
+                                    logger_, statistics_, env_, &pinned_value_);
       }
       break;
     case kTypeValue:
@@ -651,6 +660,9 @@ bool DBIter::FindValueForCurrentKey() {
 // This function is used in FindValueForCurrentKey.
 // We use Seek() function instead of Prev() to find necessary value
 bool DBIter::FindValueForCurrentKeyUsingSeek() {
+  // FindValueForCurrentKey will enable pinning before calling
+  // FindValueForCurrentKeyUsingSeek()
+  assert(pinned_iters_mgr_.PinningEnabled());
   std::string last_key;
   AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetKey(), sequence_,
                                                  kValueTypeForSeek));
@@ -664,8 +676,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (ikey.type == kTypeValue || ikey.type == kTypeDeletion ||
       ikey.type == kTypeSingleDeletion) {
     if (ikey.type == kTypeValue) {
-      ReleaseTempPinnedData();
-      TempPinData();
+      assert(iter_->IsValuePinned());
       pinned_value_ = iter_->value();
       valid_ = true;
       return true;
@@ -681,7 +692,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   while (iter_->Valid() &&
          user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) &&
          ikey.type == kTypeMerge) {
-    merge_context_.PushOperand(iter_->value());
+    merge_context_.PushOperand(iter_->value(),
+                               iter_->IsValuePinned() /* operand_pinned */);
     iter_->Next();
     FindParseableKey(&ikey, kForward);
   }
@@ -691,7 +703,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
     MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), nullptr,
                                 merge_context_.GetOperands(), &saved_value_,
-                                logger_, statistics_, env_);
+                                logger_, statistics_, env_, &pinned_value_);
     // Make iter_ valid and point to saved_key_
     if (!iter_->Valid() ||
         !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
@@ -705,7 +717,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   const Slice& val = iter_->value();
   MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), &val,
                               merge_context_.GetOperands(), &saved_value_,
-                              logger_, statistics_, env_);
+                              logger_, statistics_, env_, &pinned_value_);
   valid_ = true;
   return true;
 }

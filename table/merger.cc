@@ -257,6 +257,12 @@ class MergingIterator : public InternalIterator {
            current_->IsKeyPinned();
   }
 
+  virtual bool IsValuePinned() const override {
+    assert(Valid());
+    return pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled() &&
+           current_->IsValuePinned();
+  }
+
  private:
   // Clears heaps for both directions, used when changing direction or seeking
   void ClearHeaps();

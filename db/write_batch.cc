@@ -922,12 +922,10 @@ class MemTableInserter : public WriteBatch::Handler {
       auto merge_operator = moptions->merge_operator;
       assert(merge_operator);
 
-      std::deque<std::string> operands;
-      operands.push_front(value.ToString());
       std::string new_value;
 
       Status merge_status = MergeHelper::TimedFullMerge(
-          merge_operator, key, &get_value_slice, operands, &new_value,
+          merge_operator, key, &get_value_slice, {value}, &new_value,
           moptions->info_log, moptions->statistics, Env::Default());
 
       if (!merge_status.ok()) {

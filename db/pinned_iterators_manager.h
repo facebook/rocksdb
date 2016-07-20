@@ -18,7 +18,7 @@ namespace rocksdb {
 class PinnedIteratorsManager {
  public:
   PinnedIteratorsManager() : pinning_enabled(false), pinned_iters_(nullptr) {}
-  ~PinnedIteratorsManager() { assert(!pinning_enabled); }
+  ~PinnedIteratorsManager() { ReleasePinnedIterators(); }
 
   // Enable Iterators pinning
   void StartPinning() {
@@ -43,7 +43,7 @@ class PinnedIteratorsManager {
   }
 
   // Release pinned Iterators
-  void ReleasePinnedIterators() {
+  inline void ReleasePinnedIterators() {
     if (pinning_enabled) {
       pinning_enabled = false;
 

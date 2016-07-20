@@ -269,33 +269,31 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
 
   virtual const char* Name() const override { return (*name_)(state_); }
 
-  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
-                         const std::deque<std::string>& operand_list,
-                         std::string* new_value,
-                         Logger* logger) const override {
-    size_t n = operand_list.size();
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    size_t n = merge_in.operand_list.size();
     std::vector<const char*> operand_pointers(n);
     std::vector<size_t> operand_sizes(n);
     for (size_t i = 0; i < n; i++) {
-      Slice operand(operand_list[i]);
+      Slice operand(merge_in.operand_list[i]);
       operand_pointers[i] = operand.data();
       operand_sizes[i] = operand.size();
     }
 
     const char* existing_value_data = nullptr;
     size_t existing_value_len = 0;
-    if (existing_value != nullptr) {
-      existing_value_data = existing_value->data();
-      existing_value_len = existing_value->size();
+    if (merge_in.existing_value != nullptr) {
+      existing_value_data = merge_in.existing_value->data();
+      existing_value_len = merge_in.existing_value->size();
     }
 
     unsigned char success;
     size_t new_value_len;
     char* tmp_new_value = (*full_merge_)(
-        state_, key.data(), key.size(), existing_value_data, existing_value_len,
-        &operand_pointers[0], &operand_sizes[0], static_cast<int>(n), &success,
-        &new_value_len);
-    new_value->assign(tmp_new_value, new_value_len);
+        state_, merge_in.key.data(), merge_in.key.size(), existing_value_data,
+        existing_value_len, &operand_pointers[0], &operand_sizes[0],
+        static_cast<int>(n), &success, &new_value_len);
+    merge_out->new_value.assign(tmp_new_value, new_value_len);
 
     if (delete_value_ != nullptr) {
       (*delete_value_)(state_, tmp_new_value, new_value_len);

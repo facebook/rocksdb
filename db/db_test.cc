@@ -4848,12 +4848,11 @@ class DelayedMergeOperator : public MergeOperator {
 
  public:
   explicit DelayedMergeOperator(DBTest* d) : db_test_(d) {}
-  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
-                         const std::deque<std::string>& operand_list,
-                         std::string* new_value,
-                         Logger* logger) const override {
+
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
     db_test_->env_->addon_time_.fetch_add(1000);
-    *new_value = "";
+    merge_out->new_value = "";
     return true;
   }
 

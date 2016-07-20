@@ -49,6 +49,12 @@ CompactionIterator::CompactionIterator(
   } else {
     ignore_snapshots_ = false;
   }
+  input_->SetPinnedItersMgr(&pinned_iters_mgr_);
+}
+
+CompactionIterator::~CompactionIterator() {
+  // input_ Iteartor lifetime is longer than pinned_iters_mgr_ lifetime
+  input_->SetPinnedItersMgr(nullptr);
 }
 
 void CompactionIterator::ResetRecordCounts() {
@@ -83,6 +89,8 @@ void CompactionIterator::Next() {
       ikey_.user_key = current_key_.GetUserKey();
       valid_ = true;
     } else {
+      // We consumed all pinned merge operands, release pinned iterators
+      pinned_iters_mgr_.ReleasePinnedIterators();
       // MergeHelper moves the iterator to the first record after the merged
       // records, so even though we reached the end of the merge output, we do
       // not want to advance the iterator.
@@ -368,6 +376,7 @@ void CompactionIterator::NextFromInput() {
         return;
       }
 
+      pinned_iters_mgr_.StartPinning();
       // We know the merge type entry is not hidden, otherwise we would
       // have hit (A)
       // We encapsulate the merge related state machine in a different
@@ -395,6 +404,7 @@ void CompactionIterator::NextFromInput() {
         // batch consumed by the merge operator should not shadow any keys
         // coming after the merges
         has_current_user_key_ = false;
+        pinned_iters_mgr_.ReleasePinnedIterators();
       }
     } else {
       valid_ = true;

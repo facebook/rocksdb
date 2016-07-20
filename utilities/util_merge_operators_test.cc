@@ -13,22 +13,41 @@ class UtilMergeOperatorTest : public testing::Test {
  public:
   UtilMergeOperatorTest() {}
 
-  std::string FullMerge(std::string existing_value,
-                        std::deque<std::string> operands,
-                        std::string key = "") {
-    Slice existing_value_slice(existing_value);
+  std::string FullMergeV2(std::string existing_value,
+                          std::vector<std::string> operands,
+                          std::string key = "") {
     std::string result;
+    Slice result_operand(nullptr, 0);
 
-    merge_operator_->FullMerge(key, &existing_value_slice, operands, &result,
-                               nullptr);
+    Slice existing_value_slice(existing_value);
+    std::vector<Slice> operands_slice(operands.begin(), operands.end());
+
+    const MergeOperator::MergeOperationInput merge_in(
+        key, &existing_value_slice, operands_slice, nullptr);
+    MergeOperator::MergeOperationOutput merge_out(result, result_operand);
+    merge_operator_->FullMergeV2(merge_in, &merge_out);
+
+    if (result_operand.data()) {
+      result.assign(result_operand.data(), result_operand.size());
+    }
     return result;
   }
 
-  std::string FullMerge(std::deque<std::string> operands,
-                        std::string key = "") {
+  std::string FullMergeV2(std::vector<std::string> operands,
+                          std::string key = "") {
     std::string result;
+    Slice result_operand(nullptr, 0);
 
-    merge_operator_->FullMerge(key, nullptr, operands, &result, nullptr);
+    std::vector<Slice> operands_slice(operands.begin(), operands.end());
+
+    const MergeOperator::MergeOperationInput merge_in(key, nullptr,
+                                                      operands_slice, nullptr);
+    MergeOperator::MergeOperationOutput merge_out(result, result_operand);
+    merge_operator_->FullMergeV2(merge_in, &merge_out);
+
+    if (result_operand.data()) {
+      result.assign(result_operand.data(), result_operand.size());
+    }
     return result;
   }
 
@@ -56,14 +75,14 @@ class UtilMergeOperatorTest : public testing::Test {
 TEST_F(UtilMergeOperatorTest, MaxMergeOperator) {
   merge_operator_ = MergeOperators::CreateMaxOperator();
 
-  EXPECT_EQ("B", FullMerge("B", {"A"}));
-  EXPECT_EQ("B", FullMerge("A", {"B"}));
-  EXPECT_EQ("", FullMerge({"", "", ""}));
-  EXPECT_EQ("A", FullMerge({"A"}));
-  EXPECT_EQ("ABC", FullMerge({"ABC"}));
-  EXPECT_EQ("Z", FullMerge({"ABC", "Z", "C", "AXX"}));
-  EXPECT_EQ("ZZZ", FullMerge({"ABC", "CC", "Z", "ZZZ"}));
-  EXPECT_EQ("a", FullMerge("a", {"ABC", "CC", "Z", "ZZZ"}));
+  EXPECT_EQ("B", FullMergeV2("B", {"A"}));
+  EXPECT_EQ("B", FullMergeV2("A", {"B"}));
+  EXPECT_EQ("", FullMergeV2({"", "", ""}));
+  EXPECT_EQ("A", FullMergeV2({"A"}));
+  EXPECT_EQ("ABC", FullMergeV2({"ABC"}));
+  EXPECT_EQ("Z", FullMergeV2({"ABC", "Z", "C", "AXX"}));
+  EXPECT_EQ("ZZZ", FullMergeV2({"ABC", "CC", "Z", "ZZZ"}));
+  EXPECT_EQ("a", FullMergeV2("a", {"ABC", "CC", "Z", "ZZZ"}));
 
   EXPECT_EQ("z", PartialMergeMulti({"a", "z", "efqfqwgwew", "aaz", "hhhhh"}));
 

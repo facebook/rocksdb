@@ -8,8 +8,10 @@
 
 #include <deque>
 #include <string>
+#include <vector>
 
 #include "db/dbformat.h"
+#include "db/merge_context.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
@@ -42,14 +44,13 @@ class MergeHelper {
         latest_snapshot_(latest_snapshot),
         level_(level),
         keys_(),
-        operands_(),
         filter_timer_(env_),
         total_filter_time_(0U),
         stats_(stats) {
     assert(user_comparator_ != nullptr);
   }
 
-  // Wrapper around MergeOperator::FullMerge() that records perf statistics.
+  // Wrapper around MergeOperator::FullMergeV2() that records perf statistics.
   // Result of merge will be written to result if status returned is OK.
   // If operands is empty, the value will simply be copied to result.
   // Returns one of the following statuses:
@@ -57,9 +58,10 @@ class MergeHelper {
   // - Corruption: Merge operator reported unsuccessful merge.
   static Status TimedFullMerge(const MergeOperator* merge_operator,
                                const Slice& key, const Slice* value,
-                               const std::deque<std::string>& operands,
+                               const std::vector<Slice>& operands,
                                std::string* result, Logger* logger,
-                               Statistics* statistics, Env* env);
+                               Statistics* statistics, Env* env,
+                               Slice* result_operand = nullptr);
 
   // Merge entries until we hit
   //     - a corrupted key
@@ -116,7 +118,9 @@ class MergeHelper {
   //                So keys().back() was the first key seen by iterator.
   // TODO: Re-style this comment to be like the first one
   const std::deque<std::string>& keys() const { return keys_; }
-  const std::deque<std::string>& values() const { return operands_; }
+  const std::vector<Slice>& values() const {
+    return merge_context_.GetOperands();
+  }
   uint64_t TotalFilterTime() const { return total_filter_time_; }
   bool HasOperator() const { return user_merge_operator_ != nullptr; }
 
@@ -133,8 +137,11 @@ class MergeHelper {
 
   // the scratch area that holds the result of MergeUntil
   // valid up to the next MergeUntil call
-  std::deque<std::string> keys_;    // Keeps track of the sequence of keys seen
-  std::deque<std::string> operands_;  // Parallel with keys_; stores the values
+
+  // Keeps track of the sequence of keys seen
+  std::deque<std::string> keys_;
+  // Parallel with keys_; stores the operands
+  mutable MergeContext merge_context_;
 
   StopWatchNano filter_timer_;
   uint64_t total_filter_time_;
@@ -159,7 +166,7 @@ class MergeOutputIterator {
  private:
   const MergeHelper* merge_helper_;
   std::deque<std::string>::const_reverse_iterator it_keys_;
-  std::deque<std::string>::const_reverse_iterator it_values_;
+  std::vector<Slice>::const_reverse_iterator it_values_;
 };
 
 } // namespace rocksdb

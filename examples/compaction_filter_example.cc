@@ -10,19 +10,18 @@
 
 class MyMerge : public rocksdb::MergeOperator {
  public:
-  bool FullMerge(const rocksdb::Slice& key,
-                 const rocksdb::Slice* existing_value,
-                 const std::deque<std::string>& operand_list,
-                 std::string* new_value,
-                 rocksdb::Logger* logger) const override {
-    new_value->clear();
-    if (existing_value != nullptr) {
-      new_value->assign(existing_value->data(), existing_value->size());
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    merge_out->new_value.clear();
+    if (merge_in.existing_value != nullptr) {
+      merge_out->new_value.assign(merge_in.existing_value->data(),
+                                  merge_in.existing_value->size());
     }
-    for (const std::string& m : operand_list) {
-      fprintf(stderr, "Merge(%s)\n", m.c_str());
-      assert(m != "bad");  // the compaction filter filters out bad values
-      new_value->assign(m);
+    for (const rocksdb::Slice& m : merge_in.operand_list) {
+      fprintf(stderr, "Merge(%s)\n", m.ToString().c_str());
+      // the compaction filter filters out bad values
+      assert(m.ToString() != "bad");
+      merge_out->new_value.assign(m.data(), m.size());
     }
     return true;
   }

@@ -128,19 +128,19 @@ class DummyMergeOperator : public MergeOperator {
   DummyMergeOperator() {}
   virtual ~DummyMergeOperator() {}
 
-  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
-                         const std::deque<std::string>& operand_list,
-                         std::string* new_value, Logger* logger) const {
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
     return false;
   }
 
   virtual bool PartialMergeMulti(const Slice& key,
                                  const std::deque<Slice>& operand_list,
-                                 std::string* new_value, Logger* logger) const {
+                                 std::string* new_value,
+                                 Logger* logger) const override {
     return false;
   }
 
-  virtual const char* Name() const { return "DummyMergeOperator"; }
+  virtual const char* Name() const override { return "DummyMergeOperator"; }
 };
 
 class DummySliceTransform : public SliceTransform {

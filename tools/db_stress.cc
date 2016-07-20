@@ -453,6 +453,9 @@ static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
 DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
             "that behaves like a Put");
 
+DEFINE_bool(use_full_merge_v1, false,
+            "On true, use a merge operator that implement the deprecated "
+            "version of FullMerge");
 
 namespace rocksdb {
 
@@ -2106,7 +2109,11 @@ class StressTest {
     }
 
     if (FLAGS_use_merge) {
-      options_.merge_operator = MergeOperators::CreatePutOperator();
+      if (FLAGS_use_full_merge_v1) {
+        options_.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
+      } else {
+        options_.merge_operator = MergeOperators::CreatePutOperator();
+      }
     }
 
     // set universal style compaction configurations, if applicable

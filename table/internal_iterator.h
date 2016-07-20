@@ -80,6 +80,11 @@ class InternalIterator : public Cleanable {
   //    set to false.
   virtual bool IsKeyPinned() const { return false; }
 
+  // If true, this means that the Slice returned by value() is valid as long as
+  // PinnedIteratorsManager::ReleasePinnedIterators is not called and the
+  // Iterator is not deleted.
+  virtual bool IsValuePinned() const { return false; }
+
   virtual Status GetProperty(std::string prop_name, std::string* prop) {
     return Status::NotSupported("");
   }

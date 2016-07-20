@@ -162,6 +162,8 @@ class BlockIter : public InternalIterator {
 
   virtual bool IsKeyPinned() const override { return key_pinned_; }
 
+  virtual bool IsValuePinned() const override { return true; }
+
  private:
   const Comparator* comparator_;
   const char* data_;       // underlying block contents

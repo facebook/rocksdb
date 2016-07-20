@@ -24,11 +24,8 @@ class StringAppendTESTOperator : public MergeOperator {
   // Constructor with delimiter
   explicit StringAppendTESTOperator(char delim_char);
 
-  virtual bool FullMerge(const Slice& key,
-                         const Slice* existing_value,
-                         const std::deque<std::string>& operand_sequence,
-                         std::string* new_value,
-                         Logger* logger) const override;
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override;
 
   virtual bool PartialMergeMulti(const Slice& key,
                                  const std::deque<Slice>& operand_list,

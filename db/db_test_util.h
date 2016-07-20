@@ -797,6 +797,8 @@ class DBTestBase : public testing::Test {
 
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 
+  void VerifyDBFromMap(std::map<std::string, std::string> true_data);
+
 #ifndef ROCKSDB_LITE
   Status GenerateAndAddExternalFile(const Options options,
                                     std::vector<int> keys, size_t file_id);

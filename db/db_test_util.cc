@@ -1074,6 +1074,40 @@ std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
   return file_numbers;
 }
 
+void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data) {
+  for (auto& kv : true_data) {
+    ASSERT_EQ(Get(kv.first), kv.second);
+  }
+
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  Iterator* iter = db_->NewIterator(ro);
+  // Verify Iterator::Next()
+  auto data_iter = true_data.begin();
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
+    ASSERT_EQ(iter->key().ToString(), data_iter->first);
+    ASSERT_EQ(iter->value().ToString(), data_iter->second);
+  }
+  ASSERT_EQ(data_iter, true_data.end());
+
+  // Verify Iterator::Prev()
+  auto data_rev = true_data.rbegin();
+  for (iter->SeekToLast(); iter->Valid(); iter->Prev(), data_rev++) {
+    ASSERT_EQ(iter->key().ToString(), data_rev->first);
+    ASSERT_EQ(iter->value().ToString(), data_rev->second);
+  }
+  ASSERT_EQ(data_rev, true_data.rend());
+
+  // Verify Iterator::Seek()
+  for (auto kv : true_data) {
+    iter->Seek(kv.first);
+    ASSERT_EQ(kv.first, iter->key().ToString());
+    ASSERT_EQ(kv.second, iter->value().ToString());
+  }
+
+  delete iter;
+}
+
 #ifndef ROCKSDB_LITE
 
 Status DBTestBase::GenerateAndAddExternalFile(const Options options,
