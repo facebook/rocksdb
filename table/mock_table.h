@@ -147,10 +147,11 @@ class MockTableFactory : public TableFactory {
  public:
   MockTableFactory();
   const char* Name() const override { return "MockTable"; }
-  Status NewTableReader(const TableReaderOptions& table_reader_options,
-                        unique_ptr<RandomAccessFileReader>&& file,
-                        uint64_t file_size,
-                        unique_ptr<TableReader>* table_reader) const override;
+  Status NewTableReader(
+      const TableReaderOptions& table_reader_options,
+      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      unique_ptr<TableReader>* table_reader,
+      bool prefetch_index_and_filter_in_cache = true) const override;
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       uint32_t column_familly_id, WritableFileWriter* file) const override;

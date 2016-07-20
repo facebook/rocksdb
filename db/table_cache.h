@@ -79,7 +79,8 @@ class TableCache {
                    const FileDescriptor& file_fd, Cache::Handle**,
                    const bool no_io = false, bool record_read_stats = true,
                    HistogramImpl* file_read_hist = nullptr,
-                   bool skip_filters = false, int level = -1);
+                   bool skip_filters = false, int level = -1,
+                   bool prefetch_index_and_filter_in_cache = true);
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
@@ -114,7 +115,8 @@ class TableCache {
                         size_t readahead, bool record_read_stats,
                         HistogramImpl* file_read_hist,
                         unique_ptr<TableReader>* table_reader,
-                        bool skip_filters = false, int level = -1);
+                        bool skip_filters = false, int level = -1,
+                        bool prefetch_index_and_filter_in_cache = true);
 
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;

@@ -89,7 +89,7 @@ Status TableCache::GetTableReader(
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     bool sequential_mode, size_t readahead, bool record_read_stats,
     HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
-    bool skip_filters, int level) {
+    bool skip_filters, int level, bool prefetch_index_and_filter_in_cache) {
   std::string fname =
       TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
   unique_ptr<RandomAccessFile> file;
@@ -111,7 +111,8 @@ Status TableCache::GetTableReader(
     s = ioptions_.table_factory->NewTableReader(
         TableReaderOptions(ioptions_, env_options, internal_comparator,
                            skip_filters, level),
-        std::move(file_reader), fd.GetFileSize(), table_reader);
+        std::move(file_reader), fd.GetFileSize(), table_reader,
+        prefetch_index_and_filter_in_cache);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
   }
   return s;
@@ -129,7 +130,8 @@ Status TableCache::FindTable(const EnvOptions& env_options,
                              const FileDescriptor& fd, Cache::Handle** handle,
                              const bool no_io, bool record_read_stats,
                              HistogramImpl* file_read_hist, bool skip_filters,
-                             int level) {
+                             int level,
+                             bool prefetch_index_and_filter_in_cache) {
   PERF_TIMER_GUARD(find_table_nanos);
   Status s;
   uint64_t number = fd.GetNumber();
@@ -146,7 +148,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
     s = GetTableReader(env_options, internal_comparator, fd,
                        false /* sequential mode */, 0 /* readahead */,
                        record_read_stats, file_read_hist, &table_reader,
-                       skip_filters, level);
+                       skip_filters, level, prefetch_index_and_filter_in_cache);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.statistics, NO_FILE_ERRORS);

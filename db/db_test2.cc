@@ -1210,6 +1210,37 @@ class PinL0IndexAndFilterBlocksTest : public DBTestBase,
   PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
   virtual void SetUp() override { infinite_max_files_ = GetParam(); }
 
+  void CreateTwoLevels(Options* options) {
+    if (infinite_max_files_) {
+      options->max_open_files = -1;
+    }
+    options->create_if_missing = true;
+    options->statistics = rocksdb::CreateDBStatistics();
+    BlockBasedTableOptions table_options;
+    table_options.cache_index_and_filter_blocks = true;
+    table_options.pin_l0_filter_and_index_blocks_in_cache = true;
+    table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+    options->table_factory.reset(new BlockBasedTableFactory(table_options));
+    CreateAndReopenWithCF({"pikachu"}, *options);
+
+    Put(1, "a", "begin");
+    Put(1, "z", "end");
+    ASSERT_OK(Flush(1));
+    // move this table to L1
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+
+    // reset block cache
+    table_options.block_cache = NewLRUCache(64 * 1024);
+    options->table_factory.reset(NewBlockBasedTableFactory(table_options));
+    TryReopenWithColumnFamilies({"default", "pikachu"}, *options);
+    // create new table at L0
+    Put(1, "a2", "begin2");
+    Put(1, "z2", "end2");
+    ASSERT_OK(Flush(1));
+
+    table_options.block_cache->EraseUnRefEntries();
+  }
+
   bool infinite_max_files_;
 };
 
@@ -1261,35 +1292,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 TEST_P(PinL0IndexAndFilterBlocksTest,
        MultiLevelIndexAndFilterBlocksCachedWithPinning) {
   Options options = CurrentOptions();
-  if (infinite_max_files_) {
-    options.max_open_files = -1;
-  }
-  options.create_if_missing = true;
-  options.statistics = rocksdb::CreateDBStatistics();
-  BlockBasedTableOptions table_options;
-  table_options.cache_index_and_filter_blocks = true;
-  table_options.pin_l0_filter_and_index_blocks_in_cache = true;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
-  CreateAndReopenWithCF({"pikachu"}, options);
-
-  Put(1, "a", "begin");
-  Put(1, "z", "end");
-  ASSERT_OK(Flush(1));
-  // move this table to L1
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-
-  // reset block cache
-  table_options.block_cache = NewLRUCache(64 * 1024);
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  TryReopenWithColumnFamilies({"default", "pikachu"}, options);
-  // create new table at L0
-  Put(1, "a2", "begin2");
-  Put(1, "z2", "end2");
-  ASSERT_OK(Flush(1));
-
-  table_options.block_cache->EraseUnRefEntries();
-
+  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options);
   // get base cache values
   uint64_t fm = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
   uint64_t fh = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
@@ -1309,9 +1312,74 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
   // the file is opened, prefetching results in a cache filter miss
   // the block is loaded and added to the cache,
   // then the get results in a cache hit for L1
+  // When we have inifinite max_files, there is still cache miss because we have
+  // reset the block cache
   value = Get(1, "a");
   ASSERT_EQ(fm + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
   ASSERT_EQ(im + 1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+}
+
+TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
+  Options options = CurrentOptions();
+  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options);
+
+  // Get base cache values
+  uint64_t fm = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
+  uint64_t fh = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  uint64_t im = TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS);
+  uint64_t ih = TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT);
+
+  // Reopen database. If max_open_files is set as -1, table readers will be
+  // preloaded. This will trigger a BlockBasedTable::Open() and prefetch
+  // L0 index and filter. Level 1's prefetching is disabled in DB::Open()
+  TryReopenWithColumnFamilies({"default", "pikachu"}, options);
+
+  if (infinite_max_files_) {
+    // After reopen, cache miss are increased by one because we read (and only
+    // read) filter and index on L0
+    ASSERT_EQ(fm + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_EQ(im + 1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(ih, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+  } else {
+    // If max_open_files is not -1, we do not preload table readers, so there is
+    // no change.
+    ASSERT_EQ(fm, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_EQ(im, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(ih, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+  }
+  std::string value;
+  // this should be read from L0
+  value = Get(1, "a2");
+  // If max_open_files is -1, we have pinned index and filter in Rep, so there
+  // will not be changes in index and filter misses or hits. If max_open_files
+  // is not -1, Get() will open a TableReader and prefetch index and filter.
+  ASSERT_EQ(fm + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+  ASSERT_EQ(im + 1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+  ASSERT_EQ(ih, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+
+  // this should be read from L1
+  value = Get(1, "a");
+  if (infinite_max_files_) {
+    // In inifinite max files case, there's a cache miss in executing Get()
+    // because index and filter are not prefetched before.
+    ASSERT_EQ(fm + 2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(fh, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_EQ(im + 2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(ih, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+  } else {
+    // In this case, cache miss will be increased by one in
+    // BlockBasedTable::Open() because this is not in DB::Open() code path so we
+    // will prefetch L1's index and filter. Cache hit will also be increased by
+    // one because Get() will read index and filter from the block cache
+    // prefetched in previous Open() call.
+    ASSERT_EQ(fm + 2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(fh + 1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+    ASSERT_EQ(im + 2, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(ih + 1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(PinL0IndexAndFilterBlocksTest,

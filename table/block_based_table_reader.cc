@@ -515,7 +515,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              unique_ptr<RandomAccessFileReader>&& file,
                              uint64_t file_size,
                              unique_ptr<TableReader>* table_reader,
-                             const bool prefetch_index_and_filter,
+                             const bool prefetch_index_and_filter_in_cache,
                              const bool skip_filters, const int level) {
   table_reader->reset();
 
@@ -636,10 +636,11 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         BlockBasedTablePropertyNames::kPrefixFiltering, rep->ioptions.info_log);
   }
 
-  if (prefetch_index_and_filter) {
     // pre-fetching of blocks is turned on
-    // Will use block cache for index/filter blocks access?
-    if (table_options.cache_index_and_filter_blocks) {
+  // Will use block cache for index/filter blocks access
+  // Always prefetch index and filter for level 0
+  if (table_options.cache_index_and_filter_blocks) {
+    if (prefetch_index_and_filter_in_cache || level == 0) {
       assert(table_options.block_cache != nullptr);
       // Hack: Call NewIndexIterator() to implicitly add index to the
       // block_cache
@@ -663,7 +664,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         // if pin_l0_filter_and_index_blocks_in_cache is true, and this is
         // a level0 file, then save it in rep_->filter_entry; it will be
         // released in the destructor only, hence it will be pinned in the
-        // cache until this reader is alive
+        // cache while this reader is alive
         if (rep->table_options.pin_l0_filter_and_index_blocks_in_cache &&
             level == 0) {
           rep->filter_entry = filter_entry;
@@ -671,23 +672,23 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
           filter_entry.Release(table_options.block_cache.get());
         }
       }
-    } else {
-      // If we don't use block cache for index/filter blocks access, we'll
-      // pre-load these blocks, which will kept in member variables in Rep
-      // and with a same life-time as this table object.
-      IndexReader* index_reader = nullptr;
-      s = new_table->CreateIndexReader(&index_reader, meta_iter.get());
+    }
+  } else {
+    // If we don't use block cache for index/filter blocks access, we'll
+    // pre-load these blocks, which will kept in member variables in Rep
+    // and with a same life-time as this table object.
+    IndexReader* index_reader = nullptr;
+    s = new_table->CreateIndexReader(&index_reader, meta_iter.get());
 
-      if (s.ok()) {
-        rep->index_reader.reset(index_reader);
+    if (s.ok()) {
+      rep->index_reader.reset(index_reader);
 
-        // Set filter block
-        if (rep->filter_policy) {
-          rep->filter.reset(ReadFilter(rep));
-        }
-      } else {
-        delete index_reader;
+      // Set filter block
+      if (rep->filter_policy) {
+        rep->filter.reset(ReadFilter(rep));
       }
+    } else {
+      delete index_reader;
     }
   }
 
