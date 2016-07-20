@@ -149,15 +149,15 @@ UNIT_TEST_COMMANDS="[
 #
 # RocksDB release build and unit tests
 #
-RELEASE_UNIT_TEST_COMMANDS="[
+RELEASE_BUILD_COMMANDS="[
     {
-        'name':'Rocksdb Release Unit Test',
+        'name':'Rocksdb Release Build',
         'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
-                'name':'Build and test RocksDB debug version',
-                'shell':'$SHM $DEBUG make J=1 release',
+                'name':'Build RocksDB release',
+                'shell':'make J=1 release',
                 'user':'root',
                 $PARSER
             },
@@ -187,6 +187,26 @@ UNIT_TEST_COMMANDS_481="[
 ]"
 
 #
+# RocksDB release build and unit tests
+#
+RELEASE_BUILD_COMMANDS_481="[
+    {
+        'name':'Rocksdb Release on GCC 4.8.1',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build RocksDB release on GCC 4.8.1',
+                'shell':'$GCC_481 make J=1 release',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB unit test with CLANG
 #
 CLANG_UNIT_TEST_COMMANDS="[
@@ -198,6 +218,26 @@ CLANG_UNIT_TEST_COMMANDS="[
             {
                 'name':'Build and test RocksDB debug',
                 'shell':'$CLANG $SHM $DEBUG make J=1 check',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
+# RocksDB release build with CLANG
+#
+CLANG_RELEASE_BUILD_COMMANDS="[
+    {
+        'name':'Rocksdb CLANG Release Build',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build RocksDB release',
+                'shell':'$CLANG make J=1 release',
                 'user':'root',
                 $PARSER
             },
@@ -686,13 +726,19 @@ case $1 in
     echo $UNIT_TEST_COMMANDS
     ;;
   release)
-    echo $RELEASE_UNIT_TEST_COMMANDS
+    echo $RELEASE_BUILD_COMMANDS
     ;;
   unit_481)
     echo $UNIT_TEST_COMMANDS_481
     ;;
+  release_481)
+    echo $RELEASE_BUILD_COMMANDS_481
+    ;;
   clang_unit)
     echo $CLANG_UNIT_TEST_COMMANDS
+    ;;
+  clang_release)
+    echo $CLANG_RELEASE_BUILD_COMMANDS
     ;;
   clang_analyze)
     echo $CLANG_ANALYZE_COMMANDS

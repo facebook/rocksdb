@@ -1361,7 +1361,7 @@ jdb_bench:
 
 commit_prereq: build_tools/rocksdb-lego-determinator \
                build_tools/precommit_checker.py
-	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit tsan asan ubsan lite
+	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
 xfunc:
