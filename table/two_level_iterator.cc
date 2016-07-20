@@ -122,8 +122,8 @@ void TwoLevelIterator::Seek(const Slice& target) {
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
     second_level_iter_.Seek(target);
+    SkipEmptyDataBlocksForward();
   }
-  SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::SeekToFirst() {
@@ -131,8 +131,8 @@ void TwoLevelIterator::SeekToFirst() {
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
     second_level_iter_.SeekToFirst();
+    SkipEmptyDataBlocksForward();
   }
-  SkipEmptyDataBlocksForward();
 }
 
 void TwoLevelIterator::SeekToLast() {
@@ -140,8 +140,8 @@ void TwoLevelIterator::SeekToLast() {
   InitDataBlock();
   if (second_level_iter_.iter() != nullptr) {
     second_level_iter_.SeekToLast();
+    SkipEmptyDataBlocksBackward();
   }
-  SkipEmptyDataBlocksBackward();
 }
 
 void TwoLevelIterator::Next() {
@@ -158,14 +158,9 @@ void TwoLevelIterator::Prev() {
 
 
 void TwoLevelIterator::SkipEmptyDataBlocksForward() {
-  while (second_level_iter_.iter() == nullptr ||
-         (!second_level_iter_.Valid() &&
-         !second_level_iter_.status().IsIncomplete())) {
-    // Move to next block
-    if (!first_level_iter_.Valid()) {
-      SetSecondLevelIterator(nullptr);
-      return;
-    }
+  assert(second_level_iter_.iter() != nullptr);
+  if (!second_level_iter_.Valid() &&
+      !second_level_iter_.status().IsIncomplete()) {
     first_level_iter_.Next();
     InitDataBlock();
     if (second_level_iter_.iter() != nullptr) {
@@ -175,14 +170,9 @@ void TwoLevelIterator::SkipEmptyDataBlocksForward() {
 }
 
 void TwoLevelIterator::SkipEmptyDataBlocksBackward() {
-  while (second_level_iter_.iter() == nullptr ||
-         (!second_level_iter_.Valid() &&
-         !second_level_iter_.status().IsIncomplete())) {
-    // Move to next block
-    if (!first_level_iter_.Valid()) {
-      SetSecondLevelIterator(nullptr);
-      return;
-    }
+  assert(second_level_iter_.iter() != nullptr);
+  if (!second_level_iter_.Valid() &&
+      !second_level_iter_.status().IsIncomplete()) {
     first_level_iter_.Prev();
     InitDataBlock();
     if (second_level_iter_.iter() != nullptr) {
