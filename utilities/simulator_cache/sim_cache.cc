@@ -5,6 +5,7 @@
 
 #include "rocksdb/utilities/sim_cache.h"
 #include <atomic>
+#include "port/port.h"
 
 namespace rocksdb {
 
