@@ -147,6 +147,26 @@ UNIT_TEST_COMMANDS="[
 ]"
 
 #
+# RocksDB unit test not under /dev/shm
+#
+UNIT_TEST_NON_SHM_COMMANDS="[
+    {
+        'name':'Rocksdb Unit Test',
+        'oncall':'$ONCALL',
+        'steps': [
+            $CLEANUP_ENV,
+            {
+                'name':'Build and test RocksDB debug version',
+                'shell':'$DEBUG make J=1 check',
+                'user':'root',
+                $PARSER
+            },
+        ],
+        $REPORT
+    }
+]"
+
+#
 # RocksDB release build and unit tests
 #
 RELEASE_BUILD_COMMANDS="[
@@ -723,6 +743,9 @@ case $1 in
     ;;
   unit)
     echo $UNIT_TEST_COMMANDS
+    ;;
+  unit_non_shm)
+    echo $UNIT_TEST_NON_SHM_COMMANDS
     ;;
   release)
     echo $RELEASE_BUILD_COMMANDS
