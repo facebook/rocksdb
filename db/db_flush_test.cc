@@ -42,8 +42,9 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   ASSERT_OK(dbfull()->Flush(no_wait));
   // If the issue is hit we will wait here forever.
   dbfull()->TEST_WaitForFlushMemTable();
-
+#ifndef ROCKSDB_LITE
   ASSERT_EQ(2, TotalTableFiles());
+#endif  // ROCKSDB_LITE
 }
 
 }  // namespace rocksdb
