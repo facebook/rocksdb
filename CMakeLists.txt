@@ -356,6 +356,7 @@ set(TESTS
         db/db_test2.cc
         db/db_block_cache_test.cc
         db/db_bloom_filter_test.cc
+        db/db_flush_test.cc
         db/db_iterator_test.cc
         db/db_sst_test.cc
         db/db_universal_compaction_test.cc

@@ -215,6 +215,7 @@ MAIN_SOURCES =                                                    \
   db/db_compaction_filter_test.cc                                       \
   db/db_compaction_test.cc                                              \
   db/db_dynamic_level_test.cc                                           \
+	db/db_flush_test.cc																										\
   db/db_inplace_update_test.cc                                          \
 	db/db_iterator_test.cc																								\
   db/db_log_iter_test.cc                                                \

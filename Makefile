@@ -274,8 +274,10 @@ TESTS = \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_dynamic_level_test \
+	db_flush_test \
 	db_inplace_update_test \
 	db_iterator_test \
+	db_options_test \
 	db_sst_test \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
@@ -918,6 +920,9 @@ db_compaction_test: db/db_compaction_test.o db/db_test_util.o $(LIBOBJECTS) $(TE
 	$(AM_LINK)
 
 db_dynamic_level_test: db/db_dynamic_level_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_flush_test: db/db_flush_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_inplace_update_test: db/db_inplace_update_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
