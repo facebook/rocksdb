@@ -63,26 +63,25 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
               git checkout v2.0
               ./configure && make && sudo make install
 
-      **Notice**: Once installed, please add the include path for gflags to your CPATH env var and the
-      lib path to LIBRARY_PATH. If installed with default settings, the lib will be /usr/local/lib
-      and the include path will be /usr/local/include.
+      **Notice**: Once installed, please add the include path for gflags to your `CPATH` environment variable and the
+      lib path to `LIBRARY_PATH`. If installed with default settings, the include path will be `/usr/local/include`
+      and the lib path will be `/usr/local/lib`.
 
     * Install snappy:
 
-              wget https://github.com/google/snappy/releases/download/1.1.4/snappy-1.1.4.tar.gz
-              tar -xzvf snappy-1.1.4.tar.gz
-              cd snappy-1.1.4
-              ./configure && make && sudo make install
+              sudo yum install snappy snappy-devel
 
     * Install zlib:
 
-              sudo yum install zlib
-              sudo yum install zlib-devel
+              sudo yum install zlib zlib-devel
 
     * Install bzip2:
 
-              sudo yum install bzip2
-              sudo yum install bzip2-devel
+              sudo yum install bzip2 bzip2-devel
+
+    * Install ASAN (optional for debugging):
+
+              sudo yum install libasan
 
     * Install zstandard:
 
