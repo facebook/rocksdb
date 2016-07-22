@@ -78,6 +78,7 @@ whitebox_default_params = {
     "test_batches_snapshots": lambda: random.randint(0, 1),
     "write_buffer_size": 4 * 1024 * 1024,
     "subcompactions": lambda: random.randint(1, 4),
+    "random_kill_odd": 888887,
 }
 
 simple_default_params = {
@@ -167,7 +168,8 @@ def gen_cmd(params):
     cmd = './db_stress ' + ' '.join(
         '--{0}={1}'.format(k, v)
         for k, v in finalize_and_sanitize(params).items()
-        if k not in set(['test_type', 'simple', 'duration', 'interval'])
+        if k not in set(['test_type', 'simple', 'duration', 'interval',
+                         'random_kill_odd'])
         and v is not None)
     return cmd
 
@@ -252,7 +254,7 @@ def whitebox_crash_main(args):
 
     total_check_mode = 4
     check_mode = 0
-    kill_random_test = 888887
+    kill_random_test = cmd_params['random_kill_odd']
     kill_mode = 0
 
     while time.time() < exit_time:
@@ -276,6 +278,8 @@ def whitebox_crash_main(args):
                     + "WritableFileWriter::WriteBuffered",
                 })
             elif kill_mode == 2:
+                # TODO: May need to adjust random odds if kill_random_test
+                # is too small.
                 additional_opts.update({
                     "kill_random_test": (kill_random_test / 5000 + 1),
                     "kill_prefix_blacklist": "WritableFileWriter::Append,"

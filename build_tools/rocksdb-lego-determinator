@@ -543,7 +543,6 @@ TSAN_UNIT_TEST_COMMANDS="[
 
 #
 # RocksDB crash test under TSAN
-# TODO: run white box crash test too
 #
 TSAN_CRASH_TEST_COMMANDS="[
     {
@@ -555,7 +554,7 @@ TSAN_CRASH_TEST_COMMANDS="[
             {
                 'name':'Compile and run',
                 'timeout': 86400,
-                'shell':'set -o pipefail && $SHM $DEBUG $TSAN make J=1 blackbox_crash_test',
+                'shell':'set -o pipefail && $SHM $DEBUG $TSAN CRASH_TEST_KILL_ODD=1887 make J=1 crash_test',
                 'user':'root',
                 $PARSER
             },
