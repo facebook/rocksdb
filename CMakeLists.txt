@@ -32,8 +32,8 @@ project(rocksdb)
 include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 execute_process(COMMAND powershell -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
 execute_process(COMMAND powershell -Command "Get-Date -format HH:mm:ss" OUTPUT_VARIABLE TIME)
-string(REGEX REPLACE "(..)_(..)_..(..).*" "\\1/\\2/\\3" DATE ${DATE})
-string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME ${TIME})
+string(REGEX REPLACE "(..)_(..)_..(..).*" "\\1/\\2/\\3" DATE "${DATE}")
+string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME "${TIME}")
 string(CONCAT GIT_DATE_TIME ${DATE} ${TIME})
 
 find_package(Git)
@@ -44,7 +44,7 @@ else()
     set(GIT_SHA 0)
 endif()
 
-string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA ${GIT_SHA})
+string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
 set(BUILD_VERSION_CC ${CMAKE_CURRENT_SOURCE_DIR}/util/build_version.cc)
 
