@@ -557,7 +557,7 @@ $(parallel_tests): $(PARALLEL_TEST)
       -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'	\
       -e 'print qq! $$p$$2!'`; \
 	for TEST_NAME in $$TEST_NAMES; do \
-		TEST_SCRIPT=t/run-$$TEST_BINARY-`echo $$TEST_NAME|sed -e 's/\//-/g'`; \
+		TEST_SCRIPT=t/run-$$TEST_BINARY-$${TEST_NAME//\//-}; \
 		echo "  GEN     " $$TEST_SCRIPT; \
     printf '%s\n' \
       '#!/bin/sh' \
@@ -620,7 +620,7 @@ check_0:
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >&2 t/log-{/}'
+	  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 
 .PHONY: valgrind_check_0
 valgrind_check_0:
