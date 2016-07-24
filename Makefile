@@ -1374,6 +1374,12 @@ rocksdbjava: $(java_libobjects)
 jclean:
 	cd java;$(MAKE) clean;
 
+jtest_compile: rocksdbjava
+	cd java;$(MAKE) java_test
+
+jtest_run:
+	cd java;$(MAKE) run_test
+
 jtest: rocksdbjava
 	cd java;$(MAKE) sample;$(MAKE) test;
 
