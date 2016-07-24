@@ -9,6 +9,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/env.cc
+        rocksjni/env_options.cc
+        rocksjni/external_sst_file_info.cc
         rocksjni/filter.cc
         rocksjni/iterator.cc
         rocksjni/loggerjnicallback.cc
@@ -21,6 +23,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/rocksjni.cc
         rocksjni/slice.cc
         rocksjni/snapshot.cc
+        rocksjni/sst_file_writerjni.cc
         rocksjni/statistics.cc
         rocksjni/table.cc
         rocksjni/transaction_log.cc
@@ -49,6 +52,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.DirectComparator
         org.rocksdb.DirectSlice
         org.rocksdb.Env
+        org.rocksdb.EnvOptions
+        org.rocksdb.ExternalSstFileInfo
         org.rocksdb.FlushOptions
         org.rocksdb.Filter
         org.rocksdb.GenericRateLimiterConfig
@@ -68,6 +73,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.RocksMemEnv
         org.rocksdb.SkipListMemTableConfig
         org.rocksdb.Slice
+        org.rocksdb.SstFileWriter
         org.rocksdb.Statistics
         org.rocksdb.TransactionLogIterator
         org.rocksdb.TtlDB
