@@ -59,7 +59,7 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
 }
 
 const char* BaseComparatorJniCallback::Name() const {
-  return m_name.c_str();
+  return m_name.get();
 }
 
 int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
@@ -177,7 +177,7 @@ void BaseComparatorJniCallback::FindShortestSeparator(
   if (jsResultStart != nullptr) {
     // update start with result
     jboolean has_exception = JNI_FALSE;
-    std::string result = JniUtil::copyString(env, jsResultStart,
+    std::unique_ptr<const char[]> result_start = JniUtil::copyString(env, jsResultStart,
         &has_exception);  // also releases jsResultStart
     if (has_exception == JNI_TRUE) {
       if (env->ExceptionCheck()) {
@@ -187,7 +187,7 @@ void BaseComparatorJniCallback::FindShortestSeparator(
       return;
     }
 
-    *start = result;
+    start->assign(result_start.get());
   }
   releaseJniEnv(attached_thread);
 }
@@ -236,7 +236,8 @@ void BaseComparatorJniCallback::FindShortSuccessor(
   if (jsResultKey != nullptr) {
     // updates key with result, also releases jsResultKey.
     jboolean has_exception = JNI_FALSE;
-    std::string result = JniUtil::copyString(env, jsResultKey, &has_exception);
+    std::unique_ptr<const char[]> result_key = JniUtil::copyString(env, jsResultKey,
+        &has_exception);    // also releases jsResultKey
     if (has_exception == JNI_TRUE) {
       if (env->ExceptionCheck()) {
         env->ExceptionDescribe();  // print out exception to stderr
@@ -245,7 +246,7 @@ void BaseComparatorJniCallback::FindShortSuccessor(
       return;
     }
 
-    *key = result;
+    key->assign(result_key.get());
   }
 
   releaseJniEnv(attached_thread);

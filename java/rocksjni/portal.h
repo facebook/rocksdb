@@ -10,10 +10,12 @@
 #ifndef JAVA_ROCKSJNI_PORTAL_H_
 #define JAVA_ROCKSJNI_PORTAL_H_
 
+#include <cstring>
 #include <jni.h>
 #include <functional>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -2989,6 +2991,46 @@ class JniUtil {
     }
 
     /**
+     * Copies a jstring to a C-style null-terminated byte string
+     * and releases the original jstring
+     *
+     * The jstring is copied as UTF-8
+     *
+     * If an exception occurs, then JNIEnv::ExceptionCheck()
+     * will have been called
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param js (IN) The java string to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     *
+     * @return A pointer to the copied string, or a
+     *     nullptr if has_exception == JNI_TRUE
+     */
+    static std::unique_ptr<char[]> copyString(JNIEnv* env, jstring js,
+        jboolean* has_exception) {
+      const char *utf = env->GetStringUTFChars(js, nullptr);
+      if(utf == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->ExceptionCheck();
+        *has_exception = JNI_TRUE;
+        return nullptr;
+      } else if(env->ExceptionCheck()) {
+        // exception thrown
+        env->ReleaseStringUTFChars(js, utf);
+        *has_exception = JNI_TRUE;
+        return nullptr;
+      }
+
+      const jsize utf_len = env->GetStringUTFLength(js);
+      std::unique_ptr<char[]> str(new char[utf_len + 1]);  // Note: + 1 is needed for the c_str null terminator
+      std::strcpy(str.get(), utf);
+      env->ReleaseStringUTFChars(js, utf);
+      *has_exception = JNI_FALSE;
+      return str;
+    }
+
+    /**
      * Copies a jstring to a std::string
      * and releases the original jstring
      *
@@ -3003,8 +3045,8 @@ class JniUtil {
      * @return A std:string copy of the jstring, or an
      *     empty std::string if has_exception == JNI_TRUE
      */
-    static std::string copyString(JNIEnv* env, jstring js,
-        jboolean* has_exception) {
+    static std::string copyStdString(JNIEnv* env, jstring js,
+      jboolean* has_exception) {
       const char *utf = env->GetStringUTFChars(js, nullptr);
       if(utf == nullptr) {
         // exception thrown: OutOfMemoryError

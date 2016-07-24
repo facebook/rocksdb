@@ -10,6 +10,7 @@
 #define JAVA_ROCKSJNI_COMPARATORJNICALLBACK_H_
 
 #include <jni.h>
+#include <memory>
 #include <string>
 #include "rocksjni/jnicallback.h"
 #include "rocksdb/comparator.h"
@@ -61,7 +62,7 @@ class BaseComparatorJniCallback : public JniCallback, public Comparator {
     std::unique_ptr<port::Mutex> mtx_compare;
     // used for synchronisation in findShortestSeparator method
     std::unique_ptr<port::Mutex> mtx_findShortestSeparator;
-    std::string m_name;
+    std::unique_ptr<const char[]> m_name;
     jmethodID m_jCompareMethodId;
     jmethodID m_jFindShortestSeparatorMethodId;
     jmethodID m_jFindShortSuccessorMethodId;
