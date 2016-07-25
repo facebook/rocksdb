@@ -70,7 +70,7 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   // TODO(adamretter): slice objects can potentially be cached using thread
   // local variables to avoid locking. Could make this configurable depending on
   // performance.
-  mtx_compare->Lock();
+  mtx_compare.get()->Lock();
 
   bool pending_exception =
       AbstractSliceJni::setHandle(env, m_jSliceA, &a, JNI_FALSE);
@@ -98,7 +98,7 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
     env->CallIntMethod(m_jcallback_obj, m_jCompareMethodId, m_jSliceA,
       m_jSliceB);
 
-  mtx_compare->Unlock();
+  mtx_compare.get()->Unlock();
 
   if(env->ExceptionCheck()) {
     // exception thrown from CallIntMethod
@@ -142,7 +142,7 @@ void BaseComparatorJniCallback::FindShortestSeparator(
   // TODO(adamretter): slice object can potentially be cached using thread local
   // variable to avoid locking. Could make this configurable depending on
   // performance.
-  mtx_findShortestSeparator->Lock();
+  mtx_findShortestSeparator.get()->Lock();
 
   bool pending_exception =
       AbstractSliceJni::setHandle(env, m_jSliceLimit, &limit, JNI_FALSE);
@@ -162,7 +162,7 @@ void BaseComparatorJniCallback::FindShortestSeparator(
     (jstring)env->CallObjectMethod(m_jcallback_obj,
       m_jFindShortestSeparatorMethodId, jsStart, m_jSliceLimit);
 
-  mtx_findShortestSeparator->Unlock();
+  mtx_findShortestSeparator.get()->Unlock();
 
   if(env->ExceptionCheck()) {
     // exception thrown from CallObjectMethod
