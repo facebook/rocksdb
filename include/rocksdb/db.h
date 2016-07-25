@@ -77,6 +77,9 @@ class ColumnFamilyHandle {
   //
   // Note that this function is not supported in RocksDBLite.
   virtual Status GetDescriptor(ColumnFamilyDescriptor* desc) = 0;
+  // Returns the comparator of the column family associated with the
+  // current handle.
+  virtual const Comparator* GetComparator() const = 0;
 };
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;

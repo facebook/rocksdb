@@ -1072,6 +1072,39 @@ TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
 }
 #endif  // !ROCKSDB_LITE
 
+class TestComparator : public Comparator {
+  int Compare(const rocksdb::Slice& a, const rocksdb::Slice& b) const override {
+    return 0;
+  }
+  const char* Name() const override { return "Test"; }
+  void FindShortestSeparator(std::string* start,
+                             const rocksdb::Slice& limit) const override {}
+  void FindShortSuccessor(std::string* key) const override {}
+};
+
+static TestComparator third_comparator;
+static TestComparator fourth_comparator;
+
+// Test that we can retrieve the comparator from a created CF
+TEST_F(ColumnFamilyTest, GetComparator) {
+  Open();
+  // Add a column family with no comparator specified
+  CreateColumnFamilies({"first"});
+  const Comparator* comp = handles_[0]->GetComparator();
+  ASSERT_EQ(comp, BytewiseComparator());
+
+  // Add three column families - one with no comparator and two
+  // with comparators specified
+  ColumnFamilyOptions second, third, fourth;
+  second.comparator = &third_comparator;
+  third.comparator = &fourth_comparator;
+  CreateColumnFamilies({"second", "third", "fourth"}, {second, third, fourth});
+  ASSERT_EQ(handles_[1]->GetComparator(), BytewiseComparator());
+  ASSERT_EQ(handles_[2]->GetComparator(), &third_comparator);
+  ASSERT_EQ(handles_[3]->GetComparator(), &fourth_comparator);
+  Close();
+}
+
 TEST_F(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
   CreateColumnFamilies({"first", "second"});
