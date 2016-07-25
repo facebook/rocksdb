@@ -36,9 +36,9 @@ class MergeContext {
       operand_list_->push_back(operand_slice);
     } else {
       // We need to have our own copy of the operand since it's not pinned
-      copied_operands_->emplace_back(operand_slice.data(),
-                                     operand_slice.size());
-      operand_list_->push_back(copied_operands_->back());
+      copied_operands_->emplace_back(
+          new std::string(operand_slice.data(), operand_slice.size()));
+      operand_list_->push_back(*copied_operands_->back());
     }
   }
 
@@ -52,9 +52,9 @@ class MergeContext {
       operand_list_->push_back(operand_slice);
     } else {
       // We need to have our own copy of the operand since it's not pinned
-      copied_operands_->emplace_back(operand_slice.data(),
-                                     operand_slice.size());
-      operand_list_->push_back(copied_operands_->back());
+      copied_operands_->emplace_back(
+          new std::string(operand_slice.data(), operand_slice.size()));
+      operand_list_->push_back(*copied_operands_->back());
     }
   }
 
@@ -88,7 +88,7 @@ class MergeContext {
   void Initialize() {
     if (!operand_list_) {
       operand_list_.reset(new std::vector<Slice>());
-      copied_operands_.reset(new std::vector<std::string>());
+      copied_operands_.reset(new std::vector<std::unique_ptr<std::string>>());
     }
   }
 
@@ -109,7 +109,7 @@ class MergeContext {
   // List of operands
   std::unique_ptr<std::vector<Slice>> operand_list_;
   // Copy of operands that are not pinned.
-  std::unique_ptr<std::vector<std::string>> copied_operands_;
+  std::unique_ptr<std::vector<std::unique_ptr<std::string>>> copied_operands_;
   bool operands_reversed_ = true;
 };
 
