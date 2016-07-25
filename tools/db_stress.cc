@@ -920,11 +920,13 @@ class DbStressListener : public EventListener {
     assert(info.db_name == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
-    assert(info.file_size > 0);
     assert(info.job_id > 0 || FLAGS_compact_files_one_in > 0);
-    assert(info.table_properties.data_size > 0);
-    assert(info.table_properties.raw_key_size > 0);
-    assert(info.table_properties.num_entries > 0);
+    if (info.status.ok()) {
+      assert(info.file_size > 0);
+      assert(info.table_properties.data_size > 0);
+      assert(info.table_properties.raw_key_size > 0);
+      assert(info.table_properties.num_entries > 0);
+    }
   }
 
  protected:
