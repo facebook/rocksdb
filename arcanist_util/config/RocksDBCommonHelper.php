@@ -134,6 +134,7 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     "name" => "Run " . $test,
     "shell" => $cmd,
     "user" => "root",
+    "parser" => "python build_tools/error_filter.py " . $test,
   );
 
   $steps[] = $run_test;
