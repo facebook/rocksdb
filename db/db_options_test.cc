@@ -17,6 +17,9 @@ class DBOptionsTest : public DBTestBase {
   DBOptionsTest() : DBTestBase("/db_options_test") {}
 };
 
+// RocksDB lite don't support dynamic options.
+#ifndef ROCKSDB_LITE
+
 // When write stalls, user can enable auto compaction to unblock writes.
 // However, we had an issue where the stalled write thread blocks the attempt
 // to persist auto compaction option, thus creating a deadlock. The test
@@ -52,7 +55,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionToUnblockWrites) {
   ASSERT_TRUE(dbfull()->TEST_write_controler().IsStopped());
   ColumnFamilyHandle* handle = dbfull()->DefaultColumnFamily();
   // We will get a deadlock here if we hit the issue.
-  dbfull()->EnableAutoCompaction({handle});
+  ASSERT_OK(dbfull()->EnableAutoCompaction({handle}));
   env_->WaitForJoin();
 }
 
@@ -87,10 +90,13 @@ TEST_F(DBOptionsTest, ToggleStopTriggerToUnblockWrites) {
   TEST_SYNC_POINT("DBOptionsTest::ToggleStopTriggerToUnblockWrites:1");
   ASSERT_TRUE(dbfull()->TEST_write_controler().IsStopped());
   // We will get a deadlock here if we hit the issue.
-  dbfull()->SetOptions({{"level0_stop_writes_trigger", "1000000"},
-                        {"level0_slowdown_writes_trigger", "1000000"}});
+  ASSERT_OK(
+      dbfull()->SetOptions({{"level0_stop_writes_trigger", "1000000"},
+                            {"level0_slowdown_writes_trigger", "1000000"}}));
   env_->WaitForJoin();
 }
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 
