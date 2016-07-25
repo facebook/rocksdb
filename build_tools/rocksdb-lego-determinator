@@ -56,7 +56,7 @@ fi
 CLEANUP_ENV="
 {
     'name':'Cleanup environment',
-    'shell':'rm -rf /dev/shm/rocksdb && mkdir /dev/shm/rocksdb && make clean',
+    'shell':'rm -rf /dev/shm/rocksdb && mkdir /dev/shm/rocksdb && make clean; chmod -t /dev/shm',
     'user':'root'
 }"
 
