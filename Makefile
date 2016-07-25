@@ -374,6 +374,7 @@ TESTS = \
 	ldb_cmd_test \
 	iostats_context_test \
 	persistent_cache_test \
+	statistics_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1202,6 +1203,9 @@ iostats_context_test: util/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+statistics_test: util/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
