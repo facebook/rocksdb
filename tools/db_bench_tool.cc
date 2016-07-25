@@ -2704,9 +2704,9 @@ class Benchmark {
     }
 #endif  // ROCKSDB_LITE
 
-    if (FLAGS_min_level_to_compress >= 0) {
-      options.compression_per_level.clear();
-    }
+//    if (FLAGS_min_level_to_compress >= 0) {
+//      options.compression_per_level.clear();
+//    }
   }
 
   void InitializeOptionsGeneral(Options* opts) {
