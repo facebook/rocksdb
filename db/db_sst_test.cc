@@ -145,12 +145,13 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
     }
   };
   env_->table_write_callback_ = &block_first_time;
-  // Create 1MB sst file
+  // Insert 2.5MB data, which should trigger a flush because we exceed
+  // write_buffer_size. The flush will be blocked with block_first_time
+  // pending_file is protecting all the files created after
   for (int j = 0; j < 256; ++j) {
     ASSERT_OK(Put(Key(j), RandomString(&rnd, 10 * 1024)));
   }
-  // this should trigger a flush, which is blocked with block_first_time
-  // pending_file is protecting all the files created after
+  blocking_thread.WaitUntilSleeping();
 
   ASSERT_OK(dbfull()->TEST_CompactRange(2, nullptr, nullptr));
 
