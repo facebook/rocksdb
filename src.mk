@@ -277,6 +277,7 @@ MAIN_SOURCES =                                                    \
   util/env_test.cc                                                      \
   util/filelock_test.cc                                                 \
   util/histogram_test.cc                                                \
+  util/statistics_test.cc                                               \
   utilities/backupable/backupable_db_test.cc                            \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/document/document_db_test.cc                                \
