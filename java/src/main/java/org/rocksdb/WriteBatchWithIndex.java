@@ -61,7 +61,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
           fallbackIndexComparator, final int reservedBytes,
       final boolean overwriteKey) {
     super(newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_,
-        reservedBytes, overwriteKey));
+        fallbackIndexComparator instanceof DirectComparator, reservedBytes, overwriteKey));
   }
 
   /**
@@ -263,7 +263,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   private native static long newWriteBatchWithIndex();
   private native static long newWriteBatchWithIndex(final boolean overwriteKey);
   private native static long newWriteBatchWithIndex(
-      final long fallbackIndexComparatorHandle, final int reservedBytes,
+      final long fallbackIndexComparatorHandle, final boolean isDirect, final int reservedBytes,
       final boolean overwriteKey);
   private native long iterator0(final long handle);
   private native long iterator1(final long handle, final long cfHandle);

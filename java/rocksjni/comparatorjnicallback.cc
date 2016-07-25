@@ -112,7 +112,7 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
 }
 
 void BaseComparatorJniCallback::FindShortestSeparator(
-  std::string* start, const Slice& limit) const {
+    std::string* start, const Slice& limit) const {
   if (start == nullptr) {
     return;
   }
@@ -192,7 +192,8 @@ void BaseComparatorJniCallback::FindShortestSeparator(
   releaseJniEnv(attached_thread);
 }
 
-void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
+void BaseComparatorJniCallback::FindShortSuccessor(
+    std::string* key) const {
   if (key == nullptr) {
     return;
   }

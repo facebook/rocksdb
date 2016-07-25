@@ -130,7 +130,8 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions setComparator(
       final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isOwningHandle());
-    setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
+    setComparatorHandle(nativeHandle_, comparator.nativeHandle_,
+            comparator instanceof DirectComparator);
     comparator_ = comparator;
     return this;
   }
@@ -768,7 +769,7 @@ public class ColumnFamilyOptions extends RocksObject
       long memtableMemoryBudget);
   private native void setComparatorHandle(long handle, int builtinComparator);
   private native void setComparatorHandle(long optHandle,
-      long comparatorHandle);
+      long comparatorHandle, boolean isDirect);
   private native void setMergeOperatorName(long handle, String name);
   private native void setMergeOperator(long handle, long mergeOperatorHandle);
   private native void setCompactionFilterHandle(long handle,

@@ -26,10 +26,10 @@
  */
 jlong Java_org_rocksdb_Comparator_createNewComparator0(
     JNIEnv* env, jobject jobj, jlong copt_handle) {
-  const rocksdb::ComparatorJniCallbackOptions* copt =
-    reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
-  const rocksdb::ComparatorJniCallback* c =
-    new rocksdb::ComparatorJniCallback(env, jobj, copt);
+  auto* copt =
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
+  auto* c =
+      new rocksdb::ComparatorJniCallback(env, jobj, copt);
   return reinterpret_cast<jlong>(c);
 }
 // </editor-fold>
@@ -43,10 +43,10 @@ jlong Java_org_rocksdb_Comparator_createNewComparator0(
  */
 jlong Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
     JNIEnv* env, jobject jobj, jlong copt_handle) {
-  const rocksdb::ComparatorJniCallbackOptions* copt =
-    reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
-  const rocksdb::DirectComparatorJniCallback* c =
-    new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
+  auto* copt =
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
+  auto* c =
+      new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
   return reinterpret_cast<jlong>(c);
 }
 // </editor-fold>

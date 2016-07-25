@@ -146,12 +146,19 @@ void Java_org_rocksdb_Options_setComparatorHandle__JI(
 /*
  * Class:     org_rocksdb_Options
  * Method:    setComparatorHandle
- * Signature: (JJ)V
+ * Signature: (JJZ)V
  */
-void Java_org_rocksdb_Options_setComparatorHandle__JJ(
-    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle) {
-  reinterpret_cast<rocksdb::Options*>(jopt_handle)->comparator =
-      reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
+void Java_org_rocksdb_Options_setComparatorHandle__JJZ(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle,
+    jboolean is_direct) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
+  if(is_direct) {
+    opt->comparator =
+        reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(jcomparator_handle);
+  } else {
+    opt->comparator =
+        reinterpret_cast<rocksdb::ComparatorJniCallback*>(jcomparator_handle);
+  }
 }
 
 /*
@@ -2953,12 +2960,19 @@ void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JI(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    setComparatorHandle
- * Signature: (JJ)V
+ * Signature: (JJZ)V
  */
-void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJ(
-    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle)->comparator =
-      reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
+void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJZ(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle,
+    jboolean is_direct) {
+  auto* opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle);
+  if(is_direct) {
+    opt->comparator =
+        reinterpret_cast<rocksdb::DirectComparatorJniCallback*>(jcomparator_handle);
+  } else {
+    opt->comparator =
+        reinterpret_cast<rocksdb::ComparatorJniCallback*>(jcomparator_handle);
+  }
 }
 
 /*
