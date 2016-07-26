@@ -621,9 +621,9 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys2) {
   // Overlapping user keys on same level and output level
   Add(1, 1U, "200", "400", 1000000000U);
   Add(1, 2U, "400", "500", 1U, 0, 0);
-  Add(2, 3U, "400", "600", 1U);
-  // The following file is not in the compaction despite overlapping user keys
-  Add(2, 4U, "600", "700", 1U, 0, 0);
+  Add(2, 3U, "000", "100", 1U);
+  Add(2, 4U, "100", "600", 1U, 0, 0);
+  Add(2, 5U, "600", "700", 1U, 0, 0);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
@@ -631,10 +631,12 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys2) {
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
   ASSERT_EQ(2U, compaction->num_input_files(0));
-  ASSERT_EQ(1U, compaction->num_input_files(1));
+  ASSERT_EQ(3U, compaction->num_input_files(1));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
   ASSERT_EQ(3U, compaction->input(1, 0)->fd.GetNumber());
+  ASSERT_EQ(4U, compaction->input(1, 1)->fd.GetNumber());
+  ASSERT_EQ(5U, compaction->input(1, 2)->fd.GetNumber());
 }
 
 TEST_F(CompactionPickerTest, OverlappingUserKeys3) {
@@ -664,6 +666,31 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys3) {
   ASSERT_EQ(5U, compaction->input(0, 4)->fd.GetNumber());
   ASSERT_EQ(6U, compaction->input(1, 0)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 1)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, OverlappingUserKeys4) {
+  NewVersionStorage(6, kCompactionStyleLevel);
+  mutable_cf_options_.max_bytes_for_level_base = 1000000;
+
+  Add(1, 1U, "100", "150", 1U);
+  Add(1, 2U, "150", "199", 1U, 0, 0);
+  Add(1, 3U, "200", "250", 1100000U, 0, 0);
+  Add(1, 4U, "251", "300", 1U, 0, 0);
+  Add(1, 5U, "300", "350", 1U, 0, 0);
+
+  Add(2, 6U, "100", "115", 1U);
+  Add(2, 7U, "125", "325", 1U);
+  Add(2, 8U, "350", "400", 1U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(2U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(1));
+  ASSERT_EQ(3U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(7U, compaction->input(1, 0)->fd.GetNumber());
 }
 
 TEST_F(CompactionPickerTest, NotScheduleL1IfL0WithHigherPri1) {

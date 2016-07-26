@@ -390,6 +390,9 @@ bool CompactionPicker::SetupOtherInputs(
   vstorage->GetOverlappingInputs(output_level, &smallest, &largest,
                                  &output_level_inputs->files, *parent_index,
                                  parent_index);
+  if (!output_level_inputs->empty()) {
+    ExpandWhileOverlapping(cf_name, vstorage, output_level_inputs);
+  }
 
   if (FilesInCompaction(output_level_inputs->files)) {
     return false;

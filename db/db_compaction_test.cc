@@ -649,6 +649,72 @@ TEST_F(DBCompactionTest, MinorCompactionsHappen) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBCompactionTest, UserKeyCrossFile1) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("4", "A");
+  Put("3", "A");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  Put("2", "A");
+  Delete("3");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+
+  // move both files down to l1
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+
+  for (int i = 0; i < 3; i++) {
+    Put("2", "B");
+    Flush();
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+}
+
+TEST_F(DBCompactionTest, UserKeyCrossFile2) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("4", "A");
+  Put("3", "A");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  Put("2", "A");
+  SingleDelete("3");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+
+  // move both files down to l1
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+
+  for (int i = 0; i < 3; i++) {
+    Put("2", "B");
+    Flush();
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+}
+
 TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
