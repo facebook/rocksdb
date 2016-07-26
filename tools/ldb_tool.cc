@@ -80,6 +80,7 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
   InternalDumpCommand::Help(ret);
   RepairCommand::Help(ret);
   BackupCommand::Help(ret);
+  RestoreCommand::Help(ret);
 
   fprintf(stderr, "%s\n", ret.c_str());
 }

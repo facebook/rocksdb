@@ -223,6 +223,9 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
   } else if (parsed_params.cmd == BackupCommand::Name()) {
     return new BackupCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
+  } else if (parsed_params.cmd == RestoreCommand::Name()) {
+    return new RestoreCommand(parsed_params.cmd_params,
+                              parsed_params.option_map, parsed_params.flags);
   }
   return nullptr;
 }
@@ -2545,10 +2548,7 @@ BackupCommand::BackupCommand(const std::vector<std::string>& params,
     thread_num_ = std::stoi(itr->second);
   }
   itr = options.find(ARG_BACKUP_ENV);
-  if (itr == options.end()) {
-    exec_state_ = LDBCommandExecuteResult::Failed("--" + ARG_BACKUP_ENV +
-                                                  ": missing backup env");
-  } else {
+  if (itr != options.end()) {
     test_cluster_ = itr->second;
   }
   itr = options.find(ARG_BACKUP_DIR);
@@ -2595,6 +2595,72 @@ void BackupCommand::DoCommand() {
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
     return;
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+const std::string RestoreCommand::ARG_BACKUP_ENV_URI = "backup_env_uri";
+const std::string RestoreCommand::ARG_BACKUP_DIR = "backup_dir";
+const std::string RestoreCommand::ARG_NUM_THREADS = "num_threads";
+
+RestoreCommand::RestoreCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false /* is_read_only */,
+                 BuildCmdLineOptions(
+                     {ARG_BACKUP_ENV_URI, ARG_BACKUP_DIR, ARG_NUM_THREADS})),
+      num_threads_(1) {
+  auto itr = options.find(ARG_NUM_THREADS);
+  if (itr != options.end()) {
+    num_threads_ = std::stoi(itr->second);
+  }
+  itr = options.find(ARG_BACKUP_ENV_URI);
+  if (itr != options.end()) {
+    backup_env_uri_ = itr->second;
+  }
+  itr = options.find(ARG_BACKUP_DIR);
+  if (itr == options.end()) {
+    exec_state_ = LDBCommandExecuteResult::Failed("--" + ARG_BACKUP_DIR +
+                                                  ": missing backup directory");
+  } else {
+    backup_dir_ = itr->second;
+  }
+}
+
+void RestoreCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(RestoreCommand::Name());
+  ret.append(" [--" + ARG_BACKUP_ENV_URI + "] ");
+  ret.append(" [--" + ARG_BACKUP_DIR + "] ");
+  ret.append(" [--" + ARG_NUM_THREADS + "] ");
+  ret.append("\n");
+}
+
+void RestoreCommand::DoCommand() {
+  std::unique_ptr<Env> custom_env_guard;
+  Env* custom_env = NewEnvFromUri(backup_env_uri_, &custom_env_guard);
+  std::unique_ptr<BackupEngineReadOnly> restore_engine;
+  Status status;
+  {
+    BackupableDBOptions opts(backup_dir_, custom_env);
+    opts.max_background_operations = num_threads_;
+    BackupEngineReadOnly* raw_restore_engine_ptr;
+    status = BackupEngineReadOnly::Open(Env::Default(), opts,
+                                        &raw_restore_engine_ptr);
+    if (status.ok()) {
+      restore_engine.reset(raw_restore_engine_ptr);
+    }
+  }
+  if (status.ok()) {
+    printf("open restore engine OK\n");
+    status = restore_engine->RestoreDBFromLatestBackup(db_path_, db_path_);
+  }
+  if (status.ok()) {
+    printf("restore from backup OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
   }
 }
 

@@ -468,4 +468,26 @@ class BackupCommand : public LDBCommand {
   static const std::string ARG_THREAD;
 };
 
+class RestoreCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "restore"; }
+
+  RestoreCommand(const std::vector<std::string>& params,
+                 const std::map<std::string, std::string>& options,
+                 const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+  virtual bool NoDBOpen() override { return true; }
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string backup_env_uri_;
+  std::string backup_dir_;
+  int num_threads_;
+
+  static const std::string ARG_BACKUP_DIR;
+  static const std::string ARG_BACKUP_ENV_URI;
+  static const std::string ARG_NUM_THREADS;
+};
 }  // namespace rocksdb
