@@ -270,16 +270,16 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   ASSERT_EQ(2, TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 
   // Make sure index block is in cache.
-  auto index_block_hit = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
+  auto index_block_hit = TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT);
   value = Get(1, "key");
-  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
   ASSERT_EQ(index_block_hit + 1,
-            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+            TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
 
   value = Get(1, "key");
-  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+  ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
   ASSERT_EQ(index_block_hit + 2,
-            TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
+            TestGetTickerCount(options, BLOCK_CACHE_INDEX_HIT));
 }
 
 TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
