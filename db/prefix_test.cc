@@ -44,7 +44,7 @@ DEFINE_int32(max_write_buffer_number, 2, "");
 DEFINE_int32(min_write_buffer_number_to_merge, 1, "");
 DEFINE_int32(skiplist_height, 4, "");
 DEFINE_double(memtable_prefix_bloom_size_ratio, 0.1, "");
-DEFINE_int32(memtable_prefix_bloom_huge_page_tlb_size, 2 * 1024 * 1024, "");
+DEFINE_int32(memtable_huge_page_size, 2 * 1024 * 1024, "");
 DEFINE_int32(value_size, 40, "");
 
 // Path to the database on file system
@@ -161,8 +161,7 @@ class PrefixTest : public testing::Test {
 
     options.memtable_prefix_bloom_size_ratio =
         FLAGS_memtable_prefix_bloom_size_ratio;
-    options.memtable_prefix_bloom_huge_page_tlb_size =
-        FLAGS_memtable_prefix_bloom_huge_page_tlb_size;
+    options.memtable_huge_page_size = FLAGS_memtable_huge_page_size;
 
     options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     BlockBasedTableOptions bbto;

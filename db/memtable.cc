@@ -44,8 +44,7 @@ MemTableOptions::MemTableOptions(const ImmutableCFOptions& ioptions,
               static_cast<double>(mutable_cf_options.write_buffer_size) *
               mutable_cf_options.memtable_prefix_bloom_size_ratio) *
           8u),
-      memtable_prefix_bloom_huge_page_tlb_size(
-          mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size),
+      memtable_huge_page_size(mutable_cf_options.memtable_huge_page_size),
       inplace_update_support(ioptions.inplace_update_support),
       inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
       inplace_callback(ioptions.inplace_callback),
@@ -63,7 +62,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
-      arena_(moptions_.arena_block_size, 0),
+      arena_(moptions_.arena_block_size,
+             mutable_cf_options.memtable_huge_page_size),
       allocator_(&arena_, write_buffer_manager),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
@@ -92,7 +92,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
     prefix_bloom_.reset(new DynamicBloom(
         &allocator_, moptions_.memtable_prefix_bloom_bits,
         ioptions.bloom_locality, 6 /* hard coded 6 probes */, nullptr,
-        moptions_.memtable_prefix_bloom_huge_page_tlb_size, ioptions.info_log));
+        moptions_.memtable_huge_page_size, ioptions.info_log));
   }
 }
 

@@ -121,7 +121,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       inplace_update_num_locks(10000),
       inplace_callback(nullptr),
       memtable_prefix_bloom_size_ratio(0.0),
-      memtable_prefix_bloom_huge_page_tlb_size(0),
+      memtable_huge_page_size(0),
       bloom_locality(0),
       max_successive_merges(0),
       min_partial_merge_operands(2),
@@ -189,8 +189,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       inplace_callback(options.inplace_callback),
       memtable_prefix_bloom_size_ratio(
           options.memtable_prefix_bloom_size_ratio),
-      memtable_prefix_bloom_huge_page_tlb_size(
-          options.memtable_prefix_bloom_huge_page_tlb_size),
+      memtable_huge_page_size(options.memtable_huge_page_size),
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands),
@@ -599,9 +598,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Header(log, "              Options.memtable_prefix_bloom_size_ratio: %f",
            memtable_prefix_bloom_size_ratio);
 
-    Header(log,
-         "  Options.memtable_prefix_bloom_huge_page_tlb_size: %" ROCKSDB_PRIszt,
-         memtable_prefix_bloom_huge_page_tlb_size);
+    Header(log, "  Options.memtable_huge_page_size: %" ROCKSDB_PRIszt,
+           memtable_huge_page_size);
     Header(log, "                          Options.bloom_locality: %d",
         bloom_locality);
 

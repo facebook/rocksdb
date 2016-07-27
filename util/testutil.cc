@@ -328,7 +328,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->arena_block_size = rnd->Uniform(10000);
   cf_opt->inplace_update_num_locks = rnd->Uniform(10000);
   cf_opt->max_successive_merges = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_huge_page_tlb_size = rnd->Uniform(10000);
+  cf_opt->memtable_huge_page_size = rnd->Uniform(10000);
   cf_opt->write_buffer_size = rnd->Uniform(10000);
 
   // uint32_t options

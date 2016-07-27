@@ -391,7 +391,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_bytes_for_level_base=986;"
       "bloom_locality=8016;"
       "target_file_size_base=4294976376;"
-      "memtable_prefix_bloom_huge_page_tlb_size=2557;"
+      "memtable_huge_page_size=2557;"
       "max_successive_merges=5497;"
       "max_sequential_skip_in_iterations=4294971408;"
       "arena_block_size=1893;"

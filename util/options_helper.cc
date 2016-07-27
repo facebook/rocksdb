@@ -543,8 +543,9 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
   } else if (name == "memtable_prefix_bloom_probes") {
     // Deprecated
   } else if (name == "memtable_prefix_bloom_huge_page_tlb_size") {
-    new_options->memtable_prefix_bloom_huge_page_tlb_size =
-      ParseSizeT(value);
+    // Deprecated
+  } else if (name == "memtable_huge_page_size") {
+    new_options->memtable_huge_page_size = ParseSizeT(value);
   } else if (name == "max_successive_merges") {
     new_options->max_successive_merges = ParseSizeT(value);
   } else if (name == "filter_deletes") {
@@ -1443,8 +1444,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
   cf_opts.arena_block_size = mutable_cf_options.arena_block_size;
   cf_opts.memtable_prefix_bloom_size_ratio =
       mutable_cf_options.memtable_prefix_bloom_size_ratio;
-  cf_opts.memtable_prefix_bloom_huge_page_tlb_size =
-      mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size;
+  cf_opts.memtable_huge_page_size = mutable_cf_options.memtable_huge_page_size;
   cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
   cf_opts.inplace_update_num_locks =
       mutable_cf_options.inplace_update_num_locks;

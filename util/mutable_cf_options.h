@@ -19,8 +19,7 @@ struct MutableCFOptions {
         arena_block_size(options.arena_block_size),
         memtable_prefix_bloom_size_ratio(
             options.memtable_prefix_bloom_size_ratio),
-        memtable_prefix_bloom_huge_page_tlb_size(
-            options.memtable_prefix_bloom_huge_page_tlb_size),
+        memtable_huge_page_size(options.memtable_huge_page_size),
         max_successive_merges(options.max_successive_merges),
         inplace_update_num_locks(options.inplace_update_num_locks),
         disable_auto_compactions(options.disable_auto_compactions),
@@ -58,7 +57,7 @@ struct MutableCFOptions {
         max_write_buffer_number(0),
         arena_block_size(0),
         memtable_prefix_bloom_size_ratio(0),
-        memtable_prefix_bloom_huge_page_tlb_size(0),
+        memtable_huge_page_size(0),
         max_successive_merges(0),
         inplace_update_num_locks(0),
         disable_auto_compactions(false),
@@ -108,7 +107,7 @@ struct MutableCFOptions {
   int max_write_buffer_number;
   size_t arena_block_size;
   double memtable_prefix_bloom_size_ratio;
-  size_t memtable_prefix_bloom_huge_page_tlb_size;
+  size_t memtable_huge_page_size;
   size_t max_successive_merges;
   size_t inplace_update_num_locks;
 

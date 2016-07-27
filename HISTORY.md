@@ -4,6 +4,7 @@
 * options.memtable_prefix_bloom_bits changes to options.memtable_prefix_bloom_bits_ratio and deprecate options.memtable_prefix_bloom_probes
 * enum type CompressionType and PerfLevel changes from char to unsigned char. Value of all PerfLevel shift by one.
 * Deprecate options.filter_deletes.
+* options.memtable_prefix_bloom_huge_page_tlb_size => memtable_huge_page_size. When it is set, RocksDB will try to allocate memory from huge page for memtable too, rather than just memtable bloom filter.
 
 ### New Features
 * Add avoid_flush_during_recovery option.

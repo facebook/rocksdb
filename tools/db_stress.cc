@@ -1045,8 +1045,7 @@ class StressTest {
          }},
         {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
         {"memtable_prefix_bloom_probes", {"4", "5", "6"}},
-        {"memtable_prefix_bloom_huge_page_tlb_size",
-         {"0", ToString(2 * 1024 * 1024)}},
+        {"memtable_huge_page_size", {"0", ToString(2 * 1024 * 1024)}},
         {"max_successive_merges", {"0", "2", "4"}},
         {"inplace_update_num_locks", {"100", "200", "300"}},
         // TODO(ljin): enable test for this option

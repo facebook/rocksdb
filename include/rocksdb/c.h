@@ -678,8 +678,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_prefix_bloom_bits(
     rocksdb_options_t*, uint32_t);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_memtable_prefix_bloom_probes(rocksdb_options_t*, uint32_t);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_memtable_prefix_bloom_huge_page_tlb_size(rocksdb_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_huge_page_size(
+    rocksdb_options_t*, size_t);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_successive_merges(
     rocksdb_options_t*, size_t);

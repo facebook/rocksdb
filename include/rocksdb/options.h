@@ -746,14 +746,17 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   double memtable_prefix_bloom_size_ratio;
 
-  // Page size for huge page TLB for bloom in memtable. If <=0, not allocate
-  // from huge page TLB but from malloc.
-  // Need to reserve huge pages for it to be allocated. For example:
+  // Page size for huge page for the arena used by the memtable. If <=0, it
+  // won't allocate from huge page but from malloc.
+  // Users are responsible to reserve huge pages for it to be allocated. For
+  // example:
   //      sysctl -w vm.nr_hugepages=20
   // See linux doc Documentation/vm/hugetlbpage.txt
+  // If there isn't enough free huge page available, it will fall back to
+  // malloc.
   //
   // Dynamically changeable through SetOptions() API
-  size_t memtable_prefix_bloom_huge_page_tlb_size;
+  size_t memtable_huge_page_size;
 
   // Control locality of bloom filter probes to improve cache miss rate.
   // This option only applies to memtable prefix bloom and plaintable

@@ -1797,9 +1797,9 @@ void rocksdb_options_set_memtable_prefix_bloom_size_ratio(
   opt->rep.memtable_prefix_bloom_size_ratio = v;
 }
 
-void rocksdb_options_set_memtable_prefix_bloom_huge_page_tlb_size(
-    rocksdb_options_t* opt, size_t v) {
-  opt->rep.memtable_prefix_bloom_huge_page_tlb_size = v;
+void rocksdb_options_set_memtable_huge_page_size(rocksdb_options_t* opt,
+                                                 size_t v) {
+  opt->rep.memtable_huge_page_size = v;
 }
 
 void rocksdb_options_set_hash_skip_list_rep(

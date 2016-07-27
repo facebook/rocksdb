@@ -72,8 +72,8 @@ void MutableCFOptions::Dump(Logger* log) const {
       arena_block_size);
   Log(log, "              memtable_prefix_bloom_ratio: %f",
       memtable_prefix_bloom_size_ratio);
-  Log(log, " memtable_prefix_bloom_huge_page_tlb_size: %" ROCKSDB_PRIszt,
-      memtable_prefix_bloom_huge_page_tlb_size);
+  Log(log, " memtable_huge_page_size: %" ROCKSDB_PRIszt,
+      memtable_huge_page_size);
   Log(log, "                    max_successive_merges: %" ROCKSDB_PRIszt,
       max_successive_merges);
   Log(log, "                 disable_auto_compactions: %d",
