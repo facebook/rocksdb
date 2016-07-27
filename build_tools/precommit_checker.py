@@ -94,7 +94,7 @@ class PreCommitChecker(Env):
     #
     def get_commands(self, test):
         status, out = self.GetOutput(
-            "build_tools/rocksdb-lego-determinator %s" % test, ".")
+            "RATIO=1 build_tools/rocksdb-lego-determinator %s" % test, ".")
         return status, out
 
     #

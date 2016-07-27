@@ -56,9 +56,25 @@ fi
 CLEANUP_ENV="
 {
     'name':'Cleanup environment',
-    'shell':'rm -rf /dev/shm/rocksdb && mkdir /dev/shm/rocksdb && make clean; chmod -t /dev/shm',
+    'shell':'rm -rf /dev/shm/rocksdb && mkdir /dev/shm/rocksdb && chmod +t /dev/shm && make clean',
     'user':'root'
 }"
+
+# We will eventually set the RATIO to 1, but we want do this
+# in steps. RATIO=$(nproc) will make it work as J=1
+if [ -z $RATIO ]; then
+  RATIO=$(nproc)
+fi
+
+if [ -z $PARALLEL_J ]; then
+  PARALLEL_J="J=$(expr $(nproc) / ${RATIO})"
+fi
+
+if [ -z $PARALLEL_j ]; then
+  PARALLEL_j="-j$(expr $(nproc) / ${RATIO})"
+fi
+
+PARALLELISM="$PARALLEL_J $PARALLEL_j"
 
 DEBUG="OPT=-g"
 SHM="TEST_TMPDIR=/dev/shm/rocksdb"
@@ -137,7 +153,7 @@ UNIT_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build and test RocksDB debug version',
-                'shell':'$SHM $DEBUG make J=1 check',
+                'shell':'$SHM $DEBUG make $PARALLELISM check',
                 'user':'root',
                 $PARSER
             },
@@ -159,7 +175,7 @@ UNIT_TEST_NON_SHM_COMMANDS="[
             {
                 'name':'Build and test RocksDB debug version',
                 'timeout': 86400,
-                'shell':'$DEBUG make J=1 check',
+                'shell':'$DEBUG make $PARALLELISM check',
                 'user':'root',
                 $PARSER
             },
@@ -179,7 +195,7 @@ RELEASE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB release',
-                'shell':'make J=1 release',
+                'shell':'make $PARALLEL_j release',
                 'user':'root',
                 $PARSER
             },
@@ -199,7 +215,7 @@ UNIT_TEST_COMMANDS_481="[
             $CLEANUP_ENV,
             {
                 'name':'Build and test RocksDB debug version',
-                'shell':'$SHM $GCC_481 $DEBUG make J=1 check',
+                'shell':'$SHM $GCC_481 $DEBUG make $PARALLELISM check',
                 'user':'root',
                 $PARSER
             },
@@ -219,7 +235,7 @@ RELEASE_BUILD_COMMANDS_481="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB release on GCC 4.8.1',
-                'shell':'$GCC_481 make J=1 release',
+                'shell':'$GCC_481 make $PARALLEL_j release',
                 'user':'root',
                 $PARSER
             },
@@ -239,7 +255,7 @@ CLANG_UNIT_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build and test RocksDB debug',
-                'shell':'$CLANG $SHM $DEBUG make J=1 check',
+                'shell':'$CLANG $SHM $DEBUG make $PARALLELISM check',
                 'user':'root',
                 $PARSER
             },
@@ -259,7 +275,7 @@ CLANG_RELEASE_BUILD_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build RocksDB release',
-                'shell':'$CLANG make J=1 release',
+                'shell':'$CLANG make $PARALLEL_j release',
                 'user':'root',
                 $PARSER
             },
@@ -279,7 +295,7 @@ CLANG_ANALYZE_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'RocksDB build and analyze',
-                'shell':'$CLANG $SHM $DEBUG make J=1 analyze',
+                'shell':'$CLANG $SHM $DEBUG make $PARALLEL_j analyze',
                 'user':'root',
                 $PARSER
             },
@@ -299,7 +315,7 @@ CODE_COV_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build, test and collect code coverage info',
-                'shell':'$SHM $DEBUG make J=1 coverage',
+                'shell':'$SHM $DEBUG make $PARALLELISM coverage',
                 'user':'root',
                 $PARSER
             },
@@ -430,7 +446,7 @@ ASAN_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Test RocksDB debug under ASAN',
-                'shell':'set -o pipefail && $SHM $ASAN $DEBUG make J=1 asan_check |& /usr/facebook/ops/scripts/asan_symbolize.py -d',
+                'shell':'set -o pipefail && $SHM $ASAN $DEBUG make $PARALLELISM asan_check |& /usr/facebook/ops/scripts/asan_symbolize.py -d',
                 'user':'root',
                 $PARSER
             }
@@ -472,7 +488,7 @@ UBSAN_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Test RocksDB debug under UBSAN',
-                'shell':'set -o pipefail && $SHM $UBSAN $DEBUG make J=1 ubsan_check',
+                'shell':'set -o pipefail && $SHM $UBSAN $DEBUG make $PARALLELISM ubsan_check',
                 'user':'root',
                 $PARSER
             }
@@ -516,7 +532,7 @@ VALGRIND_TEST_COMMANDS="[
             {
                 'name':'Run RocksDB debug unit tests',
                 'timeout': 86400,
-                'shell':'$DISABLE_JEMALLOC $SHM $DEBUG make valgrind_check',
+                'shell':'$DISABLE_JEMALLOC $SHM $DEBUG make $PARALLELISM valgrind_check',
                 'user':'root',
                 $PARSER
             },
@@ -538,7 +554,7 @@ TSAN_UNIT_TEST_COMMANDS="[
             {
                 'name':'Run RocksDB debug unit test',
                 'timeout': 86400,
-                'shell':'set -o pipefail && $SHM $DEBUG $TSAN make J=1 check',
+                'shell':'set -o pipefail && $SHM $DEBUG $TSAN make $PARALLELISM check',
                 'user':'root',
                 $PARSER
             },

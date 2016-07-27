@@ -75,9 +75,10 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     );
 
     // arc demands certain permission on its config.
+    // also fix the sticky bit issue in sandcastle
     $fix_permission = array(
       "name" => "Fix environment",
-      "shell" => "chmod 600 ~/.arcrc",
+      "shell" => "chmod 600 ~/.arcrc && chmod +t /dev/shm",
       "user" => "root"
     );
 
@@ -115,7 +116,7 @@ function getSteps($applyDiff, $diffID, $username, $test) {
   }
 
   // Run the actual command.
-  $cmd = $cmd . "./build_tools/precommit_checker.py " . $test
+  $cmd = $cmd . "J=$(nproc) ./build_tools/precommit_checker.py " . $test
            . "; exit_code=$?; ";
 
   if ($applyDiff) {
