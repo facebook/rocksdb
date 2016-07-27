@@ -1,100 +1,76 @@
-# This cmake build is for Windows 64-bit only.
-#
-# Prerequisites:
-#     You must have Visual Studio 2013 Update 4 installed. Start the Developer Command Prompt window that is a part of Visual Studio installation.
-#     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
-#     You must have git.exe in your %PATH% environment variable.
-#
-# To build Rocksdb for Windows is as easy as 1-2-3-4-5:
-#
-# 1. Update paths to third-party libraries in thirdparty.inc file
-# 2. Create a new directory for build artifacts
-#        mkdir build
-#        cd build
-# 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
-#    See thirdparty.inc for more information.
-#        sample command: cmake -G "Visual Studio 12 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 -DJNI=1 ..
-#        OR for VS Studio 15 cmake -G "Visual Studio 14 Win64" -DGFLAGS=1 -DSNAPPY=1 -DJEMALLOC=1 -DJNI=1 ..
-# 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads
-#                                          or simply /m ot use all avail cores)
-#        msbuild rocksdb.sln
-#
-#        rocksdb.sln build features exclusions of test only code in Release. If you build ALL_BUILD then everything
-#        will be attempted but test only code does not build in Release mode.
-#
-# 5. And release mode (/m[:<N>] is also supported)
-#        msbuild rocksdb.sln /p:Configuration=Release
-#
-
 cmake_minimum_required(VERSION 2.6)
 project(rocksdb)
 
+# Windows build depends on this being included early-on
+if (WIN64)
 include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
-execute_process(COMMAND powershell -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
-execute_process(COMMAND powershell -Command "Get-Date -format HH:mm:ss" OUTPUT_VARIABLE TIME)
-string(REGEX REPLACE "(..)_(..)_..(..).*" "\\1/\\2/\\3" DATE ${DATE})
-string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME ${TIME})
-string(CONCAT GIT_DATE_TIME ${DATE} ${TIME})
+endif (WIN64)
 
-find_package(Git)
+execute_process(COMMAND
+    "./build_tools/version.sh" "major"
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_VARIABLE ROCKSDB_VERSION_MAJOR
+)
+string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
 
-if (GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
-    execute_process(COMMAND $ENV{COMSPEC} /C ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
-else()
-    set(GIT_SHA 0)
-endif()
+execute_process(COMMAND
+    "./build_tools/version.sh" "minor"
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_VARIABLE ROCKSDB_VERSION_MINOR
+)
+string(STRIP "${ROCKSDB_VERSION_MINOR}" ROCKSDB_VERSION_MINOR)
 
-string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA ${GIT_SHA})
+execute_process(COMMAND
+    "./build_tools/version.sh" "patch"
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_VARIABLE ROCKSDB_VERSION_PATCH
+)
+string(STRIP "${ROCKSDB_VERSION_PATCH}" ROCKSDB_VERSION_PATCH)
+
+set(ROCKSDB_VERSION "${ROCKSDB_VERSION_MAJOR}.${ROCKSDB_VERSION_MINOR}.${ROCKSDB_VERSION_PATCH}")
+message(STATUS "rocksdb: ${ROCKSDB_VERSION}")
 
 set(BUILD_VERSION_CC ${CMAKE_CURRENT_SOURCE_DIR}/util/build_version.cc)
-
 add_custom_command(OUTPUT ${BUILD_VERSION_CC}
-    COMMAND echo "#include \"build_version.h\"" > ${BUILD_VERSION_CC}
-    COMMAND echo "const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:${GIT_SHA}\";" >> ${BUILD_VERSION_CC}
-    COMMAND echo "const char* rocksdb_build_git_datetime = \"rocksdb_build_git_datetime:${GIT_DATE_TIME}\";" >> ${BUILD_VERSION_CC}
-    COMMAND echo const char* rocksdb_build_compile_date = __DATE__\; >> ${BUILD_VERSION_CC}
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/build_tools/create_version_cc.sh
+      ${BUILD_VERSION_CC}
 )
-
-add_custom_target(GenerateBuildVersion DEPENDS ${BUILD_VERSION_CC})
-
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
-
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /WX /wd4127 /wd4800 /wd4996 /wd4351")
-
-# Used to run CI build and tests so we can run faster
-set(OPTIMIZE_DEBUG_DEFAULT 0)        # Debug build is unoptimized by default use -DOPTDBG=1 to optimize
-
-if(DEFINED OPTDBG)
-   set(OPTIMIZE_DEBUG ${OPTDBG})
-else()
-   set(OPTIMIZE_DEBUG ${OPTIMIZE_DEBUG_DEFAULT})
-endif()
-
-if((${OPTIMIZE_DEBUG} EQUAL 1))
-   message(STATUS "Debug optimization is enabled")
-   set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /MDd")
-else()
-   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /MDd")
-endif()
-
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /MD")
-
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DEBUG")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
-
-add_definitions(-DWIN32 -DOS_WIN -D_MBCS -DWIN64 -DNOMINMAX)
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/modules/")
+
 include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
-
-set(ROCKSDB_LIBS rocksdblib${ARTIFACT_SUFFIX})
-set(THIRDPARTY_LIBS ${THIRDPARTY_LIBS} gtest)
-set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
-
-set(LIBS ${ROCKSDB_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
+
+find_package(Threads)
+find_package(JeMalloc)
+
+if (JEMALLOC_FOUND)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DROCKSDB_JEMALLOC")
+endif (JEMALLOC_FOUND)
+
+# These need to come before SOURCES and hence can't be moved
+# to platform specific cmake
+
+if (WIN64)
+set(PLATFORM_SOURCES
+        port/win/io_win.cc
+        port/win/env_win.cc
+        port/win/port_win.cc
+        port/win/win_logger.cc
+        port/win/xpress_win.cc
+)
+endif (WIN64)
+
+if (UNIX)
+set(PLATFORM_SOURCES
+        port/port_posix.cc
+        util/env_posix.cc
+        util/io_posix.cc
+)
+endif (UNIX)
 
 # Main library source code
 set(SOURCES
@@ -153,12 +129,6 @@ set(SOURCES
         memtable/skiplistrep.cc
         memtable/vectorrep.cc
         port/stack_trace.cc
-        port/win/io_win.cc
-        port/win/env_win.cc
-        port/win/env_default.cc
-        port/win/port_win.cc
-        port/win/win_logger.cc
-        port/win/xpress_win.cc
         table/adaptive_table_factory.cc
         table/block.cc
         table/block_based_filter_block.cc
@@ -282,37 +252,8 @@ set(SOURCES
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
+        ${PLATFORM_SOURCES}
 )
-
-# For test util library that is build only in DEBUG mode
-# and linked to tests. Add test only code that is not #ifdefed for Release here.
-set(TESTUTIL_SOURCE
-    db/db_test_util.cc
-    table/mock_table.cc
-    util/mock_env.cc
-    util/fault_injection_test_env.cc
-    util/thread_status_updater_debug.cc
-)
-
-add_library(rocksdblib${ARTIFACT_SUFFIX} ${SOURCES})
-set_target_properties(rocksdblib${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib${ARTIFACT_SUFFIX}.pdb")
-add_dependencies(rocksdblib${ARTIFACT_SUFFIX} GenerateBuildVersion)
-
-add_library(rocksdb${ARTIFACT_SUFFIX} SHARED ${SOURCES})
-set_target_properties(rocksdb${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb${ARTIFACT_SUFFIX}.pdb")
-add_dependencies(rocksdb${ARTIFACT_SUFFIX} GenerateBuildVersion)
-target_link_libraries(rocksdb${ARTIFACT_SUFFIX} ${LIBS})
-
-if (DEFINED JNI)
-  if (${JNI} EQUAL 1)
-    message(STATUS "JNI library is enabled")
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/java)
-  else()
-    message(STATUS "JNI library is disabled")
-  endif()
-else()
-  message(STATUS "JNI library is disabled")
-endif()
 
 set(APPS
         tools/db_bench.cc
@@ -444,51 +385,10 @@ set(TESTS
         utilities/write_batch_with_index/write_batch_with_index_test.cc
 )
 
-set(EXES ${APPS})
+if (WIN64)
+include(win64.cmake)
+endif (WIN64)
 
-foreach(sourcefile ${EXES})
-    string(REPLACE ".cc" "" exename ${sourcefile})
-    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS})
-endforeach(sourcefile ${EXES})
-
-# test utilities are only build in debug
-set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
-add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
-set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
-set_target_properties(${TESTUTILLIB}
-      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-      )
-
-# Tests are excluded from Release builds
-set(TEST_EXES ${TESTS})
-
-foreach(sourcefile ${TEST_EXES})
-    string(REPLACE ".cc" "" exename ${sourcefile})
-    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-    set_target_properties(${exename}${ARTIFACT_SUFFIX}
-      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-      )
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS} testutillib${ARTIFACT_SUFFIX})
-endforeach(sourcefile ${TEST_EXES})
-
-# C executables must link to a shared object
-set(C_TEST_EXES ${C_TESTS})
-
-foreach(sourcefile ${C_TEST_EXES})
-    string(REPLACE ".c" "" exename ${sourcefile})
-    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-    set_target_properties(${exename}${ARTIFACT_SUFFIX}
-      PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
-      EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
-      )
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} rocksdb${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX})
-endforeach(sourcefile ${C_TEST_EXES})
+if (UNIX)
+include(linux.cmake)
+endif (UNIX)
