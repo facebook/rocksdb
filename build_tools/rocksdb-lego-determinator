@@ -153,10 +153,12 @@ UNIT_TEST_NON_SHM_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
         'oncall':'$ONCALL',
+        'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
             {
                 'name':'Build and test RocksDB debug version',
+                'timeout': 86400,
                 'shell':'$DEBUG make J=1 check',
                 'user':'root',
                 $PARSER
@@ -508,10 +510,12 @@ VALGRIND_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under valgrind',
         'oncall':'$ONCALL',
+        'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
             {
                 'name':'Run RocksDB debug unit tests',
+                'timeout': 86400,
                 'shell':'$DISABLE_JEMALLOC $SHM $DEBUG make valgrind_check',
                 'user':'root',
                 $PARSER
@@ -528,10 +532,12 @@ TSAN_UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under TSAN',
         'oncall':'$ONCALL',
+        'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
             {
                 'name':'Run RocksDB debug unit test',
+                'timeout': 86400,
                 'shell':'set -o pipefail && $SHM $DEBUG $TSAN make J=1 check',
                 'user':'root',
                 $PARSER
