@@ -1,5 +1,7 @@
 ## RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
 
+[![Join the chat at https://gitter.im/facebook/rocksdb](https://badges.gitter.im/facebook/rocksdb.svg)](https://gitter.im/facebook/rocksdb?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 [![Build Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
 [![Build status](https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true)](https://ci.appveyor.com/project/Facebook/rocksdb/branch/master)
 
