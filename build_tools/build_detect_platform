@@ -288,7 +288,7 @@ EOF
     # Test whether numa is available
     $CXX $CFLAGS -x c++ - -o /dev/null -lnuma 2>/dev/null  <<EOF
       #include <numa.h>
-      #inlcude <numaif.h>
+      #include <numaif.h>
       int main() {}
 EOF
     if [ "$?" = 0 ]; then
