@@ -102,9 +102,7 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 
 #endif  // OS_WIN
 
-void ThreadLocalPtr::InitSingletons() {
-  ThreadLocalPtr::StaticMeta::InitSingletons();
-}
+void ThreadLocalPtr::InitSingletons() { ThreadLocalPtr::Instance(); }
 
 ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   // Here we prefer function static variable instead of global
@@ -135,8 +133,6 @@ ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   static ThreadLocalPtr::StaticMeta* inst = new ThreadLocalPtr::StaticMeta();
   return inst;
 }
-
-void ThreadLocalPtr::StaticMeta::InitSingletons() { Mutex(); }
 
 port::Mutex* ThreadLocalPtr::StaticMeta::Mutex() { return &Instance()->mutex_; }
 

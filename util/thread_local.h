@@ -133,15 +133,6 @@ class ThreadLocalPtr {
     // Register the UnrefHandler for id
     void SetHandler(uint32_t id, UnrefHandler handler);
 
-    // Initialize all the singletons associated with StaticMeta.
-    //
-    // If this function is not called, then the singletons will be
-    // automatically initialized when they are used.
-    //
-    // Calling this function twice or after the singletons have been
-    // initialized will be no-op.
-    static void InitSingletons();
-
     // protect inst, next_instance_id_, free_instance_ids_, head_,
     // ThreadData.entries
     //
