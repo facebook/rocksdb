@@ -744,7 +744,7 @@ REGRESSION_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Make and run script',
-                'shell':'build_tools/rocksdb-lego-determinator run_regression || $CONTRUN_NAME=run_regression $TASK_CREATION_TOOL'',
+                'shell':'build_tools/rocksdb-lego-determinator run_regression || $CONTRUN_NAME=run_regression $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
