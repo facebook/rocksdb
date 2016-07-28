@@ -38,6 +38,12 @@ namespace rocksdb {
      JavaVM* m_jvm;
      jobject m_jLogger;
      jmethodID m_jLogMethodId;
+     jobject m_jdebug_level;
+     jobject m_jinfo_level;
+     jobject m_jwarn_level;
+     jobject m_jerror_level;
+     jobject m_jfatal_level;
+     jobject m_jheader_level;
   };
 }  // namespace rocksdb
 
