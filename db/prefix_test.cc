@@ -146,6 +146,35 @@ std::string Get(DB* db, const ReadOptions& read_options, uint64_t prefix,
   }
   return result;
 }
+
+class SamePrefixTransform : public SliceTransform {
+ private:
+  const Slice prefix_;
+  std::string name_;
+
+ public:
+  explicit SamePrefixTransform(const Slice& prefix)
+      : prefix_(prefix), name_("rocksdb.SamePrefix." + prefix.ToString()) {}
+
+  virtual const char* Name() const override { return name_.c_str(); }
+
+  virtual Slice Transform(const Slice& src) const override {
+    assert(InDomain(src));
+    return prefix_;
+  }
+
+  virtual bool InDomain(const Slice& src) const override {
+    if (src.size() >= prefix_.size()) {
+      return Slice(src.data(), prefix_.size()) == prefix_;
+    }
+    return false;
+  }
+
+  virtual bool InRange(const Slice& dst) const override {
+    return dst == prefix_;
+  }
+};
+
 }  // namespace
 
 class PrefixTest : public testing::Test {
@@ -225,6 +254,55 @@ class PrefixTest : public testing::Test {
   int option_config_;
   Options options;
 };
+
+TEST(SamePrefixTest, InDomainTest) {
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+  options.prefix_extractor.reset(new SamePrefixTransform("HHKB"));
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  WriteOptions write_options;
+  ReadOptions read_options;
+  {
+    ASSERT_OK(DB::Open(options, kDbName, &db));
+    ASSERT_OK(db->Put(write_options, "HHKB pro2", "Mar 24, 2006"));
+    ASSERT_OK(db->Put(write_options, "HHKB pro2 Type-S", "June 29, 2011"));
+    ASSERT_OK(db->Put(write_options, "Realforce 87u", "idk"));
+    db->Flush(FlushOptions());
+    std::string result;
+    auto db_iter = db->NewIterator(ReadOptions());
+
+    db_iter->Seek("Realforce 87u");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_OK(db_iter->status());
+    ASSERT_EQ(db_iter->key(), "Realforce 87u");
+    ASSERT_EQ(db_iter->value(), "idk");
+
+    delete db_iter;
+    delete db;
+    ASSERT_OK(DestroyDB(kDbName, Options()));
+  }
+
+  {
+    ASSERT_OK(DB::Open(options, kDbName, &db));
+    ASSERT_OK(db->Put(write_options, "pikachu", "1"));
+    ASSERT_OK(db->Put(write_options, "Meowth", "1"));
+    ASSERT_OK(db->Put(write_options, "Mewtwo", "idk"));
+    db->Flush(FlushOptions());
+    std::string result;
+    auto db_iter = db->NewIterator(ReadOptions());
+
+    db_iter->Seek("Mewtwo");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_OK(db_iter->status());
+    delete db_iter;
+    delete db;
+    ASSERT_OK(DestroyDB(kDbName, Options()));
+  }
+}
 
 TEST_F(PrefixTest, TestResult) {
   for (int num_buckets = 1; num_buckets <= 2; num_buckets++) {
