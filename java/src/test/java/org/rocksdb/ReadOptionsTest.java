@@ -62,6 +62,46 @@ public class ReadOptionsTest {
   }
 
   @Test
+  public void readTier() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setReadTier(ReadTier.BLOCK_CACHE_TIER);
+      assertThat(opt.readTier()).isEqualTo(ReadTier.BLOCK_CACHE_TIER);
+    }
+  }
+
+  @Test
+  public void managed() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setManaged(true);
+      assertThat(opt.managed()).isTrue();
+    }
+  }
+
+  @Test
+  public void totalOrderSeek() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setTotalOrderSeek(true);
+      assertThat(opt.totalOrderSeek()).isTrue();
+    }
+  }
+
+  @Test
+  public void prefixSameAsStart() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setPrefixSameAsStart(true);
+      assertThat(opt.prefixSameAsStart()).isTrue();
+    }
+  }
+
+  @Test
+  public void pinData() {
+    try (final ReadOptions opt = new ReadOptions()) {
+      opt.setPinData(true);
+      assertThat(opt.pinData()).isTrue();
+    }
+  }
+
+  @Test
   public void failSetVerifyChecksumUninitialized() {
     try (final ReadOptions readOptions =
              setupUninitializedReadOptions(exception)) {

@@ -3927,6 +3927,90 @@ jboolean Java_org_rocksdb_ReadOptions_tailing(
 
 /*
  * Class:     org_rocksdb_ReadOptions
+ * Method:    managed
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_managed(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->managed;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setManaged
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setManaged(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jmanaged) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->managed =
+      static_cast<bool>(jmanaged);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    totalOrderSeek
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_totalOrderSeek(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->total_order_seek;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setTotalOrderSeek
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setTotalOrderSeek(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jtotal_order_seek) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->total_order_seek =
+      static_cast<bool>(jtotal_order_seek);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    prefixSameAsStart
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_prefixSameAsStart(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->prefix_same_as_start;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setPrefixSameAsStart
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setPrefixSameAsStart(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jprefix_same_as_start) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->prefix_same_as_start =
+      static_cast<bool>(jprefix_same_as_start);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    pinData
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_pinData(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->pin_data;
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setPinData
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setPinData(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jpin_data) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->pin_data =
+      static_cast<bool>(jpin_data);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
  * Method:    setSnapshot
  * Signature: (JJ)V
  */
@@ -3946,6 +4030,28 @@ jlong Java_org_rocksdb_ReadOptions_snapshot(
   auto& snapshot =
       reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->snapshot;
   return reinterpret_cast<jlong>(snapshot);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    readTier
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_ReadOptions_readTier(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return static_cast<jbyte>(
+      reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->read_tier);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setReadTier
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_ReadOptions_setReadTier(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jread_tier) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->read_tier =
+      static_cast<rocksdb::ReadTier>(jread_tier);
 }
 
 /////////////////////////////////////////////////////////////////////
