@@ -4731,6 +4731,7 @@ TEST_F(DBTest, CompressionStatsTest) {
     // compressible string
     ASSERT_OK(Put(Key(i), RandomString(&rnd, 128) + std::string(128, 'a')));
   }
+  ASSERT_OK(Flush());
   ASSERT_GT(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED), 0);
 
   for (int i = 0; i < kNumKeysWritten; ++i) {
@@ -4750,6 +4751,7 @@ TEST_F(DBTest, CompressionStatsTest) {
     // compressible string
     ASSERT_OK(Put(Key(i), RandomString(&rnd, 128) + std::string(128, 'a')));
   }
+  ASSERT_OK(Flush());
   ASSERT_EQ(options.statistics->getTickerCount(NUMBER_BLOCK_COMPRESSED)
             - currentCompressions, 0);
 
