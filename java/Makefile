@@ -181,7 +181,9 @@ java_test: resolve_test_deps
 		$(TEST_SRC)/org/rocksdb/*.java
 	$(AM_V_at)javah -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
 
-test: java resolve_test_deps java_test
+test: java resolve_test_deps java_test run_test
+
+run_test:
 	java -ea -Xcheck:jni -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
