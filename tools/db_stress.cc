@@ -2109,12 +2109,10 @@ class StressTest {
 #endif  // ROCKSDB_LITE
     }
 
-    if (FLAGS_use_merge) {
-      if (FLAGS_use_full_merge_v1) {
-        options_.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
-      } else {
-        options_.merge_operator = MergeOperators::CreatePutOperator();
-      }
+    if (FLAGS_use_full_merge_v1) {
+      options_.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
+    } else {
+      options_.merge_operator = MergeOperators::CreatePutOperator();
     }
 
     // set universal style compaction configurations, if applicable
