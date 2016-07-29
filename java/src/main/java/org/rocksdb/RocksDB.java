@@ -407,6 +407,21 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Set the database entry for "key" to "value".
+   *
+   * @param key the specified key to be inserted.
+   * @param value the value associated with the specified key.
+   * @param length how many bytes to copy from value to tht database entry.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void put(final byte[] key, final byte[] value, final int length) 
+      throws RocksDBException {
+    put(nativeHandle_, key, key.length, value, length);
+  }
+
+  /**
    * Set the database entry for "key" to "value" in the specified
    * column family.
    *
