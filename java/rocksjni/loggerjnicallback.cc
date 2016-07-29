@@ -80,9 +80,6 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
       case rocksdb::InfoLogLevel::WARN_LEVEL:
         jlog_level = m_jwarn_level;
         break;
-      case rocksdb::InfoLogLevel::WARN_LEVEL:
-        jlog_level = InfoLogLevelJni::WARN_LEVEL(env);
-        break;
       case rocksdb::InfoLogLevel::ERROR_LEVEL:
         jlog_level = m_jerror_level;
         break;
@@ -91,9 +88,6 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
         break;
       case rocksdb::InfoLogLevel::HEADER_LEVEL:
         jlog_level = m_jheader_level;
-        break;
-      case rocksdb::InfoLogLevel::HEADER_LEVEL:
-        jlog_level = InfoLogLevelJni::HEADER_LEVEL(env);
         break;
       default:
         jlog_level = m_jfatal_level;
