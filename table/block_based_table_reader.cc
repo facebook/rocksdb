@@ -10,6 +10,7 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
@@ -1665,6 +1666,56 @@ bool BlockBasedTable::TEST_filter_block_preloaded() const {
 
 bool BlockBasedTable::TEST_index_reader_preloaded() const {
   return rep_->index_reader != nullptr;
+}
+
+Status BlockBasedTable::GetKVPairsFromDataBlocks(
+    std::vector<KVPairBlock>* kv_pair_blocks) {
+  std::unique_ptr<InternalIterator> blockhandles_iter(
+      NewIndexIterator(ReadOptions()));
+
+  Status s = blockhandles_iter->status();
+  if (!s.ok()) {
+    // Cannot read Index Block
+    return s;
+  }
+
+  for (blockhandles_iter->SeekToFirst(); blockhandles_iter->Valid();
+       blockhandles_iter->Next()) {
+    s = blockhandles_iter->status();
+
+    if (!s.ok()) {
+      break;
+    }
+
+    std::unique_ptr<InternalIterator> datablock_iter;
+    datablock_iter.reset(
+        NewDataBlockIterator(rep_, ReadOptions(), blockhandles_iter->value()));
+    s = datablock_iter->status();
+
+    if (!s.ok()) {
+      // Error reading the block - Skipped
+      continue;
+    }
+
+    KVPairBlock kv_pair_block;
+    for (datablock_iter->SeekToFirst(); datablock_iter->Valid();
+         datablock_iter->Next()) {
+      s = datablock_iter->status();
+      if (!s.ok()) {
+        // Error reading the block - Skipped
+        break;
+      }
+      const Slice& key = datablock_iter->key();
+      const Slice& value = datablock_iter->value();
+      std::string key_copy = std::string(key.data(), key.size());
+      std::string value_copy = std::string(value.data(), value.size());
+
+      kv_pair_block.push_back(
+          std::make_pair(std::move(key_copy), std::move(value_copy)));
+    }
+    kv_pair_blocks->push_back(std::move(kv_pair_block));
+  }
+  return Status::OK();
 }
 
 Status BlockBasedTable::DumpTable(WritableFile* out_file) {

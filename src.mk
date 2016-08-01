@@ -192,7 +192,12 @@ MOCK_LIB_SOURCES = \
   util/fault_injection_test_env.cc
 
 BENCH_LIB_SOURCES = \
-  tools/db_bench_tool.cc
+  tools/db_bench_tool.cc                                        \
+
+EXP_LIB_SOURCES = \
+  utilities/col_buf_encoder.cc                                          \
+  utilities/col_buf_decoder.cc                                          \
+  utilities/column_aware_encoding_util.cc
 
 TEST_LIB_SOURCES = \
   util/testharness.cc                                                   \
@@ -296,6 +301,7 @@ MAIN_SOURCES =                                                    \
   utilities/transactions/transaction_test.cc                            \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
+  utilities/column_aware_encoding_test.cc                               \
 	util/iostats_context_test.cc																					\
   util/log_write_bench.cc                                               \
   util/mock_env_test.cc                                                 \
@@ -304,7 +310,8 @@ MAIN_SOURCES =                                                    \
   util/rate_limiter_test.cc                                             \
   util/slice_transform_test.cc                                          \
   util/thread_list_test.cc                                              \
-  util/thread_local_test.cc
+  util/thread_local_test.cc                                             \
+  utilities/column_aware_encoding_exp.cc
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

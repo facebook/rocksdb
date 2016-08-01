@@ -117,4 +117,10 @@ class BlockBasedTableBuilder : public TableBuilder {
   void operator=(const BlockBasedTableBuilder&) = delete;
 };
 
+Slice CompressBlock(const Slice& raw,
+                    const CompressionOptions& compression_options,
+                    CompressionType* type, uint32_t format_version,
+                    const Slice& compression_dict,
+                    std::string* compressed_output);
+
 }  // namespace rocksdb

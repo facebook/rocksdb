@@ -282,6 +282,9 @@ set(SOURCES
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
+        utilities/col_buf_encoder.cc
+        utilities/col_buf_decoder.cc
+        utilities/column_aware_encoding_util.cc
 )
 
 # For test util library that is build only in DEBUG mode
@@ -327,6 +330,7 @@ set(APPS
         tools/dump/rocksdb_undump.cc
         util/cache_bench.cc
         utilities/persistent_cache/hash_table_bench.cc
+        utilities/column_aware_encoding_exp.cc
 )
 
 set(C_TESTS db/c_test.c)
@@ -442,6 +446,7 @@ set(TESTS
         utilities/transactions/transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
+        utilities/column_aware_encoding_test.cc
 )
 
 set(EXES ${APPS})

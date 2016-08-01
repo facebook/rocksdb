@@ -32,6 +32,7 @@ build/
 ldb
 manifest_dump
 sst_dump
+column_aware_encoding_exp
 util/build_version.cc
 build_tools/VALGRIND_LOGS/
 coverage/COVERAGE_REPORT
