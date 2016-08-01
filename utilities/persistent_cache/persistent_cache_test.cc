@@ -20,6 +20,7 @@ namespace rocksdb {
 
 static const double kStressFactor = .125;
 
+#ifdef OS_LINUX
 static void OnOpenForRead(void* arg) {
   int* val = static_cast<int*>(arg);
   *val &= ~O_DIRECT;
@@ -35,6 +36,7 @@ static void OnOpenForWrite(void* arg) {
       "NewWritableFile:O_DIRECT",
       std::bind(OnOpenForWrite, std::placeholders::_1));
 }
+#endif
 
 //
 // Simple logger that prints message on stdout
@@ -105,11 +107,13 @@ std::unique_ptr<PersistentTieredCache> NewTieredCache(
 
 PersistentCacheTierTest::PersistentCacheTierTest()
     : path_(test::TmpDir(Env::Default()) + "/cache_test") {
+#ifdef OS_LINUX
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   rocksdb::SyncPoint::GetInstance()->SetCallBack("NewRandomAccessFile:O_DIRECT",
                                                  OnOpenForRead);
   rocksdb::SyncPoint::GetInstance()->SetCallBack("NewWritableFile:O_DIRECT",
                                                  OnOpenForWrite);
+#endif
 }
 
 // Volatile cache tests
@@ -197,6 +201,7 @@ std::shared_ptr<PersistentCacheTier> MakeTieredCache(
   return NewTieredCache(Env::Default(), dbname, memory_size);
 }
 
+#ifdef OS_LINUX
 static void UniqueIdCallback(void* arg) {
   int* result = reinterpret_cast<int*>(arg);
   if (*result == -1) {
@@ -207,13 +212,16 @@ static void UniqueIdCallback(void* arg) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
 }
+#endif
 
 PersistentCacheDBTest::PersistentCacheDBTest() : DBTestBase("/cache_test") {
+#ifdef OS_LINUX
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "GetUniqueIdFromFile:FS_IOC_GETVERSION", UniqueIdCallback);
   rocksdb::SyncPoint::GetInstance()->SetCallBack("NewRandomAccessFile:O_DIRECT",
                                                  OnOpenForRead);
+#endif
 }
 
 // test template

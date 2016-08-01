@@ -338,7 +338,7 @@ bool BlockCacheTier::Reserve(const size_t size) {
       return false;
     }
     assert(!f->refs_);
-    size_t file_size;
+    uint64_t file_size;
     if (!f->Delete(&file_size).ok()) {
       // unable to delete file
       return false;
