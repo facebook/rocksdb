@@ -66,6 +66,19 @@ Status BlockCacheTier::Open() {
   return Status::OK();
 }
 
+bool IsCacheFile(const std::string& file) {
+  // check if the file has .rc suffix
+  // Unfortunately regex support across compilers is not even, so we use simple
+  // string parsing
+  size_t pos = file.find(".");
+  if (pos == std::string::npos) {
+    return false;
+  }
+
+  std::string suffix = file.substr(pos);
+  return suffix == ".rc";
+}
+
 Status BlockCacheTier::CleanupCacheFolder(const std::string& folder) {
   std::vector<std::string> files;
   Status status = opt_.env->GetChildren(folder, &files);
@@ -77,24 +90,17 @@ Status BlockCacheTier::CleanupCacheFolder(const std::string& folder) {
 
   // cleanup files with the patter :digi:.rc
   for (auto file : files) {
-    try {
-      const std::regex cache_file_regex("(0-9)+\\.rc$");
-      if (std::regex_match(file, cache_file_regex)) {
-        // cache file
-        Info(opt_.log, "Removing file %s.", file.c_str());
-        status = opt_.env->DeleteFile(folder + "/" + file);
-        if (!status.ok()) {
-          Error(opt_.log, "Error deleting file %s. %s", file.c_str(),
-                status.ToString().c_str());
-          return Status::IOError("Error deleting file " + file);
-        }
-      } else {
-        Info(opt_.log, "Skipping file %s.", file.c_str());
+    if (IsCacheFile(file)) {
+      // cache file
+      Info(opt_.log, "Removing file %s.", file.c_str());
+      status = opt_.env->DeleteFile(folder + "/" + file);
+      if (!status.ok()) {
+        Error(opt_.log, "Error deleting file %s. %s", file.c_str(),
+              status.ToString().c_str());
+        return status;
       }
-    } catch (const std::regex_error& e) {
-      // Since std library is evolving, you can potentially get an exception for
-      // certain older compiler version. It is safer to exit cleanly.
-      return Status::IOError(e.what());
+    } else {
+      Debug(opt_.log, "Skipping file %s", file.c_str());
     }
   }
   return Status::OK();
