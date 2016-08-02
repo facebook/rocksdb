@@ -22,21 +22,6 @@
 
 namespace rocksdb {
 
-namespace {
-// RAII Timer
-class StatsTimer {
- public:
-  explicit StatsTimer(Env* env, uint64_t* counter)
-      : env_(env), counter_(counter), start_micros_(env_->NowMicros()) {}
-  ~StatsTimer() { *counter_ += env_->NowMicros() - start_micros_; }
-
- private:
-  Env* env_;
-  uint64_t* counter_;
-  uint64_t start_micros_;
-};
-}  // anonymous namespace
-
 #ifndef ROCKSDB_LITE
 
 Status DBImpl::ReadExternalSstFileInfo(ColumnFamilyHandle* column_family,
@@ -127,7 +112,6 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     return Status::InvalidArgument("The list of files is empty");
   }
 
-  std::vector<ExternalSstFileInfo> file_infos(num_files);
   std::vector<ExternalSstFileInfo> file_info_list(num_files);
   for (size_t i = 0; i < num_files; i++) {
     status = ReadExternalSstFileInfo(column_family, file_path_list[i],
@@ -178,7 +162,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   std::vector<uint64_t> micro_list(num_files, 0);
   std::vector<FileMetaData> meta_list(num_files);
   for (size_t i = 0; i < num_files; i++) {
-    StatsTimer t(env_, &micro_list[i]);
+    StopWatch sw(env_, nullptr, 0, &micro_list[i], false);
     if (file_info_list[i].num_entries == 0) {
       return Status::InvalidArgument("File contain no entries");
     }
@@ -212,7 +196,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   {
     InstrumentedMutexLock l(&mutex_);
     for (size_t i = 0; i < num_files; i++) {
-      StatsTimer t(env_, &micro_list[i]);
+      StopWatch sw(env_, nullptr, 0, &micro_list[i], false);
       pending_outputs_inserted_elem_list[i] =
           CaptureCurrentFileNumberInPendingOutputs();
       meta_list[i].fd = FileDescriptor(versions_->NewFileNumber(), 0,
@@ -224,7 +208,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   std::vector<std::string> db_fname_list(num_files);
   size_t j = 0;
   for (; j < num_files; j++) {
-    StatsTimer t(env_, &micro_list[j]);
+    StopWatch sw(env_, nullptr, 0, &micro_list[j], false);
     db_fname_list[j] =
         TableFileName(db_options_.db_paths, meta_list[j].fd.GetNumber(),
                       meta_list[j].fd.GetPathId());
@@ -275,7 +259,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       ScopedArenaIterator iter(NewInternalIterator(ro, cfd, sv, &arena));
 
       for (size_t i = 0; i < num_files; i++) {
-        StatsTimer t(env_, &micro_list[i]);
+        StopWatch sw(env_, nullptr, 0, &micro_list[i], false);
         InternalKey range_start(file_info_list[i].smallest_key,
                                 kMaxSequenceNumber, kTypeValue);
         iter->Seek(range_start.Encode());
@@ -298,14 +282,13 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       }
     }
 
-    // The level the file will be ingested into
+    // The levels that the files will be ingested into
     std::vector<int> target_level_list(num_files, 0);
     if (status.ok()) {
-      // Add files to L0
       VersionEdit edit;
       edit.SetColumnFamily(cfd->GetID());
       for (size_t i = 0; i < num_files; i++) {
-        StatsTimer t(env_, &micro_list[i]);
+        StopWatch sw(env_, nullptr, 0, &micro_list[i], false);
         // Add file to the lowest possible level
         target_level_list[i] = PickLevelForIngestedFile(cfd, file_info_list[i]);
         edit.AddFile(target_level_list[i], meta_list[i].fd.GetNumber(),

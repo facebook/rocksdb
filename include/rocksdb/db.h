@@ -810,9 +810,9 @@ class DB {
   //
   // Current Requirements:
   // (1) The key ranges of the files don't overlap with each other
-  // (1) The key range of any file in list doesn't overlap with
+  // (2) The key range of any file in list doesn't overlap with
   //     existing keys or tombstones in DB.
-  // (2) No snapshots are held.
+  // (3) No snapshots are held.
   //
   // Notes: We will try to ingest the files to the lowest possible level
   //        even if the file compression dont match the level compression
