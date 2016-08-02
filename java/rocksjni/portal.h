@@ -28,6 +28,7 @@
 #include "rocksjni/compaction_filter_factory_jnicallback.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/loggerjnicallback.h"
+#include "rocksjni/transaction_notifier_jnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 
 // Remove macro on windows
@@ -1082,6 +1083,31 @@ class AbstractCompactionFilterFactoryJni : public RocksDBNativeClass<
     static jmethodID mid = env->GetMethodID(jclazz,
       "createCompactionFilter",
       "(ZZ)J");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
+// The portal class for org.rocksdb.AbstractTransactionNotifier
+class AbstractTransactionNotifierJni : public RocksDBNativeClass<
+    const rocksdb::TransactionNotifierJniCallback*,
+    AbstractTransactionNotifierJni> {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/AbstractTransactionNotifier");
+  }
+
+  // Get the java method `snapshotCreated`
+  // of org.rocksdb.AbstractTransactionNotifier.
+  static jmethodID getSnapshotCreatedMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid = env->GetMethodID(jclazz, "snapshotCreated", "(J)V");
     assert(mid != nullptr);
     return mid;
   }
@@ -2971,6 +2997,91 @@ class RateLimiterModeJni {
         // undefined/default
         return rocksdb::RateLimiter::Mode::kWritesOnly;
     }
+  }
+};
+
+// The portal class for org.rocksdb.Transaction
+class TransactionJni : public JavaClass {
+ public:
+  /**
+   * Get the Java Class org.rocksdb.Transaction
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+        "org/rocksdb/Transaction");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.Transaction.WaitingTransactions object
+   *
+   * @param env A pointer to the Java environment
+   * @param jtransaction A Java org.rocksdb.Transaction object
+   * @param column_family_id The id of the column family
+   * @param key The key
+   * @param transaction_ids The transaction ids
+   *
+   * @return A reference to a Java
+   *     org.rocksdb.Transaction.WaitingTransactions object,
+   *     or nullptr if an an exception occurs
+   */
+  static jobject newWaitingTransactions(JNIEnv* env, jobject jtransaction,
+      const uint32_t column_family_id, const std::string &key,
+      const std::vector<TransactionID> &transaction_ids) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(
+      jclazz, "newWaitingTransactions", "(JLjava/lang/String;[J)Lorg/rocksdb/Transaction$WaitingTransactions;");
+    if(mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jstring jkey = env->NewStringUTF(key.c_str());
+    if(jkey == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    const size_t len = transaction_ids.size();
+    jlongArray jtransaction_ids = env->NewLongArray(static_cast<jsize>(len));
+    if(jtransaction_ids == nullptr) {
+      // exception thrown: OutOfMemoryError
+      env->DeleteLocalRef(jkey);
+      return nullptr;
+    }
+
+    jlong *body = env->GetLongArrayElements(jtransaction_ids, nullptr);
+    if(body == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->DeleteLocalRef(jkey);
+        env->DeleteLocalRef(jtransaction_ids);
+        return nullptr;
+    }
+    for(size_t i = 0; i < len; ++i) {
+      body[i] = static_cast<jlong>(transaction_ids[i]);
+    }
+    env->ReleaseLongArrayElements(jtransaction_ids, body, 0);
+
+    jobject jwaiting_transactions = env->CallObjectMethod(jtransaction,
+      mid, static_cast<jlong>(column_family_id), jkey, jtransaction_ids);
+    if(env->ExceptionCheck()) {
+      // exception thrown: InstantiationException or OutOfMemoryError
+      env->DeleteLocalRef(jkey);
+      env->DeleteLocalRef(jtransaction_ids);
+      return nullptr;
+    }
+
+    return jwaiting_transactions;
   }
 };
 
