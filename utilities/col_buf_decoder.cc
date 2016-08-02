@@ -14,18 +14,18 @@ ColBufDecoder::~ColBufDecoder() {}
 
 namespace {
 
-inline uint64_t EncodeFixed64WithEndian(uint64_t val, bool big_endian) {
+inline uint64_t EncodeFixed64WithEndian(uint64_t val, bool big_endian,
+                                        size_t size) {
   if (big_endian && port::kLittleEndian) {
-    val = le64toh(val);
-    val = htobe64(val);
+    val = EndianTransform(val, size);
   } else if (!big_endian && !port::kLittleEndian) {
-    val = be64toh(val);
-    val = htole64(val);
+    val = EndianTransform(val, size);
   }
   return val;
 }
 
 }  // namespace
+
 ColBufDecoder* ColBufDecoder::NewColBufDecoder(
     const ColDeclaration& col_declaration) {
   if (col_declaration.col_type == "FixedLength") {
@@ -73,7 +73,7 @@ size_t FixedLengthColBufDecoder::Init(const char* src) {
       // Bypass limit
       ReadVarint64(&src, &dict_key);
 
-      dict_key = EncodeFixed64WithEndian(dict_key, big_endian_);
+      dict_key = EncodeFixed64WithEndian(dict_key, big_endian_, size_);
       dict_vec_.push_back(dict_key);
     }
   }
@@ -111,7 +111,7 @@ size_t FixedLengthColBufDecoder::Decode(const char* src, char** dest) {
 
       if (col_compression_type_ != kColRleDeltaVarint &&
           col_compression_type_ != kColRleDict) {
-        run_val_ = EncodeFixed64WithEndian(run_val_, big_endian_);
+        run_val_ = EncodeFixed64WithEndian(run_val_, big_endian_, size_);
       }
     }
     read_val = run_val_;
@@ -127,7 +127,7 @@ size_t FixedLengthColBufDecoder::Decode(const char* src, char** dest) {
     }
     if (col_compression_type_ != kColDeltaVarint &&
         col_compression_type_ != kColDict) {
-      read_val = EncodeFixed64WithEndian(read_val, big_endian_);
+      read_val = EncodeFixed64WithEndian(read_val, big_endian_, size_);
     }
   }
 
@@ -141,7 +141,7 @@ size_t FixedLengthColBufDecoder::Decode(const char* src, char** dest) {
     write_val = last_val_ + delta;
 
     uint64_t tmp = write_val;
-    write_val = EncodeFixed64WithEndian(write_val, big_endian_);
+    write_val = EncodeFixed64WithEndian(write_val, big_endian_, size_);
     last_val_ = tmp;
   } else if (col_compression_type_ == kColRleDict ||
              col_compression_type_ == kColDict) {

@@ -20,135 +20,196 @@ class ColumnAwareEncodingTest : public testing::Test {
   ~ColumnAwareEncodingTest() {}
 };
 
-TEST_F(ColumnAwareEncodingTest, NoCompressionEncodeDecode) {
+class ColumnAwareEncodingTestWithSize
+    : public ColumnAwareEncodingTest,
+      public testing::WithParamInterface<size_t> {
+ public:
+  ColumnAwareEncodingTestWithSize() {}
+
+  ~ColumnAwareEncodingTestWithSize() {}
+
+  static std::vector<size_t> GetValues() { return {4, 8}; }
+};
+
+INSTANTIATE_TEST_CASE_P(
+    ColumnAwareEncodingTestWithSize, ColumnAwareEncodingTestWithSize,
+    ::testing::ValuesIn(ColumnAwareEncodingTestWithSize::GetValues()));
+
+TEST_P(ColumnAwareEncodingTestWithSize, NoCompressionEncodeDecode) {
+  size_t col_size = GetParam();
   std::unique_ptr<ColBufEncoder> col_buf_encoder(
-      new FixedLengthColBufEncoder(8, kColNoCompression, false, true));
+      new FixedLengthColBufEncoder(col_size, kColNoCompression, false, true));
   std::string str_buf;
-  uint64_t val = 0x0102030405060708;
-  for (int i = 0; i < 4; ++i) {
-    str_buf.append(reinterpret_cast<char*>(&val), 8);
+  uint64_t base_val = 0x0102030405060708;
+  uint64_t val = 0;
+  memcpy(&val, &base_val, col_size);
+  const int row_count = 4;
+  for (int i = 0; i < row_count; ++i) {
+    str_buf.append(reinterpret_cast<char*>(&val), col_size);
   }
   const char* str_buf_ptr = str_buf.c_str();
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < row_count; ++i) {
     col_buf_encoder->Append(str_buf_ptr);
   }
   col_buf_encoder->Finish();
   const std::string& encoded_data = col_buf_encoder->GetData();
-  ASSERT_EQ(encoded_data.size(), 32);
+  // Check correctness of encoded string length
+  ASSERT_EQ(row_count * col_size, encoded_data.size());
 
   const char* encoded_data_ptr = encoded_data.c_str();
-  uint64_t encoded_val;
-  for (int i = 0; i < 4; ++i) {
-    memcpy(&encoded_val, encoded_data_ptr, 8);
-    ASSERT_EQ(encoded_val, 0x0807060504030201);
-    encoded_data_ptr += 8;
+  uint64_t expected_encoded_val;
+  if (col_size == 8) {
+    expected_encoded_val = 0x0807060504030201;
+  } else if (col_size == 4) {
+    expected_encoded_val = 0x08070605;
+  }
+  uint64_t encoded_val = 0;
+  for (int i = 0; i < row_count; ++i) {
+    memcpy(&encoded_val, encoded_data_ptr, col_size);
+    // Check correctness of encoded value
+    ASSERT_EQ(expected_encoded_val, encoded_val);
+    encoded_data_ptr += col_size;
   }
 
   std::unique_ptr<ColBufDecoder> col_buf_decoder(
-      new FixedLengthColBufDecoder(8, kColNoCompression, false, true));
+      new FixedLengthColBufDecoder(col_size, kColNoCompression, false, true));
   encoded_data_ptr = encoded_data.c_str();
   encoded_data_ptr += col_buf_decoder->Init(encoded_data_ptr);
   char* decoded_data = new char[100];
   char* decoded_data_base = decoded_data;
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < row_count; ++i) {
     encoded_data_ptr +=
         col_buf_decoder->Decode(encoded_data_ptr, &decoded_data);
   }
 
-  ASSERT_EQ(4 * 8, decoded_data - decoded_data_base);
+  // Check correctness of decoded string length
+  ASSERT_EQ(row_count * col_size, decoded_data - decoded_data_base);
   decoded_data = decoded_data_base;
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < row_count; ++i) {
     uint64_t decoded_val;
     decoded_val = 0;
-    memcpy(&decoded_val, decoded_data, 8);
-    ASSERT_EQ(decoded_val, val);
-    decoded_data += 8;
+    memcpy(&decoded_val, decoded_data, col_size);
+    // Check correctness of decoded value
+    ASSERT_EQ(val, decoded_val);
+    decoded_data += col_size;
   }
   delete[] decoded_data_base;
 }
 
-TEST_F(ColumnAwareEncodingTest, RleEncodeDecode) {
+TEST_P(ColumnAwareEncodingTestWithSize, RleEncodeDecode) {
+  size_t col_size = GetParam();
   std::unique_ptr<ColBufEncoder> col_buf_encoder(
-      new FixedLengthColBufEncoder(8, kColRle, false, true));
+      new FixedLengthColBufEncoder(col_size, kColRle, false, true));
   std::string str_buf;
-  uint64_t val = 0x0102030405060708;
-  for (int i = 0; i < 4; ++i) {
-    str_buf.append(reinterpret_cast<char*>(&val), 8);
+  uint64_t base_val = 0x0102030405060708;
+  uint64_t val = 0;
+  memcpy(&val, &base_val, col_size);
+  const int row_count = 4;
+  for (int i = 0; i < row_count; ++i) {
+    str_buf.append(reinterpret_cast<char*>(&val), col_size);
   }
   const char* str_buf_ptr = str_buf.c_str();
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < row_count; ++i) {
     str_buf_ptr += col_buf_encoder->Append(str_buf_ptr);
   }
   col_buf_encoder->Finish();
   const std::string& encoded_data = col_buf_encoder->GetData();
-  ASSERT_EQ(encoded_data.size(), 9);
+  // Check correctness of encoded string length
+  ASSERT_EQ(col_size + 1, encoded_data.size());
 
   const char* encoded_data_ptr = encoded_data.c_str();
-  uint64_t encoded_val;
-  memcpy(&encoded_val, encoded_data_ptr, 8);
-  ASSERT_EQ(encoded_val, 0x0807060504030201);
+  uint64_t encoded_val = 0;
+  memcpy(&encoded_val, encoded_data_ptr, col_size);
+  uint64_t expected_encoded_val;
+  if (col_size == 8) {
+    expected_encoded_val = 0x0807060504030201;
+  } else if (col_size == 4) {
+    expected_encoded_val = 0x08070605;
+  }
+  // Check correctness of encoded value
+  ASSERT_EQ(expected_encoded_val, encoded_val);
 
   std::unique_ptr<ColBufDecoder> col_buf_decoder(
-      new FixedLengthColBufDecoder(8, kColRle, false, true));
+      new FixedLengthColBufDecoder(col_size, kColRle, false, true));
   char* decoded_data = new char[100];
   char* decoded_data_base = decoded_data;
   encoded_data_ptr += col_buf_decoder->Init(encoded_data_ptr);
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < row_count; ++i) {
     encoded_data_ptr +=
         col_buf_decoder->Decode(encoded_data_ptr, &decoded_data);
   }
-  ASSERT_EQ(4 * 8, decoded_data - decoded_data_base);
+  // Check correctness of decoded string length
+  ASSERT_EQ(decoded_data - decoded_data_base, row_count * col_size);
   decoded_data = decoded_data_base;
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < row_count; ++i) {
     uint64_t decoded_val;
     decoded_val = 0;
-    memcpy(&decoded_val, decoded_data, 8);
-    ASSERT_EQ(decoded_val, val);
-    decoded_data += 8;
+    memcpy(&decoded_val, decoded_data, col_size);
+    // Check correctness of decoded value
+    ASSERT_EQ(val, decoded_val);
+    decoded_data += col_size;
   }
   delete[] decoded_data_base;
 }
 
-TEST_F(ColumnAwareEncodingTest, DeltaEncodeDecode) {
+TEST_P(ColumnAwareEncodingTestWithSize, DeltaEncodeDecode) {
+  size_t col_size = GetParam();
+  int row_count = 4;
   std::unique_ptr<ColBufEncoder> col_buf_encoder(
-      new FixedLengthColBufEncoder(8, kColDeltaVarint, false, true));
+      new FixedLengthColBufEncoder(col_size, kColDeltaVarint, false, true));
   std::string str_buf;
-  uint64_t val = 0x0102030405060708;
-  uint64_t val2 = 0x0202030405060708;
+  uint64_t base_val1 = 0x0102030405060708;
+  uint64_t base_val2 = 0x0202030405060708;
+  uint64_t val1 = 0, val2 = 0;
+  memcpy(&val1, &base_val1, col_size);
+  memcpy(&val2, &base_val2, col_size);
   const char* str_buf_ptr;
-  for (int i = 0; i < 2; ++i) {
-    str_buf = std::string(reinterpret_cast<char*>(&val), 8);
+  for (int i = 0; i < row_count / 2; ++i) {
+    str_buf = std::string(reinterpret_cast<char*>(&val1), col_size);
     str_buf_ptr = str_buf.c_str();
     col_buf_encoder->Append(str_buf_ptr);
 
-    str_buf = std::string(reinterpret_cast<char*>(&val2), 8);
+    str_buf = std::string(reinterpret_cast<char*>(&val2), col_size);
     str_buf_ptr = str_buf.c_str();
     col_buf_encoder->Append(str_buf_ptr);
   }
   col_buf_encoder->Finish();
   const std::string& encoded_data = col_buf_encoder->GetData();
-  ASSERT_EQ(encoded_data.size(), 9 + 3);
+  // Check encoded string length
+  int varint_len = 0;
+  if (col_size == 8) {
+    varint_len = 9;
+  } else if (col_size == 4) {
+    varint_len = 5;
+  }
+  // Check encoded string length: first value is original one (val - 0), the
+  // coming three are encoded as 1, -1, 1, so they should take 1 byte in varint.
+  ASSERT_EQ(varint_len + 3 * 1, encoded_data.size());
 
   std::unique_ptr<ColBufDecoder> col_buf_decoder(
-      new FixedLengthColBufDecoder(8, kColDeltaVarint, false, true));
+      new FixedLengthColBufDecoder(col_size, kColDeltaVarint, false, true));
   char* decoded_data = new char[100];
   char* decoded_data_base = decoded_data;
   const char* encoded_data_ptr = encoded_data.c_str();
   encoded_data_ptr += col_buf_decoder->Init(encoded_data_ptr);
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < row_count; ++i) {
     encoded_data_ptr +=
         col_buf_decoder->Decode(encoded_data_ptr, &decoded_data);
   }
-  ASSERT_EQ(4 * 8, decoded_data - decoded_data_base);
+
+  // Check correctness of decoded string length
+  ASSERT_EQ(row_count * col_size, decoded_data - decoded_data_base);
   decoded_data = decoded_data_base;
-  for (int i = 0; i < 2; ++i) {
-    uint64_t decoded_val;
-    memcpy(&decoded_val, decoded_data, 8);
-    ASSERT_EQ(decoded_val, val);
-    decoded_data += 8;
-    memcpy(&decoded_val, decoded_data, 8);
-    ASSERT_EQ(decoded_val, val2);
-    decoded_data += 8;
+
+  // Check correctness of decoded data
+  for (int i = 0; i < row_count / 2; ++i) {
+    uint64_t decoded_val = 0;
+    memcpy(&decoded_val, decoded_data, col_size);
+    ASSERT_EQ(val1, decoded_val);
+    decoded_data += col_size;
+    memcpy(&decoded_val, decoded_data, col_size);
+    ASSERT_EQ(val2, decoded_val);
+    decoded_data += col_size;
   }
   delete[] decoded_data_base;
 }

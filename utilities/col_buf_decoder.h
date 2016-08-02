@@ -4,7 +4,6 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 
 #pragma once
-#include <endian.h>
 #include <cstdio>
 #include <cstring>
 #include <memory>

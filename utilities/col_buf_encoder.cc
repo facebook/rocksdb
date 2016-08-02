@@ -14,13 +14,12 @@ ColBufEncoder::~ColBufEncoder() {}
 
 namespace {
 
-inline uint64_t DecodeFixed64WithEndian(uint64_t val, bool big_endian) {
+inline uint64_t DecodeFixed64WithEndian(uint64_t val, bool big_endian,
+                                        size_t size) {
   if (big_endian && port::kLittleEndian) {
-    val = be64toh(val);
-    val = htole64(val);
+    val = EndianTransform(val, size);
   } else if (!big_endian && !port::kLittleEndian) {
-    val = le64toh(val);
-    val = htobe64(val);
+    val = EndianTransform(val, size);
   }
   return val;
 }
@@ -58,9 +57,7 @@ size_t FixedLengthColBufEncoder::Append(const char *buf) {
   }
   uint64_t read_val = 0;
   memcpy(&read_val, buf, size_);
-  if (big_endian_) {
-    read_val = DecodeFixed64WithEndian(read_val, big_endian_);
-  }
+  read_val = DecodeFixed64WithEndian(read_val, big_endian_, size_);
 
   // Determine write value
   uint64_t write_val = read_val;
