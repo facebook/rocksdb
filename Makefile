@@ -624,7 +624,7 @@ check_0:
 	} \
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | build_tools/gnu_parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 
 .PHONY: valgrind_check_0
 valgrind_check_0:
@@ -639,7 +639,7 @@ valgrind_check_0:
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
-	  | build_tools/gnu_parallel -j$(J) --joblog=LOG $$eta --gnu \
+	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
       'if [[ "{}" == "./"* ]] ; then $(DRIVER) {} >& t/valgrind_log-{/}; ' \
       'else {} >& t/valgrind_log-{/}; fi'
 
@@ -742,10 +742,10 @@ parloop:
 	for t in $(PAR_TEST); do		\
 		echo "===== Running $$t in parallel $(NUM_PAR)";\
 		if [ $(db_test) -eq 1 ]; then \
-			seq $(J) | v="$$t" build_tools/gnu_parallel --gnu 's=$(TMPD)/rdb-{};  export TEST_TMPDIR=$$s;' \
+			seq $(J) | v="$$t" build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{};  export TEST_TMPDIR=$$s;' \
 				'timeout 2m ./db_test --gtest_filter=$$v >> $$s/log-{} 2>1'; \
 		else\
-			seq $(J) | v="./$$t" build_tools/gnu_parallel --gnu 's=$(TMPD)/rdb-{};' \
+			seq $(J) | v="./$$t" build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{};' \
 			     'export TEST_TMPDIR=$$s; timeout 10m $$v >> $$s/log-{} 2>1'; \
 		fi; \
 		ret_code=$$?; \
@@ -776,7 +776,7 @@ parallel_check: $(TESTS)
 	ret_bad=0;							\
 	echo $(J);\
 	echo Test Dir: $(TMPD); \
-        seq $(J) | build_tools/gnu_parallel --gnu 's=$(TMPD)/rdb-{}; rm -rf $$s; mkdir $$s'; \
+        seq $(J) | build_tools/gnu_parallel --gnu --plain 's=$(TMPD)/rdb-{}; rm -rf $$s; mkdir $$s'; \
 	$(MAKE)  PAR_TEST="$(shell $(test_names))" TMPD=$(TMPD) \
 		J=$(J) db_test=1 parloop; \
 	$(MAKE) PAR_TEST="$(filter-out db_test, $(TESTS))" \
