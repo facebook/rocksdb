@@ -229,7 +229,7 @@ size_t VariableChunkColBufDecoder::Decode(const char* src, char** dest) {
     }
     memcpy(*dest, reinterpret_cast<char*>(&chunk_buf), 8);
     *dest += 8;
-    uint8_t mask = 0xFF - 8 + chunk_size;
+    uint8_t mask = ((0xFF - 8) + chunk_size) & 0xFF;
     memcpy(*dest, reinterpret_cast<char*>(&mask), 1);
     *dest += 1;
   }

@@ -4,7 +4,10 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
 
+#ifndef  OS_WIN
 #include <unistd.h>
+#endif // ! OS_WIN
+
 #include <list>
 #include <memory>
 #include <set>
@@ -22,7 +25,7 @@
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
 #include "db/skiplist.h"
-#include "port/port_posix.h"
+#include "port/port.h"
 #include "util/arena.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -65,7 +68,11 @@ class BlockCacheTier : public PersistentCacheTier {
 
   void TEST_Flush() override {
     while (insert_ops_.Size()) {
+#ifdef OS_WIN
+      Sleep(1000);
+#else
       /* sleep override */ sleep(1);
+#endif
     }
   }
 

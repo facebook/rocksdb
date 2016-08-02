@@ -19,7 +19,7 @@
 #include "utilities/persistent_cache/persistent_cache_tier.h"
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
-#include "port/port_posix.h"
+#include "port/port.h"
 #include "util/crc32c.h"
 #include "util/mutexlock.h"
 
@@ -200,7 +200,7 @@ class WriteableCacheFile : public RandomAccessCacheFile {
   }
 
   // append data to end of file
-  bool Append(const Slice&, const Slice&, LBA*) override;
+  bool Append(const Slice&, const Slice&, LBA* const) override;
   // End-of-file
   bool Eof() const { return eof_; }
 
