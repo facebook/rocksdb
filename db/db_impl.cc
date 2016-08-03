@@ -2358,20 +2358,6 @@ void DBImpl::NotifyOnCompactionCompleted(
 #endif  // ROCKSDB_LITE
 }
 
-bool DBImpl::NeedFlushOrCompaction(const MutableCFOptions& base_options,
-                                   const MutableCFOptions& new_options) {
-  return (base_options.disable_auto_compactions &&
-          !new_options.disable_auto_compactions) ||
-         base_options.level0_slowdown_writes_trigger <
-             new_options.level0_slowdown_writes_trigger ||
-         base_options.level0_stop_writes_trigger <
-             new_options.level0_stop_writes_trigger ||
-         base_options.soft_pending_compaction_bytes_limit <
-             new_options.soft_pending_compaction_bytes_limit ||
-         base_options.hard_pending_compaction_bytes_limit <
-             new_options.hard_pending_compaction_bytes_limit;
-}
-
 Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {
 #ifdef ROCKSDB_LITE
@@ -2385,7 +2371,6 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     return Status::InvalidArgument("empty input");
   }
 
-  MutableCFOptions prev_options = *cfd->GetLatestMutableCFOptions();
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
@@ -2394,14 +2379,12 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     s = cfd->SetOptions(options_map);
     if (s.ok()) {
       new_options = *cfd->GetLatestMutableCFOptions();
-      if (NeedFlushOrCompaction(prev_options, new_options)) {
-        // Trigger possible flush/compactions. This has to be before we persist
-        // options to file, otherwise there will be a deadlock with writer
-        // thread.
-        auto* old_sv =
-            InstallSuperVersionAndScheduleWork(cfd, nullptr, new_options);
-        delete old_sv;
-      }
+      // Trigger possible flush/compactions. This has to be before we persist
+      // options to file, otherwise there will be a deadlock with writer
+      // thread.
+      auto* old_sv =
+          InstallSuperVersionAndScheduleWork(cfd, nullptr, new_options);
+      delete old_sv;
 
       // Persist RocksDB options under the single write thread
       WriteThread::Writer w;
@@ -3343,7 +3326,9 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
       // NOTE: try to avoid unnecessary copy of MutableCFOptions if
       // compaction is not necessary. Need to make sure mutex is held
       // until we make a copy in the following code
+      TEST_SYNC_POINT("DBImpl::BackgroundCompaction():BeforePickCompaction");
       c.reset(cfd->PickCompaction(*mutable_cf_options, log_buffer));
+      TEST_SYNC_POINT("DBImpl::BackgroundCompaction():AfterPickCompaction");
       if (c != nullptr) {
         // update statistics
         MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,
