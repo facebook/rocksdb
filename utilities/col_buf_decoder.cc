@@ -62,14 +62,14 @@ size_t FixedLengthColBufDecoder::Init(const char* src) {
   if (col_compression_type_ == kColDict ||
       col_compression_type_ == kColRleDict) {
     const char* q;
-    size_t dict_size;
+    uint64_t dict_size;
     // Bypass limit
     q = GetVarint64Ptr(src, src + 10, &dict_size);
     assert(q != nullptr);
     src = q;
 
     uint64_t dict_key;
-    for (size_t i = 0; i < dict_size; ++i) {
+    for (uint64_t i = 0; i < dict_size; ++i) {
       // Bypass limit
       ReadVarint64(&src, &dict_key);
 
@@ -145,7 +145,7 @@ size_t FixedLengthColBufDecoder::Decode(const char* src, char** dest) {
     last_val_ = tmp;
   } else if (col_compression_type_ == kColRleDict ||
              col_compression_type_ == kColDict) {
-    size_t dict_val = read_val;
+    uint64_t dict_val = read_val;
     assert(dict_val < dict_vec_.size());
     write_val = dict_vec_[dict_val];
   }
@@ -190,14 +190,14 @@ size_t VariableChunkColBufDecoder::Init(const char* src) {
   const char* orig_src = src;
   if (col_compression_type_ == kColDict) {
     const char* q;
-    size_t dict_size;
+    uint64_t dict_size;
     // Bypass limit
     q = GetVarint64Ptr(src, src + 10, &dict_size);
     assert(q != nullptr);
     src = q;
 
     uint64_t dict_key;
-    for (size_t i = 0; i < dict_size; ++i) {
+    for (uint64_t i = 0; i < dict_size; ++i) {
       // Bypass limit
       ReadVarint64(&src, &dict_key);
       dict_vec_.push_back(dict_key);
@@ -219,7 +219,7 @@ size_t VariableChunkColBufDecoder::Decode(const char* src, char** dest) {
       chunk_size = size % 8;
     }
     if (col_compression_type_ == kColDict) {
-      size_t dict_val;
+      uint64_t dict_val;
       ReadVarint64(&src, &dict_val);
       assert(dict_val < dict_vec_.size());
       chunk_buf = dict_vec_[dict_val];

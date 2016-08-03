@@ -3,12 +3,17 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <cstdio>
 
 #ifndef ROCKSDB_LITE
 #ifdef GFLAGS
 
 #include <gflags/gflags.h>
+#include <inttypes.h>
 #include <vector>
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
@@ -106,10 +111,10 @@ class ColumnAwareEncodingExp {
       if (encoded_out_file != nullptr) {
         uint64_t size = 0;
         env->GetFileSize(FLAGS_encoded_file, &size);
-        fprintf(stdout, "File size: %llu\n", size);
+        fprintf(stdout, "File size: %" PRIu64 "\n", size);
       }
       uint64_t encode_time = sw.ElapsedNanosSafe(false /* reset */);
-      fprintf(stdout, "Encode time:%llu\n", encode_time);
+      fprintf(stdout, "Encode time: %" PRIu64 "\n", encode_time);
       if (decode) {
         unique_ptr<WritableFile> decoded_out_file;
         if (!FLAGS_decoded_file.empty()) {
@@ -124,7 +129,7 @@ class ColumnAwareEncodingExp {
                                            &encoded_blocks);
         }
         uint64_t decode_time = sw.ElapsedNanosSafe(true /* reset */);
-        fprintf(stdout, "Decode time:%llu\n", decode_time);
+        fprintf(stdout, "Decode time: %" PRIu64 "\n", decode_time);
       }
     } else {
       fprintf(stdout, "Unsupported compression type: %s.\n",

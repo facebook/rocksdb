@@ -176,7 +176,7 @@ size_t VariableChunkColBufEncoder::Append(const char *buf) {
     int8_t chunk_size = 8 - (0xFF - mark);
     if (col_compression_type_ == kColDict) {
       auto iter = dictionary_.find(val);
-      size_t dict_val;
+      uint64_t dict_val;
       if (iter == dictionary_.end()) {
         dict_val = dictionary_.size();
         dictionary_.insert(std::make_pair(val, dict_val));
