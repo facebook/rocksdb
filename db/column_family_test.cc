@@ -2413,6 +2413,7 @@ TEST_F(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   mutable_cf_options.level0_stop_writes_trigger = 10000;
   mutable_cf_options.soft_pending_compaction_bytes_limit = 200;
   mutable_cf_options.hard_pending_compaction_bytes_limit = 2000;
+  mutable_cf_options.disable_auto_compactions = false;
 
   vstorage->TEST_set_estimated_compaction_needed_bytes(50);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
@@ -2559,16 +2560,17 @@ TEST_F(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   vstorage->set_l0_delay_trigger_count(50);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().IsStopped());
-  ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
   ASSERT_EQ(kBaseRate, dbfull()->TEST_write_controler().delayed_write_rate());
 
   vstorage->set_l0_delay_trigger_count(60);
   vstorage->TEST_set_estimated_compaction_needed_bytes(300);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().IsStopped());
-  ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
+  ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
   ASSERT_EQ(kBaseRate, dbfull()->TEST_write_controler().delayed_write_rate());
 
+  mutable_cf_options.disable_auto_compactions = false;
   vstorage->set_l0_delay_trigger_count(70);
   vstorage->TEST_set_estimated_compaction_needed_bytes(500);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
@@ -2576,7 +2578,6 @@ TEST_F(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
   ASSERT_EQ(kBaseRate, dbfull()->TEST_write_controler().delayed_write_rate());
 
-  mutable_cf_options.disable_auto_compactions = false;
   vstorage->set_l0_delay_trigger_count(71);
   vstorage->TEST_set_estimated_compaction_needed_bytes(501);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
