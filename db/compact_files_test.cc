@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/string_util.h"
@@ -144,6 +145,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   auto l0_files = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1));
+  reinterpret_cast<DBImpl*>(db)->TEST_WaitForCompact();
 
   // verify all compaction input files are deleted
   for (auto fname : l0_files) {
