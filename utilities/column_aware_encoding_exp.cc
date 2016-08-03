@@ -106,10 +106,10 @@ class ColumnAwareEncodingExp {
       if (encoded_out_file != nullptr) {
         uint64_t size = 0;
         env->GetFileSize(FLAGS_encoded_file, &size);
-        fprintf(stdout, "File size: %lu\n", size);
+        fprintf(stdout, "File size: %llu\n", size);
       }
       uint64_t encode_time = sw.ElapsedNanosSafe(false /* reset */);
-      fprintf(stdout, "Encode time:%lu\n", encode_time);
+      fprintf(stdout, "Encode time:%llu\n", encode_time);
       if (decode) {
         unique_ptr<WritableFile> decoded_out_file;
         if (!FLAGS_decoded_file.empty()) {
@@ -124,7 +124,7 @@ class ColumnAwareEncodingExp {
                                            &encoded_blocks);
         }
         uint64_t decode_time = sw.ElapsedNanosSafe(true /* reset */);
-        fprintf(stdout, "Decode time:%lu\n", decode_time);
+        fprintf(stdout, "Decode time:%llu\n", decode_time);
       }
     } else {
       fprintf(stdout, "Unsupported compression type: %s.\n",

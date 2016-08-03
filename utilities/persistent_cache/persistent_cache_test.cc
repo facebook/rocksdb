@@ -78,7 +78,7 @@ std::unique_ptr<PersistentCacheTier> NewBlockCache(
     Env* env, const std::string& path,
     const uint64_t max_size = std::numeric_limits<uint64_t>::max(),
     const bool enable_direct_writes = false) {
-  const uint32_t max_file_size = 12 * 1024 * 1024 * kStressFactor;
+  const uint32_t max_file_size = static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
   auto log = std::make_shared<ConsoleLogger>();
   PersistentCacheConfig opt(env, path, max_size, log);
   opt.cache_file_size = max_file_size;
@@ -95,7 +95,7 @@ std::unique_ptr<PersistentTieredCache> NewTieredCache(
     Env* env, const std::string& path, const uint64_t max_volatile_cache_size,
     const uint64_t max_block_cache_size =
         std::numeric_limits<uint64_t>::max()) {
-  const uint32_t max_file_size = 12 * 1024 * 1024 * kStressFactor;
+  const uint32_t max_file_size = static_cast<uint32_t>(12 * 1024 * 1024 * kStressFactor);
   auto log = std::make_shared<ConsoleLogger>();
   auto opt = PersistentCacheConfig(env, path, max_block_cache_size, log);
   opt.cache_file_size = max_file_size;
@@ -122,7 +122,7 @@ TEST_F(PersistentCacheTierTest, VolatileCacheInsert) {
     for (auto max_keys :
          {10 * 1024 * kStressFactor, 1 * 1024 * 1024 * kStressFactor}) {
       cache_ = std::make_shared<VolatileCacheTier>();
-      RunInsertTest(nthreads, max_keys);
+      RunInsertTest(nthreads, static_cast<size_t>(max_keys));
     }
   }
 }
@@ -131,8 +131,8 @@ TEST_F(PersistentCacheTierTest, VolatileCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
       cache_ = std::make_shared<VolatileCacheTier>(
-          /*compressed=*/true, /*size=*/1 * 1024 * 1024 * kStressFactor);
-      RunInsertTestWithEviction(nthreads, max_keys);
+          /*compressed=*/true, /*size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
+      RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
 }
@@ -146,7 +146,7 @@ TEST_F(PersistentCacheTierTest, BlockCacheInsert) {
         cache_ = NewBlockCache(Env::Default(), path_,
                                /*size=*/std::numeric_limits<uint64_t>::max(),
                                direct_writes);
-        RunInsertTest(nthreads, max_keys);
+        RunInsertTest(nthreads, static_cast<size_t>(max_keys));
       }
     }
   }
@@ -156,8 +156,8 @@ TEST_F(PersistentCacheTierTest, BlockCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
       cache_ = NewBlockCache(Env::Default(), path_,
-                             /*max_size=*/200 * 1024 * 1024 * kStressFactor);
-      RunInsertTestWithEviction(nthreads, max_keys);
+                             /*max_size=*/static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
+      RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
 }
@@ -168,8 +168,8 @@ TEST_F(PersistentCacheTierTest, TieredCacheInsert) {
     for (auto max_keys :
          {10 * 1024 * kStressFactor, 1 * 1024 * 1024 * kStressFactor}) {
       cache_ = NewTieredCache(Env::Default(), path_,
-                              /*memory_size=*/1 * 1024 * 1024 * kStressFactor);
-      RunInsertTest(nthreads, max_keys);
+                              /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor));
+      RunInsertTest(nthreads, static_cast<size_t>(max_keys));
     }
   }
 }
@@ -179,9 +179,9 @@ TEST_F(PersistentCacheTierTest, TieredCacheInsertWithEviction) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
       cache_ = NewTieredCache(
           Env::Default(), path_,
-          /*memory_size=*/1 * 1024 * 1024 * kStressFactor,
-          /*block_cache_size*/ 200 * 1024 * 1024 * kStressFactor);
-      RunInsertTestWithEviction(nthreads, max_keys);
+          /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024 * kStressFactor),
+          /*block_cache_size*/ static_cast<size_t>(200 * 1024 * 1024 * kStressFactor));
+      RunInsertTestWithEviction(nthreads, static_cast<size_t>(max_keys));
     }
   }
 }
@@ -198,7 +198,7 @@ std::shared_ptr<PersistentCacheTier> MakeBlockCache(const std::string& dbname) {
 std::shared_ptr<PersistentCacheTier> MakeTieredCache(
     const std::string& dbname) {
   const auto memory_size = 1 * 1024 * 1024 * kStressFactor;
-  return NewTieredCache(Env::Default(), dbname, memory_size);
+  return NewTieredCache(Env::Default(), dbname, static_cast<size_t>(memory_size));
 }
 
 #ifdef OS_LINUX
@@ -233,12 +233,12 @@ void PersistentCacheDBTest::RunTest(
   }
 
   // number of insertion interations
-  int num_iter = 100 * 1024 * kStressFactor;
+  int num_iter = static_cast<int>(100 * 1024 * kStressFactor);
 
   for (int iter = 0; iter < 5; iter++) {
     Options options;
     options.write_buffer_size =
-        64 * 1024 * kStressFactor;  // small write buffer
+      static_cast<size_t>(64 * 1024 * kStressFactor);  // small write buffer
     options.statistics = rocksdb::CreateDBStatistics();
     options = CurrentOptions(options);
 

@@ -6,7 +6,9 @@
 
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
+#ifndef OS_WIN
 #include <unistd.h>
+#endif
 #include <memory>
 #include <vector>
 
@@ -353,7 +355,7 @@ bool WriteableCacheFile::ExpandBuffer(const size_t size) {
       return false;
     }
 
-    size_ += buf->Free();
+    size_ += static_cast<uint32_t>(buf->Free());
     free += buf->Free();
     bufs_.push_back(buf);
   }
@@ -550,7 +552,8 @@ void ThreadedWriter::ThreadMain() {
     while (!cache_->Reserve(io.buf_->Used())) {
       // We can fail to reserve space if every file in the system
       // is being currently accessed
-      /* sleep override */ sleep(1);
+      /* sleep override */
+      Env::Default()->SleepForMicroseconds(1000000);
     }
 
     DispatchIO(io);
