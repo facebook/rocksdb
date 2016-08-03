@@ -68,11 +68,8 @@ class BlockCacheTier : public PersistentCacheTier {
 
   void TEST_Flush() override {
     while (insert_ops_.Size()) {
-#ifdef OS_WIN
-      Sleep(1000);
-#else
-      /* sleep override */ sleep(1);
-#endif
+      /* sleep override */
+      Env::Default()->SleepForMicroseconds(1000000);
     }
   }
 
