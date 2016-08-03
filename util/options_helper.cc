@@ -34,23 +34,34 @@ bool isSpecialChar(const char c) {
   return false;
 }
 
-char UnescapeChar(const char c) {
-  static const std::unordered_map<char, char> convert_map = {{'r', '\r'},
-                                                             {'n', '\n'}};
+namespace {
+  using
+  CharMap = std::pair<char, char>;
+}
 
-  auto iter = convert_map.find(c);
-  if (iter == convert_map.end()) {
+char UnescapeChar(const char c) {
+  static const CharMap convert_map[]  = {{'r', '\r'},
+                                        {'n', '\n'}};
+
+  auto iter = std::find_if(std::begin(convert_map),
+    std::end(convert_map),
+    [c](const CharMap& p) { return p.first == c; });
+
+  if (iter == std::end(convert_map)) {
     return c;
   }
   return iter->second;
 }
 
 char EscapeChar(const char c) {
-  static const std::unordered_map<char, char> convert_map = {{'\n', 'n'},
-                                                             {'\r', 'r'}};
+  static const CharMap convert_map[] = {{'\n', 'n'},
+                                       {'\r', 'r'}};
 
-  auto iter = convert_map.find(c);
-  if (iter == convert_map.end()) {
+  auto iter = std::find_if(std::begin(convert_map),
+    std::end(convert_map),
+    [c](const CharMap& p) { return p.first == c; });
+
+  if (iter == std::end(convert_map)) {
     return c;
   }
   return iter->second;
