@@ -19,8 +19,7 @@
 #
 # The PLATFORM_CCFLAGS and PLATFORM_CXXFLAGS might include the following:
 #
-#       -DLEVELDB_PLATFORM_POSIX if cstdatomic is present
-#       -DLEVELDB_PLATFORM_NOATOMIC if it is not
+#       -DROCKSDB_PLATFORM_POSIX    if posix-platform based
 #       -DSNAPPY                    if the Snappy library is present
 #       -DLZ4                       if the LZ4 library is present
 #       -DZSTD                      if the ZSTD library is present
@@ -170,7 +169,7 @@ case "$TARGET_OS" in
         ;;
     OS_ANDROID_CROSSCOMPILE)
         PLATFORM=OS_ANDROID
-	COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_ANDROID -DLEVELDB_PLATFORM_POSIX"
+	COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_ANDROID -DROCKSDB_PLATFORM_POSIX"
 	PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS "  # All pthread features are in the Android C library
         # PORT_FILES=port/android/android.cc
         CROSS_COMPILE=true
