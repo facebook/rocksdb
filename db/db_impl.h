@@ -365,6 +365,10 @@ class DBImpl : public DB {
   // compaction status.
   int BGCompactionsAllowed() const;
 
+  // move logs pending closing from job_context to the DB queue and
+  // schedule a purge
+  void ScheduleBgLogWriterClose(JobContext* job_context);
+
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
@@ -493,6 +497,9 @@ class DBImpl : public DB {
 
   void MarkLogAsHavingPrepSectionFlushed(uint64_t log);
   void MarkLogAsContainingPrepSection(uint64_t log);
+  void AddToLogsToFreeQueue(log::Writer* log_writer) {
+    logs_to_free_queue_.push_back(log_writer);
+  }
 
   Status NewDB();
 
@@ -879,6 +886,9 @@ class DBImpl : public DB {
 
   // A queue to store filenames of the files to be purged
   std::deque<PurgeFileInfo> purge_queue_;
+
+  // A queue to store log writers to close
+  std::deque<log::Writer*> logs_to_free_queue_;
   int unscheduled_flushes_;
   int unscheduled_compactions_;
 

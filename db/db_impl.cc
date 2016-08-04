@@ -716,6 +716,16 @@ uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
   return min_log;
 }
 
+void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
+  if (!job_context->logs_to_free.empty()) {
+    for (auto l : job_context->logs_to_free) {
+      AddToLogsToFreeQueue(l);
+    }
+    job_context->logs_to_free.clear();
+    SchedulePurge();
+  }
+}
+
 // * Returns the list of live files in 'sst_live'
 // If it's doing full scan:
 // * Returns the list of all files in the filesystem in
@@ -2988,8 +2998,9 @@ void DBImpl::BGWorkCompaction(void* arg) {
 
 void DBImpl::BGWorkPurge(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
-  TEST_SYNC_POINT("DBImpl::BGWorkPurge");
+  TEST_SYNC_POINT("DBImpl::BGWorkPurge:start");
   reinterpret_cast<DBImpl*>(db)->BackgroundCallPurge();
+  TEST_SYNC_POINT("DBImpl::BGWorkPurge:end");
 }
 
 void DBImpl::UnscheduleCallback(void* arg) {
@@ -3004,20 +3015,32 @@ void DBImpl::UnscheduleCallback(void* arg) {
 void DBImpl::BackgroundCallPurge() {
   mutex_.Lock();
 
-  while (!purge_queue_.empty()) {
-    auto purge_file = purge_queue_.begin();
-    auto fname = purge_file->fname;
-    auto type = purge_file->type;
-    auto number = purge_file->number;
-    auto path_id = purge_file->path_id;
-    auto job_id = purge_file->job_id;
-    purge_queue_.pop_front();
+  // We use one single loop to clear both queues so that after existing the loop
+  // both queues are empty. This is stricter than what is needed, but can make
+  // it easier for us to reason the correctness.
+  while (!purge_queue_.empty() || !logs_to_free_queue_.empty()) {
+    if (!purge_queue_.empty()) {
+      auto purge_file = purge_queue_.begin();
+      auto fname = purge_file->fname;
+      auto type = purge_file->type;
+      auto number = purge_file->number;
+      auto path_id = purge_file->path_id;
+      auto job_id = purge_file->job_id;
+      purge_queue_.pop_front();
 
-    mutex_.Unlock();
-    Status file_deletion_status;
-    DeleteObsoleteFileImpl(file_deletion_status, job_id, fname, type, number,
-                           path_id);
-    mutex_.Lock();
+      mutex_.Unlock();
+      Status file_deletion_status;
+      DeleteObsoleteFileImpl(file_deletion_status, job_id, fname, type, number,
+                             path_id);
+      mutex_.Lock();
+    } else {
+      assert(!logs_to_free_queue_.empty());
+      log::Writer* log_writer = *(logs_to_free_queue_.begin());
+      logs_to_free_queue_.pop_front();
+      mutex_.Unlock();
+      delete log_writer;
+      mutex_.Lock();
+    }
   }
   bg_purge_scheduled_--;
 
@@ -3083,6 +3106,8 @@ void DBImpl::BackgroundCallFlush() {
   bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   assert(bg_flush_scheduled_);
+
+  TEST_SYNC_POINT("DBImpl::BackgroundCallFlush:start");
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
@@ -3655,6 +3680,9 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
     state->mu->Lock();
     state->super_version->Cleanup();
     state->db->FindObsoleteFiles(&job_context, false, true);
+    if (state->background_purge) {
+      state->db->ScheduleBgLogWriterClose(&job_context);
+    }
     state->mu->Unlock();
 
     delete state->super_version;

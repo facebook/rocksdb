@@ -12,7 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "db/column_family.h"
 #include "db/log_writer.h"
 
 namespace rocksdb {

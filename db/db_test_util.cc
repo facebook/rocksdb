@@ -30,6 +30,8 @@ SpecialEnv::SpecialEnv(Env* base)
   manifest_write_error_.store(false, std::memory_order_release);
   log_write_error_.store(false, std::memory_order_release);
   random_file_open_counter_.store(0, std::memory_order_relaxed);
+  delete_count_.store(0, std::memory_order_relaxed);
+  num_open_wal_file_.store(0);
   log_write_slowdown_ = 0;
   bytes_written_ = 0;
   sync_counter_ = 0;
