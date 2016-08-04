@@ -2837,6 +2837,217 @@ TEST_F(ColumnFamilyTest, CompactionSpeedupTwoColumnFamilies) {
   ASSERT_EQ(2, dbfull()->BGCompactionsAllowed());
 }
 
+#ifndef ROCKSDB_LITE
+TEST_F(ColumnFamilyTest, FlushCloseWALFiles) {
+  SpecialEnv env(Env::Default());
+  db_options_.env = &env;
+  db_options_.max_background_flushes = 1;
+  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  Open();
+  CreateColumnFamilies({"one"});
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  ASSERT_OK(Put(0, "fodor", "mirko"));
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+
+  // Block flush jobs from running
+  test::SleepingBackgroundTask sleeping_task;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+
+  WriteOptions wo;
+  wo.sync = true;
+  ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
+
+  ASSERT_EQ(2, env.num_open_wal_file_.load());
+
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+  WaitForFlush(1);
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
+
+  Reopen();
+  ASSERT_EQ("mirko", Get(0, "fodor"));
+  ASSERT_EQ("mirko", Get(1, "fodor"));
+  db_options_.env = env_;
+  Close();
+}
+#endif  // !ROCKSDB_LITE
+
+TEST_F(ColumnFamilyTest, IteratorCloseWALFile1) {
+  SpecialEnv env(Env::Default());
+  db_options_.env = &env;
+  db_options_.max_background_flushes = 1;
+  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  Open();
+  CreateColumnFamilies({"one"});
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  // Create an iterator holding the current super version.
+  Iterator* it = db_->NewIterator(ReadOptions(), handles_[1]);
+  // A flush will make `it` hold the last reference of its super version.
+  Flush(1);
+
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  ASSERT_OK(Put(0, "fodor", "mirko"));
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+
+  // Flush jobs will close previous WAL files after finishing. By
+  // block flush jobs from running, we trigger a condition where
+  // the iterator destructor should close the WAL files.
+  test::SleepingBackgroundTask sleeping_task;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+
+  WriteOptions wo;
+  wo.sync = true;
+  ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
+
+  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  // Deleting the iterator will clear its super version, triggering
+  // closing all files
+  delete it;
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
+
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+  WaitForFlush(1);
+
+  Reopen();
+  ASSERT_EQ("mirko", Get(0, "fodor"));
+  ASSERT_EQ("mirko", Get(1, "fodor"));
+  db_options_.env = env_;
+  Close();
+}
+
+TEST_F(ColumnFamilyTest, IteratorCloseWALFile2) {
+  SpecialEnv env(Env::Default());
+  // Allow both of flush and purge job to schedule.
+  env.SetBackgroundThreads(2, Env::HIGH);
+  db_options_.env = &env;
+  db_options_.max_background_flushes = 1;
+  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(2));
+  Open();
+  CreateColumnFamilies({"one"});
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  // Create an iterator holding the current super version.
+  ReadOptions ro;
+  ro.background_purge_on_iterator_cleanup = true;
+  Iterator* it = db_->NewIterator(ro, handles_[1]);
+  // A flush will make `it` hold the last reference of its super version.
+  Flush(1);
+
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  ASSERT_OK(Put(0, "fodor", "mirko"));
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"ColumnFamilyTest::IteratorCloseWALFile2:0",
+       "DBImpl::BGWorkPurge:start"},
+      {"ColumnFamilyTest::IteratorCloseWALFile2:2",
+       "DBImpl::BackgroundCallFlush:start"},
+      {"DBImpl::BGWorkPurge:end", "ColumnFamilyTest::IteratorCloseWALFile2:1"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions wo;
+  wo.sync = true;
+  ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
+
+  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  // Deleting the iterator will clear its super version, triggering
+  // closing all files
+  delete it;
+  ASSERT_EQ(2, env.num_open_wal_file_.load());
+
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:0");
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:1");
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:2");
+  WaitForFlush(1);
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  Reopen();
+  ASSERT_EQ("mirko", Get(0, "fodor"));
+  ASSERT_EQ("mirko", Get(1, "fodor"));
+  db_options_.env = env_;
+  Close();
+}
+
+#ifndef ROCKSDB_LITE  // TEST functions are not supported in lite
+TEST_F(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
+  SpecialEnv env(Env::Default());
+  // Allow both of flush and purge job to schedule.
+  env.SetBackgroundThreads(2, Env::HIGH);
+  db_options_.env = &env;
+  db_options_.max_background_flushes = 1;
+  column_family_options_.memtable_factory.reset(new SpecialSkipListFactory(3));
+  column_family_options_.level0_file_num_compaction_trigger = 2;
+  Open();
+  CreateColumnFamilies({"one"});
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  ASSERT_OK(Put(1, "fodar2", "mirko"));
+  Flush(1);
+
+  // Create an iterator holding the current super version, as well as
+  // the SST file just flushed.
+  ReadOptions ro;
+  ro.tailing = true;
+  ro.background_purge_on_iterator_cleanup = true;
+  Iterator* it = db_->NewIterator(ro, handles_[1]);
+  // A flush will make `it` hold the last reference of its super version.
+
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  ASSERT_OK(Put(1, "fodar2", "mirko"));
+  Flush(1);
+
+  WaitForCompaction();
+
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+  ASSERT_OK(Put(0, "fodor", "mirko"));
+  ASSERT_OK(Put(1, "fodor", "mirko"));
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"ColumnFamilyTest::IteratorCloseWALFile2:0",
+       "DBImpl::BGWorkPurge:start"},
+      {"ColumnFamilyTest::IteratorCloseWALFile2:2",
+       "DBImpl::BackgroundCallFlush:start"},
+      {"DBImpl::BGWorkPurge:end", "ColumnFamilyTest::IteratorCloseWALFile2:1"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  WriteOptions wo;
+  wo.sync = true;
+  ASSERT_OK(db_->Put(wo, handles_[1], "fodor", "mirko"));
+
+  env.delete_count_.store(0);
+  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  // Deleting the iterator will clear its super version, triggering
+  // closing all files
+  it->Seek("");
+  ASSERT_EQ(2, env.num_open_wal_file_.load());
+  ASSERT_EQ(0, env.delete_count_.load());
+
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:0");
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:1");
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env.delete_count_.load());
+  TEST_SYNC_POINT("ColumnFamilyTest::IteratorCloseWALFile2:2");
+  WaitForFlush(1);
+  ASSERT_EQ(1, env.num_open_wal_file_.load());
+  ASSERT_EQ(1, env.delete_count_.load());
+
+  delete it;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  Reopen();
+  ASSERT_EQ("mirko", Get(0, "fodor"));
+  ASSERT_EQ("mirko", Get(1, "fodor"));
+  db_options_.env = env_;
+  Close();
+}
+#endif  // !ROCKSDB_LITE
+
 // Disable on windows because SyncWAL requires env->IsSyncThreadSafe()
 // to return true which is not so in unbuffered mode.
 #ifndef OS_WIN

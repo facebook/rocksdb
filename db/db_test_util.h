@@ -285,7 +285,10 @@ class SpecialEnv : public EnvWrapper {
     class WalFile : public WritableFile {
      public:
       WalFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
-          : env_(env), base_(std::move(b)) {}
+          : env_(env), base_(std::move(b)) {
+        env_->num_open_wal_file_.fetch_add(1);
+      }
+      virtual ~WalFile() { env_->num_open_wal_file_.fetch_add(-1); }
       Status Append(const Slice& data) override {
 #if !(defined NDEBUG) || !defined(OS_WIN)
         TEST_SYNC_POINT("SpecialEnv::WalFile::Append:1");
@@ -443,6 +446,11 @@ class SpecialEnv : public EnvWrapper {
            addon_time_.load();
   }
 
+  virtual Status DeleteFile(const std::string& fname) override {
+    delete_count_.fetch_add(1);
+    return target()->DeleteFile(fname);
+  }
+
   Random rnd_;
   port::Mutex rnd_mutex_;  // Lock to pretect rnd_
 
@@ -470,6 +478,9 @@ class SpecialEnv : public EnvWrapper {
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
 
+  // Number of WAL files that are still open for write.
+  std::atomic<int> num_open_wal_file_;
+
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
   std::atomic<size_t> random_read_bytes_counter_;
@@ -493,6 +504,8 @@ class SpecialEnv : public EnvWrapper {
   std::function<void()>* table_write_callback_;
 
   std::atomic<int64_t> addon_time_;
+
+  std::atomic<int> delete_count_;
 
   bool time_elapse_only_sleep_;
 

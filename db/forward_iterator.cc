@@ -153,10 +153,14 @@ void ForwardIterator::SVCleanup() {
     db_->mutex_.Lock();
     sv_->Cleanup();
     db_->FindObsoleteFiles(&job_context, false, true);
+    if (read_options_.background_purge_on_iterator_cleanup) {
+      db_->ScheduleBgLogWriterClose(&job_context);
+    }
     db_->mutex_.Unlock();
     delete sv_;
     if (job_context.HaveSomethingToDelete()) {
-      db_->PurgeObsoleteFiles(job_context);
+      db_->PurgeObsoleteFiles(
+          job_context, read_options_.background_purge_on_iterator_cleanup);
     }
     job_context.Clean();
   }

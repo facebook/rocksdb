@@ -869,7 +869,7 @@ arena_test: util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
 autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-column_family_test: db/column_family_test.o $(LIBOBJECTS) $(TESTHARNESS)
+column_family_test: db/column_family_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 table_properties_collector_test: db/table_properties_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
