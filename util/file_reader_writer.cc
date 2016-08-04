@@ -51,7 +51,6 @@ Status WritableFileWriter::Append(const Slice& data) {
   size_t left = data.size();
   Status s;
   pending_sync_ = true;
-  pending_fsync_ = true;
 
   TEST_KILL_RANDOM("WritableFileWriter::Append:0",
                    rocksdb_kill_odds * REDUCE_ODDS2);
@@ -218,9 +217,6 @@ Status WritableFileWriter::Sync(bool use_fsync) {
   }
   TEST_KILL_RANDOM("WritableFileWriter::Sync:1", rocksdb_kill_odds);
   pending_sync_ = false;
-  if (use_fsync) {
-    pending_fsync_ = false;
-  }
   return Status::OK();
 }
 

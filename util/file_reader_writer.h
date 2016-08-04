@@ -102,7 +102,6 @@ class WritableFileWriter {
   // so we need to go back and write that page again
   uint64_t                next_write_offset_;
   bool                    pending_sync_;
-  bool                    pending_fsync_;
   const bool              direct_io_;
   const bool              use_os_buffer_;
   uint64_t                last_sync_size_;
@@ -118,7 +117,6 @@ class WritableFileWriter {
         filesize_(0),
         next_write_offset_(0),
         pending_sync_(false),
-        pending_fsync_(false),
         direct_io_(writable_file_->UseDirectIO()),
         use_os_buffer_(writable_file_->UseOSBuffer()),
         last_sync_size_(0),
