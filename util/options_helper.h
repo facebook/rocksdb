@@ -53,6 +53,8 @@ std::string EscapeOptionString(const std::string& raw_string);
 // @return the raw string of the input "escaped_string"
 std::string UnescapeOptionString(const std::string& escaped_string);
 
+uint64_t ParseUint64(const std::string& value);
+
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,

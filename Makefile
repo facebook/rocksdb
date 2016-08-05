@@ -336,6 +336,7 @@ TESTS = \
 	skiplist_test \
 	stringappend_test \
 	ttl_test \
+	date_tiered_test \
 	backupable_db_test \
 	document_db_test \
 	json_document_test \
@@ -1025,6 +1026,9 @@ env_registry_test: utilities/env_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+date_tiered_test: utilities/date_tiered/date_tiered_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 write_batch_with_index_test: utilities/write_batch_with_index/write_batch_with_index_test.o $(LIBOBJECTS) $(TESTHARNESS)

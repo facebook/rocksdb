@@ -151,6 +151,7 @@ LIB_SOURCES =                                                   \
   utilities/transactions/transaction_impl.cc                    \
   utilities/transactions/transaction_util.cc                    \
   utilities/ttl/db_ttl_impl.cc                                  \
+  utilities/date_tiered/date_tiered_db_impl.cc                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
   util/event_logger.cc                                          \
@@ -302,6 +303,7 @@ MAIN_SOURCES =                                                    \
   utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/transactions/transaction_test.cc                            \
   utilities/ttl/ttl_test.cc                                             \
+  utilities/date_tiered/date_tiered_test.cc                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
   utilities/column_aware_encoding_test.cc                               \
 	util/iostats_context_test.cc																					\
