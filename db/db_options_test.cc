@@ -30,7 +30,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
       Options options;
       options.create_if_missing = true;
       options.disable_auto_compactions = true;
-      options.write_buffer_size = 1024 * 1024;
+      options.write_buffer_size = 1024 * 1024 * 10;
       options.compression = CompressionType::kNoCompression;
       options.level0_file_num_compaction_trigger = 1;
       options.level0_stop_writes_trigger = std::numeric_limits<int>::max();
@@ -41,9 +41,15 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
           std::numeric_limits<uint64_t>::max();
 
       DestroyAndReopen(options);
-      for (int i = 0; i < 1024 * 2; i++) {
+      int i = 0;
+      for (; i < 1024; i++) {
         Put(Key(i), kValue);
       }
+      Flush();
+      for (; i < 1024 * 2; i++) {
+        Put(Key(i), kValue);
+      }
+      Flush();
       dbfull()->TEST_WaitForFlushMemTable();
       ASSERT_EQ(2, NumTableFilesAtLevel(0));
       uint64_t l0_size = SizeAtLevel(0);
