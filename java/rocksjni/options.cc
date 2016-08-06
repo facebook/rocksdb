@@ -1877,6 +1877,219 @@ void Java_org_rocksdb_Options_prepareForBulkLoad(
       PrepareForBulkLoad();
 }
 
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    memtableHugePageSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_memtableHugePageSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+      jhandle)->memtable_huge_page_size;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMemtableHugePageSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setMemtableHugePageSize(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jlong jmemtable_huge_page_size) {
+
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(
+      jmemtable_huge_page_size);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(
+        jhandle)->memtable_huge_page_size =
+            jmemtable_huge_page_size;
+  } else {
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    softPendingCompactionBytesLimit
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_softPendingCompactionBytesLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+      jhandle)->soft_pending_compaction_bytes_limit;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setSoftPendingCompactionBytesLimit
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setSoftPendingCompactionBytesLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jsoft_pending_compaction_bytes_limit) {
+  reinterpret_cast<rocksdb::Options*>(
+      jhandle)->soft_pending_compaction_bytes_limit =
+          static_cast<int64_t>(jsoft_pending_compaction_bytes_limit);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    softHardCompactionBytesLimit
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_hardPendingCompactionBytesLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+      jhandle)->hard_pending_compaction_bytes_limit;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setHardPendingCompactionBytesLimit
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setHardPendingCompactionBytesLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jhard_pending_compaction_bytes_limit) {
+  reinterpret_cast<rocksdb::Options*>(
+      jhandle)->hard_pending_compaction_bytes_limit =
+          static_cast<int64_t>(jhard_pending_compaction_bytes_limit);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    level0FileNumCompactionTrigger
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_level0FileNumCompactionTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+    jhandle)->level0_file_num_compaction_trigger;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setLevel0FileNumCompactionTrigger
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setLevel0FileNumCompactionTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jint jlevel0_file_num_compaction_trigger) {
+  reinterpret_cast<rocksdb::Options*>(
+      jhandle)->level0_file_num_compaction_trigger =
+          static_cast<int32_t>(jlevel0_file_num_compaction_trigger);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    level0SlowdownWritesTrigger
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_level0SlowdownWritesTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+    jhandle)->level0_slowdown_writes_trigger;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setLevel0SlowdownWritesTrigger
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setLevel0SlowdownWritesTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jint jlevel0_slowdown_writes_trigger) {
+  reinterpret_cast<rocksdb::Options*>(
+      jhandle)->level0_slowdown_writes_trigger =
+          static_cast<int32_t>(jlevel0_slowdown_writes_trigger);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    level0StopWritesTrigger
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_level0StopWritesTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+    jhandle)->level0_stop_writes_trigger;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setLevel0StopWritesTrigger
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setLevel0StopWritesTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jint jlevel0_stop_writes_trigger) {
+  reinterpret_cast<rocksdb::Options*>(
+      jhandle)->level0_stop_writes_trigger =
+          static_cast<int32_t>(jlevel0_stop_writes_trigger);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxBytesForLevelMultiplierAdditional
+ * Signature: (J)[I
+ */
+jintArray Java_org_rocksdb_Options_maxBytesForLevelMultiplierAdditional(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto mbflma = reinterpret_cast<rocksdb::Options*>(
+      jhandle)->max_bytes_for_level_multiplier_additional;
+
+  const size_t size = mbflma.size();
+
+  jint additionals[size];
+  for (size_t i = 0; i < size; i++) {
+    additionals[i] = reinterpret_cast<jint>(mbflma[i]);
+  }
+
+  jsize jlen = static_cast<jsize>(size);
+  jintArray result = env->NewIntArray(jlen);
+  env->SetIntArrayRegion(result, 0, jlen, additionals);
+  return result;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMaxBytesForLevelMultiplierAdditional
+ * Signature: (J[I)V
+ */
+void Java_org_rocksdb_Options_setMaxBytesForLevelMultiplierAdditional(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jintArray jmax_bytes_for_level_multiplier_additional) {
+  jsize len = env->GetArrayLength(jmax_bytes_for_level_multiplier_additional);
+  jint *additionals =
+      env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, 0);
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->max_bytes_for_level_multiplier_additional.clear();
+  for (jsize i = 0; i < len; i++) {
+    opt->max_bytes_for_level_multiplier_additional.push_back(reinterpret_cast<int32_t>(additionals[i]));
+  }
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    paranoidFileChecks
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_paranoidFileChecks(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+      jhandle)->paranoid_file_checks;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setParanoidFileChecks
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setParanoidFileChecks(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jparanoid_file_checks) {
+  reinterpret_cast<rocksdb::Options*>(
+      jhandle)->paranoid_file_checks =
+          static_cast<bool>(jparanoid_file_checks);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::ColumnFamilyOptions
 
@@ -2970,6 +3183,221 @@ void Java_org_rocksdb_ColumnFamilyOptions_setOptimizeFiltersForHits(
       jhandle)->optimize_filters_for_hits =
           static_cast<bool>(joptimize_filters_for_hits);
 }
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    memtableHugePageSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_memtableHugePageSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->memtable_huge_page_size;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMemtableHugePageSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMemtableHugePageSize(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jlong jmemtable_huge_page_size) {
+
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(
+      jmemtable_huge_page_size);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+        jhandle)->memtable_huge_page_size =
+            jmemtable_huge_page_size;
+  } else {
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    softPendingCompactionBytesLimit
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_softPendingCompactionBytesLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->soft_pending_compaction_bytes_limit;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setSoftPendingCompactionBytesLimit
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setSoftPendingCompactionBytesLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jsoft_pending_compaction_bytes_limit) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->soft_pending_compaction_bytes_limit =
+          static_cast<int64_t>(jsoft_pending_compaction_bytes_limit);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    softHardCompactionBytesLimit
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_hardPendingCompactionBytesLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->hard_pending_compaction_bytes_limit;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setHardPendingCompactionBytesLimit
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setHardPendingCompactionBytesLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jhard_pending_compaction_bytes_limit) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->hard_pending_compaction_bytes_limit =
+          static_cast<int64_t>(jhard_pending_compaction_bytes_limit);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    level0FileNumCompactionTrigger
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ColumnFamilyOptions_level0FileNumCompactionTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+    jhandle)->level0_file_num_compaction_trigger;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setLevel0FileNumCompactionTrigger
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setLevel0FileNumCompactionTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jint jlevel0_file_num_compaction_trigger) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->level0_file_num_compaction_trigger =
+          static_cast<int32_t>(jlevel0_file_num_compaction_trigger);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    level0SlowdownWritesTrigger
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ColumnFamilyOptions_level0SlowdownWritesTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+    jhandle)->level0_slowdown_writes_trigger;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setLevel0SlowdownWritesTrigger
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setLevel0SlowdownWritesTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jint jlevel0_slowdown_writes_trigger) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->level0_slowdown_writes_trigger =
+          static_cast<int32_t>(jlevel0_slowdown_writes_trigger);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    level0StopWritesTrigger
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ColumnFamilyOptions_level0StopWritesTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+    jhandle)->level0_stop_writes_trigger;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setLevel0StopWritesTrigger
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setLevel0StopWritesTrigger(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jint jlevel0_stop_writes_trigger) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->level0_stop_writes_trigger =
+          static_cast<int32_t>(jlevel0_stop_writes_trigger);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    maxBytesForLevelMultiplierAdditional
+ * Signature: (J)[I
+ */
+jintArray Java_org_rocksdb_ColumnFamilyOptions_maxBytesForLevelMultiplierAdditional(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto mbflma = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->max_bytes_for_level_multiplier_additional;
+
+  const size_t size = mbflma.size();
+
+  jint additionals[size];
+  for (size_t i = 0; i < size; i++) {
+    additionals[i] = reinterpret_cast<jint>(mbflma[i]);
+  }
+
+  jsize jlen = static_cast<jsize>(size);
+  jintArray result;
+  result = env->NewIntArray(jlen);
+  env->SetIntArrayRegion(result, 0, jlen, additionals);
+  return result;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMaxBytesForLevelMultiplierAdditional
+ * Signature: (J[I)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelMultiplierAdditional(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jintArray jmax_bytes_for_level_multiplier_additional) {
+  jsize len = env->GetArrayLength(jmax_bytes_for_level_multiplier_additional);
+  jint *additionals =
+      env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, 0);
+  auto* cf_opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  cf_opt->max_bytes_for_level_multiplier_additional.clear();
+  for (jsize i = 0; i < len; i++) {
+    cf_opt->max_bytes_for_level_multiplier_additional.push_back(reinterpret_cast<int32_t>(additionals[i]));
+  }
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    paranoidFileChecks
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyOptions_paranoidFileChecks(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->paranoid_file_checks;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setParanoidFileChecks
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setParanoidFileChecks(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jparanoid_file_checks) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->paranoid_file_checks =
+          static_cast<bool>(jparanoid_file_checks);
+}
+
 
 /////////////////////////////////////////////////////////////////////
 // rocksdb::DBOptions

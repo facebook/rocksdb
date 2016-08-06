@@ -1587,3 +1587,35 @@ jlong Java_org_rocksdb_RocksDB_getUpdatesSince(JNIEnv* env,
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   return 0;
 }
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    setOptions
+ * Signature: (JJ[Ljava/lang/String;[Ljava/lang/String;)V
+ */
+void Java_org_rocksdb_RocksDB_setOptions(JNIEnv* env, jobject jdb,
+    jlong jdb_handle, jlong jcf_handle, jobjectArray jkeys,
+    jobjectArray jvalues) {
+  std::unordered_map<std::string, std::string> options_map;
+  const jsize len = env->GetArrayLength(jkeys);
+  assert(len == env->GetArrayLength(jvalues));
+  for(int i = 0; i < len; i++) {
+    jobject jobj_key = env->GetObjectArrayElement(jkeys, i);
+    jobject jobj_value = env->GetObjectArrayElement(jvalues, i);
+    jstring jkey = reinterpret_cast<jstring>(jobj_key);
+    jstring jvalue = reinterpret_cast<jstring>(jobj_value);
+    const char* key = env->GetStringUTFChars(jkey, NULL);
+    const char* value = env->GetStringUTFChars(jvalue, NULL);
+    std::string s_key(key);
+    std::string s_value(value);
+    env->ReleaseStringUTFChars(jkey, key);
+    env->ReleaseStringUTFChars(jvalue, value);
+    env->DeleteLocalRef(jobj_key);
+    env->DeleteLocalRef(jobj_value);
+    options_map[s_key] = s_value;
+  }
+
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  db->SetOptions(cf_handle, options_map);
+}

@@ -1718,6 +1718,14 @@ public class RocksDB extends RocksObject {
         getUpdatesSince(nativeHandle_, sequenceNumber));
   }
 
+  public void setOptions(final ColumnFamilyHandle columnFamilyHandle,
+      final MutableColumnFamilyOptions mutableColumnFamilyOptions)
+      throws RocksDBException {
+    setOptions(nativeHandle_, columnFamilyHandle.nativeHandle_,
+        mutableColumnFamilyOptions.getKeys(),
+        mutableColumnFamilyOptions.getValues());
+  }
+
   /**
    * Private constructor.
    *
@@ -1901,6 +1909,8 @@ public class RocksDB extends RocksObject {
       boolean force) throws RocksDBException;
   private native long getUpdatesSince(long handle, long sequenceNumber)
       throws RocksDBException;
+  private native void setOptions(long handle, long cfHandle, String[] keys,
+      String[] values) throws RocksDBException;
 
   protected DBOptionsInterface options_;
 }

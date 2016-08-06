@@ -662,4 +662,38 @@ public class RocksDBTest {
       db.enableFileDeletions(true);
     }
   }
+
+  @Test
+  public void setOptions() throws RocksDBException {
+    try (final DBOptions options = new DBOptions()
+             .setCreateIfMissing(true)
+             .setCreateMissingColumnFamilies(true);
+         final ColumnFamilyOptions new_cf_opts = new ColumnFamilyOptions()
+             .setWriteBufferSize(4096)) {
+
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          Arrays.asList(
+              new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY),
+              new ColumnFamilyDescriptor("new_cf".getBytes(), new_cf_opts));
+
+      // open database
+      final List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+      try (final RocksDB db = RocksDB.open(options,
+          dbFolder.getRoot().getAbsolutePath(), columnFamilyDescriptors, columnFamilyHandles)) {
+        try {
+          final MutableColumnFamilyOptions mutableOptions =
+              MutableColumnFamilyOptions.builder()
+                  .setWriteBufferSize(2048)
+                  .build();
+
+          db.setOptions(columnFamilyHandles.get(1), mutableOptions);
+
+        } finally {
+          for (final ColumnFamilyHandle handle : columnFamilyHandles) {
+            handle.close();
+          }
+        }
+      }
+    }
+  }
 }
