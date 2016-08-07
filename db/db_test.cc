@@ -2649,12 +2649,12 @@ class ModelDB : public DB {
   using DB::AddFile;
   virtual Status AddFile(ColumnFamilyHandle* column_family,
                          const std::vector<ExternalSstFileInfo>& file_info_list,
-                         bool move_file) override {
+                         bool move_file, bool check_snapshot) override {
     return Status::NotSupported("Not implemented.");
   }
   virtual Status AddFile(ColumnFamilyHandle* column_family,
                          const std::vector<std::string>& file_path_list,
-                         bool move_file) override {
+                         bool move_file, bool check_snapshot) override {
     return Status::NotSupported("Not implemented.");
   }
 

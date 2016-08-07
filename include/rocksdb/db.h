@@ -818,10 +818,10 @@ class DB {
   //        even if the file compression dont match the level compression
   virtual Status AddFile(ColumnFamilyHandle* column_family,
                          const std::vector<std::string>& file_path_list,
-                         bool move_file = false) = 0;
+                         bool move_file = false, bool check_snapshot = true) = 0;
   virtual Status AddFile(const std::vector<std::string>& file_path_list,
-                         bool move_file = false) {
-    return AddFile(DefaultColumnFamily(), file_path_list, move_file);
+                         bool move_file = false, bool check_snapshot = true) {
+    return AddFile(DefaultColumnFamily(), file_path_list, move_file, check_snapshot);
   }
 #if defined(__GNUC__) || defined(__clang__)
   __attribute__((__deprecated__))
@@ -830,9 +830,9 @@ class DB {
 #endif
   virtual Status
   AddFile(ColumnFamilyHandle* column_family, const std::string& file_path,
-          bool move_file = false) {
+          bool move_file = false, bool check_snapshot = true) {
     return AddFile(column_family, std::vector<std::string>(1, file_path),
-                   move_file);
+                   move_file, check_snapshot);
   }
 #if defined(__GNUC__) || defined(__clang__)
   __attribute__((__deprecated__))
@@ -840,18 +840,18 @@ class DB {
   __declspec(deprecated)
 #endif
   virtual Status
-  AddFile(const std::string& file_path, bool move_file = false) {
+  AddFile(const std::string& file_path, bool move_file = false, bool check_snapshot = true) {
     return AddFile(DefaultColumnFamily(),
-                   std::vector<std::string>(1, file_path), move_file);
+                   std::vector<std::string>(1, file_path), move_file, check_snapshot);
   }
 
   // Load table file with information "file_info" into "column_family"
   virtual Status AddFile(ColumnFamilyHandle* column_family,
                          const std::vector<ExternalSstFileInfo>& file_info_list,
-                         bool move_file = false) = 0;
+                         bool move_file = false, bool check_snapshot = true) = 0;
   virtual Status AddFile(const std::vector<ExternalSstFileInfo>& file_info_list,
-                         bool move_file = false) {
-    return AddFile(DefaultColumnFamily(), file_info_list, move_file);
+                         bool move_file = false, bool check_snapshot = true) {
+    return AddFile(DefaultColumnFamily(), file_info_list, move_file, check_snapshot);
   }
 #if defined(__GNUC__) || defined(__clang__)
   __attribute__((__deprecated__))
@@ -860,9 +860,9 @@ class DB {
 #endif
   virtual Status
   AddFile(ColumnFamilyHandle* column_family,
-          const ExternalSstFileInfo* file_info, bool move_file = false) {
+          const ExternalSstFileInfo* file_info, bool move_file = false, bool check_snapshot = true) {
     return AddFile(column_family,
-                   std::vector<ExternalSstFileInfo>(1, *file_info), move_file);
+                   std::vector<ExternalSstFileInfo>(1, *file_info), move_file, check_snapshot);
   }
 #if defined(__GNUC__) || defined(__clang__)
   __attribute__((__deprecated__))
@@ -870,9 +870,9 @@ class DB {
   __declspec(deprecated)
 #endif
   virtual Status
-  AddFile(const ExternalSstFileInfo* file_info, bool move_file = false) {
+  AddFile(const ExternalSstFileInfo* file_info, bool move_file = false, bool check_snapshot = true) {
     return AddFile(DefaultColumnFamily(),
-                   std::vector<ExternalSstFileInfo>(1, *file_info), move_file);
+                   std::vector<ExternalSstFileInfo>(1, *file_info), move_file, check_snapshot);
   }
 
 #endif  // ROCKSDB_LITE
