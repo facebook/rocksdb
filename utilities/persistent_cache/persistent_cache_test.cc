@@ -152,6 +152,9 @@ TEST_F(PersistentCacheTierTest, BlockCacheInsert) {
   }
 }
 
+#ifndef TRAVIS
+// the tests causes a lot of file deletions which Travis limited testing
+// environment cannot handle
 TEST_F(PersistentCacheTierTest, BlockCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
@@ -161,6 +164,7 @@ TEST_F(PersistentCacheTierTest, BlockCacheInsertWithEviction) {
     }
   }
 }
+#endif
 
 // Tiered cache tests
 TEST_F(PersistentCacheTierTest, TieredCacheInsert) {
@@ -174,6 +178,9 @@ TEST_F(PersistentCacheTierTest, TieredCacheInsert) {
   }
 }
 
+#ifndef TRAVIS
+// the tests causes a lot of file deletions which Travis limited testing
+// environment cannot handle
 TEST_F(PersistentCacheTierTest, TieredCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
@@ -185,6 +192,7 @@ TEST_F(PersistentCacheTierTest, TieredCacheInsertWithEviction) {
     }
   }
 }
+#endif
 
 std::shared_ptr<PersistentCacheTier> MakeVolatileCache(
     const std::string& /*dbname*/) {

@@ -34,7 +34,7 @@ before_script:
   - if [[ "${TRAVIS_OS_NAME}" == 'linux' ]]; then CXX=clang++-3.6; fi
   - if [[ "${TRAVIS_OS_NAME}" == 'osx' ]]; then brew install gflags snappy; fi
   # Limit the maximum number of open file descriptors to 2000
-  - ulimit -n 2000 || true
+  - ulimit -n 65535 || true
 
 script:
   - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j4 check_some; fi
