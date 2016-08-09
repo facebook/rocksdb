@@ -105,7 +105,7 @@ Status DBImpl::ReadExternalSstFileInfo(ColumnFamilyHandle* column_family,
 
 Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
                        const std::vector<std::string>& file_path_list,
-                       bool move_file, bool check_snapshot) {
+                       bool move_file, bool skip_snapshot_check) {
   Status status;
   auto num_files = file_path_list.size();
   if (num_files == 0) {
@@ -120,12 +120,12 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       return status;
     }
   }
-  return AddFile(column_family, file_info_list, move_file, check_snapshot);
+  return AddFile(column_family, file_info_list, move_file, skip_snapshot_check);
 }
 
 Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
                        const std::vector<ExternalSstFileInfo>& file_info_list,
-                       bool move_file, bool check_snapshot) {
+                       bool move_file, bool skip_snapshot_check) {
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
@@ -244,7 +244,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
 
-    if (check_snapshot && !snapshots_.empty()) {
+    if (!skip_snap_check && !snapshots_.empty()) {
       // Check that no snapshots are being held
       status =
           Status::NotSupported("Cannot add a file while holding snapshots");
