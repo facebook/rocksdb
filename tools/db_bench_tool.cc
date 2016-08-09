@@ -67,6 +67,7 @@
 #include "util/testutil.h"
 #include "util/transaction_test_util.h"
 #include "util/xxhash.h"
+#include "utilities/blob_db/blob_db.h"
 #include "utilities/merge_operators.h"
 
 #ifdef OS_WIN
@@ -567,6 +568,8 @@ DEFINE_string(
 
 DEFINE_bool(report_bg_io_stats, false,
             "Measure times spents on I/Os while in compactions. ");
+
+DEFINE_bool(use_blob_db, false, "Whether to use BlobDB. ");
 
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -2906,6 +2909,8 @@ class Benchmark {
         db->db = ptr;
       }
 #endif  // ROCKSDB_LITE
+    } else if (FLAGS_use_blob_db) {
+      s = NewBlobDB(options, db_name, &db->db);
     } else {
       s = DB::Open(options, db_name, &db->db);
     }
@@ -3057,7 +3062,10 @@ class Benchmark {
       for (int64_t j = 0; j < entries_per_batch_; j++) {
         int64_t rand_num = key_gens[id]->Next();
         GenerateKeyFromInt(rand_num, FLAGS_num, &key);
-        if (FLAGS_num_column_families <= 1) {
+        if (FLAGS_use_blob_db) {
+          s = db_with_cfh->db->Put(write_options_, key,
+                                   gen.Generate(value_size_));
+        } else if (FLAGS_num_column_families <= 1) {
           batch.Put(key, gen.Generate(value_size_));
         } else {
           // We use same rand_num as seed for key and column family so that we
@@ -3068,7 +3076,9 @@ class Benchmark {
         }
         bytes += value_size_ + key_size_;
       }
-      s = db_with_cfh->db->Write(write_options_, &batch);
+      if (!FLAGS_use_blob_db) {
+        s = db_with_cfh->db->Write(write_options_, &batch);
+      }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
                                 entries_per_batch_, kWrite);
       if (!s.ok()) {

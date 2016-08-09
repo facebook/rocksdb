@@ -338,6 +338,7 @@ TESTS = \
 	ttl_test \
 	date_tiered_test \
 	backupable_db_test \
+	blob_db_test \
 	document_db_test \
 	json_document_test \
 	sim_cache_test \
@@ -996,6 +997,9 @@ prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+blob_db_test: utilities/blob_db/blob_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)

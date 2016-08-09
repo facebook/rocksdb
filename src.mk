@@ -114,6 +114,7 @@ LIB_SOURCES =                                                   \
 	util/sharded_cache.cc       																	\
   util/sst_file_manager_impl.cc                                 \
   utilities/backupable/backupable_db.cc                         \
+  utilities/blob_db/blob_db.cc                         \
   utilities/convenience/info_log_finder.cc                      \
   utilities/checkpoint/checkpoint.cc                            \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
@@ -287,6 +288,7 @@ MAIN_SOURCES =                                                    \
   util/histogram_test.cc                                                \
   util/statistics_test.cc                                               \
   utilities/backupable/backupable_db_test.cc                            \
+  utilities/blob_db/blob_db_test.cc                                     \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/document/document_db_test.cc                                \
   utilities/document/json_document_test.cc                              \

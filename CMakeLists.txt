@@ -248,6 +248,7 @@ set(SOURCES
         util/xfunc.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
+        utilities/blob_db/blob_db.cc
         utilities/checkpoint/checkpoint.cc
         utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc
         utilities/date_tiered/date_tiered_db_impl.cc
@@ -434,6 +435,7 @@ set(TESTS
         util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc
+        utilities/blob_db/blob_db_test.cc
         utilities/checkpoint/checkpoint_test.cc
         utilities/date_tiered/date_tiered_test.cc
         utilities/document/document_db_test.cc
