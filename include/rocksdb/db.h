@@ -814,6 +814,7 @@ class DB {
   // (1) The key ranges of the files don't overlap with each other
   // (2) The key range of any file in list doesn't overlap with
   //     existing keys or tombstones in DB.
+  // (3) No snapshots are held (check skip_snapshot_check to skip this check).
   //
   // Notes: We will try to ingest the files to the lowest possible level
   //        even if the file compression dont match the level compression
