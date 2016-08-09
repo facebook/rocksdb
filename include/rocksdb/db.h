@@ -806,13 +806,14 @@ class DB {
   // "column_family", a vector of  ExternalSstFileInfo can be used
   // instead of "file_path_list" to do a blind batch add that wont
   // need to read the file, move_file can be set to true to
-  // move the files instead of copying them.
+  // move the files instead of copying them, skip_snapshot_check can be set to
+  // true to ignore the snapshot, make sure that you know that when you use it,
+  // snapshots see the data that is added in the new files.
   //
   // Current Requirements:
   // (1) The key ranges of the files don't overlap with each other
   // (2) The key range of any file in list doesn't overlap with
   //     existing keys or tombstones in DB.
-  // (3) No snapshots are held.
   //
   // Notes: We will try to ingest the files to the lowest possible level
   //        even if the file compression dont match the level compression

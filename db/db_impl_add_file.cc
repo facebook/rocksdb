@@ -244,7 +244,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
 
-    if (!skip_snap_check && !snapshots_.empty()) {
+    if (!skip_snapshot_check && !snapshots_.empty()) {
       // Check that no snapshots are being held
       status =
           Status::NotSupported("Cannot add a file while holding snapshots");
