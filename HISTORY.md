@@ -5,7 +5,6 @@
 * enum type CompressionType and PerfLevel changes from char to unsigned char. Value of all PerfLevel shift by one.
 * Deprecate options.filter_deletes.
 * options.memtable_prefix_bloom_huge_page_tlb_size => memtable_huge_page_size. When it is set, RocksDB will try to allocate memory from huge page for memtable too, rather than just memtable bloom filter.
-* Options file is in backup now. After restore, you can load options file and reuse it.
 
 ### New Features
 * Add avoid_flush_during_recovery option.
@@ -13,6 +12,7 @@
 * RepairDB support for column families. RepairDB now associates data with non-default column families using information embedded in the SST/WAL files (4.7 or later). For data written by 4.6 or earlier, RepairDB associates it with the default column family.
 * Add options.write_buffer_manager which allows users to control total memtable sizes across multiple DB instances.
 * A tool to migrate DB after options change. See include/rocksdb/utilities/option_change_migration.h.
+* Options file is in backup now. After restore, you can load options file and reuse it.
 
 ## 4.9.0 (6/9/2016)
 ### Public API changes
