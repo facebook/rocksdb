@@ -405,6 +405,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
   sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 
   ASSERT_OK(OpenDB());
   std::string val;
@@ -489,6 +490,7 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
   sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 
   ASSERT_OK(OpenDB());
   std::string val;
