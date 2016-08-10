@@ -123,6 +123,7 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
       char** new_value, size_t *new_value_length,
       unsigned char* value_changed);
   const char* (*name_)(void*);
+  unsigned char ignore_snapshots_;
 
   virtual ~rocksdb_compactionfilter_t() {
     (*destructor_)(state_);
@@ -148,6 +149,8 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
   }
 
   virtual const char* Name() const override { return (*name_)(state_); }
+
+  virtual bool IgnoreSnapshots() const override { return ignore_snapshots_; }
 };
 
 struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
@@ -1919,8 +1922,15 @@ rocksdb_compactionfilter_t* rocksdb_compactionfilter_create(
   result->state_ = state;
   result->destructor_ = destructor;
   result->filter_ = filter;
+  result->ignore_snapshots_ = false;
   result->name_ = name;
   return result;
+}
+
+void rocksdb_compactionfilter_set_ignore_snapshots(
+  rocksdb_compactionfilter_t* filter,
+  unsigned char whether_ignore) {
+  filter->ignore_snapshots_ = whether_ignore;
 }
 
 void rocksdb_compactionfilter_destroy(rocksdb_compactionfilter_t* filter) {
