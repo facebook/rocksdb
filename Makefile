@@ -387,7 +387,6 @@ TESTS = \
 
 PARALLEL_TEST = \
 	backupable_db_test \
-	compact_on_deletion_collector_test \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_sst_test \
