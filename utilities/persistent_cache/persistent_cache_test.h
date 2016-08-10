@@ -259,7 +259,8 @@ class PersistentCacheDBTest : public DBTestBase {
 
   // test template
   void RunTest(const std::function<std::shared_ptr<PersistentCacheTier>(bool)>&
-                   new_pcache);
+                   new_pcache,
+               const size_t max_keys, const size_t max_usecase);
 };
 
 }  // namespace rocksdb

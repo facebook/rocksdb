@@ -116,6 +116,24 @@ PersistentCacheTierTest::PersistentCacheTierTest()
 #endif
 }
 
+#ifdef TRAVIS
+// Travis is unable to handle the normal version of the tests running out of
+// fds, out of space and timeouts. This is an easier version of the test
+// specifically written for Travis
+TEST_F(PersistentCacheTierTest, BasicTest) {
+  cache_ = std::make_shared<VolatileCacheTier>();
+  RunInsertTest(/*nthreads=*/1, /*max_keys=*/1024);
+
+  cache_ = NewBlockCache(Env::Default(), path_,
+                         /*size=*/std::numeric_limits<uint64_t>::max(),
+                         /*direct_writes=*/true);
+  RunInsertTest(/*nthreads=*/1, /*max_keys=*/1024);
+
+  cache_ = NewTieredCache(Env::Default(), path_,
+                          /*memory_size=*/static_cast<size_t>(1 * 1024 * 1024));
+  RunInsertTest(/*nthreads=*/1, /*max_keys=*/1024);
+}
+#else
 // Volatile cache tests
 TEST_F(PersistentCacheTierTest, VolatileCacheInsert) {
   for (auto nthreads : {1, 5}) {
@@ -152,9 +170,6 @@ TEST_F(PersistentCacheTierTest, BlockCacheInsert) {
   }
 }
 
-#ifndef TRAVIS
-// the tests causes a lot of file deletions which Travis limited testing
-// environment cannot handle
 TEST_F(PersistentCacheTierTest, BlockCacheInsertWithEviction) {
   for (auto nthreads : {1, 5}) {
     for (auto max_keys : {1 * 1024 * 1024 * kStressFactor}) {
@@ -164,7 +179,6 @@ TEST_F(PersistentCacheTierTest, BlockCacheInsertWithEviction) {
     }
   }
 }
-#endif
 
 // Tiered cache tests
 TEST_F(PersistentCacheTierTest, TieredCacheInsert) {
@@ -178,7 +192,6 @@ TEST_F(PersistentCacheTierTest, TieredCacheInsert) {
   }
 }
 
-#ifndef TRAVIS
 // the tests causes a lot of file deletions which Travis limited testing
 // environment cannot handle
 TEST_F(PersistentCacheTierTest, TieredCacheInsertWithEviction) {
@@ -234,16 +247,16 @@ PersistentCacheDBTest::PersistentCacheDBTest() : DBTestBase("/cache_test") {
 
 // test template
 void PersistentCacheDBTest::RunTest(
-    const std::function<std::shared_ptr<PersistentCacheTier>(bool)>&
-        new_pcache) {
+    const std::function<std::shared_ptr<PersistentCacheTier>(bool)>& new_pcache,
+    const size_t max_keys = 100 * 1024, const size_t max_usecase = 5) {
   if (!Snappy_Supported()) {
     return;
   }
 
   // number of insertion interations
-  int num_iter = static_cast<int>(100 * 1024 * kStressFactor);
+  int num_iter = static_cast<int>(max_keys * kStressFactor);
 
-  for (int iter = 0; iter < 5; iter++) {
+  for (size_t iter = 0; iter < max_usecase; iter++) {
     Options options;
     options.write_buffer_size =
       static_cast<size_t>(64 * 1024 * kStressFactor);  // small write buffer
@@ -366,21 +379,30 @@ void PersistentCacheDBTest::RunTest(
   }
 }
 
-// test table with volatile page cache
-TEST_F(PersistentCacheDBTest, VolatileCacheTest) {
-  RunTest(std::bind(&MakeVolatileCache, dbname_));
+#ifdef TRAVIS
+// Travis is unable to handle the normal version of the tests running out of
+// fds, out of space and timeouts. This is an easier version of the test
+// specifically written for Travis
+TEST_F(PersistentCacheDBTest, BasicTest) {
+  RunTest(std::bind(&MakeBlockCache, dbname_), /*max_keys=*/1024,
+          /*max_usecase=*/1);
 }
-
+#else
 // test table with block page cache
 TEST_F(PersistentCacheDBTest, BlockCacheTest) {
   RunTest(std::bind(&MakeBlockCache, dbname_));
+}
+
+// test table with volatile page cache
+TEST_F(PersistentCacheDBTest, VolatileCacheTest) {
+  RunTest(std::bind(&MakeVolatileCache, dbname_));
 }
 
 // test table with tiered page cache
 TEST_F(PersistentCacheDBTest, TieredCacheTest) {
   RunTest(std::bind(&MakeTieredCache, dbname_));
 }
-
+#endif
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
