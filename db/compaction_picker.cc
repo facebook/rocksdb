@@ -1313,6 +1313,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       sorted_runs.size() <
           (unsigned int)mutable_cf_options.level0_file_num_compaction_trigger) {
     LogToBuffer(log_buffer, "[%s] Universal: nothing to do\n", cf_name.c_str());
+    TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
+                             nullptr);
     return nullptr;
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
@@ -1347,19 +1349,34 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       assert(sorted_runs.size() >=
              static_cast<size_t>(
                  mutable_cf_options.level0_file_num_compaction_trigger));
-      unsigned int num_files =
-          static_cast<unsigned int>(sorted_runs.size()) -
-          mutable_cf_options.level0_file_num_compaction_trigger;
-      if ((c = PickCompactionUniversalReadAmp(
-               cf_name, mutable_cf_options, vstorage, score, UINT_MAX,
-               num_files, sorted_runs, log_buffer)) != nullptr) {
-        LogToBuffer(log_buffer,
-                    "[%s] Universal: compacting for file num -- %u\n",
-                    cf_name.c_str(), num_files);
+      // Get the total number of sorted runs that are not being compacted
+      int num_sr_not_compacted = 0;
+      for (size_t i = 0; i < sorted_runs.size(); i++) {
+        if (sorted_runs[i].being_compacted == false) {
+          num_sr_not_compacted++;
+        }
+      }
+
+      // The number of sorted runs that are not being compacted is greater than
+      // the maximum allowed number of sorted runs
+      if (num_sr_not_compacted >
+          mutable_cf_options.level0_file_num_compaction_trigger) {
+        unsigned int num_files =
+            num_sr_not_compacted -
+            mutable_cf_options.level0_file_num_compaction_trigger + 1;
+        if ((c = PickCompactionUniversalReadAmp(
+                 cf_name, mutable_cf_options, vstorage, score, UINT_MAX,
+                 num_files, sorted_runs, log_buffer)) != nullptr) {
+          LogToBuffer(log_buffer,
+                      "[%s] Universal: compacting for file num -- %u\n",
+                      cf_name.c_str(), num_files);
+        }
       }
     }
   }
   if (c == nullptr) {
+    TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
+                             nullptr);
     return nullptr;
   }
 
@@ -1412,6 +1429,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
 
   level0_compactions_in_progress_.insert(c);
 
+  TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
+                           c);
   return c;
 }
 

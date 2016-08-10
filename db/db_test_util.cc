@@ -730,7 +730,7 @@ double DBTestBase::CompressionRatioAtLevel(int level, int cf) {
 
 int DBTestBase::TotalTableFiles(int cf, int levels) {
   if (levels == -1) {
-    levels = CurrentOptions().num_levels;
+    levels = (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[1]);
   }
   int result = 0;
   for (int level = 0; level < levels; level++) {

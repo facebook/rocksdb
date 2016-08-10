@@ -637,10 +637,132 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   }
 }
 
+TEST_P(DBTestUniversalCompactionParallel, PickByFileNumberBug) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleUniversal;
+  options.num_levels = num_levels_;
+  options.write_buffer_size = 1 * 1024;  // 1KB
+  options.level0_file_num_compaction_trigger = 7;
+  options.max_background_compactions = 2;
+  options.target_file_size_base = 1024 * 1024;  // 1MB
+
+  // Disable size amplifiction compaction
+  options.compaction_options_universal.max_size_amplification_percent =
+      UINT_MAX;
+  DestroyAndReopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBTestUniversalCompactionParallel::PickByFileNumberBug:0",
+        "BackgroundCallCompaction:0"},
+       {"UniversalCompactionPicker::PickCompaction:Return",
+        "DBTestUniversalCompactionParallel::PickByFileNumberBug:1"},
+       {"DBTestUniversalCompactionParallel::PickByFileNumberBug:2",
+        "CompactionJob::Run():Start"}});
+
+  int total_picked_compactions = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "UniversalCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        if (arg) {
+          total_picked_compactions++;
+        }
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Write 7 files to trigger compaction
+  int key_idx = 1;
+  for (int i = 1; i <= 70; i++) {
+    std::string k = Key(key_idx++);
+    ASSERT_OK(Put(k, k));
+    if (i % 10 == 0) {
+      ASSERT_OK(Flush());
+    }
+  }
+
+  // Wait for the 1st background compaction process to start
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:0");
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:1");
+  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+
+  // Write 3 files while 1st compaction is held
+  // These 3 files have different sizes to avoid compacting based on size_ratio
+  int num_keys = 1000;
+  for (int i = 0; i < 3; i++) {
+    for (int j = 1; j <= num_keys; j++) {
+      std::string k = Key(key_idx++);
+      ASSERT_OK(Put(k, k));
+    }
+    ASSERT_OK(Flush());
+    num_keys -= 100;
+  }
+
+  // Wait for the 2nd background compaction process to start
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:0");
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:1");
+
+  // Hold the 1st and 2nd compaction from finishing
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:2");
+  dbfull()->TEST_WaitForCompact();
+
+  // Although 2 compaction threads started, the second one did not compact
+  // anything because the number of files not being compacted is less than
+  // level0_file_num_compaction_trigger
+  EXPECT_EQ(total_picked_compactions, 1);
+  EXPECT_EQ(TotalTableFiles(), 4);
+
+  // Stop SyncPoint and destroy the DB and reopen it again
+  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  key_idx = 1;
+  total_picked_compactions = 0;
+  DestroyAndReopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Write 7 files to trigger compaction
+  for (int i = 1; i <= 70; i++) {
+    std::string k = Key(key_idx++);
+    ASSERT_OK(Put(k, k));
+    if (i % 10 == 0) {
+      ASSERT_OK(Flush());
+    }
+  }
+
+  // Wait for the 1st background compaction process to start
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:0");
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:1");
+  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+
+  // Write 8 files while 1st compaction is held
+  // These 8 files have different sizes to avoid compacting based on size_ratio
+  num_keys = 1000;
+  for (int i = 0; i < 8; i++) {
+    for (int j = 1; j <= num_keys; j++) {
+      std::string k = Key(key_idx++);
+      ASSERT_OK(Put(k, k));
+    }
+    ASSERT_OK(Flush());
+    num_keys -= 100;
+  }
+
+  // Wait for the 2nd background compaction process to start
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:0");
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:1");
+
+  // Hold the 1st and 2nd compaction from finishing
+  TEST_SYNC_POINT("DBTestUniversalCompactionParallel::PickByFileNumberBug:2");
+  dbfull()->TEST_WaitForCompact();
+
+  // This time we will trigger a compaction because of size ratio and
+  // another compaction because of number of files that are not compacted
+  // greater than 7
+  EXPECT_GE(total_picked_compactions, 2);
+}
+
 INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionParallel,
                         DBTestUniversalCompactionParallel,
                         ::testing::Combine(::testing::Values(1, 10),
-                                           ::testing::Bool()));
+                                           ::testing::Values(false)));
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   Options options = CurrentOptions();
@@ -996,13 +1118,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
   ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 2, 4)
+  // (1, 2, 4) -> (3, 4)
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 1, 2, 4) -> (8)
+  // (1, 3, 4) -> (8)
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
 
@@ -1016,22 +1138,22 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
 
-  // (1, 2, 8)
+  // (1, 2, 8) -> (3, 8)
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 1, 2, 8) -> (4, 8)
+  // (1, 3, 8) -> (4, 8)
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
 
-  // (1, 4, 8)
+  // (1, 4, 8) -> (5, 8)
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[3].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
@@ -1195,12 +1317,12 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
   ASSERT_EQ(1, GetSstFileCount(dbname_));
 
-  // (1, 2, 4)
+  // (1, 2, 4) -> (3, 4)
   GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(2, GetSstFileCount(dbname_));
+  ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 1, 2, 4) -> (8)
+  // (1, 3, 4) -> (8)
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
   ASSERT_EQ(0, GetSstFileCount(dbname_));
@@ -1215,20 +1337,20 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
   ASSERT_EQ(1, GetSstFileCount(dbname_));
 
-  // (1, 2, 8)
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(2, GetSstFileCount(dbname_));
-
-  // (1, 1, 2, 8) -> (4, 8)
+  // (1, 2, 8) -> (3, 8)
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
   ASSERT_EQ(0, GetSstFileCount(dbname_));
 
-  // (1, 4, 8)
+  // (1, 3, 8) -> (4, 8)
   GenerateNewFile(&rnd, &key_idx);
   ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
-  ASSERT_EQ(1, GetSstFileCount(dbname_));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  // (1, 4, 8) -> (5, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
 
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
