@@ -1272,6 +1272,81 @@ TEST_F(DBSSTTest, AddExternalSstFileNoCopy) {
   }
 }
 
+TEST_F(DBSSTTest, AddExternalSstFileSkipSnapshot) {
+  std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+  env_->CreateDir(sst_files_folder);
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+
+  // file1.sst (0 => 99)
+  std::string file1 = sst_files_folder + "file1.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  for (int k = 0; k < 100; k++) {
+    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+  }
+  ExternalSstFileInfo file1_info;
+  Status s = sst_file_writer.Finish(&file1_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file1_info.file_path, file1);
+  ASSERT_EQ(file1_info.num_entries, 100);
+  ASSERT_EQ(file1_info.smallest_key, Key(0));
+  ASSERT_EQ(file1_info.largest_key, Key(99));
+
+  // file2.sst (100 => 299)
+  std::string file2 = sst_files_folder + "file2.sst";
+  ASSERT_OK(sst_file_writer.Open(file2));
+  for (int k = 100; k < 300; k++) {
+    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+  }
+  ExternalSstFileInfo file2_info;
+  s = sst_file_writer.Finish(&file2_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file2_info.file_path, file2);
+  ASSERT_EQ(file2_info.num_entries, 200);
+  ASSERT_EQ(file2_info.smallest_key, Key(100));
+  ASSERT_EQ(file2_info.largest_key, Key(299));
+
+  ASSERT_OK(db_->AddFile(std::vector<ExternalSstFileInfo>(1, file1_info)));
+
+
+  // Add file will fail when holding snapshot and use the default
+  // skip_snapshot_check to false
+  const Snapshot* s1 = db_->GetSnapshot();
+  if (s1 != nullptr) {
+    ASSERT_NOK(db_->AddFile(std::vector<ExternalSstFileInfo>(1, file2_info)));
+  }
+
+  // Add file will success when set skip_snapshot_check to true even db holding
+  // snapshot
+  if (s1 != nullptr) {
+    ASSERT_OK(db_->AddFile(std::vector<ExternalSstFileInfo>(1, file2_info), false, true));
+    db_->ReleaseSnapshot(s1);
+  }
+
+  // file3.sst (300 => 399)
+  std::string file3 = sst_files_folder + "file3.sst";
+  ASSERT_OK(sst_file_writer.Open(file3));
+  for (int k = 300; k < 400; k++) {
+    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+  }
+  ExternalSstFileInfo file3_info;
+  s = sst_file_writer.Finish(&file3_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file3_info.file_path, file3);
+  ASSERT_EQ(file3_info.num_entries, 100);
+  ASSERT_EQ(file3_info.smallest_key, Key(300));
+  ASSERT_EQ(file3_info.largest_key, Key(399));
+
+  // check that we have change the old key
+  ASSERT_EQ(Get(Key(300)), "NOT_FOUND");
+  const Snapshot* s2 = db_->GetSnapshot();
+  ASSERT_OK(db_->AddFile(std::vector<ExternalSstFileInfo>(1, file3_info), false, true));
+  ASSERT_EQ(Get(Key(300)), Key(300) + ("_val"));
+  ASSERT_EQ(Get(Key(300), s2), Key(300) + ("_val"));
+}
+
 TEST_F(DBSSTTest, AddExternalSstFileMultiThreaded) {
   std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
   // Bulk load 10 files every file contain 1000 keys
