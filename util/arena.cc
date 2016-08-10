@@ -119,7 +119,7 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
   huge_blocks_.reserve(huge_blocks_.size() + 1);
 
   void* addr = mmap(nullptr, bytes, (PROT_READ | PROT_WRITE),
-                    (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
+                    (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), -1, 0);
 
   if (addr == MAP_FAILED) {
     return nullptr;
