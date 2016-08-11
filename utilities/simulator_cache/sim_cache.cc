@@ -16,11 +16,12 @@ class SimCacheImpl : public SimCache {
   // capacity for real cache (ShardedLRUCache)
   // test_capacity for key only cache
   SimCacheImpl(std::shared_ptr<Cache> cache, size_t sim_capacity,
-               int num_shard_bits)
+               int num_shard_bits, Statistics* stats)
       : cache_(cache),
         key_only_cache_(NewLRUCache(sim_capacity, num_shard_bits)),
-        lookup_times_(0),
-        hit_times_(0) {}
+        miss_times_(0),
+        hit_times_(0),
+        stats_(stats) {}
 
   virtual ~SimCacheImpl() {}
   virtual void SetCapacity(size_t capacity) override {
@@ -50,11 +51,14 @@ class SimCacheImpl : public SimCache {
   }
 
   virtual Handle* Lookup(const Slice& key) override {
-    inc_lookup_counter();
     Handle* h = key_only_cache_->Lookup(key);
     if (h != nullptr) {
       key_only_cache_->Release(h);
       inc_hit_counter();
+      RecordTick(stats_, SIM_BLOCK_CACHE_HIT);
+    } else {
+      inc_miss_counter();
+      RecordTick(stats_, SIM_BLOCK_CACHE_MISS);
     }
     return cache_->Lookup(key);
   }
@@ -112,30 +116,29 @@ class SimCacheImpl : public SimCache {
     key_only_cache_->SetCapacity(capacity);
   }
 
-  virtual uint64_t get_lookup_counter() const override {
-    return lookup_times_.load(std::memory_order_relaxed);
+  virtual uint64_t get_miss_counter() const override {
+    return miss_times_.load(std::memory_order_relaxed);
   }
 
   virtual uint64_t get_hit_counter() const override {
     return hit_times_.load(std::memory_order_relaxed);
   }
 
-  virtual double get_hit_rate() const override {
-    return get_hit_counter() * 1.0f / get_lookup_counter();
-  }
   virtual void reset_counter() override {
-    lookup_times_.store(0, std::memory_order_relaxed);
+    miss_times_.store(0, std::memory_order_relaxed);
     hit_times_.store(0, std::memory_order_relaxed);
+    SetTickerCount(stats_, SIM_BLOCK_CACHE_HIT, 0);
+    SetTickerCount(stats_, SIM_BLOCK_CACHE_MISS, 0);
   }
 
   virtual std::string ToString() const override {
     std::string res;
-    res.append("SimCache LOOKUPs: " + std::to_string(get_lookup_counter()) +
-               "\n");
+    res.append("SimCache MISSes: " + std::to_string(get_miss_counter()) + "\n");
     res.append("SimCache HITs:    " + std::to_string(get_hit_counter()) + "\n");
     char buff[100];
+    auto lookups = get_miss_counter() + get_hit_counter();
     snprintf(buff, sizeof(buff), "SimCache HITRATE: %.2f%%\n",
-             get_hit_rate() * 100);
+             (lookups == 0 ? 0 : get_hit_counter() * 100.0f / lookups));
     res.append(buff);
     return res;
   }
@@ -143,10 +146,11 @@ class SimCacheImpl : public SimCache {
  private:
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> key_only_cache_;
-  std::atomic<uint64_t> lookup_times_;
+  std::atomic<uint64_t> miss_times_;
   std::atomic<uint64_t> hit_times_;
-  void inc_lookup_counter() {
-    lookup_times_.fetch_add(1, std::memory_order_relaxed);
+  Statistics* stats_;
+  void inc_miss_counter() {
+    miss_times_.fetch_add(1, std::memory_order_relaxed);
   }
   void inc_hit_counter() { hit_times_.fetch_add(1, std::memory_order_relaxed); }
 };
@@ -155,11 +159,13 @@ class SimCacheImpl : public SimCache {
 
 // For instrumentation purpose, use NewSimCache instead
 std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> cache,
-                                      size_t sim_capacity, int num_shard_bits) {
+                                      size_t sim_capacity, int num_shard_bits,
+                                      std::shared_ptr<Statistics> stats) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
-  return std::make_shared<SimCacheImpl>(cache, sim_capacity, num_shard_bits);
+  return std::make_shared<SimCacheImpl>(cache, sim_capacity, num_shard_bits,
+                                        stats.get());
 }
 
 }  // end namespace rocksdb

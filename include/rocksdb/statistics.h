@@ -68,6 +68,11 @@ enum Tickers : uint32_t {
   // # persistent cache miss
   PERSISTENT_CACHE_MISS,
 
+  // # total simulation block cache hits
+  SIM_BLOCK_CACHE_HIT,
+  // # total simulation block cache misses
+  SIM_BLOCK_CACHE_MISS,
+
   // # of memtable hits.
   MEMTABLE_HIT,
   // # of memtable misses.
@@ -218,6 +223,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"},
     {PERSISTENT_CACHE_HIT, "rocksdb.persistent.cache.hit"},
     {PERSISTENT_CACHE_MISS, "rocksdb.persistent.cache.miss"},
+    {SIM_BLOCK_CACHE_HIT, "rocksdb.sim.block.cache.hit"},
+    {SIM_BLOCK_CACHE_MISS, "rocksdb.sim.block.cache.miss"},
     {MEMTABLE_HIT, "rocksdb.memtable.hit"},
     {MEMTABLE_MISS, "rocksdb.memtable.miss"},
     {GET_HIT_L0, "rocksdb.l0.hit"},
