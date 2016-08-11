@@ -4,7 +4,7 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-class FacebookFbcodeUnitTestEngine extends ArcanistUnitTestEngine {
+class FacebookFbcodeUnitTestEngine extends ArcanistBaseUnitTestEngine {
 
   public function run() {
       // For a call to `arc call-conduit differential.updateunitresults` to
