@@ -25,7 +25,13 @@ class TransactionDBImpl : public TransactionDB {
   explicit TransactionDBImpl(DB* db,
                              const TransactionDBOptions& txn_db_options);
 
+  explicit TransactionDBImpl(StackableDB* db,
+                             const TransactionDBOptions& txn_db_options);
+
   ~TransactionDBImpl();
+
+  Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
+                    const std::vector<ColumnFamilyHandle*>& handles);
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,

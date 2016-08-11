@@ -98,6 +98,7 @@ struct TransactionOptions {
 class TransactionDB : public StackableDB {
  public:
   // Open a TransactionDB similar to DB::Open().
+  // Internally call PrepareWrap() and WrapDB()
   static Status Open(const Options& options,
                      const TransactionDBOptions& txn_db_options,
                      const std::string& dbname, TransactionDB** dbptr);
@@ -108,7 +109,27 @@ class TransactionDB : public StackableDB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      TransactionDB** dbptr);
-
+  // The following functions are used to open a TransactionDB internally using
+  // an opened DB or StackableDB.
+  // 1. Call prepareWrap(), passing an empty std::vector<size_t> to
+  // compaction_enabled_cf_indices.
+  // 2. Open DB or Stackable DB with db_options and column_families passed to
+  // prepareWrap()
+  // Note: PrepareWrap() may change parameters, make copies before the
+  // invocation if needed.
+  // 3. Call Wrap*DB() with compaction_enabled_cf_indices in step 1 and handles
+  // of the opened DB/StackableDB in step 2
+  static void PrepareWrap(DBOptions* db_options,
+                          std::vector<ColumnFamilyDescriptor>* column_families,
+                          std::vector<size_t>* compaction_enabled_cf_indices);
+  static Status WrapDB(DB* db, const TransactionDBOptions& txn_db_options,
+                       const std::vector<size_t>& compaction_enabled_cf_indices,
+                       const std::vector<ColumnFamilyHandle*>& handles,
+                       TransactionDB** dbptr);
+  static Status WrapStackableDB(
+      StackableDB* db, const TransactionDBOptions& txn_db_options,
+      const std::vector<size_t>& compaction_enabled_cf_indices,
+      const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr);
   virtual ~TransactionDB() {}
 
   // Starts a new Transaction.

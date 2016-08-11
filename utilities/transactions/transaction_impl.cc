@@ -37,17 +37,15 @@ TransactionID TransactionImpl::GenTxnID() {
 TransactionImpl::TransactionImpl(TransactionDB* txn_db,
                                  const WriteOptions& write_options,
                                  const TransactionOptions& txn_options)
-    : TransactionBaseImpl(txn_db->GetBaseDB(), write_options),
+    : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
       txn_db_impl_(nullptr),
       txn_id_(0),
       expiration_time_(0),
       lock_timeout_(0) {
   txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
   assert(txn_db_impl_);
-
-  db_impl_ = dynamic_cast<DBImpl*>(txn_db->GetBaseDB());
+  db_impl_ = dynamic_cast<DBImpl*>(txn_db->GetRootDB());
   assert(db_impl_);
-
   Initialize(txn_options);
 }
 
@@ -99,7 +97,7 @@ void TransactionImpl::Reinitialize(TransactionDB* txn_db,
   if (!name_.empty() && exec_status_ != COMMITED) {
     txn_db_impl_->UnregisterTransaction(this);
   }
-  TransactionBaseImpl::Reinitialize(txn_db->GetBaseDB(), write_options);
+  TransactionBaseImpl::Reinitialize(txn_db->GetRootDB(), write_options);
   Initialize(txn_options);
 }
 
