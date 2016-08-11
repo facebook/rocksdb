@@ -46,7 +46,7 @@ if (class_exists('ArcanistWorkflow')) {
       'BaseDirectoryScopedFormatLinter' => 'cpp_linter/BaseDirectoryScopedFormatLinter.php',
       'FacebookArcanistConfiguration' => 'config/FacebookOldArcanistConfiguration.php',
       'FacebookFbcodeLintEngine' => 'lint_engine/FacebookFbcodeLintEngine.php',
-      'FacebookFbcodeUnitTestEngine' => 'unit_engine/FacebookFbcodeUnitTestEngine.php',
+      'FacebookFbcodeUnitTestEngine' => 'unit_engine/FacebookOldFbcodeUnitTestEngine.php',
       'FacebookHowtoevenLintEngine' => 'lint_engine/FacebookHowtoevenLintEngine.php',
       'FacebookHowtoevenLinter' => 'cpp_linter/FacebookHowtoevenLinter.php',
       'FbcodeClangFormatLinter' => 'cpp_linter/FbcodeClangFormatLinter.php',

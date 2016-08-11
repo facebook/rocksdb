@@ -62,7 +62,9 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     assert(strlen($diffID) > 0);
     assert(is_numeric($diffID));
 
-    $arcrc_content = exec("cat ~/.arcrc | gzip -f | base64 -w0");
+    $arcrc_content = (PHP_OS == "Darwin" ?
+        exec("cat ~/.arcrc | gzip -f | base64") :
+            exec("cat ~/.arcrc | gzip -f | base64 -w0"));
     assert(strlen($arcrc_content) > 0);
 
     // Sandcastle machines don't have arc setup. We copy the user certificate
@@ -257,7 +259,9 @@ function getSandcastleConfig() {
   // execute. Why compress the job definitions? Otherwise we run over the max
   // string size.
   $cmd = "echo " . base64_encode(json_encode($arg))
-         . " | gzip -f | base64 -w0";
+         . (PHP_OS == "Darwin" ?
+             " | gzip -f | base64" :
+                 " | gzip -f | base64 -w0");
   assert(strlen($cmd) > 0);
 
   $arg_encoded = shell_exec($cmd);
