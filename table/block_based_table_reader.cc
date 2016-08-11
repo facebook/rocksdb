@@ -1446,7 +1446,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         if (pin_blocks) {
           if (get_context->State() == GetContext::kMerge) {
             // Pin blocks as long as we are merging
-            pinned_iters_mgr->PinIteratorIfNeeded(biter);
+            pinned_iters_mgr->PinIterator(biter);
           } else {
             delete biter;
           }

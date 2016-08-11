@@ -90,7 +90,7 @@ void CompactionIterator::Next() {
       valid_ = true;
     } else {
       // We consumed all pinned merge operands, release pinned iterators
-      pinned_iters_mgr_.ReleasePinnedIterators();
+      pinned_iters_mgr_.ReleasePinnedData();
       // MergeHelper moves the iterator to the first record after the merged
       // records, so even though we reached the end of the merge output, we do
       // not want to advance the iterator.
@@ -404,7 +404,7 @@ void CompactionIterator::NextFromInput() {
         // batch consumed by the merge operator should not shadow any keys
         // coming after the merges
         has_current_user_key_ = false;
-        pinned_iters_mgr_.ReleasePinnedIterators();
+        pinned_iters_mgr_.ReleasePinnedData();
       }
     } else {
       valid_ = true;

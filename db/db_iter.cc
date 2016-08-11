@@ -133,7 +133,9 @@ class DBIter: public Iterator {
   }
   virtual ~DBIter() {
     // Release pinned data if any
-    pinned_iters_mgr_.ReleasePinnedIterators();
+    if (pinned_iters_mgr_.PinningEnabled()) {
+      pinned_iters_mgr_.ReleasePinnedData();
+    }
     RecordTick(statistics_, NO_ITERATORS, -1);
     local_stats_.BumpGlobalStatistics(statistics_);
     if (!arena_mode_) {
@@ -223,8 +225,8 @@ class DBIter: public Iterator {
 
   // Release blocks pinned by TempPinData()
   void ReleaseTempPinnedData() {
-    if (!pin_thru_lifetime_) {
-      pinned_iters_mgr_.ReleasePinnedIterators();
+    if (!pin_thru_lifetime_ && pinned_iters_mgr_.PinningEnabled()) {
+      pinned_iters_mgr_.ReleasePinnedData();
     }
   }
 

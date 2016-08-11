@@ -6,6 +6,7 @@
 #pragma once
 #include <algorithm>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "table/internal_iterator.h"
@@ -17,50 +18,70 @@ namespace rocksdb {
 // not needed anymore.
 class PinnedIteratorsManager {
  public:
-  PinnedIteratorsManager() : pinning_enabled(false), pinned_iters_(nullptr) {}
-  ~PinnedIteratorsManager() { ReleasePinnedIterators(); }
+  PinnedIteratorsManager() : pinning_enabled(false) {}
+  ~PinnedIteratorsManager() {
+    if (pinning_enabled) {
+      ReleasePinnedData();
+    }
+  }
 
   // Enable Iterators pinning
   void StartPinning() {
-    if (!pinning_enabled) {
-      pinning_enabled = true;
-      if (!pinned_iters_) {
-        pinned_iters_.reset(new std::vector<InternalIterator*>());
-      }
-    }
+    assert(pinning_enabled == false);
+    pinning_enabled = true;
   }
 
   // Is pinning enabled ?
   bool PinningEnabled() { return pinning_enabled; }
 
-  // Take ownership of iter if pinning is enabled and delete it when
-  // ReleasePinnedIterators() is called
-  void PinIteratorIfNeeded(InternalIterator* iter) {
-    if (!pinning_enabled || !iter) {
+  // Take ownership of iter and delete it when ReleasePinnedData() is called
+  void PinIterator(InternalIterator* iter, bool arena = false) {
+    if (arena) {
+      PinPtr(iter, &PinnedIteratorsManager::ReleaseArenaInternalIterator);
+    } else {
+      PinPtr(iter, &PinnedIteratorsManager::ReleaseInternalIterator);
+    }
+  }
+
+  typedef void (*ReleaseFunction)(void* arg1);
+  void PinPtr(void* ptr, ReleaseFunction release_func) {
+    assert(pinning_enabled);
+    if (ptr == nullptr) {
       return;
     }
-    pinned_iters_->push_back(iter);
+    pinned_ptrs_.emplace_back(ptr, release_func);
   }
 
   // Release pinned Iterators
-  inline void ReleasePinnedIterators() {
-    if (pinning_enabled) {
-      pinning_enabled = false;
+  inline void ReleasePinnedData() {
+    assert(pinning_enabled == true);
+    pinning_enabled = false;
 
-      // Remove duplicate pointers
-      std::sort(pinned_iters_->begin(), pinned_iters_->end());
-      std::unique(pinned_iters_->begin(), pinned_iters_->end());
+    // Remove duplicate pointers
+    std::sort(pinned_ptrs_.begin(), pinned_ptrs_.end());
+    std::unique(pinned_ptrs_.begin(), pinned_ptrs_.end());
 
-      for (auto& iter : *pinned_iters_) {
-        delete iter;
-      }
-      pinned_iters_->clear();
+    for (size_t i = 0; i < pinned_ptrs_.size(); i++) {
+      assert(i == 0 || pinned_ptrs_[i].first != pinned_ptrs_[i - 1].first);
+
+      void* ptr = pinned_ptrs_[i].first;
+      ReleaseFunction release_func = pinned_ptrs_[i].second;
+      release_func(ptr);
     }
+    pinned_ptrs_.clear();
   }
 
  private:
+  static void ReleaseInternalIterator(void* ptr) {
+    delete reinterpret_cast<InternalIterator*>(ptr);
+  }
+
+  static void ReleaseArenaInternalIterator(void* ptr) {
+    reinterpret_cast<InternalIterator*>(ptr)->~InternalIterator();
+  }
+
   bool pinning_enabled;
-  std::unique_ptr<std::vector<InternalIterator*>> pinned_iters_;
+  std::vector<std::pair<void*, ReleaseFunction>> pinned_ptrs_;
 };
 
 }  // namespace rocksdb
