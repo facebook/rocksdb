@@ -197,12 +197,16 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
              base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   cf_options_map["write_buffer_size"] = "1";
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
             base_cf_opt, cf_options_map, &new_cf_opt));
   cf_options_map["unknown_option"] = "1";
+
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
              base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
 
   DBOptions base_db_opt;
   DBOptions new_db_opt;
@@ -280,15 +284,22 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13;max_write_buffer_number_=14;",
               &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Wrong key/value pair
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13;max_write_buffer_number;", &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Error Paring value
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13;max_write_buffer_number=;", &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Missing option name
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13; =100;", &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
 
   const int64_t kilo = 1024UL;
   const int64_t mega = 1024 * kilo;
@@ -350,35 +361,47 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
              "block_based_table_factory={{{block_size=4;};"
              "arena_block_size=1024",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Unexpected chars after closing curly brace
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={block_size=4;}};"
              "arena_block_size=1024",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={block_size=4;}xdfa;"
              "arena_block_size=1024",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={block_size=4;}xdfa",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Invalid block based table option
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={xx_block_size=4;}",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
            "optimize_filters_for_hits=true",
            &new_cf_opt));
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "optimize_filters_for_hits=false",
             &new_cf_opt));
+
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
               "optimize_filters_for_hits=junk",
               &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
 
   // Nested plain table options
   // Emtpy
@@ -440,27 +463,43 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
              "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
              "bad_option=1",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized index type
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
              "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized checksum type
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
              "cache_index_and_filter_blocks=1;checksum=kxxHashXX",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized filter policy name
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
              "cache_index_and_filter_blocks=1;"
              "filter_policy=bloomfilterxx:4:true",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+
   // unrecognized filter policy config
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
              "cache_index_and_filter_blocks=1;"
              "filter_policy=bloomfilter:4",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 }
 #endif  // !ROCKSDB_LITE
 

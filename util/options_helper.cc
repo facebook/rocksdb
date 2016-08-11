@@ -1148,6 +1148,8 @@ Status GetBlockBasedTableOptionsFromMap(
            iter->second.verification !=
                OptionVerificationType::kByNameAllowNull &&
            iter->second.verification != OptionVerificationType::kDeprecated)) {
+        // Restore "new_options" to the default "base_options".
+        *new_table_options = table_options;
         return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
                                        o.first + " " + error_message);
       }
@@ -1188,6 +1190,8 @@ Status GetPlainTableOptionsFromMap(
            iter->second.verification !=
                OptionVerificationType::kByNameAllowNull &&
            iter->second.verification != OptionVerificationType::kDeprecated)) {
+        // Restore "new_options" to the default "base_options".
+        *new_table_options = table_options;
         return Status::InvalidArgument("Can't parse PlainTableOptions:",
                                         o.first + " " + error_message);
       }
@@ -1312,6 +1316,8 @@ Status GetColumnFamilyOptionsFromMapInternal(
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
       } else {
+        // Restore "new_options" to the default "base_options".
+        *new_options = base_options;
         return s;
       }
     }
@@ -1326,6 +1332,7 @@ Status GetColumnFamilyOptionsFromString(
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
+    *new_options = base_options;
     return s;
   }
   return GetColumnFamilyOptionsFromMap(base_options, opts_map, new_options);
@@ -1364,6 +1371,8 @@ Status GetDBOptionsFromMapInternal(
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
       } else {
+        // Restore "new_options" to the default "base_options".
+        *new_options = base_options;
         return s;
       }
     }
@@ -1378,6 +1387,7 @@ Status GetDBOptionsFromString(
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
+    *new_options = base_options;
     return s;
   }
   return GetDBOptionsFromMap(base_options, opts_map, new_options);
