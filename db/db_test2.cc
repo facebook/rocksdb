@@ -1628,37 +1628,7 @@ TEST_P(MergeOperatorPinningTest, OperandsMultiBlocks) {
   // 3 L4 Files
   ASSERT_EQ(FilesPerLevel(), "3,1,3,1,3");
 
-  // Verify Get()
-  for (auto kv : true_data) {
-    ASSERT_EQ(Get(kv.first), kv.second);
-  }
-
-  Iterator* iter = db_->NewIterator(ReadOptions());
-
-  // Verify Iterator::Next()
-  auto data_iter = true_data.begin();
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
-    ASSERT_EQ(iter->key().ToString(), data_iter->first);
-    ASSERT_EQ(iter->value().ToString(), data_iter->second);
-  }
-  ASSERT_EQ(data_iter, true_data.end());
-
-  // Verify Iterator::Prev()
-  auto data_rev = true_data.rbegin();
-  for (iter->SeekToLast(); iter->Valid(); iter->Prev(), data_rev++) {
-    ASSERT_EQ(iter->key().ToString(), data_rev->first);
-    ASSERT_EQ(iter->value().ToString(), data_rev->second);
-  }
-  ASSERT_EQ(data_rev, true_data.rend());
-
-  // Verify Iterator::Seek()
-  for (auto kv : true_data) {
-    iter->Seek(kv.first);
-    ASSERT_EQ(kv.first, iter->key().ToString());
-    ASSERT_EQ(kv.second, iter->value().ToString());
-  }
-
-  delete iter;
+  VerifyDBFromMap(true_data);
 }
 
 TEST_P(MergeOperatorPinningTest, Randomized) {
@@ -1807,12 +1777,69 @@ TEST_P(MergeOperatorPinningTest, EvictCacheBeforeMerge) {
     }
   };
 
-  VerifyDBFromMap(true_data);
-  ASSERT_EQ(merge_cnt, kNumKeys * 4 /* get + next + prev + seek */);
+  size_t total_reads;
+  VerifyDBFromMap(true_data, &total_reads);
+  ASSERT_EQ(merge_cnt, total_reads);
 
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
-  VerifyDBFromMap(true_data);
+  VerifyDBFromMap(true_data, &total_reads);
+}
+
+TEST_P(MergeOperatorPinningTest, TailingIterator) {
+  Options options = CurrentOptions();
+  options.merge_operator = MergeOperators::CreateMaxOperator();
+  BlockBasedTableOptions bbto;
+  bbto.no_block_cache = disable_block_cache_;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  const int kNumOperands = 100;
+  const int kNumWrites = 100000;
+
+  std::function<void()> writer_func = [&]() {
+    int k = 0;
+    for (int i = 0; i < kNumWrites; i++) {
+      db_->Merge(WriteOptions(), Key(k), Key(k));
+
+      if (i && i % kNumOperands == 0) {
+        k++;
+      }
+      if (i && i % 127 == 0) {
+        ASSERT_OK(Flush());
+      }
+      if (i && i % 317 == 0) {
+        ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+      }
+    }
+  };
+
+  std::function<void()> reader_func = [&]() {
+    ReadOptions ro;
+    ro.tailing = true;
+    Iterator* iter = db_->NewIterator(ro);
+
+    iter->SeekToFirst();
+    for (int i = 0; i < (kNumWrites / kNumOperands); i++) {
+      while (!iter->Valid()) {
+        // wait for the key to be written
+        env_->SleepForMicroseconds(100);
+        iter->Seek(Key(i));
+      }
+      ASSERT_EQ(iter->key(), Key(i));
+      ASSERT_EQ(iter->value(), Key(i));
+
+      iter->Next();
+    }
+
+    delete iter;
+  };
+
+  std::thread writer_thread(writer_func);
+  std::thread reader_thread(reader_func);
+
+  writer_thread.join();
+  reader_thread.join();
 }
 #endif  // ROCKSDB_LITE
 
