@@ -42,6 +42,15 @@ class LevelIterator : public InternalIterator {
         file_iter_(nullptr),
         pinned_iters_mgr_(nullptr) {}
 
+  ~LevelIterator() {
+    // Reset current pointer
+    if (pinned_iters_mgr_ && pinned_iters_mgr_->PinningEnabled()) {
+      pinned_iters_mgr_->PinIterator(file_iter_);
+    } else {
+      delete file_iter_;
+    }
+  }
+
   void SetFileIndex(uint32_t file_index) {
     assert(file_index < files_.size());
     if (file_index != file_index_) {
