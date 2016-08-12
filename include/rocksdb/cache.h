@@ -51,6 +51,9 @@ class Cache {
   // Opaque handle to an entry stored in the cache.
   struct Handle {};
 
+  // The type of the Cache
+  virtual const char* Name() const = 0;
+
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
   // If strict_capacity_limit is true and cache reaches its full capacity,

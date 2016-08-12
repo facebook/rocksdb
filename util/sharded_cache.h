@@ -46,7 +46,7 @@ class ShardedCache : public Cache {
  public:
   ShardedCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit);
   virtual ~ShardedCache() = default;
-
+  virtual const char* Name() const override = 0;
   virtual CacheShard* GetShard(int shard) = 0;
   virtual const CacheShard* GetShard(int shard) const = 0;
   virtual void* Value(Handle* handle) override = 0;

@@ -528,6 +528,7 @@ class LRUCache : public ShardedCache {
 
   virtual ~LRUCache() { delete[] shards_; }
 
+  virtual const char* Name() const override { return "LRUCache"; }
   virtual CacheShard* GetShard(int shard) override {
     return reinterpret_cast<CacheShard*>(&shards_[shard]);
   }
