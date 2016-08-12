@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "table/block_based_table_reader.h"
 
+#include <algorithm>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -228,7 +230,7 @@ class HashIndexReader : public IndexReader {
       const SliceTransform* hash_key_extractor, const Footer& footer,
       RandomAccessFileReader* file, const ImmutableCFOptions &ioptions,
       const Comparator* comparator, const BlockHandle& index_handle,
-      InternalIterator* meta_index_iter, IndexReader** index_reader, 
+      InternalIterator* meta_index_iter, IndexReader** index_reader,
       bool hash_index_allow_collision,
       const PersistentCacheOptions& cache_options) {
     std::unique_ptr<Block> index_block;
@@ -1539,7 +1541,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                   handle, cache_key_storage);
   Slice ckey;
 
-  s = GetDataBlockFromCache(cache_key, ckey, block_cache, nullptr, 
+  s = GetDataBlockFromCache(cache_key, ckey, block_cache, nullptr,
                             rep_->ioptions, options, &block,
                             rep_->table_options.format_version,
                             rep_->compression_dict_block
@@ -1588,7 +1590,7 @@ Status BlockBasedTable::CreateIndexReader(
   switch (index_type_on_file) {
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(
-          file, footer, footer.index_handle(), rep_->ioptions, comparator, 
+          file, footer, footer.index_handle(), rep_->ioptions, comparator,
           index_reader, rep_->persistent_cache_options);
     }
     case BlockBasedTableOptions::kHashSearch: {
@@ -1891,6 +1893,10 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     return s;
   }
 
+  uint64_t datablock_size_min = std::numeric_limits<uint64_t>::max();
+  uint64_t datablock_size_max = 0;
+  uint64_t datablock_size_sum = 0;
+
   size_t block_id = 1;
   for (blockhandles_iter->SeekToFirst(); blockhandles_iter->Valid();
        block_id++, blockhandles_iter->Next()) {
@@ -1898,6 +1904,14 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     if (!s.ok()) {
       break;
     }
+
+    Slice bh_val = blockhandles_iter->value();
+    BlockHandle bh;
+    bh.DecodeFrom(&bh_val);
+    uint64_t datablock_size = bh.size();
+    datablock_size_min = std::min(datablock_size_min, datablock_size);
+    datablock_size_max = std::max(datablock_size_max, datablock_size);
+    datablock_size_sum += datablock_size;
 
     out_file->Append("Data Block # ");
     out_file->Append(rocksdb::ToString(block_id));
@@ -1956,6 +1970,24 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     }
     out_file->Append("\n");
   }
+
+  uint64_t num_datablocks = block_id - 1;
+  if (num_datablocks) {
+    double datablock_size_avg =
+        static_cast<double>(datablock_size_sum) / num_datablocks;
+    out_file->Append("Data Block Summary:\n");
+    out_file->Append("--------------------------------------");
+    out_file->Append("\n  # data blocks: ");
+    out_file->Append(rocksdb::ToString(num_datablocks));
+    out_file->Append("\n  min data block size: ");
+    out_file->Append(rocksdb::ToString(datablock_size_min));
+    out_file->Append("\n  max data block size: ");
+    out_file->Append(rocksdb::ToString(datablock_size_max));
+    out_file->Append("\n  avg data block size: ");
+    out_file->Append(rocksdb::ToString(datablock_size_avg));
+    out_file->Append("\n");
+  }
+
   return Status::OK();
 }
 
