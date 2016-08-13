@@ -44,7 +44,8 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.WriteBatchWithIndex\
 	org.rocksdb.WBWIRocksIterator
 
-NATIVE_JAVA_TEST_CLASSES = org.rocksdb.WriteBatchTest\
+NATIVE_JAVA_TEST_CLASSES = org.rocksdb.RocksDBExceptionTest\
+    org.rocksdb.WriteBatchTest\
     org.rocksdb.WriteBatchTestInternalHelper
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -87,6 +88,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.ReadOnlyTest\
 	org.rocksdb.ReadOptionsTest\
 	org.rocksdb.RocksDBTest\
+	org.rocksdb.RocksDBExceptionTest\
 	org.rocksdb.RocksEnvTest\
 	org.rocksdb.RocksIteratorTest\
 	org.rocksdb.RocksMemEnvTest\

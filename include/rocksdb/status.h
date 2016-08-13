@@ -73,6 +73,8 @@ class Status {
 
   SubCode subcode() const { return subcode_; }
 
+  const char* getState() const { return state_; }
+
   // Return a success status.
   static Status OK() { return Status(); }
 
