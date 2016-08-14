@@ -1098,6 +1098,123 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Remove the database entry for {@code key}. Requires that the key exists
+   * and was not overwritten. It is not an error if the key did not exist
+   * in the database.
+   *
+   * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
+   * times), then the result of calling SingleDelete() on this key is undefined.
+   * SingleDelete() only behaves correctly if there has been only one Put()
+   * for this key since the previous call to SingleDelete() for this key.
+   *
+   * This feature is currently an experimental performance optimization
+   * for a very specific workload. It is up to the caller to ensure that
+   * SingleDelete is only used for a key that is not deleted using Delete() or
+   * written using Merge(). Mixing SingleDelete operations with Deletes and
+   * Merges can result in undefined behavior.
+   *
+   * @param key Key to delete within database
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  @Experimental("Performance optimization for a very specific workload")
+  public void singleDelete(final byte[] key) throws RocksDBException {
+    singleDelete(nativeHandle_, key, key.length);
+  }
+
+  /**
+   * Remove the database entry for {@code key}. Requires that the key exists
+   * and was not overwritten. It is not an error if the key did not exist
+   * in the database.
+   *
+   * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
+   * times), then the result of calling SingleDelete() on this key is undefined.
+   * SingleDelete() only behaves correctly if there has been only one Put()
+   * for this key since the previous call to SingleDelete() for this key.
+   *
+   * This feature is currently an experimental performance optimization
+   * for a very specific workload. It is up to the caller to ensure that
+   * SingleDelete is only used for a key that is not deleted using Delete() or
+   * written using Merge(). Mixing SingleDelete operations with Deletes and
+   * Merges can result in undefined behavior.
+   *
+   * @param columnFamilyHandle The column family to delete the key from
+   * @param key Key to delete within database
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  @Experimental("Performance optimization for a very specific workload")
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
+      final byte[] key) throws RocksDBException {
+    singleDelete(nativeHandle_, key, key.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Remove the database entry for {@code key}. Requires that the key exists
+   * and was not overwritten. It is not an error if the key did not exist
+   * in the database.
+   *
+   * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
+   * times), then the result of calling SingleDelete() on this key is undefined.
+   * SingleDelete() only behaves correctly if there has been only one Put()
+   * for this key since the previous call to SingleDelete() for this key.
+   *
+   * This feature is currently an experimental performance optimization
+   * for a very specific workload. It is up to the caller to ensure that
+   * SingleDelete is only used for a key that is not deleted using Delete() or
+   * written using Merge(). Mixing SingleDelete operations with Deletes and
+   * Merges can result in undefined behavior.
+   *
+   * Note: consider setting {@link WriteOptions#setSync(boolean)} true.
+   *
+   * @param writeOpt Write options for the delete
+   * @param key Key to delete within database
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  @Experimental("Performance optimization for a very specific workload")
+  public void singleDelete(final WriteOptions writeOpt, final byte[] key)
+      throws RocksDBException {
+    singleDelete(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
+  }
+
+  /**
+   * Remove the database entry for {@code key}. Requires that the key exists
+   * and was not overwritten. It is not an error if the key did not exist
+   * in the database.
+   *
+   * If a key is overwritten (by calling {@link #put(byte[], byte[])} multiple
+   * times), then the result of calling SingleDelete() on this key is undefined.
+   * SingleDelete() only behaves correctly if there has been only one Put()
+   * for this key since the previous call to SingleDelete() for this key.
+   *
+   * This feature is currently an experimental performance optimization
+   * for a very specific workload. It is up to the caller to ensure that
+   * SingleDelete is only used for a key that is not deleted using Delete() or
+   * written using Merge(). Mixing SingleDelete operations with Deletes and
+   * Merges can result in undefined behavior.
+   *
+   * Note: consider setting {@link WriteOptions#setSync(boolean)} true.
+   *
+   * @param columnFamilyHandle The column family to delete the key from
+   * @param writeOpt Write options for the delete
+   * @param key Key to delete within database
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *     native library.
+   */
+  @Experimental("Performance optimization for a very specific workload")
+  public void singleDelete(final ColumnFamilyHandle columnFamilyHandle,
+      final WriteOptions writeOpt, final byte[] key) throws RocksDBException {
+    singleDelete(nativeHandle_, writeOpt.nativeHandle_, key, key.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * DB implements can export properties about their state
    * via this method on a per column family level.
    *
@@ -1936,6 +2053,17 @@ public class RocksDB extends RocksObject {
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
   protected native void delete(
+      long handle, long writeOptHandle,
+      byte[] key, int keyLen, long cfHandle) throws RocksDBException;
+  protected native void singleDelete(
+      long handle, byte[] key, int keyLen) throws RocksDBException;
+  protected native void singleDelete(
+      long handle, byte[] key, int keyLen, long cfHandle)
+      throws RocksDBException;
+  protected native void singleDelete(
+      long handle, long writeOptHandle,
+      byte[] key, int keyLen) throws RocksDBException;
+  protected native void singleDelete(
       long handle, long writeOptHandle,
       byte[] key, int keyLen, long cfHandle) throws RocksDBException;
   protected native String getProperty0(long nativeHandle,
