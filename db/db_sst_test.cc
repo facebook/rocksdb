@@ -1345,6 +1345,8 @@ TEST_F(DBSSTTest, AddExternalSstFileSkipSnapshot) {
   ASSERT_OK(db_->AddFile(std::vector<ExternalSstFileInfo>(1, file3_info), false, true));
   ASSERT_EQ(Get(Key(300)), Key(300) + ("_val"));
   ASSERT_EQ(Get(Key(300), s2), Key(300) + ("_val"));
+
+  db_->ReleaseSnapshot(s2);
 }
 
 TEST_F(DBSSTTest, AddExternalSstFileMultiThreaded) {
