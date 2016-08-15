@@ -129,9 +129,13 @@ class PosixEnv : public Env {
     for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
       thread_pools_[pool_id].JoinAllThreads();
     }
-    // All threads must be joined before the deletion of
-    // thread_status_updater_.
-    delete thread_status_updater_;
+    // Delete the thread_status_updater_ only when the current Env is not
+    // Env::Default().  This is to avoid the free-after-use error when
+    // Env::Default() is destructed while some other child threads are
+    // still trying to update thread status.
+    if (this != Env::Default()) {
+      delete thread_status_updater_;
+    }
   }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
