@@ -615,15 +615,15 @@ void InternalStats::DumpDBStats(std::string* value) {
   // Data
   // writes: total number of write requests.
   // keys: total number of key updates issued by all the write requests
-  // batches: number of group commits issued to the DB. Each group can contain
-  //          one or more writes.
+  // commit groups: number of group commits issued to the DB. Each group can
+  //                contain one or more writes.
   // so writes/keys is the average number of put in multi-put or put
-  // writes/batches is the average group commit size.
+  // writes/groups is the average group commit size.
   //
   // The format is the same for interval stats.
   snprintf(buf, sizeof(buf),
-           "Cumulative writes: %s writes, %s keys, %s batches, "
-           "%.1f writes per batch, ingest: %.2f GB, %.2f MB/s\n",
+           "Cumulative writes: %s writes, %s keys, %s commit groups, "
+           "%.1f writes per commit group, ingest: %.2f GB, %.2f MB/s\n",
            NumberToHumanString(write_other + write_self).c_str(),
            NumberToHumanString(num_keys_written).c_str(),
            NumberToHumanString(write_self).c_str(),
@@ -654,8 +654,8 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t interval_num_keys_written =
       num_keys_written - db_stats_snapshot_.num_keys_written;
   snprintf(buf, sizeof(buf),
-           "Interval writes: %s writes, %s keys, %s batches, "
-           "%.1f writes per batch, ingest: %.2f MB, %.2f MB/s\n",
+           "Interval writes: %s writes, %s keys, %s commit groups, "
+           "%.1f writes per commit group, ingest: %.2f MB, %.2f MB/s\n",
            NumberToHumanString(
                interval_write_other + interval_write_self).c_str(),
            NumberToHumanString(interval_num_keys_written).c_str(),
