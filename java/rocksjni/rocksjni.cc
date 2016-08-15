@@ -1603,13 +1603,13 @@ void Java_org_rocksdb_RocksDB_setOptions(JNIEnv* env, jobject jdb,
     jobject jobj_key = env->GetObjectArrayElement(jkeys, i);
     jobject jobj_value = env->GetObjectArrayElement(jvalues, i);
     jstring jkey = reinterpret_cast<jstring>(jobj_key);
-    jstring jvalue = reinterpret_cast<jstring>(jobj_value);
+    jstring jval = reinterpret_cast<jstring>(jobj_value);
     const char* key = env->GetStringUTFChars(jkey, NULL);
-    const char* value = env->GetStringUTFChars(jvalue, NULL);
+    const char* value = env->GetStringUTFChars(jval, NULL);
     std::string s_key(key);
     std::string s_value(value);
     env->ReleaseStringUTFChars(jkey, key);
-    env->ReleaseStringUTFChars(jvalue, value);
+    env->ReleaseStringUTFChars(jval, value);
     env->DeleteLocalRef(jobj_key);
     env->DeleteLocalRef(jobj_value);
     options_map[s_key] = s_value;

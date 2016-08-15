@@ -101,7 +101,7 @@ public interface MutableColumnFamilyOptionsInterface {
   double memtablePrefixBloomSizeRatio();
 
   /**
-   * Page size for huge page TLB for bloom in memtable. If <=0, not allocate
+   * Page size for huge page TLB for bloom in memtable. If &le; 0, not allocate
    * from huge page TLB but from malloc.
    * Need to reserve huge pages for it to be allocated. For example:
    *     sysctl -w vm.nr_hugepages=20
@@ -115,7 +115,7 @@ public interface MutableColumnFamilyOptionsInterface {
       long memtableHugePageSize);
 
   /**
-   * Page size for huge page TLB for bloom in memtable. If <=0, not allocate
+   * Page size for huge page TLB for bloom in memtable. If &le; 0, not allocate
    * from huge page TLB but from malloc.
    * Need to reserve huge pages for it to be allocated. For example:
    *     sysctl -w vm.nr_hugepages=20
@@ -321,7 +321,7 @@ public interface MutableColumnFamilyOptionsInterface {
   long hardPendingCompactionBytesLimit();
 
   /**
-   * Number of files to trigger level-0 compaction. A value <0 means that
+   * Number of files to trigger level-0 compaction. A value &lt; 0 means that
    * level-0 compaction will not be triggered by number of files at all.
    *
    * Default: 4
@@ -334,7 +334,7 @@ public interface MutableColumnFamilyOptionsInterface {
       int level0FileNumCompactionTrigger);
 
   /**
-   * Number of files to trigger level-0 compaction. A value <0 means that
+   * Number of files to trigger level-0 compaction. A value &lt; 0 means that
    * level-0 compaction will not be triggered by number of files at all.
    *
    * Default: 4
@@ -345,7 +345,7 @@ public interface MutableColumnFamilyOptionsInterface {
 
   /**
    * Soft limit on number of level-0 files. We start slowing down writes at this
-   * point. A value <0 means that no writing slow down will be triggered by
+   * point. A value &lt; 0 means that no writing slow down will be triggered by
    * number of files in level-0.
    *
    * @param level0SlowdownWritesTrigger The soft limit on the number of
@@ -357,7 +357,7 @@ public interface MutableColumnFamilyOptionsInterface {
 
   /**
    * Soft limit on number of level-0 files. We start slowing down writes at this
-   * point. A value <0 means that no writing slow down will be triggered by
+   * point. A value &lt; 0 means that no writing slow down will be triggered by
    * number of files in level-0.
    *
    * @return The soft limit on the number of

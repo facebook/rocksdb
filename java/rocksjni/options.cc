@@ -1084,7 +1084,7 @@ jboolean Java_org_rocksdb_Options_enableWriteThreadAdaptiveYield(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_Options_setWriteThreadMaxYieldUsec(
-    JNIEnv* env, jobject jobject, jlong jhandle, jlong max) {
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong max) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->
       write_thread_max_yield_usec = static_cast<int64_t>(max);
 }
@@ -4425,7 +4425,7 @@ jboolean Java_org_rocksdb_DBOptions_enableWriteThreadAdaptiveYield(
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_DBOptions_setWriteThreadMaxYieldUsec(
-    JNIEnv* env, jobject jobject, jlong jhandle, jlong max) {
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong max) {
   reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
       write_thread_max_yield_usec = static_cast<int64_t>(max);
 }
