@@ -1232,7 +1232,7 @@ struct DBOptions {
 
   // Allows OS to incrementally sync files to disk while they are being
   // written, asynchronously, in the background. This operation can be used
-  // to smooth out write I/Os over time. Users shouldn't reply on it for
+  // to smooth out write I/Os over time. Users shouldn't rely on it for
   // persistency guarantee.
   // Issue one request for every bytes_per_sync written. 0 turns it off.
   // Default: 0
