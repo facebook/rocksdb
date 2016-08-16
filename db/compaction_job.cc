@@ -624,6 +624,13 @@ Status CompactionJob::Install(const MutableCFOptions& mutable_cf_options) {
          << "num_output_records" << compact_->num_output_records
          << "num_subcompactions" << compact_->sub_compact_states.size();
 
+  if (compaction_job_stats_ != nullptr) {
+    stream << "num_single_delete_mismatches"
+           << compaction_job_stats_->num_single_del_mismatch;
+    stream << "num_single_delete_fallthrough"
+           << compaction_job_stats_->num_single_del_fallthru;
+  }
+
   if (measure_io_stats_ && compaction_job_stats_ != nullptr) {
     stream << "file_write_nanos" << compaction_job_stats_->file_write_nanos;
     stream << "file_range_sync_nanos"
@@ -850,6 +857,10 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       c_iter_stats.num_input_deletion_records;
   sub_compact->compaction_job_stats.num_corrupt_keys =
       c_iter_stats.num_input_corrupt_records;
+  sub_compact->compaction_job_stats.num_single_del_fallthru =
+      c_iter_stats.num_single_del_fallthru;
+  sub_compact->compaction_job_stats.num_single_del_mismatch =
+      c_iter_stats.num_single_del_mismatch;
   sub_compact->compaction_job_stats.total_input_raw_key_bytes +=
       c_iter_stats.total_input_raw_key_bytes;
   sub_compact->compaction_job_stats.total_input_raw_value_bytes +=
