@@ -56,8 +56,25 @@ void WriteBatchBase::SingleDelete(const SliceParts& key) {
   SingleDelete(key_slice);
 }
 
+void WriteBatchBase::DeleteRange(ColumnFamilyHandle* column_family,
+                                 const SliceParts& begin_key,
+                                 const SliceParts& end_key) {
+  std::string begin_key_buf, end_key_buf;
+  Slice begin_key_slice(begin_key, &begin_key_buf);
+  Slice end_key_slice(end_key, &end_key_buf);
+  DeleteRange(column_family, begin_key_slice, end_key_slice);
+}
+
+void WriteBatchBase::DeleteRange(const SliceParts& begin_key,
+                                 const SliceParts& end_key) {
+  std::string begin_key_buf, end_key_buf;
+  Slice begin_key_slice(begin_key, &begin_key_buf);
+  Slice end_key_slice(end_key, &end_key_buf);
+  DeleteRange(begin_key_slice, end_key_slice);
+}
+
 void WriteBatchBase::Merge(ColumnFamilyHandle* column_family,
-                         const SliceParts& key, const SliceParts& value) {
+                           const SliceParts& key, const SliceParts& value) {
   std::string key_buf, value_buf;
   Slice key_slice(key, &key_buf);
   Slice value_slice(value, &value_buf);

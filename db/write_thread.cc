@@ -185,8 +185,8 @@ void WriteThread::SetState(Writer* w, uint8_t new_state) {
 void WriteThread::LinkOne(Writer* w, bool* linked_as_leader) {
   assert(w->state == STATE_INIT);
 
-  Writer* writers = newest_writer_.load(std::memory_order_relaxed);
   while (true) {
+    Writer* writers = newest_writer_.load(std::memory_order_relaxed);
     w->link_older = writers;
     if (newest_writer_.compare_exchange_strong(writers, w)) {
       if (writers == nullptr) {

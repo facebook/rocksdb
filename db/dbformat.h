@@ -10,6 +10,7 @@
 #pragma once
 #include <stdio.h>
 #include <string>
+#include <utility>
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -44,6 +45,8 @@ enum ValueType : unsigned char {
   kTypeCommitXID = 0xB,                   // WAL only.
   kTypeRollbackXID = 0xC,                 // WAL only.
   kTypeNoop = 0xD,                        // WAL only.
+  kTypeColumnFamilyRangeDeletion = 0xE,   // WAL only.
+  kTypeRangeDeletion = 0xF,               // meta block
   kMaxValue = 0x7F                        // Not used for storing records.
 };
 
@@ -55,10 +58,16 @@ enum ValueType : unsigned char {
 // ValueType, not the lowest).
 static const ValueType kValueTypeForSeek = kTypeSingleDeletion;
 
-// Checks whether a type is a value type (i.e. a type used in memtables and sst
-// files).
+// Checks whether a type is an inline value type
+// (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
   return t <= kTypeMerge || t == kTypeSingleDeletion;
+}
+
+// Checks whether a type is from user operation
+// kTypeRangeDeletion is in meta block so this API is separated from above
+inline bool IsExtendedValueType(ValueType t) {
+  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeRangeDeletion;
 }
 
 // We leave eight bits empty at the bottom so a type and sequence#
@@ -208,7 +217,7 @@ inline bool ParseInternalKey(const Slice& internal_key,
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - 8);
-  return IsValueType(result->type);
+  return IsExtendedValueType(result->type);
 }
 
 // Update the sequence number in the internal key.
