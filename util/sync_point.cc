@@ -120,6 +120,10 @@ bool SyncPoint::DisabledByMarker(const std::string& point,
 
 void SyncPoint::Process(const std::string& point, void* cb_arg) {
   std::unique_lock<std::mutex> lock(mutex_);
+  if (!enabled_) {
+    return;
+  }
+
   auto thread_id = std::this_thread::get_id();
 
   auto marker_iter = markers_.find(point);
@@ -130,10 +134,6 @@ void SyncPoint::Process(const std::string& point, void* cb_arg) {
   }
 
   if (DisabledByMarker(point, thread_id)) {
-    return;
-  }
-
-  if (!enabled_) {
     return;
   }
 
