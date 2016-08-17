@@ -2170,7 +2170,7 @@ jintArray Java_org_rocksdb_Options_maxBytesForLevelMultiplierAdditional(
 
   const size_t size = mbflma.size();
 
-  jint additionals[size];
+  jint* additionals = new jint[size];
   for (size_t i = 0; i < size; i++) {
     additionals[i] = reinterpret_cast<jint>(mbflma[i]);
   }
@@ -2178,6 +2178,9 @@ jintArray Java_org_rocksdb_Options_maxBytesForLevelMultiplierAdditional(
   jsize jlen = static_cast<jsize>(size);
   jintArray result = env->NewIntArray(jlen);
   env->SetIntArrayRegion(result, 0, jlen, additionals);
+
+  delete [] additionals;
+
   return result;
 }
 
@@ -3477,7 +3480,7 @@ jintArray Java_org_rocksdb_ColumnFamilyOptions_maxBytesForLevelMultiplierAdditio
 
   const size_t size = mbflma.size();
 
-  jint additionals[size];
+  jint* additionals = new jint[size];
   for (size_t i = 0; i < size; i++) {
     additionals[i] = reinterpret_cast<jint>(mbflma[i]);
   }
@@ -3486,6 +3489,9 @@ jintArray Java_org_rocksdb_ColumnFamilyOptions_maxBytesForLevelMultiplierAdditio
   jintArray result;
   result = env->NewIntArray(jlen);
   env->SetIntArrayRegion(result, 0, jlen, additionals);
+
+  delete [] additionals;
+
   return result;
 }
 
