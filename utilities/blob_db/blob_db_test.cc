@@ -17,7 +17,6 @@ class BlobDBTest : public testing::Test {
     Options options;
     options.create_if_missing = true;
     BlobDBOptions bdb_options;
-    bdb_options.blob_dir = "blob_dir";
     EXPECT_TRUE(BlobDB::Open(options, bdb_options, dbname_, &db_).ok());
   }
 

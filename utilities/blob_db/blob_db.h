@@ -34,14 +34,6 @@ struct BlobDBOptions {
   // Is the blob db mindful of ttl and eviction is done on TTL.
   bool has_ttl;
 
-  // is the eviction strategy fifo based
-  bool is_fifo;
-
-  // maximum size of the blob dir. Once this gets used, up 
-  // evict the blob file which is oldest (is_fifo )
-  // 0 means no limits
-  uint64_t blob_dir_size;
-
   // a new bucket is opened, for ttl_range. So if ttl_range is 600seconds
   // (10 minutes), and the first bucket starts at 1471542000
   // then the blob buckets will be
@@ -56,32 +48,20 @@ struct BlobDBOptions {
 
   // at what bytes will the blob files be synced to blob log.
   uint64_t bytes_per_sync;
-
-  // default constructor
-  BlobDBOptions();
 };
 
 class BlobDB : public StackableDB {
  public:
   using rocksdb::StackableDB::Put;
-
-  virtual Status Put(const WriteOptions& options, const Slice& key,
+  Status Put(const WriteOptions& options, const Slice& key,
              const Slice& value) override  = 0;
 
-  virtual Status PutWithTTL(const WriteOptions& options, const Slice& key,
-             const Slice& value, uint32_t ttl) = 0;
-
-  virtual Status PutUntil(const WriteOptions& options, const Slice& key,
-             const Slice& value, uint32_t expiration) = 0;
-
   using rocksdb::StackableDB::Get;
-  virtual Status Get(const ReadOptions& options, const Slice& key,
+  Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override = 0;
 
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
       const std::string& dbname, BlobDB** blob_db);
-
-  virtual ~BlobDB() { }
 
 protected:
 
