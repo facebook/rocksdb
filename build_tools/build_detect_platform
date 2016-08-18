@@ -24,6 +24,7 @@
 #       -DLZ4                       if the LZ4 library is present
 #       -DZSTD                      if the ZSTD library is present
 #       -DNUMA                      if the NUMA library is present
+#       -DTBB                       if the TBB library is present
 #
 # Using gflags in rocksdb:
 # Our project depends on gflags, which requires users to take some extra steps
@@ -294,6 +295,17 @@ EOF
         COMMON_FLAGS="$COMMON_FLAGS -DNUMA"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lnuma"
         JAVA_LDFLAGS="$JAVA_LDFLAGS -lnuma"
+    fi
+
+    # Test whether tbb is available
+    $CXX $CFLAGS $LDFLAGS -x c++ - -o /dev/null -ltbb 2>/dev/null  <<EOF
+      #include <tbb/tbb.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DTBB"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltbb"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -ltbb"
     fi
 
     # Test whether jemalloc is available
