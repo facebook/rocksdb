@@ -16,12 +16,13 @@ class BlobDBTest : public testing::Test {
     dbname_ = test::TmpDir() + "/blob_db_test";
     Options options;
     options.create_if_missing = true;
-    EXPECT_TRUE(NewBlobDB(options, dbname_, &db_).ok());
+    BlobDBOptions bdb_options;
+    EXPECT_TRUE(BlobDB::Open(options, bdb_options, dbname_, &db_).ok());
   }
 
   ~BlobDBTest() { delete db_; }
 
-  DB* db_;
+  BlobDB* db_;
   std::string dbname_;
 };  // class BlobDBTest
 

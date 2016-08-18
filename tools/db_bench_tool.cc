@@ -3229,7 +3229,12 @@ void VerifyDBFromDB(std::string& truth_db_name) {
       }
 #endif  // ROCKSDB_LITE
     } else if (FLAGS_use_blob_db) {
-      s = NewBlobDB(options, db_name, &db->db);
+      BlobDBOptions blob_db_options;
+      BlobDB *ptr;
+      s = BlobDB::Open(options, blob_db_options, db_name, &ptr);
+      if (s.ok()) {
+        db->db = ptr;
+      }
     } else {
       s = DB::Open(options, db_name, &db->db);
     }
