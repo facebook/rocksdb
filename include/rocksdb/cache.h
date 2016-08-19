@@ -33,10 +33,14 @@ class Cache;
 
 // Create a new cache with a fixed size capacity. The cache is sharded
 // to 2^num_shard_bits shards, by hash of the key. The total capacity
-// is divided and evenly assigned to each shard.
+// is divided and evenly assigned to each shard. If strict_capacity_limit
+// is set, insert to the cache will fail when cache is full. User can also
+// set percentage of the cache reserves for high priority entries via
+// high_pri_pool_pct.
 extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
                                           int num_shard_bits = 6,
-                                          bool strict_capacity_limit = false);
+                                          bool strict_capacity_limit = false,
+                                          double high_pri_pool_ratio = 0.0);
 
 // Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
 // better concurrent performance in some cases. See util/clock_cache.cc for
@@ -49,6 +53,10 @@ extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
 
 class Cache {
  public:
+  // Depending on implementation, cache entries with high priority could be less
+  // likely to get evicted than low priority entries.
+  enum class Priority { HIGH, LOW };
+
   Cache() {}
 
   // Destroys all existing entries by calling the "deleter"
@@ -80,7 +88,8 @@ class Cache {
   // value will be passed to "deleter".
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
-                        Handle** handle = nullptr) = 0;
+                        Handle** handle = nullptr,
+                        Priority priority = Priority::LOW) = 0;
 
   // If the cache has no mapping for "key", returns nullptr.
   //

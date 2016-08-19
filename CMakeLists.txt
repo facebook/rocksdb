@@ -427,6 +427,7 @@ set(TESTS
         util/heap_test.cc
         util/histogram_test.cc
         util/iostats_context_test.cc
+        util/lru_cache_test.cc
         util/mock_env_test.cc
         util/options_settable_test.cc
         util/options_test.cc

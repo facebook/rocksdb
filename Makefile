@@ -385,6 +385,7 @@ TESTS = \
 	iostats_context_test \
 	persistent_cache_test \
 	statistics_test \
+	lru_cache_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1246,6 +1247,10 @@ persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db
 
 statistics_test: util/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
+
+lru_cache_test: util/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 
 #-------------------------------------------------
 # make install related stuff

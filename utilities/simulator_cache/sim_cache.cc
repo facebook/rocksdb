@@ -34,7 +34,7 @@ class SimCacheImpl : public SimCache {
 
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
-                        Handle** handle) override {
+                        Handle** handle, Priority priority) override {
     // The handle and value passed in are for real cache, so we pass nullptr
     // to key_only_cache_ for both instead. Also, the deleter function pointer
     // will be called by user to perform some external operation which should
@@ -43,11 +43,12 @@ class SimCacheImpl : public SimCache {
     Handle* h = key_only_cache_->Lookup(key);
     if (h == nullptr) {
       key_only_cache_->Insert(key, nullptr, charge,
-                              [](const Slice& k, void* v) {}, nullptr);
+                              [](const Slice& k, void* v) {}, nullptr,
+                              priority);
     } else {
       key_only_cache_->Release(h);
     }
-    return cache_->Insert(key, value, charge, deleter, handle);
+    return cache_->Insert(key, value, charge, deleter, handle, priority);
   }
 
   virtual Handle* Lookup(const Slice& key) override {

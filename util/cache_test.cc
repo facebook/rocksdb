@@ -589,15 +589,20 @@ TEST_P(CacheTest, ApplyToAllCacheEntiresTest) {
   ASSERT_TRUE(inserted == callback_state);
 }
 
-shared_ptr<Cache> (*newLRUCache)(size_t, int, bool) = NewLRUCache;
+shared_ptr<Cache> NewLRUCacheFunc(size_t capacity, int num_shard_bits,
+                                  bool strict_capacity_limit) {
+  return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit);
+}
+
+shared_ptr<Cache> (*new_lru_cache_func)(size_t, int, bool) = NewLRUCacheFunc;
 #ifdef SUPPORT_CLOCK_CACHE
-shared_ptr<Cache> (*newClockCache)(size_t, int, bool) = NewClockCache;
+shared_ptr<Cache> (*new_clock_cache_func)(size_t, int, bool) = NewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(NewCache(newLRUCache),
-                                        NewCache(newClockCache)));
+                        testing::Values(NewCache(new_lru_cache_func),
+                                        NewCache(new_clock_cache_func)));
 #else
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(NewCache(newLRUCache)));
+                        testing::Values(NewCache(new_lru_cache_func)));
 #endif  // SUPPORT_CLOCK_CACHE
 
 }  // namespace rocksdb

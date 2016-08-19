@@ -51,8 +51,15 @@ struct LRUHandle {
   size_t key_length;
   uint32_t refs;     // a number of refs to this entry
                      // cache itself is counted as 1
-  bool in_cache;     // true, if this entry is referenced by the hash table
+
+  // Include the following flags:
+  //   in_cache:    whether this entry is referenced by the hash table.
+  //   is_high_pri: whether this entry is high priority entry.
+  //   in_high_pro_pool: whether this entry is in high-pri pool.
+  char flags;
+
   uint32_t hash;     // Hash of key(); used for fast sharding and comparisons
+
   char key_data[1];  // Beginning of key
 
   Slice key() const {
@@ -65,9 +72,39 @@ struct LRUHandle {
     }
   }
 
+  bool InCache() { return flags & 1; }
+  bool IsHighPri() { return flags & 2; }
+  bool InHighPriPool() { return flags & 4; }
+
+  void SetInCache(bool in_cache) {
+    if (in_cache) {
+      flags |= 1;
+    } else {
+      flags &= ~1;
+    }
+  }
+
+  void SetPriority(Cache::Priority priority) {
+    if (priority == Cache::Priority::HIGH) {
+      flags |= 2;
+    } else {
+      flags &= ~2;
+    }
+  }
+
+  void SetInHighPriPool(bool in_high_pri_pool) {
+    if (in_high_pri_pool) {
+      flags |= 4;
+    } else {
+      flags &= ~4;
+    }
+  }
+
   void Free() {
-    assert((refs == 1 && in_cache) || (refs == 0 && !in_cache));
-    (*deleter)(key(), value);
+    assert((refs == 1 && InCache()) || (refs == 0 && !InCache()));
+    if (deleter) {
+      (*deleter)(key(), value);
+    }
     delete[] reinterpret_cast<char*>(this);
   }
 };
@@ -92,7 +129,7 @@ class LRUHandleTable {
       LRUHandle* h = list_[i];
       while (h != nullptr) {
         auto n = h->next_hash;
-        assert(h->in_cache);
+        assert(h->InCache());
         func(h);
         h = n;
       }
@@ -128,11 +165,15 @@ class LRUCacheShard : public CacheShard {
   // Set the flag to reject insertion if cache if full.
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) override;
 
+  // Set percentage of capacity reserved for high-pri cache entries.
+  void SetHighPriorityPoolRatio(double high_pri_pool_ratio);
+
   // Like Cache methods, but with an extra "hash" parameter.
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
                         size_t charge,
                         void (*deleter)(const Slice& key, void* value),
-                        Cache::Handle** handle) override;
+                        Cache::Handle** handle,
+                        Cache::Priority priority) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
   virtual void Release(Cache::Handle* handle) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
@@ -149,9 +190,16 @@ class LRUCacheShard : public CacheShard {
 
   virtual void EraseUnRefEntries() override;
 
+  void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
+
  private:
   void LRU_Remove(LRUHandle* e);
-  void LRU_Append(LRUHandle* e);
+  void LRU_Insert(LRUHandle* e);
+
+  // Overflow the last entry in high-pri pool to low-pri pool until size of
+  // high-pri pool is no larger than the size specify by high_pri_pool_pct.
+  void MaintainPoolSize();
+
   // Just reduce the reference count by 1.
   // Return true if last reference
   bool Unref(LRUHandle* e);
@@ -171,8 +219,18 @@ class LRUCacheShard : public CacheShard {
   // Memory size for entries residing only in the LRU list
   size_t lru_usage_;
 
+  // Memory size for entries in high-pri pool.
+  size_t high_pri_pool_usage_;
+
   // Whether to reject insertion if cache reaches its full capacity.
   bool strict_capacity_limit_;
+
+  // Ratio of capacity reserved for high priority cache entries.
+  double high_pri_pool_ratio_;
+
+  // High-pri pool size, equals to capacity * high_pri_pool_ratio.
+  // Remember the value to avoid recomputing each time.
+  double high_pri_pool_capacity_;
 
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
@@ -183,6 +241,9 @@ class LRUCacheShard : public CacheShard {
   // lru.prev is newest entry, lru.next is oldest entry.
   // LRU contains items which can be evicted, ie reference only by cache
   LRUHandle lru_;
+
+  // Pointer to head of low-pri pool in LRU list.
+  LRUHandle* lru_low_pri_;
 
   LRUHandleTable table_;
 };

@@ -240,7 +240,8 @@ class ClockCacheShard : public CacheShard {
   virtual Status Insert(const Slice& key, uint32_t hash, void* value,
                         size_t charge,
                         void (*deleter)(const Slice& key, void* value),
-                        Cache::Handle** handle) override;
+                        Cache::Handle** handle,
+                        Cache::Priority priority) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
   virtual void Release(Cache::Handle* handle) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
@@ -570,7 +571,7 @@ CacheHandle* ClockCacheShard::Insert(
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                size_t charge,
                                void (*deleter)(const Slice& key, void* value),
-                               Cache::Handle** h) {
+                               Cache::Handle** h, Cache::Priority priority) {
   CleanupContext context;
   HashTable::accessor accessor;
   char* key_data = new char[key.size()];
