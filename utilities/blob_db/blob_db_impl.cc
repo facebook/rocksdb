@@ -15,6 +15,19 @@
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/instrumented_mutex.h"
+#include "table/meta_blocks.h"
+#include <chrono>
+
+
+// create multiple writers.
+// have a mutex to select the writer
+// write down the footer with # blobs.
+// create an option which is just based on size of disk
+// create GC thread which evicts based on et-lt
+// create GC thread which evicts based on size of disk like FIFO
+// close the file after size has been reached and create a new file.
+// on startup have a recovery function which reads
+// create metadata of each file_index to number of blobs.
 
 namespace rocksdb {
 
@@ -22,46 +35,103 @@ namespace {
 int kBlockBasedTableVersionFormat = 2;
 }  // namespace
 
-
 const std::string BlobDBImpl::kFileName = "blob_log";
 const size_t BlobDBImpl::kBlockHeaderSize = 8;
 const size_t BlobDBImpl::kBytesPerSync = 1024 * 1024 * 128;
 
+extern const uint64_t kBlockBasedTableMagicNumber;
+
+
+namespace 
+{
+
+void createHeader(const BlobDBOptions& bdb_options, Slice& header_str,
+  std::pair<uint64_t, uint64_t> *ttl_range) {
+
+  PropertyBlockBuilder property_block_builder;
+  property_block_builder.Add("magic", kBlockBasedTableMagicNumber);
+  property_block_builder.Add("version", 0);
+  property_block_builder.Add("has_ttl", bdb_options.has_ttl ? 1 : 0);
+  property_block_builder.Add("compression", (uint64_t)CompressionType::kLZ4Compression);
+
+  if (bdb_options.has_ttl) {
+    property_block_builder.Add("earliest", (ttl_range) ? ttl_range->first : 0);
+    property_block_builder.Add("latest", (ttl_range) ? ttl_range->second : 0);
+  }
+
+  header_str = property_block_builder.Finish();
+}
+
+}
+
+
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
-      bdb_options_(blob_db_options),
-      ioptions_(db->GetOptions()),
-      writer_offset_(0),
-      next_sync_offset_(kBytesPerSync) {}
+  bdb_options_(blob_db_options),
+  ioptions_(db->GetOptions()),
+  writer_offset_(0),
+  next_sync_offset_(kBytesPerSync),
+  next_file_number_(0)
+{
+  if (!bdb_options_.blob_dir.empty())
+    blob_dir_ = ( bdb_options_.path_relative )  ? db_->GetName() + "/" + bdb_options_.blob_dir : bdb_options_.blob_dir;
+}
 
+// this is opening of the entire BlobDB.
+// go through the directory and do an fstat on all the files.
 Status BlobDBImpl::Open() {
+ 
+  if (blob_dir_.empty()) {
+    return Status::NotSupported("No blob directory in options");
+  }
+
+  Status s = db_->GetEnv()->CreateDirIfMissing(blob_dir_);
+  if (!s.ok()) {
+    return s;
+  }
 
   unique_ptr<WritableFile> wfile;
   EnvOptions env_options(db_->GetOptions());
-  Status s = ioptions_.env->NewWritableFile(db_->GetName() + "/" + kFileName,
+  s = ioptions_.env->NewWritableFile(blob_dir_ + "/" + kFileName,
                                             &wfile, env_options);
   if (!s.ok()) {
     return s;
   }
   file_writer_.reset(new WritableFileWriter(std::move(wfile), env_options));
 
-  // Write version
-  std::string version;
-  PutFixed64(&version, 0);
-  s = file_writer_->Append(Slice(version));
+  // Write header
+  Slice header_slice;
+  createHeader(bdb_options_, header_slice, nullptr);
+  s = file_writer_->Append(header_slice);
+
   if (!s.ok()) {
     return s;
   }
-  writer_offset_ += version.size();
+  writer_offset_ += header_slice.size();
 
   std::unique_ptr<RandomAccessFile> rfile;
-  s = ioptions_.env->NewRandomAccessFile(db_->GetName() + "/" + kFileName,
+  s = ioptions_.env->NewRandomAccessFile(blob_dir_ + "/" + kFileName,
                                          &rfile, env_options);
   if (!s.ok()) {
     return s;
   }
   file_reader_.reset(new RandomAccessFileReader(std::move(rfile)));
   return s;
+}
+
+Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
+             const Slice& value, uint32_t expiration)
+{
+  Status s;
+  return s;
+}
+
+Status BlobDBImpl::PutWithTTL(const WriteOptions& options, const Slice& key,
+             const Slice& value, uint32_t ttl)
+{
+  using std::chrono::system_clock;
+  std::time_t epoch_now = system_clock::to_time_t(system_clock::now());
+  return PutUntil(options, key, value, epoch_now + ttl);
 }
 
 Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,

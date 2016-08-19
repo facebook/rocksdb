@@ -48,16 +48,26 @@ struct BlobDBOptions {
 
   // at what bytes will the blob files be synced to blob log.
   uint64_t bytes_per_sync;
+
+  // default constructor
+  BlobDBOptions();
 };
 
 class BlobDB : public StackableDB {
  public:
   using rocksdb::StackableDB::Put;
-  Status Put(const WriteOptions& options, const Slice& key,
+
+  virtual Status Put(const WriteOptions& options, const Slice& key,
              const Slice& value) override  = 0;
 
+  virtual Status PutWithTTL(const WriteOptions& options, const Slice& key,
+             const Slice& value, uint32_t ttl) = 0;
+
+  virtual Status PutUntil(const WriteOptions& options, const Slice& key,
+             const Slice& value, uint32_t expiration) = 0;
+
   using rocksdb::StackableDB::Get;
-  Status Get(const ReadOptions& options, const Slice& key,
+  virtual Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override = 0;
 
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
