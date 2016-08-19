@@ -32,18 +32,26 @@ class BlobDBImpl : public BlobDB {
   
   BlobDBImpl(DB* db, const BlobDBOptions& bdb_options);
 
+  Status PutWithTTL(const WriteOptions& options, const Slice& key,
+             const Slice& value, uint32_t ttl) override;
+
+  Status PutUntil(const WriteOptions& options, const Slice& key,
+             const Slice& value, uint32_t expiration) override;
+
   Status Open();
 
  private:
 
   BlobDBOptions bdb_options_;
   std::string dbname_;
+  std::string blob_dir_;
   ImmutableCFOptions ioptions_;
   InstrumentedMutex mutex_;
   std::unique_ptr<RandomAccessFileReader> file_reader_;
   std::unique_ptr<WritableFileWriter> file_writer_;
   size_t writer_offset_;
   size_t next_sync_offset_;
+  std::atomic<uint64_t> next_file_number_;
 
   static const std::string kFileName;
   static const size_t kBlockHeaderSize;

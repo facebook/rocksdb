@@ -19,6 +19,7 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
   s = bdb->Open();
   if (!s.ok()) {
     delete bdb;
+    bdb = nullptr;
   }
   *blob_db = bdb;
   return s;
@@ -26,6 +27,13 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
 
 BlobDB::BlobDB(DB* db)
     : StackableDB(db)
+{
+}
+
+
+BlobDBOptions::BlobDBOptions()
+  : path_relative(true), has_ttl(false), ttl_range(0), 
+    min_blob_size(512), bytes_per_sync(0)
 {
 }
 

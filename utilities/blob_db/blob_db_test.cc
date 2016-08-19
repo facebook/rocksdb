@@ -12,21 +12,27 @@
 namespace rocksdb {
 class BlobDBTest : public testing::Test {
  public:
-  BlobDBTest() {
+  BlobDBTest() : db_(nullptr) {
     dbname_ = test::TmpDir() + "/blob_db_test";
     Options options;
     options.create_if_missing = true;
     BlobDBOptions bdb_options;
+    bdb_options.blob_dir = "blob_dir";
     EXPECT_TRUE(BlobDB::Open(options, bdb_options, dbname_, &db_).ok());
   }
 
-  ~BlobDBTest() { delete db_; }
+  ~BlobDBTest() {
+   if (db_) 
+     delete db_;
+  }
 
   BlobDB* db_;
   std::string dbname_;
 };  // class BlobDBTest
 
 TEST_F(BlobDBTest, Basic) {
+  ASSERT_TRUE(db_ != nullptr);
+
   WriteOptions wo;
   ReadOptions ro;
   std::string value;
@@ -41,6 +47,8 @@ TEST_F(BlobDBTest, Basic) {
 }
 
 TEST_F(BlobDBTest, Large) {
+  ASSERT_TRUE(db_ != nullptr);
+
   WriteOptions wo;
   ReadOptions ro;
   std::string value1, value2, value3;
