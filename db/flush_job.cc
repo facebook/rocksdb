@@ -241,7 +241,11 @@ Status FlushJob::WriteLevel0Table() {
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
     }
+    // memtables and range_del_iters store internal iterators over each data
+    // memtable and its associated range deletion memtable, respectively, at
+    // corresponding indexes.
     std::vector<InternalIterator*> memtables;
+    std::vector<InternalIterator*> range_del_iters;
     ReadOptions ro;
     ro.total_order_seek = true;
     Arena arena;
@@ -252,10 +256,12 @@ Status FlushJob::WriteLevel0Table() {
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
+      range_del_iters.push_back(m->NewRangeTombstoneIterator(ro, &arena));
       total_num_entries += m->num_entries();
       total_num_deletes += m->num_deletes();
       total_memory_usage += m->ApproximateMemoryUsage();
     }
+    assert(memtables.size() == range_del_iters.size());
 
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started"
@@ -268,6 +274,9 @@ Status FlushJob::WriteLevel0Table() {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
                              static_cast<int>(memtables.size()), &arena));
+      ScopedArenaIterator range_del_iter(NewMergingIterator(
+          &cfd_->internal_comparator(), &range_del_iters[0],
+          static_cast<int>(range_del_iters.size()), &arena));
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
           cfd_->GetName().c_str(), job_context_->job_id, meta_.fd.GetNumber());
@@ -276,9 +285,10 @@ Status FlushJob::WriteLevel0Table() {
                                &output_compression_);
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
-          env_options_, cfd_->table_cache(), iter.get(), &meta_,
-          cfd_->internal_comparator(), cfd_->int_tbl_prop_collector_factories(),
-          cfd_->GetID(), cfd_->GetName(), existing_snapshots_,
+          env_options_, cfd_->table_cache(), iter.get(),
+          std::move(range_del_iter), &meta_, cfd_->internal_comparator(),
+          cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
+          cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, output_compression_,
           cfd_->ioptions()->compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),

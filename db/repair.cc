@@ -380,11 +380,12 @@ class Repairer {
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
-          env_options_, table_cache_, iter.get(), &meta,
-          cfd->internal_comparator(), cfd->int_tbl_prop_collector_factories(),
-          cfd->GetID(), cfd->GetName(), {}, kMaxSequenceNumber, kNoCompression,
-          CompressionOptions(), false, nullptr /* internal_stats */,
-          TableFileCreationReason::kRecovery);
+          env_options_, table_cache_, iter.get(),
+          ScopedArenaIterator(mem->NewRangeTombstoneIterator(ro, &arena)),
+          &meta, cfd->internal_comparator(),
+          cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
+          {}, kMaxSequenceNumber, kNoCompression, CompressionOptions(), false,
+          nullptr /* internal_stats */, TableFileCreationReason::kRecovery);
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s", log,
           counter, meta.fd.GetNumber(), status.ToString().c_str());
