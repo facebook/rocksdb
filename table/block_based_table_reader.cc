@@ -361,7 +361,8 @@ struct BlockBasedTable::Rep {
         internal_comparator(_internal_comparator),
         filter_type(FilterType::kNoFilter),
         whole_key_filtering(_table_opt.whole_key_filtering),
-        prefix_filtering(true) {}
+        prefix_filtering(true),
+        range_del_block(nullptr) {}
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
@@ -419,6 +420,7 @@ struct BlockBasedTable::Rep {
   // the LRU cache will never push flush them out, hence they're pinned
   CachableEntry<FilterBlockReader> filter_entry;
   CachableEntry<IndexReader> index_entry;
+  unique_ptr<Block> range_del_block;
 };
 
 BlockBasedTable::~BlockBasedTable() {
@@ -581,7 +583,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   if (!s.ok()) {
     Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
-        "Cannot seek to properties block from file: %s",
+        "Error when seeking to properties block from file: %s",
         s.ToString().c_str());
   } else if (found_properties_block) {
     s = meta_iter->status();
@@ -608,12 +610,15 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict);
   if (!s.ok()) {
     Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
-        "Cannot seek to compression dictionary block from file: %s",
+        "Error when seeking to compression dictionary block from file: %s",
         s.ToString().c_str());
   } else if (found_compression_dict) {
     // TODO(andrewkr): Add to block cache if cache_index_and_filter_blocks is
     // true.
     unique_ptr<BlockContents> compression_dict_block{new BlockContents()};
+    // TODO(andrewkr): ReadMetaBlock repeats SeekToCompressionDictBlock().
+    // maybe decode a handle from meta_iter
+    // and do ReadBlockContents(handle) instead
     s = rocksdb::ReadMetaBlock(rep->file.get(), file_size,
                                kBlockBasedTableMagicNumber, rep->ioptions,
                                rocksdb::kCompressionDictBlock,
@@ -625,6 +630,34 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
           s.ToString().c_str());
     } else {
       rep->compression_dict_block = std::move(compression_dict_block);
+    }
+  }
+
+  // Read the range del meta block
+  // TODO(wanning&andrewkr): cache range delete tombstone block
+  bool found_range_del_block;
+  BlockHandle range_del_handle;
+  s = SeekToRangeDelBlock(meta_iter.get(), &found_range_del_block,
+                          &range_del_handle);
+  if (!s.ok()) {
+    Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+        "Error when seeking to range delete tombstones block from file: %s",
+        s.ToString().c_str());
+  } else {
+    if (found_range_del_block && !range_del_handle.IsNull()) {
+      BlockContents range_del_block_contents;
+      ReadOptions read_options;
+      s = ReadBlockContents(rep->file.get(), rep->footer, read_options,
+                            range_del_handle, &range_del_block_contents,
+                            rep->ioptions, false /* decompressed */);
+      if (!s.ok()) {
+        Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+            "Encountered error while reading data from range del block %s",
+            s.ToString().c_str());
+      } else {
+        rep->range_del_block.reset(
+            new Block(std::move(range_del_block_contents)));
+      }
     }
   }
 
@@ -1348,6 +1381,16 @@ InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
   return NewTwoLevelIterator(
       new BlockEntryIteratorState(this, read_options, skip_filters),
       NewIndexIterator(read_options), arena);
+}
+
+InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
+    const ReadOptions& read_options) {
+  if (rep_->range_del_block.get() != nullptr) {
+    auto iter =
+        rep_->range_del_block->NewIterator(&(rep_->internal_comparator));
+    return iter;
+  }
+  return NewEmptyInternalIterator();
 }
 
 bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,

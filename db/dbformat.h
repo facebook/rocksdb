@@ -67,7 +67,7 @@ inline bool IsValueType(ValueType t) {
 // Checks whether a type is from user operation
 // kTypeRangeDeletion is in meta block so this API is separated from above
 inline bool IsExtendedValueType(ValueType t) {
-  return t <= kTypeMerge || t == kTypeSingleDeletion || t == kTypeRangeDeletion;
+  return IsValueType(t) || t == kTypeRangeDeletion;
 }
 
 // We leave eight bits empty at the bottom so a type and sequence#
@@ -497,4 +497,37 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                        uint32_t* column_family, Slice* key,
                                        Slice* value, Slice* blob, Slice* xid);
+
+// When user call DeleteRange() to delete a range of keys,
+// we will store a serialized RangeTombstone in MemTable and SST.
+// the struct here is a easy-understood form
+// start/end_key_ is the start/end user key of the range to be deleted
+struct RangeTombstone {
+  Slice start_key_;
+  Slice end_key_;
+  SequenceNumber seq_;
+  explicit RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
+      : start_key_(sk), end_key_(ek), seq_(sn) {}
+
+  explicit RangeTombstone(Slice internal_key, Slice value) {
+    ParsedInternalKey parsed_key;
+    if (ParseInternalKey(internal_key, &parsed_key)) {
+      start_key_ = parsed_key.user_key;
+      seq_ = parsed_key.sequence;
+      end_key_ = value;
+    }
+  }
+
+  // be careful to use Serialize(); InternalKey() allocates new memory
+  std::pair<InternalKey, Slice> Serialize() {
+    auto key = InternalKey(start_key_, seq_, kTypeRangeDeletion);
+    Slice value = end_key_;
+    return std::make_pair(std::move(key), std::move(value));
+  }
+
+  InternalKey SerializeKey() {
+    return InternalKey(start_key_, seq_, kTypeRangeDeletion);
+  }
+};
+
 }  // namespace rocksdb

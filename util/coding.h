@@ -320,6 +320,7 @@ inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
 inline Slice GetLengthPrefixedSlice(const char* data) {
   uint32_t len = 0;
   // +5: we assume "data" is not corrupted
+  // unsigned char is 7 bits, uint32_t is 32 bits, need 5 unsigned char
   auto p = GetVarint32Ptr(data, data + 5 /* limit */, &len);
   return Slice(p, len);
 }

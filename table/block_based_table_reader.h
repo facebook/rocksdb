@@ -96,6 +96,9 @@ class BlockBasedTable : public TableReader {
   InternalIterator* NewIterator(const ReadOptions&, Arena* arena = nullptr,
                                 bool skip_filters = false) override;
 
+  InternalIterator* NewRangeTombstoneIterator(
+      const ReadOptions& read_options) override;
+
   // @param skip_filters Disables loading/accessing the filter block
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context, bool skip_filters = false) override;

@@ -125,6 +125,10 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   ParsedInternalKey internal_key;
   ParseInternalKey(key, &internal_key);
+  if (internal_key.type == kTypeRangeDeletion) {
+    status_ = Status::NotSupported("Range deletion unsupported");
+    return;
+  }
 
   // Store key hash
   if (store_index_in_file_) {

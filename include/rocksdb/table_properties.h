@@ -49,6 +49,7 @@ struct TablePropertiesNames {
 
 extern const std::string kPropertiesBlock;
 extern const std::string kCompressionDictBlock;
+extern const std::string kRangeDelBlock;
 
 enum EntryType {
   kEntryPut,
