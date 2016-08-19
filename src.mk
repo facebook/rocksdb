@@ -88,6 +88,7 @@ LIB_SOURCES =                                                   \
   util/arena.cc                                                 \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
+	util/clock_cache.cc																						\
   util/coding.cc                                                \
   util/comparator.cc                                            \
   util/compaction_job_stats_impl.cc                             \

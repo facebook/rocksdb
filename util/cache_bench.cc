@@ -46,6 +46,8 @@ DEFINE_int32(lookup_percent, 50,
 DEFINE_int32(erase_percent, 10,
              "Ratio of erase to total workload (expressed as a percentage)");
 
+DEFINE_bool(use_clock_cache, false, "");
+
 namespace rocksdb {
 
 class CacheBench;
@@ -129,9 +131,17 @@ struct ThreadState {
 
 class CacheBench {
  public:
-  CacheBench() :
-      cache_(NewLRUCache(FLAGS_cache_size, FLAGS_num_shard_bits)),
-      num_threads_(FLAGS_threads) {}
+  CacheBench() : num_threads_(FLAGS_threads) {
+    if (FLAGS_use_clock_cache) {
+      cache_ = NewClockCache(FLAGS_cache_size, FLAGS_num_shard_bits);
+      if (!cache_) {
+        fprintf(stderr, "Clock cache not supported.\n");
+        exit(1);
+      }
+    } else {
+      cache_ = NewLRUCache(FLAGS_cache_size, FLAGS_num_shard_bits);
+    }
+  }
 
   ~CacheBench() {}
 

@@ -349,13 +349,20 @@ DEFINE_int32(universal_compression_size_percent, -1,
 DEFINE_bool(universal_allow_trivial_move, false,
             "Allow trivial move in universal compaction.");
 
-DEFINE_int64(cache_size, -1,
-             "Number of bytes to use as a cache of uncompressed"
-             " data. Negative means use default settings.");
+DEFINE_int64(cache_size, 8 << 20,  // 8MB
+             "Number of bytes to use as a cache of uncompressed data");
+
+DEFINE_int32(cache_numshardbits, 6,
+             "Number of shards for the block cache"
+             " is 2 ** cache_numshardbits. Negative means use default settings."
+             " This is applied only if FLAGS_cache_size is non-negative.");
+
+DEFINE_bool(use_clock_cache, false,
+            "Replace default LRU block cache with clock cache.");
 
 DEFINE_int64(simcache_size, -1,
              "Number of bytes to use as a simcache of "
-             "uncompressed data. Negative means use default settings.");
+             "uncompressed data. Nagative value disables simcache.");
 
 DEFINE_bool(cache_index_and_filter_blocks, false,
             "Cache index/filter blocks in block cache.");
@@ -433,9 +440,6 @@ static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   }
   return true;
 }
-DEFINE_int32(cache_numshardbits, -1, "Number of shards for the block cache"
-             " is 2 ** cache_numshardbits. Negative means use default settings."
-             " This is applied only if FLAGS_cache_size is non-negative.");
 
 DEFINE_bool(verify_checksum, false, "Verify checksum for every block read"
             " from storage");
@@ -1877,20 +1881,26 @@ class Benchmark {
     std::shared_ptr<TimestampEmulator> timestamp_emulator_;
   };
 
+  std::shared_ptr<Cache> NewCache(int64_t capacity) {
+    if (capacity <= 0) {
+      return nullptr;
+    }
+    if (FLAGS_use_clock_cache) {
+      auto cache = NewClockCache((size_t)capacity, FLAGS_cache_numshardbits);
+      if (!cache) {
+        fprintf(stderr, "Clock cache not supported.");
+        exit(1);
+      }
+      return cache;
+    } else {
+      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits);
+    }
+  }
+
  public:
   Benchmark()
-      : cache_(
-            FLAGS_cache_size >= 0
-                ? (FLAGS_cache_numshardbits >= 1
-                       ? NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits)
-                       : NewLRUCache(FLAGS_cache_size))
-                : nullptr),
-        compressed_cache_(FLAGS_compressed_cache_size >= 0
-                              ? (FLAGS_cache_numshardbits >= 1
-                                     ? NewLRUCache(FLAGS_compressed_cache_size,
-                                                   FLAGS_cache_numshardbits)
-                                     : NewLRUCache(FLAGS_compressed_cache_size))
-                              : nullptr),
+      : cache_(NewCache(FLAGS_cache_size)),
+        compressed_cache_(NewCache(FLAGS_compressed_cache_size)),
         filter_policy_(FLAGS_bloom_bits >= 0
                            ? NewBloomFilterPolicy(FLAGS_bloom_bits,
                                                   FLAGS_use_block_based_filter)

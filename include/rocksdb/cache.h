@@ -2,6 +2,7 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
+//
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -19,8 +20,7 @@
 // they want something more sophisticated (like scan-resistance, a
 // custom eviction policy, variable cache sizing, etc.)
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_CACHE_H_
-#define STORAGE_ROCKSDB_INCLUDE_CACHE_H_
+#pragma once
 
 #include <stdint.h>
 #include <memory>
@@ -37,6 +37,15 @@ class Cache;
 extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
                                           int num_shard_bits = 6,
                                           bool strict_capacity_limit = false);
+
+// Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
+// better concurrent performance in some cases. See util/clock_cache.cc for
+// more detail.
+//
+// Return nullptr if it is not supported.
+extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
+                                            int num_shard_bits = 6,
+                                            bool strict_capacity_limit = false);
 
 class Cache {
  public:
@@ -153,5 +162,3 @@ class Cache {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_UTIL_CACHE_H_
