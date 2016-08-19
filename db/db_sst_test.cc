@@ -926,6 +926,52 @@ TEST_F(DBSSTTest, AddExternalSstFile) {
   } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
                          kSkipFIFOCompaction));
 }
+class SstFileWriterCollector : public TablePropertiesCollector {
+ public:
+  explicit SstFileWriterCollector(const std::string prefix) : prefix_(prefix) {
+    name_ = prefix_ + "_SstFileWriterCollector";
+  }
+
+  const char* Name() const override { return name_.c_str(); }
+
+  Status Finish(UserCollectedProperties* properties) override {
+    *properties = UserCollectedProperties{
+        {prefix_ + "_SstFileWriterCollector", "YES"},
+        {prefix_ + "_Count", std::to_string(count_)},
+    };
+    return Status::OK();
+  }
+
+  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
+                    SequenceNumber seq, uint64_t file_size) override {
+    ++count_;
+    return Status::OK();
+  }
+
+  virtual UserCollectedProperties GetReadableProperties() const override {
+    return UserCollectedProperties{};
+  }
+
+ private:
+  uint32_t count_ = 0;
+  std::string prefix_;
+  std::string name_;
+};
+
+class SstFileWriterCollectorFactory : public TablePropertiesCollectorFactory {
+ public:
+  explicit SstFileWriterCollectorFactory(std::string prefix)
+      : prefix_(prefix), num_created_(0) {}
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector(
+      TablePropertiesCollectorFactory::Context context) override {
+    num_created_++;
+    return new SstFileWriterCollector(prefix_);
+  }
+  const char* Name() const override { return "SstFileWriterCollectorFactory"; }
+
+  std::string prefix_;
+  uint32_t num_created_;
+};
 
 TEST_F(DBSSTTest, AddExternalSstFileList) {
   do {
@@ -933,6 +979,12 @@ TEST_F(DBSSTTest, AddExternalSstFileList) {
     env_->CreateDir(sst_files_folder);
     Options options = CurrentOptions();
     options.env = env_;
+
+    auto abc_collector = std::make_shared<SstFileWriterCollectorFactory>("abc");
+    auto xyz_collector = std::make_shared<SstFileWriterCollectorFactory>("xyz");
+
+    options.table_properties_collector_factories.emplace_back(abc_collector);
+    options.table_properties_collector_factories.emplace_back(xyz_collector);
 
     SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
 
@@ -1042,6 +1094,17 @@ TEST_F(DBSSTTest, AddExternalSstFileList) {
       ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
     }
 
+    TablePropertiesCollection props;
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    ASSERT_EQ(props.size(), 2);
+    for (auto file_props : props) {
+      auto user_props = file_props.second->user_collected_properties;
+      ASSERT_EQ(user_props["abc_SstFileWriterCollector"], "YES");
+      ASSERT_EQ(user_props["xyz_SstFileWriterCollector"], "YES");
+      ASSERT_EQ(user_props["abc_Count"], "100");
+      ASSERT_EQ(user_props["xyz_Count"], "100");
+    }
+
     // Add file while holding a snapshot will fail
     const Snapshot* s1 = db_->GetSnapshot();
     if (s1 != nullptr) {
@@ -1053,6 +1116,16 @@ TEST_F(DBSSTTest, AddExternalSstFileList) {
     ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
     for (int k = 0; k < 300; k++) {
       ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+    }
+
+    ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+    ASSERT_EQ(props.size(), 3);
+    for (auto file_props : props) {
+      auto user_props = file_props.second->user_collected_properties;
+      ASSERT_EQ(user_props["abc_SstFileWriterCollector"], "YES");
+      ASSERT_EQ(user_props["xyz_SstFileWriterCollector"], "YES");
+      ASSERT_EQ(user_props["abc_Count"], "100");
+      ASSERT_EQ(user_props["xyz_Count"], "100");
     }
 
     // This file list has overlapping values with the exisitng data
