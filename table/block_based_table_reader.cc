@@ -1982,18 +1982,17 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
       }
       Slice key = datablock_iter->key();
       Slice value = datablock_iter->value();
-      InternalKey ikey, iValue;
+      InternalKey ikey;
       ikey.DecodeFrom(key);
-      iValue.DecodeFrom(value);
 
       out_file->Append("  HEX    ");
       out_file->Append(ikey.user_key().ToString(true).c_str());
       out_file->Append(": ");
-      out_file->Append(iValue.user_key().ToString(true).c_str());
+      out_file->Append(value.ToString(true).c_str());
       out_file->Append("\n");
 
       std::string str_key = ikey.user_key().ToString();
-      std::string str_value = iValue.user_key().ToString();
+      std::string str_value = value.ToString();
       std::string res_key(""), res_value("");
       char cspace = ' ';
       for (size_t i = 0; i < str_key.size(); i++) {
