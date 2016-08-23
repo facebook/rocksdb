@@ -461,12 +461,12 @@ TEST_F(ThreadLocalTest, Fold) {
   auto unref = [](void* ptr) {
     delete static_cast<std::atomic<int64_t>*>(ptr);
   };
-  const int kNumThreads = 16;
-  const int kItersPerThread = 10;
+  static const int kNumThreads = 16;
+  static const int kItersPerThread = 10;
   port::Mutex mu;
   port::CondVar cv(&mu);
   Params params(&mu, &cv, nullptr, kNumThreads, unref);
-  auto func = [&](void* ptr) {
+  auto func = [](void* ptr) {
     auto& p = *static_cast<Params*>(ptr);
     ASSERT_TRUE(p.tls1.Get() == nullptr);
     p.tls1.Reset(new std::atomic<int64_t>(0));
