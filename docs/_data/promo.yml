@@ -1,0 +1,28 @@
+# This file determines the list of promotional elements added to the header of \
+# your site's homepage. Full list of plugins are shown
+
+- type: button
+  href: docs/getting-started.html
+  text: Example Button
+
+- type: github_star
+
+- type: github_watch
+
+- type: like_button
+
+- type: google_share
+
+- type: twitter_follow
+  href: FbOpenSource
+
+- type: twitter_share
+
+- type: plugin_row
+  children:
+  - type: button
+    href: docs/getting-started.html
+    text: Get Started
+  - type: button
+    href: https://example.com
+    text: Another Button
