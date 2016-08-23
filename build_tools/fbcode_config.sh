@@ -47,11 +47,6 @@ if test -z $PIC_BUILD; then
   ZSTD_INCLUDE=" -I $ZSTD_BASE/include/"
   ZSTD_LIBS=" $ZSTD_BASE/lib/libzstd.a"
   CFLAGS+=" -DZSTD"
-
-  # location of tbb
-  TBB_INCLUDE=" -isystem $TBB_BASE/include/"
-  TBB_LIBS="$TBB_BASE/lib/libtbb.a"
-  CFLAGS+=" -DTBB"
 fi
 
 # location of gflags headers and libraries
@@ -76,6 +71,15 @@ if test -z $PIC_BUILD; then
   # location of libunwind
   LIBUNWIND="$LIBUNWIND_BASE/lib/libunwind.a"
 fi
+
+# location of TBB
+TBB_INCLUDE=" -isystem $TBB_BASE/include/"
+if test -z $PIC_BUILD; then
+  TBB_LIBS="$TBB_BASE/lib/libtbb.a"
+else
+  TBB_LIBS="$TBB_BASE/lib/libtbb_pic.a"
+fi
+CFLAGS+=" -DTBB"
 
 # use Intel SSE support for checksum calculations
 export USE_SSE=1
