@@ -248,4 +248,21 @@ class LRUCacheShard : public CacheShard {
   LRUHandleTable table_;
 };
 
+class LRUCache : public ShardedCache {
+ public:
+  LRUCache(size_t capacity, int num_shard_bits, bool strict_capacity_limit,
+           double high_pri_pool_ratio);
+  virtual ~LRUCache();
+  virtual const char* Name() const override { return "LRUCache"; }
+  virtual CacheShard* GetShard(int shard) override;
+  virtual const CacheShard* GetShard(int shard) const override;
+  virtual void* Value(Handle* handle) override;
+  virtual size_t GetCharge(Handle* handle) const override;
+  virtual uint32_t GetHash(Handle* handle) const override;
+  virtual void DisownData() override;
+
+ private:
+  LRUCacheShard* shards_;
+};
+
 }  // namespace rocksdb

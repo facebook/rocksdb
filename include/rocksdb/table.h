@@ -20,6 +20,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/immutable_options.h"
 #include "rocksdb/iterator.h"
@@ -64,6 +65,12 @@ struct BlockBasedTableOptions {
   // If not specified, each "table reader" object will pre-load index/filter
   // block during table initialization.
   bool cache_index_and_filter_blocks = false;
+
+  // If cache_index_and_filter_blocks is enabled, cache index and filter
+  // blocks with high priority. If set to true, depending on implementation of
+  // block cache, index and filter blocks may be less likely to be eviected
+  // than data blocks.
+  bool cache_index_and_filter_blocks_with_high_priority = false;
 
   // if cache_index_and_filter_blocks is true and the below is true, then
   // filter and index blocks are stored in the cache, but a reference is

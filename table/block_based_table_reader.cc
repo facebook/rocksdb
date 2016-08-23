@@ -1029,8 +1029,11 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     filter = ReadFilter(rep_);
     if (filter != nullptr) {
       assert(filter->size() > 0);
-      Status s = block_cache->Insert(key, filter, filter->size(),
-                                     &DeleteCachedFilterEntry, &cache_handle);
+      Status s = block_cache->Insert(
+          key, filter, filter->size(), &DeleteCachedFilterEntry, &cache_handle,
+          rep_->table_options.cache_index_and_filter_blocks_with_high_priority
+              ? Cache::Priority::HIGH
+              : Cache::Priority::LOW);
       if (s.ok()) {
         RecordTick(statistics, BLOCK_CACHE_ADD);
         RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter->size());
@@ -1092,8 +1095,12 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
     s = CreateIndexReader(&index_reader);
     if (s.ok()) {
       assert(index_reader != nullptr);
-      s = block_cache->Insert(key, index_reader, index_reader->usable_size(),
-                              &DeleteCachedIndexEntry, &cache_handle);
+      s = block_cache->Insert(
+          key, index_reader, index_reader->usable_size(),
+          &DeleteCachedIndexEntry, &cache_handle,
+          rep_->table_options.cache_index_and_filter_blocks_with_high_priority
+              ? Cache::Priority::HIGH
+              : Cache::Priority::LOW);
     }
 
     if (s.ok()) {
