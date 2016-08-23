@@ -480,7 +480,7 @@ TEST_P(CacheTest, SetStrictCapacityLimit) {
   for (size_t i = 0; i < 10; i++) {
     std::string key = ToString(i + 1);
     s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
-    ASSERT_TRUE(s.ok());
+    ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
   }
 
@@ -502,7 +502,7 @@ TEST_P(CacheTest, SetStrictCapacityLimit) {
   for (size_t i = 0; i < 5; i++) {
     std::string key = ToString(i + 1);
     s = cache2->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
-    ASSERT_TRUE(s.ok());
+    ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
   }
   s = cache2->Insert(extra_key, extra_value, 1, &deleter, &handle);
@@ -510,8 +510,10 @@ TEST_P(CacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(nullptr, handle);
   // test insert without handle
   s = cache2->Insert(extra_key, extra_value, 1, &deleter);
-  ASSERT_TRUE(s.IsIncomplete());
+  // AS if the key have been inserted into cache but get evicted immediately.
+  ASSERT_OK(s);
   ASSERT_EQ(5, cache->GetUsage());
+  ASSERT_EQ(nullptr, cache2->Lookup(extra_key));
 
   for (size_t i = 0; i < 5; i++) {
     cache2->Release(handles[i]);

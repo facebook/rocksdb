@@ -172,7 +172,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   InitTable(options);
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
-  std::shared_ptr<Cache> compressed_cache = NewLRUCache(0, 0, false);
+  std::shared_ptr<Cache> compressed_cache = NewLRUCache(1 << 25, 0, false);
   table_options.block_cache = cache;
   table_options.block_cache_compressed = compressed_cache;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
@@ -204,9 +204,6 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   cache->SetCapacity(usage);
   cache->SetStrictCapacityLimit(true);
   ASSERT_EQ(usage, cache->GetPinnedUsage());
-  // compressed_cache->SetCapacity(compressed_usage);
-  compressed_cache->SetCapacity(0);
-  // compressed_cache->SetStrictCapacityLimit(true);
   iter = db_->NewIterator(read_options);
   iter->Seek(ToString(kNumBlocks - 1));
   ASSERT_TRUE(iter->status().IsIncomplete());

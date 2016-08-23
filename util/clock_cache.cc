@@ -187,6 +187,10 @@ struct CacheHandle {
 
   CacheHandle(const CacheHandle& a) { *this = a; }
 
+  CacheHandle(const Slice& k, void* v,
+              void (*del)(const Slice& key, void* value))
+      : key(k), value(v), deleter(del) {}
+
   CacheHandle& operator=(const CacheHandle& a) {
     // Only copy members needed for deletion.
     key = a.key;
@@ -526,7 +530,11 @@ CacheHandle* ClockCacheShard::Insert(
   MutexLock l(&mutex_);
   bool success = EvictFromCache(charge, context);
   bool strict = strict_capacity_limit_.load(std::memory_order_relaxed);
-  if (!success && strict) {
+  if (!success && (strict || !hold_reference)) {
+    context->to_delete_key.push_back(key.data());
+    if (!hold_reference) {
+      context->to_delete_value.emplace_back(key, value, deleter);
+    }
     return nullptr;
   }
   // Grab available handle from recycle bin. If recycle bin is empty, create
@@ -571,20 +579,22 @@ CacheHandle* ClockCacheShard::Insert(
 Status ClockCacheShard::Insert(const Slice& key, uint32_t hash, void* value,
                                size_t charge,
                                void (*deleter)(const Slice& key, void* value),
-                               Cache::Handle** h, Cache::Priority priority) {
+                               Cache::Handle** out_handle,
+                               Cache::Priority priority) {
   CleanupContext context;
   HashTable::accessor accessor;
   char* key_data = new char[key.size()];
   memcpy(key_data, key.data(), key.size());
   Slice key_copy(key_data, key.size());
-  CacheHandle* handle =
-      Insert(key_copy, hash, value, charge, deleter, h != nullptr, &context);
+  CacheHandle* handle = Insert(key_copy, hash, value, charge, deleter,
+                               out_handle != nullptr, &context);
   Status s;
-  if (h != nullptr) {
-    *h = reinterpret_cast<Cache::Handle*>(handle);
-  }
-  if (handle == nullptr) {
-    s = Status::Incomplete("Insert failed due to LRU cache being full.");
+  if (out_handle != nullptr) {
+    if (handle == nullptr) {
+      s = Status::Incomplete("Insert failed due to LRU cache being full.");
+    } else {
+      *out_handle = reinterpret_cast<Cache::Handle*>(handle);
+    }
   }
   Cleanup(context);
   return s;
