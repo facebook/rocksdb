@@ -466,7 +466,7 @@ TEST_F(ThreadLocalTest, Fold) {
   port::Mutex mu;
   port::CondVar cv(&mu);
   Params params(&mu, &cv, nullptr, kNumThreads, unref);
-  auto func = [](void* ptr) {
+  auto func = [&](void* ptr) {
     auto& p = *static_cast<Params*>(ptr);
     ASSERT_TRUE(p.tls1.Get() == nullptr);
     p.tls1.Reset(new std::atomic<int64_t>(0));
