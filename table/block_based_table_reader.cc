@@ -45,6 +45,7 @@
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -538,12 +539,19 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   // We've successfully read the footer and the index block: we're
   // ready to serve requests.
+  // Better not mutate rep_ after the creation. eg. internal_prefix_transform
+  // raw pointer will be used to create HashIndexReader, whose reset may
+  // access a dangling pointer.
   Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
                                       internal_comparator, skip_filters);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
+  // We need to wrap data with internal_prefix_transform to make sure it can
+  // handle prefix correctly.
+  rep->internal_prefix_transform.reset(
+      new InternalKeySliceTransform(rep->ioptions.prefix_extractor));
   SetupCacheKeyPrefix(rep, file_size);
   unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
 
@@ -1092,7 +1100,11 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   } else {
     // Create index reader and put it in the cache.
     Status s;
+    TEST_SYNC_POINT("BlockBasedTable::NewIndexIterator::thread2:2");
     s = CreateIndexReader(&index_reader);
+    TEST_SYNC_POINT("BlockBasedTable::NewIndexIterator::thread1:1");
+    TEST_SYNC_POINT("BlockBasedTable::NewIndexIterator::thread2:3");
+    TEST_SYNC_POINT("BlockBasedTable::NewIndexIterator::thread1:4");
     if (s.ok()) {
       assert(index_reader != nullptr);
       s = block_cache->Insert(
@@ -1662,10 +1674,6 @@ Status BlockBasedTable::CreateIndexReader(
         meta_index_iter = meta_iter_guard.get();
       }
 
-      // We need to wrap data with internal_prefix_transform to make sure it can
-      // handle prefix correctly.
-      rep_->internal_prefix_transform.reset(
-          new InternalKeySliceTransform(rep_->ioptions.prefix_extractor));
       return HashIndexReader::Create(
           rep_->internal_prefix_transform.get(), footer, file, rep_->ioptions,
           comparator, footer.index_handle(), meta_index_iter, index_reader,
