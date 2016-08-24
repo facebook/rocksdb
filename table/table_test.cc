@@ -45,6 +45,7 @@
 #include "util/random.h"
 #include "util/statistics.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
@@ -2018,6 +2019,65 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   for (const std::string& key : keys) {
     ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), key));
   }
+  c.ResetTableReader();
+}
+
+TEST_F(BlockBasedTableTest, NewIndexIteratorLeak) {
+  // A regression test to avoid data race described in
+  // https://github.com/facebook/rocksdb/issues/1267
+  TableConstructor c(BytewiseComparator(), true /* convert_to_internal_key_ */);
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  c.Add("a1", "val1");
+  Options options;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  BlockBasedTableOptions table_options;
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  table_options.cache_index_and_filter_blocks = true;
+  table_options.block_cache = NewLRUCache(0);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  const ImmutableCFOptions ioptions(options);
+  c.Finish(options, ioptions, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
+      {
+          {"BlockBasedTable::NewIndexIterator::thread1:1",
+           "BlockBasedTable::NewIndexIterator::thread2:2"},
+          {"BlockBasedTable::NewIndexIterator::thread2:3",
+           "BlockBasedTable::NewIndexIterator::thread1:4"},
+      },
+      {
+          {"BlockBasedTableTest::NewIndexIteratorLeak:Thread1Marker",
+           "BlockBasedTable::NewIndexIterator::thread1:1"},
+          {"BlockBasedTableTest::NewIndexIteratorLeak:Thread1Marker",
+           "BlockBasedTable::NewIndexIterator::thread1:4"},
+          {"BlockBasedTableTest::NewIndexIteratorLeak:Thread2Marker",
+           "BlockBasedTable::NewIndexIterator::thread2:2"},
+          {"BlockBasedTableTest::NewIndexIteratorLeak:Thread2Marker",
+           "BlockBasedTable::NewIndexIterator::thread2:3"},
+      });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ReadOptions ro;
+  auto* reader = c.GetTableReader();
+
+  std::function<void()> func1 = [&]() {
+    TEST_SYNC_POINT("BlockBasedTableTest::NewIndexIteratorLeak:Thread1Marker");
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(ro));
+    iter->Seek(InternalKey("a1", 0, kTypeValue).Encode());
+  };
+
+  std::function<void()> func2 = [&]() {
+    TEST_SYNC_POINT("BlockBasedTableTest::NewIndexIteratorLeak:Thread2Marker");
+    std::unique_ptr<InternalIterator> iter(reader->NewIterator(ro));
+  };
+
+  auto thread1 = std::thread(func1);
+  auto thread2 = std::thread(func2);
+  thread1.join();
+  thread2.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   c.ResetTableReader();
 }
 
