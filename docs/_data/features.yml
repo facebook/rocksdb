@@ -1,0 +1,19 @@
+- title: Feature 1
+  text: |
+        This is a description of the feature which **can** use [markdown](#).
+  image: images/android.svg
+
+- title: Feature 2
+  text: |
+        This is another description of a feature.
+  image: images/apple.svg
+  
+- title: Feature 3
+  text: |
+        This is another description of a feature.
+  image: images/facebook.png
+
+- title: Feature 4
+  text: |
+        This is another description of a feature.
+  image: images/instagram.png

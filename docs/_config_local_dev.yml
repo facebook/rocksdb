@@ -1,0 +1,6 @@
+# Local development config settings to over-ride base.
+# `jekyll serve` will by default generate a webserver at localhost:4000, so
+# only change `url` if you're using a non-default location. 
+
+baseurl: ""
+url: "http://127.0.0.1:4000"

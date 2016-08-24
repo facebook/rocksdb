@@ -1,0 +1,28 @@
+<div id="fixed_header" class="fixedHeaderContainer{% if include.alwayson %} visible{% endif %}">
+  <div class="headerWrapper wrapper">
+    <header>
+      <a href="{{ site.url }}{{ site.baseurl }}/">
+        <img src="{{ site.baseurl }}/static/logo.svg">
+        <h2>{{ site.title }}</h2>
+      </a>
+
+      <div class="navigationWrapper navigationFull" id="flat_nav">
+        <nav class="navigation">
+          <ul>
+            {% for item in site.data.nav %}
+            <li class="navItem{% if page.collection == item.category or page.category == item.category %} navItemActive{% endif %}">
+              <a href="{{ item.href }}">{{ item.title }}</a>
+            </li>
+            {% endfor %}
+            {% if site.searchconfig %}
+            {% include nav_search.html inputselector="search_input" %}
+            {% endif %}
+          </ul>
+        </nav>
+      </div>
+      <div class="navigationWrapper navigationSlider" id="navigation_wrap">
+        {% include nav/header_nav.html %}
+      </div>
+    </header>
+  </div>
+</div>
