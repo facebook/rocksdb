@@ -10,10 +10,11 @@
 #include <atomic>
 #include <string>
 
+#include "port/likely.h"
+#include "port/port.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
-#include "port/likely.h"
-
+#include "util/thread_local.h"
 
 namespace rocksdb {
 
@@ -50,23 +51,45 @@ class StatisticsImpl : public Statistics {
   std::shared_ptr<Statistics> stats_shared_;
   Statistics* stats_;
   bool enable_internal_stats_;
+  // Synchronizes setTickerCount()/getTickerCount() operations so partially
+  // completed setTickerCount() won't be visible.
+  mutable port::Mutex aggregate_lock_;
 
-  struct Ticker {
-    Ticker() : value(uint_fast64_t()) {}
-
+  // Holds data maintained by each thread for implementing tickers.
+  struct ThreadTickerInfo {
     std::atomic_uint_fast64_t value;
-    // Pad the structure to make it size of 64 bytes. A plain array of
-    // std::atomic_uint_fast64_t results in huge performance degradataion
-    // due to false sharing.
-    char padding[64 - sizeof(std::atomic_uint_fast64_t)];
+    // During teardown, value will be summed into *merged_sum.
+    std::atomic_uint_fast64_t* merged_sum;
+
+    ThreadTickerInfo(uint_fast64_t _value,
+                     std::atomic_uint_fast64_t* _merged_sum)
+        : value(_value), merged_sum(_merged_sum) {}
   };
 
-  static_assert(sizeof(Ticker) == 64, "Expecting to fit into 64 bytes");
+  struct Ticker {
+    Ticker()
+        : thread_value(new ThreadLocalPtr(&mergeThreadValue)), merged_sum(0) {}
+    // Holds thread-specific pointer to ThreadTickerInfo
+    std::unique_ptr<ThreadLocalPtr> thread_value;
+    // Sum of thread-specific values for tickers that have been reset due to
+    // thread termination or ThreadLocalPtr destruction. Also, this is used by
+    // setTickerCount() to conveniently change the global value by setting this
+    // while simultaneously zeroing all thread-local values.
+    std::atomic_uint_fast64_t merged_sum;
 
+    static void mergeThreadValue(void* ptr) {
+      auto info_ptr = static_cast<ThreadTickerInfo*>(ptr);
+      *info_ptr->merged_sum += info_ptr->value;
+      delete info_ptr;
+    }
+  };
+
+  // Returns the info for this tickerType/thread. It sets a new info with zeroed
+  // counter if none exists.
+  ThreadTickerInfo* getThreadTickerInfo(uint32_t tickerType);
+
+  Ticker tickers_[INTERNAL_TICKER_ENUM_MAX];
   // Attributes expand to nothing depending on the platform
-  __declspec(align(64))
-  Ticker tickers_[INTERNAL_TICKER_ENUM_MAX]
-     __attribute__((aligned(64)));
   __declspec(align(64))
   HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX]
       __attribute__((aligned(64)));
