@@ -95,11 +95,11 @@ Status TableCache::GetTableReader(
   unique_ptr<RandomAccessFile> file;
   Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
 
-  if (readahead > 0) {
-    file = NewReadaheadRandomAccessFile(std::move(file), readahead);
-  }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {
+    if (readahead > 0) {
+      file = NewReadaheadRandomAccessFile(std::move(file), readahead);
+    }
     if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(RandomAccessFile::RANDOM);
     }
