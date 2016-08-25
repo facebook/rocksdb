@@ -1279,6 +1279,7 @@ static std::unordered_map<OperationType, std::string, std::hash<unsigned char>>
   {kOthers, "op"}
 };
 
+class CombinedStats;
 class Stats {
  private:
   int id_;
@@ -1296,6 +1297,7 @@ class Stats {
   std::string message_;
   bool exclude_from_merge_;
   ReporterAgent* reporter_agent_;  // does not own
+  friend class CombinedStats;
 
  public:
   Stats() { Start(-1); }
@@ -1558,6 +1560,75 @@ class Stats {
     }
     fflush(stdout);
   }
+};
+
+class CombinedStats {
+ public:
+  void AddStats(const Stats& stat) {
+    uint64_t total_ops = stat.done_;
+    uint64_t total_bytes_ = stat.bytes_;
+    double elapsed;
+
+    if (total_ops < 1) {
+      total_ops = 1;
+    }
+
+    elapsed = (stat.finish_ - stat.start_) * 1e-6;
+    throughput_ops_.emplace_back(total_ops / elapsed);
+
+    if (total_bytes_ > 0) {
+      double mbs = (total_bytes_ / 1048576.0);
+      throughput_mbs_.emplace_back(mbs / elapsed);
+    }
+  }
+
+  void Report(const std::string& bench_name) {
+    const char* name = bench_name.c_str();
+    int num_runs = static_cast<int>(throughput_ops_.size());
+
+    if (throughput_mbs_.size() == throughput_ops_.size()) {
+      fprintf(stdout,
+              "%s [AVG    %d runs] : %d ops/sec; %6.1f MB/sec\n"
+              "%s [MEDIAN %d runs] : %d ops/sec; %6.1f MB/sec\n",
+              name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)),
+              CalcAvg(throughput_mbs_), name, num_runs,
+              static_cast<int>(CalcMedian(throughput_ops_)),
+              CalcMedian(throughput_mbs_));
+    } else {
+      fprintf(stdout,
+              "%s [AVG    %d runs] : %d ops/sec\n"
+              "%s [MEDIAN %d runs] : %d ops/sec\n",
+              name, num_runs, static_cast<int>(CalcAvg(throughput_ops_)), name,
+              num_runs, static_cast<int>(CalcMedian(throughput_ops_)));
+    }
+  }
+
+ private:
+  double CalcAvg(std::vector<double> data) {
+    double avg = 0;
+    for (double x : data) {
+      avg += x;
+    }
+    avg = avg / data.size();
+    return avg;
+  }
+
+  double CalcMedian(std::vector<double> data) {
+    assert(data.size() > 0);
+    std::sort(data.begin(), data.end());
+
+    size_t mid = data.size() / 2;
+    if (data.size() % 2 == 1) {
+      // Odd number of entries
+      return data[mid];
+    } else {
+      // Even number of entries
+      return (data[mid] + data[mid - 1]) / 2;
+    }
+  }
+
+  std::vector<double> throughput_ops_;
+  std::vector<double> throughput_mbs_;
 };
 
 class TimestampEmulator {
@@ -2066,6 +2137,36 @@ class Benchmark {
       bool fresh_db = false;
       int num_threads = FLAGS_threads;
 
+      int num_repeat = 1;
+      int num_warmup = 0;
+      if (!name.empty() && *name.rbegin() == ']') {
+        auto it = name.find('[');
+        if (it == std::string::npos) {
+          fprintf(stderr, "unknown benchmark arguments '%s'\n", name.c_str());
+          exit(1);
+        }
+        std::string args = name.substr(it + 1);
+        args.resize(args.size() - 1);
+        name.resize(it);
+
+        std::string bench_arg;
+        std::stringstream args_stream(args);
+        while (std::getline(args_stream, bench_arg, '-')) {
+          if (bench_arg.empty()) {
+            continue;
+          }
+          if (bench_arg[0] == 'X') {
+            // Repeat the benchmark n times
+            std::string num_str = bench_arg.substr(1);
+            num_repeat = std::stoi(num_str);
+          } else if (bench_arg[0] == 'W') {
+            // Warm up the benchmark for n times
+            std::string num_str = bench_arg.substr(1);
+            num_warmup = std::stoi(num_str);
+          }
+        }
+      }
+
       if (name == "fillseq") {
         fresh_db = true;
         method = &Benchmark::WriteSeq;
@@ -2227,7 +2328,26 @@ class Benchmark {
 
       if (method != nullptr) {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
-        RunBenchmark(num_threads, name, method);
+        if (num_warmup > 0) {
+          printf("Warming up benchmark by running %d times\n", num_warmup);
+        }
+
+        for (int i = 0; i < num_warmup; i++) {
+          RunBenchmark(num_threads, name, method);
+        }
+
+        if (num_repeat > 1) {
+          printf("Running benchmark for %d times\n", num_repeat);
+        }
+
+        CombinedStats combined_stats;
+        for (int i = 0; i < num_repeat; i++) {
+          Stats stats = RunBenchmark(num_threads, name, method);
+          combined_stats.AddStats(stats);
+        }
+        if (num_repeat > 1) {
+          combined_stats.Report(name);
+        }
       }
       if (post_process_method != nullptr) {
         (this->*post_process_method)();
@@ -2282,8 +2402,8 @@ class Benchmark {
     }
   }
 
-  void RunBenchmark(int n, Slice name,
-                    void (Benchmark::*method)(ThreadState*)) {
+  Stats RunBenchmark(int n, Slice name,
+                     void (Benchmark::*method)(ThreadState*)) {
     SharedState shared;
     shared.total = n;
     shared.num_initialized = 0;
@@ -2341,6 +2461,11 @@ class Benchmark {
     }
     shared.mu.Unlock();
 
+    for (int i = 0; i < n; i++) {
+      delete arg[i].thread;
+    }
+    delete[] arg;
+
     // Stats for some threads can be excluded.
     Stats merge_stats;
     for (int i = 0; i < n; i++) {
@@ -2348,10 +2473,7 @@ class Benchmark {
     }
     merge_stats.Report(name);
 
-    for (int i = 0; i < n; i++) {
-      delete arg[i].thread;
-    }
-    delete[] arg;
+    return merge_stats;
   }
 
   void Crc32c(ThreadState* thread) {
