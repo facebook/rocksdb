@@ -34,6 +34,14 @@ struct BlobDBOptions {
   // Is the blob db mindful of ttl and eviction is done on TTL.
   bool has_ttl;
 
+  // is the eviction strategy fifo based
+  bool is_fifo;
+
+  // maximum size of the blob dir. Once this gets used, up 
+  // evict the blob file which is oldest (is_fifo )
+  // 0 means no limits
+  uint64_t blob_dir_size;
+
   // a new bucket is opened, for ttl_range. So if ttl_range is 600seconds
   // (10 minutes), and the first bucket starts at 1471542000
   // then the blob buckets will be

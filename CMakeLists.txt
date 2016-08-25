@@ -333,7 +333,6 @@ set(SOURCES
         db/log_writer.cc
         db/blob_log_reader.cc
         db/blob_log_writer.cc
-        db/blob_log_format.cc
         db/managed_iterator.cc
         db/memtable.cc
         db/memtable_list.cc

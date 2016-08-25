@@ -18,14 +18,11 @@
 namespace rocksdb {
 namespace blob_log {
 
-
 Writer::Writer(unique_ptr<WritableFileWriter>&& dest,
-               uint64_t log_number, uint64_t bpsync,
-               bool use_fs, uint64_t boffset)
+               uint64_t log_number)
     : dest_(std::move(dest)),
-      log_number_(log_number),
-      block_offset_(boffset), bytes_per_sync_(bpsync),
-      next_sync_offset_(0), use_fsync_(use_fs) {
+      block_offset_(0),
+      log_number_(log_number) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -35,111 +32,87 @@ Writer::Writer(unique_ptr<WritableFileWriter>&& dest,
 Writer::~Writer() {
 }
 
+Status Writer::AddRecord(const Slice& slice) {
+  const char* ptr = slice.data();
+  size_t left = slice.size();
 
-Status Writer::WriteHeader(blob_log::BlobLogHeader& header)
-{
-  std::string str;
-  header.EncodeTo(&str);
-  
-  Status s = dest_->Append(Slice(str));
-  if (s.ok()) {
-    block_offset_ += str.size();
-    s = dest_->Flush();
-  }
+  const int header_size = kHeaderSize;
+
+  // Fragment the record if necessary and emit it.  Note that if slice
+  // is empty, we still want to iterate once to emit a single
+  // zero-length record
+  Status s;
+  bool begin = true;
+  do {
+    const int64_t leftover = kBlockSize - block_offset_;
+    assert(leftover >= 0);
+    if (leftover < header_size) {
+      // Switch to a new block
+      if (leftover > 0) {
+        // Fill the trailer (literal below relies on kHeaderSize and
+        // kRecyclableHeaderSize being <= 11)
+        assert(header_size <= 11);
+        dest_->Append(
+            Slice("\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", leftover));
+      }
+      block_offset_ = 0;
+    }
+
+    // Invariant: we never leave < header_size bytes in a block.
+    assert(static_cast<int64_t>(kBlockSize - block_offset_) >= header_size);
+
+    const size_t avail = kBlockSize - block_offset_ - header_size;
+    const size_t fragment_length = (left < avail) ? left : avail;
+
+    RecordType type;
+    const bool end = (left == fragment_length);
+    if (begin && end) {
+      type = kFullType;
+    } else if (begin) {
+      type = kFirstType;
+    } else if (end) {
+      type = kLastType;
+    } else {
+      type = kMiddleType;
+    }
+
+    s = EmitPhysicalRecord(type, ptr, fragment_length);
+    ptr += fragment_length;
+    left -= fragment_length;
+    begin = false;
+  } while (s.ok() && left > 0);
   return s;
 }
 
-Status Writer::AppendFooter(blob_log::BlobLogFooter& footer)
-{
-  std::string str;
-  footer.EncodeTo(&str);
-   
-  Status s = dest_->Append(Slice(str));
-  if (s.ok())
-  {
-    block_offset_ += str.size();
-    s = dest_->Close();
-    dest_.reset();
-  }
+Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n) {
+  assert(n <= 0xffff);  // Must fit in two bytes
 
-  return s;
-}
+  size_t header_size;
+  char buf[kHeaderSize];
 
-Status Writer::AddRecord(const Slice& key, const Slice& val,
-  uint64_t& key_offset, uint64_t& blob_offset, uint32_t ttl)
-{
-  RecordType type = kFullType;
-  Status s = EmitPhysicalRecord(type, kTTLType, key, val,
-    key_offset, blob_offset, ttl);
-  return s;
-}
-
-Status Writer::AddRecord(const Slice& key, const Slice& val,
-  uint64_t& key_offset, uint64_t& blob_offset) {
-  RecordType type = kFullType;
-  Status s = EmitPhysicalRecord(type, kRegularType, key, val, key_offset,
-    blob_offset, -1, -1);
-  return s;
-}
-
-Status Writer::EmitPhysicalRecord(RecordType t, RecordSubType st, 
-  const Slice& key, const Slice& val,
-  uint64_t& key_offset, uint64_t& blob_offset,
-  int32_t ttl, int64_t ts) {
-
-  char buf[blob_log::BlobLogRecord::kHeaderSize];
-
-  uint32_t offset = 8;
   // Format the header
-  EncodeFixed32(buf+offset, key.size());
-  offset += 4;
-  EncodeFixed64(buf+offset, val.size());
-  offset += 8;
-  if (ttl != -1) {
-    EncodeFixed32(buf+offset, (uint32_t)ttl);
-  }
-  offset += 4;
-  if (ts != -1) {
-    EncodeFixed64(buf+offset, (uint64_t)ts);
-  }
-  offset += 8;
+  buf[4] = static_cast<char>(n & 0xff);
+  buf[5] = static_cast<char>(n >> 8);
+  buf[6] = static_cast<char>(t);
 
-  buf[offset] = static_cast<char>(t);
-  offset++;
-  buf[offset] = static_cast<char>(st);
+  uint32_t crc = type_crc_[t];
+  assert(block_offset_ + kHeaderSize + n <= kBlockSize);
+  header_size = kHeaderSize;
 
-  uint32_t header_crc = 0;
-  header_crc = crc32c::Extend(header_crc, buf+2*sizeof(uint32_t), blob_log::BlobLogRecord::kHeaderSize - 2*sizeof(uint32_t));
-  header_crc = crc32c::Mask(header_crc);
-  EncodeFixed32(buf + 4, header_crc);
-
-  uint32_t crc = 0;
   // Compute the crc of the record type and the payload.
-  crc = crc32c::Extend(crc, val.data(), val.size());
+  crc = crc32c::Extend(crc, ptr, n);
   crc = crc32c::Mask(crc);  // Adjust for storage
   EncodeFixed32(buf, crc);
 
   // Write the header and the payload
-  Status s = dest_->Append(Slice(buf, blob_log::BlobLogRecord::kHeaderSize));
+  Status s = dest_->Append(Slice(buf, header_size));
   if (s.ok()) {
-    s = dest_->Append(key);
+    s = dest_->Append(Slice(ptr, n));
     if (s.ok()) {
-      s = dest_->Append(val);
-      if (s.ok()) {
-        s = dest_->Flush();
-      }
+      s = dest_->Flush();
     }
   }
- 
-  key_offset = block_offset_ + blob_log::BlobLogRecord::kHeaderSize;
-  blob_offset = key_offset + key.size();
-  block_offset_ = blob_offset + val.size();
-
-  if (block_offset_ > next_sync_offset_) {
-    dest_->Sync(true);
-    next_sync_offset_ += bytes_per_sync_;
-  }
-
+  block_offset_ += header_size + n;
   return s;
 }
 

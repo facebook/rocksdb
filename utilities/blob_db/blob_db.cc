@@ -46,7 +46,8 @@ BlobDB::BlobDB(DB* db)
 
 
 BlobDBOptions::BlobDBOptions()
-  : path_relative(true), has_ttl(false), ttl_range(0), 
+  : path_relative(true), has_ttl(false),
+    is_fifo(false), blob_dir_size(0), ttl_range(0), 
     min_blob_size(512), bytes_per_sync(0)
 {
 }

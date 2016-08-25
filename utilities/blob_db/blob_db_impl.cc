@@ -21,13 +21,14 @@
 
 // create multiple writers.
 // have a mutex to select the writer
+
 // write down the footer with # blobs.
 // create an option which is just based on size of disk
 // create GC thread which evicts based on et-lt
 // create GC thread which evicts based on size of disk like FIFO
 // close the file after size has been reached and create a new file.
-// on startup have a recovery function which reads
-// create metadata of each file_index to number of blobs.
+// on startup have a recovery function which reads all files.
+// instead of TTL, use timestamp of the data.
 
 namespace rocksdb {
 
@@ -64,6 +65,37 @@ void createHeader(const BlobDBOptions& bdb_options, Slice& header_str,
 
 }
 
+Status BlobDBImpl::openNewFile()
+{
+  InstrumentedMutexLock l(&mutex_);
+
+  next_file_number_++;
+
+  unique_ptr<WritableFile> wfile;
+  EnvOptions env_options(db_->GetOptions());
+  Status s = ioptions_.env->NewWritableFile(BlobFileName(blob_dir_, next_file_number_.load()),
+                                            &wfile, env_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  std::unique_ptr<BlobFile> bfile(new BlobFile(blob_dir_, next_file_number_.load()));
+  blob_files_.insert(std::make_pair(next_file_number_.load(), std::move(bfile)));
+
+  file_writer_.reset(new WritableFileWriter(std::move(wfile), env_options));
+
+  // Write header
+  Slice header_slice;
+  createHeader(bdb_options_, header_slice, nullptr);
+  s = file_writer_->Append(header_slice);
+
+  if (!s.ok()) {
+    return s;
+  }
+  writer_offset_ += header_slice.size();
+  return s;
+}
+
 
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
@@ -90,27 +122,76 @@ Status BlobDBImpl::Open() {
     return s;
   }
 
-  unique_ptr<WritableFile> wfile;
+  s = openAllFiles();
+  return s;
+}
+
+Status BlobDBImpl::GetSortedBlobLogs(const std::string& path)
+{
+  std::vector<std::string> all_files;
+  Status status = db_->GetEnv()->GetChildren(path, &all_files);
+  if (!status.ok()) {
+    return status;
+  }
+
+  std::vector<std::pair<uint64_t, std::string> > file_nums;
+  file_nums.reserve(all_files.size());
+
+  for (const auto& f : all_files) {
+    uint64_t number;
+    FileType type;
+    if (ParseFileName(f, &number, &type) && type == kBlobFile) {
+      file_nums.push_back(std::make_pair(number, f));
+
+      //SequenceNumber sequence;
+      //Status s = ReadFirstRecord(log_type, number, &sequence);
+      //if (!s.ok()) {
+        //return s;
+      //}
+      //if (sequence == 0) {
+        //// empty file
+        //continue;
+      //}
+
+      uint64_t size_bytes;
+      status = db_->GetEnv()->GetFileSize(BlobFileName(path, number), &size_bytes);
+      if (!status.ok()) {
+        return status;
+      }
+
+#if 0
+      log_files.push_back(std::unique_ptr<LogFile>(
+          new LogFileImpl(number, log_type, sequence, size_bytes)));
+#endif
+    }
+  }
+
+  std::sort(file_nums.begin(), file_nums.end());
+  return status;
+}
+
+Status BlobDBImpl::openAllFiles() {
+
+  Status s;
+  return s;
+  // go through the blob db directory open all files.
+  // read header and read footer if present.
+  // if there are any files that are not closed, keep them open
+  // provided they are not ttl based, and the ttl has expired.
+  // if ttl has exp
+  // assuming that they are 
+}
+
+Status BlobDBImpl::addNewFile()
+{
+  Status s = openNewFile();
+  if (!s.ok()) {
+    return s;
+  }
+
   EnvOptions env_options(db_->GetOptions());
-  s = ioptions_.env->NewWritableFile(blob_dir_ + "/" + kFileName,
-                                            &wfile, env_options);
-  if (!s.ok()) {
-    return s;
-  }
-  file_writer_.reset(new WritableFileWriter(std::move(wfile), env_options));
-
-  // Write header
-  Slice header_slice;
-  createHeader(bdb_options_, header_slice, nullptr);
-  s = file_writer_->Append(header_slice);
-
-  if (!s.ok()) {
-    return s;
-  }
-  writer_offset_ += header_slice.size();
-
   std::unique_ptr<RandomAccessFile> rfile;
-  s = ioptions_.env->NewRandomAccessFile(blob_dir_ + "/" + kFileName,
+  s = ioptions_.env->NewRandomAccessFile(BlobFileName(blob_dir_, next_file_number_.load()),
                                          &rfile, env_options);
   if (!s.ok()) {
     return s;
@@ -228,4 +309,12 @@ Status BlobDBImpl::Get(const ReadOptions& options, const Slice& key,
   *value = it->value().ToString();
   return s;
 }
+
+BlobFile::BlobFile(const std::string& bdir, uint64_t fn)
+  : path_to_dir_(bdir), blob_count_(0),
+    file_number_(fn), file_size_(0), 
+    has_ttl_(false), has_timestamps_(false) 
+{
+}
+  
 }  // namespace rocksdb
