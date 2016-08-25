@@ -1816,6 +1816,22 @@ TEST_P(MergeOperatorPinningTest, EvictCacheBeforeMerge) {
 }
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBTest2, MaxSuccessiveMergesInRecovery) {
+  Options options;
+  options = CurrentOptions(options);
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  DestroyAndReopen(options);
+
+  db_->Put(WriteOptions(), "foo", "bar");
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
+
+  options.max_successive_merges = 3;
+  Reopen(options);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
