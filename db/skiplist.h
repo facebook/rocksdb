@@ -190,7 +190,16 @@ struct SkipList<Key, Comparator>::Node {
     next_[n].store(x, std::memory_order_relaxed);
   }
 
+  Node* Prev() {
+    return (prev_.load(std::memory_order_acquire));
+  }
+  void SetPrev(Node* x) {
+    prev_.store(x, std::memory_order_release);
+  }
+
  private:
+  std::atomic<Node*> prev_;
+
   // Array of length equal to the node height.  next_[0] is lowest level link.
   std::atomic<Node*> next_[1];
 };
@@ -236,7 +245,7 @@ inline void SkipList<Key, Comparator>::Iterator::Prev() {
   // Instead of using explicit "prev" links, we just search for the
   // last node that falls before key.
   assert(Valid());
-  node_ = list_->FindLessThan(node_->key);
+  node_ = node_->Prev();
   if (node_ == list_->head_) {
     node_ = nullptr;
   }
@@ -406,6 +415,7 @@ SkipList<Key, Comparator>::SkipList(const Comparator cmp, Allocator* allocator,
   // the allocator as a whole.
   prev_ = reinterpret_cast<Node**>(
             allocator_->AllocateAligned(sizeof(Node*) * kMaxHeight_));
+  head_->SetPrev(nullptr);
   for (int i = 0; i < kMaxHeight_; i++) {
     head_->SetNext(i, nullptr);
     prev_[i] = head_;
@@ -454,6 +464,10 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
   }
 
   Node* x = NewNode(key, height);
+  x->SetPrev(prev_[0]);
+  if (prev_[0]->Next(0) != NULL) {
+    prev_[0]->Next(0)->SetPrev(x);
+  }
   for (int i = 0; i < height; i++) {
     // NoBarrier_SetNext() suffices since we will add a barrier when
     // we publish a pointer to "x" in prev[i].
