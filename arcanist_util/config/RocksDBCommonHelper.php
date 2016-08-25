@@ -128,9 +128,24 @@ function getSteps($applyDiff, $diffID, $username, $test) {
                 . "; ";
   }
 
+  // shell command to sort the tests based on exit code and print
+  // the output of the log files.
+  $cat_sorted_logs = "
+    while read code log_file;
+      do echo \"################ cat \$log_file [exit_code : \$code] ################\";
+      cat \$log_file;
+    done < <(tail -n +2 LOG | sort -k7,7n -k4,4gr | awk '{print \$7,\$NF}')";
+
+  // Shell command to cat all log files
+  $cat_all_logs = "for f in `ls t/!(run-*)`; do echo \$f;cat \$f; done";
+
+  // If LOG file exist use it to cat log files sorted by exit code, otherwise
+  // cat everything
+  $logs_cmd = "if [ -f LOG ]; then {$cat_sorted_logs}; else {$cat_all_logs}; fi";
+
   $cmd = $cmd . " cat /tmp/precommit-check.log"
-           . "; shopt -s extglob; for f in `ls t/!(run-*)`; do echo \$f"
-           . "; cat \$f; done; shopt -u extglob; [[ \$exit_code -eq 0 ]]";
+              . "; shopt -s extglob; {$logs_cmd}"
+              . "; shopt -u extglob; [[ \$exit_code -eq 0 ]]";
   assert(strlen($cmd) > 0);
 
   $run_test = array(
