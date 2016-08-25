@@ -570,7 +570,7 @@ $(parallel_tests): $(PARALLEL_TEST)
       '#!/bin/sh' \
       "d=\$(TMPD)$$TEST_SCRIPT" \
       'mkdir -p $$d' \
-			"TEST_TMPDIR=\$$d ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
+      "TEST_TMPDIR=\$$d $(DRIVER) ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
 		> $$TEST_SCRIPT; \
 		chmod a=rx $$TEST_SCRIPT; \
 	done
@@ -643,8 +643,8 @@ valgrind_check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
-      'if [[ "{}" == "./"* ]] ; then $(DRIVER) {} >& t/valgrind_log-{/}; ' \
-      'else {} >& t/valgrind_log-{/}; fi'
+	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) ' \
+	  '>& t/valgrind_log-{/}'
 
 CLEAN_FILES += t LOG $(TMPD)
 
@@ -721,7 +721,7 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_check: $(TESTS)
-	$(MAKE) gen_parallel_tests
+	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
 	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
