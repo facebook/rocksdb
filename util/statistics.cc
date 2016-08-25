@@ -41,10 +41,12 @@ uint64_t StatisticsImpl::getTickerCount(uint32_t tickerType) const {
   tickers_[tickerType].thread_value->Fold(
       [](void* curr_ptr, void* res) {
         auto* sum_ptr = static_cast<uint64_t*>(res);
-        *sum_ptr += static_cast<std::atomic_uint_fast64_t*>(curr_ptr)->load();
+        *sum_ptr += static_cast<std::atomic_uint_fast64_t*>(curr_ptr)->load(
+            std::memory_order_relaxed);
       },
       &thread_local_sum);
-  return thread_local_sum + tickers_[tickerType].merged_sum.load();
+  return thread_local_sum +
+         tickers_[tickerType].merged_sum.load(std::memory_order_relaxed);
 }
 
 void StatisticsImpl::histogramData(uint32_t histogramType,
@@ -83,10 +85,11 @@ void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
     if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
       tickers_[tickerType].thread_value->Fold(
           [](void* curr_ptr, void* res) {
-            static_cast<std::atomic<uint64_t>*>(curr_ptr)->store(0);
+            static_cast<std::atomic<uint64_t>*>(curr_ptr)->store(
+                0, std::memory_order_relaxed);
           },
           nullptr /* res */);
-      tickers_[tickerType].merged_sum.store(count);
+      tickers_[tickerType].merged_sum.store(count, std::memory_order_relaxed);
     }
   }
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
@@ -101,7 +104,7 @@ void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
       tickerType < TICKER_ENUM_MAX);
   if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
     auto info_ptr = getThreadTickerInfo(tickerType);
-    info_ptr->value.fetch_add(count);
+    info_ptr->value.fetch_add(count, std::memory_order_relaxed);
   }
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
     stats_->recordTick(tickerType, count);
