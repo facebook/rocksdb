@@ -372,19 +372,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   InstrumentedMutexLock l(&mutex_);
-  shutting_down_.store(true, std::memory_order_release);
-  bg_cv_.SignalAll();
-  if (!wait) {
-    return;
-  }
-  // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
-    bg_cv_.Wait();
-  }
-}
-
-DBImpl::~DBImpl() {
-  mutex_.Lock();
 
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_) {
@@ -399,7 +386,19 @@ DBImpl::~DBImpl() {
     }
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
-  mutex_.Unlock();
+
+  shutting_down_.store(true, std::memory_order_release);
+  bg_cv_.SignalAll();
+  if (!wait) {
+    return;
+  }
+  // Wait for background work to finish
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
+    bg_cv_.Wait();
+  }
+}
+
+DBImpl::~DBImpl() {
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
