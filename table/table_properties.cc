@@ -168,6 +168,8 @@ const std::string TablePropertiesNames::kColumnFamilyName =
 const std::string TablePropertiesNames::kComparator = "rocksdb.comparator";
 const std::string TablePropertiesNames::kMergeOperator =
     "rocksdb.merge.operator";
+const std::string TablePropertiesNames::kPrefixExtractorName =
+    "rocksdb.prefix.extractor.name";
 const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";

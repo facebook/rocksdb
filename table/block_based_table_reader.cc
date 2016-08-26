@@ -1317,7 +1317,9 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
 
   assert(rep_->ioptions.prefix_extractor != nullptr);
   auto user_key = ExtractUserKey(internal_key);
-  if (!rep_->ioptions.prefix_extractor->InDomain(user_key)) {
+  if (!rep_->ioptions.prefix_extractor->InDomain(user_key) ||
+      rep_->table_properties->prefix_extractor_name.compare(
+          rep_->ioptions.prefix_extractor->Name()) != 0) {
     return true;
   }
   auto prefix = rep_->ioptions.prefix_extractor->Transform(user_key);
@@ -1423,6 +1425,8 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
     return filter->KeyMayMatch(user_key);
   }
   if (!read_options.total_order_seek && rep_->ioptions.prefix_extractor &&
+      rep_->table_properties->prefix_extractor_name.compare(
+          rep_->ioptions.prefix_extractor->Name()) == 0 &&
       rep_->ioptions.prefix_extractor->InDomain(user_key) &&
       !filter->PrefixMayMatch(
           rep_->ioptions.prefix_extractor->Transform(user_key))) {

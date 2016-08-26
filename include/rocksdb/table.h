@@ -225,7 +225,6 @@ enum EncodingType : char {
 
 // Table Properties that are specific to plain table properties.
 struct PlainTablePropertyNames {
-  static const std::string kPrefixExtractorName;
   static const std::string kEncodingType;
   static const std::string kBloomVersion;
   static const std::string kNumBloomBlocks;

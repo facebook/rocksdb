@@ -1101,6 +1101,8 @@ TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
     ASSERT_EQ("leveldb.BytewiseComparator", props.comparator_name);
     // No merge operator
     ASSERT_EQ("nullptr", props.merge_operator_name);
+    // No prefix extractor
+    ASSERT_EQ("nullptr", props.prefix_extractor_name);
     // No property collectors
     ASSERT_EQ("[]", props.property_collectors_names);
     // No filter policy is used
@@ -1116,6 +1118,7 @@ TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     options.comparator = &reverse_key_comparator;
     options.merge_operator = MergeOperators::CreateUInt64AddOperator();
+    options.prefix_extractor.reset(NewNoopTransform());
     options.table_properties_collector_factories.emplace_back(
         new DummyPropertiesCollectorFactory1());
     options.table_properties_collector_factories.emplace_back(
@@ -1129,6 +1132,7 @@ TEST_F(BlockBasedTableTest, BlockBasedTableProperties2) {
 
     ASSERT_EQ("rocksdb.ReverseBytewiseComparator", props.comparator_name);
     ASSERT_EQ("UInt64AddOperator", props.merge_operator_name);
+    ASSERT_EQ("rocksdb.Noop", props.prefix_extractor_name);
     ASSERT_EQ("[DummyPropertiesCollector1,DummyPropertiesCollector2]",
               props.property_collectors_names);
     ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
@@ -1449,6 +1453,44 @@ TEST_F(BlockBasedTableTest, NoopTransformSeek) {
     ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ("a", ExtractUserKey(iter->key()).ToString());
+  }
+}
+
+TEST_F(BlockBasedTableTest, SkipPrefixBloomFilter) {
+  // if DB is opened with a prefix extractor of a different name,
+  // prefix bloom is skipped when read the file
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(2));
+  table_options.whole_key_filtering = false;
+
+  Options options;
+  options.comparator = BytewiseComparator();
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+  TableConstructor c(options.comparator);
+  InternalKey key("abcdefghijk", 1, kTypeValue);
+  c.Add(key.Encode().ToString(), "test");
+  std::vector<std::string> keys;
+  stl_wrappers::KVMap kvmap;
+  const ImmutableCFOptions ioptions(options);
+  const InternalKeyComparator internal_comparator(options.comparator);
+  c.Finish(options, ioptions, table_options, internal_comparator, &keys,
+           &kvmap);
+  options.prefix_extractor.reset(NewFixedPrefixTransform(9));
+  const ImmutableCFOptions new_ioptions(options);
+  c.Reopen(new_ioptions);
+  auto reader = c.GetTableReader();
+  std::unique_ptr<InternalIterator> db_iter(reader->NewIterator(ReadOptions()));
+
+  // Test point lookup
+  // only one kv
+  for (auto& kv : kvmap) {
+    db_iter->Seek(kv.first);
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_OK(db_iter->status());
+    ASSERT_EQ(db_iter->key(), kv.first);
+    ASSERT_EQ(db_iter->value(), kv.second);
   }
 }
 
@@ -2660,7 +2702,6 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
   rocksdb::BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10));
   bbto.block_size = 262144;
-
   bbto.whole_key_filtering = true;
 
   const std::string kDBPath = test::TmpDir() + "/table_prefix_test";
