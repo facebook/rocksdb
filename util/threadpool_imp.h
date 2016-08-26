@@ -13,6 +13,7 @@
 #endif
 
 #include "rocksdb/env.h"
+#include "rocksdb/threadpool.h"
 #include "util/thread_status_util.h"
 
 #ifdef ROCKSDB_STD_THREADPOOL
@@ -26,23 +27,23 @@
 
 namespace rocksdb {
 
-class ThreadPool {
+class ThreadPoolImpl : public ThreadPool {
  public:
-  ThreadPool();
-  ~ThreadPool();
+  ThreadPoolImpl();
+  ~ThreadPoolImpl();
 
-  void JoinAllThreads();
+  void JoinAllThreads() override;
   void LowerIOPriority();
   void BGThread(size_t thread_id);
   void WakeUpAllThreads();
   void IncBackgroundThreadsIfNeeded(int num);
-  void SetBackgroundThreads(int num);
+  void SetBackgroundThreads(int num) override;
   void StartBGThreads();
   void Schedule(void (*function)(void* arg1), void* arg, void* tag,
                 void (*unschedFunction)(void* arg));
   int UnSchedule(void* arg);
 
-  unsigned int GetQueueLen() const {
+  unsigned int GetQueueLen() const override {
     return queue_len_.load(std::memory_order_relaxed);
   }
 

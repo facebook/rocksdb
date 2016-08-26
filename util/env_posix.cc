@@ -42,7 +42,6 @@
 #include "rocksdb/slice.h"
 #include "util/coding.h"
 #include "util/io_posix.h"
-#include "util/threadpool.h"
 #include "util/iostats_context_imp.h"
 #include "util/logging.h"
 #include "util/posix_logger.h"
@@ -51,6 +50,7 @@
 #include "util/sync_point.h"
 #include "util/thread_local.h"
 #include "util/thread_status_updater.h"
+#include "util/threadpool_imp.h"
 
 #if !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994
@@ -739,7 +739,7 @@ class PosixEnv : public Env {
 
   size_t page_size_;
 
-  std::vector<ThreadPool> thread_pools_;
+  std::vector<ThreadPoolImpl> thread_pools_;
   pthread_mutex_t mu_;
   std::vector<pthread_t> threads_to_join_;
 };
@@ -749,7 +749,7 @@ PosixEnv::PosixEnv()
       forceMmapOff(false),
       page_size_(getpagesize()),
       thread_pools_(Priority::TOTAL) {
-  ThreadPool::PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
+  ThreadPoolImpl::PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
   for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
     thread_pools_[pool_id].SetThreadPriority(
         static_cast<Env::Priority>(pool_id));
@@ -791,11 +791,11 @@ void PosixEnv::StartThread(void (*function)(void* arg), void* arg) {
   StartThreadState* state = new StartThreadState;
   state->user_function = function;
   state->arg = arg;
-  ThreadPool::PthreadCall(
+  ThreadPoolImpl::PthreadCall(
       "start thread", pthread_create(&t, nullptr, &StartThreadWrapper, state));
-  ThreadPool::PthreadCall("lock", pthread_mutex_lock(&mu_));
+  ThreadPoolImpl::PthreadCall("lock", pthread_mutex_lock(&mu_));
   threads_to_join_.push_back(t);
-  ThreadPool::PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+  ThreadPoolImpl::PthreadCall("unlock", pthread_mutex_unlock(&mu_));
 }
 
 void PosixEnv::WaitForJoin() {

@@ -240,7 +240,7 @@ set(SOURCES
         util/testharness.cc
         util/testutil.cc
         util/thread_local.cc
-        util/threadpool.cc
+        util/threadpool_imp.cc
         util/thread_status_impl.cc
         util/thread_status_updater.cc
         util/thread_status_util.cc

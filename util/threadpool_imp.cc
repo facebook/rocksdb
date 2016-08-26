@@ -7,9 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "util/threadpool.h"
-#include <atomic>
+#include "util/threadpool_imp.h"
 #include <algorithm>
+#include <atomic>
 
 #ifndef OS_WIN
 #  include <unistd.h>
@@ -26,7 +26,7 @@
 
 namespace rocksdb {
 
-void ThreadPool::PthreadCall(const char* label, int result) {
+void ThreadPoolImpl::PthreadCall(const char* label, int result) {
   if (result != 0) {
     fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
     abort();
@@ -38,7 +38,7 @@ namespace {
 
 struct Lock {
   std::unique_lock<std::mutex> ul_;
-  Lock(std::mutex& m) : ul_(m, std::defer_lock) {}
+  explicit Lock(const std::mutex& m) : ul_(m, std::defer_lock) {}
 };
 
 using Condition = std::condition_variable;
@@ -124,7 +124,7 @@ int ThreadDetach(pthread_t& thread) {
 #endif
 }
 
-ThreadPool::ThreadPool()
+ThreadPoolImpl::ThreadPoolImpl()
     : total_threads_limit_(1),
       bgthreads_(0),
       queue_(),
@@ -138,10 +138,9 @@ ThreadPool::ThreadPool()
 #endif
 }
 
-ThreadPool::~ThreadPool() { assert(bgthreads_.size() == 0U); }
+ThreadPoolImpl::~ThreadPoolImpl() { assert(bgthreads_.size() == 0U); }
 
-void ThreadPool::JoinAllThreads() {
-
+void ThreadPoolImpl::JoinAllThreads() {
   Lock lock(mu_);
   PthreadCall("lock", ThreadPoolMutexLock(lock));
   assert(!exit_all_threads_);
@@ -156,7 +155,7 @@ void ThreadPool::JoinAllThreads() {
   bgthreads_.clear();
 }
 
-void ThreadPool::LowerIOPriority() {
+void ThreadPoolImpl::LowerIOPriority() {
 #ifdef OS_LINUX
   PthreadCall("lock", pthread_mutex_lock(&mu_));
   low_io_priority_ = true;
@@ -164,7 +163,7 @@ void ThreadPool::LowerIOPriority() {
 #endif
 }
 
-void ThreadPool::BGThread(size_t thread_id) {
+void ThreadPoolImpl::BGThread(size_t thread_id) {
   bool low_io_priority = false;
   while (true) {
 // Wait until there is an item that is ready to run
@@ -233,16 +232,16 @@ void ThreadPool::BGThread(size_t thread_id) {
 
 // Helper struct for passing arguments when creating threads.
 struct BGThreadMetadata {
-  ThreadPool* thread_pool_;
+  ThreadPoolImpl* thread_pool_;
   size_t thread_id_;  // Thread count in the thread.
-  BGThreadMetadata(ThreadPool* thread_pool, size_t thread_id)
+  BGThreadMetadata(ThreadPoolImpl* thread_pool, size_t thread_id)
       : thread_pool_(thread_pool), thread_id_(thread_id) {}
 };
 
 static void* BGThreadWrapper(void* arg) {
   BGThreadMetadata* meta = reinterpret_cast<BGThreadMetadata*>(arg);
   size_t thread_id = meta->thread_id_;
-  ThreadPool* tp = meta->thread_pool_;
+  ThreadPoolImpl* tp = meta->thread_pool_;
 #if ROCKSDB_USING_THREAD_STATUS
   // for thread-status
   ThreadStatusUtil::RegisterThread(
@@ -258,11 +257,11 @@ static void* BGThreadWrapper(void* arg) {
   return nullptr;
 }
 
-void ThreadPool::WakeUpAllThreads() {
+void ThreadPoolImpl::WakeUpAllThreads() {
   PthreadCall("signalall", ConditionSignalAll(bgsignal_));
 }
 
-void ThreadPool::SetBackgroundThreadsInternal(int num, bool allow_reduce) {
+void ThreadPoolImpl::SetBackgroundThreadsInternal(int num, bool allow_reduce) {
   Lock lock(mu_);
   PthreadCall("lock", ThreadPoolMutexLock(lock));
   if (exit_all_threads_) {
@@ -278,15 +277,15 @@ void ThreadPool::SetBackgroundThreadsInternal(int num, bool allow_reduce) {
   PthreadCall("unlock", MutexUnlock(lock));
 }
 
-void ThreadPool::IncBackgroundThreadsIfNeeded(int num) {
+void ThreadPoolImpl::IncBackgroundThreadsIfNeeded(int num) {
   SetBackgroundThreadsInternal(num, false);
 }
 
-void ThreadPool::SetBackgroundThreads(int num) {
+void ThreadPoolImpl::SetBackgroundThreads(int num) {
   SetBackgroundThreadsInternal(num, true);
 }
 
-void ThreadPool::StartBGThreads() {
+void ThreadPoolImpl::StartBGThreads() {
   // Start background thread if necessary
   while ((int)bgthreads_.size() < total_threads_limit_) {
 #ifdef ROCKSDB_STD_THREADPOOL
@@ -313,9 +312,8 @@ void ThreadPool::StartBGThreads() {
   }
 }
 
-void ThreadPool::Schedule(void (*function)(void* arg1), void* arg, void* tag,
-                          void (*unschedFunction)(void* arg)) {
-
+void ThreadPoolImpl::Schedule(void (*function)(void* arg1), void* arg,
+                              void* tag, void (*unschedFunction)(void* arg)) {
   Lock lock(mu_);
   PthreadCall("lock", ThreadPoolMutexLock(lock));
 
@@ -347,7 +345,7 @@ void ThreadPool::Schedule(void (*function)(void* arg1), void* arg, void* tag,
   PthreadCall("unlock", MutexUnlock(lock));
 }
 
-int ThreadPool::UnSchedule(void* arg) {
+int ThreadPoolImpl::UnSchedule(void* arg) {
   int count = 0;
 
   Lock lock(mu_);
@@ -372,6 +370,12 @@ int ThreadPool::UnSchedule(void* arg) {
                    std::memory_order_relaxed);
   PthreadCall("unlock", MutexUnlock(lock));
   return count;
+}
+
+ThreadPool* NewThreadPool(int num_threads) {
+  ThreadPoolImpl* thread_pool = new ThreadPoolImpl();
+  thread_pool->SetBackgroundThreads(num_threads);
+  return thread_pool;
 }
 
 }  // namespace rocksdb

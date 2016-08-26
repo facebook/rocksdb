@@ -110,7 +110,7 @@ LIB_SOURCES =                                                   \
   util/iostats_context.cc                                       \
   util/io_posix.cc                                              \
   util/lru_cache.cc                                             \
-  util/threadpool.cc                                            \
+  util/threadpool_imp.cc                                        \
   util/transaction_test_util.cc                                 \
 	util/sharded_cache.cc       																	\
   util/sst_file_manager_impl.cc                                 \
