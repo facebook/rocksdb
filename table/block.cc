@@ -16,9 +16,11 @@
 #include <unordered_map>
 #include <vector>
 
+#include "port/port.h"
+#include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
-#include "table/format.h"
 #include "table/block_prefix_index.h"
+#include "table/format.h"
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/perf_context_imp.h"
@@ -344,7 +346,8 @@ uint32_t Block::NumRestarts() const {
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
 
-Block::Block(BlockContents&& contents)
+Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
+             Statistics* statistics)
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
       size_(contents_.data.size()) {
@@ -359,10 +362,14 @@ Block::Block(BlockContents&& contents)
       size_ = 0;
     }
   }
+  if (read_amp_bytes_per_bit != 0 && statistics && size_ != 0) {
+    read_amp_bitmap_.reset(new BlockReadAmpBitmap(
+        restart_offset_, read_amp_bytes_per_bit, statistics));
+  }
 }
 
 InternalIterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
-                                     bool total_order_seek) {
+                                     bool total_order_seek, Statistics* stats) {
   if (size_ < 2*sizeof(uint32_t)) {
     if (iter != nullptr) {
       iter->SetStatus(Status::Corruption("bad block contents"));
@@ -385,10 +392,17 @@ InternalIterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
 
     if (iter != nullptr) {
       iter->Initialize(cmp, data_, restart_offset_, num_restarts,
-                       prefix_index_ptr);
+                       prefix_index_ptr, read_amp_bitmap_.get());
     } else {
       iter = new BlockIter(cmp, data_, restart_offset_, num_restarts,
-                           prefix_index_ptr);
+                           prefix_index_ptr, read_amp_bitmap_.get());
+    }
+
+    if (read_amp_bitmap_) {
+      if (read_amp_bitmap_->GetStatistics() != stats) {
+        // DB changed the Statistics pointer, we need to notify read_amp_bitmap_
+        read_amp_bitmap_->SetStatistics(stats);
+      }
     }
   }
 

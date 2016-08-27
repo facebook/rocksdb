@@ -159,7 +159,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
       "skip_table_builder_flush=1;format_version=1;"
       "hash_index_allow_collision=false;"
-      "verify_compression=true;",
+      "verify_compression=true;read_amp_bytes_per_bit=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,

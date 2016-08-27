@@ -190,9 +190,9 @@ class BlockBasedTable : public TableReader {
   static Status GetDataBlockFromCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
-      const ImmutableCFOptions &ioptions, const ReadOptions& read_options,
+      const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
       BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
-      const Slice& compression_dict);
+      const Slice& compression_dict, size_t read_amp_bytes_per_bit);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -207,9 +207,9 @@ class BlockBasedTable : public TableReader {
   static Status PutDataBlockToCache(
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
-      const ReadOptions& read_options, const ImmutableCFOptions &ioptions,
+      const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
       CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
-      const Slice& compression_dict);
+      const Slice& compression_dict, size_t read_amp_bytes_per_bit);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.

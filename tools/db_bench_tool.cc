@@ -384,6 +384,10 @@ DEFINE_int32(index_block_restart_interval,
              "Number of keys between restart points "
              "for delta encoding of keys in index block.");
 
+DEFINE_int32(read_amp_bytes_per_bit,
+             rocksdb::BlockBasedTableOptions().read_amp_bytes_per_bit,
+             "Number of bytes per bit to be used in block read-amp bitmap");
+
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
 
@@ -2805,6 +2809,7 @@ class Benchmark {
       block_based_options.skip_table_builder_flush =
           FLAGS_skip_table_builder_flush;
       block_based_options.format_version = 2;
+      block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
     }

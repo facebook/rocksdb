@@ -558,7 +558,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt32T, OptionVerificationType::kNormal}},
         {"verify_compression",
          {offsetof(struct BlockBasedTableOptions, verify_compression),
-          OptionType::kBoolean, OptionVerificationType::kNormal}}};
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"read_amp_bytes_per_bit",
+         {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
+          OptionType::kSizeT, OptionVerificationType::kNormal}}};
 
 static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
     {"user_key_len",

@@ -197,6 +197,14 @@ enum Tickers : uint32_t {
   ROW_CACHE_HIT,
   ROW_CACHE_MISS,
 
+  // Read amplification statistics.
+  // Read amplification can be calculated using this formula
+  // (READ_AMP_TOTAL_READ_BYTES / READ_AMP_ESTIMATE_USEFUL_BYTES)
+  //
+  // REQUIRES: ReadOptions::read_amp_bytes_per_bit to be enabled
+  READ_AMP_ESTIMATE_USEFUL_BYTES,  // Estimate of total bytes actually used.
+  READ_AMP_TOTAL_READ_BYTES,       // Total size of loaded data blocks.
+
   TICKER_ENUM_MAX
 };
 
@@ -291,6 +299,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {FILTER_OPERATION_TOTAL_TIME, "rocksdb.filter.operation.time.nanos"},
     {ROW_CACHE_HIT, "rocksdb.row.cache.hit"},
     {ROW_CACHE_MISS, "rocksdb.row.cache.miss"},
+    {READ_AMP_ESTIMATE_USEFUL_BYTES, "rocksdb.read.amp.estimate.useful.bytes"},
+    {READ_AMP_TOTAL_READ_BYTES, "rocksdb.read.amp.total.read.bytes"},
 };
 
 /**
