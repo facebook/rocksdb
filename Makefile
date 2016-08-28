@@ -1322,14 +1322,14 @@ endif
 
 libz.a:
 	-rm -rf zlib-1.2.8
-	curl -O http://zlib.net/zlib-1.2.8.tar.gz
+	curl -O -L http://zlib.net/zlib-1.2.8.tar.gz
 	tar xvzf zlib-1.2.8.tar.gz
 	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
 	cp zlib-1.2.8/libz.a .
 
 libbz2.a:
 	-rm -rf bzip2-1.0.6
-	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+	curl -O -L http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
 	tar xvzf bzip2-1.0.6.tar.gz
 	cd bzip2-1.0.6 && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
 	cp bzip2-1.0.6/libbz2.a .
@@ -1344,7 +1344,7 @@ libsnappy.a:
 
 liblz4.a:
 	   -rm -rf lz4-r127
-	   curl -O https://codeload.github.com/Cyan4973/lz4/tar.gz/r127
+	   curl -O -L https://codeload.github.com/Cyan4973/lz4/tar.gz/r127
 	   mv r127 lz4-r127.tar.gz
 	   tar xvzf lz4-r127.tar.gz
 	   cd lz4-r127/lib && make CFLAGS='-fPIC' all
