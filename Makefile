@@ -1335,12 +1335,12 @@ libbz2.a:
 	cp bzip2-1.0.6/libbz2.a .
 
 libsnappy.a:
-	-rm -rf snappy-1.1.1
-	curl -O https://snappy.googlecode.com/files/snappy-1.1.1.tar.gz
-	tar xvzf snappy-1.1.1.tar.gz
-	cd snappy-1.1.1 && ./configure --with-pic --enable-static
-	cd snappy-1.1.1 && make
-	cp snappy-1.1.1/.libs/libsnappy.a .
+	-rm -rf snappy-1.1.3
+	curl -O -L https://github.com/google/snappy/releases/download/1.1.3/snappy-1.1.3.tar.gz
+	tar xvzf snappy-1.1.3.tar.gz
+	cd snappy-1.1.3 && ./configure --with-pic --enable-static
+	cd snappy-1.1.3 && make
+	cp snappy-1.1.3/.libs/libsnappy.a .
 
 liblz4.a:
 	   -rm -rf lz4-r127
@@ -1355,7 +1355,7 @@ java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
-JAVA_STATIC_INCLUDES = -I./zlib-1.2.8 -I./bzip2-1.0.6 -I./snappy-1.1.1 -I./lz4-r127/lib
+JAVA_STATIC_INCLUDES = -I./zlib-1.2.8 -I./bzip2-1.0.6 -I./snappy-1.1.3 -I./lz4-r127/lib
 
 $(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
