@@ -36,7 +36,8 @@ static int DecodeValue(void* v) {
   return static_cast<int>(reinterpret_cast<uintptr_t>(v));
 }
 
-typedef std::function<std::shared_ptr<Cache>(size_t, int, bool)> NewCache;
+const std::string kLRU = "lru";
+const std::string kClock = "clock";
 
 void dumbDeleter(const Slice& key, void* value) {}
 
@@ -45,7 +46,7 @@ void eraseDeleter(const Slice& key, void* value) {
   cache->Erase("foo");
 }
 
-class CacheTest : public testing::TestWithParam<NewCache> {
+class CacheTest : public testing::TestWithParam<std::string> {
  public:
   static CacheTest* current_;
 
@@ -66,15 +67,25 @@ class CacheTest : public testing::TestWithParam<NewCache> {
   shared_ptr<Cache> cache2_;
 
   CacheTest()
-      : cache_(GetNewCache()(kCacheSize, kNumShardBits, false)),
-        cache2_(GetNewCache()(kCacheSize2, kNumShardBits2, false)) {
+      : cache_(NewCache(kCacheSize, kNumShardBits, false)),
+        cache2_(NewCache(kCacheSize2, kNumShardBits2, false)) {
     current_ = this;
   }
 
   ~CacheTest() {
   }
 
-  NewCache GetNewCache() { return GetParam(); }
+  std::shared_ptr<Cache> NewCache(size_t capacity, int num_shard_bits,
+                                  bool strict_capacity_limit) {
+    auto type = GetParam();
+    if (type == kLRU) {
+      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit);
+    }
+    if (type == kClock) {
+      return NewClockCache(capacity, num_shard_bits, strict_capacity_limit);
+    }
+    return nullptr;
+  }
 
   int Lookup(shared_ptr<Cache> cache, int key) {
     Cache::Handle* handle = cache->Lookup(EncodeKey(key));
@@ -124,7 +135,7 @@ CacheTest* CacheTest::current_;
 TEST_P(CacheTest, UsageTest) {
   // cache is shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
-  auto cache = GetNewCache()(kCapacity, 8, false);
+  auto cache = NewCache(kCapacity, 8, false);
 
   size_t usage = 0;
   char value[10] = "abcdef";
@@ -152,7 +163,7 @@ TEST_P(CacheTest, UsageTest) {
 TEST_P(CacheTest, PinnedUsageTest) {
   // cache is shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
-  auto cache = GetNewCache()(kCapacity, 8, false);
+  auto cache = NewCache(kCapacity, 8, false);
 
   size_t pinned_usage = 0;
   char value[10] = "abcdef";
@@ -342,14 +353,14 @@ TEST_P(CacheTest, EvictionPolicyRef) {
 
 TEST_P(CacheTest, EvictEmptyCache) {
   // Insert item large than capacity to trigger eviction on empty cache.
-  auto cache = GetNewCache()(1, 0, false);
+  auto cache = NewCache(1, 0, false);
   ASSERT_OK(cache->Insert("foo", nullptr, 10, dumbDeleter));
 }
 
 TEST_P(CacheTest, EraseFromDeleter) {
   // Have deleter which will erase item from cache, which will re-enter
   // the cache at that point.
-  std::shared_ptr<Cache> cache = GetNewCache()(10, 0, false);
+  std::shared_ptr<Cache> cache = NewCache(10, 0, false);
   ASSERT_OK(cache->Insert("foo", nullptr, 1, dumbDeleter));
   ASSERT_OK(cache->Insert("bar", cache.get(), 1, eraseDeleter));
   cache->Erase("bar");
@@ -431,7 +442,7 @@ TEST_P(CacheTest, SetCapacity) {
   // lets create a cache with capacity 5,
   // then, insert 5 elements, then increase capacity
   // to 10, returned capacity should be 10, usage=5
-  std::shared_ptr<Cache> cache = GetNewCache()(5, 0, false);
+  std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   std::vector<Cache::Handle*> handles(10);
   // Insert 5 entries, but not releasing.
   for (size_t i = 0; i < 5; i++) {
@@ -524,7 +535,7 @@ TEST_P(CacheTest, OverCapacity) {
   size_t n = 10;
 
   // a LRUCache with n entries and one shard only
-  std::shared_ptr<Cache> cache = GetNewCache()(n, 0, false);
+  std::shared_ptr<Cache> cache = NewCache(n, 0, false);
 
   std::vector<Cache::Handle*> handles(n+1);
 
@@ -591,20 +602,12 @@ TEST_P(CacheTest, ApplyToAllCacheEntiresTest) {
   ASSERT_TRUE(inserted == callback_state);
 }
 
-shared_ptr<Cache> NewLRUCacheFunc(size_t capacity, int num_shard_bits,
-                                  bool strict_capacity_limit) {
-  return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit);
-}
-
-shared_ptr<Cache> (*new_lru_cache_func)(size_t, int, bool) = NewLRUCacheFunc;
 #ifdef SUPPORT_CLOCK_CACHE
 shared_ptr<Cache> (*new_clock_cache_func)(size_t, int, bool) = NewClockCache;
 INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(NewCache(new_lru_cache_func),
-                                        NewCache(new_clock_cache_func)));
+                        testing::Values(kLRU, kClock));
 #else
-INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
-                        testing::Values(NewCache(new_lru_cache_func)));
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest, testing::Values(kLRU));
 #endif  // SUPPORT_CLOCK_CACHE
 
 }  // namespace rocksdb
