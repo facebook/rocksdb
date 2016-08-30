@@ -4720,7 +4720,7 @@ TEST_F(DBTest, CompressionStatsTest) {
   Options options = CurrentOptions();
   options.compression = type;
   options.statistics = rocksdb::CreateDBStatistics();
-  options.statistics->stats_level_ = StatsLevel::kAll;
+  options.statistics->stats_level_ = StatsLevel::kExceptTimeForMutex;
   DestroyAndReopen(options);
 
   int kNumKeysWritten = 100000;
