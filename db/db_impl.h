@@ -21,6 +21,7 @@
 
 #include "db/column_family.h"
 #include "db/compaction_job.h"
+#include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
