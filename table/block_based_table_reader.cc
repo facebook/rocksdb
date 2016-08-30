@@ -556,8 +556,10 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   rep->hash_index_allow_collision = table_options.hash_index_allow_collision;
   // We need to wrap data with internal_prefix_transform to make sure it can
   // handle prefix correctly.
-  rep->internal_prefix_transform.reset(
-      new InternalKeySliceTransform(rep->ioptions.prefix_extractor));
+  if (rep->ioptions.prefix_extractor != nullptr) {
+    rep->internal_prefix_transform.reset(
+        new InternalKeySliceTransform(rep->ioptions.prefix_extractor));
+  }
   SetupCacheKeyPrefix(rep, file_size);
   unique_ptr<BlockBasedTable> new_table(new BlockBasedTable(rep));
 
@@ -1690,6 +1692,7 @@ Status BlockBasedTable::CreateIndexReader(
         meta_index_iter = meta_iter_guard.get();
       }
 
+      assert(rep_->internal_prefix_transform);
       return HashIndexReader::Create(
           rep_->internal_prefix_transform.get(), footer, file, rep_->ioptions,
           comparator, footer.index_handle(), meta_index_iter, index_reader,
