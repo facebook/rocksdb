@@ -236,7 +236,7 @@ class ClockCacheShard : public CacheShard {
   typedef tbb::concurrent_hash_map<CacheKey, CacheHandle*, CacheKey> HashTable;
 
   ClockCacheShard();
-  ~ClockCacheShard() = default;
+  ~ClockCacheShard();
 
   // Interfaces
   virtual void SetCapacity(size_t capacity) override;
@@ -289,12 +289,6 @@ class ClockCacheShard : public CacheShard {
   //
   // Has to hold mutex_ before being called.
   void RecycleHandle(CacheHandle* handle, CleanupContext* context);
-
-  // Remove the key from hash map. Put the key associated with the entry into
-  // to be deleted list.
-  //
-  // Has to hold mutex_ before being called.
-  void EraseKey(CacheHandle* handle, CleanupContext* context);
 
   // Delete keys and values in to-be-deleted list. Call the method without
   // holding mutex, as destructors can be expensive.
@@ -359,6 +353,16 @@ class ClockCacheShard : public CacheShard {
 ClockCacheShard::ClockCacheShard()
     : head_(0), usage_(0), pinned_usage_(0), strict_capacity_limit_(false) {}
 
+ClockCacheShard::~ClockCacheShard() {
+  for (auto& handle : list_) {
+    uint32_t flags = handle.flags.load(std::memory_order_relaxed);
+    if (InCache(flags) || CountRefs(flags) > 0) {
+      (*handle.deleter)(handle.key, handle.value);
+      delete[] handle.key.data();
+    }
+  }
+}
+
 size_t ClockCacheShard::GetUsage() const {
   return usage_.load(std::memory_order_relaxed);
 }
@@ -389,19 +393,13 @@ void ClockCacheShard::RecycleHandle(CacheHandle* handle,
                                     CleanupContext* context) {
   mutex_.AssertHeld();
   assert(!InCache(handle->flags) && CountRefs(handle->flags) == 0);
-  // Only cleanup the value. The key may be reused by another handle.
+  context->to_delete_key.push_back(handle->key.data());
   context->to_delete_value.emplace_back(*handle);
+  handle->key.clear();
+  handle->value = nullptr;
+  handle->deleter = nullptr;
   recycle_.push_back(handle);
   usage_.fetch_sub(handle->charge, std::memory_order_relaxed);
-}
-
-void ClockCacheShard::EraseKey(CacheHandle* handle, CleanupContext* context) {
-  mutex_.AssertHeld();
-  assert(!InCache(handle->flags));
-  bool erased __attribute__((__unused__)) =
-      table_.erase(CacheKey(handle->key, handle->hash));
-  assert(erased);
-  context->to_delete_key.push_back(handle->key.data());
 }
 
 void ClockCacheShard::Cleanup(const CleanupContext& context) {
@@ -474,8 +472,10 @@ bool ClockCacheShard::TryEvict(CacheHandle* handle, CleanupContext* context) {
   uint32_t flags = kInCacheBit;
   if (handle->flags.compare_exchange_strong(flags, 0, std::memory_order_acquire,
                                             std::memory_order_relaxed)) {
+    bool erased __attribute__((__unused__)) =
+        table_.erase(CacheKey(handle->key, handle->hash));
+    assert(erased);
     RecycleHandle(handle, context);
-    EraseKey(handle, context);
     return true;
   }
   handle->flags.fetch_and(~kUsageBit, std::memory_order_relaxed);
@@ -557,18 +557,11 @@ CacheHandle* ClockCacheShard::Insert(
   handle->flags.store(flags, std::memory_order_relaxed);
   HashTable::accessor accessor;
   if (table_.find(accessor, CacheKey(key, hash))) {
-    // Key exists. Replace with new handle, but keep the existing key since
-    // the key in hash table is back by the existing one. The new key will be
-    // deleted by Cleanup().
     CacheHandle* existing_handle = accessor->second;
-    context->to_delete_key.push_back(handle->key.data());
-    handle->key = existing_handle->key;
-    accessor->second = handle;
-    accessor.release();
+    table_.erase(accessor);
     UnsetInCache(existing_handle, context);
-  } else {
-    table_.insert(HashTable::value_type(CacheKey(key, hash), handle));
   }
+  table_.insert(HashTable::value_type(CacheKey(key, hash), handle));
   if (hold_reference) {
     pinned_usage_.fetch_add(charge, std::memory_order_relaxed);
   }
