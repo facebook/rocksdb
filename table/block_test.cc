@@ -240,7 +240,7 @@ class BlockReadAmpBitmapSlowAndAccurate {
   }
 
  private:
-  std::set<std::pair<size_t, size_t>> marked_ranges_ = {};
+  std::set<std::pair<size_t, size_t>> marked_ranges_;
 };
 
 TEST_F(BlockTest, BlockReadAmpBitmap) {
