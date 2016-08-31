@@ -141,6 +141,9 @@ class MergingIterator : public InternalIterator {
         if (&child != current_) {
           if (prefix_extractor_ == nullptr) {
             child.Seek(key());
+            if (child.Valid() && comparator_->Equal(key(), child.key())) {
+              child.Next();
+            }
           } else {
             // only for prefix_seek_mode
             // we should not call Seek() here
@@ -150,7 +153,14 @@ class MergingIterator : public InternalIterator {
               child.SeekToFirst();
             }
           }
-          if (child.Valid() && comparator_->Equal(key(), child.key())) {
+          // This condition is needed because it is possible that multiple
+          // threads read/write memtable simultaneously. After one thread
+          // calls Prev(), another thread may insert a new key just between
+          // the current key and the key next, which may cause the
+          // assert(current_ == CurrentForward()) failure when the first
+          // thread calls Next() again if in prefix seek mode
+          while (child.Valid() &&
+                 comparator_->Compare(key(), child.key()) >= 0) {
             child.Next();
           }
         }
@@ -216,6 +226,10 @@ class MergingIterator : public InternalIterator {
             // Child has no entries >= key().  Position at last entry.
             TEST_SYNC_POINT("MergeIterator::Prev:BeforeSeekToLast");
             child.SeekToLast();
+          }
+          while (child.Valid() &&
+                 comparator_->Compare(key(), child.key()) <= 0) {
+            child.Prev();
           }
         }
 
