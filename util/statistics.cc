@@ -49,20 +49,34 @@ uint64_t StatisticsImpl::getTickerCount(uint32_t tickerType) const {
          tickers_[tickerType].merged_sum.load(std::memory_order_relaxed);
 }
 
+std::unique_ptr<HistogramImpl>
+StatisticsImpl::HistogramInfo::getMergedHistogram() const {
+  MutexLock lock(&merge_lock);
+  std::unique_ptr<HistogramImpl> res_hist(new HistogramImpl());
+  res_hist->Merge(merged_hist);
+  thread_value->Fold(
+      [](void* curr_ptr, void* res) {
+        auto tmp_res_hist = static_cast<HistogramImpl*>(res);
+        auto curr_hist = static_cast<HistogramImpl*>(curr_ptr);
+        tmp_res_hist->Merge(*curr_hist);
+      },
+      res_hist.get());
+  return res_hist;
+}
+
 void StatisticsImpl::histogramData(uint32_t histogramType,
                                    HistogramData* const data) const {
   assert(
     enable_internal_stats_ ?
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
       histogramType < HISTOGRAM_ENUM_MAX);
-  // Return its own ticker version
-  histograms_[histogramType].Data(data);
+  histograms_[histogramType].getMergedHistogram()->Data(data);
 }
 
 std::string StatisticsImpl::getHistogramString(uint32_t histogramType) const {
   assert(enable_internal_stats_ ? histogramType < INTERNAL_HISTOGRAM_ENUM_MAX
                                 : histogramType < HISTOGRAM_ENUM_MAX);
-  return histograms_[histogramType].ToString();
+  return histograms_[histogramType].getMergedHistogram()->ToString();
 }
 
 StatisticsImpl::ThreadTickerInfo* StatisticsImpl::getThreadTickerInfo(
@@ -73,6 +87,18 @@ StatisticsImpl::ThreadTickerInfo* StatisticsImpl::getThreadTickerInfo(
     info_ptr =
         new ThreadTickerInfo(0 /* value */, &tickers_[tickerType].merged_sum);
     tickers_[tickerType].thread_value->Reset(info_ptr);
+  }
+  return info_ptr;
+}
+
+StatisticsImpl::ThreadHistogramInfo* StatisticsImpl::getThreadHistogramInfo(
+    uint32_t histogram_type) {
+  auto info_ptr = static_cast<ThreadHistogramInfo*>(
+      histograms_[histogram_type].thread_value->Get());
+  if (info_ptr == nullptr) {
+    info_ptr = new ThreadHistogramInfo(&histograms_[histogram_type].merged_hist,
+                                       &histograms_[histogram_type].merge_lock);
+    histograms_[histogram_type].thread_value->Reset(info_ptr);
   }
   return info_ptr;
 }
@@ -117,7 +143,7 @@ void StatisticsImpl::measureTime(uint32_t histogramType, uint64_t value) {
       histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
       histogramType < HISTOGRAM_ENUM_MAX);
   if (histogramType < HISTOGRAM_ENUM_MAX || enable_internal_stats_) {
-    histograms_[histogramType].Add(value);
+    getThreadHistogramInfo(histogramType)->value.Add(value);
   }
   if (stats_ && histogramType < HISTOGRAM_ENUM_MAX) {
     stats_->measureTime(histogramType, value);

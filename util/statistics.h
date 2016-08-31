@@ -66,8 +66,21 @@ class StatisticsImpl : public Statistics {
         : value(_value), merged_sum(_merged_sum) {}
   };
 
-  struct Ticker {
-    Ticker()
+  // Holds data maintained by each thread for implementing histograms.
+  struct ThreadHistogramInfo {
+    HistogramImpl value;
+    // During teardown, value will be merged into *merged_hist while holding
+    // *merge_lock, which also syncs with the merges necessary for reads.
+    HistogramImpl* merged_hist;
+    port::Mutex* merge_lock;
+
+    ThreadHistogramInfo(HistogramImpl* _merged_hist, port::Mutex* _merge_lock)
+        : value(), merged_hist(_merged_hist), merge_lock(_merge_lock) {}
+  };
+
+  // Holds global data for implementing tickers.
+  struct TickerInfo {
+    TickerInfo()
         : thread_value(new ThreadLocalPtr(&mergeThreadValue)), merged_sum(0) {}
     // Holds thread-specific pointer to ThreadTickerInfo
     std::unique_ptr<ThreadLocalPtr> thread_value;
@@ -84,15 +97,43 @@ class StatisticsImpl : public Statistics {
     }
   };
 
+  // Holds global data for implementing histograms.
+  struct HistogramInfo {
+    HistogramInfo()
+        : merged_hist(),
+          merge_lock(),
+          thread_value(new ThreadLocalPtr(&mergeThreadValue)) {}
+    // Merged thread-specific values for histograms that have been reset due to
+    // thread termination or ThreadLocalPtr destruction. Note these must be
+    // destroyed after thread_value since its destructor accesses them.
+    HistogramImpl merged_hist;
+    mutable port::Mutex merge_lock;
+    // Holds thread-specific pointer to ThreadHistogramInfo
+    std::unique_ptr<ThreadLocalPtr> thread_value;
+
+    static void mergeThreadValue(void* ptr) {
+      auto info_ptr = static_cast<ThreadHistogramInfo*>(ptr);
+      {
+        MutexLock lock(info_ptr->merge_lock);
+        info_ptr->merged_hist->Merge(info_ptr->value);
+      }
+      delete info_ptr;
+    }
+
+    // Returns a histogram that merges all histograms (thread-specific and
+    // previously merged ones).
+    std::unique_ptr<HistogramImpl> getMergedHistogram() const;
+  };
+
   // Returns the info for this tickerType/thread. It sets a new info with zeroed
   // counter if none exists.
-  ThreadTickerInfo* getThreadTickerInfo(uint32_t tickerType);
+  ThreadTickerInfo* getThreadTickerInfo(uint32_t ticker_type);
+  // Returns the info for this histogramType/thread. It sets a new histogram
+  // with zeroed data if none exists.
+  ThreadHistogramInfo* getThreadHistogramInfo(uint32_t histogram_type);
 
-  Ticker tickers_[INTERNAL_TICKER_ENUM_MAX];
-  // Attributes expand to nothing depending on the platform
-  __declspec(align(64))
-  HistogramImpl histograms_[INTERNAL_HISTOGRAM_ENUM_MAX]
-      __attribute__((aligned(64)));
+  TickerInfo tickers_[INTERNAL_TICKER_ENUM_MAX];
+  HistogramInfo histograms_[INTERNAL_HISTOGRAM_ENUM_MAX];
 };
 
 // Utility functions
