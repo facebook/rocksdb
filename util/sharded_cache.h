@@ -60,7 +60,7 @@ class ShardedCache : public Cache {
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
                         Handle** handle, Priority priority) override;
-  virtual Handle* Lookup(const Slice& key) override;
+  virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
   virtual void Release(Handle* handle) override;
   virtual void Erase(const Slice& key) override;
   virtual uint64_t NewId() override;

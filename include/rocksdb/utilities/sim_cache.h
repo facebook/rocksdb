@@ -10,8 +10,8 @@
 #include <string>
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
-#include "util/statistics.h"
 
 namespace rocksdb {
 
@@ -31,9 +31,9 @@ class SimCache;
 // BlockBasedTableOptions.block_size = 4096 by default but is configurable,
 // Therefore, generally the actual memory overhead of SimCache is Less than
 // sim_capacity * 2%
-extern std::shared_ptr<SimCache> NewSimCache(
-    std::shared_ptr<Cache> cache, size_t sim_capacity, int num_shard_bits,
-    std::shared_ptr<Statistics> stats = nullptr);
+extern std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> cache,
+                                             size_t sim_capacity,
+                                             int num_shard_bits);
 
 class SimCache : public Cache {
  public:
