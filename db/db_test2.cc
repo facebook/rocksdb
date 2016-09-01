@@ -961,9 +961,9 @@ TEST_F(DBTest2, PresetCompressionDict) {
   compression_types.push_back(kLZ4Compression);
   compression_types.push_back(kLZ4HCCompression);
 #endif                          // LZ4_VERSION_NUMBER >= 10400
-#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
-  compression_types.push_back(kZSTDNotFinalCompression);
-#endif  // ZSTD_VERSION_NUMBER >= 500
+  if (ZSTD_Supported()) {
+    compression_types.push_back(kZSTD);
+  }
 
   for (auto compression_type : compression_types) {
     options.compression = compression_type;

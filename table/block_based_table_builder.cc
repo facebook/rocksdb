@@ -377,6 +377,7 @@ Slice CompressBlock(const Slice& raw,
         return *compressed_output;
       }
       break;
+    case kZSTD:
     case kZSTDNotFinalCompression:
       if (ZSTD_Compress(compression_options, raw.data(), raw.size(),
                         compressed_output, compression_dict) &&

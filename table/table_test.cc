@@ -588,8 +588,8 @@ static std::vector<TestArgs> GenerateArgList() {
     compression_types.emplace_back(kXpressCompression, true);
   }
   if (ZSTD_Supported()) {
-    compression_types.emplace_back(kZSTDNotFinalCompression, false);
-    compression_types.emplace_back(kZSTDNotFinalCompression, true);
+    compression_types.emplace_back(kZSTD, false);
+    compression_types.emplace_back(kZSTD, true);
   }
 
   for (auto test_type : test_types) {

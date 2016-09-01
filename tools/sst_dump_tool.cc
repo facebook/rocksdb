@@ -185,16 +185,15 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
 
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
 
-  std::pair<CompressionType,const char*> compressions[] = {
-    { CompressionType::kNoCompression, "kNoCompression" },
-    { CompressionType::kSnappyCompression, "kSnappyCompression" },
-    { CompressionType::kZlibCompression, "kZlibCompression" },
-    { CompressionType::kBZip2Compression, "kBZip2Compression" },
-    { CompressionType::kLZ4Compression, "kLZ4Compression" },
-    { CompressionType::kLZ4HCCompression, "kLZ4HCCompression" },
-    { CompressionType::kXpressCompression, "kXpressCompression" },
-    { CompressionType::kZSTDNotFinalCompression, "kZSTDNotFinalCompression" }
-  };
+  std::pair<CompressionType, const char*> compressions[] = {
+      {CompressionType::kNoCompression, "kNoCompression"},
+      {CompressionType::kSnappyCompression, "kSnappyCompression"},
+      {CompressionType::kZlibCompression, "kZlibCompression"},
+      {CompressionType::kBZip2Compression, "kBZip2Compression"},
+      {CompressionType::kLZ4Compression, "kLZ4Compression"},
+      {CompressionType::kLZ4HCCompression, "kLZ4HCCompression"},
+      {CompressionType::kXpressCompression, "kXpressCompression"},
+      {CompressionType::kZSTD, "kZSTD"}};
 
   for (auto& i : compressions) {
     if (CompressionTypeSupported(i.first)) {

@@ -498,6 +498,7 @@ Status UncompressBlockContentsForCompressionType(
       *contents =
         BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
+    case kZSTD:
     case kZSTDNotFinalCompression:
       ubuf.reset(ZSTD_Uncompress(data, n, &decompress_size, compression_dict));
       if (!ubuf) {
