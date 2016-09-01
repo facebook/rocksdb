@@ -305,6 +305,9 @@ Status GetMemTableRepFactoryFromString(
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options);
 
+Status StringToMap(const std::string& opts_str,
+                   std::unordered_map<std::string, std::string>* opts_map);
+
 // Request stopping background work, if wait is true wait until it's done
 void CancelAllBackgroundWork(DB* db, bool wait = false);
 
