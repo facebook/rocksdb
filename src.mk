@@ -156,12 +156,12 @@ LIB_SOURCES =                                                   \
   utilities/date_tiered/date_tiered_db_impl.cc                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  util/cf_options.cc                                            \
   util/event_logger.cc                                          \
   util/log_buffer.cc                                            \
   util/logging.cc                                               \
   util/memenv.cc                                                \
   util/murmurhash.cc                                            \
-  util/mutable_cf_options.cc                                    \
   util/options.cc                                               \
   util/options_helper.cc                                        \
   util/options_parser.cc                                        \

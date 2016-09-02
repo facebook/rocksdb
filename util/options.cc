@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/options.h"
-#include "rocksdb/immutable_options.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -35,47 +34,6 @@
 #include "util/xfunc.h"
 
 namespace rocksdb {
-
-ImmutableCFOptions::ImmutableCFOptions(const Options& options)
-    : compaction_style(options.compaction_style),
-      compaction_options_universal(options.compaction_options_universal),
-      compaction_options_fifo(options.compaction_options_fifo),
-      prefix_extractor(options.prefix_extractor.get()),
-      comparator(options.comparator),
-      merge_operator(options.merge_operator.get()),
-      compaction_filter(options.compaction_filter),
-      compaction_filter_factory(options.compaction_filter_factory.get()),
-      inplace_update_support(options.inplace_update_support),
-      inplace_callback(options.inplace_callback),
-      info_log(options.info_log.get()),
-      statistics(options.statistics.get()),
-      env(options.env),
-      delayed_write_rate(options.delayed_write_rate),
-      allow_mmap_reads(options.allow_mmap_reads),
-      allow_mmap_writes(options.allow_mmap_writes),
-      db_paths(options.db_paths),
-      memtable_factory(options.memtable_factory.get()),
-      table_factory(options.table_factory.get()),
-      table_properties_collector_factories(
-          options.table_properties_collector_factories),
-      advise_random_on_open(options.advise_random_on_open),
-      bloom_locality(options.bloom_locality),
-      purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
-      disable_data_sync(options.disableDataSync),
-      use_fsync(options.use_fsync),
-      compression_per_level(options.compression_per_level),
-      bottommost_compression(options.bottommost_compression),
-      compression_opts(options.compression_opts),
-      level_compaction_dynamic_level_bytes(
-          options.level_compaction_dynamic_level_bytes),
-      access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-      new_table_reader_for_compaction_inputs(
-          options.new_table_reader_for_compaction_inputs),
-      compaction_readahead_size(options.compaction_readahead_size),
-      num_levels(options.num_levels),
-      optimize_filters_for_hits(options.optimize_filters_for_hits),
-      listeners(options.listeners),
-      row_cache(options.row_cache) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),

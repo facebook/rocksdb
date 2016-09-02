@@ -22,6 +22,7 @@
 #include "rocksdb/table.h"
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
+#include "util/cf_options.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 

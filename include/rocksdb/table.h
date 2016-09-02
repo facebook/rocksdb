@@ -22,7 +22,6 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
-#include "rocksdb/immutable_options.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
@@ -435,7 +434,6 @@ class TableFactory {
   // (4) When running Repairer, it creates a table builder to convert logs to
   //     SST files (In Repairer::ConvertLogToTable() by calling BuildTable())
   //
-  // ImmutableCFOptions is a subset of Options that can not be altered.
   // Multiple configured can be acceseed from there, including and not limited
   // to compression options. file is a handle of a writable file.
   // It is the caller's responsibility to keep the file open and close the file

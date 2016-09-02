@@ -12,7 +12,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "util/mutable_cf_options.h"
+#include "util/cf_options.h"
 
 #ifndef ROCKSDB_LITE
 namespace rocksdb {

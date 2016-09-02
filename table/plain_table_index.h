@@ -12,10 +12,11 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/options.h"
-#include "util/murmurhash.h"
-#include "util/hash.h"
 #include "util/arena.h"
+#include "util/cf_options.h"
+#include "util/hash.h"
 #include "util/histogram.h"
+#include "util/murmurhash.h"
 
 namespace rocksdb {
 

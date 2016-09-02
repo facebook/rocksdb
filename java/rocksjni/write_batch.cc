@@ -13,7 +13,6 @@
 #include "include/org_rocksdb_WriteBatch_Handler.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "rocksdb/immutable_options.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"

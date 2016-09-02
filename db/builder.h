@@ -12,14 +12,13 @@
 #include "db/table_properties_collector.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
-#include "rocksdb/immutable_options.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
+#include "util/cf_options.h"
 #include "util/event_logger.h"
-#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 

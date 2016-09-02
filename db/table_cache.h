@@ -18,9 +18,10 @@
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
-#include "rocksdb/table.h"
 #include "rocksdb/options.h"
+#include "rocksdb/table.h"
 #include "table/table_reader.h"
+#include "util/cf_options.h"
 
 namespace rocksdb {
 

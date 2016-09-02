@@ -9,11 +9,11 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "include/rocksdb/env.h"
-#include "include/rocksdb/immutable_options.h"
 #include "include/rocksdb/listener.h"
 #include "include/rocksdb/options.h"
 #include "include/rocksdb/status.h"
 #include "table/block_based_table_reader.h"
+#include "util/cf_options.h"
 
 namespace rocksdb {
 
