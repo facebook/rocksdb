@@ -13,12 +13,12 @@ addons:
 env:
   # Run [db_test, db_test2[
   - JOB_NAME=unittests ROCKSDBTESTS_START=db_test ROCKSDBTESTS_END=db_test2
-  # Run [db_test2, db_block_cache_test[
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_test2 ROCKSDBTESTS_END=db_block_cache_test
-  # Run [db_block_cache_test, mock_env_test[
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=mock_env_test
-  # Run [mock_env_test, oo[
-  - JOB_NAME=unittests ROCKSDBTESTS_START=mock_env_test
+  # Run [db_test2, c_test[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=db_test2 ROCKSDBTESTS_END=c_test
+  # Run [c_test, ttl_test[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=c_test ROCKSDBTESTS_END=ttl_test
+  # Run [ttl_test, oo[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=ttl_test
   # Run java tests
   - JOB_NAME=java_test
   # Build ROCKSDB_LITE
@@ -30,9 +30,9 @@ before_script:
   - ulimit -n 8192 || true
 
 script:
-  - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j4 check_some; fi
+  - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j8 check_some; fi
   - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
-  - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
+  - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j8 static_lib; fi
 notifications:
     email:
       - leveldb@fb.com
