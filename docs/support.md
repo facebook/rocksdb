@@ -1,8 +1,23 @@
 ---
 layout: support
-title: Support Example
+title: Support
 id: support
 category: support
 ---
 
-This is a static page disconnected from the blog or docs collections that can be added at a top-level.
+## Need help?
+
+Do not hesitate to ask questions if you are having trouble with RocksDB.
+
+### GitHub issues
+
+The [GitHub issues](https://github.com/facebook/rocksdb/issues) page is a good place to ask
+questions, find answers, and report issues.
+
+### Facebook Group
+
+<https://www.facebook.com/groups/rocksdb.dev/>
+
+### FAQ
+
+Check out a list of [commonly asked questions](/docs/support/faq) about RocksDB.
