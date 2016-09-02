@@ -38,7 +38,7 @@ namespace {
 
 struct Lock {
   std::unique_lock<std::mutex> ul_;
-  explicit Lock(const std::mutex& m) : ul_(m, std::defer_lock) {}
+  explicit Lock(std::mutex& m) : ul_(m, std::defer_lock) {}
 };
 
 using Condition = std::condition_variable;

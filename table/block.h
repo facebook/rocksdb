@@ -49,8 +49,11 @@ class BlockReadAmpBitmap {
     }
 
     // num_bits_needed = ceil(block_size / bytes_per_bit)
-    size_t num_bits_needed = (block_size >> bytes_per_bit_pow_) +
-                             (block_size % (1 << bytes_per_bit_pow_) != 0);
+    size_t num_bits_needed =
+        (block_size >> static_cast<size_t>(bytes_per_bit_pow_)) +
+        (block_size % (static_cast<size_t>(1)
+                       << static_cast<size_t>(bytes_per_bit_pow_)) !=
+         0);
 
     // bitmap_size = ceil(num_bits_needed / kBitsPerEntry)
     size_t bitmap_size = (num_bits_needed / kBitsPerEntry) +
