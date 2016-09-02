@@ -25,6 +25,7 @@ env:
   - JOB_NAME=lite_build
 
 before_script:
+  - if [[ "${TRAVIS_OS_NAME}" == 'linux' ]]; then CXX=clang++-3.6; fi
   # Limit the maximum number of open file descriptors to 8192
   - ulimit -n 8192 || true
 
