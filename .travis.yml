@@ -11,22 +11,20 @@ addons:
       sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
       packages: ['clang-3.6' , 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'gflags']
 env:
-  # Run all tests before db_block_cache_test (db_test, db_test2)
-  - JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test
-  # Run all tests starting from db_block_cache_test (db_block_cache_test, db_iter_test, ...)
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test
+  # Run [db_test, db_test2[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=db_test ROCKSDBTESTS_END=db_test2
+  # Run [db_test2, db_block_cache_test[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=db_test2 ROCKSDBTESTS_END=db_block_cache_test
+  # Run [db_block_cache_test, mock_env_test[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=mock_env_test
+  # Run [mock_env_test, oo[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=mock_env_test
   # Run java tests
   - JOB_NAME=java_test
   # Build ROCKSDB_LITE
   - JOB_NAME=lite_build
 
-install:
-  # Build gflags
-  # TODO(noetzli): Remove when gflags available through Travis
-  - pushd /tmp/ && curl -L https://github.com/gflags/gflags/archive/v2.1.2.tar.gz -o gflags.tar.gz && tar xfz gflags.tar.gz && cd gflags-2.1.2 && cmake . && make && popd
-
 before_script:
-  - if [[ "${TRAVIS_OS_NAME}" == 'linux' ]]; then CXX=clang++-3.6; fi
   # Limit the maximum number of open file descriptors to 8192
   - ulimit -n 8192 || true
 
