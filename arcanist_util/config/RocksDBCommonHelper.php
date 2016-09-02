@@ -231,21 +231,11 @@ function getSandcastleConfig() {
     assert(is_numeric($diffID));
   }
 
-  if (strcmp(getenv("ROCKSDB_CHECK_ALL"), 1) == 0) {
-    // Extract all tests from the CI definition.
-    $output = file_get_contents("build_tools/rocksdb-lego-determinator");
-    assert(strlen($output) > 0);
-
-    preg_match_all('/[ ]{2}([a-zA-Z0-9_]+)[\)]{1}/', $output, $matches);
-    $tests = $matches[1];
-    assert(count($tests) > 0);
-  } else {
-    // Manually list of tests we want to run in Sandcastle.
-    $tests = array(
-      "unit", "unit_non_shm", "unit_481", "clang_unit", "tsan", "asan",
-      "lite_test", "valgrind", "release", "release_481", "clang_release"
-    );
-  }
+  // List of tests we want to run in Sandcastle.
+  $tests = array("unit", "unit_non_shm", "unit_481", "clang_unit", "tsan",
+                 "asan", "lite_test", "valgrind", "release", "release_481",
+                 "clang_release", "punit", "clang_analyze", "code_cov",
+                 "java_build", "no_compression", "unity", "ubsan");
 
   $send_email_template = array(
     'type' => 'email',
