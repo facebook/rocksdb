@@ -2460,17 +2460,17 @@ class Benchmark {
     }
     shared.mu.Unlock();
 
-    for (int i = 0; i < n; i++) {
-      delete arg[i].thread;
-    }
-    delete[] arg;
-
     // Stats for some threads can be excluded.
     Stats merge_stats;
     for (int i = 0; i < n; i++) {
       merge_stats.Merge(arg[i].thread->stats);
     }
     merge_stats.Report(name);
+
+    for (int i = 0; i < n; i++) {
+      delete arg[i].thread;
+    }
+    delete[] arg;
 
     return merge_stats;
   }
