@@ -13,10 +13,10 @@ addons:
 env:
   # Run [db_test, db_test2[
   - JOB_NAME=unittests ROCKSDBTESTS_START=db_test ROCKSDBTESTS_END=db_test2
-  # Run [db_test2, c_test[
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_test2 ROCKSDBTESTS_END=c_test
-  # Run [c_test, ttl_test[
-  - JOB_NAME=unittests ROCKSDBTESTS_START=c_test ROCKSDBTESTS_END=ttl_test
+  # Run [db_test2, fault_injection_test[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=db_test2 ROCKSDBTESTS_END=fault_injection_test
+  # Run [fault_injection_test, ttl_test[
+  - JOB_NAME=unittests ROCKSDBTESTS_START=fault_injection_test ROCKSDBTESTS_END=ttl_test
   # Run [ttl_test, oo[
   - JOB_NAME=unittests ROCKSDBTESTS_START=ttl_test
   # Run java tests
