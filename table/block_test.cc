@@ -232,7 +232,7 @@ class BlockReadAmpBitmapSlowAndAccurate {
 
   // Return true if any byte in this range was Marked
   bool IsAnyInRangeMarked(size_t start_offset, size_t end_offset) {
-    auto it = marked_ranges_.lower_bound(std::make_pair(start_offset, 0));
+    auto it = marked_ranges_.lower_bound(std::make_pair(start_offset, static_cast<size_t>(0)));
     if (it == marked_ranges_.end()) {
       return false;
     }
@@ -292,7 +292,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
     random_entry_offsets.resize(
         std::distance(random_entry_offsets.begin(), it));
 
-    std::vector<std::pair<uint32_t, uint32_t>> random_entries;
+    std::vector<std::pair<size_t, size_t>> random_entries;
     for (size_t i = 0; i < random_entry_offsets.size(); i++) {
       size_t entry_start = random_entry_offsets[i];
       size_t entry_end;
@@ -307,7 +307,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
     for (size_t i = 0; i < random_entries.size(); i++) {
       auto &current_entry = random_entries[rnd.Next() % random_entries.size()];
 
-      read_amp_bitmap.Mark(current_entry.first, current_entry.second);
+      read_amp_bitmap.Mark(static_cast<uint32_t>(current_entry.first), static_cast<uint32_t>(current_entry.second));
       read_amp_slow_and_accurate.Mark(current_entry.first,
                                       current_entry.second);
 
