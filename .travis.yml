@@ -11,8 +11,8 @@ addons:
       sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
       packages: ['clang-3.6' , 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'gflags']
 env:
-  # Run [db_test, db_test2[
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_test ROCKSDBTESTS_END=db_test2
+  # Run [oo, db_test2[ -> {db_test{
+  - JOB_NAME=unittests ROCKSDBTESTS_END=db_test2
   # Run [db_test2, fault_injection_test[
   - JOB_NAME=unittests ROCKSDBTESTS_START=db_test2 ROCKSDBTESTS_END=fault_injection_test
   # Run [fault_injection_test, ttl_test[
