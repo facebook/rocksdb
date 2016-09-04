@@ -19,6 +19,7 @@ import argparse
 default_params = {
     "block_size": 16384,
     "cache_size": 1048576,
+    "use_clock_cache": "false",
     "delpercent": 5,
     "destroy_db_initially": 0,
     "disable_data_sync": 0,
@@ -84,6 +85,7 @@ whitebox_default_params = {
 simple_default_params = {
     "block_size": 16384,
     "cache_size": 1048576,
+    "use_clock_cache": "false",
     "column_families": 1,
     "delpercent": 5,
     "destroy_db_initially": 0,

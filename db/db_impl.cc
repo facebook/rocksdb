@@ -372,19 +372,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   InstrumentedMutexLock l(&mutex_);
-  shutting_down_.store(true, std::memory_order_release);
-  bg_cv_.SignalAll();
-  if (!wait) {
-    return;
-  }
-  // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
-    bg_cv_.Wait();
-  }
-}
-
-DBImpl::~DBImpl() {
-  mutex_.Lock();
 
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_) {
@@ -399,7 +386,19 @@ DBImpl::~DBImpl() {
     }
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
-  mutex_.Unlock();
+
+  shutting_down_.store(true, std::memory_order_release);
+  bg_cv_.SignalAll();
+  if (!wait) {
+    return;
+  }
+  // Wait for background work to finish
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
+    bg_cv_.Wait();
+  }
+}
+
+DBImpl::~DBImpl() {
   // CancelAllBackgroundWork called with false means we just set the shutdown
   // marker. After this we do a variant of the waiting and unschedule work
   // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
@@ -1576,10 +1575,16 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // we just ignore the update.
       // That's why we set ignore missing column families to true
       bool has_valid_writes = false;
+      // If we pass DB through and options.max_successive_merges is hit
+      // during recovery, Get() will be issued which will try to acquire
+      // DB mutex and cause deadlock, as DB mutex is already held.
+      // The DB pointer is not needed unless 2PC is used.
+      // TODO(sdong) fix the allow_2pc case too.
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
-          log_number, this, false /* concurrent_memtable_writes */,
-          next_sequence, &has_valid_writes);
+          log_number, db_options_.allow_2pc ? this : nullptr,
+          false /* concurrent_memtable_writes */, next_sequence,
+          &has_valid_writes);
       // If it is the first log file and there is no column family updated
       // after replaying the file, this file may be a stale file. We ignore
       // sequence IDs from the file. Otherwise, if a newer stale log file that
@@ -3713,7 +3718,8 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   // Need to create internal iterator from the arena.
-  MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena);
+  MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena,
+                                          cfd->ioptions()->prefix_extractor);
   // Collect iterator for mutable mem
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));

@@ -310,18 +310,15 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
       static_cast<double>(rnd->Uniform(10000)) / 20000.0;
 
   // int options
-  cf_opt->expanded_compaction_factor = rnd->Uniform(100);
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
   cf_opt->level0_slowdown_writes_trigger = rnd->Uniform(100);
   cf_opt->level0_stop_writes_trigger = rnd->Uniform(100);
   cf_opt->max_bytes_for_level_multiplier = rnd->Uniform(100);
-  cf_opt->max_grandparent_overlap_factor = rnd->Uniform(100);
   cf_opt->max_mem_compaction_level = rnd->Uniform(100);
   cf_opt->max_write_buffer_number = rnd->Uniform(100);
   cf_opt->max_write_buffer_number_to_maintain = rnd->Uniform(100);
   cf_opt->min_write_buffer_number_to_merge = rnd->Uniform(100);
   cf_opt->num_levels = rnd->Uniform(100);
-  cf_opt->source_compaction_factor = rnd->Uniform(100);
   cf_opt->target_file_size_multiplier = rnd->Uniform(100);
 
   // size_t options
@@ -340,6 +337,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
   cf_opt->max_sequential_skip_in_iterations = uint_max + rnd->Uniform(10000);
   cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
+  cf_opt->max_compaction_bytes =
+      cf_opt->target_file_size_base * rnd->Uniform(100);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);

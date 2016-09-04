@@ -149,6 +149,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       *bbto,
       "cache_index_and_filter_blocks=1;"
+      "cache_index_and_filter_blocks_with_high_priority=true;"
       "pin_l0_filter_and_index_blocks_in_cache=1;"
       "index_type=kHashSearch;"
       "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
@@ -158,7 +159,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
       "skip_table_builder_flush=1;format_version=1;"
       "hash_index_allow_collision=false;"
-      "verify_compression=true;",
+      "verify_compression=true;read_amp_bytes_per_bit=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -396,11 +397,10 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_sequential_skip_in_iterations=4294971408;"
       "arena_block_size=1893;"
       "target_file_size_multiplier=35;"
-      "source_compaction_factor=54;"
       "min_write_buffer_number_to_merge=9;"
       "max_write_buffer_number=84;"
       "write_buffer_size=1653;"
-      "max_grandparent_overlap_factor=64;"
+      "max_compaction_bytes=64;"
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
@@ -410,7 +410,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "num_levels=99;"
       "level0_slowdown_writes_trigger=22;"
       "level0_file_num_compaction_trigger=14;"
-      "expanded_compaction_factor=34;"
       "compaction_filter=urxcqstuwnCompactionFilter;"
       "soft_rate_limit=530.615385;"
       "soft_pending_compaction_bytes_limit=0;"

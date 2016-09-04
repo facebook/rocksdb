@@ -1,0 +1,35 @@
+<div class="post">
+  {% assign author = site.data.authors[page.author] %}
+  <header class="post-header">
+    {% if author.fbid %}
+    <div class="authorPhoto">
+      <img src="http://graph.facebook.com/{{ author.fbid }}/picture/" alt="{{ author.fullname }}" title="{{ author.fullname }}" />
+    </div>
+    {% endif %}
+    {% if author.full_name %}
+    <p class="post-authorName">{{ author.full_name }}</p>
+    {% endif %}
+    <h1 class="post-title">{% if include.truncate %}<a href="{{ site.url }}{{ site.baseurl }}{{ page.url }}">{{ page.title }}</a>{% else %}{{ page.title }}{% endif %}</h1>
+    <p class="post-meta">Posted {{ page.date | date: '%B %d, %Y' }}{% if page.meta %} • {{ page.meta }}{% endif %}</p>
+  </header>
+
+  <article class="post-content">
+  {% if include.truncate %}
+    {% if page.content contains '<!--truncate-->' %}
+      {{ page.content | split:'<!--truncate-->' | first | markdownify }}
+      <div class="read-more">
+        <a href="{{ site.url }}{{ site.baseurl }}{{ page.url }}" >
+          Read More
+        </a>
+      </div>
+    {% else %}
+      {{ page.content | markdownify }}
+    {% endif %}
+  {% else %}
+    {{ content }}
+  {% endif %}
+  {% unless include.truncate %}
+    {% include plugins/like_button.html %}
+  {% endunless %}
+  </article>
+</div>

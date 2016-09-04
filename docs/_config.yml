@@ -1,0 +1,59 @@
+# Site settings
+permalink: /blog/:year/:month/:day/:title.html
+title: RocksDB
+tagline: A persistent key-value store for fast storage environments
+description: >
+  RocksDB is an embeddable persistent key-value store for fast storage.
+fbappid: "1615782811974223"
+gacode: "UA-12345-6"
+# baseurl determines the subpath of your site. For example if you're using an
+# organisation.github.io/reponame/ basic site URL, then baseurl would be set
+# as "/reponame/" but leave blank if you have a top-level domain URL
+baseurl: ""
+url: "http://rocksdb.org" # the base hostname & protocol for your site
+ghrepo: "facebook/rocksdb"
+
+# Use these color settings to determine your colour scheme for the site.
+color:
+  # primary should be a vivid color that reflects the project's brand
+  primary: "#2a2a2a"
+  # secondary should be a subtle light or dark color used on page backgrounds
+  secondary: "#f9f9f9"
+  # Use the following to specify whether the previous two colours are 'light'
+  # or 'dark' and therefore what colors can be overlaid on them
+  primary-overlay: "dark"
+  secondary-overlay: "light"
+
+#Uncomment this if you want to enable Algolia doc search with your own values
+#searchconfig:
+#  apikey: ""
+#  indexname: ""
+
+collections:
+  docs:
+    output: true
+    permalink: /docs/:name/
+  support:
+    output: true
+    permalink: /support.html
+
+# DO NOT ADJUST BELOW THIS LINE UNLESS YOU KNOW WHAT YOU ARE CHANGING
+
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+  syntax_highlighter_opts:
+    css_class: 'rougeHighlight'
+    span:
+      line_numbers: false
+    block:
+      line_numbers: true
+      start_line: 1
+
+sass:
+  style: :compressed
+
+redcarpet:
+  extensions: [with_toc_data]

@@ -81,23 +81,15 @@ template<class DERIVED> class RocksDBJavaException {
     return jclazz;
   }
 
-  // Create and throw a java exception by converting the input
-  // Status.
-  //
-  // In case s.ok() is true, then this function will not throw any
-  // exception.
-  static void ThrowNew(JNIEnv* env, Status s) {
-    if (s.ok()) {
-      return;
-    }
-    jstring msg = env->NewStringUTF(s.ToString().c_str());
+  // Create and throw a java exception with the provided message
+  static void ThrowNew(JNIEnv* env, const std::string& msg) {
+    jstring jmsg = env->NewStringUTF(msg.c_str());
     // get the constructor id of org.rocksdb.RocksDBException
     static jmethodID mid = env->GetMethodID(
         DERIVED::getJClass(env), "<init>", "(Ljava/lang/String;)V");
     assert(mid != nullptr);
 
-    env->Throw((jthrowable)env->NewObject(DERIVED::getJClass(env),
-        mid, msg));
+    env->Throw((jthrowable)env->NewObject(DERIVED::getJClass(env), mid, jmsg));
   }
 };
 
@@ -110,6 +102,87 @@ class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
   }
 };
 
+// The portal class for org.rocksdb.Status
+class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
+ public:
+  // Get the java class id of org.rocksdb.Status.
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/Status");
+  }
+
+  // Create a new org.rocksdb.Status with the same properties as the
+  // provided C++ rocksdb::Status object
+  static jobject construct(JNIEnv* env, const Status& status) {
+    static jmethodID mid =
+        env->GetMethodID(getJClass(env), "<init>", "(BBLjava/lang/String;)V");
+    assert(mid != nullptr);
+
+    jstring jstate = nullptr;
+    if (status.getState() != nullptr) {
+      std::string s(status.getState());
+      jstate = env->NewStringUTF(s.c_str());
+    }
+    return env->NewObject(getJClass(env), mid, toJavaStatusCode(status.code()),
+                          toJavaStatusSubCode(status.subcode()), jstate);
+  }
+
+  // Returns the equivalent org.rocksdb.Status.Code for the provided
+  // C++ rocksdb::Status::Code enum
+  static jbyte toJavaStatusCode(const rocksdb::Status::Code& code) {
+    switch (code) {
+      case rocksdb::Status::Code::kOk:
+        return 0x0;
+      case rocksdb::Status::Code::kNotFound:
+        return 0x1;
+      case rocksdb::Status::Code::kCorruption:
+        return 0x2;
+      case rocksdb::Status::Code::kNotSupported:
+        return 0x3;
+      case rocksdb::Status::Code::kInvalidArgument:
+        return 0x4;
+      case rocksdb::Status::Code::kIOError:
+        return 0x5;
+      case rocksdb::Status::Code::kMergeInProgress:
+        return 0x6;
+      case rocksdb::Status::Code::kIncomplete:
+        return 0x7;
+      case rocksdb::Status::Code::kShutdownInProgress:
+        return 0x8;
+      case rocksdb::Status::Code::kTimedOut:
+        return 0x9;
+      case rocksdb::Status::Code::kAborted:
+        return 0xA;
+      case rocksdb::Status::Code::kBusy:
+        return 0xB;
+      case rocksdb::Status::Code::kExpired:
+        return 0xC;
+      case rocksdb::Status::Code::kTryAgain:
+        return 0xD;
+      default:
+        return 0xFF;  // undefined
+    }
+  }
+
+  // Returns the equivalent org.rocksdb.Status.SubCode for the provided
+  // C++ rocksdb::Status::SubCode enum
+  static jbyte toJavaStatusSubCode(const rocksdb::Status::SubCode& subCode) {
+    switch (subCode) {
+      case rocksdb::Status::SubCode::kNone:
+        return 0x0;
+      case rocksdb::Status::SubCode::kMutexTimeout:
+        return 0x1;
+      case rocksdb::Status::SubCode::kLockTimeout:
+        return 0x2;
+      case rocksdb::Status::SubCode::kLockLimit:
+        return 0x3;
+      case rocksdb::Status::SubCode::kMaxSubCode:
+        return 0xFE;
+      default:
+        return 0xFF;  // undefined
+    }
+  }
+};
+
 // The portal class for org.rocksdb.RocksDBException
 class RocksDBExceptionJni :
     public RocksDBJavaException<RocksDBExceptionJni> {
@@ -118,6 +191,41 @@ class RocksDBExceptionJni :
   static jclass getJClass(JNIEnv* env) {
     return RocksDBJavaException::getJClass(env,
         "org/rocksdb/RocksDBException");
+  }
+
+  static void ThrowNew(JNIEnv* env, const std::string& msg) {
+    RocksDBJavaException::ThrowNew(env, msg);
+  }
+
+  static void ThrowNew(JNIEnv* env, const Status& s) {
+    if (s.ok()) {
+      return;
+    }
+
+    jobject jstatus = StatusJni::construct(env, s);
+
+    // get the constructor id of org.rocksdb.RocksDBException
+    static jmethodID mid =
+        env->GetMethodID(getJClass(env), "<init>", "(Lorg/rocksdb/Status;)V");
+    assert(mid != nullptr);
+
+    env->Throw((jthrowable)env->NewObject(getJClass(env), mid, jstatus));
+  }
+
+  static void ThrowNew(JNIEnv* env, const std::string& msg, const Status& s) {
+    if (s.ok()) {
+      return;
+    }
+
+    jstring jmsg = env->NewStringUTF(msg.c_str());
+    jobject jstatus = StatusJni::construct(env, s);
+
+    // get the constructor id of org.rocksdb.RocksDBException
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "<init>", "(Ljava/lang/String;Lorg/rocksdb/Status;)V");
+    assert(mid != nullptr);
+
+    env->Throw((jthrowable)env->NewObject(getJClass(env), mid, jmsg, jstatus));
   }
 };
 
@@ -129,6 +237,24 @@ class IllegalArgumentExceptionJni :
   static jclass getJClass(JNIEnv* env) {
     return RocksDBJavaException::getJClass(env,
         "java/lang/IllegalArgumentException");
+  }
+
+  // Create and throw a IllegalArgumentException by converting the input
+  // Status.
+  //
+  // In case s.ok() is true, then this function will not throw any
+  // exception.
+  static void ThrowNew(JNIEnv* env, const Status& s) {
+    if (s.ok()) {
+      return;
+    }
+    jstring msg = env->NewStringUTF(s.ToString().c_str());
+    // get the constructor id of org.rocksdb.RocksDBException
+    static jmethodID mid =
+        env->GetMethodID(getJClass(env), "<init>", "(Ljava/lang/String;)V");
+    assert(mid != nullptr);
+
+    env->Throw((jthrowable)env->NewObject(getJClass(env), mid, msg));
   }
 };
 

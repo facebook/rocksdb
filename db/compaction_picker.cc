@@ -266,10 +266,6 @@ Compaction* CompactionPicker::FormCompaction(
     const std::vector<CompactionInputFiles>& input_files, int output_level,
     VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
     uint32_t output_path_id) {
-  uint64_t max_grandparent_overlap_bytes =
-      output_level + 1 < vstorage->num_levels()
-          ? mutable_cf_options.MaxGrandParentOverlapBytes(output_level + 1)
-          : std::numeric_limits<uint64_t>::max();
   assert(input_files.size());
 
   // TODO(rven ): we might be able to run concurrent level 0 compaction
@@ -278,10 +274,11 @@ Compaction* CompactionPicker::FormCompaction(
   if ((input_files[0].level == 0) && !level0_compactions_in_progress_.empty()) {
     return nullptr;
   }
-  auto c = new Compaction(
-      vstorage, mutable_cf_options, input_files, output_level,
-      compact_options.output_file_size_limit, max_grandparent_overlap_bytes,
-      output_path_id, compact_options.compression, /* grandparents */ {}, true);
+  auto c =
+      new Compaction(vstorage, mutable_cf_options, input_files, output_level,
+                     compact_options.output_file_size_limit,
+                     mutable_cf_options.max_compaction_bytes, output_path_id,
+                     compact_options.compression, /* grandparents */ {}, true);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
@@ -416,8 +413,7 @@ bool CompactionPicker::SetupOtherInputs(
     const uint64_t inputs1_size =
         TotalCompensatedFileSize(output_level_inputs->files);
     const uint64_t expanded0_size = TotalCompensatedFileSize(expanded0.files);
-    uint64_t limit =
-        mutable_cf_options.ExpandedCompactionByteSizeLimit(input_level);
+    uint64_t limit = mutable_cf_options.max_compaction_bytes;
     if (expanded0.size() > inputs->size() &&
         inputs1_size + expanded0_size < limit &&
         !FilesInCompaction(expanded0.files) &&
@@ -513,7 +509,7 @@ Compaction* CompactionPicker::CompactRange(
     Compaction* c = new Compaction(
         vstorage, mutable_cf_options, std::move(inputs), output_level,
         mutable_cf_options.MaxFileSizeForLevel(output_level),
-        /* max_grandparent_overlap_bytes */ LLONG_MAX, output_path_id,
+        /* max_compaction_bytes */ LLONG_MAX, output_path_id,
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
         /* grandparents */ {}, /* is manual */ true);
@@ -551,8 +547,7 @@ Compaction* CompactionPicker::CompactRange(
   // and we must not pick one file and drop another older file if the
   // two files overlap.
   if (input_level > 0) {
-    const uint64_t limit = mutable_cf_options.MaxFileSizeForLevel(input_level) *
-                           mutable_cf_options.source_compaction_factor;
+    const uint64_t limit = mutable_cf_options.max_compaction_bytes;
     uint64_t total = 0;
     for (size_t i = 0; i + 1 < inputs.size(); ++i) {
       uint64_t s = inputs[i]->compensated_file_size;
@@ -614,8 +609,7 @@ Compaction* CompactionPicker::CompactRange(
   Compaction* compaction = new Compaction(
       vstorage, mutable_cf_options, std::move(compaction_inputs), output_level,
       mutable_cf_options.MaxFileSizeForLevel(output_level),
-      mutable_cf_options.MaxGrandParentOverlapBytes(input_level),
-      output_path_id,
+      mutable_cf_options.max_compaction_bytes, output_path_id,
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),
       std::move(grandparents), /* is manual compaction */ true);
@@ -1020,7 +1014,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
   auto c = new Compaction(
       vstorage, mutable_cf_options, std::move(compaction_inputs), output_level,
       mutable_cf_options.MaxFileSizeForLevel(output_level),
-      mutable_cf_options.MaxGrandParentOverlapBytes(level),
+      mutable_cf_options.max_compaction_bytes,
       GetPathId(ioptions_, mutable_cf_options, output_level),
       GetCompressionType(ioptions_, vstorage, mutable_cf_options, output_level,
                          vstorage->base_level()),

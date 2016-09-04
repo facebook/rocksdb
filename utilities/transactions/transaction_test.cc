@@ -1380,7 +1380,7 @@ TEST_P(TransactionTest, NoSnapshotTest) {
   // Modify key after transaction start
   db->Put(write_options, "AAA", "bar1");
 
-  // Read and write without a snapshot
+  // Read and write without a snap
   txn->GetForUpdate(read_options, "AAA", &value);
   ASSERT_EQ(value, "bar1");
   s = txn->Put("AAA", "bar2");

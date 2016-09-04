@@ -385,6 +385,7 @@ TESTS = \
 	iostats_context_test \
 	persistent_cache_test \
 	statistics_test \
+	lru_cache_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -569,7 +570,7 @@ $(parallel_tests): $(PARALLEL_TEST)
       '#!/bin/sh' \
       "d=\$(TMPD)$$TEST_SCRIPT" \
       'mkdir -p $$d' \
-			"TEST_TMPDIR=\$$d ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
+      "TEST_TMPDIR=\$$d $(DRIVER) ./$$TEST_BINARY --gtest_filter=$$TEST_NAME" \
 		> $$TEST_SCRIPT; \
 		chmod a=rx $$TEST_SCRIPT; \
 	done
@@ -642,8 +643,8 @@ valgrind_check_0:
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
-      'if [[ "{}" == "./"* ]] ; then $(DRIVER) {} >& t/valgrind_log-{/}; ' \
-      'else {} >& t/valgrind_log-{/}; fi'
+	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) ' \
+	  '>& t/valgrind_log-{/}'
 
 CLEAN_FILES += t LOG $(TMPD)
 
@@ -720,7 +721,7 @@ ubsan_crash_test:
 	$(MAKE) clean
 
 valgrind_check: $(TESTS)
-	$(MAKE) gen_parallel_tests
+	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
 	    && (build_tools/gnu_parallel --gnu --help 2>/dev/null) |                    \
 	        grep -q 'GNU Parallel';                                 \
@@ -1247,6 +1248,10 @@ persistent_cache_test: utilities/persistent_cache/persistent_cache_test.o  db/db
 statistics_test: util/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+lru_cache_test: util/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+
 #-------------------------------------------------
 # make install related stuff
 INSTALL_PATH ?= /usr/local
@@ -1317,29 +1322,29 @@ endif
 
 libz.a:
 	-rm -rf zlib-1.2.8
-	curl -O http://zlib.net/zlib-1.2.8.tar.gz
+	curl -O -L http://zlib.net/zlib-1.2.8.tar.gz
 	tar xvzf zlib-1.2.8.tar.gz
 	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
 	cp zlib-1.2.8/libz.a .
 
 libbz2.a:
 	-rm -rf bzip2-1.0.6
-	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+	curl -O -L http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
 	tar xvzf bzip2-1.0.6.tar.gz
 	cd bzip2-1.0.6 && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
 	cp bzip2-1.0.6/libbz2.a .
 
 libsnappy.a:
-	-rm -rf snappy-1.1.1
-	curl -O https://snappy.googlecode.com/files/snappy-1.1.1.tar.gz
-	tar xvzf snappy-1.1.1.tar.gz
-	cd snappy-1.1.1 && ./configure --with-pic --enable-static
-	cd snappy-1.1.1 && make
-	cp snappy-1.1.1/.libs/libsnappy.a .
+	-rm -rf snappy-1.1.3
+	curl -O -L https://github.com/google/snappy/releases/download/1.1.3/snappy-1.1.3.tar.gz
+	tar xvzf snappy-1.1.3.tar.gz
+	cd snappy-1.1.3 && ./configure --with-pic --enable-static
+	cd snappy-1.1.3 && make
+	cp snappy-1.1.3/.libs/libsnappy.a .
 
 liblz4.a:
 	   -rm -rf lz4-r127
-	   curl -O https://codeload.github.com/Cyan4973/lz4/tar.gz/r127
+	   curl -O -L https://codeload.github.com/Cyan4973/lz4/tar.gz/r127
 	   mv r127 lz4-r127.tar.gz
 	   tar xvzf lz4-r127.tar.gz
 	   cd lz4-r127/lib && make CFLAGS='-fPIC' all
@@ -1350,7 +1355,7 @@ java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
-JAVA_STATIC_INCLUDES = -I./zlib-1.2.8 -I./bzip2-1.0.6 -I./snappy-1.1.1 -I./lz4-r127/lib
+JAVA_STATIC_INCLUDES = -I./zlib-1.2.8 -I./bzip2-1.0.6 -I./snappy-1.1.3 -I./lz4-r127/lib
 
 $(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)

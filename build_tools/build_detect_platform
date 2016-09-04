@@ -24,16 +24,16 @@
 #       -DLZ4                       if the LZ4 library is present
 #       -DZSTD                      if the ZSTD library is present
 #       -DNUMA                      if the NUMA library is present
+#       -DTBB                       if the TBB library is present
 #
 # Using gflags in rocksdb:
 # Our project depends on gflags, which requires users to take some extra steps
 # before they can compile the whole repository:
 #   1. Install gflags. You may download it from here:
-#      https://code.google.com/p/gflags/
-#   2. Once install, add the include path/lib path for gflags to CPATH and
-#      LIBRARY_PATH respectively. If installed with default mode, the
-#      lib and include path will be /usr/local/lib and /usr/local/include
-# Mac user can do this by having brew installed and running brew install gflags
+#      https://gflags.github.io/gflags/ (Mac users can `brew install gflags`)
+#   2. Once installed, add the include path for gflags to your CPATH env var and
+#      the lib path to LIBRARY_PATH. If installed with default settings, the lib
+#      will be /usr/local/lib and the include path will be /usr/local/include
 
 OUTPUT=$1
 if test -z "$OUTPUT"; then
@@ -294,6 +294,17 @@ EOF
         COMMON_FLAGS="$COMMON_FLAGS -DNUMA"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lnuma"
         JAVA_LDFLAGS="$JAVA_LDFLAGS -lnuma"
+    fi
+
+    # Test whether tbb is available
+    $CXX $CFLAGS $LDFLAGS -x c++ - -o /dev/null -ltbb 2>/dev/null  <<EOF
+      #include <tbb/tbb.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DTBB"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltbb"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -ltbb"
     fi
 
     # Test whether jemalloc is available

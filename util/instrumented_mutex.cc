@@ -11,7 +11,7 @@ namespace rocksdb {
 namespace {
 bool ShouldReportToStats(Env* env, Statistics* stats) {
   return env != nullptr && stats != nullptr &&
-         stats->stats_level_ != kExceptTimeForMutex;
+          stats->stats_level_ > kExceptTimeForMutex;
 }
 }  // namespace
 

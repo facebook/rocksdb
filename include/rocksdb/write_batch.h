@@ -84,6 +84,23 @@ class WriteBatch : public WriteBatchBase {
     SingleDelete(nullptr, key);
   }
 
+  using WriteBatchBase::DeleteRange;
+  // WriteBatch implementation of DB::DeleteRange().  See db.h.
+  void DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                   const Slice& end_key) override;
+  void DeleteRange(const Slice& begin_key, const Slice& end_key) override {
+    DeleteRange(nullptr, begin_key, end_key);
+  }
+
+  // variant that takes SliceParts
+  void DeleteRange(ColumnFamilyHandle* column_family,
+                   const SliceParts& begin_key,
+                   const SliceParts& end_key) override;
+  void DeleteRange(const SliceParts& begin_key,
+                   const SliceParts& end_key) override {
+    DeleteRange(nullptr, begin_key, end_key);
+  }
+
   using WriteBatchBase::Merge;
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"
@@ -132,6 +149,10 @@ class WriteBatch : public WriteBatchBase {
   class Handler {
    public:
     virtual ~Handler();
+    // All handler functions in this class provide default implementations so
+    // we won't break existing clients of Handler on a source code level when
+    // adding a new member function.
+
     // default implementation will just call Put without column family for
     // backwards compatibility. If the column family is not default,
     // the function is noop
@@ -169,9 +190,11 @@ class WriteBatch : public WriteBatchBase {
     }
     virtual void SingleDelete(const Slice& /*key*/) {}
 
-    // Merge and LogData are not pure virtual. Otherwise, we would break
-    // existing clients of Handler on a source code level. The default
-    // implementation of Merge does nothing.
+    virtual Status DeleteRangeCF(uint32_t column_family_id,
+                                 const Slice& begin_key, const Slice& end_key) {
+      return Status::InvalidArgument("DeleteRangeCF not implemented");
+    }
+
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) {
       if (column_family_id == 0) {
@@ -228,7 +251,10 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if SingleDeleteCF will be called during Iterate
   bool HasSingleDelete() const;
 
-  // Returns trie if MergeCF will be called during Iterate
+  // Returns true if DeleteRangeCF will be called during Iterate
+  bool HasDeleteRange() const;
+
+  // Returns true if MergeCF will be called during Iterate
   bool HasMerge() const;
 
   // Returns true if MarkBeginPrepare will be called during Iterate

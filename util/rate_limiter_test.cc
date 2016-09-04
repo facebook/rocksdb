@@ -29,14 +29,14 @@ TEST_F(RateLimiterTest, OverflowRate) {
 }
 
 TEST_F(RateLimiterTest, StartStop) {
-  std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(100, 100, 10));
+  std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(100, 100, 10));
 }
 
 TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
-        : limiter(new GenericRateLimiter(_target_rate, 100 * 1000, 10)),
+        : limiter(NewGenericRateLimiter(_target_rate, 100 * 1000, 10)),
           request_size(_target_rate / 10),
           burst(_burst) {}
     std::unique_ptr<RateLimiter> limiter;

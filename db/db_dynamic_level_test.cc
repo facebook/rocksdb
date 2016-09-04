@@ -137,7 +137,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   options.max_bytes_for_level_multiplier = 4;
   options.max_background_compactions = 2;
   options.num_levels = 5;
-  options.expanded_compaction_factor = 0;  // Force not expanding in compactions
+  options.max_compaction_bytes = 0;  // Force not expanding in compactions
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -223,8 +223,9 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "true"},
   }));
-  // Write about 600K more
-  for (int i = 0; i < 1500; i++) {
+  // Write about 650K more.
+  // Each file is about 11KB, with 9KB of data.
+  for (int i = 0; i < 1300; i++) {
     ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
                   RandomString(&rnd, 380)));
   }
@@ -294,7 +295,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesCompactRange) {
   options.max_background_compactions = 1;
   const int kNumLevels = 5;
   options.num_levels = kNumLevels;
-  options.expanded_compaction_factor = 0;  // Force not expanding in compactions
+  options.max_compaction_bytes = 1;  // Force not expanding in compactions
   BlockBasedTableOptions table_options;
   table_options.block_size = 1024;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));

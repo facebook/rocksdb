@@ -21,14 +21,16 @@ int main() {
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "util/histogram.h"
+#include "util/random.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
+#include "utilities/merge_operators.h"
 
 using GFLAGS::ParseCommandLineFlags;
 
@@ -46,6 +48,7 @@ DEFINE_int32(skiplist_height, 4, "");
 DEFINE_double(memtable_prefix_bloom_size_ratio, 0.1, "");
 DEFINE_int32(memtable_huge_page_size, 2 * 1024 * 1024, "");
 DEFINE_int32(value_size, 40, "");
+DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 // Path to the database on file system
 const std::string kDbName = rocksdb::test::TmpDir() + "/prefix_test";
@@ -106,6 +109,10 @@ class TestKeyComparator : public Comparator {
     return 0;
   }
 
+  bool operator()(const TestKey& a, const TestKey& b) const {
+    return Compare(TestKeyToSlice(a), TestKeyToSlice(b)) < 0;
+  }
+
   virtual const char* Name() const override {
     return "TestKeyComparator";
   }
@@ -122,6 +129,23 @@ void PutKey(DB* db, WriteOptions write_options, uint64_t prefix,
   TestKey test_key(prefix, suffix);
   Slice key = TestKeyToSlice(test_key);
   ASSERT_OK(db->Put(write_options, key, value));
+}
+
+void PutKey(DB* db, WriteOptions write_options, const TestKey& test_key,
+            const Slice& value) {
+  Slice key = TestKeyToSlice(test_key);
+  ASSERT_OK(db->Put(write_options, key, value));
+}
+
+void MergeKey(DB* db, WriteOptions write_options, const TestKey& test_key,
+              const Slice& value) {
+  Slice key = TestKeyToSlice(test_key);
+  ASSERT_OK(db->Merge(write_options, key, value));
+}
+
+void DeleteKey(DB* db, WriteOptions write_options, const TestKey& test_key) {
+  Slice key = TestKeyToSlice(test_key);
+  ASSERT_OK(db->Delete(write_options, key));
 }
 
 void SeekIterator(Iterator* iter, uint64_t prefix, uint64_t suffix) {
@@ -629,7 +653,114 @@ TEST_F(PrefixTest, DynamicPrefixIterator) {
   }
 }
 
+TEST_F(PrefixTest, PrefixSeekModePrev) {
+  // Only for SkipListFactory
+  options.memtable_factory.reset(new SkipListFactory);
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.write_buffer_size = 1024 * 1024;
+  Random rnd(1);
+  for (size_t m = 1; m < 100; m++) {
+    std::cout << "[" + std::to_string(m) + "]" + "*** Mem table: "
+              << options.memtable_factory->Name() << std::endl;
+    DestroyDB(kDbName, Options());
+    auto db = OpenDb();
+    WriteOptions write_options;
+    ReadOptions read_options;
+    std::map<TestKey, std::string, TestKeyComparator> entry_maps[3], whole_map;
+    for (uint64_t i = 0; i < 10; i++) {
+      int div = i % 3 + 1;
+      for (uint64_t j = 0; j < 10; j++) {
+        whole_map[TestKey(i, j)] = entry_maps[rnd.Uniform(div)][TestKey(i, j)] =
+            'v' + std::to_string(i) + std::to_string(j);
+      }
+    }
+
+    std::map<TestKey, std::string, TestKeyComparator> type_map;
+    for (size_t i = 0; i < 3; i++) {
+      for (auto& kv : entry_maps[i]) {
+        if (rnd.OneIn(3)) {
+          PutKey(db.get(), write_options, kv.first, kv.second);
+          type_map[kv.first] = "value";
+        } else {
+          MergeKey(db.get(), write_options, kv.first, kv.second);
+          type_map[kv.first] = "merge";
+        }
+      }
+      if (i < 2) {
+        db->Flush(FlushOptions());
+      }
+    }
+
+    for (size_t i = 0; i < 2; i++) {
+      for (auto& kv : entry_maps[i]) {
+        if (rnd.OneIn(10)) {
+          whole_map.erase(kv.first);
+          DeleteKey(db.get(), write_options, kv.first);
+          entry_maps[2][kv.first] = "delete";
+        }
+      }
+    }
+
+    if (FLAGS_enable_print) {
+      for (size_t i = 0; i < 3; i++) {
+        for (auto& kv : entry_maps[i]) {
+          std::cout << "[" << i << "]" << kv.first.prefix << kv.first.sorted
+                    << " " << kv.second + " " + type_map[kv.first] << std::endl;
+        }
+      }
+    }
+
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+    for (uint64_t prefix = 0; prefix < 10; prefix++) {
+      uint64_t start_suffix = rnd.Uniform(9);
+      SeekIterator(iter.get(), prefix, start_suffix);
+      auto it = whole_map.find(TestKey(prefix, start_suffix));
+      if (it == whole_map.end()) {
+        continue;
+      }
+      ASSERT_NE(it, whole_map.end());
+      ASSERT_TRUE(iter->Valid());
+      if (FLAGS_enable_print) {
+        std::cout << "round " << prefix
+                  << " iter: " << SliceToTestKey(iter->key())->prefix
+                  << SliceToTestKey(iter->key())->sorted
+                  << " | map: " << it->first.prefix << it->first.sorted << " | "
+                  << iter->value().ToString() << " " << it->second << std::endl;
+      }
+      ASSERT_EQ(iter->value(), it->second);
+      for (size_t k = 0; k < 9; k++) {
+        if (rnd.OneIn(2) || it == whole_map.begin()) {
+          iter->Next();
+          it++;
+          if (FLAGS_enable_print) {
+            std::cout << "Next >> ";
+          }
+        } else {
+          iter->Prev();
+          it--;
+          if (FLAGS_enable_print) {
+            std::cout << "Prev >> ";
+          }
+        }
+        if (!iter->Valid() || SliceToTestKey(iter->key())->prefix != prefix) {
+          break;
+        }
+        ASSERT_TRUE(iter->Valid());
+        ASSERT_NE(it, whole_map.end());
+        ASSERT_EQ(iter->value(), it->second);
+        if (FLAGS_enable_print) {
+          std::cout << "iter: " << SliceToTestKey(iter->key())->prefix
+                    << SliceToTestKey(iter->key())->sorted
+                    << " | map: " << it->first.prefix << it->first.sorted
+                    << " | " << iter->value().ToString() << " " << it->second
+                    << std::endl;
+        }
+      }
+    }
+  }
 }
+
+}  // end namespace rocksdb
 
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);

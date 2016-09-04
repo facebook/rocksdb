@@ -22,7 +22,7 @@ namespace rocksdb {
 
 uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
-  assert(IsValueType(t));
+  assert(IsExtendedValueType(t));
   return (seq << 8) | t;
 }
 
@@ -31,7 +31,7 @@ void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
   *t = static_cast<ValueType>(packed & 0xff);
 
   assert(*seq <= kMaxSequenceNumber);
-  assert(IsValueType(*t));
+  assert(IsExtendedValueType(*t));
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {

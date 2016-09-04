@@ -97,12 +97,9 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.format_version = (encoding_type == kPlain) ? 0 : 1;
   properties_.column_family_id = column_family_id;
   properties_.column_family_name = column_family_name;
-
-  if (ioptions_.prefix_extractor) {
-    properties_.user_collected_properties
-        [PlainTablePropertyNames::kPrefixExtractorName] =
-        ioptions_.prefix_extractor->Name();
-  }
+  properties_.prefix_extractor_name = ioptions_.prefix_extractor != nullptr
+                                          ? ioptions_.prefix_extractor->Name()
+                                          : "nullptr";
 
   std::string val;
   PutFixed32(&val, static_cast<uint32_t>(encoder_.GetEncodingType()));
@@ -125,6 +122,10 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   ParsedInternalKey internal_key;
   ParseInternalKey(key, &internal_key);
+  if (internal_key.type == kTypeRangeDeletion) {
+    status_ = Status::NotSupported("Range deletion unsupported");
+    return;
+  }
 
   // Store key hash
   if (store_index_in_file_) {

@@ -88,6 +88,7 @@ LIB_SOURCES =                                                   \
   util/arena.cc                                                 \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
+	util/clock_cache.cc																						\
   util/coding.cc                                                \
   util/comparator.cc                                            \
   util/compaction_job_stats_impl.cc                             \
@@ -109,7 +110,7 @@ LIB_SOURCES =                                                   \
   util/iostats_context.cc                                       \
   util/io_posix.cc                                              \
   util/lru_cache.cc                                             \
-  util/threadpool.cc                                            \
+  util/threadpool_imp.cc                                        \
   util/transaction_test_util.cc                                 \
 	util/sharded_cache.cc       																	\
   util/sst_file_manager_impl.cc                                 \
@@ -155,12 +156,12 @@ LIB_SOURCES =                                                   \
   utilities/date_tiered/date_tiered_db_impl.cc                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  util/cf_options.cc                                            \
   util/event_logger.cc                                          \
   util/log_buffer.cc                                            \
   util/logging.cc                                               \
   util/memenv.cc                                                \
   util/murmurhash.cc                                            \
-  util/mutable_cf_options.cc                                    \
   util/options.cc                                               \
   util/options_helper.cc                                        \
   util/options_parser.cc                                        \
@@ -338,6 +339,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/restorejni.cc                                 \
   java/rocksjni/rocksjni.cc                                   \
+  java/rocksjni/rocksdb_exception_test.cc                     \
   java/rocksjni/slice.cc                                      \
   java/rocksjni/snapshot.cc                                   \
   java/rocksjni/statistics.cc                                 \

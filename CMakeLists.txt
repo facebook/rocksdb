@@ -193,6 +193,7 @@ set(SOURCES
         util/arena.cc
         util/bloom.cc
         util/build_version.cc
+        util/clock_cache.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
@@ -239,7 +240,7 @@ set(SOURCES
         util/testharness.cc
         util/testutil.cc
         util/thread_local.cc
-        util/threadpool.cc
+        util/threadpool_imp.cc
         util/thread_status_impl.cc
         util/thread_status_updater.cc
         util/thread_status_util.cc
@@ -426,6 +427,7 @@ set(TESTS
         util/heap_test.cc
         util/histogram_test.cc
         util/iostats_context_test.cc
+        util/lru_cache_test.cc
         util/mock_env_test.cc
         util/options_settable_test.cc
         util/options_test.cc

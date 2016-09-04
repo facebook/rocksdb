@@ -204,6 +204,10 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
     result.level0_stop_writes_trigger = std::numeric_limits<int>::max();
   }
 
+  if (result.max_bytes_for_level_multiplier <= 0) {
+    result.max_bytes_for_level_multiplier = 1;
+  }
+
   if (result.level0_file_num_compaction_trigger == 0) {
     Warn(db_options.info_log.get(),
          "level0_file_num_compaction_trigger cannot be 0");
@@ -260,6 +264,10 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
       //    DB path work.
       result.level_compaction_dynamic_level_bytes = false;
     }
+  }
+
+  if (result.max_compaction_bytes == 0) {
+    result.max_compaction_bytes = result.target_file_size_base * 25;
   }
 
   return result;

@@ -82,6 +82,10 @@ void PropertyBlockBuilder::AddTableProperty(const TableProperties& props) {
   if (!props.merge_operator_name.empty()) {
     Add(TablePropertiesNames::kMergeOperator, props.merge_operator_name);
   }
+  if (!props.prefix_extractor_name.empty()) {
+    Add(TablePropertiesNames::kPrefixExtractorName,
+        props.prefix_extractor_name);
+  }
   if (!props.property_collectors_names.empty()) {
     Add(TablePropertiesNames::kPropertyCollectors,
         props.property_collectors_names);
@@ -150,7 +154,7 @@ bool NotifyCollectTableCollectorsOnFinish(
 }
 
 Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
-                      const Footer& footer, const ImmutableCFOptions &ioptions, 
+                      const Footer& footer, const ImmutableCFOptions& ioptions,
                       TableProperties** table_properties) {
   assert(table_properties);
 
@@ -232,6 +236,8 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
       new_table_properties->comparator_name = raw_val.ToString();
     } else if (key == TablePropertiesNames::kMergeOperator) {
       new_table_properties->merge_operator_name = raw_val.ToString();
+    } else if (key == TablePropertiesNames::kPrefixExtractorName) {
+      new_table_properties->prefix_extractor_name = raw_val.ToString();
     } else if (key == TablePropertiesNames::kPropertyCollectors) {
       new_table_properties->property_collectors_names = raw_val.ToString();
     } else if (key == TablePropertiesNames::kCompression) {

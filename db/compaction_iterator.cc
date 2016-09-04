@@ -254,6 +254,7 @@ void CompactionIterator::NextFromInput() {
       // those operations for a given key is documented as being undefined.  So
       // we can choose how to handle such a combinations of operations.  We will
       // try to compact out as much as we can in these cases.
+      // We will report counts on these anomalous cases.
 
       // The easiest way to process a SingleDelete during iteration is to peek
       // ahead at the next key.
@@ -276,6 +277,7 @@ void CompactionIterator::NextFromInput() {
             // First SingleDelete has been skipped since we already called
             // input_->Next().
             ++iter_stats_.num_record_drop_obsolete;
+            ++iter_stats_.num_single_del_mismatch;
           } else if ((ikey_.sequence <= earliest_write_conflict_snapshot_) ||
                      has_outputted_key_) {
             // Found a matching value, we can drop the single delete and the
@@ -285,7 +287,12 @@ void CompactionIterator::NextFromInput() {
 
             // Note: it doesn't matter whether the second key is a Put or if it
             // is an unexpected Merge or Delete.  We will compact it out
-            // either way.
+            // either way. We will maintain counts of how many mismatches
+            // happened
+            if (next_ikey.type != kTypeValue) {
+              ++iter_stats_.num_single_del_mismatch;
+            }
+
             ++iter_stats_.num_record_drop_hidden;
             ++iter_stats_.num_record_drop_obsolete;
             // Already called input_->Next() once.  Call it a second time to
@@ -326,6 +333,7 @@ void CompactionIterator::NextFromInput() {
           // Key doesn't exist outside of this range.
           // Can compact out this SingleDelete.
           ++iter_stats_.num_record_drop_obsolete;
+          ++iter_stats_.num_single_del_fallthru;
         } else {
           // Output SingleDelete
           valid_ = true;

@@ -532,30 +532,12 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   std::vector<int> max_bytes_for_level_multiplier_additional;
 
-  // Maximum number of bytes in all compacted files.  We avoid expanding
-  // the lower level file set of a compaction if it would make the
-  // total compaction cover more than
-  // (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
+  // We try to limit number of bytes in one compaction to be lower than this
+  // threshold. But it's not guaranteed.
+  // Value 0 will be sanitized.
   //
-  // Dynamically changeable through SetOptions() API
-  int expanded_compaction_factor;
-
-  // Maximum number of bytes in all source files to be compacted in a
-  // single compaction run. We avoid picking too many files in the
-  // source level so that we do not exceed the total source bytes
-  // for compaction to exceed
-  // (source_compaction_factor * targetFileSizeLevel()) many bytes.
-  // Default:1, i.e. pick maxfilesize amount of data as the source of
-  // a compaction.
-  //
-  // Dynamically changeable through SetOptions() API
-  int source_compaction_factor;
-
-  // Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
-  // stop building a single file in a level->level+1 compaction.
-  //
-  // Dynamically changeable through SetOptions() API
-  int max_grandparent_overlap_factor;
+  // Default: result.target_file_size_base * 25
+  uint64_t max_compaction_bytes;
 
   // DEPRECATED -- this options is no longer used
   // Puts are delayed to options.delayed_write_rate when any level has a
@@ -1232,7 +1214,7 @@ struct DBOptions {
 
   // Allows OS to incrementally sync files to disk while they are being
   // written, asynchronously, in the background. This operation can be used
-  // to smooth out write I/Os over time. Users shouldn't reply on it for
+  // to smooth out write I/Os over time. Users shouldn't rely on it for
   // persistency guarantee.
   // Issue one request for every bytes_per_sync written. 0 turns it off.
   // Default: 0

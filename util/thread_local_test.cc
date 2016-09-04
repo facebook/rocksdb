@@ -457,6 +457,64 @@ TEST_F(ThreadLocalTest, Scrape) {
   }
 }
 
+TEST_F(ThreadLocalTest, Fold) {
+  auto unref = [](void* ptr) {
+    delete static_cast<std::atomic<int64_t>*>(ptr);
+  };
+  static const int kNumThreads = 16;
+  static const int kItersPerThread = 10;
+  port::Mutex mu;
+  port::CondVar cv(&mu);
+  Params params(&mu, &cv, nullptr, kNumThreads, unref);
+  auto func = [](void* ptr) {
+    auto& p = *static_cast<Params*>(ptr);
+    ASSERT_TRUE(p.tls1.Get() == nullptr);
+    p.tls1.Reset(new std::atomic<int64_t>(0));
+
+    for (int i = 0; i < kItersPerThread; ++i) {
+      static_cast<std::atomic<int64_t>*>(p.tls1.Get())->fetch_add(1);
+    }
+
+    p.mu->Lock();
+    ++(p.completed);
+    p.cv->SignalAll();
+
+    // Waiting for instruction to exit thread
+    while (p.completed != 0) {
+      p.cv->Wait();
+    }
+    p.mu->Unlock();
+  };
+
+  for (int th = 0; th < params.total; ++th) {
+    env_->StartThread(func, static_cast<void*>(&params));
+  }
+
+  // Wait for all threads to finish using Params
+  mu.Lock();
+  while (params.completed != params.total) {
+    cv.Wait();
+  }
+  mu.Unlock();
+
+  // Verify Fold() behavior
+  int64_t sum = 0;
+  params.tls1.Fold(
+      [](void* ptr, void* res) {
+        auto sum_ptr = static_cast<int64_t*>(res);
+        *sum_ptr += static_cast<std::atomic<int64_t>*>(ptr)->load();
+      },
+      &sum);
+  ASSERT_EQ(sum, kNumThreads * kItersPerThread);
+
+  // Signal to exit
+  mu.Lock();
+  params.completed = 0;
+  cv.SignalAll();
+  mu.Unlock();
+  env_->WaitForJoin();
+}
+
 TEST_F(ThreadLocalTest, CompareAndSwap) {
   ThreadLocalPtr tls;
   ASSERT_TRUE(tls.Swap(reinterpret_cast<void*>(1)) == nullptr);

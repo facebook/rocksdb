@@ -1061,6 +1061,57 @@ TEST_F(CompactionPickerTest, IsBottommostLevelTest) {
   DeleteVersionStorage();
 }
 
+TEST_F(CompactionPickerTest, MaxCompactionBytesHit) {
+  mutable_cf_options_.max_bytes_for_level_base = 1000000u;
+  mutable_cf_options_.max_compaction_bytes = 800000u;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  NewVersionStorage(6, kCompactionStyleLevel);
+  // A compaction should be triggered and pick file 2 and 5.
+  // It cannot expand because adding file 1 and 3, the compaction size will
+  // exceed mutable_cf_options_.max_bytes_for_level_base.
+  Add(1, 1U, "100", "150", 300000U);
+  Add(1, 2U, "151", "200", 300001U, 0, 0);
+  Add(1, 3U, "201", "250", 300000U, 0, 0);
+  Add(1, 4U, "251", "300", 300000U, 0, 0);
+  Add(2, 5U, "160", "256", 1U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(2U, compaction->num_input_levels());
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(1));
+  ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
+}
+
+TEST_F(CompactionPickerTest, MaxCompactionBytesNotHit) {
+  mutable_cf_options_.max_bytes_for_level_base = 1000000u;
+  mutable_cf_options_.max_compaction_bytes = 1000000u;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  NewVersionStorage(6, kCompactionStyleLevel);
+  // A compaction should be triggered and pick file 2 and 5.
+  // and it expands to file 1 and 3 too.
+  Add(1, 1U, "100", "150", 300000U);
+  Add(1, 2U, "151", "200", 300001U, 0, 0);
+  Add(1, 3U, "201", "250", 300000U, 0, 0);
+  Add(1, 4U, "251", "300", 300000U, 0, 0);
+  Add(2, 5U, "000", "233", 1U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(2U, compaction->num_input_levels());
+  ASSERT_EQ(3U, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(1));
+  ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
+  ASSERT_EQ(3U, compaction->input(0, 2)->fd.GetNumber());
+  ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

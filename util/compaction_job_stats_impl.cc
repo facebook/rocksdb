@@ -38,6 +38,9 @@ void CompactionJobStats::Reset() {
   file_range_sync_nanos = 0;
   file_fsync_nanos = 0;
   file_prepare_write_nanos = 0;
+
+  num_single_del_fallthru = 0;
+  num_single_del_mismatch = 0;
 }
 
 void CompactionJobStats::Add(const CompactionJobStats& stats) {
@@ -67,6 +70,9 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
   file_range_sync_nanos += stats.file_range_sync_nanos;
   file_fsync_nanos += stats.file_fsync_nanos;
   file_prepare_write_nanos += stats.file_prepare_write_nanos;
+
+  num_single_del_fallthru += stats.num_single_del_fallthru;
+  num_single_del_mismatch += stats.num_single_del_mismatch;
 }
 
 #else

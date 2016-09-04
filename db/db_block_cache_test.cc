@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "util/lru_cache.h"
 
 namespace rocksdb {
 
@@ -171,7 +172,7 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   InitTable(options);
 
   std::shared_ptr<Cache> cache = NewLRUCache(0, 0, false);
-  std::shared_ptr<Cache> compressed_cache = NewLRUCache(0, 0, false);
+  std::shared_ptr<Cache> compressed_cache = NewLRUCache(1 << 25, 0, false);
   table_options.block_cache = cache;
   table_options.block_cache_compressed = compressed_cache;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
@@ -203,9 +204,6 @@ TEST_F(DBBlockCacheTest, TestWithCompressedBlockCache) {
   cache->SetCapacity(usage);
   cache->SetStrictCapacityLimit(true);
   ASSERT_EQ(usage, cache->GetPinnedUsage());
-  // compressed_cache->SetCapacity(compressed_usage);
-  compressed_cache->SetCapacity(0);
-  // compressed_cache->SetStrictCapacityLimit(true);
   iter = db_->NewIterator(read_options);
   iter->Seek(ToString(kNumBlocks - 1));
   ASSERT_TRUE(iter->status().IsIncomplete());
@@ -321,6 +319,91 @@ TEST_F(DBBlockCacheTest, IndexAndFilterBlocksStats) {
             index_bytes_insert);
   ASSERT_EQ(TestGetTickerCount(options, BLOCK_CACHE_FILTER_BYTES_EVICT),
             filter_bytes_insert);
+}
+
+namespace {
+
+// A mock cache wraps LRUCache, and record how many entries have been
+// inserted for each priority.
+class MockCache : public LRUCache {
+ public:
+  static uint32_t high_pri_insert_count;
+  static uint32_t low_pri_insert_count;
+
+  MockCache() : LRUCache(1 << 25, 0, false, 0.0) {}
+
+  virtual Status Insert(const Slice& key, void* value, size_t charge,
+                        void (*deleter)(const Slice& key, void* value),
+                        Handle** handle, Priority priority) override {
+    if (priority == Priority::LOW) {
+      low_pri_insert_count++;
+    } else {
+      high_pri_insert_count++;
+    }
+    return LRUCache::Insert(key, value, charge, deleter, handle, priority);
+  }
+};
+
+uint32_t MockCache::high_pri_insert_count = 0;
+uint32_t MockCache::low_pri_insert_count = 0;
+
+}  // anonymous namespace
+
+TEST_F(DBBlockCacheTest, IndexAndFilterBlocksCachePriority) {
+  for (auto priority : {Cache::Priority::LOW, Cache::Priority::HIGH}) {
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    options.statistics = rocksdb::CreateDBStatistics();
+    BlockBasedTableOptions table_options;
+    table_options.cache_index_and_filter_blocks = true;
+    table_options.block_cache.reset(new MockCache());
+    table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+    table_options.cache_index_and_filter_blocks_with_high_priority =
+        priority == Cache::Priority::HIGH ? true : false;
+    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+    DestroyAndReopen(options);
+
+    MockCache::high_pri_insert_count = 0;
+    MockCache::low_pri_insert_count = 0;
+
+    // Create a new table.
+    ASSERT_OK(Put("foo", "value"));
+    ASSERT_OK(Put("bar", "value"));
+    ASSERT_OK(Flush());
+    ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+    // index/filter blocks added to block cache right after table creation.
+    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(2, /* only index/filter were added */
+              TestGetTickerCount(options, BLOCK_CACHE_ADD));
+    ASSERT_EQ(0, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+    if (priority == Cache::Priority::LOW) {
+      ASSERT_EQ(0, MockCache::high_pri_insert_count);
+      ASSERT_EQ(2, MockCache::low_pri_insert_count);
+    } else {
+      ASSERT_EQ(2, MockCache::high_pri_insert_count);
+      ASSERT_EQ(0, MockCache::low_pri_insert_count);
+    }
+
+    // Access data block.
+    ASSERT_EQ("value", Get("foo"));
+
+    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_INDEX_MISS));
+    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS));
+    ASSERT_EQ(3, /*adding data block*/
+              TestGetTickerCount(options, BLOCK_CACHE_ADD));
+    ASSERT_EQ(1, TestGetTickerCount(options, BLOCK_CACHE_DATA_MISS));
+
+    // Data block should be inserted with low priority.
+    if (priority == Cache::Priority::LOW) {
+      ASSERT_EQ(0, MockCache::high_pri_insert_count);
+      ASSERT_EQ(3, MockCache::low_pri_insert_count);
+    } else {
+      ASSERT_EQ(2, MockCache::high_pri_insert_count);
+      ASSERT_EQ(1, MockCache::low_pri_insert_count);
+    }
+  }
 }
 
 TEST_F(DBBlockCacheTest, ParanoidFileChecks) {

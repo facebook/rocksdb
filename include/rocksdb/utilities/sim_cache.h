@@ -10,8 +10,8 @@
 #include <string>
 #include "rocksdb/cache.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
-#include "util/statistics.h"
 
 namespace rocksdb {
 
@@ -23,9 +23,17 @@ class SimCache;
 // to predict block cache hit rate without actually allocating the memory. It
 // can help users tune their current block cache size, and determine how
 // efficient they are using the memory.
-extern std::shared_ptr<SimCache> NewSimCache(
-    std::shared_ptr<Cache> cache, size_t sim_capacity, int num_shard_bits,
-    std::shared_ptr<Statistics> stats = nullptr);
+//
+// Since GetSimCapacity() returns the capacity for simulutation, it differs from
+// actual memory usage, which can be estimated as:
+// sim_capacity * entry_size / (entry_size + block_size),
+// where 76 <= entry_size <= 104,
+// BlockBasedTableOptions.block_size = 4096 by default but is configurable,
+// Therefore, generally the actual memory overhead of SimCache is Less than
+// sim_capacity * 2%
+extern std::shared_ptr<SimCache> NewSimCache(std::shared_ptr<Cache> cache,
+                                             size_t sim_capacity,
+                                             int num_shard_bits);
 
 class SimCache : public Cache {
  public:
