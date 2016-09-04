@@ -59,6 +59,7 @@ class Status {
     kBusy = 11,
     kExpired = 12,
     kTryAgain = 13,
+    kOutOfSpace = 14
   };
 
   Code code() const { return code_; }
@@ -155,6 +156,11 @@ class Status {
     return Status(kTryAgain, msg, msg2);
   }
 
+  static Status OutOfSpace(SubCode msg = kNone) { return Status(kOutOfSpace, msg); }
+  static Status OutOfSpace(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kOutOfSpace, msg, msg2);
+  }
+
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
 
@@ -197,6 +203,13 @@ class Status {
   // This usually means that the operation failed, but may succeed if
   // re-attempted.
   bool IsTryAgain() const { return code() == kTryAgain; }
+
+  // Returns true iff the status indicates a OutOfSpace error
+  // This is caused by an I/O error returning the specific "out of space"
+  // error condition. Stricto sensu, an OutOfSpace error is an I/O error
+  // however the action to be taken being often different the disctinction
+  // is necessary
+  bool IsOutOfSpace() const { return code() == kOutOfSpace; }
 
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
