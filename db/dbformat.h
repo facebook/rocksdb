@@ -10,6 +10,7 @@
 #pragma once
 #include <stdio.h>
 #include <string>
+#include <utility>
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -44,6 +45,8 @@ enum ValueType : unsigned char {
   kTypeCommitXID = 0xB,                   // WAL only.
   kTypeRollbackXID = 0xC,                 // WAL only.
   kTypeNoop = 0xD,                        // WAL only.
+  kTypeColumnFamilyRangeDeletion = 0xE,   // WAL only.
+  kTypeRangeDeletion = 0xF,               // meta block
   kMaxValue = 0x7F                        // Not used for storing records.
 };
 
@@ -55,10 +58,16 @@ enum ValueType : unsigned char {
 // ValueType, not the lowest).
 static const ValueType kValueTypeForSeek = kTypeSingleDeletion;
 
-// Checks whether a type is a value type (i.e. a type used in memtables and sst
-// files).
+// Checks whether a type is an inline value type
+// (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
   return t <= kTypeMerge || t == kTypeSingleDeletion;
+}
+
+// Checks whether a type is from user operation
+// kTypeRangeDeletion is in meta block so this API is separated from above
+inline bool IsExtendedValueType(ValueType t) {
+  return IsValueType(t) || t == kTypeRangeDeletion;
 }
 
 // We leave eight bits empty at the bottom so a type and sequence#
@@ -208,7 +217,7 @@ inline bool ParseInternalKey(const Slice& internal_key,
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - 8);
-  return IsValueType(result->type);
+  return IsExtendedValueType(result->type);
 }
 
 // Update the sequence number in the internal key.
@@ -488,4 +497,37 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                        uint32_t* column_family, Slice* key,
                                        Slice* value, Slice* blob, Slice* xid);
+
+// When user call DeleteRange() to delete a range of keys,
+// we will store a serialized RangeTombstone in MemTable and SST.
+// the struct here is a easy-understood form
+// start/end_key_ is the start/end user key of the range to be deleted
+struct RangeTombstone {
+  Slice start_key_;
+  Slice end_key_;
+  SequenceNumber seq_;
+  explicit RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
+      : start_key_(sk), end_key_(ek), seq_(sn) {}
+
+  explicit RangeTombstone(Slice internal_key, Slice value) {
+    ParsedInternalKey parsed_key;
+    if (ParseInternalKey(internal_key, &parsed_key)) {
+      start_key_ = parsed_key.user_key;
+      seq_ = parsed_key.sequence;
+      end_key_ = value;
+    }
+  }
+
+  // be careful to use Serialize(); InternalKey() allocates new memory
+  std::pair<InternalKey, Slice> Serialize() {
+    auto key = InternalKey(start_key_, seq_, kTypeRangeDeletion);
+    Slice value = end_key_;
+    return std::make_pair(std::move(key), std::move(value));
+  }
+
+  InternalKey SerializeKey() {
+    return InternalKey(start_key_, seq_, kTypeRangeDeletion);
+  }
+};
+
 }  // namespace rocksdb

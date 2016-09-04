@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/types.h"
 
 namespace rocksdb {
@@ -26,9 +27,10 @@ class Arena;
 // key is present in K child iterators, it will be yielded K times.
 //
 // REQUIRES: n >= 0
-extern InternalIterator* NewMergingIterator(const Comparator* comparator,
-                                            InternalIterator** children, int n,
-                                            Arena* arena = nullptr);
+extern InternalIterator* NewMergingIterator(
+    const Comparator* comparator, InternalIterator** children, int n,
+    Arena* arena = nullptr,
+    const SliceTransform* const prefix_extractor = nullptr);
 
 class MergingIterator;
 
@@ -37,7 +39,9 @@ class MergeIteratorBuilder {
  public:
   // comparator: the comparator used in merging comparator
   // arena: where the merging iterator needs to be allocated from.
-  explicit MergeIteratorBuilder(const Comparator* comparator, Arena* arena);
+  explicit MergeIteratorBuilder(
+      const Comparator* comparator, Arena* arena,
+      const SliceTransform* const prefix_extractor = nullptr);
   ~MergeIteratorBuilder() {}
 
   // Add iter to the merging iterator.

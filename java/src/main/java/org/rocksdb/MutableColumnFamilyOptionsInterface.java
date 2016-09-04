@@ -101,7 +101,7 @@ public interface MutableColumnFamilyOptionsInterface {
   double memtablePrefixBloomSizeRatio();
 
   /**
-   * Page size for huge page TLB for bloom in memtable. If <=0, not allocate
+   * Page size for huge page TLB for bloom in memtable. If &le; 0, not allocate
    * from huge page TLB but from malloc.
    * Need to reserve huge pages for it to be allocated. For example:
    *     sysctl -w vm.nr_hugepages=20
@@ -115,7 +115,7 @@ public interface MutableColumnFamilyOptionsInterface {
       long memtableHugePageSize);
 
   /**
-   * Page size for huge page TLB for bloom in memtable. If <=0, not allocate
+   * Page size for huge page TLB for bloom in memtable. If &le; 0, not allocate
    * from huge page TLB but from malloc.
    * Need to reserve huge pages for it to be allocated. For example:
    *     sysctl -w vm.nr_hugepages=20
@@ -321,7 +321,7 @@ public interface MutableColumnFamilyOptionsInterface {
   long hardPendingCompactionBytesLimit();
 
   /**
-   * Number of files to trigger level-0 compaction. A value <0 means that
+   * Number of files to trigger level-0 compaction. A value &lt; 0 means that
    * level-0 compaction will not be triggered by number of files at all.
    *
    * Default: 4
@@ -334,7 +334,7 @@ public interface MutableColumnFamilyOptionsInterface {
       int level0FileNumCompactionTrigger);
 
   /**
-   * Number of files to trigger level-0 compaction. A value <0 means that
+   * Number of files to trigger level-0 compaction. A value &lt; 0 means that
    * level-0 compaction will not be triggered by number of files at all.
    *
    * Default: 4
@@ -345,7 +345,7 @@ public interface MutableColumnFamilyOptionsInterface {
 
   /**
    * Soft limit on number of level-0 files. We start slowing down writes at this
-   * point. A value <0 means that no writing slow down will be triggered by
+   * point. A value &lt; 0 means that no writing slow down will be triggered by
    * number of files in level-0.
    *
    * @param level0SlowdownWritesTrigger The soft limit on the number of
@@ -357,7 +357,7 @@ public interface MutableColumnFamilyOptionsInterface {
 
   /**
    * Soft limit on number of level-0 files. We start slowing down writes at this
-   * point. A value <0 means that no writing slow down will be triggered by
+   * point. A value &lt; 0 means that no writing slow down will be triggered by
    * number of files in level-0.
    *
    * @return The soft limit on the number of
@@ -382,79 +382,25 @@ public interface MutableColumnFamilyOptionsInterface {
   int level0StopWritesTrigger();
 
   /**
-   * Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
-   * stop building a single file in a level-&gt;level+1 compaction.
+   * We try to limit number of bytes in one compaction to be lower than this
+   * threshold. But it's not guaranteed.
+   * Value 0 will be sanitized.
    *
-   * @param maxGrandparentOverlapFactor maximum bytes of overlaps in
-   *     "grandparent" level.
+   * @param max bytes in a compaction
    * @return the reference to the current option.
+   * @see #maxCompactionBytes()
    */
-  MutableColumnFamilyOptionsInterface setMaxGrandparentOverlapFactor(
-      int maxGrandparentOverlapFactor);
+  MutableColumnFamilyOptionsInterface setMaxCompactionBytes(final long maxCompactionBytes);
 
   /**
-   * Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
-   * stop building a single file in a level-&gt;level+1 compaction.
+   * We try to limit number of bytes in one compaction to be lower than this
+   * threshold. But it's not guaranteed.
+   * Value 0 will be sanitized.
    *
-   * @return maximum bytes of overlaps in "grandparent" level.
+   * @return the maximum number of bytes in for a compaction.
+   * @see #setMaxCompactionBytes(long)
    */
-  int maxGrandparentOverlapFactor();
-
-  /**
-   * Maximum number of bytes in all compacted files.  We avoid expanding
-   * the lower level file set of a compaction if it would make the
-   * total compaction cover more than
-   * (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
-   *
-   * @param expandedCompactionFactor the maximum number of bytes in all
-   *     compacted files.
-   * @return the reference to the current option.
-   * @see #setSourceCompactionFactor(int)
-   */
-  MutableColumnFamilyOptionsInterface setExpandedCompactionFactor(
-      int expandedCompactionFactor);
-
-  /**
-   * Maximum number of bytes in all compacted files.  We avoid expanding
-   * the lower level file set of a compaction if it would make the
-   * total compaction cover more than
-   * (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
-   *
-   * @return the maximum number of bytes in all compacted files.
-   * @see #sourceCompactionFactor()
-   */
-  int expandedCompactionFactor();
-
-  /**
-   * Maximum number of bytes in all source files to be compacted in a
-   * single compaction run. We avoid picking too many files in the
-   * source level so that we do not exceed the total source bytes
-   * for compaction to exceed
-   * (source_compaction_factor * targetFileSizeLevel()) many bytes.
-   * Default:1, i.e. pick maxfilesize amount of data as the source of
-   * a compaction.
-   *
-   * @param sourceCompactionFactor the maximum number of bytes in all
-   *     source files to be compacted in a single compaction run.
-   * @return the reference to the current option.
-   * @see #setExpandedCompactionFactor(int)
-   */
-  MutableColumnFamilyOptionsInterface setSourceCompactionFactor(
-      int sourceCompactionFactor);
-
-  /**
-   * Maximum number of bytes in all source files to be compacted in a
-   * single compaction run. We avoid picking too many files in the
-   * source level so that we do not exceed the total source bytes
-   * for compaction to exceed
-   * (source_compaction_factor * targetFileSizeLevel()) many bytes.
-   * Default:1, i.e. pick maxfilesize amount of data as the source of
-   * a compaction.
-   *
-   * @return the maximum number of bytes in all source files to be compacted.
-   * @see #expandedCompactionFactor()
-   */
-  int sourceCompactionFactor();
+  long maxCompactionBytes();
 
   /**
    * The target file size for compaction.

@@ -21,6 +21,7 @@
 
 #include "db/column_family.h"
 #include "db/compaction_job.h"
+#include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
@@ -252,6 +253,7 @@ class DBImpl : public DB {
   //
   // Returns OK or NotFound on success,
   // other status on unexpected error.
+  // TODO(andrewkr): this API need to be aware of range deletion operations
   Status GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                  bool cache_only, SequenceNumber* seq,
                                  bool* found_record_for_key);

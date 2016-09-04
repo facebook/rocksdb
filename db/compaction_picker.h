@@ -20,8 +20,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "util/mutable_cf_options.h"
-
+#include "util/cf_options.h"
 
 namespace rocksdb {
 

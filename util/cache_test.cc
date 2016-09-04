@@ -10,9 +10,11 @@
 #include "rocksdb/cache.h"
 
 #include <forward_list>
-#include <vector>
-#include <string>
+#include <functional>
 #include <iostream>
+#include <string>
+#include <vector>
+#include "util/clock_cache.h"
 #include "util/coding.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
@@ -34,7 +36,17 @@ static int DecodeValue(void* v) {
   return static_cast<int>(reinterpret_cast<uintptr_t>(v));
 }
 
-class CacheTest : public testing::Test {
+const std::string kLRU = "lru";
+const std::string kClock = "clock";
+
+void dumbDeleter(const Slice& key, void* value) {}
+
+void eraseDeleter(const Slice& key, void* value) {
+  Cache* cache = reinterpret_cast<Cache*>(value);
+  cache->Erase("foo");
+}
+
+class CacheTest : public testing::TestWithParam<std::string> {
  public:
   static CacheTest* current_;
 
@@ -54,13 +66,25 @@ class CacheTest : public testing::Test {
   shared_ptr<Cache> cache_;
   shared_ptr<Cache> cache2_;
 
-  CacheTest() :
-      cache_(NewLRUCache(kCacheSize, kNumShardBits)),
-      cache2_(NewLRUCache(kCacheSize2, kNumShardBits2)) {
+  CacheTest()
+      : cache_(NewCache(kCacheSize, kNumShardBits, false)),
+        cache2_(NewCache(kCacheSize2, kNumShardBits2, false)) {
     current_ = this;
   }
 
   ~CacheTest() {
+  }
+
+  std::shared_ptr<Cache> NewCache(size_t capacity, int num_shard_bits,
+                                  bool strict_capacity_limit) {
+    auto type = GetParam();
+    if (type == kLRU) {
+      return NewLRUCache(capacity, num_shard_bits, strict_capacity_limit);
+    }
+    if (type == kClock) {
+      return NewClockCache(capacity, num_shard_bits, strict_capacity_limit);
+    }
+    return nullptr;
   }
 
   int Lookup(shared_ptr<Cache> cache, int key) {
@@ -108,14 +132,10 @@ class CacheTest : public testing::Test {
 };
 CacheTest* CacheTest::current_;
 
-namespace {
-void dumbDeleter(const Slice& key, void* value) { }
-}  // namespace
-
-TEST_F(CacheTest, UsageTest) {
+TEST_P(CacheTest, UsageTest) {
   // cache is shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
-  auto cache = NewLRUCache(kCapacity, 8);
+  auto cache = NewCache(kCapacity, 8, false);
 
   size_t usage = 0;
   char value[10] = "abcdef";
@@ -140,10 +160,10 @@ TEST_F(CacheTest, UsageTest) {
   ASSERT_LT(kCapacity * 0.95, cache->GetUsage());
 }
 
-TEST_F(CacheTest, PinnedUsageTest) {
+TEST_P(CacheTest, PinnedUsageTest) {
   // cache is shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
-  auto cache = NewLRUCache(kCapacity, 8);
+  auto cache = NewCache(kCapacity, 8, false);
 
   size_t pinned_usage = 0;
   char value[10] = "abcdef";
@@ -192,7 +212,7 @@ TEST_F(CacheTest, PinnedUsageTest) {
   }
 }
 
-TEST_F(CacheTest, HitAndMiss) {
+TEST_P(CacheTest, HitAndMiss) {
   ASSERT_EQ(-1, Lookup(100));
 
   Insert(100, 101);
@@ -215,7 +235,13 @@ TEST_F(CacheTest, HitAndMiss) {
   ASSERT_EQ(101, deleted_values_[0]);
 }
 
-TEST_F(CacheTest, Erase) {
+TEST_P(CacheTest, InsertSameKey) {
+  Insert(1, 1);
+  Insert(1, 2);
+  ASSERT_EQ(2, Lookup(1));
+}
+
+TEST_P(CacheTest, Erase) {
   Erase(200);
   ASSERT_EQ(0U, deleted_keys_.size());
 
@@ -234,7 +260,7 @@ TEST_F(CacheTest, Erase) {
   ASSERT_EQ(1U, deleted_keys_.size());
 }
 
-TEST_F(CacheTest, EntriesArePinned) {
+TEST_P(CacheTest, EntriesArePinned) {
   Insert(100, 101);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(101, DecodeValue(cache_->Value(h1)));
@@ -264,21 +290,20 @@ TEST_F(CacheTest, EntriesArePinned) {
   ASSERT_EQ(0U, cache_->GetUsage());
 }
 
-TEST_F(CacheTest, EvictionPolicy) {
+TEST_P(CacheTest, EvictionPolicy) {
   Insert(100, 101);
   Insert(200, 201);
 
   // Frequently used entry must be kept around
   for (int i = 0; i < kCacheSize + 100; i++) {
     Insert(1000+i, 2000+i);
-    ASSERT_EQ(2000+i, Lookup(1000+i));
     ASSERT_EQ(101, Lookup(100));
   }
   ASSERT_EQ(101, Lookup(100));
   ASSERT_EQ(-1, Lookup(200));
 }
 
-TEST_F(CacheTest, EvictionPolicyRef) {
+TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(100, 101);
   Insert(101, 102);
   Insert(102, 103);
@@ -326,7 +351,24 @@ TEST_F(CacheTest, EvictionPolicyRef) {
   cache_->Release(h204);
 }
 
-TEST_F(CacheTest, ErasedHandleState) {
+TEST_P(CacheTest, EvictEmptyCache) {
+  // Insert item large than capacity to trigger eviction on empty cache.
+  auto cache = NewCache(1, 0, false);
+  ASSERT_OK(cache->Insert("foo", nullptr, 10, dumbDeleter));
+}
+
+TEST_P(CacheTest, EraseFromDeleter) {
+  // Have deleter which will erase item from cache, which will re-enter
+  // the cache at that point.
+  std::shared_ptr<Cache> cache = NewCache(10, 0, false);
+  ASSERT_OK(cache->Insert("foo", nullptr, 1, dumbDeleter));
+  ASSERT_OK(cache->Insert("bar", cache.get(), 1, eraseDeleter));
+  cache->Erase("bar");
+  ASSERT_EQ(nullptr, cache->Lookup("foo"));
+  ASSERT_EQ(nullptr, cache->Lookup("bar"));
+}
+
+TEST_P(CacheTest, ErasedHandleState) {
   // insert a key and get two handles
   Insert(100, 1000);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(100));
@@ -348,7 +390,7 @@ TEST_F(CacheTest, ErasedHandleState) {
   cache_->Release(h2);
 }
 
-TEST_F(CacheTest, HeavyEntries) {
+TEST_P(CacheTest, HeavyEntries) {
   // Add a bunch of light and heavy entries and then count the combined
   // size of items still in the cache, which must be approximately the
   // same as the total capacity.
@@ -375,7 +417,7 @@ TEST_F(CacheTest, HeavyEntries) {
   ASSERT_LE(cached_weight, kCacheSize + kCacheSize/10);
 }
 
-TEST_F(CacheTest, NewId) {
+TEST_P(CacheTest, NewId) {
   uint64_t a = cache_->NewId();
   uint64_t b = cache_->NewId();
   ASSERT_NE(a, b);
@@ -383,12 +425,10 @@ TEST_F(CacheTest, NewId) {
 
 
 class Value {
- private:
-  size_t v_;
  public:
   explicit Value(size_t v) : v_(v) { }
 
-  ~Value() { std::cout << v_ << " is destructed\n"; }
+  size_t v_;
 };
 
 namespace {
@@ -397,12 +437,12 @@ void deleter(const Slice& key, void* value) {
 }
 }  // namespace
 
-TEST_F(CacheTest, SetCapacity) {
+TEST_P(CacheTest, SetCapacity) {
   // test1: increase capacity
   // lets create a cache with capacity 5,
   // then, insert 5 elements, then increase capacity
   // to 10, returned capacity should be 10, usage=5
-  std::shared_ptr<Cache> cache = NewLRUCache(5, 0);
+  std::shared_ptr<Cache> cache = NewCache(5, 0, false);
   std::vector<Cache::Handle*> handles(10);
   // Insert 5 entries, but not releasing.
   for (size_t i = 0; i < 5; i++) {
@@ -442,7 +482,7 @@ TEST_F(CacheTest, SetCapacity) {
   }
 }
 
-TEST_F(CacheTest, SetStrictCapacityLimit) {
+TEST_P(CacheTest, SetStrictCapacityLimit) {
   // test1: set the flag to false. Insert more keys than capacity. See if they
   // all go through.
   std::shared_ptr<Cache> cache = NewLRUCache(5, 0, false);
@@ -451,7 +491,7 @@ TEST_F(CacheTest, SetStrictCapacityLimit) {
   for (size_t i = 0; i < 10; i++) {
     std::string key = ToString(i + 1);
     s = cache->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
-    ASSERT_TRUE(s.ok());
+    ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
   }
 
@@ -473,7 +513,7 @@ TEST_F(CacheTest, SetStrictCapacityLimit) {
   for (size_t i = 0; i < 5; i++) {
     std::string key = ToString(i + 1);
     s = cache2->Insert(key, new Value(i + 1), 1, &deleter, &handles[i]);
-    ASSERT_TRUE(s.ok());
+    ASSERT_OK(s);
     ASSERT_NE(nullptr, handles[i]);
   }
   s = cache2->Insert(extra_key, extra_value, 1, &deleter, &handle);
@@ -481,19 +521,21 @@ TEST_F(CacheTest, SetStrictCapacityLimit) {
   ASSERT_EQ(nullptr, handle);
   // test insert without handle
   s = cache2->Insert(extra_key, extra_value, 1, &deleter);
-  ASSERT_TRUE(s.IsIncomplete());
+  // AS if the key have been inserted into cache but get evicted immediately.
+  ASSERT_OK(s);
   ASSERT_EQ(5, cache->GetUsage());
+  ASSERT_EQ(nullptr, cache2->Lookup(extra_key));
 
   for (size_t i = 0; i < 5; i++) {
     cache2->Release(handles[i]);
   }
 }
 
-TEST_F(CacheTest, OverCapacity) {
+TEST_P(CacheTest, OverCapacity) {
   size_t n = 10;
 
   // a LRUCache with n entries and one shard only
-  std::shared_ptr<Cache> cache = NewLRUCache(n, 0);
+  std::shared_ptr<Cache> cache = NewCache(n, 0, false);
 
   std::vector<Cache::Handle*> handles(n+1);
 
@@ -508,7 +550,6 @@ TEST_F(CacheTest, OverCapacity) {
   for (size_t i = 0; i < n + 1; i++) {
     std::string key = ToString(i+1);
     auto h = cache->Lookup(key);
-    std::cout << key << (h?" found\n":" not found\n");
     ASSERT_TRUE(h != nullptr);
     if (h) cache->Release(h);
   }
@@ -518,6 +559,8 @@ TEST_F(CacheTest, OverCapacity) {
   for (size_t i = 0; i < n + 1; i++) {
     cache->Release(handles[i]);
   }
+  // Make sure eviction is triggered.
+  cache->SetCapacity(n);
 
   // cache is under capacity now since elements were released
   ASSERT_EQ(n, cache->GetUsage());
@@ -544,7 +587,7 @@ void callback(void* entry, size_t charge) {
 }
 };
 
-TEST_F(CacheTest, ApplyToAllCacheEntiresTest) {
+TEST_P(CacheTest, ApplyToAllCacheEntiresTest) {
   std::vector<std::pair<int, int>> inserted;
   callback_state.clear();
 
@@ -558,6 +601,14 @@ TEST_F(CacheTest, ApplyToAllCacheEntiresTest) {
   std::sort(callback_state.begin(), callback_state.end());
   ASSERT_TRUE(inserted == callback_state);
 }
+
+#ifdef SUPPORT_CLOCK_CACHE
+shared_ptr<Cache> (*new_clock_cache_func)(size_t, int, bool) = NewClockCache;
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest,
+                        testing::Values(kLRU, kClock));
+#else
+INSTANTIATE_TEST_CASE_P(CacheTestInstance, CacheTest, testing::Values(kLRU));
+#endif  // SUPPORT_CLOCK_CACHE
 
 }  // namespace rocksdb
 

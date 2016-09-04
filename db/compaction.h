@@ -8,10 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include "db/version_set.h"
 #include "util/arena.h"
 #include "util/autovector.h"
-#include "util/mutable_cf_options.h"
-#include "db/version_set.h"
+#include "util/cf_options.h"
 
 namespace rocksdb {
 
@@ -37,7 +37,7 @@ class Compaction {
   Compaction(VersionStorageInfo* input_version,
              const MutableCFOptions& mutable_cf_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
-             uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
+             uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
@@ -229,9 +229,7 @@ class Compaction {
     return grandparents_;
   }
 
-  uint64_t max_grandparent_overlap_bytes() const {
-    return max_grandparent_overlap_bytes_;
-  }
+  uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
  private:
   // mark (or clear) all files that are being compacted
@@ -254,7 +252,7 @@ class Compaction {
   const int start_level_;    // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
-  uint64_t max_grandparent_overlap_bytes_;
+  uint64_t max_compaction_bytes_;
   MutableCFOptions mutable_cf_options_;
   Version* input_version_;
   VersionEdit edit_;

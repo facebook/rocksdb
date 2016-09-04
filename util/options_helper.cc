@@ -34,23 +34,34 @@ bool isSpecialChar(const char c) {
   return false;
 }
 
-char UnescapeChar(const char c) {
-  static const std::unordered_map<char, char> convert_map = {{'r', '\r'},
-                                                             {'n', '\n'}};
+namespace {
+  using
+  CharMap = std::pair<char, char>;
+}
 
-  auto iter = convert_map.find(c);
-  if (iter == convert_map.end()) {
+char UnescapeChar(const char c) {
+  static const CharMap convert_map[]  = {{'r', '\r'},
+                                        {'n', '\n'}};
+
+  auto iter = std::find_if(std::begin(convert_map),
+    std::end(convert_map),
+    [c](const CharMap& p) { return p.first == c; });
+
+  if (iter == std::end(convert_map)) {
     return c;
   }
   return iter->second;
 }
 
 char EscapeChar(const char c) {
-  static const std::unordered_map<char, char> convert_map = {{'\n', 'n'},
-                                                             {'\r', 'r'}};
+  static const CharMap convert_map[] = {{'\n', 'n'},
+                                       {'\r', 'r'}};
 
-  auto iter = convert_map.find(c);
-  if (iter == convert_map.end()) {
+  auto iter = std::find_if(std::begin(convert_map),
+    std::end(convert_map),
+    [c](const CharMap& p) { return p.first == c; });
+
+  if (iter == std::end(convert_map)) {
     return c;
   }
   return iter->second;
@@ -582,11 +593,13 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
   } else if (name == "level0_stop_writes_trigger") {
     new_options->level0_stop_writes_trigger = ParseInt(value);
   } else if (name == "max_grandparent_overlap_factor") {
-    new_options->max_grandparent_overlap_factor = ParseInt(value);
+    // Deprecated
+  } else if (name == "max_compaction_bytes") {
+    new_options->max_compaction_bytes = ParseUint64(value);
   } else if (name == "expanded_compaction_factor") {
-    new_options->expanded_compaction_factor = ParseInt(value);
+    // Deprecated
   } else if (name == "source_compaction_factor") {
-    new_options->source_compaction_factor = ParseInt(value);
+    // Deprecated
   } else if (name == "target_file_size_base") {
     new_options->target_file_size_base = ParseInt(value);
   } else if (name == "target_file_size_multiplier") {
@@ -1468,12 +1481,7 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
       mutable_cf_options.level0_slowdown_writes_trigger;
   cf_opts.level0_stop_writes_trigger =
       mutable_cf_options.level0_stop_writes_trigger;
-  cf_opts.max_grandparent_overlap_factor =
-      mutable_cf_options.max_grandparent_overlap_factor;
-  cf_opts.expanded_compaction_factor =
-      mutable_cf_options.expanded_compaction_factor;
-  cf_opts.source_compaction_factor =
-      mutable_cf_options.source_compaction_factor;
+  cf_opts.max_compaction_bytes = mutable_cf_options.max_compaction_bytes;
   cf_opts.target_file_size_base = mutable_cf_options.target_file_size_base;
   cf_opts.target_file_size_multiplier =
       mutable_cf_options.target_file_size_multiplier;

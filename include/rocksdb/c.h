@@ -729,6 +729,8 @@ rocksdb_compactionfilter_create(
                             size_t* new_value_length,
                             unsigned char* value_changed),
     const char* (*name)(void*));
+extern ROCKSDB_LIBRARY_API void rocksdb_compactionfilter_set_ignore_snapshots(
+    rocksdb_compactionfilter_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_compactionfilter_destroy(
     rocksdb_compactionfilter_t*);
 

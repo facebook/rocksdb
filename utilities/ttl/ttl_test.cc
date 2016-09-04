@@ -47,7 +47,7 @@ class TtlTest : public testing::Test {
     options_.create_if_missing = true;
     options_.env = env_.get();
     // ensure that compaction is kicked in to always strip timestamp from kvs
-    options_.max_grandparent_overlap_factor = 0;
+    options_.max_compaction_bytes = 1;
     // compaction should take place always from level0 for determinism
     db_ttl_ = nullptr;
     DestroyDB(dbname_, Options());

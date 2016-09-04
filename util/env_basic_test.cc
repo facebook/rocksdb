@@ -318,9 +318,9 @@ TEST_P(EnvMoreTestWithParam, GetChildren) {
   ASSERT_EQ(0U, childAttr.size());
 
   // folder with contents returns relative path to test dir
-  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/linda"));
-  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/wanning"));
-  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/jiang"));
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/niu"));
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/you"));
+  ASSERT_OK(env_->CreateDirIfMissing(test_dir_ + "/guo"));
   ASSERT_OK(env_->GetChildren(test_dir_, &children));
   ASSERT_OK(env_->GetChildrenFileAttributes(test_dir_, &childAttr));
   ASSERT_EQ(3U, children.size());

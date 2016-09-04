@@ -3,12 +3,13 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include "table/table_properties_internal.h"
 #include "rocksdb/table_properties.h"
-#include "rocksdb/iterator.h"
-#include "rocksdb/env.h"
 #include "port/port.h"
+#include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
+#include "table/block.h"
 #include "table/internal_iterator.h"
+#include "table/table_properties_internal.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
@@ -44,12 +45,21 @@ namespace {
   // Seek to the specified meta block.
   // Return true if it successfully seeks to that block.
   Status SeekToMetaBlock(InternalIterator* meta_iter,
-                         const std::string& block_name, bool* is_found) {
+                         const std::string& block_name, bool* is_found,
+                         BlockHandle* block_handle = nullptr) {
     *is_found = true;
     meta_iter->Seek(block_name);
-    if (meta_iter->status().ok() &&
-        (!meta_iter->Valid() || meta_iter->key() != block_name)) {
-      *is_found = false;
+    if (meta_iter->status().ok()) {
+      if (meta_iter->Valid() && meta_iter->key() == block_name) {
+        *is_found = true;
+        if (block_handle) {
+          Slice v = meta_iter->value();
+          return block_handle->DecodeFrom(&v);
+        }
+      } else {
+        *is_found = false;
+        return Status::OK();
+      }
     }
     return meta_iter->status();
   }
@@ -158,6 +168,8 @@ const std::string TablePropertiesNames::kColumnFamilyName =
 const std::string TablePropertiesNames::kComparator = "rocksdb.comparator";
 const std::string TablePropertiesNames::kMergeOperator =
     "rocksdb.merge.operator";
+const std::string TablePropertiesNames::kPrefixExtractorName =
+    "rocksdb.prefix.extractor.name";
 const std::string TablePropertiesNames::kPropertyCollectors =
     "rocksdb.property.collectors";
 const std::string TablePropertiesNames::kCompression = "rocksdb.compression";
@@ -166,6 +178,7 @@ extern const std::string kPropertiesBlock = "rocksdb.properties";
 // Old property block name for backward compatibility
 extern const std::string kPropertiesBlockOldName = "rocksdb.stats";
 extern const std::string kCompressionDictBlock = "rocksdb.compression_dict";
+extern const std::string kRangeDelBlock = "rocksdb.range_del";
 
 // Seek to the properties block.
 // Return true if it successfully seeks to the properties block.
@@ -181,6 +194,11 @@ Status SeekToPropertiesBlock(InternalIterator* meta_iter, bool* is_found) {
 // Return true if it successfully seeks to that block.
 Status SeekToCompressionDictBlock(InternalIterator* meta_iter, bool* is_found) {
   return SeekToMetaBlock(meta_iter, kCompressionDictBlock, is_found);
+}
+
+Status SeekToRangeDelBlock(InternalIterator* meta_iter, bool* is_found,
+                           BlockHandle* block_handle = nullptr) {
+  return SeekToMetaBlock(meta_iter, kRangeDelBlock, is_found, block_handle);
 }
 
 }  // namespace rocksdb

@@ -10,11 +10,12 @@
 #pragma once
 #include <stdint.h>
 #include <string>
+#include "db/dbformat.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
-#include "db/dbformat.h"
 #include "util/arena.h"
 #include "util/autovector.h"
+#include "util/cf_options.h"
 
 namespace rocksdb {
 

@@ -197,6 +197,14 @@ enum Tickers : uint32_t {
   ROW_CACHE_HIT,
   ROW_CACHE_MISS,
 
+  // Read amplification statistics.
+  // Read amplification can be calculated using this formula
+  // (READ_AMP_TOTAL_READ_BYTES / READ_AMP_ESTIMATE_USEFUL_BYTES)
+  //
+  // REQUIRES: ReadOptions::read_amp_bytes_per_bit to be enabled
+  READ_AMP_ESTIMATE_USEFUL_BYTES,  // Estimate of total bytes actually used.
+  READ_AMP_TOTAL_READ_BYTES,       // Total size of loaded data blocks.
+
   TICKER_ENUM_MAX
 };
 
@@ -291,6 +299,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {FILTER_OPERATION_TOTAL_TIME, "rocksdb.filter.operation.time.nanos"},
     {ROW_CACHE_HIT, "rocksdb.row.cache.hit"},
     {ROW_CACHE_MISS, "rocksdb.row.cache.miss"},
+    {READ_AMP_ESTIMATE_USEFUL_BYTES, "rocksdb.read.amp.estimate.useful.bytes"},
+    {READ_AMP_TOTAL_READ_BYTES, "rocksdb.read.amp.total.read.bytes"},
 };
 
 /**
@@ -383,12 +393,12 @@ struct HistogramData {
 };
 
 enum StatsLevel {
+  // Collect all stats except time inside mutex lock AND time spent on
+  // compression.
+  kExceptDetailedTimers,
   // Collect all stats except the counters requiring to get time inside the
   // mutex lock.
   kExceptTimeForMutex,
-  // Collect all stats expect time inside mutex lock AND time spent on
-  // compression
-  kExceptDetailedTimers,
   // Collect all stats, including measuring duration of mutex operations.
   // If getting time is expensive on the platform to run, it can
   // reduce scalability to more threads, especially for writes.
@@ -419,7 +429,7 @@ class Statistics {
     return type < HISTOGRAM_ENUM_MAX;
   }
 
-  StatsLevel stats_level_ = kExceptTimeForMutex;
+  StatsLevel stats_level_ = kExceptDetailedTimers;
 };
 
 // Create a concrete DBStatistics object

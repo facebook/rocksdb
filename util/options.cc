@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/options.h"
-#include "rocksdb/immutable_options.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -36,47 +35,6 @@
 
 namespace rocksdb {
 
-ImmutableCFOptions::ImmutableCFOptions(const Options& options)
-    : compaction_style(options.compaction_style),
-      compaction_options_universal(options.compaction_options_universal),
-      compaction_options_fifo(options.compaction_options_fifo),
-      prefix_extractor(options.prefix_extractor.get()),
-      comparator(options.comparator),
-      merge_operator(options.merge_operator.get()),
-      compaction_filter(options.compaction_filter),
-      compaction_filter_factory(options.compaction_filter_factory.get()),
-      inplace_update_support(options.inplace_update_support),
-      inplace_callback(options.inplace_callback),
-      info_log(options.info_log.get()),
-      statistics(options.statistics.get()),
-      env(options.env),
-      delayed_write_rate(options.delayed_write_rate),
-      allow_mmap_reads(options.allow_mmap_reads),
-      allow_mmap_writes(options.allow_mmap_writes),
-      db_paths(options.db_paths),
-      memtable_factory(options.memtable_factory.get()),
-      table_factory(options.table_factory.get()),
-      table_properties_collector_factories(
-          options.table_properties_collector_factories),
-      advise_random_on_open(options.advise_random_on_open),
-      bloom_locality(options.bloom_locality),
-      purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
-      disable_data_sync(options.disableDataSync),
-      use_fsync(options.use_fsync),
-      compression_per_level(options.compression_per_level),
-      bottommost_compression(options.bottommost_compression),
-      compression_opts(options.compression_opts),
-      level_compaction_dynamic_level_bytes(
-          options.level_compaction_dynamic_level_bytes),
-      access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-      new_table_reader_for_compaction_inputs(
-          options.new_table_reader_for_compaction_inputs),
-      compaction_readahead_size(options.compaction_readahead_size),
-      num_levels(options.num_levels),
-      optimize_filters_for_hits(options.optimize_filters_for_hits),
-      listeners(options.listeners),
-      row_cache(options.row_cache) {}
-
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
       merge_operator(nullptr),
@@ -99,9 +57,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       level_compaction_dynamic_level_bytes(false),
       max_bytes_for_level_multiplier(10),
       max_bytes_for_level_multiplier_additional(num_levels, 1),
-      expanded_compaction_factor(25),
-      source_compaction_factor(1),
-      max_grandparent_overlap_factor(10),
+      max_compaction_bytes(0),
       soft_rate_limit(0.0),
       hard_rate_limit(0.0),
       soft_pending_compaction_bytes_limit(64 * 1073741824ull),
@@ -160,9 +116,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
-      expanded_compaction_factor(options.expanded_compaction_factor),
-      source_compaction_factor(options.source_compaction_factor),
-      max_grandparent_overlap_factor(options.max_grandparent_overlap_factor),
+      max_compaction_bytes(options.max_compaction_bytes),
       soft_rate_limit(options.soft_rate_limit),
       soft_pending_compaction_bytes_limit(
           options.soft_pending_compaction_bytes_limit),
@@ -541,13 +495,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     }
     Header(log, "      Options.max_sequential_skip_in_iterations: %" PRIu64,
         max_sequential_skip_in_iterations);
-    Header(log, "             Options.expanded_compaction_factor: %d",
-        expanded_compaction_factor);
-    Header(log, "               Options.source_compaction_factor: %d",
-        source_compaction_factor);
-    Header(log, "         Options.max_grandparent_overlap_factor: %d",
-        max_grandparent_overlap_factor);
-
+    Header(log, "                   Options.max_compaction_bytes: %" PRIu64,
+           max_compaction_bytes);
     Header(log,
          "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
          arena_block_size);
@@ -641,10 +590,9 @@ Options::PrepareForBulkLoad()
   // manual compaction after all data is loaded into L0.
   disable_auto_compactions = true;
   disableDataSync = true;
-
   // A manual compaction run should pick all files in L0 in
   // a single compaction run.
-  source_compaction_factor = (1<<30);
+  max_compaction_bytes = (static_cast<uint64_t>(1) << 60);
 
   // It is better to have only 2 levels, otherwise a manual
   // compaction would compact at every possible level, thereby

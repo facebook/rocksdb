@@ -117,8 +117,19 @@ Status SstFileWriter::Open(const std::string& file_path) {
 
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
+
+  // SstFileWriter properties collector to add SstFileWriter version.
   int_tbl_prop_collector_factories.emplace_back(
       new SstFileWriterPropertiesCollectorFactory(1 /* version */));
+
+  // User collector factories
+  auto user_collector_factories =
+      r->ioptions.table_properties_collector_factories;
+  for (size_t i = 0; i < user_collector_factories.size(); i++) {
+    int_tbl_prop_collector_factories.emplace_back(
+        new UserKeyTablePropertiesCollectorFactory(
+            user_collector_factories[i]));
+  }
 
   TableBuilderOptions table_builder_options(
       r->ioptions, r->internal_comparator, &int_tbl_prop_collector_factories,

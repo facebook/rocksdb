@@ -192,7 +192,7 @@ public class RocksDBTest {
   }
 
   @Test
-  public void remove() throws RocksDBException {
+  public void delete() throws RocksDBException {
     try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
          final WriteOptions wOpt = new WriteOptions()) {
       db.put("key1".getBytes(), "value".getBytes());
@@ -201,8 +201,36 @@ public class RocksDBTest {
           "value".getBytes());
       assertThat(db.get("key2".getBytes())).isEqualTo(
           "12345678".getBytes());
-      db.remove("key1".getBytes());
-      db.remove(wOpt, "key2".getBytes());
+      db.delete("key1".getBytes());
+      db.delete(wOpt, "key2".getBytes());
+      assertThat(db.get("key1".getBytes())).isNull();
+      assertThat(db.get("key2".getBytes())).isNull();
+    }
+  }
+
+  @Test
+  public void singleDelete() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteOptions wOpt = new WriteOptions()) {
+      db.put("key1".getBytes(), "value".getBytes());
+      db.put("key2".getBytes(), "12345678".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo(
+          "value".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo(
+          "12345678".getBytes());
+      db.singleDelete("key1".getBytes());
+      db.singleDelete(wOpt, "key2".getBytes());
+      assertThat(db.get("key1".getBytes())).isNull();
+      assertThat(db.get("key2".getBytes())).isNull();
+    }
+  }
+
+  @Test
+  public void singleDelete_nonExisting() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteOptions wOpt = new WriteOptions()) {
+      db.singleDelete("key1".getBytes());
+      db.singleDelete(wOpt, "key2".getBytes());
       assertThat(db.get("key1".getBytes())).isNull();
       assertThat(db.get("key2".getBytes())).isNull();
     }

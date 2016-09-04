@@ -6,7 +6,7 @@
 #pragma once
 #include <string>
 #include "rocksdb/env.h"
-#include "rocksdb/immutable_options.h"
+#include "rocksdb/options.h"
 #include "rocksdb/types.h"
 
 namespace rocksdb {

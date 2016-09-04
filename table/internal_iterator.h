@@ -89,6 +89,8 @@ class InternalIterator : public Cleanable {
     return Status::NotSupported("");
   }
 
+  virtual void ResetPrefix(const Slice* prefix = nullptr) {}
+
  private:
   // No copying allowed
   InternalIterator(const InternalIterator&) = delete;

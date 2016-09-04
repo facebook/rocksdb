@@ -190,29 +190,11 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void expandedCompactionFactor() {
+  public void maxCompactionBytes() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setExpandedCompactionFactor(intValue);
-      assertThat(opt.expandedCompactionFactor()).isEqualTo(intValue);
-    }
-  }
-
-  @Test
-  public void sourceCompactionFactor() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setSourceCompactionFactor(intValue);
-      assertThat(opt.sourceCompactionFactor()).isEqualTo(intValue);
-    }
-  }
-
-  @Test
-  public void maxGrandparentOverlapFactor() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setMaxGrandparentOverlapFactor(intValue);
-      assertThat(opt.maxGrandparentOverlapFactor()).isEqualTo(intValue);
+      final long longValue = rand.nextLong();
+      opt.setMaxCompactionBytes(longValue);
+      assertThat(opt.maxCompactionBytes()).isEqualTo(longValue);
     }
   }
 

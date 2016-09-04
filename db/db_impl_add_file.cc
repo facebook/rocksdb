@@ -129,6 +129,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   Status status;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   ColumnFamilyData* cfd = cfh->cfd();
+  const Comparator* user_cmp = cfd->internal_comparator().user_comparator();
 
   auto num_files = file_info_list.size();
   if (num_files == 0) {
@@ -142,19 +143,17 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       sorted_file_info_list[i] = &file_info_list[i];
     }
 
-    auto* vstorage = cfd->current()->storage_info();
-    std::sort(
-        sorted_file_info_list.begin(), sorted_file_info_list.end(),
-        [&vstorage, &file_info_list](const ExternalSstFileInfo* info1,
-                                     const ExternalSstFileInfo* info2) {
-          return vstorage->InternalComparator()->user_comparator()->Compare(
-                     info1->smallest_key, info2->smallest_key) < 0;
-        });
+    std::sort(sorted_file_info_list.begin(), sorted_file_info_list.end(),
+              [&user_cmp, &file_info_list](const ExternalSstFileInfo* info1,
+                                           const ExternalSstFileInfo* info2) {
+                return user_cmp->Compare(info1->smallest_key,
+                                         info2->smallest_key) < 0;
+              });
 
     for (size_t i = 0; i < num_files - 1; i++) {
-      if (sorted_file_info_list[i]->largest_key >=
-          sorted_file_info_list[i + 1]->smallest_key) {
-        return Status::NotSupported("Cannot add overlapping range among files");
+      if (user_cmp->Compare(sorted_file_info_list[i]->largest_key,
+                            sorted_file_info_list[i + 1]->smallest_key) >= 0) {
+        return Status::NotSupported("Files have overlapping ranges");
       }
     }
   }
@@ -268,9 +267,8 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
         if (status.ok() && iter->Valid()) {
           ParsedInternalKey seek_result;
           if (ParseInternalKey(iter->key(), &seek_result)) {
-            auto* vstorage = cfd->current()->storage_info();
-            if (vstorage->InternalComparator()->user_comparator()->Compare(
-                    seek_result.user_key, file_info_list[i].largest_key) <= 0) {
+            if (user_cmp->Compare(seek_result.user_key,
+                                  file_info_list[i].largest_key) <= 0) {
               status = Status::NotSupported("Cannot add overlapping range");
               break;
             }

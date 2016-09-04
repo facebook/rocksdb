@@ -15,17 +15,16 @@
 #include <string>
 #include <vector>
 #include "db/dbformat.h"
+#include "db/memtable_allocator.h"
 #include "db/skiplist.h"
 #include "db/version_edit.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
-#include "rocksdb/immutable_options.h"
-#include "db/memtable_allocator.h"
+#include "util/cf_options.h"
 #include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/instrumented_mutex.h"
-#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 

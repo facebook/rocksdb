@@ -143,9 +143,7 @@ public class MutableColumnFamilyOptions {
     level0_file_num_compaction_trigger(ValueType.INT),
     level0_slowdown_writes_trigger(ValueType.INT),
     level0_stop_writes_trigger(ValueType.INT),
-    max_grandparent_overlap_factor(ValueType.INT),
-    expanded_compaction_factor(ValueType.INT),
-    source_compaction_factor(ValueType.INT),
+    max_compaction_bytes(ValueType.LONG),
     target_file_size_base(ValueType.LONG),
     target_file_size_multiplier(ValueType.INT),
     max_bytes_for_level_base(ValueType.LONG),
@@ -797,40 +795,15 @@ public class MutableColumnFamilyOptions {
     }
 
     @Override
-    public MutableColumnFamilyOptionsBuilder setMaxGrandparentOverlapFactor(
-        final int maxGrandparentOverlapFactor) {
-      return setInt(CompactionOption.max_grandparent_overlap_factor,
-          maxGrandparentOverlapFactor);
+    public MutableColumnFamilyOptionsBuilder setMaxCompactionBytes(final long maxCompactionBytes) {
+      return setLong(CompactionOption.max_compaction_bytes, maxCompactionBytes);
     }
 
     @Override
-    public int maxGrandparentOverlapFactor() {
-      return getInt(CompactionOption.max_grandparent_overlap_factor);
+    public long maxCompactionBytes() {
+      return getLong(CompactionOption.max_compaction_bytes);
     }
 
-    @Override
-    public MutableColumnFamilyOptionsBuilder setExpandedCompactionFactor(
-        final int expandedCompactionFactor) {
-      return setInt(CompactionOption.expanded_compaction_factor,
-          expandedCompactionFactor);
-    }
-
-    @Override
-    public int expandedCompactionFactor() {
-      return getInt(CompactionOption.expanded_compaction_factor);
-    }
-
-    @Override
-    public MutableColumnFamilyOptionsBuilder setSourceCompactionFactor(
-        final int sourceCompactionFactor) {
-      return setInt(CompactionOption.source_compaction_factor,
-          sourceCompactionFactor);
-    }
-
-    @Override
-    public int sourceCompactionFactor() {
-      return getInt(CompactionOption.source_compaction_factor);
-    }
 
     @Override
     public MutableColumnFamilyOptionsBuilder setTargetFileSizeBase(

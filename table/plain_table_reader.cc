@@ -135,15 +135,16 @@ Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
 
   assert(hash_table_ratio >= 0.0);
   auto& user_props = props->user_collected_properties;
-  auto prefix_extractor_in_file =
-      user_props.find(PlainTablePropertyNames::kPrefixExtractorName);
+  auto prefix_extractor_in_file = props->prefix_extractor_name;
 
-  if (!full_scan_mode && prefix_extractor_in_file != user_props.end()) {
+  if (!full_scan_mode &&
+      !prefix_extractor_in_file.empty() /* old version sst file*/
+      && prefix_extractor_in_file != "nullptr") {
     if (!ioptions.prefix_extractor) {
       return Status::InvalidArgument(
           "Prefix extractor is missing when opening a PlainTable built "
           "using a prefix extractor");
-    } else if (prefix_extractor_in_file->second.compare(
+    } else if (prefix_extractor_in_file.compare(
                    ioptions.prefix_extractor->Name()) != 0) {
       return Status::InvalidArgument(
           "Prefix extractor given doesn't match the one used to build "

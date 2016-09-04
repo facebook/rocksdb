@@ -12,7 +12,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "util/mutable_cf_options.h"
+#include "util/cf_options.h"
 
 #ifndef ROCKSDB_LITE
 namespace rocksdb {
@@ -382,9 +382,11 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
     {"soft_rate_limit",
      {offsetof(struct ColumnFamilyOptions, soft_rate_limit),
       OptionType::kDouble, OptionVerificationType::kNormal}},
+    {"max_compaction_bytes",
+     {offsetof(struct ColumnFamilyOptions, max_compaction_bytes),
+      OptionType::kUInt64T, OptionVerificationType::kNormal}},
     {"expanded_compaction_factor",
-     {offsetof(struct ColumnFamilyOptions, expanded_compaction_factor),
-      OptionType::kInt, OptionVerificationType::kNormal}},
+     {0, OptionType::kInt, OptionVerificationType::kDeprecated}},
     {"level0_file_num_compaction_trigger",
      {offsetof(struct ColumnFamilyOptions, level0_file_num_compaction_trigger),
       OptionType::kInt, OptionVerificationType::kNormal}},
@@ -398,8 +400,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
      {offsetof(struct ColumnFamilyOptions, max_bytes_for_level_multiplier),
       OptionType::kInt, OptionVerificationType::kNormal}},
     {"max_grandparent_overlap_factor",
-     {offsetof(struct ColumnFamilyOptions, max_grandparent_overlap_factor),
-      OptionType::kInt, OptionVerificationType::kNormal}},
+     {0, OptionType::kInt, OptionVerificationType::kDeprecated}},
     {"max_mem_compaction_level",
      {offsetof(struct ColumnFamilyOptions, max_mem_compaction_level),
       OptionType::kInt, OptionVerificationType::kDeprecated}},
@@ -416,8 +417,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
      {offsetof(struct ColumnFamilyOptions, num_levels), OptionType::kInt,
       OptionVerificationType::kNormal}},
     {"source_compaction_factor",
-     {offsetof(struct ColumnFamilyOptions, source_compaction_factor),
-      OptionType::kInt, OptionVerificationType::kNormal}},
+     {0, OptionType::kInt, OptionVerificationType::kDeprecated}},
     {"target_file_size_multiplier",
      {offsetof(struct ColumnFamilyOptions, target_file_size_multiplier),
       OptionType::kInt, OptionVerificationType::kNormal}},
@@ -511,6 +511,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
          {offsetof(struct BlockBasedTableOptions,
                    cache_index_and_filter_blocks),
           OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"cache_index_and_filter_blocks_with_high_priority",
+         {offsetof(struct BlockBasedTableOptions,
+                   cache_index_and_filter_blocks_with_high_priority),
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
         {"pin_l0_filter_and_index_blocks_in_cache",
          {offsetof(struct BlockBasedTableOptions,
                    pin_l0_filter_and_index_blocks_in_cache),
@@ -554,7 +558,10 @@ static std::unordered_map<std::string, OptionTypeInfo>
           OptionType::kUInt32T, OptionVerificationType::kNormal}},
         {"verify_compression",
          {offsetof(struct BlockBasedTableOptions, verify_compression),
-          OptionType::kBoolean, OptionVerificationType::kNormal}}};
+          OptionType::kBoolean, OptionVerificationType::kNormal}},
+        {"read_amp_bytes_per_bit",
+         {offsetof(struct BlockBasedTableOptions, read_amp_bytes_per_bit),
+          OptionType::kSizeT, OptionVerificationType::kNormal}}};
 
 static std::unordered_map<std::string, OptionTypeInfo> plain_table_type_info = {
     {"user_key_len",

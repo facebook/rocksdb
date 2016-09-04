@@ -17,7 +17,7 @@
 #pragma once
 
 #include <rocksdb/env.h>
-#include "util/threadpool.h"
+#include "util/threadpool_imp.h"
 
 #include <mutex>
 #include <vector>
@@ -63,7 +63,7 @@ private:
 
   Env*                     hosted_env_;
   mutable std::mutex       mu_;
-  std::vector<ThreadPool>  thread_pools_;
+  std::vector<ThreadPoolImpl> thread_pools_;
   std::vector<std::thread> threads_to_join_;
 
 };
@@ -268,8 +268,7 @@ public:
 private:
 
   WinEnvIO      winenv_io_;
-  WinEnvThreads winenv_threads_; 
-
+  WinEnvThreads winenv_threads_;
 };
 
 }

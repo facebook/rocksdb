@@ -594,7 +594,8 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBPropertiesTest, GetProperty) {
+// TODO(techdept) : Disabled flaky test #12863555
+TEST_F(DBPropertiesTest, DISABLED_GetProperty) {
   // Set sizes to both background thread pool to be 1 and block them.
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);

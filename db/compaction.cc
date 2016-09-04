@@ -143,8 +143,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        const MutableCFOptions& _mutable_cf_options,
                        std::vector<CompactionInputFiles> _inputs,
                        int _output_level, uint64_t _target_file_size,
-                       uint64_t _max_grandparent_overlap_bytes,
-                       uint32_t _output_path_id, CompressionType _compression,
+                       uint64_t _max_compaction_bytes, uint32_t _output_path_id,
+                       CompressionType _compression,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
@@ -152,7 +152,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
     : start_level_(_inputs[0].level),
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
-      max_grandparent_overlap_bytes_(_max_grandparent_overlap_bytes),
+      max_compaction_bytes_(_max_compaction_bytes),
       mutable_cf_options_(_mutable_cf_options),
       input_version_(nullptr),
       number_levels_(vstorage->num_levels()),
@@ -247,7 +247,7 @@ bool Compaction::IsTrivialMove() const {
   return (start_level_ != output_level_ && num_input_levels() == 1 &&
           input(0, 0)->fd.GetPathId() == output_path_id() &&
           InputCompressionMatchesOutput() &&
-          TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
+          TotalFileSize(grandparents_) <= max_compaction_bytes_);
 }
 
 void Compaction::AddInputDeletions(VersionEdit* out_edit) {

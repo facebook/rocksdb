@@ -85,9 +85,6 @@ extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
   return new PlainTableFactory(options);
 }
 
-const std::string PlainTablePropertyNames::kPrefixExtractorName =
-    "rocksdb.prefix.extractor.name";
-
 const std::string PlainTablePropertyNames::kEncodingType =
     "rocksdb.plain.table.encoding.type";
 

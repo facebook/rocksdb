@@ -17,6 +17,7 @@
 
 #include "port/port.h" // noexcept
 #include "table/persistent_cache_helper.h"
+#include "util/cf_options.h"
 
 namespace rocksdb {
 
