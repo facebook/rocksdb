@@ -33,14 +33,14 @@ class Status {
   Status& operator=(const Status& s);
   Status(Status&& s)
 #if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
+      noexcept
 #endif
-    ;
+      ;
   Status& operator=(Status&& s)
 #if !(defined _MSC_VER) || ((defined _MSC_VER) && (_MSC_VER >= 1900))
-    noexcept
+      noexcept
 #endif
-    ;
+      ;
   bool operator==(const Status& rhs) const;
   bool operator!=(const Status& rhs) const;
 
@@ -58,7 +58,7 @@ class Status {
     kAborted = 10,
     kBusy = 11,
     kExpired = 12,
-    kTryAgain = 13,
+    kTryAgain = 13
   };
 
   Code code() const { return code_; }
