@@ -244,7 +244,7 @@ class BlockReadAmpBitmapSlowAndAccurate {
 };
 
 TEST_F(BlockTest, BlockReadAmpBitmap) {
-  std::vector<uint32_t> block_sizes = {
+  std::vector<size_t> block_sizes = {
       1,                 // 1 byte
       32,                // 32 bytes
       61,                // 61 bytes
@@ -263,7 +263,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
   const size_t kBytesPerBit = 64;
 
   Random rnd(301);
-  for (uint32_t block_size : block_sizes) {
+  for (size_t block_size : block_sizes) {
     std::shared_ptr<Statistics> stats = rocksdb::CreateDBStatistics();
     BlockReadAmpBitmap read_amp_bitmap(block_size, kBytesPerBit, stats.get());
     BlockReadAmpBitmapSlowAndAccurate read_amp_slow_and_accurate;
@@ -282,7 +282,7 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
               needed_bits * kBytesPerBit);
 
     // Generate some random entries
-    std::vector<uint32_t> random_entry_offsets;
+    std::vector<size_t> random_entry_offsets;
     for (int i = 0; i < 1000; i++) {
       random_entry_offsets.push_back(rnd.Next() % block_size);
     }
@@ -294,8 +294,8 @@ TEST_F(BlockTest, BlockReadAmpBitmap) {
 
     std::vector<std::pair<size_t, size_t>> random_entries;
     for (size_t i = 0; i < random_entry_offsets.size(); i++) {
-      uint32_t entry_start = random_entry_offsets[i];
-      uint32_t entry_end;
+      size_t entry_start = random_entry_offsets[i];
+      size_t entry_end;
       if (i + 1 < random_entry_offsets.size()) {
         entry_end = random_entry_offsets[i + 1] - 1;
       } else {
