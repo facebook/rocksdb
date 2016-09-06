@@ -221,7 +221,7 @@ set(SOURCES
         util/log_buffer.cc
         util/memenv.cc
         util/murmurhash.cc
-        util/mutable_cf_options.cc
+        util/cf_options.cc
         util/options.cc
         util/options_helper.cc
         util/options_parser.cc

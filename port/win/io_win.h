@@ -26,7 +26,9 @@ namespace port {
 std::string GetWindowsErrSz(DWORD err);
 
 inline Status IOErrorFromWindowsError(const std::string& context, DWORD err) {
-  return Status::IOError(context, GetWindowsErrSz(err));
+  return (err == ERROR_HANDLE_DISK_FULL) ?
+      Status::NoSpace(context, GetWindowsErrSz(err)) :
+      Status::IOError(context, GetWindowsErrSz(err));
 }
 
 inline Status IOErrorFromLastWindowsError(const std::string& context) {
@@ -34,7 +36,9 @@ inline Status IOErrorFromLastWindowsError(const std::string& context) {
 }
 
 inline Status IOError(const std::string& context, int err_number) {
-  return Status::IOError(context, strerror(err_number));
+  return (err_number == ENOSPC) ?
+      Status::NoSpace(context, strerror(err_number)) :      
+      Status::IOError(context, strerror(err_number));
 }
 
 // Note the below two do not set errno because they are used only here in this
