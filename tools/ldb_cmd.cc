@@ -509,7 +509,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
     } else if (comp == "xpress") {
       opt.compression = kXpressCompression;
     } else if (comp == "zstd") {
-      opt.compression = kZSTDNotFinalCompression;
+      opt.compression = kZSTD;
     } else {
       // Unknown compression.
       exec_state_ =

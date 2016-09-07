@@ -3,6 +3,8 @@ title: Indexing SST Files for Better Lookup Performance
 layout: post
 author: leijin
 category: blog
+redirect_from:
+  - /blog/431/indexing-sst-files-for-better-lookup-performance/
 ---
 
 For a `Get()` request, RocksDB goes through mutable memtable, list of immutable memtables, and SST files to look up the target key. SST files are organized in levels.

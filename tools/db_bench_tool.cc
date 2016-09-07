@@ -597,7 +597,7 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   else if (!strcasecmp(ctype, "xpress"))
     return rocksdb::kXpressCompression;
   else if (!strcasecmp(ctype, "zstd"))
-    return rocksdb::kZSTDNotFinalCompression;
+    return rocksdb::kZSTD;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression;  // default value
@@ -1771,7 +1771,7 @@ class Benchmark {
         ok = XPRESS_Compress(input.data(),
           input.size(), compressed);
         break;
-      case rocksdb::kZSTDNotFinalCompression:
+      case rocksdb::kZSTD:
         ok = ZSTD_Compress(Options().compression_opts, input.data(),
                            input.size(), compressed);
         break;
@@ -2606,7 +2606,7 @@ class Benchmark {
           &decompress_size);
         ok = uncompressed != nullptr;
         break;
-      case rocksdb::kZSTDNotFinalCompression:
+      case rocksdb::kZSTD:
         uncompressed = ZSTD_Uncompress(compressed.data(), compressed.size(),
                                        &decompress_size);
         ok = uncompressed != nullptr;

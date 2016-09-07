@@ -63,7 +63,13 @@ enum CompressionType : unsigned char {
   kLZ4Compression = 0x4,
   kLZ4HCCompression = 0x5,
   kXpressCompression = 0x6,
-  // zstd format is not finalized yet so it's subject to changes.
+  kZSTD = 0x7,
+
+  // Only use kZSTDNotFinalCompression if you have to use ZSTD lib older than
+  // 0.8.0 or consider a possibility of downgrading the service or copying
+  // the database files to another service running with an older version of
+  // RocksDB that doesn't have kZSTD. Otherwise, you should use kZSTD. We will
+  // eventually remove the option from the public API.
   kZSTDNotFinalCompression = 0x40,
 
   // kDisableCompressionOption is used to disable some compression options.
@@ -1412,7 +1418,7 @@ struct ReadOptions {
 
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
   // (which must belong to the DB that is being read and which must
-  // not have been released).  If "snapshot" is nullptr, use an impliicit
+  // not have been released).  If "snapshot" is nullptr, use an implicit
   // snapshot of the state at the beginning of this read operation.
   // Default: nullptr
   const Snapshot* snapshot;

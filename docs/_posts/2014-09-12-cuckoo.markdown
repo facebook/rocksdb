@@ -3,6 +3,8 @@ title: Cuckoo Hashing Table Format
 layout: post
 author: radheshyam
 category: blog
+redirect_from:
+  - /blog/1427/new-bloom-filter-format/
 ---
 
 ## Introduction

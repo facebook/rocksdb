@@ -3,6 +3,8 @@ title: RocksDB is now available in Windows Platform
 layout: post
 author: dmitrism
 category: blog
+redirect_from:
+  - /blog/2033/rocksdb-is-now-available-in-windows-platform/
 ---
 
 Over the past 6 months we have seen a number of use cases where RocksDB is successfully used by the community and various companies to achieve high throughput and volume in a modern server environment.

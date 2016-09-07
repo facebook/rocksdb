@@ -1193,7 +1193,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
     type = kXpressCompression;
     fprintf(stderr, "using xpress\n");
   } else if (ZSTD_Supported()) {
-    type = kZSTDNotFinalCompression;
+    type = kZSTD;
     fprintf(stderr, "using ZSTD\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");
@@ -4708,7 +4708,7 @@ TEST_F(DBTest, CompressionStatsTest) {
     type = kXpressCompression;
     fprintf(stderr, "using xpress\n");
   } else if (ZSTD_Supported()) {
-    type = kZSTDNotFinalCompression;
+    type = kZSTD;
     fprintf(stderr, "using ZSTD\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");

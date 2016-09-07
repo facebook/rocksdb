@@ -3,6 +3,8 @@ title: PlainTable — A New File Format
 layout: post
 author: sdong
 category: blog
+redirect_from:
+  - /blog/599/plaintable-a-new-file-format/
 ---
 
 In this post, we are introducing "PlainTable" -- a file format we designed for RocksDB, initially to satisfy a production use case at Facebook.

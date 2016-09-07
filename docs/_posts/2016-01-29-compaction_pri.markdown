@@ -3,6 +3,8 @@ title: Option of Compaction Priority
 layout: post
 author: sdong
 category: blog
+redirect_from:
+  - /blog/2921/compaction_pri/
 ---
 
 The most popular compaction style of RocksDB is level-based compaction, which is an improved version of LevelDB's compaction algorithm. Page 9- 16 of this [slides](https://github.com/facebook/rocksdb/blob/gh-pages/talks/2015-09-29-HPTS-Siying-RocksDB.pdf) gives an illustrated introduction of this compaction style. The basic idea that: data is organized by multiple levels with exponential increasing target size. Except a special level 0, every level is key-range partitioned into many files. When size of a level exceeds its target size, we pick one or more of its files, and merge the file into the next level.

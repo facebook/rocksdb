@@ -221,7 +221,7 @@ class SpecialEnv : public EnvWrapper {
           // Drop writes on the floor
           return Status::OK();
         } else if (env_->no_space_.load(std::memory_order_acquire)) {
-          return Status::IOError("No space left on device");
+          return Status::NoSpace("No space left on device");
         } else {
           env_->bytes_written_ += data.size();
           return base_->Append(data);

@@ -3,6 +3,8 @@ title: How to backup RocksDB?
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/191/how-to-backup-rocksdb/
 ---
 
 In RocksDB, we have implemented an easy way to backup your DB. Here is a simple example:

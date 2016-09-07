@@ -79,6 +79,7 @@
 #include "table/two_level_iterator.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
+#include "util/cf_options.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"

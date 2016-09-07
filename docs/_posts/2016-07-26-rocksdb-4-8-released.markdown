@@ -3,6 +3,8 @@ title: RocksDB 4.8 Released!
 layout: post
 author: yiwu
 category: blog
+redirect_from:
+  - /blog/3239/rocksdb-4-8-released/
 ---
 
 ## 4.8.0 (5/2/2016)

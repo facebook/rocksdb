@@ -80,6 +80,14 @@ inline bool XPRESS_Supported() {
 
 inline bool ZSTD_Supported() {
 #ifdef ZSTD
+  // ZSTD format is finalized since version 0.8.0.
+  return (ZSTD_versionNumber() >= 800);
+#endif
+  return false;
+}
+
+inline bool ZSTDNotFinal_Supported() {
+#ifdef ZSTD
   return true;
 #endif
   return false;
@@ -102,6 +110,8 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
     case kXpressCompression:
       return XPRESS_Supported();
     case kZSTDNotFinalCompression:
+      return ZSTDNotFinal_Supported();
+    case kZSTD:
       return ZSTD_Supported();
     default:
       assert(false);
@@ -125,6 +135,7 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       return "LZ4HC";
     case kXpressCompression:
       return "Xpress";
+    case kZSTD:
     case kZSTDNotFinalCompression:
       return "ZSTD";
     default:

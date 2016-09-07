@@ -3,6 +3,8 @@ title: RocksDB 2015 H2 roadmap
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/2015/rocksdb-2015-h2-roadmap/
 ---
 
 Every 6 months, RocksDB team gets together to prioritize the work ahead of us. We just went through this exercise and we wanted to share the results with the community. Here's what RocksDB team will be focusing on for the next 6 months:

@@ -21,9 +21,10 @@ const char* Status::CopyState(const char* state) {
   return result;
 }
 
-Status::Status(Code _code, const Slice& msg, const Slice& msg2)
-    : code_(_code), subcode_(kNone) {
+Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2)
+    : code_(_code), subcode_(_subcode) {
   assert(code_ != kOk);
+  assert(subcode_ != kMaxSubCode);
   const uint32_t len1 = static_cast<uint32_t>(msg.size());
   const uint32_t len2 = static_cast<uint32_t>(msg2.size());
   const uint32_t size = len1 + (len2 ? (2 + len2) : 0);

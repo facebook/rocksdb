@@ -2851,6 +2851,11 @@ TEST_F(ColumnFamilyTest, FlushCloseWALFiles) {
   ASSERT_OK(Put(0, "fodor", "mirko"));
   ASSERT_OK(Put(1, "fodor", "mirko"));
 
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::BGWorkFlush:done", "FlushCloseWALFiles:0"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   // Block flush jobs from running
   test::SleepingBackgroundTask sleeping_task;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
@@ -2864,7 +2869,8 @@ TEST_F(ColumnFamilyTest, FlushCloseWALFiles) {
 
   sleeping_task.WakeUp();
   sleeping_task.WaitUntilDone();
-  WaitForFlush(1);
+  TEST_SYNC_POINT("FlushCloseWALFiles:0");
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_EQ(1, env.num_open_wal_file_.load());
 
   Reopen();

@@ -3,6 +3,8 @@ title: RocksDB AMA
 layout: post
 author: yhchiang
 category: blog
+redirect_from:
+  - /blog/3065/rocksdb-ama/
 ---
 
 RocksDB developers are doing a Reddit Ask-Me-Anything now at 10AM – 11AM PDT! We welcome you to stop by and ask any RocksDB related questions, including existing / upcoming features, tuning tips, or database design.
