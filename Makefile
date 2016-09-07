@@ -285,6 +285,7 @@ TESTS = \
 	db_iterator_test \
 	db_options_test \
 	db_sst_test \
+	external_sst_file_test \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
 	db_wal_test \
@@ -392,6 +393,7 @@ PARALLEL_TEST = \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_sst_test \
+	external_sst_file_test \
 	db_test \
 	db_universal_compaction_test \
 	fault_injection_test \
@@ -959,6 +961,9 @@ db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARN
 	$(AM_LINK)
 
 db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+external_sst_file_test: db/external_sst_file_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_tailing_iter_test: db/db_tailing_iter_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

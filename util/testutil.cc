@@ -359,5 +359,30 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
                               &cf_opt->compression_per_level, rnd);
 }
 
+Status DestroyDir(Env* env, const std::string& dir) {
+  Status s;
+  if (env->FileExists(dir).IsNotFound()) {
+    return s;
+  }
+  std::vector<std::string> files_in_dir;
+  s = env->GetChildren(dir, &files_in_dir);
+  if (s.ok()) {
+    for (auto& file_in_dir : files_in_dir) {
+      if (file_in_dir == "." || file_in_dir == "..") {
+        continue;
+      }
+      s = env->DeleteFile(dir + "/" + file_in_dir);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+
+  if (s.ok()) {
+    s = env->DeleteDir(dir);
+  }
+  return s;
+}
+
 }  // namespace test
 }  // namespace rocksdb

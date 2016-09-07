@@ -370,6 +370,7 @@ set(TESTS
         db/db_flush_test.cc
         db/db_iterator_test.cc
         db/db_sst_test.cc
+        db/external_sst_file_test.cc
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
         db/dbformat_test.cc
