@@ -1418,7 +1418,7 @@ struct ReadOptions {
 
   // If "snapshot" is non-nullptr, read as of the supplied snapshot
   // (which must belong to the DB that is being read and which must
-  // not have been released).  If "snapshot" is nullptr, use an impliicit
+  // not have been released).  If "snapshot" is nullptr, use an implicit
   // snapshot of the state at the beginning of this read operation.
   // Default: nullptr
   const Snapshot* snapshot;
