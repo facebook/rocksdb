@@ -3,6 +3,8 @@ title: New Bloom Filter Format
 layout: post
 author: zagfox
 category: blog
+redirect_from:
+  - /blog/1367/cuckoo/
 ---
 
 ## Introduction

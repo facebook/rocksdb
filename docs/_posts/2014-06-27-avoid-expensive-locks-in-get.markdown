@@ -3,6 +3,8 @@ title: Avoid Expensive Locks in Get()
 layout: post
 author: leijin
 category: blog
+redirect_from:
+  - /blog/677/avoid-expensive-locks-in-get/
 ---
 
 As promised in the previous [blog post](blog/2014/05/14/lock.html)!

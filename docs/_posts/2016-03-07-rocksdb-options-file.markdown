@@ -3,6 +3,8 @@ title: RocksDB Options File
 layout: post
 author: yhciang
 category: blog
+redirect_from:
+  - /blog/3089/rocksdb-options-file/
 ---
 
 In RocksDB 4.3, we added a new set of features that makes managing RocksDB options easier.  Specifically:

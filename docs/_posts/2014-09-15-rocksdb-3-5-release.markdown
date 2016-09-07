@@ -3,6 +3,8 @@ title: RocksDB 3.5 Release!
 layout: post
 author: leijin
 category: blog
+redirect_from:
+  - /blog/1547/rocksdb-3-5-release/
 ---
 
 New RocksDB release - 3.5!

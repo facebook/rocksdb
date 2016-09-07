@@ -3,6 +3,8 @@ title: RocksDB 4.5.1 Released!
 layout: post
 author: sdong
 category: blog
+redirect_from:
+  - /blog/3179/rocksdb-4-5-1-released/
 ---
 
 ## 4.5.1 (3/25/2016)

@@ -3,6 +3,8 @@ title: RocksDB 3.3 Release
 layout: post
 author: yhciang
 category: blog
+redirect_from:
+  - /blog/1301/rocksdb-3-3-release/
 ---
 
 Check out new RocksDB release on [GitHub](https://github.com/facebook/rocksdb/releases/tag/rocksdb-3.3)!

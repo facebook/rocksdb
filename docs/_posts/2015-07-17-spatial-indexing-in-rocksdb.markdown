@@ -3,6 +3,8 @@ title: Spatial indexing in RocksDB
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/2039/spatial-indexing-in-rocksdb/
 ---
 
 About a year ago, there was a need to develop a spatial database at Facebook. We needed to store and index Earth's map data. Before building our own, we looked at the existing spatial databases. They were all very good technology, but also general purpose. We could sacrifice a general-purpose API, so we thought we could build a more performant database, since it would be specifically designed for our use-case. Furthermore, we decided to build the spatial database on top of RocksDB, because we have a lot of operational experience with running and tuning RocksDB at a large scale.

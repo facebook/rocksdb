@@ -3,6 +3,8 @@ title: Reducing Lock Contention in RocksDB
 layout: post
 author: sdong
 category: blog
+redirect_from:
+  - /blog/521/lock/
 ---
 
 In this post, we briefly introduce the recent improvements we did to RocksDB to improve the issue of lock contention costs.

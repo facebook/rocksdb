@@ -3,6 +3,8 @@ title: Use Checkpoints for Efficient Snapshots
 layout: post
 author: rven2
 category: blog
+redirect_from:
+  - /blog/2609/use-checkpoints-for-efficient-snapshots/
 ---
 
 **Checkpoint** is a feature in RocksDB which provides the ability to take a snapshot of a running RocksDB database in a separate directory. Checkpoints can be used as a point in time snapshot, which can be opened Read-only to query rows as of the point in time or as a Writeable snapshot by opening it Read-Write. Checkpoints can be used for both full and incremental backups.

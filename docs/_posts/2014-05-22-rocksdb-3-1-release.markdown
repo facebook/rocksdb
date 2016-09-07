@@ -3,6 +3,8 @@ title: RocksDB 3.1 release
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/575/rocksdb-3-1-release/
 ---
 
 Check out the new release on [Github](https://github.com/facebook/rocksdb/releases/tag/rocksdb-3.1)!

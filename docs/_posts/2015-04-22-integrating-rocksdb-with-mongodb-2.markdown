@@ -3,6 +3,8 @@ title: Integrating RocksDB with MongoDB
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/1967/integrating-rocksdb-with-mongodb-2/
 ---
 
 Over the last couple of years, we have been busy integrating RocksDB with various services here at Facebook that needed to store key-value pairs locally. We have also seen other companies using RocksDB as local storage components of their distributed systems.

@@ -3,6 +3,8 @@ title: RocksDB 4.2 Release!
 layout: post
 author: sdong
 category: blog
+redirect_from:
+  - /blog/3017/rocksdb-4-2-release/
 ---
 
 New RocksDB release - 4.2!

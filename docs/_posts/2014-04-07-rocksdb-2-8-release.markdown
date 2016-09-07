@@ -3,6 +3,8 @@ title: RocksDB 2.8 release
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/371/rocksdb-2-8-release/
 ---
 
 Check out the new RocksDB 2.8 release on [Github](https://github.com/facebook/rocksdb/releases/tag/2.8.fb).

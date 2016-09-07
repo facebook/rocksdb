@@ -3,6 +3,8 @@ title: Analysis File Read Latency by Level
 layout: post
 author: sdong
 category: blog
+redirect_from:
+  -/blog/2537/analysis-file-read-latency-by-level/
 ---
 
 In many use cases of RocksDB, people rely on OS page cache for caching compressed data. With this approach, verifying effective of the OS page caching is challenging, because file system is a black box to users.
