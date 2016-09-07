@@ -9,6 +9,7 @@
 #pragma once
 #include <unistd.h>
 #include <atomic>
+#include <errno.h>
 #include "rocksdb/env.h"
 
 // For non linux platform, the following macros are used only as place
@@ -24,7 +25,9 @@
 namespace rocksdb {
 
 static Status IOError(const std::string& context, int err_number) {
-  return Status::IOError(context, strerror(err_number));
+  return (err_number == ENOSPC) ?
+      Status::NoSpace(context, strerror(err_number)) :
+      Status::IOError(context, strerror(err_number));
 }
 
 class PosixHelper {

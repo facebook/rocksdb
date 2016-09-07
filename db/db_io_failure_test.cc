@@ -111,6 +111,7 @@ TEST_F(DBIOFailureTest, NoSpaceCompactRange) {
     Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
                                            true /* disallow trivial move */);
     ASSERT_TRUE(s.IsIOError());
+    ASSERT_TRUE(s.IsNoSpace());
 
     env_->no_space_.store(false, std::memory_order_release);
   } while (ChangeCompactOptions());
