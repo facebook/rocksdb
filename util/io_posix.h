@@ -9,6 +9,7 @@
 #pragma once
 #include <unistd.h>
 #include <atomic>
+#include <errno.h>
 #include "rocksdb/env.h"
 
 // For non linux platform, the following macros are used only as place
