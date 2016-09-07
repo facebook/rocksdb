@@ -1,5 +1,12 @@
-# Rocksdb Change Log
-## Unreleased
+## 4.10.2
+### Bug Fixes
+* backport the bug fix of the regression data corruption after DB recovery when stale WAL file deletion is reordered.
+
+## 4.10.1
+### Bug Fixes
+* Fix the regression deadlock bug of DB recovery if options.max_successive_merges hits.
+
+## 4.10.0
 ### Public API Change
 * options.memtable_prefix_bloom_bits changes to options.memtable_prefix_bloom_bits_ratio and deprecate options.memtable_prefix_bloom_probes
 * enum type CompressionType and PerfLevel changes from char to unsigned char. Value of all PerfLevel shift by one.
