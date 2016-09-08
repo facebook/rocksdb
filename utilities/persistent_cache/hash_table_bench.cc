@@ -11,7 +11,6 @@
 int main() { fprintf(stderr, "Please install gflags to run tools\n"); }
 #else
 #include <gflags/gflags.h>
-#endif
 
 #include <atomic>
 #include <functional>
@@ -298,6 +297,7 @@ int main(int argc, char** argv) {
 
   return 0;
 }
+#endif  // #ifndef GFLAGS
 #else
 int main(int /*argc*/, char** /*argv*/) { return 0; }
 #endif
