@@ -43,6 +43,7 @@ using rocksdb::CompactionFilterContext;
 using rocksdb::CompactionOptionsFIFO;
 using rocksdb::Comparator;
 using rocksdb::CompressionType;
+using rocksdb::WALRecoveryMode;
 using rocksdb::DB;
 using rocksdb::DBOptions;
 using rocksdb::Env;
@@ -1555,7 +1556,7 @@ void rocksdb_options_set_max_mem_compaction_level(rocksdb_options_t* opt,
                                                   int n) {}
 
 void rocksdb_options_set_wal_recovery_mode(rocksdb_options_t* opt,int mode) {
-  opt->rep.wal_recovery_mode = mode;
+  opt->rep.wal_recovery_mode = static_cast<WALRecoveryMode>(mode);
 }
 
 void rocksdb_options_set_compression(rocksdb_options_t* opt, int t) {
