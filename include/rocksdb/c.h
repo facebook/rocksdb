@@ -691,6 +691,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
     rocksdb_options_t*, int);
 
 enum {
+  rocksdb_tolerate_corrupted_tail_records_recovery = 0,
+  rocksdb_absolute_consistency_recovery = 1,
+  rocksdb_point_in_time_recovery = 2,
+  rocksdb_skip_any_corrupted_records_recovery = 3
+};
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_wal_recovery_mode(
+    rocksdb_options_t*, int);
+
+enum {
   rocksdb_no_compression = 0,
   rocksdb_snappy_compression = 1,
   rocksdb_zlib_compression = 2,

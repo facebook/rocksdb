@@ -1554,6 +1554,10 @@ void rocksdb_options_set_level0_stop_writes_trigger(
 void rocksdb_options_set_max_mem_compaction_level(rocksdb_options_t* opt,
                                                   int n) {}
 
+void rocksdb_options_set_wal_recovery_mode(rocksdb_options_t* opt,int mode) {
+  opt->rep.wal_recovery_mode = mode;
+}
+
 void rocksdb_options_set_compression(rocksdb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
 }
