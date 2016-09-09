@@ -575,6 +575,7 @@ int main(int argc, char** argv) {
     rocksdb_close(db);
     rocksdb_options_set_create_if_missing(options, 0);
     rocksdb_options_set_error_if_exists(options, 0);
+    rocksdb_options_set_wal_recovery_mode(options, 2);
     rocksdb_repair_db(options, dbname, &err);
     CheckNoError(err);
     db = rocksdb_open(options, dbname, &err);
