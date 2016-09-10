@@ -1902,6 +1902,10 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         out_file->Append("  Filter block handle: ");
         out_file->Append(meta_iter->value().ToString(true).c_str());
         out_file->Append("\n");
+      } else if (meta_iter->key() == rocksdb::kRangeDelBlock) {
+        out_file->Append("  Range deletion block handle: ");
+        out_file->Append(meta_iter->value().ToString(true).c_str());
+        out_file->Append("\n");
       }
     }
     out_file->Append("\n");
@@ -1960,6 +1964,19 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   s = DumpIndexBlock(out_file);
   if (!s.ok()) {
     return s;
+  }
+  // Output range deletions block
+  auto range_del_iter = NewRangeTombstoneIterator(ReadOptions());
+  range_del_iter->SeekToFirst();
+  if (range_del_iter->Valid()) {
+    out_file->Append(
+        "Range deletions:\n"
+        "--------------------------------------\n"
+        "  ");
+    for (; range_del_iter->Valid(); range_del_iter->Next()) {
+      DumpKeyValue(range_del_iter->key(), range_del_iter->value(), out_file);
+    }
+    out_file->Append("\n");
   }
   // Output Data blocks
   s = DumpDataBlocks(out_file);
@@ -2085,35 +2102,7 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
         out_file->Append("Error reading the block - Skipped \n");
         break;
       }
-      Slice key = datablock_iter->key();
-      Slice value = datablock_iter->value();
-      InternalKey ikey;
-      ikey.DecodeFrom(key);
-
-      out_file->Append("  HEX    ");
-      out_file->Append(ikey.user_key().ToString(true).c_str());
-      out_file->Append(": ");
-      out_file->Append(value.ToString(true).c_str());
-      out_file->Append("\n");
-
-      std::string str_key = ikey.user_key().ToString();
-      std::string str_value = value.ToString();
-      std::string res_key(""), res_value("");
-      char cspace = ' ';
-      for (size_t i = 0; i < str_key.size(); i++) {
-        res_key.append(&str_key[i], 1);
-        res_key.append(1, cspace);
-      }
-      for (size_t i = 0; i < str_value.size(); i++) {
-        res_value.append(&str_value[i], 1);
-        res_value.append(1, cspace);
-      }
-
-      out_file->Append("  ASCII  ");
-      out_file->Append(res_key.c_str());
-      out_file->Append(": ");
-      out_file->Append(res_value.c_str());
-      out_file->Append("\n  ------\n");
+      DumpKeyValue(datablock_iter->key(), datablock_iter->value(), out_file);
     }
     out_file->Append("\n");
   }
@@ -2136,6 +2125,37 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
   }
 
   return Status::OK();
+}
+
+void BlockBasedTable::DumpKeyValue(const Slice& key, const Slice& value,
+                                   WritableFile* out_file) {
+  InternalKey ikey;
+  ikey.DecodeFrom(key);
+
+  out_file->Append("  HEX    ");
+  out_file->Append(ikey.user_key().ToString(true).c_str());
+  out_file->Append(": ");
+  out_file->Append(value.ToString(true).c_str());
+  out_file->Append("\n");
+
+  std::string str_key = ikey.user_key().ToString();
+  std::string str_value = value.ToString();
+  std::string res_key(""), res_value("");
+  char cspace = ' ';
+  for (size_t i = 0; i < str_key.size(); i++) {
+    res_key.append(&str_key[i], 1);
+    res_key.append(1, cspace);
+  }
+  for (size_t i = 0; i < str_value.size(); i++) {
+    res_value.append(&str_value[i], 1);
+    res_value.append(1, cspace);
+  }
+
+  out_file->Append("  ASCII  ");
+  out_file->Append(res_key.c_str());
+  out_file->Append(": ");
+  out_file->Append(res_value.c_str());
+  out_file->Append("\n  ------\n");
 }
 
 namespace {
