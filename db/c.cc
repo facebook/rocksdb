@@ -1783,11 +1783,7 @@ void rocksdb_options_prepare_for_bulk_load(rocksdb_options_t* opt) {
 }
 
 void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t *opt) {
-  static rocksdb::VectorRepFactory* factory = 0;
-  if (!factory) {
-    factory = new rocksdb::VectorRepFactory;
-  }
-  opt->rep.memtable_factory.reset(factory);
+  opt->rep.memtable_factory.reset(new rocksdb::VectorRepFactory);
 }
 
 void rocksdb_options_set_memtable_prefix_bloom_size_ratio(
@@ -1803,36 +1799,26 @@ void rocksdb_options_set_memtable_huge_page_size(rocksdb_options_t* opt,
 void rocksdb_options_set_hash_skip_list_rep(
     rocksdb_options_t *opt, size_t bucket_count,
     int32_t skiplist_height, int32_t skiplist_branching_factor) {
-  static rocksdb::MemTableRepFactory* factory = 0;
-  if (!factory) {
-    factory = rocksdb::NewHashSkipListRepFactory(
-        bucket_count, skiplist_height, skiplist_branching_factor);
-  }
+  rocksdb::MemTableRepFactory* factory = rocksdb::NewHashSkipListRepFactory(
+      bucket_count, skiplist_height, skiplist_branching_factor);
   opt->rep.memtable_factory.reset(factory);
 }
 
 void rocksdb_options_set_hash_link_list_rep(
     rocksdb_options_t *opt, size_t bucket_count) {
-  static rocksdb::MemTableRepFactory* factory = 0;
-  if (!factory) {
-    factory = rocksdb::NewHashLinkListRepFactory(bucket_count);
-  }
-  opt->rep.memtable_factory.reset(factory);
+  opt->rep.memtable_factory.reset(rocksdb::NewHashLinkListRepFactory(bucket_count));
 }
 
 void rocksdb_options_set_plain_table_factory(
     rocksdb_options_t *opt, uint32_t user_key_len, int bloom_bits_per_key,
     double hash_table_ratio, size_t index_sparseness) {
-  static rocksdb::TableFactory* factory = 0;
-  if (!factory) {
-    rocksdb::PlainTableOptions options;
-    options.user_key_len = user_key_len;
-    options.bloom_bits_per_key = bloom_bits_per_key;
-    options.hash_table_ratio = hash_table_ratio;
-    options.index_sparseness = index_sparseness;
+  rocksdb::PlainTableOptions options;
+  options.user_key_len = user_key_len;
+  options.bloom_bits_per_key = bloom_bits_per_key;
+  options.hash_table_ratio = hash_table_ratio;
+  options.index_sparseness = index_sparseness;
 
-    factory = rocksdb::NewPlainTableFactory(options);
-  }
+  rocksdb::TableFactory* factory = rocksdb::NewPlainTableFactory(options);
   opt->rep.table_factory.reset(factory);
 }
 
