@@ -944,6 +944,28 @@ int main(int argc, char** argv) {
     }
   }
 
+  // Simple sanity check that setting memtable rep works.
+  StartPhase("memtable_reps");
+  {
+    // Create database with vector memtable.
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_memtable_vector_rep(options);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    // Create database with hash skiplist memtable.
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_hash_skip_list_rep(options, 5000, 4, 4);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+  }
+
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
