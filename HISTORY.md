@@ -3,6 +3,7 @@
 ### Public API Change
 * Options::max_bytes_for_level_multiplier is now a double along with all getters and setters.
 * Support dynamically change `delayed_write_rate` and `max_total_wal_size` options via SetDBOptions().
+* Introduce DB::DeleteRange for optimized deletion of large ranges of contiguous keys.
 
 ### New Features
 * Add avoid_flush_during_shutdown option, which speeds up DB shutdown by not flushing unpersisted data (i.e. with disableWAL = true). Unpersisted data will be lost. The options is dynamically changeable via SetDBOptions().
