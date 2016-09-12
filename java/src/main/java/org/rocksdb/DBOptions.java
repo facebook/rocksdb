@@ -604,6 +604,17 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
 
   static final int DEFAULT_NUM_SHARD_BITS = -1;
 
+ public DBOptions setDelayedWriteRate(final long delayedWriteRate){
+   assert(isOwningHandle());
+   setDelayedWriteRate(nativeHandle_, delayedWriteRate);
+   return this;
+}
+
+public long delayedWriteRate(){
+  return delayedWriteRate(nativeHandle_);
+}
+
+
   /**
    * <p>Private constructor to be used by
    * {@link #getDBOptionsFromProps(java.util.Properties)}</p>
@@ -724,6 +735,9 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setWriteThreadSlowYieldUsec(long handle,
       long writeThreadSlowYieldUsec);
   private native long writeThreadSlowYieldUsec(long handle);
+
+  private native void setDelayedWriteRate(long handle, long delayedWriteRate);
+  private native long delayedWriteRate(long handle);
 
   int numShardBits_;
   RateLimiterConfig rateLimiterConfig_;

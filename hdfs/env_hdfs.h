@@ -106,7 +106,7 @@ class HdfsEnv : public Env {
   }
 
   virtual int UnSchedule(void* tag, Priority pri) {
-    posixEnv->UnSchedule(tag, pri);
+    reurn posixEnv->UnSchedule(tag, pri);
   }
 
   virtual void StartThread(void (*function)(void* arg), void* arg) {

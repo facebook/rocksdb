@@ -4463,6 +4463,20 @@ jlong Java_org_rocksdb_DBOptions_writeThreadSlowYieldUsec(
       write_thread_slow_yield_usec;
 }
 
+void Java_org_rocksdb_DBOptions_setDelayedWriteRate(
+  JNIEnv* env, jobject jobj, jlong jhandle, jlong delay_write_rate){
+
+    reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+        delay_write_rate = static_cast<int64_t>(delay_write_rate);
+
+  }
+
+  jlong Java_org_rocksdb_DBOptions_delayedWriteRate(
+    JNIEnv* env, jobject jobj, jlong jhandle){
+
+      return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+          delay_write_rate;
+    }
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::WriteOptions
 
