@@ -403,7 +403,7 @@ public class RocksDB extends RocksObject {
    */
   public void put(final byte[] key, final byte[] value)
       throws RocksDBException {
-    put(nativeHandle_, key, key.length, value, value.length);
+    put(nativeHandle_, key, 0, key.length, value, 0, value.length);
   }
 
   /**
@@ -422,7 +422,7 @@ public class RocksDB extends RocksObject {
    */
   public void put(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
-    put(nativeHandle_, key, key.length, value, value.length,
+    put(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -439,7 +439,7 @@ public class RocksDB extends RocksObject {
   public void put(final WriteOptions writeOpts, final byte[] key,
       final byte[] value) throws RocksDBException {
     put(nativeHandle_, writeOpts.nativeHandle_,
-        key, key.length, value, value.length);
+        key, 0, key.length, value, 0, value.length);
   }
 
   /**
@@ -461,8 +461,8 @@ public class RocksDB extends RocksObject {
   public void put(final ColumnFamilyHandle columnFamilyHandle,
       final WriteOptions writeOpts, final byte[] key,
       final byte[] value) throws RocksDBException {
-    put(nativeHandle_, writeOpts.nativeHandle_, key, key.length, value,
-        value.length, columnFamilyHandle.nativeHandle_);
+    put(nativeHandle_, writeOpts.nativeHandle_, key, 0, key.length, value,
+        0, value.length, columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -477,8 +477,8 @@ public class RocksDB extends RocksObject {
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
-  public boolean keyMayExist(final byte[] key, final StringBuffer value){
-    return keyMayExist(nativeHandle_, key, key.length, value);
+  public boolean keyMayExist(final byte[] key, final StringBuffer value) {
+    return keyMayExist(nativeHandle_, key, 0, key.length, value);
   }
 
   /**
@@ -495,8 +495,8 @@ public class RocksDB extends RocksObject {
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final StringBuffer value){
-    return keyMayExist(nativeHandle_, key, key.length,
+      final byte[] key, final StringBuffer value) {
+    return keyMayExist(nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_, value);
   }
 
@@ -514,9 +514,9 @@ public class RocksDB extends RocksObject {
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ReadOptions readOptions,
-      final byte[] key, final StringBuffer value){
+      final byte[] key, final StringBuffer value) {
     return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, key.length, value);
+        key, 0, key.length, value);
   }
 
   /**
@@ -535,9 +535,9 @@ public class RocksDB extends RocksObject {
    */
   public boolean keyMayExist(final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final StringBuffer value){
+      final StringBuffer value) {
     return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
-        key, key.length, columnFamilyHandle.nativeHandle_,
+        key, 0, key.length, columnFamilyHandle.nativeHandle_,
         value);
   }
 
@@ -581,7 +581,7 @@ public class RocksDB extends RocksObject {
    */
   public void merge(final byte[] key, final byte[] value)
       throws RocksDBException {
-    merge(nativeHandle_, key, key.length, value, value.length);
+    merge(nativeHandle_, key, 0, key.length, value, 0, value.length);
   }
 
   /**
@@ -597,7 +597,7 @@ public class RocksDB extends RocksObject {
    */
   public void merge(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key, final byte[] value) throws RocksDBException {
-    merge(nativeHandle_, key, key.length, value, value.length,
+    merge(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -615,7 +615,7 @@ public class RocksDB extends RocksObject {
   public void merge(final WriteOptions writeOpts, final byte[] key,
       final byte[] value) throws RocksDBException {
     merge(nativeHandle_, writeOpts.nativeHandle_,
-        key, key.length, value, value.length);
+        key, 0, key.length, value, 0, value.length);
   }
 
   /**
@@ -634,7 +634,7 @@ public class RocksDB extends RocksObject {
       final WriteOptions writeOpts, final byte[] key,
       final byte[] value) throws RocksDBException {
     merge(nativeHandle_, writeOpts.nativeHandle_,
-        key, key.length, value, value.length,
+        key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -653,7 +653,7 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public int get(final byte[] key, final byte[] value) throws RocksDBException {
-    return get(nativeHandle_, key, key.length, value, value.length);
+    return get(nativeHandle_, key, 0, key.length, value, 0, value.length);
   }
 
   /**
@@ -675,7 +675,7 @@ public class RocksDB extends RocksObject {
    */
   public int get(final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
       final byte[] value) throws RocksDBException, IllegalArgumentException {
-    return get(nativeHandle_, key, key.length, value, value.length,
+    return get(nativeHandle_, key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -698,7 +698,7 @@ public class RocksDB extends RocksObject {
   public int get(final ReadOptions opt, final byte[] key,
       final byte[] value) throws RocksDBException {
     return get(nativeHandle_, opt.nativeHandle_,
-               key, key.length, value, value.length);
+               key, 0, key.length, value, 0, value.length);
   }
   /**
    * Get the value associated with the specified key within column family.
@@ -721,8 +721,8 @@ public class RocksDB extends RocksObject {
   public int get(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions opt, final byte[] key, final byte[] value)
       throws RocksDBException {
-    return get(nativeHandle_, opt.nativeHandle_, key, key.length, value,
-        value.length, columnFamilyHandle.nativeHandle_);
+    return get(nativeHandle_, opt.nativeHandle_, key, 0, key.length, value,
+        0, value.length, columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -738,7 +738,7 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public byte[] get(final byte[] key) throws RocksDBException {
-    return get(nativeHandle_, key, key.length);
+    return get(nativeHandle_, key, 0, key.length);
   }
 
   /**
@@ -757,7 +757,7 @@ public class RocksDB extends RocksObject {
    */
   public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
       final byte[] key) throws RocksDBException {
-    return get(nativeHandle_, key, key.length,
+    return get(nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -776,7 +776,7 @@ public class RocksDB extends RocksObject {
    */
   public byte[] get(final ReadOptions opt, final byte[] key)
       throws RocksDBException {
-    return get(nativeHandle_, opt.nativeHandle_, key, key.length);
+    return get(nativeHandle_, opt.nativeHandle_, key, 0, key.length);
   }
 
   /**
@@ -796,7 +796,7 @@ public class RocksDB extends RocksObject {
    */
   public byte[] get(final ColumnFamilyHandle columnFamilyHandle,
       final ReadOptions opt, final byte[] key) throws RocksDBException {
-    return get(nativeHandle_, opt.nativeHandle_, key, key.length,
+    return get(nativeHandle_, opt.nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -814,10 +814,17 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     assert(keys.size() != 0);
 
-    final byte[][] values = multiGet(nativeHandle_,
-        keys.toArray(new byte[keys.size()][]));
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int keyOffsets[] = new int[keysArray.length];
+    final int keyLengths[] = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
 
-    Map<byte[], byte[]> keyValueMap = new HashMap<>();
+    final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
+        keyLengths);
+
+    final Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.length; i++) {
       if(values[i] == null) {
         continue;
@@ -862,10 +869,18 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyHandleList.size(); i++) {
       cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
     }
-    final byte[][] values = multiGet(nativeHandle_,
-        keys.toArray(new byte[keys.size()][]), cfHandles);
 
-    Map<byte[], byte[]> keyValueMap = new HashMap<>();
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int keyOffsets[] = new int[keysArray.length];
+    final int keyLengths[] = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
+
+    final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
+        keyLengths, cfHandles);
+
+    final Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.length; i++) {
       if (values[i] == null) {
         continue;
@@ -890,10 +905,17 @@ public class RocksDB extends RocksObject {
       final List<byte[]> keys) throws RocksDBException {
     assert(keys.size() != 0);
 
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
-        keys.toArray(new byte[keys.size()][]));
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int keyOffsets[] = new int[keysArray.length];
+    final int keyLengths[] = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
 
-    Map<byte[], byte[]> keyValueMap = new HashMap<>();
+    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
+        keysArray, keyOffsets, keyLengths);
+
+    final Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.length; i++) {
       if(values[i] == null) {
         continue;
@@ -938,10 +960,18 @@ public class RocksDB extends RocksObject {
     for (int i = 0; i < columnFamilyHandleList.size(); i++) {
       cfHandles[i] = columnFamilyHandleList.get(i).nativeHandle_;
     }
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
-        keys.toArray(new byte[keys.size()][]), cfHandles);
 
-    Map<byte[], byte[]> keyValueMap = new HashMap<>();
+    final byte[][] keysArray = keys.toArray(new byte[keys.size()][]);
+    final int keyOffsets[] = new int[keysArray.length];
+    final int keyLengths[] = new int[keysArray.length];
+    for(int i = 0; i < keyLengths.length; i++) {
+      keyLengths[i] = keysArray[i].length;
+    }
+
+    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
+        keysArray, keyOffsets, keyLengths, cfHandles);
+
+    final Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.length; i++) {
       if(values[i] == null) {
         continue;
@@ -980,7 +1010,7 @@ public class RocksDB extends RocksObject {
    *    native library.
    */
   public void delete(final byte[] key) throws RocksDBException {
-    delete(nativeHandle_, key, key.length);
+    delete(nativeHandle_, key, 0, key.length);
   }
 
   /**
@@ -1017,7 +1047,7 @@ public class RocksDB extends RocksObject {
    */
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
                      final byte[] key) throws RocksDBException {
-    delete(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
+    delete(nativeHandle_, key, 0, key.length, columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -1052,7 +1082,7 @@ public class RocksDB extends RocksObject {
    */
   public void delete(final WriteOptions writeOpt, final byte[] key)
       throws RocksDBException {
-    delete(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
+    delete(nativeHandle_, writeOpt.nativeHandle_, key, 0, key.length);
   }
 
   /**
@@ -1093,7 +1123,7 @@ public class RocksDB extends RocksObject {
   public void delete(final ColumnFamilyHandle columnFamilyHandle,
                      final WriteOptions writeOpt, final byte[] key)
       throws RocksDBException {
-    delete(nativeHandle_, writeOpt.nativeHandle_, key, key.length,
+    delete(nativeHandle_, writeOpt.nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_);
   }
 
@@ -1970,91 +2000,87 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyOptions
   ) throws RocksDBException;
 
-  protected native static byte[][] listColumnFamilies(
-      long optionsHandle, String path) throws RocksDBException;
-  protected native void put(
-      long handle, byte[] key, int keyLen,
-      byte[] value, int valueLen) throws RocksDBException;
-  protected native void put(
-      long handle, byte[] key, int keyLen,
-      byte[] value, int valueLen, long cfHandle) throws RocksDBException;
-  protected native void put(
-      long handle, long writeOptHandle,
-      byte[] key, int keyLen,
-      byte[] value, int valueLen) throws RocksDBException;
-  protected native void put(
-      long handle, long writeOptHandle,
-      byte[] key, int keyLen,
-      byte[] value, int valueLen, long cfHandle) throws RocksDBException;
+  protected native static byte[][] listColumnFamilies(long optionsHandle,
+      String path) throws RocksDBException;
+  protected native void put(long handle, byte[] key, int keyOffset,
+      int keyLength, byte[] value, int valueOffset, int valueLength)
+      throws RocksDBException;
+  protected native void put(long handle, byte[] key, int keyOffset,
+      int keyLength, byte[] value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
+  protected native void put(long handle, long writeOptHandle, byte[] key,
+      int keyOffset, int keyLength, byte[] value, int valueOffset,
+      int valueLength) throws RocksDBException;
+  protected native void put(long handle, long writeOptHandle, byte[] key,
+      int keyOffset, int keyLength, byte[] value, int valueOffset,
+      int valueLength, long cfHandle) throws RocksDBException;
   protected native void write0(final long handle, long writeOptHandle,
       long wbHandle) throws RocksDBException;
   protected native void write1(final long handle, long writeOptHandle,
       long wbwiHandle) throws RocksDBException;
   protected native boolean keyMayExist(final long handle, final byte[] key,
-      final int keyLen, final StringBuffer stringBuffer);
+      final int keyOffset, final int keyLength,
+      final StringBuffer stringBuffer);
   protected native boolean keyMayExist(final long handle, final byte[] key,
-      final int keyLen, final long cfHandle, final StringBuffer stringBuffer);
-  protected native boolean keyMayExist(final long handle,
-      final long optionsHandle, final byte[] key, final int keyLen,
+      final int keyOffset, final int keyLength, final long cfHandle,
       final StringBuffer stringBuffer);
   protected native boolean keyMayExist(final long handle,
-      final long optionsHandle, final byte[] key, final int keyLen,
-      final long cfHandle, final StringBuffer stringBuffer);
-  protected native void merge(
-      long handle, byte[] key, int keyLen,
-      byte[] value, int valueLen) throws RocksDBException;
-  protected native void merge(
-      long handle, byte[] key, int keyLen,
-      byte[] value, int valueLen, long cfHandle) throws RocksDBException;
-  protected native void merge(
-      long handle, long writeOptHandle,
-      byte[] key, int keyLen,
-      byte[] value, int valueLen) throws RocksDBException;
-  protected native void merge(
-      long handle, long writeOptHandle,
-      byte[] key, int keyLen,
-      byte[] value, int valueLen, long cfHandle) throws RocksDBException;
-  protected native int get(
-      long handle, byte[] key, int keyLen,
-      byte[] value, int valueLen) throws RocksDBException;
-  protected native int get(
-      long handle, byte[] key, int keyLen,
-      byte[] value, int valueLen, long cfHandle) throws RocksDBException;
-  protected native int get(
-      long handle, long readOptHandle, byte[] key, int keyLen,
-      byte[] value, int valueLen) throws RocksDBException;
-  protected native int get(
-      long handle, long readOptHandle, byte[] key, int keyLen,
-      byte[] value, int valueLen, long cfHandle) throws RocksDBException;
-  protected native byte[][] multiGet(final long dbHandle, final byte[][] keys);
+      final long optionsHandle, final byte[] key, final int keyOffset,
+      final int keyLength, final StringBuffer stringBuffer);
+  protected native boolean keyMayExist(final long handle,
+      final long optionsHandle, final byte[] key, final int keyOffset,
+      final int keyLength, final long cfHandle,
+      final StringBuffer stringBuffer);
+  protected native void merge(long handle, byte[] key, int keyOffset,
+      int keyLength, byte[] value, int valueOffset, int valueLength)
+      throws RocksDBException;
+  protected native void merge(long handle, byte[] key, int keyOffset,
+      int keyLength, byte[] value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
+  protected native void merge(long handle, long writeOptHandle, byte[] key,
+      int keyOffset, int keyLength, byte[] value, int valueOffset,
+      int valueLength) throws RocksDBException;
+  protected native void merge(long handle, long writeOptHandle, byte[] key,
+      int keyOffset, int keyLength, byte[] value, int valueOffset,
+      int valueLength, long cfHandle) throws RocksDBException;
+  protected native int get(long handle, byte[] key, int keyOffset,
+      int keyLength, byte[] value, int valueOffset, int valueLength)
+      throws RocksDBException;
+  protected native int get(long handle, byte[] key, int keyOffset,
+      int keyLength, byte[] value, int valueOffset, int valueLength,
+      long cfHandle) throws RocksDBException;
+  protected native int get(long handle, long readOptHandle, byte[] key,
+      int keyOffset, int keyLength, byte[] value, int valueOffset,
+      int valueLength) throws RocksDBException;
+  protected native int get(long handle, long readOptHandle, byte[] key,
+      int keyOffset, int keyLength, byte[] value, int valueOffset,
+      int valueLength, long cfHandle) throws RocksDBException;
   protected native byte[][] multiGet(final long dbHandle, final byte[][] keys,
+      final int[] keyOffsets, final int[] keyLengths);
+  protected native byte[][] multiGet(final long dbHandle, final byte[][] keys,
+      final int[] keyOffsets, final int[] keyLengths,
       final long[] columnFamilyHandles);
   protected native byte[][] multiGet(final long dbHandle, final long rOptHandle,
-      final byte[][] keys);
+      final byte[][] keys, final int[] keyOffsets, final int[] keyLengths);
   protected native byte[][] multiGet(final long dbHandle, final long rOptHandle,
-      final byte[][] keys, final long[] columnFamilyHandles);
-  protected native byte[] get(
-      long handle, byte[] key, int keyLen) throws RocksDBException;
-  protected native byte[] get(
-      long handle, byte[] key, int keyLen, long cfHandle)
-      throws RocksDBException;
-  protected native byte[] get(
-      long handle, long readOptHandle,
-      byte[] key, int keyLen) throws RocksDBException;
-  protected native byte[] get(
-      long handle, long readOptHandle,
-      byte[] key, int keyLen, long cfHandle) throws RocksDBException;
-  protected native void delete(
-      long handle, byte[] key, int keyLen) throws RocksDBException;
-  protected native void delete(
-      long handle, byte[] key, int keyLen, long cfHandle)
-      throws RocksDBException;
-  protected native void delete(
-      long handle, long writeOptHandle,
-      byte[] key, int keyLen) throws RocksDBException;
-  protected native void delete(
-      long handle, long writeOptHandle,
-      byte[] key, int keyLen, long cfHandle) throws RocksDBException;
+      final byte[][] keys, final int[] keyOffsets, final int[] keyLengths,
+      final long[] columnFamilyHandles);
+  protected native byte[] get(long handle, byte[] key, int keyOffset,
+      int keyLength) throws RocksDBException;
+  protected native byte[] get(long handle, byte[] key, int keyOffset,
+      int keyLength, long cfHandle) throws RocksDBException;
+  protected native byte[] get(long handle, long readOptHandle,
+      byte[] key, int keyOffset, int keyLength) throws RocksDBException;
+  protected native byte[] get(long handle, long readOptHandle, byte[] key,
+      int keyOffset, int keyLength, long cfHandle) throws RocksDBException;
+  protected native void delete(long handle, byte[] key, int keyOffset,
+      int keyLength) throws RocksDBException;
+  protected native void delete(long handle, byte[] key, int keyOffset,
+      int keyLength, long cfHandle) throws RocksDBException;
+  protected native void delete(long handle, long writeOptHandle, byte[] key,
+      int keyOffset, int keyLength) throws RocksDBException;
+  protected native void delete(long handle, long writeOptHandle, byte[] key,
+      int keyOffset, int keyLength, long cfHandle) throws RocksDBException;
   protected native void singleDelete(
       long handle, byte[] key, int keyLen) throws RocksDBException;
   protected native void singleDelete(
@@ -2070,8 +2096,8 @@ public class RocksDB extends RocksObject {
       String property, int propertyLength) throws RocksDBException;
   protected native String getProperty0(long nativeHandle, long cfHandle,
       String property, int propertyLength) throws RocksDBException;
-  protected native long getLongProperty(long nativeHandle,
-      String property, int propertyLength) throws RocksDBException;
+  protected native long getLongProperty(long nativeHandle, String property,
+      int propertyLength) throws RocksDBException;
   protected native long getLongProperty(long nativeHandle, long cfHandle,
       String property, int propertyLength) throws RocksDBException;
   protected native long iterator(long handle);
@@ -2083,8 +2109,7 @@ public class RocksDB extends RocksObject {
       final long[] columnFamilyHandles, final long readOptHandle)
       throws RocksDBException;
   protected native long getSnapshot(long nativeHandle);
-  protected native void releaseSnapshot(
-      long nativeHandle, long snapshotHandle);
+  protected native void releaseSnapshot(long nativeHandle, long snapshotHandle);
   @Override protected final native void disposeInternal(final long handle);
   private native long getDefaultColumnFamily(long handle);
   private native long createColumnFamily(final long handle,
@@ -2094,8 +2119,8 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native void flush(long handle, long flushOptHandle)
       throws RocksDBException;
-  private native void flush(long handle, long flushOptHandle,
-      long cfHandle) throws RocksDBException;
+  private native void flush(long handle, long flushOptHandle, long cfHandle)
+      throws RocksDBException;
   private native void compactRange0(long handle, boolean reduce_level,
       int target_level, int target_path_id) throws RocksDBException;
   private native void compactRange0(long handle, byte[] begin, int beginLen,
@@ -2111,8 +2136,8 @@ public class RocksDB extends RocksObject {
   private native void continueBackgroundWork(long handle) throws RocksDBException;
   private native long getLatestSequenceNumber(long handle);
   private native void disableFileDeletions(long handle) throws RocksDBException;
-  private native void enableFileDeletions(long handle,
-      boolean force) throws RocksDBException;
+  private native void enableFileDeletions(long handle, boolean force)
+      throws RocksDBException;
   private native long getUpdatesSince(long handle, long sequenceNumber)
       throws RocksDBException;
   private native void setOptions(long handle, long cfHandle, String[] keys,
