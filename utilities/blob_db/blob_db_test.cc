@@ -37,8 +37,8 @@ TEST_F(BlobDBTest, Basic) {
   ReadOptions ro;
   std::string value;
 
-  ASSERT_OK(db_->Put(wo, "foo", "v1"));
-  ASSERT_OK(db_->Put(wo, "bar", "v2"));
+  ASSERT_OK(db_->PutWithTTL(wo, "foo", "v1", 3600));
+  ASSERT_OK(db_->PutWithTTL(wo, "bar", "v2", 60));
 
   ASSERT_OK(db_->Get(ro, "foo", &value));
   ASSERT_EQ("v1", value);
@@ -55,11 +55,11 @@ TEST_F(BlobDBTest, Large) {
   Random rnd(301);
 
   value1.assign(8999, '1');
-  ASSERT_OK(db_->Put(wo, "foo", value1));
+  ASSERT_OK(db_->PutWithTTL(wo, "foo", value1, 3600));
   value2.assign(9001, '2');
-  ASSERT_OK(db_->Put(wo, "bar", value2));
+  ASSERT_OK(db_->PutWithTTL(wo, "bar", value2, 3600));
   test::RandomString(&rnd, 13333, &value3);
-  ASSERT_OK(db_->Put(wo, "barfoo", value3));
+  ASSERT_OK(db_->PutWithTTL(wo, "barfoo", value3, 3600));
 
   std::string value;
   ASSERT_OK(db_->Get(ro, "foo", &value));

@@ -60,12 +60,15 @@ class Reader {
 
   ~Reader();
 
+  Status ReadHeader(blob_log::BlobLogHeader& header);
+
   // Read the next record into *record.  Returns true if read
   // successfully, false if we hit end of the input.  May use
   // "*scratch" as temporary storage.  The contents filled in *record
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
-  bool ReadRecord(Slice* record, std::string* scratch,
+  bool ReadRecord(blob_log::Record& record, std::string* scratch,
+                  bool shallow = false,
                   WALRecoveryMode wal_recovery_mode =
                       WALRecoveryMode::kTolerateCorruptedTailRecords);
 
@@ -131,11 +134,6 @@ class Reader {
     // Returned when we get a bad record checksum
     kBadRecordChecksum = kMaxRecordType + 6,
   };
-
-  // Skips all blocks that are completely before "initial_offset_".
-  //
-  // Returns true on success. Handles reporting.
-  bool SkipToInitialBlock();
 
   // Return type, or one of the preceding special values
   unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);

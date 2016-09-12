@@ -73,27 +73,42 @@ class Writer {
   // "*dest" must be initially empty.
   // "*dest" must remain live while this Writer is in use.
   explicit Writer(unique_ptr<WritableFileWriter>&& dest,
-                  uint64_t log_number);
+                  uint64_t log_number, uint64_t bpsync,
+                  bool use_fsync);
   ~Writer();
 
-  Status AddRecord(const Slice& slice);
+  Status AddRecord(const Slice& key, const Slice& val,
+    uint64_t& key_offset, uint64_t& blob_offset);
+
+  Status AddRecord(const Slice& key, const Slice& val,
+    uint64_t& key_offset, uint64_t& blob_offset, uint32_t ttl);
+
+  Status AppendFooter(blob_log::BlobLogFooter& footer);
+
+  Status WriteHeader(blob_log::BlobLogHeader& header);
 
   WritableFileWriter* file() { return dest_.get(); }
+
   const WritableFileWriter* file() const { return dest_.get(); }
 
   uint64_t get_log_number() const { return log_number_; }
 
  private:
   unique_ptr<WritableFileWriter> dest_;
-  size_t block_offset_;       // Current offset in block
   uint64_t log_number_;
+  uint64_t block_offset_;       // Current offset in block
+  uint64_t bytes_per_sync_;
+  uint64_t next_sync_offset_;
+  bool use_fsync_;
 
   // crc32c values for all supported record types.  These are
   // pre-computed to reduce the overhead of computing the crc of the
   // record type stored in the header.
   uint32_t type_crc_[kMaxRecordType + 1];
 
-  Status EmitPhysicalRecord(RecordType type, const char* ptr, size_t length);
+  Status EmitPhysicalRecord(RecordType type, RecordSubType st, const Slice& key,
+    const Slice& val, uint64_t& key_offset, uint64_t& blob_offset,
+    int32_t ttl = -1, int64_t ts = -1);
 
   // No copying allowed
   Writer(const Writer&);
