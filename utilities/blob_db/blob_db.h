@@ -81,6 +81,8 @@ class BlobDB : public StackableDB {
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
       const std::string& dbname, BlobDB** blob_db);
 
+  virtual ~BlobDB() { }
+
 protected:
 
   explicit BlobDB(DB* db);

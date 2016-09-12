@@ -42,27 +42,15 @@ Reader::~Reader() {
   delete[] backing_store_;
 }
 
-bool Reader::SkipToInitialBlock() {
-  size_t initial_offset_in_block = initial_offset_ % kBlockSize;
-  uint64_t block_start_location = initial_offset_ - initial_offset_in_block;
-
-  // Don't search a block if we'd be in the trailer
-  if (initial_offset_in_block > kBlockSize - 6) {
-    block_start_location += kBlockSize;
+Status Reader::ReadHeader(blob_log::BlobLogHeader& header)
+{
+  Status status = file_->Read(blob_log::BlobLogHeader::kHeaderSize, &buffer_, backing_store_);
+  if (!status.ok()) {
+    return status;
   }
 
-  end_of_buffer_offset_ = block_start_location;
-
-  // Skip to start of first block that can contain the initial record
-  if (block_start_location > 0) {
-    Status skip_status = file_->Skip(block_start_location);
-    if (!skip_status.ok()) {
-      ReportDrop(static_cast<size_t>(block_start_location), skip_status);
-      return false;
-    }
-  }
-
-  return true;
+  status = header.DecodeFrom(&buffer_);
+  return status;
 }
 
 // For kAbsoluteConsistency, on clean shutdown we don't expect any error
@@ -72,14 +60,13 @@ bool Reader::SkipToInitialBlock() {
 //
 // TODO krad: Evaluate if we need to move to a more strict mode where we
 // restrict the inconsistency to only the last log
-bool Reader::ReadRecord(Slice* record, std::string* scratch,
+bool Reader::ReadRecord(blob_log::Record& record, std::string* scratch,
+                        bool shallow,
                         WALRecoveryMode wal_recovery_mode) {
-  if (last_record_offset_ < initial_offset_) {
-    if (!SkipToInitialBlock()) {
-      return false;
-    }
-  }
 
+  return true;
+
+#if 0
   scratch->clear();
   record->clear();
   bool in_fragmented_record = false;
@@ -213,6 +200,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
     }
   }
   return false;
+#endif
 }
 
 uint64_t Reader::LastRecordOffset() {
@@ -340,11 +328,18 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
 
     // Parse the header
     const char* header = buffer_.data();
-    const uint32_t a = static_cast<uint32_t>(header[4]) & 0xff;
-    const uint32_t b = static_cast<uint32_t>(header[5]) & 0xff;
-    const unsigned int type = header[6];
-    const uint32_t length = a | (b << 8);
+    uint32_t ttl = DecodeFixed32(header + 12);
+    uint32_t key_size = DecodeFixed32(header + 4);
+    uint32_t blob_size = DecodeFixed32(header + 8);
+    const unsigned int type = header[16];
+    const unsigned int sub_type = header[17];
+    (void)ttl;
+    (void)sub_type;
+    (void)key_size;
+    (void)blob_size;
     int header_size = kHeaderSize;
+    uint32_t length = key_size + blob_size;
+
     if (header_size + length > buffer_.size()) {
       *drop_size = buffer_.size();
       buffer_.clear();
@@ -360,20 +355,10 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       return kEof;
     }
 
-    if (type == kZeroType && length == 0) {
-      // Skip zero length record without reporting any drops since
-      // such records are produced by the mmap based writing code in
-      // env_posix.cc that preallocates file regions.
-      // NOTE: this should never happen in DB written by new RocksDB versions,
-      // since we turn off mmap writes to manifest and log files
-      buffer_.clear();
-      return kBadRecord;
-    }
-
     // Check crc
     if (checksum_) {
       uint32_t expected_crc = crc32c::Unmask(DecodeFixed32(header));
-      uint32_t actual_crc = crc32c::Value(header + 6, length + header_size - 6);
+      uint32_t actual_crc = crc32c::Value(header + 14, length);
       if (actual_crc != expected_crc) {
         // Drop the rest of the buffer since "length" itself may have
         // been corrupted and if we trust it, we could find some
