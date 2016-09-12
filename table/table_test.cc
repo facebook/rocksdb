@@ -2432,18 +2432,25 @@ TEST_F(MemTableTest, Simple) {
   batch.Put(std::string("k2"), std::string("v2"));
   batch.Put(std::string("k3"), std::string("v3"));
   batch.Put(std::string("largekey"), std::string("vlarge"));
+  batch.DeleteRange(std::string("chi"), std::string("xigua"));
+  batch.DeleteRange(std::string("begin"), std::string("end"));
   ColumnFamilyMemTablesDefault cf_mems_default(memtable);
   ASSERT_TRUE(
       WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr).ok());
 
-  Arena arena;
-  ScopedArenaIterator iter(memtable->NewIterator(ReadOptions(), &arena));
-  iter->SeekToFirst();
-  while (iter->Valid()) {
-    fprintf(stderr, "key: '%s' -> '%s'\n",
-            iter->key().ToString().c_str(),
-            iter->value().ToString().c_str());
-    iter->Next();
+  for (int i = 0; i < 2; ++i) {
+    Arena arena;
+    ScopedArenaIterator iter =
+        i == 0
+            ? ScopedArenaIterator(memtable->NewIterator(ReadOptions(), &arena))
+            : ScopedArenaIterator(
+                  memtable->NewRangeTombstoneIterator(ReadOptions(), &arena));
+    iter->SeekToFirst();
+    while (iter->Valid()) {
+      fprintf(stderr, "key: '%s' -> '%s'\n", iter->key().ToString().c_str(),
+              iter->value().ToString().c_str());
+      iter->Next();
+    }
   }
 
   delete memtable->Unref();

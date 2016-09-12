@@ -43,60 +43,65 @@ static std::string PrintContents(WriteBatch* b) {
   int single_delete_count = 0;
   int delete_range_count = 0;
   int merge_count = 0;
-  Arena arena;
-  ScopedArenaIterator iter(mem->NewIterator(ReadOptions(), &arena));
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ParsedInternalKey ikey;
-    memset((void *)&ikey, 0, sizeof(ikey));
-    EXPECT_TRUE(ParseInternalKey(iter->key(), &ikey));
-    switch (ikey.type) {
-      case kTypeValue:
-        state.append("Put(");
-        state.append(ikey.user_key.ToString());
-        state.append(", ");
-        state.append(iter->value().ToString());
-        state.append(")");
-        count++;
-        put_count++;
-        break;
-      case kTypeDeletion:
-        state.append("Delete(");
-        state.append(ikey.user_key.ToString());
-        state.append(")");
-        count++;
-        delete_count++;
-        break;
-      case kTypeSingleDeletion:
-        state.append("SingleDelete(");
-        state.append(ikey.user_key.ToString());
-        state.append(")");
-        count++;
-        single_delete_count++;
-        break;
-      case kTypeRangeDeletion:
-        state.append("DeleteRange(");
-        state.append(ikey.user_key.ToString());
-        state.append(", ");
-        state.append(iter->value().ToString());
-        state.append(")");
-        count++;
-        delete_range_count++;
-        break;
-      case kTypeMerge:
-        state.append("Merge(");
-        state.append(ikey.user_key.ToString());
-        state.append(", ");
-        state.append(iter->value().ToString());
-        state.append(")");
-        count++;
-        merge_count++;
-        break;
-      default:
-        assert(false);
-        break;
+  for (int i = 0; i < 2; ++i) {
+    Arena arena;
+    auto iter =
+        i == 0 ? ScopedArenaIterator(mem->NewIterator(ReadOptions(), &arena))
+               : ScopedArenaIterator(
+                     mem->NewRangeTombstoneIterator(ReadOptions(), &arena));
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+      ParsedInternalKey ikey;
+      memset((void*)&ikey, 0, sizeof(ikey));
+      EXPECT_TRUE(ParseInternalKey(iter->key(), &ikey));
+      switch (ikey.type) {
+        case kTypeValue:
+          state.append("Put(");
+          state.append(ikey.user_key.ToString());
+          state.append(", ");
+          state.append(iter->value().ToString());
+          state.append(")");
+          count++;
+          put_count++;
+          break;
+        case kTypeDeletion:
+          state.append("Delete(");
+          state.append(ikey.user_key.ToString());
+          state.append(")");
+          count++;
+          delete_count++;
+          break;
+        case kTypeSingleDeletion:
+          state.append("SingleDelete(");
+          state.append(ikey.user_key.ToString());
+          state.append(")");
+          count++;
+          single_delete_count++;
+          break;
+        case kTypeRangeDeletion:
+          state.append("DeleteRange(");
+          state.append(ikey.user_key.ToString());
+          state.append(", ");
+          state.append(iter->value().ToString());
+          state.append(")");
+          count++;
+          delete_range_count++;
+          break;
+        case kTypeMerge:
+          state.append("Merge(");
+          state.append(ikey.user_key.ToString());
+          state.append(", ");
+          state.append(iter->value().ToString());
+          state.append(")");
+          count++;
+          merge_count++;
+          break;
+        default:
+          assert(false);
+          break;
+      }
+      state.append("@");
+      state.append(NumberToString(ikey.sequence));
     }
-    state.append("@");
-    state.append(NumberToString(ikey.sequence));
   }
   EXPECT_EQ(b->HasPut(), put_count > 0);
   EXPECT_EQ(b->HasDelete(), delete_count > 0);
@@ -131,10 +136,10 @@ TEST_F(WriteBatchTest, Multiple) {
   ASSERT_EQ(100U, WriteBatchInternal::Sequence(&batch));
   ASSERT_EQ(4, WriteBatchInternal::Count(&batch));
   ASSERT_EQ(
-      "DeleteRange(bar, foo)@102"
       "Put(baz, boo)@103"
       "Delete(box)@101"
-      "Put(foo, bar)@100",
+      "Put(foo, bar)@100"
+      "DeleteRange(bar, foo)@102",
       PrintContents(&batch));
   ASSERT_EQ(4, batch.Count());
 }
