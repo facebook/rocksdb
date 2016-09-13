@@ -46,11 +46,12 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                  std::unique_ptr<TableBuilder>* builder) {
   unique_ptr<WritableFile> wf(new test::StringSink);
   writable->reset(new WritableFileWriter(std::move(wf), EnvOptions()));
-
+  int unknown_level = -1;
   builder->reset(NewTableBuilder(
       ioptions, internal_comparator, int_tbl_prop_collector_factories,
       kTestColumnFamilyId, kTestColumnFamilyName,
-      writable->get(), options.compression, options.compression_opts));
+      writable->get(), options.compression, options.compression_opts,
+      unknown_level));
 }
 }  // namespace
 
