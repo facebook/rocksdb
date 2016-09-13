@@ -81,6 +81,17 @@ class ChrootEnv : public EnvWrapper {
                                          options);
   }
 
+  virtual Status NewRandomRWFile(const std::string& fname,
+                                 unique_ptr<RandomRWFile>* result,
+                                 const EnvOptions& options) override {
+    auto status_and_enc_path = EncodePathWithNewBasename(fname);
+    if (!status_and_enc_path.first.ok()) {
+      return status_and_enc_path.first;
+    }
+    return EnvWrapper::NewRandomRWFile(status_and_enc_path.second, result,
+                                       options);
+  }
+
   virtual Status NewDirectory(const std::string& dir,
                               unique_ptr<Directory>* result) override {
     auto status_and_enc_path = EncodePathWithNewBasename(dir);

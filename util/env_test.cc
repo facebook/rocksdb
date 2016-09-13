@@ -1186,6 +1186,158 @@ TEST_P(EnvPosixTestWithParam, WritableFileWrapper) {
   EXPECT_EQ(14, step);
 }
 
+TEST_P(EnvPosixTestWithParam, PosixRandomRWFile) {
+  const std::string path = test::TmpDir(env_) + "/random_rw_file";
+
+  env_->DeleteFile(path);
+
+  std::unique_ptr<RandomRWFile> file;
+  ASSERT_OK(env_->NewRandomRWFile(path, &file, EnvOptions()));
+
+  char buf[10000];
+  Slice read_res;
+
+  ASSERT_OK(file->Write(0, "ABCD"));
+  ASSERT_OK(file->Read(0, 10, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "ABCD");
+
+  ASSERT_OK(file->Write(2, "XXXX"));
+  ASSERT_OK(file->Read(0, 10, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "ABXXXX");
+
+  ASSERT_OK(file->Write(10, "ZZZ"));
+  ASSERT_OK(file->Read(10, 10, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "ZZZ");
+
+  ASSERT_OK(file->Write(11, "Y"));
+  ASSERT_OK(file->Read(10, 10, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "ZYZ");
+
+  ASSERT_OK(file->Write(200, "FFFFF"));
+  ASSERT_OK(file->Read(200, 10, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "FFFFF");
+
+  ASSERT_OK(file->Write(205, "XXXX"));
+  ASSERT_OK(file->Read(200, 10, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "FFFFFXXXX");
+
+  ASSERT_OK(file->Write(5, "QQQQ"));
+  ASSERT_OK(file->Read(0, 9, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "ABXXXQQQQ");
+
+  ASSERT_OK(file->Read(2, 4, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "XXXQ");
+
+  // Close file and reopen it
+  file->Close();
+  ASSERT_OK(env_->NewRandomRWFile(path, &file, EnvOptions()));
+
+  ASSERT_OK(file->Read(0, 9, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "ABXXXQQQQ");
+
+  ASSERT_OK(file->Read(10, 3, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "ZYZ");
+
+  ASSERT_OK(file->Read(200, 9, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "FFFFFXXXX");
+
+  ASSERT_OK(file->Write(4, "TTTTTTTTTTTTTTTT"));
+  ASSERT_OK(file->Read(0, 10, &read_res, buf));
+  ASSERT_EQ(read_res.ToString(), "ABXXTTTTTT");
+
+  // Clean up
+  env_->DeleteFile(path);
+}
+
+class RandomRWFileWithMirrorString {
+ public:
+  explicit RandomRWFileWithMirrorString(RandomRWFile* _file) : file_(_file) {}
+
+  void Write(size_t offset, const std::string& data) {
+    // Write to mirror string
+    StringWrite(offset, data);
+
+    // Write to file
+    Status s = file_->Write(offset, data);
+    ASSERT_OK(s) << s.ToString();
+  }
+
+  void Read(size_t offset = 0, size_t n = 1000000) {
+    Slice str_res(nullptr, 0);
+    if (offset < file_mirror_.size()) {
+      size_t str_res_sz = std::min(file_mirror_.size() - offset, n);
+      str_res = Slice(file_mirror_.data() + offset, str_res_sz);
+      StopSliceAtNull(&str_res);
+    }
+
+    Slice file_res;
+    Status s = file_->Read(offset, n, &file_res, buf_);
+    ASSERT_OK(s) << s.ToString();
+    StopSliceAtNull(&file_res);
+
+    ASSERT_EQ(str_res.ToString(), file_res.ToString()) << offset << " " << n;
+  }
+
+  void SetFile(RandomRWFile* _file) { file_ = _file; }
+
+ private:
+  void StringWrite(size_t offset, const std::string& src) {
+    if (offset + src.size() > file_mirror_.size()) {
+      file_mirror_.resize(offset + src.size(), '\0');
+    }
+
+    char* pos = const_cast<char*>(file_mirror_.data() + offset);
+    memcpy(pos, src.data(), src.size());
+  }
+
+  void StopSliceAtNull(Slice* slc) {
+    for (size_t i = 0; i < slc->size(); i++) {
+      if ((*slc)[i] == '\0') {
+        *slc = Slice(slc->data(), i);
+        break;
+      }
+    }
+  }
+
+  char buf_[10000];
+  RandomRWFile* file_;
+  std::string file_mirror_;
+};
+
+TEST_P(EnvPosixTestWithParam, PosixRandomRWFileRandomized) {
+  const std::string path = test::TmpDir(env_) + "/random_rw_file_rand";
+  env_->DeleteFile(path);
+
+  unique_ptr<RandomRWFile> file;
+  ASSERT_OK(env_->NewRandomRWFile(path, &file, EnvOptions()));
+  RandomRWFileWithMirrorString file_with_mirror(file.get());
+
+  Random rnd(301);
+  std::string buf;
+  for (int i = 0; i < 10000; i++) {
+    // Genrate random data
+    test::RandomString(&rnd, 10, &buf);
+
+    // Pick random offset for write
+    size_t write_off = rnd.Next() % 1000;
+    file_with_mirror.Write(write_off, buf);
+
+    // Pick random offset for read
+    size_t read_off = rnd.Next() % 1000;
+    size_t read_sz = rnd.Next() % 20;
+    file_with_mirror.Read(read_off, read_sz);
+
+    if (i % 500 == 0) {
+      // Reopen the file every 500 iters
+      ASSERT_OK(env_->NewRandomRWFile(path, &file, EnvOptions()));
+      file_with_mirror.SetFile(file.get());
+    }
+  }
+
+  // clean up
+  env_->DeleteFile(path);
+}
+
 INSTANTIATE_TEST_CASE_P(DefaultEnv, EnvPosixTestWithParam,
                         ::testing::Values(Env::Default()));
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
