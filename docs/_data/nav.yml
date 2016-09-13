@@ -2,6 +2,14 @@
   href: /docs/
   category: docs
 
+- title: API (C++)
+  href: https://github.com/facebook/rocksdb/tree/master/include/rocksdb
+  category: api
+
+- title: API (Java)
+  href: https://github.com/facebook/rocksdb/tree/master/java/src/main/java/org/rocksdb
+  category: api
+
 - title: Support
   href: /support.html
   category: support
