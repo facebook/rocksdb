@@ -41,3 +41,9 @@ Usually people use [compaction filters](https://github.com/facebook/rocksdb/blob
 In all, there three choices of compaction priority modes optimizing different scenarios. if you have a new use case, we suggest you start with options.compaction_pri=kOldestSmallestSeqFirst (note it is not the default one for backward compatible reason). If you want to further optimize your use case, you can try other two use cases if your use cases apply.
 
 If you have good ideas about better compaction picker approach, you are welcome to implement and benchmark it. We'll be glad to review and merge your a pull requests.
+
+### Comments
+
+**[Mark Callaghan](mdcallag@gmail.com)**
+
+Performance results for compaction_pri values and linkbench are explained at [http://smalldatum.blogspot.com/2016/02/compaction-priority-in-rocksdb.html](http://smalldatum.blogspot.com/2016/02/compaction-priority-in-rocksdb.html)

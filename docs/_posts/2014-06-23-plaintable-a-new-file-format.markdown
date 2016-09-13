@@ -37,3 +37,9 @@ To make sure the format works efficiently with empty queries, we added a bloom f
 These are the design goals and basic ideas of PlainTable file format. For detailed information, see [this wiki page](https://github.com/facebook/rocksdb/wiki/PlainTable-Format).
 
 [1] Bloom filter checks typically require multiple memory access. However, because they are independent, they usually do not make the CPU pipeline stale. In any case, we improved the bloom filter to improve data locality - we may cover this further in a future blog post.
+
+### Comments
+
+**[Siying Dong](siying.d@fb.com)**
+
+Does [http://rocksdb.org/feed/](http://rocksdb.org/feed/) work?

@@ -88,3 +88,13 @@ The new approach entails one issue: a thread can visit GetImpl() once but can ne
 
 
 (3) After any flush/compaction, the background thread performs a sweep (CAS) across all threads’ local storage and frees encountered SuperVersion. A reader thread must re-acquire a new SuperVersion reference on its next visit.
+
+### Comments
+
+**[David Barbour](dmbarbour@gmail.com)**
+
+Please post an example of reading the same rocksdb concurrently.
+
+We are using the latest 3.0 rocksdb; however, when two separate processes
+try and open the same rocksdb for reading, only one of the open requests
+succeed. The other open always fails with “db/LOCK: Resource temporarily unavailable” So far we have not found an option that allows sharing the rocksdb for reads. An example would be most appreciated.

@@ -12,3 +12,17 @@ Over the past 6 months we have seen a number of use cases where RocksDB is succe
 We at Microsoft Bing could not be left behind. As a result we are happy to [announce](http://bit.ly/1OmWBT9) the availability of the Windows Port created here at Microsoft which we intend to use as a storage option for one of our key/value data stores.
 
 We are happy to make this available for the community. Keep tuned for more announcements to come.
+
+### Comments
+
+**[Siying Dong](siying.d@fb.com)**
+
+Appreciate your contributions to RocksDB project! I believe it will benefits many users!
+
+**[empresas sevilla](oxofkx@gmail.com)**
+
+Magnifico artículo|, un placer leer el blog
+
+**[jak usunac](tomogedac@o2.pl)**
+
+I believe it will benefits too
