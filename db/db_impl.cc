@@ -3682,6 +3682,24 @@ bool DBImpl::MCOverlap(ManualCompaction* m, ManualCompaction* m1) {
   return true;
 }
 
+uint64_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
+  uint64_t bsize = write_buffer_size / 10 + write_buffer_size;
+  // Some users might set very high write_buffer_size and rely on
+  // max_total_wal_size or other parameters to control the WAL size.
+  if (db_options_.max_total_wal_size > 0) {
+    bsize = std::min(bsize, db_options_.max_total_wal_size);
+  }
+  if (db_options_.db_write_buffer_size > 0) {
+    bsize = std::min(bsize, db_options_.db_write_buffer_size);
+  }
+  if (db_options_.write_buffer_manager &&
+      db_options_.write_buffer_manager->enabled()) {
+    bsize = std::min(bsize, db_options_.write_buffer_manager->buffer_size());
+  }
+
+  return bsize;
+}
+
 namespace {
 struct IterState {
   IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version,
@@ -4995,8 +5013,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
         lfile->SetPreallocationBlockSize(
-            mutable_cf_options.write_buffer_size / 10 +
-            mutable_cf_options.write_buffer_size);
+            GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size));
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
         new_log = new log::Writer(std::move(file_writer), new_log_number,
@@ -5747,7 +5764,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                         LogFileName(impl->db_options_.wal_dir, new_log_number),
                         &lfile, opt_env_options);
     if (s.ok()) {
-      lfile->SetPreallocationBlockSize((max_write_buffer_size / 10) + max_write_buffer_size);
+      lfile->SetPreallocationBlockSize(
+          impl->GetWalPreallocateBlockSize(max_write_buffer_size));
       impl->logfile_number_ = new_log_number;
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(lfile), opt_env_options));

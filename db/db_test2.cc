@@ -2065,7 +2065,6 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
   ASSERT_EQ(total_useful_bytes_iter1 + total_useful_bytes_iter2,
             total_loaded_bytes_iter1 + total_loaded_bytes_iter2);
 }
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
