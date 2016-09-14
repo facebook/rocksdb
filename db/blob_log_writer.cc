@@ -21,10 +21,10 @@ namespace blob_log {
 
 Writer::Writer(unique_ptr<WritableFileWriter>&& dest,
                uint64_t log_number, uint64_t bpsync,
-               bool use_fs)
+               bool use_fs, uint64_t boffset)
     : dest_(std::move(dest)),
       log_number_(log_number),
-      block_offset_(0), bytes_per_sync_(bpsync),
+      block_offset_(boffset), bytes_per_sync_(bpsync),
       next_sync_offset_(0), use_fsync_(use_fs) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
@@ -87,9 +87,9 @@ Status Writer::EmitPhysicalRecord(RecordType t, RecordSubType st,
   uint64_t& key_offset, uint64_t& blob_offset,
   int32_t ttl, int64_t ts) {
 
-  char buf[kHeaderSize];
+  char buf[blob_log::BlobLogRecord::kHeaderSize];
 
-  uint32_t offset = 4;
+  uint32_t offset = 8;
   // Format the header
   EncodeFixed32(buf+offset, key.size());
   offset += 4;
@@ -108,6 +108,11 @@ Status Writer::EmitPhysicalRecord(RecordType t, RecordSubType st,
   offset++;
   buf[offset] = static_cast<char>(st);
 
+  uint32_t header_crc = 0;
+  header_crc = crc32c::Extend(header_crc, buf+2*sizeof(uint32_t), blob_log::BlobLogRecord::kHeaderSize - 2*sizeof(uint32_t));
+  header_crc = crc32c::Mask(header_crc);
+  EncodeFixed32(buf + 4, header_crc);
+
   uint32_t crc = 0;
   // Compute the crc of the record type and the payload.
   crc = crc32c::Extend(crc, val.data(), val.size());
@@ -115,7 +120,7 @@ Status Writer::EmitPhysicalRecord(RecordType t, RecordSubType st,
   EncodeFixed32(buf, crc);
 
   // Write the header and the payload
-  Status s = dest_->Append(Slice(buf, kHeaderSize));
+  Status s = dest_->Append(Slice(buf, blob_log::BlobLogRecord::kHeaderSize));
   if (s.ok()) {
     s = dest_->Append(key);
     if (s.ok()) {
@@ -126,9 +131,9 @@ Status Writer::EmitPhysicalRecord(RecordType t, RecordSubType st,
     }
   }
  
-  key_offset = block_offset_ + kHeaderSize;
+  key_offset = block_offset_ + blob_log::BlobLogRecord::kHeaderSize;
   blob_offset = key_offset + key.size();
-  block_offset_ += kHeaderSize + key.size() + val.size();
+  block_offset_ = blob_offset + val.size();
 
   if (block_offset_ > next_sync_offset_) {
     dest_->Sync(true);

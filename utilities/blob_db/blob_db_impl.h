@@ -53,7 +53,7 @@ class BlobDBImpl : public BlobDB {
 
   BlobFile *findBlobFile(uint32_t expiration) const;
 
-  ~BlobDBImpl() { }
+  ~BlobDBImpl();
 
  private:
 
@@ -69,7 +69,7 @@ class BlobDBImpl : public BlobDB {
 
   Status getSortedBlobLogs(const std::string& path);
 
-  Status createWriter(BlobFile *bfile, Env *env, const EnvOptions& env_options);
+  Status createWriter(BlobFile *bfile, Env *env, const EnvOptions& env_options, bool reopen = false);
 
   Status ReadFooter(BlobFile *bfile, blob_log::BlobLogFooter& footer);
 

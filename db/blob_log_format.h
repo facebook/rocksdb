@@ -42,6 +42,8 @@ enum RecordSubType {
 
 const uint32_t kMagicNumber = 2395959;
 
+class Reader;
+
 class BlobLogHeader {
 
  private:
@@ -56,6 +58,7 @@ class BlobLogHeader {
 
   // magic number + flags + ttl guess + timestamp range
   static const size_t kHeaderSize = 4 + 4 + 4 * 2 + 8 * 2;
+  // 32
 
   void setTTL(bool ttl = true)  { has_ttl_ = ttl; }
 
@@ -131,16 +134,14 @@ static const int kMaxRecordType = kLastType;
 
 static const unsigned int kBlockSize = 32768;
 
-// Header is checksum (4 bytes), Key Length ( 4 bytes ),
-// Blob Length ( 8 bytes), timestamp/ttl (8 bytes),
-// type (1 byte), subtype (1 byte)
-static const int kHeaderSize = 4 + 4 + 8 + 4 + 8 + 1 + 1;
 
-class Record {
+class BlobLogRecord {
+  friend class Reader;
 
+private:
   // this might not be set.
-  uint64_t offset_;
   uint32_t checksum_;
+  uint32_t header_cksum_;
   uint32_t key_size_;
   uint64_t blob_size_;
   uint64_t time_val_;
@@ -148,14 +149,33 @@ class Record {
   uint64_t sn_;
   char type_;
   char subtype_;
+  Slice key_;
+  Slice blob_;
+
+public:
+  // Header is checksum (4 bytes), header checksum (4bytes), Key Length ( 4 bytes ),
+  // Blob Length ( 8 bytes), timestamp/ttl (8 bytes),
+  // type (1 byte), subtype (1 byte)
+  static const int kHeaderSize = 4 + 4 + 4 + 8 + 4 + 8 + 1 + 1;
+  // 34
 
 public:
    
+  BlobLogRecord();
+
+  void clear();
+
+  uint32_t GetKeySize() const { return key_size_; }
+
+  uint64_t GetBlobSize()  const { return blob_size_; }
+
   uint32_t GetTTL() const { return ttl_val_; }
   
   uint64_t GetTimeVal() const { return time_val_; }
 
   uint64_t GetSN() const { return sn_; }
+
+  Status DecodeFrom(Slice* input);
 };
 
 
