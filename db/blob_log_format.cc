@@ -1,5 +1,6 @@
 #include "db/blob_log_format.h"
 #include "util/coding.h"
+#include "util/crc32c.h"
 
 
 namespace rocksdb {
@@ -150,6 +151,62 @@ Status BlobLogHeader::DecodeFrom(Slice* input)
   offset += sizeof(uint64_t);
   ts_guess_.second = DecodeFixed64(ptr + offset);
 
+  return s;
+}
+
+BlobLogRecord::BlobLogRecord()
+{
+  clear();
+}
+
+void BlobLogRecord::clear()
+{
+  checksum_ = 0;
+  header_cksum_ = 0;
+  key_size_ = 0;
+  blob_size_ = 0;
+  time_val_ = 0;
+  ttl_val_ = 0;
+  sn_ = 0;
+  type_ = subtype_ = 0;
+  key_.clear();
+  blob_.clear();
+}
+
+Status BlobLogRecord::DecodeFrom(Slice* input)
+{
+  if (input->size() < kHeaderSize) {
+    return Status::Corruption("bad header");
+  }
+
+  Status s;
+  uint32_t offset = 0;
+  const char *ptr = input->data();
+  checksum_ = DecodeFixed32(ptr + offset);
+  offset += sizeof(uint32_t);
+  header_cksum_ = DecodeFixed32(ptr + offset);
+
+  offset += sizeof(uint32_t);
+  key_size_ = DecodeFixed32(ptr + offset);
+  offset += sizeof(uint32_t);
+  blob_size_ = DecodeFixed64(ptr + offset);
+  offset += sizeof(uint64_t);
+  ttl_val_ = DecodeFixed32(ptr + offset);
+  offset += sizeof(uint32_t);
+  time_val_ = DecodeFixed64(ptr + offset);
+  offset += sizeof(uint64_t);
+  type_ = static_cast<char>(*(ptr + offset));
+  offset++;
+  subtype_ = static_cast<char>(*(ptr + offset));
+  //offset++;
+  {
+    uint32_t hcksum = 0;
+    hcksum = crc32c::Extend(hcksum, ptr + 2*sizeof(uint32_t), (size_t)(kHeaderSize - 2*sizeof(uint32_t)));
+    hcksum = crc32c::Mask(hcksum);
+    if (hcksum != header_cksum_ ) {
+       return Status::Corruption("bad header");
+    }
+  }
   return s;
 }
 

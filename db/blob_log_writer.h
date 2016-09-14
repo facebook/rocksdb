@@ -74,7 +74,7 @@ class Writer {
   // "*dest" must remain live while this Writer is in use.
   explicit Writer(unique_ptr<WritableFileWriter>&& dest,
                   uint64_t log_number, uint64_t bpsync,
-                  bool use_fsync);
+                  bool use_fsync, uint64_t boffset = 0);
   ~Writer();
 
   Status AddRecord(const Slice& key, const Slice& val,

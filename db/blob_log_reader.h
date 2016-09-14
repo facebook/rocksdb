@@ -67,11 +67,11 @@ class Reader {
   // "*scratch" as temporary storage.  The contents filled in *record
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
-  bool ReadRecord(blob_log::Record& record, std::string* scratch,
-                  bool shallow = false,
-                  WALRecoveryMode wal_recovery_mode =
-                      WALRecoveryMode::kTolerateCorruptedTailRecords);
+  Status ReadRecord(blob_log::BlobLogRecord& record,
+    int level = 0, WALRecoveryMode wal_recovery_mode =
+    WALRecoveryMode::kTolerateCorruptedTailRecords);
 
+#if 0
   // Returns the physical offset of the last record returned by ReadRecord.
   //
   // Undefined before the first call to ReadRecord.
@@ -88,6 +88,7 @@ class Reader {
   // by reading the rest of the data from the EOF position to the end of the
   // block that was partially read.
   void UnmarkEOF();
+#endif
 
   SequentialFileReader* file() { return file_.get(); }
 
@@ -95,9 +96,15 @@ class Reader {
   std::shared_ptr<Logger> info_log_;
   const unique_ptr<SequentialFileReader> file_;
   Reporter* const reporter_;
+#if 0
   bool const checksum_;
-  char* const backing_store_;
+#endif
+
+  char* backing_store_;
+  uint64_t bs_size_;
   Slice buffer_;
+
+#if 0
   bool eof_;   // Last Read() indicated EOF by returning < kBlockSize
   bool read_error_;   // Error occurred while reading from file
 
@@ -109,6 +116,7 @@ class Reader {
   uint64_t last_record_offset_;
   // Offset of the first location past the end of buffer_.
   uint64_t end_of_buffer_offset_;
+#endif
 
   // Offset at which to start looking for the first record to return
   uint64_t const initial_offset_;
@@ -116,6 +124,9 @@ class Reader {
   // which log number this is
   uint64_t const log_number_;
 
+  void resizeBackingStore(uint64_t bss);
+
+#if 0
   // Extend record types with the following special values
   enum {
     kEof = kMaxRecordType + 1,
@@ -145,6 +156,7 @@ class Reader {
   // buffer_ must be updated to remove the dropped bytes prior to invocation.
   void ReportCorruption(size_t bytes, const char* reason);
   void ReportDrop(size_t bytes, const Status& reason);
+#endif
 
   // No copying allowed
   Reader(const Reader&);

@@ -29,6 +29,7 @@
 // close the file after size has been reached and create a new file.
 // on startup have a recovery function which reads all files.
 // instead of TTL, use timestamp of the data.
+using std::chrono::system_clock;
 
 namespace rocksdb {
 
@@ -123,15 +124,22 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
   bdb_options_(blob_db_options),
   ioptions_(db->GetOptions()),
   db_options_(db->GetOptions()),
-  next_file_number_(0)
+  next_file_number_(1)
 {
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = ( bdb_options_.path_relative )  ? db_->GetName() + "/" + bdb_options_.blob_dir : bdb_options_.blob_dir;
 }
 
+BlobDBImpl::~BlobDBImpl()
+{
+  for (auto bfile: open_blob_files_) {
+    assert(bfile->ActiveForAppend());
+  }
+}
+
 Status BlobDBImpl::openNewFile_P1_lock(std::unique_ptr<BlobFile>& bfile)
 {
-  uint64_t file_num = ++next_file_number_;
+  uint64_t file_num = next_file_number_++;
   EnvOptions env_options(db_->GetOptions());
 
   bfile.reset(new BlobFile(blob_dir_, file_num));
@@ -227,9 +235,15 @@ Status BlobDBImpl::openAllFiles()
     }
   }
 
+  if (!file_nums.empty()) {
+    next_file_number_.store((file_nums.rbegin())->first + 1);
+  }
+
   for (auto f_iter: file_nums) {
+
+    std::string bfpath = BlobFileName(blob_dir_, f_iter.first);
     uint64_t size_bytes;
-    Status s1 = db_->GetEnv()->GetFileSize(f_iter.second, &size_bytes);
+    Status s1 = db_->GetEnv()->GetFileSize(bfpath, &size_bytes);
     if (!s1.ok()) {
       // report something here.
       continue;
@@ -266,11 +280,10 @@ Status BlobDBImpl::openAllFiles()
       std::pair<uint64_t, uint64_t> ts_range(std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::min());
       std::pair<uint64_t, uint64_t> sn_range(std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::min());
 
-      blob_log::Record record;
-      bool shallow = true;
-      std::string scratch;
+      blob_log::BlobLogRecord record;
+      int shallow = 0;
 
-      while (reader->ReadRecord(record, &scratch, shallow)) {
+      while (reader->ReadRecord(record, shallow).ok()) {
         ++blob_count;
         if (bfptr->HasTTL()) {
           extendTTL(ttl_range, record.GetTTL());
@@ -282,6 +295,8 @@ Status BlobDBImpl::openAllFiles()
       }
 
       if (blob_count) {
+
+        bfptr->setBlobCount(blob_count);
         bfptr->setSNRange(sn_range);
 
         if (bfptr->HasTimestamps()) {
@@ -289,7 +304,20 @@ Status BlobDBImpl::openAllFiles()
         } 
    
         if (bfptr->HasTTL()) {
+          ttl_range.second  = std::max(ttl_range.second, ttl_range.first + 3600);
           bfptr->setTTLRange(ttl_range);
+          std::time_t epoch_now = system_clock::to_time_t(system_clock::now());
+          if (ttl_range.second < epoch_now) {
+            Status fstatus = createWriter(bfptr.get(), ioptions_.env, env_options, true);
+            if (fstatus.ok())
+              fstatus = bfptr->WriteFooterAndClose();
+            if (!fstatus.ok()) {
+              // report error here
+              continue;
+            }
+          } else {
+             open_blob_files_.insert(bfptr.get());
+          }
         }
       }
     }
@@ -387,14 +415,21 @@ Status BlobFile::ReadHeader() {
   return s;
 }
 
-Status BlobDBImpl::createWriter(BlobFile *bfile, Env *env, const EnvOptions& env_options) {
+Status BlobDBImpl::createWriter(BlobFile *bfile, Env *env, const EnvOptions& env_options, bool reopen) {
 
-  Status s = env->NewWritableFile(BlobFileName(bfile->path_to_dir_, bfile->file_number_), &bfile->wfile_, env_options);
+  Status s;
+  uint64_t boffset = bfile->GetFileSize();
+  if (reopen) {
+    s = env->ReopenWritableFile(BlobFileName(bfile->path_to_dir_, bfile->file_number_), &bfile->wfile_, env_options);
+  } else {
+    s = env->NewWritableFile(BlobFileName(bfile->path_to_dir_, bfile->file_number_), &bfile->wfile_, env_options);
+  }
+
   if (!s.ok())
     return s;
 
   bfile->file_writer_.reset(new WritableFileWriter(std::move(bfile->wfile_), env_options));
-  bfile->log_writer_.reset(new blob_log::Writer(std::move(bfile->file_writer_), bfile->file_number_, bdb_options_.bytes_per_sync, db_->GetOptions().use_fsync));
+  bfile->log_writer_.reset(new blob_log::Writer(std::move(bfile->file_writer_), bfile->file_number_, bdb_options_.bytes_per_sync, db_->GetOptions().use_fsync, boffset));
 
   return s;
 }
@@ -402,25 +437,30 @@ Status BlobDBImpl::createWriter(BlobFile *bfile, Env *env, const EnvOptions& env
 Status BlobDBImpl::PutWithTTL(const WriteOptions& options, const Slice& key,
              const Slice& value, uint32_t ttl)
 {
-  using std::chrono::system_clock;
   std::time_t epoch_now = system_clock::to_time_t(system_clock::now());
   return PutUntil(options, key, value, epoch_now + ttl);
 }
 
 BlobFile* BlobDBImpl::findBlobFile(uint32_t expiration) const
 {
+   if (open_blob_files_.empty()) 
+     return nullptr;
+
    BlobFile tmp;
    tmp.ttl_range_ = std::make_pair(expiration, 0);
 
    auto citr = open_blob_files_.equal_range(&tmp);
    if (citr.first == open_blob_files_.end()) {
-     return nullptr;
+     BlobFile *check = *(open_blob_files_.rbegin());
+     return (check->ttl_range_.second  < expiration) ? nullptr : check;
    }
 
    auto finditr = citr.second;
-   --finditr;
+   if (finditr != open_blob_files_.begin())
+     --finditr;
 
-   return ((*finditr)->ttl_range_.second < expiration) ? nullptr : *finditr;
+   return ((*finditr)->ttl_range_.second >= expiration &&
+           (*finditr)->ttl_range_.second < expiration) ? nullptr : *finditr;
 }
 
 Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
@@ -429,7 +469,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   if (!bfile)  {
     std::pair<uint32_t, uint32_t> ttl_guess;
     ttl_guess.first = expiration;
-    ttl_guess.second += 3600;
+    ttl_guess.second = expiration + 3600;
     // this opens a new file with TTL support
     Status s =openNewFileWithTTL(ttl_guess, bfile);
     if (!s.ok() || !bfile) {
@@ -440,6 +480,13 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
 
   // we need to lock, so that some other thread cannot close the writer.
   blob_log::Writer *writer = bfile->GetWriter();
+  if (!writer) {
+    EnvOptions env_options(db_->GetOptions());
+    Status s = createWriter(bfile, ioptions_.env, env_options, true);
+    if (!s.ok())
+      return s;
+    writer = bfile->GetWriter();
+  }
 
   uint64_t blob_offset = 0;
   uint64_t key_offset = 0;
