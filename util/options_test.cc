@@ -170,7 +170,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[1], 17);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[2], 18);
   ASSERT_EQ(new_cf_opt.max_compaction_bytes, 21);
-  ASSERT_EQ(new_cf_opt.soft_rate_limit, 1.1);
   ASSERT_EQ(new_cf_opt.hard_pending_compaction_bytes_limit, 211);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);

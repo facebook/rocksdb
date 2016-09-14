@@ -321,6 +321,12 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->num_levels = rnd->Uniform(100);
   cf_opt->target_file_size_multiplier = rnd->Uniform(100);
 
+  // vector int options
+  cf_opt->max_bytes_for_level_multiplier_additional.resize(cf_opt->num_levels);
+  for (int i = 0; i < cf_opt->num_levels; i++) {
+    cf_opt->max_bytes_for_level_multiplier_additional[i] = rnd->Uniform(100);
+  }
+
   // size_t options
   cf_opt->arena_block_size = rnd->Uniform(10000);
   cf_opt->inplace_update_num_locks = rnd->Uniform(10000);
