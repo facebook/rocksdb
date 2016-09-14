@@ -350,7 +350,7 @@ ColumnFamilyData::ColumnFamilyData(
       options_(*db_options,
                SanitizeOptions(*db_options, &internal_comparator_, cf_options)),
       ioptions_(options_),
-      mutable_cf_options_(options_, ioptions_),
+      mutable_cf_options_(options_),
       write_buffer_manager_(write_buffer_manager),
       mem_(nullptr),
       imm_(options_.min_write_buffer_number_to_merge,

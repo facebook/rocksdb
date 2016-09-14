@@ -29,9 +29,9 @@ class VersionBuilderTest : public testing::Test {
       : ucmp_(BytewiseComparator()),
         icmp_(ucmp_),
         ioptions_(options_),
-        mutable_cf_options_(options_, ioptions_),
+        mutable_cf_options_(options_),
         vstorage_(&icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
-                 nullptr),
+                  nullptr),
         file_num_(1) {
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
     size_being_compacted_.resize(options_.num_levels);
@@ -77,7 +77,7 @@ class VersionBuilderTest : public testing::Test {
   }
 
   void UpdateVersionStorageInfo() {
-    vstorage_.UpdateFilesByCompactionPri(mutable_cf_options_);
+    vstorage_.UpdateFilesByCompactionPri(ioptions_.compaction_pri);
     vstorage_.UpdateNumNonEmptyLevels();
     vstorage_.GenerateFileIndexer();
     vstorage_.GenerateLevelFilesBrief();

@@ -141,7 +141,7 @@ class Repairer {
                                 cf_name + ", id=" + ToString(cf_id));
     }
     Options opts(db_options_, *cf_opts);
-    MutableCFOptions mut_cf_opts(opts, ImmutableCFOptions(opts));
+    MutableCFOptions mut_cf_opts(opts);
 
     VersionEdit edit;
     edit.SetComparatorName(opts.comparator->Name());

@@ -10,8 +10,8 @@
 #endif
 
 #include <inttypes.h>
-#include <limits>
 #include <cassert>
+#include <limits>
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -21,6 +21,7 @@ namespace rocksdb {
 
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     : compaction_style(options.compaction_style),
+      compaction_pri(options.compaction_pri),
       compaction_options_universal(options.compaction_options_universal),
       compaction_options_fifo(options.compaction_options_fifo),
       prefix_extractor(options.prefix_extractor.get()),
@@ -58,7 +59,8 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
       num_levels(options.num_levels),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       listeners(options.listeners),
-      row_cache(options.row_cache) {}
+      row_cache(options.row_cache),
+      max_subcompactions(options.max_subcompactions) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {
@@ -75,11 +77,11 @@ uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {
   return op1 * casted_op2;
 }
 
-void MutableCFOptions::RefreshDerivedOptions(
-    const ImmutableCFOptions& ioptions) {
-  max_file_size.resize(ioptions.num_levels);
-  for (int i = 0; i < ioptions.num_levels; ++i) {
-    if (i == 0 && ioptions.compaction_style == kCompactionStyleUniversal) {
+void MutableCFOptions::RefreshDerivedOptions(int num_levels,
+                                             CompactionStyle compaction_style) {
+  max_file_size.resize(num_levels);
+  for (int i = 0; i < num_levels; ++i) {
+    if (i == 0 && compaction_style == kCompactionStyleUniversal) {
       max_file_size[i] = ULLONG_MAX;
     } else if (i > 1) {
       max_file_size[i] = MultiplyCheckOverflow(max_file_size[i - 1],
@@ -106,10 +108,12 @@ void MutableCFOptions::Dump(Logger* log) const {
       arena_block_size);
   Log(log, "              memtable_prefix_bloom_ratio: %f",
       memtable_prefix_bloom_size_ratio);
-  Log(log, " memtable_huge_page_size: %" ROCKSDB_PRIszt,
+  Log(log, "                  memtable_huge_page_size: %" ROCKSDB_PRIszt,
       memtable_huge_page_size);
   Log(log, "                    max_successive_merges: %" ROCKSDB_PRIszt,
       max_successive_merges);
+  Log(log, "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
+      inplace_update_num_locks);
   Log(log, "                 disable_auto_compactions: %d",
       disable_auto_compactions);
   Log(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
@@ -144,6 +148,13 @@ void MutableCFOptions::Dump(Logger* log) const {
       verify_checksums_in_compaction);
   Log(log, "        max_sequential_skip_in_iterations: %" PRIu64,
       max_sequential_skip_in_iterations);
+  Log(log, "                     paranoid_file_checks: %d",
+      paranoid_file_checks);
+  Log(log, "                       report_bg_io_stats: %d", report_bg_io_stats);
+  Log(log, "                              compression: %d",
+      static_cast<int>(compression));
+  Log(log, "               min_partial_merge_operands: %" PRIu32,
+      min_partial_merge_operands);
 }
 
 }  // namespace rocksdb

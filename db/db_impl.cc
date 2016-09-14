@@ -2263,7 +2263,8 @@ Status DBImpl::CompactFilesImpl(
   // takes running compactions into account (by skipping files that are already
   // being compacted). Since we just changed compaction score, we recalculate it
   // here.
-  version->storage_info()->ComputeCompactionScore(*c->mutable_cf_options());
+  version->storage_info()->ComputeCompactionScore(*cfd->ioptions(),
+                                                  *c->mutable_cf_options());
 
   compaction_job.Prepare();
 
@@ -4037,9 +4038,8 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
       write_thread_.EnterUnbatched(&w, &mutex_);
       // LogAndApply will both write the creation in MANIFEST and create
       // ColumnFamilyData object
-      s = versions_->LogAndApply(
-          nullptr, MutableCFOptions(opt, ImmutableCFOptions(opt)), &edit,
-          &mutex_, directories_.GetDbDir(), false, &cf_options);
+      s = versions_->LogAndApply(nullptr, MutableCFOptions(opt), &edit, &mutex_,
+                                 directories_.GetDbDir(), false, &cf_options);
 
       if (s.ok()) {
         // If the column family was created successfully, we then persist

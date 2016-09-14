@@ -22,6 +22,8 @@ struct ImmutableCFOptions {
 
   CompactionStyle compaction_style;
 
+  CompactionPri compaction_pri;
+
   CompactionOptionsUniversal compaction_options_universal;
   CompactionOptionsFIFO compaction_options_fifo;
 
@@ -102,10 +104,12 @@ struct ImmutableCFOptions {
   std::vector<std::shared_ptr<EventListener>> listeners;
 
   std::shared_ptr<Cache> row_cache;
+
+  uint32_t max_subcompactions;
 };
 
 struct MutableCFOptions {
-  MutableCFOptions(const Options& options, const ImmutableCFOptions& ioptions)
+  explicit MutableCFOptions(const ColumnFamilyOptions& options)
       : write_buffer_size(options.write_buffer_size),
         max_write_buffer_number(options.max_write_buffer_number),
         arena_block_size(options.arena_block_size),
@@ -123,7 +127,6 @@ struct MutableCFOptions {
             options.level0_file_num_compaction_trigger),
         level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
         level0_stop_writes_trigger(options.level0_stop_writes_trigger),
-        compaction_pri(options.compaction_pri),
         max_compaction_bytes(options.max_compaction_bytes),
         target_file_size_base(options.target_file_size_base),
         target_file_size_multiplier(options.target_file_size_multiplier),
@@ -132,16 +135,15 @@ struct MutableCFOptions {
         max_bytes_for_level_multiplier_additional(
             options.max_bytes_for_level_multiplier_additional),
         verify_checksums_in_compaction(options.verify_checksums_in_compaction),
-        max_subcompactions(options.max_subcompactions),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression),
-        min_partial_merge_operands(options.min_partial_merge_operands),
-        compaction_options_fifo(ioptions.compaction_options_fifo) {
-    RefreshDerivedOptions(ioptions);
+        min_partial_merge_operands(options.min_partial_merge_operands) {
+    RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
+
   MutableCFOptions()
       : write_buffer_size(0),
         max_write_buffer_number(0),
@@ -156,14 +158,12 @@ struct MutableCFOptions {
         level0_file_num_compaction_trigger(0),
         level0_slowdown_writes_trigger(0),
         level0_stop_writes_trigger(0),
-        compaction_pri(kByCompensatedSize),
         max_compaction_bytes(0),
         target_file_size_base(0),
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
         max_bytes_for_level_multiplier(0),
         verify_checksums_in_compaction(false),
-        max_subcompactions(1),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
@@ -171,7 +171,11 @@ struct MutableCFOptions {
         min_partial_merge_operands(2) {}
 
   // Must be called after any change to MutableCFOptions
-  void RefreshDerivedOptions(const ImmutableCFOptions& ioptions);
+  void RefreshDerivedOptions(int num_levels, CompactionStyle compaction_style);
+
+  void RefreshDerivedOptions(const ImmutableCFOptions& ioptions) {
+    RefreshDerivedOptions(ioptions.num_levels, ioptions.compaction_style);
+  }
 
   // Get the max file size in a given level.
   uint64_t MaxFileSizeForLevel(int level) const;
@@ -201,7 +205,6 @@ struct MutableCFOptions {
   int level0_file_num_compaction_trigger;
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;
-  CompactionPri compaction_pri;
   uint64_t max_compaction_bytes;
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
@@ -209,7 +212,6 @@ struct MutableCFOptions {
   int max_bytes_for_level_multiplier;
   std::vector<int> max_bytes_for_level_multiplier_additional;
   bool verify_checksums_in_compaction;
-  int max_subcompactions;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
@@ -217,7 +219,6 @@ struct MutableCFOptions {
   bool report_bg_io_stats;
   CompressionType compression;
   uint32_t min_partial_merge_operands;
-  CompactionOptionsFIFO compaction_options_fifo;
 
   // Derived options
   // Per-level target file size.

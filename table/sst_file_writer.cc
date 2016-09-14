@@ -75,7 +75,7 @@ struct SstFileWriter::Rep {
       const Comparator* _user_comparator)
       : env_options(_env_options),
         ioptions(options),
-        mutable_cf_options(options, ioptions),
+        mutable_cf_options(options),
         internal_comparator(_user_comparator) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
