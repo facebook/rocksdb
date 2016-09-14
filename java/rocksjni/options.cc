@@ -4467,7 +4467,7 @@ void Java_org_rocksdb_DBOptions_setDelayedWriteRate(
   JNIEnv* env, jobject jobj, jlong jhandle, jlong delay_write_rate){
 
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
-        delay_write_rate = static_cast<int64_t>(delay_write_rate);
+        delayed_write_rate = static_cast<int64_t>(delay_write_rate);
 
   }
 
@@ -4475,7 +4475,7 @@ void Java_org_rocksdb_DBOptions_setDelayedWriteRate(
     JNIEnv* env, jobject jobj, jlong jhandle){
 
       return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
-          delay_write_rate;
+          delayed_write_rate;
     }
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::WriteOptions
