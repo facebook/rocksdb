@@ -292,6 +292,19 @@ TEST_F(DBWALTest, RecoveryWithEmptyLog) {
 }
 
 #ifndef ROCKSDB_LITE
+TEST_F(DBWALTest, GetSortedWalFiles) {
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    VectorLogPtr log_files;
+    ASSERT_OK(dbfull()->GetSortedWalFiles(log_files));
+    ASSERT_EQ(0, log_files.size());
+
+    ASSERT_OK(Put(1, "foo", "v1"));
+    ASSERT_OK(dbfull()->GetSortedWalFiles(log_files));
+    ASSERT_EQ(1, log_files.size());
+  } while (ChangeOptions());
+}
+
 TEST_F(DBWALTest, RecoverWithLargeLog) {
   do {
     {
