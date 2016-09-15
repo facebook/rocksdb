@@ -482,6 +482,10 @@ void ColumnFamilyData::SetDropped() {
   column_family_set_->RemoveColumnFamily(this);
 }
 
+ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {
+  return BuildColumnFamilyOptions(options_, mutable_cf_options_);
+}
+
 const double kSlowdownRatio = 1.2;
 
 namespace {

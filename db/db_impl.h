@@ -165,8 +165,7 @@ class DBImpl : public DB {
   virtual const std::string& GetName() const override;
   virtual Env* GetEnv() const override;
   using DB::GetOptions;
-  virtual const Options& GetOptions(
-      ColumnFamilyHandle* column_family) const override;
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override;
   using DB::GetDBOptions;
   virtual const DBOptions& GetDBOptions() const override;
   using DB::Flush;
@@ -717,7 +716,7 @@ class DBImpl : public DB {
   //       same time.
   InstrumentedMutex options_files_mutex_;
   // State below is protected by mutex_
-  InstrumentedMutex mutex_;
+  mutable InstrumentedMutex mutex_;
 
   std::atomic<bool> shutting_down_;
   // This condition variable is signaled on these conditions:

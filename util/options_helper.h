@@ -14,8 +14,13 @@
 #include "rocksdb/table.h"
 #include "util/cf_options.h"
 
-#ifndef ROCKSDB_LITE
 namespace rocksdb {
+
+ColumnFamilyOptions BuildColumnFamilyOptions(
+    const ColumnFamilyOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options);
+
+#ifndef ROCKSDB_LITE
 
 // Returns true if the input char "c" is considered as a special character
 // that will be escaped when EscapeOptionString() is called.
@@ -67,9 +72,6 @@ Status GetTableFactoryFromMap(
 
 Status GetStringFromTableFactory(std::string* opts_str, const TableFactory* tf,
                                  const std::string& delimiter = ";  ");
-
-ColumnFamilyOptions BuildColumnFamilyOptions(
-    const Options& options, const MutableCFOptions& mutable_cf_options);
 
 enum class OptionType {
   kBoolean,
@@ -672,6 +674,7 @@ static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
      {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
      {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
 
+#endif  // !ROCKSDB_LITE
+
 }  // namespace rocksdb
 
-#endif  // !ROCKSDB_LITE

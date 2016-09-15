@@ -696,9 +696,8 @@ class DB {
   // column family, the options provided when calling DB::Open() or
   // DB::CreateColumnFamily() will have been "sanitized" and transformed
   // in an implementation-defined manner.
-  virtual const Options& GetOptions(ColumnFamilyHandle* column_family)
-      const = 0;
-  virtual const Options& GetOptions() const {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const = 0;
+  virtual Options GetOptions() const {
     return GetOptions(DefaultColumnFamily());
   }
 

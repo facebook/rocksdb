@@ -5110,9 +5110,10 @@ Env* DBImpl::GetEnv() const {
   return env_;
 }
 
-const Options& DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
+Options DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
+  InstrumentedMutexLock l(&mutex_);
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  return *cfh->cfd()->options();
+  return Options(db_options_, cfh->cfd()->GetLatestCFOptions());
 }
 
 const DBOptions& DBImpl::GetDBOptions() const { return db_options_; }
@@ -5993,8 +5994,7 @@ Status DBImpl::WriteOptionsFile() {
       continue;
     }
     cf_names.push_back(cfd->GetName());
-    cf_opts.push_back(BuildColumnFamilyOptions(
-        *cfd->options(), *cfd->GetLatestMutableCFOptions()));
+    cf_opts.push_back(cfd->GetLatestCFOptions());
   }
 
   // Unlock during expensive operations.  New writes cannot get here
