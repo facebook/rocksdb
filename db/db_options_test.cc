@@ -47,7 +47,9 @@ class DBOptionsTest : public DBTestBase {
     Options options;
     test::RandomInitCFOptions(&options, rnd);
     auto sanitized_options = SanitizeOptions(options, nullptr, options);
-    return GetMutableCFOptionsMap(sanitized_options);
+    auto opt_map = GetMutableCFOptionsMap(sanitized_options);
+    delete options.compaction_filter;
+    return opt_map;
   }
 #endif  // ROCKSDB_LITE
 };
