@@ -312,7 +312,7 @@ TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Put(1, "foo", "v2"));
-    std::array<uint64_t, 2> earliest_log_nums;
+    uint64_t earliest_log_nums[2];
     for (int i = 0; i < 2; ++i) {
       if (i > 0) {
         ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
