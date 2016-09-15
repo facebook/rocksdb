@@ -305,6 +305,31 @@ TEST_F(DBWALTest, GetSortedWalFiles) {
   } while (ChangeOptions());
 }
 
+TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
+  // Test for regression of WAL cleanup missing files that don't contain data
+  // for every column family.
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    ASSERT_OK(Put(1, "foo", "v1"));
+    ASSERT_OK(Put(1, "foo", "v2"));
+    std::array<uint64_t, 2> earliest_log_nums;
+    for (int i = 0; i < 2; ++i) {
+      if (i > 0) {
+        ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+      }
+      VectorLogPtr log_files;
+      ASSERT_OK(dbfull()->GetSortedWalFiles(log_files));
+      if (log_files.size() > 0) {
+        earliest_log_nums[i] = log_files[0]->LogNumber();
+      } else {
+        earliest_log_nums[i] = port::kMaxUint64;
+      }
+    }
+    // Check at least the first WAL was cleaned up during the recovery.
+    ASSERT_LT(earliest_log_nums[0], earliest_log_nums[1]);
+  } while (ChangeOptions());
+}
+
 TEST_F(DBWALTest, RecoverWithLargeLog) {
   do {
     {

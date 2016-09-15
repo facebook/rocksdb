@@ -1722,7 +1722,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // recovered and should be ignored on next reincarnation.
       // Since we already recovered max_log_number, we want all logs
       // with numbers `<= max_log_number` (includes this one) to be ignored
-      if (flushed) {
+      if (flushed || cfd->mem()->GetFirstSequenceNumber() == 0) {
         edit->SetLogNumber(max_log_number + 1);
       }
       // we must mark the next log number as used, even though it's
