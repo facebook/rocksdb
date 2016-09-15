@@ -119,10 +119,11 @@ TEST_F(WalManagerTest, ReadFirstRecordCache) {
   ASSERT_OK(env_->NewWritableFile(path, &file, EnvOptions()));
 
   SequenceNumber s;
-  ASSERT_OK(wal_manager_->TEST_ReadFirstLine(path, &s));
+  ASSERT_OK(wal_manager_->TEST_ReadFirstLine(path, 1 /* number */, &s));
   ASSERT_EQ(s, 0U);
 
-  ASSERT_OK(wal_manager_->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
+  ASSERT_OK(
+      wal_manager_->TEST_ReadFirstRecord(kAliveLogFile, 1 /* number */, &s));
   ASSERT_EQ(s, 0U);
 
   unique_ptr<WritableFileWriter> file_writer(
