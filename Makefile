@@ -820,6 +820,7 @@ clean:
 	find . -name "*.[oda]" -exec rm -f {} \;
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 	rm -rf bzip2* snappy* zlib* lz4*
+	cd java; $(MAKE) clean
 
 tags:
 	ctags * -R
