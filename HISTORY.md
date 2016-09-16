@@ -1,4 +1,9 @@
 # Rocksdb Change Log
+## 4.11.2 (9/15/2016)
+### Bug fixes
+* Segfault when failing to open an SST file for read-ahead iterators.
+* WAL without data for all CFs is not deleted after recovery.
+
 ## 4.11.1 (8/30/2016)
 ### Bug Fixes
 * Mitigate the regression bug of deadlock condition during recovery when options.max_successive_merges hits.
