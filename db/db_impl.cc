@@ -845,7 +845,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
   }
 
-  if (!alive_log_files_.empty()) {
+  if (!alive_log_files_.empty() && !logs_.empty()) {
     uint64_t min_log_number = job_context->log_number;
     size_t num_alive_log_files = alive_log_files_.size();
     // find newly obsoleted log files
@@ -974,8 +974,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
 
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num).substr(1),
-                                   0);
+      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num), 0);
     }
   }
   for (const auto& filename : state.manifest_delete_files) {
@@ -1721,6 +1720,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // Recovery failed
         break;
       }
+    }
+  }
+
+  if (!flushed) {
+    // Mark these as alive so they'll be considered for deletion later by
+    // FindObsoleteFiles()
+    for (auto log_number : log_numbers) {
+      alive_log_files_.push_back(LogFileNumberSize(log_number));
     }
   }
 
