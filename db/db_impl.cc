@@ -812,8 +812,40 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->prev_log_number = versions_->prev_log_number();
 
   versions_->AddLiveFiles(&job_context->sst_live);
+  if (doing_the_full_scan) {
+    for (size_t path_id = 0; path_id < db_options_.db_paths.size(); path_id++) {
+      // set of all files in the directory. We'll exclude files that are still
+      // alive in the subsequent processings.
+      std::vector<std::string> files;
+      env_->GetChildren(db_options_.db_paths[path_id].path,
+                        &files);  // Ignore errors
+      for (std::string file : files) {
+        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
+        job_context->full_scan_candidate_files.emplace_back(
+            "/" + file, static_cast<uint32_t>(path_id));
+      }
+    }
 
-  if (!alive_log_files_.empty()) {
+    // Add log files in wal_dir
+    if (db_options_.wal_dir != dbname_) {
+      std::vector<std::string> log_files;
+      env_->GetChildren(db_options_.wal_dir, &log_files);  // Ignore errors
+      for (std::string log_file : log_files) {
+        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
+      }
+    }
+    // Add info log files in db_log_dir
+    if (!db_options_.db_log_dir.empty() && db_options_.db_log_dir != dbname_) {
+      std::vector<std::string> info_log_files;
+      // Ignore errors
+      env_->GetChildren(db_options_.db_log_dir, &info_log_files);
+      for (std::string log_file : info_log_files) {
+        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
+      }
+    }
+  }
+
+  if (!alive_log_files_.empty() && !logs_.empty()) {
     uint64_t min_log_number = job_context->log_number;
     size_t num_alive_log_files = alive_log_files_.size();
     // find newly obsoleted log files
@@ -851,62 +883,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     assert(!logs_.empty());
   }
 
-  if (doing_the_full_scan) {
-    for (size_t path_id = 0; path_id < db_options_.db_paths.size(); path_id++) {
-      // set of all files in the directory. We'll exclude files that are still
-      // alive in the subsequent processings.
-      std::vector<std::string> files;
-      env_->GetChildren(db_options_.db_paths[path_id].path,
-                        &files);  // Ignore errors
-      for (std::string file : files) {
-        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
-        job_context->full_scan_candidate_files.emplace_back(
-            "/" + file, static_cast<uint32_t>(path_id));
-      }
-    }
-
-    //Add log files in wal_dir
-    if (db_options_.wal_dir != dbname_) {
-      std::vector<std::string> log_files;
-      env_->GetChildren(db_options_.wal_dir, &log_files);  // Ignore errors
-      InfoLogPrefix info_log_prefix(!db_options_.db_log_dir.empty(), dbname_);
-      for (std::string log_file : log_files) {
-        uint64_t number;
-        FileType type;
-        // Ignore file if we cannot recognize it.
-        if (!ParseFileName(log_file, &number, info_log_prefix.prefix, &type)) {
-          Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-              "Unrecognized log file %s \n",log_file.c_str());
-          continue;
-        }
-        // If the log file is already in the log recycle list , don't put
-        // it in the candidate list.
-        if (std::find(log_recycle_files.begin(), log_recycle_files.end(),number) != 
-            log_recycle_files.end()) {
-
-          Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-              "Log %" PRIu64 " Already added in the recycle list, skipping.\n", 
-              number);
-          continue;
-        }
-
-        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
-      }
-    }
-    // Add info log files in db_log_dir
-    if (!db_options_.db_log_dir.empty() && db_options_.db_log_dir != dbname_) {
-      std::vector<std::string> info_log_files;
-      // Ignore errors
-      env_->GetChildren(db_options_.db_log_dir, &info_log_files);
-      for (std::string log_file : info_log_files) {
-        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
-      }
-    }
-  }
-
   // We're just cleaning up for DB::Write().
   assert(job_context->logs_to_free.empty());
   job_context->logs_to_free = logs_to_free_;
+  job_context->log_recycle_files.assign(log_recycle_files.begin(),
+                                        log_recycle_files.end());
   logs_to_free_.clear();
 }
 
@@ -975,6 +956,8 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
   for (const FileDescriptor& fd : state.sst_live) {
     sst_live_map[fd.GetNumber()] = &fd;
   }
+  std::unordered_set<uint64_t> log_recycle_files_set(
+      state.log_recycle_files.begin(), state.log_recycle_files.end());
 
   auto candidate_files = state.full_scan_candidate_files;
   candidate_files.reserve(
@@ -991,8 +974,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
 
   for (auto file_num : state.log_delete_files) {
     if (file_num > 0) {
-      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num).substr(1),
-                                   0);
+      candidate_files.emplace_back(LogFileName(kDumbDbName, file_num), 0);
     }
   }
   for (const auto& filename : state.manifest_delete_files) {
@@ -1032,7 +1014,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
     switch (type) {
       case kLogFile:
         keep = ((number >= state.log_number) ||
-                (number == state.prev_log_number));
+                (number == state.prev_log_number) ||
+                (log_recycle_files_set.find(number) !=
+                 log_recycle_files_set.end()));
         break;
       case kDescriptorFile:
         // Keep my manifest file, and any newer incarnations'
@@ -1736,6 +1720,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // Recovery failed
         break;
       }
+    }
+  }
+
+  if (!flushed) {
+    // Mark these as alive so they'll be considered for deletion later by
+    // FindObsoleteFiles()
+    for (auto log_number : log_numbers) {
+      alive_log_files_.push_back(LogFileNumberSize(log_number));
     }
   }
 

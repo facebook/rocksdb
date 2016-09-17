@@ -845,6 +845,33 @@ TEST_F(DBWALTest, AvoidFlushDuringRecovery) {
   ASSERT_EQ(2, TotalTableFiles());
 }
 
+TEST_F(DBWALTest, WalCleanupAfterAvoidFlushDuringRecovery) {
+  // Verifies WAL files that were present during recovery, but not flushed due
+  // to avoid_flush_during_recovery, will be considered for deletion at a later
+  // stage. We check at least one such file is deleted during Flush().
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_recovery = true;
+  Reopen(options);
+
+  uint64_t earliest_log_nums[2];
+  ASSERT_OK(Put("foo", "v1"));
+  Reopen(options);
+  for (int i = 0; i < 2; ++i) {
+    if (i > 0) {
+      Flush();
+    }
+    VectorLogPtr log_files;
+    ASSERT_OK(dbfull()->GetSortedWalFiles(log_files));
+    if (log_files.size() > 0) {
+      earliest_log_nums[i] = log_files[0]->LogNumber();
+    } else {
+      earliest_log_nums[i] = port::kMaxUint64;
+    }
+  }
+  ASSERT_LT(earliest_log_nums[0], earliest_log_nums[1]);
+}
+
 TEST_F(DBWALTest, RecoverWithoutFlush) {
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
