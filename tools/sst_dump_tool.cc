@@ -199,10 +199,12 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
     if (CompressionTypeSupported(i.first)) {
       CompressionOptions compress_opt;
       std::string column_family_name;
+      int unknown_level = -1;
       TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories,
                                   i.first, compress_opt,
                                   nullptr /* compression_dict */,
-                                  false /* skip_filters */, column_family_name);
+                                  false /* skip_filters */, column_family_name,
+                                  unknown_level);
       uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
       fprintf(stdout, "Compression: %s", i.second);
       fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
