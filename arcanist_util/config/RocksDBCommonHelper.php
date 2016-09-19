@@ -183,6 +183,14 @@ function getSandcastleConfig() {
   } else {
     // This is a typical `[p]arc diff` case. Fetch the values from the specific
     // configuration files.
+    for ($i = 0; $i < 50; $i++) {
+      if (file_exists(PRIMARY_TOKEN_FILE) ||
+          file_exists(SECONDARY_TOKEN_FILE)) {
+        break;
+      }
+      // If we failed to fetch the tokens, sleep for 0.2 second and try again
+      usleep(200000);
+    }
     assert(file_exists(PRIMARY_TOKEN_FILE) ||
            file_exists(SECONDARY_TOKEN_FILE));
 
