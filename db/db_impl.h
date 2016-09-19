@@ -1068,7 +1068,7 @@ class DBImpl : public DB {
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompaction* m, ManualCompaction* m1);
 
-  uint64_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
+  size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

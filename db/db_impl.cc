@@ -3682,8 +3682,8 @@ bool DBImpl::MCOverlap(ManualCompaction* m, ManualCompaction* m1) {
   return true;
 }
 
-uint64_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
-  uint64_t bsize = write_buffer_size / 10 + write_buffer_size;
+size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
+  size_t bsize = write_buffer_size / 10 + write_buffer_size;
   // Some users might set very high write_buffer_size and rely on
   // max_total_wal_size or other parameters to control the WAL size.
   if (db_options_.max_total_wal_size > 0) {
