@@ -3687,14 +3687,15 @@ size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
   // Some users might set very high write_buffer_size and rely on
   // max_total_wal_size or other parameters to control the WAL size.
   if (db_options_.max_total_wal_size > 0) {
-    bsize = std::min(bsize, db_options_.max_total_wal_size);
+    bsize = std::min<size_t>(bsize, db_options_.max_total_wal_size);
   }
   if (db_options_.db_write_buffer_size > 0) {
-    bsize = std::min(bsize, db_options_.db_write_buffer_size);
+    bsize = std::min<size_t>(bsize, db_options_.db_write_buffer_size);
   }
   if (db_options_.write_buffer_manager &&
       db_options_.write_buffer_manager->enabled()) {
-    bsize = std::min(bsize, db_options_.write_buffer_manager->buffer_size());
+    bsize = std::min<size_t>(bsize,
+                             db_options_.write_buffer_manager->buffer_size());
   }
 
   return bsize;
