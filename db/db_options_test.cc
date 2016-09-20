@@ -76,6 +76,15 @@ TEST_F(DBOptionsTest, GetLatestOptions) {
             GetMutableCFOptionsMap(dbfull()->GetOptions(handles_[1])));
 }
 
+TEST_F(DBOptionsTest, SetOptionsAndReopen) {
+  Random rnd(1044);
+  auto rand_opts = GetRandomizedMutableCFOptionsMap(&rnd);
+  ASSERT_OK(dbfull()->SetOptions(rand_opts));
+  // Verify if DB can be reopen after setting options.
+  Options options;
+  ASSERT_OK(TryReopen(options));
+}
+
 TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
   const std::string kValue(1024, 'v');
   for (int method_type = 0; method_type < 2; method_type++) {
@@ -177,6 +186,24 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
       ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
     }
   }
+}
+
+TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
+  Options options;
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 1000;
+  Reopen(options);
+  for (int i = 0; i < 3; i++) {
+    // Need to insert two keys to avoid trivial move.
+    ASSERT_OK(Put("foo", ToString(i)));
+    ASSERT_OK(Put("bar", ToString(i)));
+    Flush();
+  }
+  ASSERT_EQ("3", FilesPerLevel());
+  ASSERT_OK(
+      dbfull()->SetOptions({{"level0_file_num_compaction_trigger", "3"}}));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,1", FilesPerLevel());
 }
 
 #endif  // ROCKSDB_LITE
