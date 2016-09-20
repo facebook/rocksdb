@@ -87,8 +87,8 @@ TEST_F(RateLimiterTest, Rate) {
               arg.request_size - 1, target / 1024, rate / 1024,
               elapsed / 1000000.0);
 
-      ASSERT_GE(rate / target, 0.9);
-      ASSERT_LE(rate / target, 1.1);
+      ASSERT_GE(rate / target, 0.85);
+      ASSERT_LE(rate / target, 1.15);
     }
   }
 }
