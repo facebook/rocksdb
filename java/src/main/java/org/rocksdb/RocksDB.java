@@ -824,7 +824,8 @@ public class RocksDB extends RocksObject {
     final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
         keyLengths);
 
-    final Map<byte[], byte[]> keyValueMap = new HashMap<>();
+    final Map<byte[], byte[]> keyValueMap =
+      new HashMap<>(computeCapacityHint(values.length));
     for(int i = 0; i < values.length; i++) {
       if(values[i] == null) {
         continue;
@@ -880,7 +881,8 @@ public class RocksDB extends RocksObject {
     final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
         keyLengths, cfHandles);
 
-    final Map<byte[], byte[]> keyValueMap = new HashMap<>();
+    final Map<byte[], byte[]> keyValueMap =
+      new HashMap<>(computeCapacityHint(values.length));
     for(int i = 0; i < values.length; i++) {
       if (values[i] == null) {
         continue;
@@ -915,7 +917,8 @@ public class RocksDB extends RocksObject {
     final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
         keysArray, keyOffsets, keyLengths);
 
-    final Map<byte[], byte[]> keyValueMap = new HashMap<>();
+    final Map<byte[], byte[]> keyValueMap =
+      new HashMap<>(computeCapacityHint(values.length));
     for(int i = 0; i < values.length; i++) {
       if(values[i] == null) {
         continue;
@@ -971,7 +974,8 @@ public class RocksDB extends RocksObject {
     final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
         keysArray, keyOffsets, keyLengths, cfHandles);
 
-    final Map<byte[], byte[]> keyValueMap = new HashMap<>();
+    final Map<byte[], byte[]> keyValueMap =
+      new HashMap<>(computeCapacityHint(values.length));
     for(int i = 0; i < values.length; i++) {
       if(values[i] == null) {
         continue;
@@ -1949,6 +1953,12 @@ public class RocksDB extends RocksObject {
     setOptions(nativeHandle_, columnFamilyHandle.nativeHandle_,
         mutableColumnFamilyOptions.getKeys(),
         mutableColumnFamilyOptions.getValues());
+  }
+
+  private static int computeCapacityHint(final int estimatedNumberOfItems) {
+    // Default load factor for HashMap is 0.75, so N * 1.5 will be at the load
+    // limit. We add +1 for a buffer.
+    return (int) (estimatedNumberOfItems * 1.5 + 1.0);
   }
 
   /**
