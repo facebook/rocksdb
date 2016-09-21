@@ -882,10 +882,13 @@ class MemTableInserter : public WriteBatch::Handler {
         std::string merged_value;
 
         auto cf_handle = cf_mems_->GetColumnFamilyHandle();
-        if (cf_handle == nullptr) {
-          cf_handle = db_->DefaultColumnFamily();
+        Status s = Status::NotSupported();
+        if (db_ != nullptr && recovering_log_number_ != 0) {
+          if (cf_handle == nullptr) {
+            cf_handle = db_->DefaultColumnFamily();
+          }
+          s = db_->Get(ropts, cf_handle, key, &prev_value);
         }
-        Status s = db_->Get(ropts, cf_handle, key, &prev_value);
 
         char* prev_buffer = const_cast<char*>(prev_value.c_str());
         uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
@@ -989,7 +992,12 @@ class MemTableInserter : public WriteBatch::Handler {
     auto* moptions = mem->GetMemTableOptions();
     bool perform_merge = false;
 
-    if (moptions->max_successive_merges > 0 && db_ != nullptr) {
+    // If we pass DB through and options.max_successive_merges is hit
+    // during recovery, Get() will be issued which will try to acquire
+    // DB mutex and cause deadlock, as DB mutex is already held.
+    // So we disable merge in recovery
+    if (moptions->max_successive_merges > 0 && db_ != nullptr &&
+        recovering_log_number_ == 0) {
       LookupKey lkey(key, sequence_);
 
       // Count the number of successive merges at the head

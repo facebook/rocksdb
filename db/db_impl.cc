@@ -1597,16 +1597,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // we just ignore the update.
       // That's why we set ignore missing column families to true
       bool has_valid_writes = false;
-      // If we pass DB through and options.max_successive_merges is hit
-      // during recovery, Get() will be issued which will try to acquire
-      // DB mutex and cause deadlock, as DB mutex is already held.
-      // The DB pointer is not needed unless 2PC is used.
-      // TODO(sdong) fix the allow_2pc case too.
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
-          log_number, db_options_.allow_2pc ? this : nullptr,
-          false /* concurrent_memtable_writes */, next_sequence,
-          &has_valid_writes);
+          log_number, this, false /* concurrent_memtable_writes */,
+          next_sequence, &has_valid_writes);
       // If it is the first log file and there is no column family updated
       // after replaying the file, this file may be a stale file. We ignore
       // sequence IDs from the file. Otherwise, if a newer stale log file that

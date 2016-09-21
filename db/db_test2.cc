@@ -145,6 +145,22 @@ TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
   value = Get(1, "a");
 }
 
+TEST_F(DBTest2, MaxSuccessiveMergesChangeWithDBRecovery) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.max_successive_merges = 3;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  Put("poi", "Finch");
+  db_->Merge(WriteOptions(), "poi", "Reese");
+  db_->Merge(WriteOptions(), "poi", "Shaw");
+  db_->Merge(WriteOptions(), "poi", "Root");
+  options.max_successive_merges = 2;
+  Reopen(options);
+}
+
 #ifndef ROCKSDB_LITE
 class DBTestSharedWriteBufferAcrossCFs
     : public DBTestBase,
@@ -1888,23 +1904,6 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
   reader_thread.join();
 }
 #endif  // ROCKSDB_LITE
-
-TEST_F(DBTest2, MaxSuccessiveMergesInRecovery) {
-  Options options;
-  options = CurrentOptions(options);
-  options.merge_operator = MergeOperators::CreatePutOperator();
-  DestroyAndReopen(options);
-
-  db_->Put(WriteOptions(), "foo", "bar");
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-
-  options.max_successive_merges = 3;
-  Reopen(options);
-}
 
 size_t GetEncodedEntrySize(size_t key_size, size_t value_size) {
   std::string buffer;
