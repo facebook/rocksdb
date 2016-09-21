@@ -303,16 +303,33 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     if (status.ok()) {
       delete InstallSuperVersionAndScheduleWork(cfd, nullptr,
                                                 mutable_cf_options);
+
+      // Update internal stats for new ingested files
+      uint64_t total_keys = 0;
+      uint64_t total_l0_files = 0;
+      for (size_t i = 0; i < num_files; i++) {
+        InternalStats::CompactionStats stats(1);
+        stats.micros = micro_list[i];
+        stats.bytes_written = meta_list[i].fd.GetFileSize();
+        stats.num_output_files = 1;
+        cfd->internal_stats()->AddCompactionStats(target_level_list[i], stats);
+        cfd->internal_stats()->AddCFStats(
+            InternalStats::BYTES_INGESTED_ADD_FILE,
+            meta_list[i].fd.GetFileSize());
+        total_keys += file_info_list[i].num_entries;
+        if (target_level_list[i] == 0) {
+          total_l0_files += 1;
+        }
+      }
+      cfd->internal_stats()->AddCFStats(InternalStats::INGESTED_NUM_KEYS_TOTAL,
+                                        total_keys);
+      cfd->internal_stats()->AddCFStats(InternalStats::INGESTED_NUM_FILES_TOTAL,
+                                        num_files);
+      cfd->internal_stats()->AddCFStats(
+          InternalStats::INGESTED_LEVEL0_NUM_FILES_TOTAL, total_l0_files);
     }
+
     for (size_t i = 0; i < num_files; i++) {
-      // Update internal stats
-      InternalStats::CompactionStats stats(1);
-      stats.micros = micro_list[i];
-      stats.bytes_written = meta_list[i].fd.GetFileSize();
-      stats.num_output_files = 1;
-      cfd->internal_stats()->AddCompactionStats(target_level_list[i], stats);
-      cfd->internal_stats()->AddCFStats(InternalStats::BYTES_INGESTED_ADD_FILE,
-                                        meta_list[i].fd.GetFileSize());
       ReleaseFileNumberFromPendingOutputs(
           pending_outputs_inserted_elem_list[i]);
     }
