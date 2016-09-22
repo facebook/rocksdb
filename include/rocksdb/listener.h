@@ -18,6 +18,7 @@ typedef std::unordered_map<std::string, std::shared_ptr<const TableProperties>>
     TablePropertiesCollection;
 
 class DB;
+class ColumnFamilyHandle;
 class Status;
 struct CompactionJobStats;
 enum CompressionType : unsigned char;
@@ -265,7 +266,7 @@ class EventListener {
   // returned value.
   virtual void OnTableFileCreationStarted(
       const TableFileCreationBriefInfo& /*info*/) {}
- 
+
   // A call-back function for RocksDB which will be called before
   // a memtable is made immutable.
   //
@@ -278,6 +279,17 @@ class EventListener {
   // returned value.
   virtual void OnMemTableSealed(
     const MemTableInfo& /*info*/) {}
+
+  // A call-back function for RocksDB which will be called before
+  // a column family handle is deleted.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  // @param handle is a pointer to the column family handle to be deleted
+  // which will become a dangling pointer after the deletion.
+  virtual void OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* handle) {
+  }
 
   virtual ~EventListener() {}
 };

@@ -45,6 +45,11 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
+#ifndef ROCKSDB_LITE
+    for (auto& listener : cfd_->ioptions()->listeners) {
+      listener->OnColumnFamilyHandleDeletionStarted(this);
+    }
+#endif  // ROCKSDB_LITE
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
