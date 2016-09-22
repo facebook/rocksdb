@@ -226,7 +226,7 @@ bool BlockIter::ParseNextKey() {
   }
 
 // Binary search in restart array to find the first restart point
-// with a key >= target (TODO: this comment is inaccurate)
+// with a key <= target if exists, otherwise return the first restart point.
 bool BlockIter::BinarySeek(const Slice& target, uint32_t left, uint32_t right,
                   uint32_t* index) {
   assert(left <= right);
