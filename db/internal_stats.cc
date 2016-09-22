@@ -816,21 +816,22 @@ void InternalStats::DumpCFStats(std::string* value) {
 
   uint64_t interval_ingest_files_addfile =
       ingest_files_addfile - cf_stats_snapshot_.ingest_files_addfile;
-  snprintf(buf, sizeof(buf),
-           "AddFile(Total Files): cumulative %lu, interval %lu\n",
+  snprintf(buf, sizeof(buf), "AddFile(Total Files): cumulative %" PRIu64
+                             ", interval %" PRIu64 "\n",
            ingest_files_addfile, interval_ingest_files_addfile);
   value->append(buf);
 
   uint64_t interval_ingest_l0_files_addfile =
       ingest_l0_files_addfile - cf_stats_snapshot_.ingest_l0_files_addfile;
   snprintf(buf, sizeof(buf),
-           "AddFile(L0 Files): cumulative %lu, interval %lu\n",
+           "AddFile(L0 Files): cumulative %" PRIu64 ", interval %" PRIu64 "\n",
            ingest_l0_files_addfile, interval_ingest_l0_files_addfile);
   value->append(buf);
 
   uint64_t interval_ingest_keys_addfile =
       ingest_keys_addfile - cf_stats_snapshot_.ingest_keys_addfile;
-  snprintf(buf, sizeof(buf), "AddFile(Keys): cumulative %lu, interval %lu\n",
+  snprintf(buf, sizeof(buf),
+           "AddFile(Keys): cumulative %" PRIu64 ", interval %" PRIu64 "\n",
            ingest_keys_addfile, interval_ingest_keys_addfile);
   value->append(buf);
 
