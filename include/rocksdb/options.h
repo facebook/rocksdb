@@ -913,7 +913,7 @@ struct DBOptions {
   // to stable storage. Their contents remain in the OS buffers till the
   // OS decides to flush them. This option is good for bulk-loading
   // of data. Once the bulk-loading is complete, please issue a
-  // sync to the OS to flush all dirty buffesrs to stable storage.
+  // sync to the OS to flush all dirty buffers to stable storage.
   // Default: false
   bool disableDataSync;
 
