@@ -393,9 +393,10 @@ PARALLEL_TEST = \
 	db_compaction_filter_test \
 	db_compaction_test \
 	db_sst_test \
-	external_sst_file_test \
 	db_test \
 	db_universal_compaction_test \
+	db_wal_test \
+	external_sst_file_test \
 	fault_injection_test \
 	inlineskiplist_test \
 	manual_compaction_test \
@@ -599,7 +600,7 @@ gen_parallel_tests:
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-	^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$
+	^t/run-table_test-HarnessTest.Randomized$$|^t/run-db_test-.*(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$|^.*RecoverFromCorruptedWALWithoutFlush$$
 prioritize_long_running_tests =						\
   perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
     | sort -k1,1gr							\
