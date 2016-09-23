@@ -1414,7 +1414,6 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
   bool stop_replay_by_wal_filter = false;
   bool stop_replay_for_corruption = false;
   bool flushed = false;
-  SequenceNumber recovered_sequence = 0;
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
@@ -1493,13 +1492,13 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       WriteBatchInternal::SetContents(&batch, record);
       SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
 
-      // In point-in-time recovery mode, if sequence id of log files are
-      // consecutive, we continue recovery despite corruption. This could happen
-      // when we open and write to a corrupted DB, where sequence id will start
-      // from the last sequence id we recovered.
       if (db_options_.wal_recovery_mode ==
           WALRecoveryMode::kPointInTimeRecovery) {
-        if (sequence == recovered_sequence + 1) {
+        // In point-in-time recovery mode, if sequence id of log files are
+        // consecutive, we continue recovery despite corruption. This could
+        // happen when we open and write to a corrupted DB, where sequence id
+        // will start from the last sequence id we recovered.
+        if (sequence == *next_sequence) {
           stop_replay_for_corruption = false;
         }
         if (stop_replay_for_corruption) {
@@ -1508,13 +1507,16 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         }
       }
 
-      recovered_sequence = sequence;
       bool no_prev_seq = true;
-      if (*next_sequence == kMaxSequenceNumber) {
+      if (!db_options_.allow_2pc) {
         *next_sequence = sequence;
       } else {
-        no_prev_seq = false;
-        WriteBatchInternal::SetSequence(&batch, *next_sequence);
+        if (*next_sequence == kMaxSequenceNumber) {
+          *next_sequence = sequence;
+        } else {
+          no_prev_seq = false;
+          WriteBatchInternal::SetSequence(&batch, *next_sequence);
+        }
       }
 
 #ifndef ROCKSDB_LITE
@@ -1605,8 +1607,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // after replaying the file, this file may be a stale file. We ignore
       // sequence IDs from the file. Otherwise, if a newer stale log file that
       // has been deleted, the sequenceID may be wrong.
-      if (no_prev_seq && !has_valid_writes) {
-        *next_sequence = kMaxSequenceNumber;
+      if (db_options_.allow_2pc) {
+        if (no_prev_seq && !has_valid_writes) {
+          *next_sequence = kMaxSequenceNumber;
+        }
       }
       MaybeIgnoreError(&status);
       if (!status.ok()) {
