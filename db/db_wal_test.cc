@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "util/fault_injection_test_env.h"
 #include "util/options_helper.h"
 #include "util/sync_point.h"
 
@@ -596,6 +597,41 @@ TEST_F(DBWALTest, SyncMultipleLogs) {
   }
 
   ASSERT_OK(dbfull()->SyncWAL());
+}
+
+// Github issue 1339. Prior the fix we read sequence id from the first log to
+// a local variable, then keep increase the variable as we replay logs,
+// ignoring actual sequence id of the records. This is incorrect if some writes
+// come with WAL disabled.
+TEST_F(DBWALTest, PartOfWritesWithWALDisabled) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_env(
+      new FaultInjectionTestEnv(env_));
+  Options options = CurrentOptions();
+  options.env = fault_env.get();
+  options.disable_auto_compactions = true;
+  // TODO(yiwu): fix for 2PC.
+  options.allow_2pc = false;
+  WriteOptions wal_on, wal_off;
+  wal_on.sync = true;
+  wal_on.disableWAL = false;
+  wal_off.disableWAL = true;
+  CreateAndReopenWithCF({"dummy"}, options);
+  ASSERT_OK(Put(1, "dummy", "d1", wal_on));  // seq id 1
+  ASSERT_OK(Put(1, "dummy", "d2", wal_off));
+  ASSERT_OK(Put(1, "dummy", "d3", wal_off));
+  ASSERT_OK(Put(0, "key", "v4", wal_on));  // seq id 4
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Put(0, "key", "v5", wal_on));  // seq id 5
+  ASSERT_EQ("v5", Get(0, "key"));
+  // Simulate a crash.
+  fault_env->SetFilesystemActive(false);
+  Close();
+  fault_env->ResetState();
+  ReopenWithColumnFamilies({"default", "dummy"}, options);
+  // Prior to the fix, we may incorrectly recover "v5" with sequence id = 3.
+  ASSERT_EQ("v5", Get(0, "key"));
+  // Destroy DB before destruct fault_env.
+  Destroy(options);
 }
 
 //
