@@ -16,51 +16,62 @@
 #include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
+#include "util/db_options.h"
 
 namespace rocksdb {
 
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)
-    : compaction_style(options.compaction_style),
-      compaction_pri(options.compaction_pri),
-      compaction_options_universal(options.compaction_options_universal),
-      compaction_options_fifo(options.compaction_options_fifo),
-      prefix_extractor(options.prefix_extractor.get()),
-      comparator(options.comparator),
-      merge_operator(options.merge_operator.get()),
-      compaction_filter(options.compaction_filter),
-      compaction_filter_factory(options.compaction_filter_factory.get()),
-      inplace_update_support(options.inplace_update_support),
-      inplace_callback(options.inplace_callback),
-      info_log(options.info_log.get()),
-      statistics(options.statistics.get()),
-      env(options.env),
-      delayed_write_rate(options.delayed_write_rate),
-      allow_mmap_reads(options.allow_mmap_reads),
-      allow_mmap_writes(options.allow_mmap_writes),
-      db_paths(options.db_paths),
-      memtable_factory(options.memtable_factory.get()),
-      table_factory(options.table_factory.get()),
+    : ImmutableCFOptions(ImmutableDBOptions(options), options) {}
+
+ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
+                                       const ColumnFamilyOptions& cf_options)
+    : compaction_style(cf_options.compaction_style),
+      compaction_pri(cf_options.compaction_pri),
+      compaction_options_universal(cf_options.compaction_options_universal),
+      compaction_options_fifo(cf_options.compaction_options_fifo),
+      prefix_extractor(cf_options.prefix_extractor.get()),
+      comparator(cf_options.comparator),
+      merge_operator(cf_options.merge_operator.get()),
+      compaction_filter(cf_options.compaction_filter),
+      compaction_filter_factory(cf_options.compaction_filter_factory.get()),
+      min_write_buffer_number_to_merge(
+          cf_options.min_write_buffer_number_to_merge),
+      max_write_buffer_number_to_maintain(
+          cf_options.max_write_buffer_number_to_maintain),
+      inplace_update_support(cf_options.inplace_update_support),
+      inplace_callback(cf_options.inplace_callback),
+      info_log(db_options.info_log.get()),
+      statistics(db_options.statistics.get()),
+      env(db_options.env),
+      delayed_write_rate(db_options.delayed_write_rate),
+      allow_mmap_reads(db_options.allow_mmap_reads),
+      allow_mmap_writes(db_options.allow_mmap_writes),
+      db_paths(db_options.db_paths),
+      memtable_factory(cf_options.memtable_factory.get()),
+      table_factory(cf_options.table_factory.get()),
       table_properties_collector_factories(
-          options.table_properties_collector_factories),
-      advise_random_on_open(options.advise_random_on_open),
-      bloom_locality(options.bloom_locality),
-      purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
-      disable_data_sync(options.disableDataSync),
-      use_fsync(options.use_fsync),
-      compression_per_level(options.compression_per_level),
-      bottommost_compression(options.bottommost_compression),
-      compression_opts(options.compression_opts),
+          cf_options.table_properties_collector_factories),
+      advise_random_on_open(db_options.advise_random_on_open),
+      bloom_locality(cf_options.bloom_locality),
+      purge_redundant_kvs_while_flush(
+          cf_options.purge_redundant_kvs_while_flush),
+      disable_data_sync(db_options.disable_data_sync),
+      use_fsync(db_options.use_fsync),
+      compression_per_level(cf_options.compression_per_level),
+      bottommost_compression(cf_options.bottommost_compression),
+      compression_opts(cf_options.compression_opts),
       level_compaction_dynamic_level_bytes(
-          options.level_compaction_dynamic_level_bytes),
-      access_hint_on_compaction_start(options.access_hint_on_compaction_start),
+          cf_options.level_compaction_dynamic_level_bytes),
+      access_hint_on_compaction_start(
+          db_options.access_hint_on_compaction_start),
       new_table_reader_for_compaction_inputs(
-          options.new_table_reader_for_compaction_inputs),
-      compaction_readahead_size(options.compaction_readahead_size),
-      num_levels(options.num_levels),
-      optimize_filters_for_hits(options.optimize_filters_for_hits),
-      listeners(options.listeners),
-      row_cache(options.row_cache),
-      max_subcompactions(options.max_subcompactions) {}
+          db_options.new_table_reader_for_compaction_inputs),
+      compaction_readahead_size(db_options.compaction_readahead_size),
+      num_levels(cf_options.num_levels),
+      optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
+      listeners(db_options.listeners),
+      row_cache(db_options.row_cache),
+      max_subcompactions(db_options.max_subcompactions) {}
 
 // Multiple two operands. If they overflow, return op1.
 uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {

@@ -88,18 +88,21 @@ LIB_SOURCES =                                                   \
   util/arena.cc                                                 \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
+  util/cf_options.cc                                            \
   util/clock_cache.cc                                           \
   util/coding.cc                                                \
   util/comparator.cc                                            \
   util/compaction_job_stats_impl.cc                             \
   util/concurrent_arena.cc                                      \
   util/crc32c.cc                                                \
+	util/db_options.cc                                            \
   util/delete_scheduler.cc                                      \
   util/dynamic_bloom.cc                                         \
   util/env.cc                                                   \
   util/env_chroot.cc                                            \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
+  util/event_logger.cc                                          \
   util/file_util.cc                                             \
   util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
@@ -109,13 +112,39 @@ LIB_SOURCES =                                                   \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
   util/io_posix.cc                                              \
+  util/log_buffer.cc                                            \
+  util/logging.cc                                               \
   util/lru_cache.cc                                             \
+  util/memenv.cc                                                \
+  util/murmurhash.cc                                            \
+  util/options.cc                                               \
+  util/options_helper.cc                                        \
+  util/options_parser.cc                                        \
+  util/options_sanity_check.cc                                  \
+  util/perf_context.cc                                          \
+  util/perf_level.cc                                            \
+  util/random.cc                                                \
+  util/rate_limiter.cc                                          \
+	util/sharded_cache.cc       																	\
+  util/slice.cc                                                 \
+  util/sst_file_manager_impl.cc                                 \
+  util/statistics.cc                                            \
+  util/status.cc                                                \
+  util/status_message.cc                                        \
+  util/string_util.cc                                           \
+  util/sync_point.cc                                            \
+  util/thread_local.cc                                          \
+  util/thread_status_impl.cc                                    \
+  util/thread_status_updater.cc                                 \
+  util/thread_status_updater_debug.cc                           \
+  util/thread_status_util.cc                                    \
+  util/thread_status_util_debug.cc                              \
   util/threadpool_imp.cc                                        \
   util/transaction_test_util.cc                                 \
-	util/sharded_cache.cc       																	\
-  util/sst_file_manager_impl.cc                                 \
+  util/xfunc.cc                                                 \
+  util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
-  utilities/blob_db/blob_db.cc                         \
+  utilities/blob_db/blob_db.cc                                  \
   utilities/convenience/info_log_finder.cc                      \
   utilities/checkpoint/checkpoint.cc                            \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
@@ -156,34 +185,6 @@ LIB_SOURCES =                                                   \
   utilities/date_tiered/date_tiered_db_impl.cc                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
-  util/cf_options.cc                                            \
-  util/event_logger.cc                                          \
-  util/log_buffer.cc                                            \
-  util/logging.cc                                               \
-  util/memenv.cc                                                \
-  util/murmurhash.cc                                            \
-  util/options.cc                                               \
-  util/options_helper.cc                                        \
-  util/options_parser.cc                                        \
-  util/options_sanity_check.cc                                  \
-  util/perf_context.cc                                          \
-  util/perf_level.cc                                            \
-  util/random.cc                                                \
-  util/rate_limiter.cc                                          \
-  util/slice.cc                                                 \
-  util/statistics.cc                                            \
-  util/status.cc                                                \
-  util/status_message.cc                                        \
-  util/string_util.cc                                           \
-  util/sync_point.cc                                            \
-  util/thread_local.cc                                          \
-  util/thread_status_impl.cc                                    \
-  util/thread_status_updater.cc                                 \
-  util/thread_status_updater_debug.cc                           \
-  util/thread_status_util.cc                                    \
-  util/thread_status_util_debug.cc                              \
-  util/xfunc.cc                                                 \
-  util/xxhash.cc                                                \
 
 TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \

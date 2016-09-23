@@ -17,22 +17,21 @@
 #include <string>
 #include <memory>
 
-#include "port/port.h"
-
-#include "rocksdb/env.h"
-#include "rocksdb/options.h"
-#include "rocksdb/types.h"
-#include "rocksdb/transaction_log.h"
-#include "rocksdb/status.h"
-
 #include "db/version_set.h"
+#include "port/port.h"
+#include "rocksdb/env.h"
+#include "rocksdb/status.h"
+#include "rocksdb/transaction_log.h"
+#include "rocksdb/types.h"
+#include "util/db_options.h"
 
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
 class WalManager {
  public:
-  WalManager(const DBOptions& db_options, const EnvOptions& env_options)
+  WalManager(const ImmutableDBOptions& db_options,
+             const EnvOptions& env_options)
       : db_options_(db_options),
         env_options_(env_options),
         env_(db_options.env),
@@ -75,7 +74,7 @@ class WalManager {
                        SequenceNumber* sequence);
 
   // ------- state from DBImpl ------
-  const DBOptions& db_options_;
+  const ImmutableDBOptions& db_options_;
   const EnvOptions& env_options_;
   Env* env_;
 

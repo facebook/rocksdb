@@ -6,8 +6,9 @@
 
 #include <string>
 
-#include "rocksdb/options.h"
+#include "util/db_options.h"
 
 namespace rocksdb {
-void DumpDBFileSummary(const DBOptions& options, const std::string& dbname);
+void DumpDBFileSummary(const ImmutableDBOptions& options,
+                       const std::string& dbname);
 }  // namespace rocksdb

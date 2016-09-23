@@ -28,18 +28,19 @@
 #include <utility>
 #include <vector>
 
-#include "db/dbformat.h"
-#include "db/version_builder.h"
-#include "db/version_edit.h"
-#include "port/port.h"
-#include "db/table_cache.h"
+#include "db/column_family.h"
 #include "db/compaction.h"
 #include "db/compaction_picker.h"
-#include "db/column_family.h"
-#include "db/log_reader.h"
+#include "db/dbformat.h"
 #include "db/file_indexer.h"
+#include "db/log_reader.h"
+#include "db/table_cache.h"
+#include "db/version_builder.h"
+#include "db/version_edit.h"
 #include "db/write_controller.h"
+#include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/db_options.h"
 #include "util/instrumented_mutex.h"
 
 namespace rocksdb {
@@ -574,7 +575,7 @@ class Version {
 
 class VersionSet {
  public:
-  VersionSet(const std::string& dbname, const DBOptions* db_options,
+  VersionSet(const std::string& dbname, const ImmutableDBOptions* db_options,
              const EnvOptions& env_options, Cache* table_cache,
              WriteBufferManager* write_buffer_manager,
              WriteController* write_controller);
@@ -756,7 +757,7 @@ class VersionSet {
 
   Env* const env_;
   const std::string dbname_;
-  const DBOptions* const db_options_;
+  const ImmutableDBOptions* const db_options_;
   std::atomic<uint64_t> next_file_number_;
   uint64_t manifest_file_number_;
   uint64_t options_file_number_;

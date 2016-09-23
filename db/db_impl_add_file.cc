@@ -209,8 +209,8 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
   for (; j < num_files; j++) {
     StopWatch sw(env_, nullptr, 0, &micro_list[j], false);
     db_fname_list[j] =
-        TableFileName(db_options_.db_paths, meta_list[j].fd.GetNumber(),
-                      meta_list[j].fd.GetPathId());
+        TableFileName(immutable_db_options_.db_paths,
+                      meta_list[j].fd.GetNumber(), meta_list[j].fd.GetPathId());
     if (move_file) {
       status = env_->LinkFile(file_info_list[j].file_path, db_fname_list[j]);
       if (status.IsNotSupported()) {
@@ -226,7 +226,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       for (size_t i = 0; i < j; i++) {
         Status s = env_->DeleteFile(db_fname_list[i]);
         if (!s.ok()) {
-          Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+          Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
               "AddFile() clean up for file %s failed : %s",
               db_fname_list[i].c_str(), s.ToString().c_str());
         }
@@ -340,7 +340,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     for (size_t i = 0; i < num_files; i++) {
       Status s = env_->DeleteFile(db_fname_list[i]);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+        Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
             "AddFile() clean up for file %s failed : %s",
             db_fname_list[i].c_str(), s.ToString().c_str());
       }
@@ -350,7 +350,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     for (size_t i = 0; i < num_files; i++) {
       Status s = env_->DeleteFile(file_info_list[i].file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+        Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
             "%s was added to DB successfully but failed to remove original "
             "file "
             "link : %s",

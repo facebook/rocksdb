@@ -99,10 +99,11 @@ class Repairer {
         env_(db_options.env),
         env_options_(),
         db_options_(SanitizeOptions(dbname_, db_options)),
+        immutable_db_options_(db_options_),
         icmp_(default_cf_opts.comparator),
         default_cf_opts_(default_cf_opts),
         default_cf_iopts_(
-            ImmutableCFOptions(Options(db_options_, default_cf_opts))),
+            ImmutableCFOptions(immutable_db_options_, default_cf_opts)),
         unknown_cf_opts_(unknown_cf_opts),
         create_unknown_cfs_(create_unknown_cfs),
         raw_table_cache_(
@@ -113,8 +114,8 @@ class Repairer {
                                     raw_table_cache_.get())),
         wb_(db_options_.db_write_buffer_size),
         wc_(db_options_.delayed_write_rate),
-        vset_(dbname_, &db_options_, env_options_, raw_table_cache_.get(), &wb_,
-              &wc_),
+        vset_(dbname_, &immutable_db_options_, env_options_,
+              raw_table_cache_.get(), &wb_, &wc_),
         next_file_number_(1) {
     for (const auto& cfd : column_families) {
       cf_name_to_opts_[cfd.name] = cfd.options;
@@ -222,6 +223,7 @@ class Repairer {
   Env* const env_;
   const EnvOptions env_options_;
   const DBOptions db_options_;
+  const ImmutableDBOptions immutable_db_options_;
   const InternalKeyComparator icmp_;
   const ColumnFamilyOptions default_cf_opts_;
   const ImmutableCFOptions default_cf_iopts_;  // table_cache_ holds reference

@@ -37,6 +37,7 @@
 #include "rocksdb/transaction_log.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
+#include "util/db_options.h"
 #include "util/event_logger.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
@@ -52,7 +53,8 @@ class Arena;
 
 class CompactionJob {
  public:
-  CompactionJob(int job_id, Compaction* compaction, const DBOptions& db_options,
+  CompactionJob(int job_id, Compaction* compaction,
+                const ImmutableDBOptions& db_options,
                 const EnvOptions& env_options, VersionSet* versions,
                 std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
                 Directory* db_directory, Directory* output_directory,
@@ -120,7 +122,7 @@ class CompactionJob {
 
   // DBImpl state
   const std::string& dbname_;
-  const DBOptions& db_options_;
+  const ImmutableDBOptions& db_options_;
   const EnvOptions& env_options_;
 
   Env* env_;

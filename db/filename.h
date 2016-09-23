@@ -20,6 +20,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
+#include "util/db_options.h"
 
 namespace rocksdb {
 
@@ -159,7 +160,7 @@ extern Status SetCurrentFile(Env* env, const std::string& dbname,
 extern Status SetIdentityFile(Env* env, const std::string& dbname);
 
 // Sync manifest file `file`.
-extern Status SyncManifest(Env* env, const DBOptions* db_options,
+extern Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
                            WritableFileWriter* file);
 
 }  // namespace rocksdb

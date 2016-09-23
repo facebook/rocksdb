@@ -200,6 +200,7 @@ set(SOURCES
         util/comparator.cc
         util/concurrent_arena.cc
         util/crc32c.cc
+        util/db_options.cc
         util/delete_scheduler.cc
         util/dynamic_bloom.cc
         util/env.cc

@@ -10,6 +10,7 @@
 
 #include "rocksdb/options.h"
 #include "util/compression.h"
+#include "util/db_options.h"
 
 namespace rocksdb {
 
@@ -18,7 +19,11 @@ namespace rocksdb {
 // of DB. Raw pointers defined in this struct do not have ownership to the data
 // they point to. Options contains shared_ptr to these data.
 struct ImmutableCFOptions {
+  ImmutableCFOptions();
   explicit ImmutableCFOptions(const Options& options);
+
+  ImmutableCFOptions(const ImmutableDBOptions& db_options,
+                     const ColumnFamilyOptions& cf_options);
 
   CompactionStyle compaction_style;
 
@@ -36,6 +41,10 @@ struct ImmutableCFOptions {
   const CompactionFilter* compaction_filter;
 
   CompactionFilterFactory* compaction_filter_factory;
+
+  int min_write_buffer_number_to_merge;
+
+  int max_write_buffer_number_to_maintain;
 
   bool inplace_update_support;
 

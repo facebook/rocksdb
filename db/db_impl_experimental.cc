@@ -61,7 +61,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
   assert(column_family);
 
   if (target_level < 1) {
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
         "PromoteL0 FAILED. Invalid target level %d\n", target_level);
     return Status::InvalidArgument("Invalid target level");
   }
@@ -75,7 +75,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     const auto* vstorage = cfd->current()->storage_info();
 
     if (target_level >= vstorage->num_levels()) {
-      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
           "PromoteL0 FAILED. Target level %d does not exist\n", target_level);
       job_context.Clean();
       return Status::InvalidArgument("Target level does not exist");
@@ -94,7 +94,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     for (size_t i = 0; i < l0_files.size(); ++i) {
       auto f = l0_files[i];
       if (f->being_compacted) {
-        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
             "PromoteL0 FAILED. File %" PRIu64 " being compacted\n",
             f->fd.GetNumber());
         job_context.Clean();
@@ -104,7 +104,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
       if (i == 0) continue;
       auto prev_f = l0_files[i - 1];
       if (icmp->Compare(prev_f->largest, f->smallest) >= 0) {
-        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
             "PromoteL0 FAILED. Files %" PRIu64 " and %" PRIu64
             " have overlapping ranges\n",
             prev_f->fd.GetNumber(), f->fd.GetNumber());
@@ -116,7 +116,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
     // Check that all levels up to target_level are empty.
     for (int level = 1; level <= target_level; ++level) {
       if (vstorage->NumLevelFiles(level) > 0) {
-        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
             "PromoteL0 FAILED. Level %d not empty\n", level);
         job_context.Clean();
         return Status::InvalidArgument(
@@ -141,7 +141,7 @@ Status DBImpl::PromoteL0(ColumnFamilyHandle* column_family, int target_level) {
           cfd, &job_context, *cfd->GetLatestMutableCFOptions());
     }
   }  // lock released here
-  LogFlush(db_options_.info_log);
+  LogFlush(immutable_db_options_.info_log);
   job_context.Clean();
 
   return status;

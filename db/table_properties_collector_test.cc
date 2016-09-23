@@ -256,7 +256,7 @@ void TestCustomizedTablePropertiesCollector(
     int_tbl_prop_collector_factories.emplace_back(
         new RegularKeysStartWithAFactory(backward_mode));
   } else {
-    GetIntTblPropCollectorFactory(options, &int_tbl_prop_collector_factories);
+    GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
   }
   MakeBuilder(options, ioptions, internal_comparator,
               &int_tbl_prop_collector_factories, &writer, &builder);
@@ -393,7 +393,8 @@ void TestInternalKeyPropertiesCollector(
     options = SanitizeOptions("db",            // just a place holder
                               &pikc,
                               options);
-    GetIntTblPropCollectorFactory(options, &int_tbl_prop_collector_factories);
+    ImmutableCFOptions ioptions(options);
+    GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
     options.comparator = comparator;
   } else {
     int_tbl_prop_collector_factories.emplace_back(

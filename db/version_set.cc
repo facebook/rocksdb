@@ -2093,7 +2093,8 @@ struct VersionSet::ManifestWriter {
       : done(false), cv(mu), cfd(_cfd), edit_list(e) {}
 };
 
-VersionSet::VersionSet(const std::string& dbname, const DBOptions* db_options,
+VersionSet::VersionSet(const std::string& dbname,
+                       const ImmutableDBOptions* db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
                        WriteBufferManager* write_buffer_manager,
                        WriteController* write_controller)
@@ -2335,8 +2336,9 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
-      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
-                         db_options_->disableDataSync ? nullptr : db_directory);
+      s = SetCurrentFile(
+          env_, dbname_, pending_manifest_file_number_,
+          db_options_->disable_data_sync ? nullptr : db_directory);
     }
 
     if (s.ok()) {
@@ -2847,12 +2849,13 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
         "Number of levels needs to be bigger than 1");
   }
 
+  ImmutableDBOptions db_options(*options);
   ColumnFamilyOptions cf_options(*options);
   std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
                                         options->table_cache_numshardbits));
   WriteController wc(options->delayed_write_rate);
   WriteBufferManager wb(options->db_write_buffer_size);
-  VersionSet versions(dbname, options, env_options, tc.get(), &wb, &wc);
+  VersionSet versions(dbname, &db_options, env_options, tc.get(), &wb, &wc);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;

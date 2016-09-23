@@ -40,6 +40,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
+#include "util/db_options.h"
 #include "util/event_logger.h"
 #include "util/hash.h"
 #include "util/instrumented_mutex.h"
@@ -167,7 +168,7 @@ class DBImpl : public DB {
   using DB::GetOptions;
   virtual Options GetOptions(ColumnFamilyHandle* column_family) const override;
   using DB::GetDBOptions;
-  virtual const DBOptions& GetDBOptions() const override;
+  virtual DBOptions GetDBOptions() const override;
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
@@ -456,7 +457,7 @@ class DBImpl : public DB {
     ~RecoveredTransaction() { delete batch_; }
   };
 
-  bool allow_2pc() const { return db_options_.allow_2pc; }
+  bool allow_2pc() const { return immutable_db_options_.allow_2pc; }
 
   std::unordered_map<std::string, RecoveredTransaction*>
   recovered_transactions() {
@@ -507,7 +508,8 @@ class DBImpl : public DB {
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
-  const DBOptions db_options_;
+  const ImmutableDBOptions immutable_db_options_;
+  MutableDBOptions mutable_db_options_;
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
@@ -1071,11 +1073,10 @@ class DBImpl : public DB {
   size_t GetWalPreallocateBlockSize(uint64_t write_buffer_size) const;
 };
 
-// Sanitize db options.  The caller should delete result.info_log if
-// it is not equal to src.info_log.
 extern Options SanitizeOptions(const std::string& db,
                                const InternalKeyComparator* icmp,
                                const Options& src);
+
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 
 // Fix user-supplied options to be reasonable

@@ -651,7 +651,7 @@ class RecoveryTestHelper {
   // Create WAL files with values filled in
   static void FillData(DBWALTest* test, const Options& options,
                        const size_t wal_count, size_t* count) {
-    const DBOptions& db_options = options;
+    const ImmutableDBOptions db_options(options);
 
     *count = 0;
 

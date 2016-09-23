@@ -13,8 +13,12 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "util/cf_options.h"
+#include "util/db_options.h"
 
 namespace rocksdb {
+
+DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
+                         const MutableDBOptions& mutable_db_options);
 
 ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,

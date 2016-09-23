@@ -56,7 +56,7 @@
 namespace rocksdb {
 
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
-                   const DBOptions& db_options,
+                   const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
                    const EnvOptions& env_options, VersionSet* versions,
                    InstrumentedMutex* db_mutex,
@@ -294,7 +294,7 @@ Status FlushJob::WriteLevel0Table() {
         meta_.fd.GetFileSize(), s.ToString().c_str(),
         meta_.marked_for_compaction ? " (needs compaction)" : "");
 
-    if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
+    if (!db_options_.disable_data_sync && output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }
     TEST_SYNC_POINT("FlushJob::WriteLevel0Table");

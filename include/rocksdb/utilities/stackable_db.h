@@ -224,7 +224,7 @@ class StackableDB : public DB {
   }
 
   using DB::GetDBOptions;
-  virtual const DBOptions& GetDBOptions() const override {
+  virtual DBOptions GetDBOptions() const override {
     return db_->GetDBOptions();
   }
 

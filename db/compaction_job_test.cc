@@ -68,7 +68,8 @@ class CompactionJobTest : public testing::Test {
   CompactionJobTest()
       : env_(Env::Default()),
         dbname_(test::TmpDir() + "/compaction_job_test"),
-        mutable_cf_options_(Options()),
+        db_options_(),
+        mutable_cf_options_(cf_options_),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
@@ -280,11 +281,11 @@ class CompactionJobTest : public testing::Test {
   Env* env_;
   std::string dbname_;
   EnvOptions env_options_;
+  ImmutableDBOptions db_options_;
+  ColumnFamilyOptions cf_options_;
   MutableCFOptions mutable_cf_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
-  DBOptions db_options_;
-  ColumnFamilyOptions cf_options_;
   WriteBufferManager write_buffer_manager_;
   std::unique_ptr<VersionSet> versions_;
   InstrumentedMutex mutex_;

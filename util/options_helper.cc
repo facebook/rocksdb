@@ -26,6 +26,99 @@
 
 namespace rocksdb {
 
+DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
+                         const MutableDBOptions& mutable_db_options) {
+  DBOptions options;
+
+  options.create_if_missing = immutable_db_options.create_if_missing;
+  options.create_missing_column_families =
+      immutable_db_options.create_missing_column_families;
+  options.error_if_exists = immutable_db_options.error_if_exists;
+  options.paranoid_checks = immutable_db_options.paranoid_checks;
+  options.env = immutable_db_options.env;
+  options.rate_limiter = immutable_db_options.rate_limiter;
+  options.sst_file_manager = immutable_db_options.sst_file_manager;
+  options.info_log = immutable_db_options.info_log;
+  options.info_log_level = immutable_db_options.info_log_level;
+  options.max_open_files = immutable_db_options.max_open_files;
+  options.max_file_opening_threads =
+      immutable_db_options.max_file_opening_threads;
+  options.max_total_wal_size = immutable_db_options.max_total_wal_size;
+  options.statistics = immutable_db_options.statistics;
+  options.disableDataSync = immutable_db_options.disable_data_sync;
+  options.use_fsync = immutable_db_options.use_fsync;
+  options.db_paths = immutable_db_options.db_paths;
+  options.db_log_dir = immutable_db_options.db_log_dir;
+  options.wal_dir = immutable_db_options.wal_dir;
+  options.delete_obsolete_files_period_micros =
+      immutable_db_options.delete_obsolete_files_period_micros;
+  options.base_background_compactions =
+      immutable_db_options.base_background_compactions;
+  options.max_background_compactions =
+      immutable_db_options.max_background_compactions;
+  options.max_subcompactions = immutable_db_options.max_subcompactions;
+  options.max_background_flushes = immutable_db_options.max_background_flushes;
+  options.max_log_file_size = immutable_db_options.max_log_file_size;
+  options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
+  options.keep_log_file_num = immutable_db_options.keep_log_file_num;
+  options.recycle_log_file_num = immutable_db_options.recycle_log_file_num;
+  options.max_manifest_file_size = immutable_db_options.max_manifest_file_size;
+  options.table_cache_numshardbits =
+      immutable_db_options.table_cache_numshardbits;
+  options.WAL_ttl_seconds = immutable_db_options.wal_ttl_seconds;
+  options.WAL_size_limit_MB = immutable_db_options.wal_size_limit_mb;
+  options.manifest_preallocation_size =
+      immutable_db_options.manifest_preallocation_size;
+  options.allow_os_buffer = immutable_db_options.allow_os_buffer;
+  options.allow_mmap_reads = immutable_db_options.allow_mmap_reads;
+  options.allow_mmap_writes = immutable_db_options.allow_mmap_writes;
+  options.allow_fallocate = immutable_db_options.allow_fallocate;
+  options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
+  options.stats_dump_period_sec = immutable_db_options.stats_dump_period_sec;
+  options.advise_random_on_open = immutable_db_options.advise_random_on_open;
+  options.db_write_buffer_size = immutable_db_options.db_write_buffer_size;
+  options.write_buffer_manager = immutable_db_options.write_buffer_manager;
+  options.access_hint_on_compaction_start =
+      immutable_db_options.access_hint_on_compaction_start;
+  options.new_table_reader_for_compaction_inputs =
+      immutable_db_options.new_table_reader_for_compaction_inputs;
+  options.compaction_readahead_size =
+      immutable_db_options.compaction_readahead_size;
+  options.random_access_max_buffer_size =
+      immutable_db_options.random_access_max_buffer_size;
+  options.writable_file_max_buffer_size =
+      immutable_db_options.writable_file_max_buffer_size;
+  options.use_adaptive_mutex = immutable_db_options.use_adaptive_mutex;
+  options.bytes_per_sync = immutable_db_options.bytes_per_sync;
+  options.wal_bytes_per_sync = immutable_db_options.wal_bytes_per_sync;
+  options.listeners = immutable_db_options.listeners;
+  options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
+  options.delayed_write_rate = immutable_db_options.delayed_write_rate;
+  options.allow_concurrent_memtable_write =
+      immutable_db_options.allow_concurrent_memtable_write;
+  options.enable_write_thread_adaptive_yield =
+      immutable_db_options.enable_write_thread_adaptive_yield;
+  options.write_thread_max_yield_usec =
+      immutable_db_options.write_thread_max_yield_usec;
+  options.write_thread_slow_yield_usec =
+      immutable_db_options.write_thread_slow_yield_usec;
+  options.skip_stats_update_on_db_open =
+      immutable_db_options.skip_stats_update_on_db_open;
+  options.wal_recovery_mode = immutable_db_options.wal_recovery_mode;
+  options.allow_2pc = immutable_db_options.allow_2pc;
+  options.row_cache = immutable_db_options.row_cache;
+#ifndef ROCKSDB_LITE
+  options.wal_filter = immutable_db_options.wal_filter;
+#endif  // ROCKSDB_LITE
+  options.fail_if_options_file_error =
+      immutable_db_options.fail_if_options_file_error;
+  options.dump_malloc_stats = immutable_db_options.dump_malloc_stats;
+  options.avoid_flush_during_recovery =
+      immutable_db_options.avoid_flush_during_recovery;
+
+  return options;
+}
+
 ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& options,
     const MutableCFOptions& mutable_cf_options) {
