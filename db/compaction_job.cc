@@ -762,7 +762,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (end != nullptr &&
         cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
       break;
-    } else if (sub_compact->ShouldStopBefore(
+    } else if (sub_compact->compaction->output_level() != 0 &&
+               sub_compact->ShouldStopBefore(
                    key, sub_compact->current_output_file_size) &&
                sub_compact->builder != nullptr) {
       status = FinishCompactionOutputFile(input->status(), sub_compact);
