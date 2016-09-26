@@ -121,9 +121,8 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
   options.create_if_missing = true;
   // Disable RocksDB background compaction.
   options.compaction_style = kCompactionStyleNone;
-  // Small slowdown and stop trigger for experimental purpose.
-  options.level0_slowdown_writes_trigger = 20;
-  options.level0_stop_writes_trigger = 20;
+  options.level0_slowdown_writes_trigger = (1 << 30);
+  options.level0_stop_writes_trigger = (1 << 30);
   options.write_buffer_size = kWriteBufferSize;
   options.max_write_buffer_number = 2;
   options.compression = kNoCompression;
