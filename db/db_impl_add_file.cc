@@ -237,11 +237,15 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
 
   {
     InstrumentedMutexLock l(&mutex_);
+    TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
+
     const MutableCFOptions mutable_cf_options =
         *cfd->GetLatestMutableCFOptions();
 
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
+
+    num_running_addfile_++;
 
     if (!skip_snapshot_check && !snapshots_.empty()) {
       // Check that no snapshots are being held
@@ -333,7 +337,13 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       ReleaseFileNumberFromPendingOutputs(
           pending_outputs_inserted_elem_list[i]);
     }
-  }
+
+    num_running_addfile_--;
+    if (num_running_addfile_ == 0) {
+      addfile_cv_.SignalAll();
+    }
+    TEST_SYNC_POINT("DBImpl::AddFile:MutexUnlock");
+  }  // mutex_ is unlocked here;
 
   if (!status.ok()) {
     // We failed to add the files to the database
@@ -411,6 +421,13 @@ int DBImpl::PickLevelForIngestedFile(ColumnFamilyData* cfd,
   }
 
   return target_level;
+}
+
+void DBImpl::WaitForAddFile() {
+  mutex_.AssertHeld();
+  while (num_running_addfile_ > 0) {
+    addfile_cv_.Wait();
+  }
 }
 #endif  // ROCKSDB_LITE
 

@@ -984,6 +984,87 @@ TEST_F(ExternalSSTFileTest, PickedLevel) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(ExternalSSTFileTest, PickedLevelBug) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = false;
+  options.level0_file_num_compaction_trigger = 3;
+  options.num_levels = 2;
+  options.env = env_;
+  DestroyAndReopen(options);
+
+  std::vector<int> file_keys;
+
+  // file #1 in L0
+  file_keys = {0, 5, 7};
+  for (int k : file_keys) {
+    ASSERT_OK(Put(Key(k), Key(k)));
+  }
+  ASSERT_OK(Flush());
+
+  // file #2 in L0
+  file_keys = {4, 6, 8, 9};
+  for (int k : file_keys) {
+    ASSERT_OK(Put(Key(k), Key(k)));
+  }
+  ASSERT_OK(Flush());
+
+  // We have 2 overlapping files in L0
+  EXPECT_EQ(FilesPerLevel(), "2");
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBImpl::AddFile:MutexLock", "ExternalSSTFileTest::PickedLevelBug:0"},
+      {"ExternalSSTFileTest::PickedLevelBug:1", "DBImpl::AddFile:MutexUnlock"},
+  });
+
+  std::atomic<bool> bg_compact_started(false);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:Start",
+      [&](void* arg) { bg_compact_started.store(true); });
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Start a thread that will ingest a new file
+  std::thread bg_addfile([&]() {
+    file_keys = {1, 2, 3};
+    ASSERT_OK(GenerateAndAddExternalFile(options, file_keys, 1));
+  });
+
+  // Wait for AddFile to start picking levels and writing MANIFEST
+  TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:0");
+
+  // While writing the MANIFEST start a thread that will ask for compaction
+  std::thread bg_compact([&]() {
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  });
+
+  // We need to verify that no compactions can run while AddFile is
+  // ingesting the files into the levels it find suitable. So we will
+  // wait for 2 seconds to give a chance for compactions to run during
+  // this period, and then make sure that no compactions where able to run
+  env_->SleepForMicroseconds(1000000 * 2);
+  ASSERT_FALSE(bg_compact_started.load());
+
+  // Hold AddFile from finishing writing the MANIFEST
+  TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:1");
+
+  bg_addfile.join();
+  bg_compact.join();
+
+  dbfull()->TEST_WaitForCompact();
+
+  int total_keys = 0;
+  Iterator* iter = db_->NewIterator(ReadOptions());
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    total_keys++;
+  }
+  ASSERT_EQ(total_keys, 10);
+
+  delete iter;
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;

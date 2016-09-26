@@ -345,6 +345,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       next_job_id_(1),
       has_unpersisted_data_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
+      num_running_addfile_(0),
+      addfile_cv_(&mutex_),
 #ifndef ROCKSDB_LITE
       wal_manager_(immutable_db_options_, env_options_),
 #endif  // ROCKSDB_LITE
@@ -894,8 +896,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         }
         // If the log file is already in the log recycle list , don't put
         // it in the candidate list.
-        if (std::find(log_recycle_files.begin(), log_recycle_files.end(),number) != 
-            log_recycle_files.end()) {
+        if (std::find(log_recycle_files.begin(), log_recycle_files.end(),
+                      number) != log_recycle_files.end()) {
           Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
               "Log %" PRIu64 " Already added in the recycle list, skipping.\n",
               number);
@@ -2031,6 +2033,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   int max_level_with_files = 0;
   {
     InstrumentedMutexLock l(&mutex_);
+    WaitForAddFile();
     Version* base = cfd->current();
     for (int level = 1; level < base->storage_info()->num_non_empty_levels();
          level++) {
@@ -2145,6 +2148,10 @@ Status DBImpl::CompactFiles(
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
   {
     InstrumentedMutexLock l(&mutex_);
+
+    // This call will unlock/lock the mutex to wait for current running
+    // AddFile() calls to finish.
+    WaitForAddFile();
 
     s = CompactFilesImpl(compact_options, cfd, sv->current,
                          input_file_names, output_level,
@@ -3226,6 +3233,11 @@ void DBImpl::BackgroundCallCompaction(void* arg) {
                        immutable_db_options_.info_log.get());
   {
     InstrumentedMutexLock l(&mutex_);
+
+    // This call will unlock/lock the mutex to wait for current running
+    // AddFile() calls to finish.
+    WaitForAddFile();
+
     num_running_compactions_++;
 
     auto pending_outputs_inserted_elem =

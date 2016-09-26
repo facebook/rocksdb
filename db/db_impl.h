@@ -651,6 +651,10 @@ class DBImpl : public DB {
   int PickLevelForIngestedFile(ColumnFamilyData* cfd,
                                const ExternalSstFileInfo& file_info);
 
+  // Wait for current AddFile() calls to finish.
+  // REQUIRES: mutex_ held
+  void WaitForAddFile();
+
   Status CompactFilesImpl(
       const CompactionOptions& compact_options, ColumnFamilyData* cfd,
       Version* version, const std::vector<std::string>& input_file_names,
@@ -660,6 +664,10 @@ class DBImpl : public DB {
                                  const std::string& file_path,
                                  ExternalSstFileInfo* file_info);
 
+#else
+  // AddFile is not supported in ROCKSDB_LITE so this function
+  // will be no-op
+  void WaitForAddFile() {}
 #endif  // ROCKSDB_LITE
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
@@ -973,6 +981,14 @@ class DBImpl : public DB {
   // A set of compactions that are running right now
   // REQUIRES: mutex held
   std::unordered_set<Compaction*> running_compactions_;
+
+  // Number of running AddFile() calls.
+  // REQUIRES: mutex held
+  int num_running_addfile_;
+
+  // A condition variable that will be signaled whenever
+  // num_running_addfile_ goes to 0.
+  InstrumentedCondVar addfile_cv_;
 
 #ifndef ROCKSDB_LITE
   WalManager wal_manager_;
