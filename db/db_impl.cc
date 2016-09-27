@@ -2443,6 +2443,10 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     s = cfd->SetOptions(options_map);
     if (s.ok()) {
       new_options = *cfd->GetLatestMutableCFOptions();
+      // Append new version to recompute compaction score.
+      VersionEdit dummy_edit;
+      versions_->LogAndApply(cfd, new_options, &dummy_edit, &mutex_,
+                             directories_.GetDbDir());
       // Trigger possible flush/compactions. This has to be before we persist
       // options to file, otherwise there will be a deadlock with writer
       // thread.
