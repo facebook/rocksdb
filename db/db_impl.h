@@ -655,11 +655,12 @@ class DBImpl : public DB {
   // REQUIRES: mutex_ held
   void WaitForAddFile();
 
-  Status CompactFilesImpl(
-      const CompactionOptions& compact_options, ColumnFamilyData* cfd,
-      Version* version, const std::vector<std::string>& input_file_names,
-      const int output_level, int output_path_id, JobContext* job_context,
-      LogBuffer* log_buffer);
+  Status CompactFilesImpl(const CompactionOptions& compact_options,
+                          ColumnFamilyData* cfd, Version* version,
+                          const std::vector<std::string>& input_file_names,
+                          const int output_level, int output_path_id,
+                          JobContext* job_context, LogBuffer* log_buffer);
+
   Status ReadExternalSstFileInfo(ColumnFamilyHandle* column_family,
                                  const std::string& file_path,
                                  ExternalSstFileInfo* file_info);
@@ -737,6 +738,7 @@ class DBImpl : public DB {
   // * whenever bg_flush_scheduled_ or bg_purge_scheduled_ value decreases
   // (i.e. whenever a flush is done, even if it didn't make any progress)
   // * whenever there is an error in background purge, flush or compaction
+  // * whenever num_running_addfile_ goes to 0.
   InstrumentedCondVar bg_cv_;
   uint64_t logfile_number_;
   std::deque<uint64_t>
@@ -985,10 +987,6 @@ class DBImpl : public DB {
   // Number of running AddFile() calls.
   // REQUIRES: mutex held
   int num_running_addfile_;
-
-  // A condition variable that will be signaled whenever
-  // num_running_addfile_ goes to 0.
-  InstrumentedCondVar addfile_cv_;
 
 #ifndef ROCKSDB_LITE
   WalManager wal_manager_;

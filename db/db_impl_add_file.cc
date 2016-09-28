@@ -340,7 +340,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
 
     num_running_addfile_--;
     if (num_running_addfile_ == 0) {
-      addfile_cv_.SignalAll();
+      bg_cv_.SignalAll();
     }
     TEST_SYNC_POINT("DBImpl::AddFile:MutexUnlock");
   }  // mutex_ is unlocked here;
@@ -426,7 +426,7 @@ int DBImpl::PickLevelForIngestedFile(ColumnFamilyData* cfd,
 void DBImpl::WaitForAddFile() {
   mutex_.AssertHeld();
   while (num_running_addfile_ > 0) {
-    addfile_cv_.Wait();
+    bg_cv_.Wait();
   }
 }
 #endif  // ROCKSDB_LITE

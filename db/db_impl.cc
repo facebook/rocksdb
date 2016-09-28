@@ -346,7 +346,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       has_unpersisted_data_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       num_running_addfile_(0),
-      addfile_cv_(&mutex_),
 #ifndef ROCKSDB_LITE
       wal_manager_(immutable_db_options_, env_options_),
 #endif  // ROCKSDB_LITE
@@ -2033,7 +2032,6 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   int max_level_with_files = 0;
   {
     InstrumentedMutexLock l(&mutex_);
-    WaitForAddFile();
     Version* base = cfd->current();
     for (int level = 1; level < base->storage_info()->num_non_empty_levels();
          level++) {
@@ -2746,6 +2744,8 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
     manual.end = &end_storage;
   }
 
+  TEST_SYNC_POINT("DBImpl::RunManualCompaction:0");
+  TEST_SYNC_POINT("DBImpl::RunManualCompaction:1");
   InstrumentedMutexLock l(&mutex_);
 
   // When a manual compaction arrives, temporarily disable scheduling of
@@ -2813,6 +2813,10 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       ca->m = &manual;
       manual.incomplete = false;
       bg_compaction_scheduled_++;
+      // manual.compaction will be added to running_compactions_ and erased
+      // inside BackgroundCompaction() but we need to put it now since we
+      // will unlock the mutex.
+      running_compactions_.insert(manual.compaction);
       env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
                      &DBImpl::UnscheduleCallback);
       scheduled = true;
@@ -3653,6 +3657,11 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompaction* m) {
 }
 
 bool DBImpl::ShouldntRunManualCompaction(ManualCompaction* m) {
+  if (num_running_addfile_ > 0) {
+    // We need to wait for other AddFile() calls to finish
+    // before running a manual compaction.
+    return true;
+  }
   if (m->exclusive) {
     return (bg_compaction_scheduled_ > 0);
   }
