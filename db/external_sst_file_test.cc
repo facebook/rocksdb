@@ -1011,10 +1011,13 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   // We have 2 overlapping files in L0
   EXPECT_EQ(FilesPerLevel(), "2");
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"DBImpl::AddFile:MutexLock", "ExternalSSTFileTest::PickedLevelBug:0"},
-      {"ExternalSSTFileTest::PickedLevelBug:1", "DBImpl::AddFile:MutexUnlock"},
-  });
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::AddFile:MutexLock", "ExternalSSTFileTest::PickedLevelBug:0"},
+       {"ExternalSSTFileTest::PickedLevelBug:1", "DBImpl::AddFile:MutexUnlock"},
+       {"ExternalSSTFileTest::PickedLevelBug:2",
+        "DBImpl::RunManualCompaction:0"},
+       {"ExternalSSTFileTest::PickedLevelBug:3",
+        "DBImpl::RunManualCompaction:1"}});
 
   std::atomic<bool> bg_compact_started(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -1022,6 +1025,12 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
       [&](void* arg) { bg_compact_started.store(true); });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // While writing the MANIFEST start a thread that will ask for compaction
+  std::thread bg_compact([&]() {
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  });
+  TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:2");
 
   // Start a thread that will ingest a new file
   std::thread bg_addfile([&]() {
@@ -1032,10 +1041,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   // Wait for AddFile to start picking levels and writing MANIFEST
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:0");
 
-  // While writing the MANIFEST start a thread that will ask for compaction
-  std::thread bg_compact([&]() {
-    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
-  });
+  TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:3");
 
   // We need to verify that no compactions can run while AddFile is
   // ingesting the files into the levels it find suitable. So we will
@@ -1063,6 +1069,51 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   delete iter;
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = false;
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 2;
+  options.env = env_;
+  DestroyAndReopen(options);
+
+  std::function<void()> bg_compact = [&]() {
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  };
+
+  int range_id = 0;
+  std::vector<int> file_keys;
+  std::function<void()> bg_addfile = [&]() {
+    ASSERT_OK(GenerateAndAddExternalFile(options, file_keys, range_id));
+  };
+
+  std::vector<std::thread> threads;
+  while (range_id < 5000) {
+    int range_start = (range_id * 20);
+    int range_end = range_start + 10;
+
+    file_keys.clear();
+    for (int k = range_start + 1; k < range_end; k++) {
+      file_keys.push_back(k);
+    }
+    ASSERT_OK(Put(Key(range_start), Key(range_start)));
+    ASSERT_OK(Put(Key(range_end), Key(range_end)));
+    ASSERT_OK(Flush());
+
+    if (range_id % 10 == 0) {
+      threads.emplace_back(bg_compact);
+    }
+    threads.emplace_back(bg_addfile);
+
+    for (auto& t : threads) {
+      t.join();
+    }
+    threads.clear();
+
+    range_id++;
+  }
 }
 
 TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
