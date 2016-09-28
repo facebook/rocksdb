@@ -12,7 +12,9 @@ We abandoned release candidates 4.10.x and directly go to 4.11.2 from 4.9, to ma
 * WAL without data for all CFs is not deleted after recovery.
 
 ## 4.11.1 (8/30/2016)
+
 ### Bug Fixes
+
   * Mitigate the regression bug of deadlock condition during recovery when options.max_successive_merges hits.
   * Fix data race condition related to hash index in block based table when putting indexes in the block cache.
 
