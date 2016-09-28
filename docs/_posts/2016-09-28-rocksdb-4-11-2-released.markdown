@@ -7,7 +7,9 @@ category: blog
 We abandoned release candidates 4.10.x and directly go to 4.11.2 from 4.9, to make sure the latest release is stable. In 4.11.2, we fixed several data corruption related bugs introduced in 4.9.0.
 
 ## 4.11.2 (9/15/2016)
+
 ### Bug fixes
+
 * Segfault when failing to open an SST file for read-ahead iterators.
 * WAL without data for all CFs is not deleted after recovery.
 
