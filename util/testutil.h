@@ -159,6 +159,16 @@ class VectorIterator : public InternalIterator {
                keys_.begin();
   }
 
+  virtual void SeekForPrev(const Slice& target) override {
+    current_ = std::upper_bound(keys_.begin(), keys_.end(), target.ToString()) -
+               keys_.begin();
+    if (!Valid()) {
+      SeekToLast();
+    } else {
+      Prev();
+    }
+  }
+
   virtual void Next() override { current_++; }
   virtual void Prev() override { current_--; }
 

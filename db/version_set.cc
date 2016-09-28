@@ -446,6 +446,10 @@ class LevelFileNumIterator : public InternalIterator {
   virtual void Seek(const Slice& target) override {
     index_ = FindFile(icmp_, *flevel_, target);
   }
+  virtual void SeekForPrev(const Slice& target) override {
+    SeekForPrevImpl(target, &icmp_);
+  }
+
   virtual void SeekToFirst() override { index_ = 0; }
   virtual void SeekToLast() override {
     index_ = (flevel_->num_files == 0)

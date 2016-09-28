@@ -199,6 +199,7 @@ class DBIter: public Iterator {
   virtual void Next() override;
   virtual void Prev() override;
   virtual void Seek(const Slice& target) override;
+  virtual void SeekForPrev(const Slice& target) override;
   virtual void SeekToFirst() override;
   virtual void SeekToLast() override;
 
@@ -503,11 +504,6 @@ void DBIter::Prev() {
       local_stats_.bytes_read_ += (key().size() + value().size());
     }
   }
-  if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
-      prefix_extractor_->Transform(saved_key_.GetKey())
-              .compare(prefix_start_key_) != 0) {
-    valid_ = false;
-  }
 }
 
 void DBIter::ReverseToBackward() {
@@ -544,6 +540,7 @@ void DBIter::PrevInternal() {
   }
 
   ParsedInternalKey ikey;
+  bool match_prefix = true;
 
   while (iter_->Valid()) {
     saved_key_.SetKey(ExtractUserKey(iter_->key()),
@@ -557,6 +554,12 @@ void DBIter::PrevInternal() {
       if (user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
         FindPrevUserKey();
       }
+      if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
+          prefix_extractor_->Transform(saved_key_.GetKey())
+                  .compare(prefix_start_key_) != 0) {
+        match_prefix = false;
+        break;
+      }
       return;
     }
     if (!iter_->Valid()) {
@@ -568,7 +571,8 @@ void DBIter::PrevInternal() {
     }
   }
   // We haven't found any key - iterator is not valid
-  assert(!iter_->Valid());
+  // Or the prefix is different than start prefix
+  assert(!iter_->Valid() || !match_prefix);
   valid_ = false;
 }
 
@@ -819,6 +823,45 @@ void DBIter::Seek(const Slice& target) {
   }
 }
 
+void DBIter::SeekForPrev(const Slice& target) {
+  StopWatch sw(env_, statistics_, DB_SEEK);
+  ReleaseTempPinnedData();
+  saved_key_.Clear();
+  // now saved_key is used to store internal key.
+  saved_key_.SetInternalKey(target, 0 /* sequence_number */,
+                            kValueTypeForSeekForPrev);
+
+  {
+    PERF_TIMER_GUARD(seek_internal_seek_time);
+    iter_->SeekForPrev(saved_key_.GetKey());
+  }
+
+  RecordTick(statistics_, NUMBER_DB_SEEK);
+  if (iter_->Valid()) {
+    if (prefix_extractor_ && prefix_same_as_start_) {
+      prefix_start_key_ = prefix_extractor_->Transform(target);
+    }
+    direction_ = kReverse;
+    ClearSavedValue();
+    PrevInternal();
+    if (!valid_) {
+      prefix_start_key_.clear();
+    }
+    if (statistics_ != nullptr) {
+      if (valid_) {
+        RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
+        RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+      }
+    }
+  } else {
+    valid_ = false;
+  }
+  if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
+    prefix_start_buf_.SetKey(prefix_start_key_);
+    prefix_start_key_ = prefix_start_buf_.GetKey();
+  }
+}
+
 void DBIter::SeekToFirst() {
   // Don't use iter_::Seek() if we set a prefix extractor
   // because prefix seek will be used.
@@ -930,6 +973,9 @@ inline void ArenaWrappedDBIter::SeekToFirst() { db_iter_->SeekToFirst(); }
 inline void ArenaWrappedDBIter::SeekToLast() { db_iter_->SeekToLast(); }
 inline void ArenaWrappedDBIter::Seek(const Slice& target) {
   db_iter_->Seek(target);
+}
+inline void ArenaWrappedDBIter::SeekForPrev(const Slice& target) {
+  db_iter_->SeekForPrev(target);
 }
 inline void ArenaWrappedDBIter::Next() { db_iter_->Next(); }
 inline void ArenaWrappedDBIter::Prev() { db_iter_->Prev(); }

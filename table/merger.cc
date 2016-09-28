@@ -8,9 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/merger.h"
-
 #include <vector>
-
 #include "db/pinned_iterators_manager.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
@@ -120,6 +118,29 @@ class MergingIterator : public InternalIterator {
     {
       PERF_TIMER_GUARD(seek_min_heap_time);
       current_ = CurrentForward();
+    }
+  }
+
+  virtual void SeekForPrev(const Slice& target) override {
+    ClearHeaps();
+    InitMaxHeap();
+
+    for (auto& child : children_) {
+      {
+        PERF_TIMER_GUARD(seek_child_seek_time);
+        child.SeekForPrev(target);
+      }
+      PERF_COUNTER_ADD(seek_child_seek_count, 1);
+
+      if (child.Valid()) {
+        PERF_TIMER_GUARD(seek_max_heap_time);
+        maxHeap_->push(&child);
+      }
+    }
+    direction_ = kReverse;
+    {
+      PERF_TIMER_GUARD(seek_max_heap_time);
+      current_ = CurrentReverse();
     }
   }
 

@@ -40,6 +40,10 @@ class KVIter : public Iterator {
   virtual void Seek(const Slice& k) override {
     iter_ = map_->lower_bound(k.ToString());
   }
+  virtual void SeekForPrev(const Slice& k) override {
+    iter_ = map_->upper_bound(k.ToString());
+    Prev();
+  }
   virtual void Next() override { ++iter_; }
   virtual void Prev() override {
     if (iter_ == map_->begin()) {

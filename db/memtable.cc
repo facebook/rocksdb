@@ -222,6 +222,7 @@ class MemTableIterator : public InternalIterator {
                    Arena* arena)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
+        comparator_(mem.comparator_),
         valid_(false),
         arena_mode_(arena != nullptr),
         value_pinned_(!mem.GetMemTableOptions()->inplace_update_support) {
@@ -272,6 +273,28 @@ class MemTableIterator : public InternalIterator {
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
   }
+  virtual void SeekForPrev(const Slice& k) override {
+    PERF_TIMER_GUARD(seek_on_memtable_time);
+    PERF_COUNTER_ADD(seek_on_memtable_count, 1);
+    if (bloom_ != nullptr) {
+      if (!bloom_->MayContain(
+              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+        PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+        valid_ = false;
+        return;
+      } else {
+        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+      }
+    }
+    iter_->Seek(k, nullptr);
+    valid_ = iter_->Valid();
+    if (!Valid()) {
+      SeekToLast();
+    }
+    while (Valid() && comparator_.comparator.Compare(k, key()) < 0) {
+      Prev();
+    }
+  }
   virtual void SeekToFirst() override {
     iter_->SeekToFirst();
     valid_ = iter_->Valid();
@@ -315,6 +338,7 @@ class MemTableIterator : public InternalIterator {
  private:
   DynamicBloom* bloom_;
   const SliceTransform* const prefix_extractor_;
+  const MemTable::KeyComparator comparator_;
   MemTableRep::Iterator* iter_;
   bool valid_;
   bool arena_mode_;

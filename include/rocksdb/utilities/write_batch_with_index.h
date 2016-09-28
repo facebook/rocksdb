@@ -60,6 +60,8 @@ class WBWIIterator {
 
   virtual void Seek(const Slice& key) = 0;
 
+  virtual void SeekForPrev(const Slice& key) = 0;
+
   virtual void Next() = 0;
 
   virtual void Prev() = 0;

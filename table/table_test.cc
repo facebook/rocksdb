@@ -257,6 +257,12 @@ class KeyConvertingIterator : public InternalIterator {
     AppendInternalKey(&encoded, ikey);
     iter_->Seek(encoded);
   }
+  virtual void SeekForPrev(const Slice& target) override {
+    ParsedInternalKey ikey(target, kMaxSequenceNumber, kTypeValue);
+    std::string encoded;
+    AppendInternalKey(&encoded, ikey);
+    iter_->SeekForPrev(encoded);
+  }
   virtual void SeekToFirst() override { iter_->SeekToFirst(); }
   virtual void SeekToLast() override { iter_->SeekToLast(); }
   virtual void Next() override { iter_->Next(); }
@@ -465,6 +471,9 @@ class InternalIteratorFromIterator : public InternalIterator {
   explicit InternalIteratorFromIterator(Iterator* it) : it_(it) {}
   virtual bool Valid() const override { return it_->Valid(); }
   virtual void Seek(const Slice& target) override { it_->Seek(target); }
+  virtual void SeekForPrev(const Slice& target) override {
+    it_->SeekForPrev(target);
+  }
   virtual void SeekToFirst() override { it_->SeekToFirst(); }
   virtual void SeekToLast() override { it_->SeekToLast(); }
   virtual void Next() override { it_->Next(); }

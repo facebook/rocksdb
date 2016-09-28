@@ -66,6 +66,13 @@ class BaseDeltaIterator : public Iterator {
     UpdateCurrent();
   }
 
+  void SeekForPrev(const Slice& k) override {
+    forward_ = false;
+    base_iterator_->SeekForPrev(k);
+    delta_iterator_->SeekForPrev(k);
+    UpdateCurrent();
+  }
+
   void Next() override {
     if (!Valid()) {
       status_ = Status::NotSupported("Next() on invalid iterator");
@@ -332,6 +339,11 @@ class WBWIIteratorImpl : public WBWIIterator {
   virtual void Seek(const Slice& key) override {
     WriteBatchIndexEntry search_entry(&key, column_family_id_);
     skip_list_iter_.Seek(&search_entry);
+  }
+
+  virtual void SeekForPrev(const Slice& key) override {
+    WriteBatchIndexEntry search_entry(&key, column_family_id_);
+    skip_list_iter_.SeekForPrev(&search_entry);
   }
 
   virtual void Next() override { skip_list_iter_.Next(); }
