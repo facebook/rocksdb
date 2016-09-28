@@ -40,6 +40,9 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
     : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
       txn_db_impl_(nullptr),
       txn_id_(0),
+      waiting_txn_id_(0),
+      waiting_cf_id_(0),
+      waiting_key_(nullptr),
       expiration_time_(0),
       lock_timeout_(0) {
   txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);

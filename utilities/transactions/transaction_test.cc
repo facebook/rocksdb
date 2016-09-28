@@ -143,6 +143,7 @@ TEST_P(TransactionTest, SuccessTest) {
   ASSERT_TRUE(txn);
 
   ASSERT_EQ(0, txn->GetNumPuts());
+  ASSERT_LE(0, txn->GetID());
 
   s = txn->GetForUpdate(read_options, "foo", &value);
   ASSERT_OK(s);
@@ -165,6 +166,62 @@ TEST_P(TransactionTest, SuccessTest) {
   ASSERT_EQ(value, "bar2");
 
   delete txn;
+}
+
+TEST_P(TransactionTest, WaitingTxn) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  txn_options.lock_timeout = 1;
+  db->Put(write_options, Slice("foo"), Slice("bar"));
+
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  TransactionID id1 = txn1->GetID();
+  ASSERT_TRUE(txn1);
+  ASSERT_TRUE(txn2);
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TransactionLockMgr::AcquireWithTimeout:WaitingTxn", [&](void* arg) {
+        const std::string* key;
+        uint32_t cf_id;
+        TransactionID wait = txn2->GetWaitingTxn(&cf_id, &key);
+        ASSERT_EQ(*key, "foo");
+        ASSERT_EQ(wait, id1);
+        ASSERT_EQ(cf_id, 0);
+      });
+
+  s = txn1->GetForUpdate(read_options, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar");
+
+  auto lock_data = db->GetLockStatusData();
+  // Locked keys exist in one column family.
+  ASSERT_EQ(lock_data.size(), 1);
+
+  // Column family is 0 (default).
+  const auto& cf = *lock_data.cbegin();
+  ASSERT_EQ(cf.first, 0);
+
+  // The locked key is "foo" and is locked by txn1
+  const auto& key = cf.second;
+  ASSERT_EQ(key.key, "foo");
+  ASSERT_EQ(key.id, txn1->GetID());
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  s = txn2->GetForUpdate(read_options, "foo", &value);
+  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_EQ(s.ToString(), "Operation timed out: Timeout waiting to lock key");
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  delete txn1;
+  delete txn2;
 }
 
 TEST_P(TransactionTest, CommitTimeBatchFailTest) {

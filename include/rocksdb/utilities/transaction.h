@@ -20,7 +20,9 @@ class Iterator;
 class TransactionDB;
 class WriteBatchWithIndex;
 
-typedef std::string TransactionName;
+using TransactionName = std::string;
+
+using TransactionID = uint64_t;
 
 // Provides notification to the caller of SetSnapshotOnNextOperation when
 // the actual snapshot gets created
@@ -389,11 +391,19 @@ class Transaction {
 
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
 
-  virtual uint64_t GetLogNumber() { return log_number_; }
+  virtual uint64_t GetLogNumber() const { return log_number_; }
 
   virtual Status SetName(const TransactionName& name) = 0;
 
-  virtual TransactionName GetName() { return name_; }
+  virtual TransactionName GetName() const { return name_; }
+
+  virtual TransactionID GetID() const { return 0; }
+
+  virtual TransactionID GetWaitingTxn(uint32_t* column_family_id,
+                                      const std::string** key) const {
+    assert(false);
+    return 0;
+  }
 
   enum ExecutionStatus {
     STARTED = 0,

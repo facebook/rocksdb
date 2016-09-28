@@ -441,6 +441,10 @@ void TransactionDBImpl::GetAllPreparedTransactions(
   }
 }
 
+TransactionLockMgr::LockStatusData TransactionDBImpl::GetLockStatusData() {
+  return lock_mgr_.GetLockStatusData();
+}
+
 void TransactionDBImpl::RegisterTransaction(Transaction* txn) {
   assert(txn);
   assert(txn->GetName().length() > 0);

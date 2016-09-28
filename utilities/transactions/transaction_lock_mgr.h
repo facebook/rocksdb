@@ -9,6 +9,7 @@
 #include <chrono>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/utilities/transaction.h"
@@ -44,7 +45,7 @@ class TransactionLockMgr {
 
   // Attempt to lock key.  If OK status is returned, the caller is responsible
   // for calling UnLock() on this key.
-  Status TryLock(const TransactionImpl* txn, uint32_t column_family_id,
+  Status TryLock(TransactionImpl* txn, uint32_t column_family_id,
                  const std::string& key, Env* env);
 
   // Unlock a key locked by TryLock().  txn must be the same Transaction that
@@ -53,6 +54,9 @@ class TransactionLockMgr {
               Env* env);
   void UnLock(TransactionImpl* txn, uint32_t column_family_id,
               const std::string& key, Env* env);
+
+  using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
+  LockStatusData GetLockStatusData();
 
  private:
   TransactionDBImpl* txn_db_impl_;
@@ -81,13 +85,15 @@ class TransactionLockMgr {
 
   std::shared_ptr<LockMap> GetLockMap(uint32_t column_family_id);
 
-  Status AcquireWithTimeout(LockMap* lock_map, LockMapStripe* stripe,
+  Status AcquireWithTimeout(TransactionImpl* txn, LockMap* lock_map,
+                            LockMapStripe* stripe, uint32_t column_family_id,
                             const std::string& key, Env* env, int64_t timeout,
                             const LockInfo& lock_info);
 
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                        const std::string& key, Env* env,
-                       const LockInfo& lock_info, uint64_t* wait_time);
+                       const LockInfo& lock_info, uint64_t* wait_time,
+                       TransactionID* txn_id);
 
   // No copying allowed
   TransactionLockMgr(const TransactionLockMgr&);

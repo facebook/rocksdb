@@ -94,6 +94,8 @@ class TransactionDBImpl : public TransactionDB {
   // not thread safe. current use case is during recovery (single thread)
   void GetAllPreparedTransactions(std::vector<Transaction*>* trans) override;
 
+  TransactionLockMgr::LockStatusData GetLockStatusData() override;
+
  private:
   void ReinitializeTransaction(
       Transaction* txn, const WriteOptions& write_options,
