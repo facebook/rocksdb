@@ -29,37 +29,108 @@
 cmake_minimum_required(VERSION 2.6)
 project(rocksdb)
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
-execute_process(COMMAND powershell -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
-execute_process(COMMAND powershell -Command "Get-Date -format HH:mm:ss" OUTPUT_VARIABLE TIME)
-string(REGEX REPLACE "(..)_(..)_..(..).*" "\\1/\\2/\\3" DATE "${DATE}")
-string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME "${TIME}")
-string(CONCAT GIT_DATE_TIME ${DATE} ${TIME})
+if(POLICY CMP0042)
+  cmake_policy(SET CMP0042 NEW)
+endif()
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
+
+if(WIN32)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
+else()
+  option(WITH_JEMALLOC "build with JeMalloc" OFF)
+  if(WITH_JEMALLOC)
+    find_package(JeMalloc REQUIRED)
+    add_definitions(-DROCKSDB_JEMALLOC)
+    include_directories(${JEMALLOC_INCLUDE_DIR})
+  endif()
+  option(WITH_SNAPPY "build with SNAPPY" OFF)
+  if(WITH_SNAPPY)
+    find_package(snappy REQUIRED)
+    add_definitions(-DSNAPPY)
+    include_directories(${SNAPPY_INCLUDE_DIR})
+    list(APPEND THIRDPARTY_LIBS ${SNAPPY_LIBRARIES})
+  endif()
+endif()
+
+if(WIN32)
+  execute_process(COMMAND powershell -Command "Get-Date -format MM_dd_yyyy" OUTPUT_VARIABLE DATE)
+  execute_process(COMMAND powershell -Command "Get-Date -format HH:mm:ss" OUTPUT_VARIABLE TIME)
+  string(REGEX REPLACE "(..)_(..)_..(..).*" "\\1/\\2/\\3" DATE "${DATE}")
+  string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME "${TIME}")
+  string(CONCAT GIT_DATE_TIME ${DATE} ${TIME})
+else()
+  execute_process(COMMAND date "+%Y/%m/%d %H:%M:%S" OUTPUT_VARIABLE DATETIME)
+  string(REGEX REPLACE "\n" "" DATETIME ${DATETIME})
+  string(CONCAT GIT_DATE_TIME ${DATETIME})
+endif()
 
 find_package(Git)
 
 if (GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+  if(WIN32)
     execute_process(COMMAND $ENV{COMSPEC} /C ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
+  else()
+    execute_process(COMMAND ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
+  endif()
 else()
-    set(GIT_SHA 0)
+  set(GIT_SHA 0)
 endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
-set(BUILD_VERSION_CC ${CMAKE_CURRENT_SOURCE_DIR}/util/build_version.cc)
+set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
+file(GENERATE OUTPUT ${BUILD_VERSION_CC} CONTENT
+  "#include \"build_version.h\"
+const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:${GIT_SHA}\";
+const char* rocksdb_build_git_datetime = \"rocksdb_build_git_datetime:${GIT_DATE_TIME}\";
+const char* rocksdb_build_compile_date = __DATE__;
+")
+add_library(build_version OBJECT ${BUILD_VERSION_CC})
+target_include_directories(build_version PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/util)
+if(WIN32)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
 
-add_custom_command(OUTPUT ${BUILD_VERSION_CC}
-    COMMAND echo "#include \"build_version.h\"" > ${BUILD_VERSION_CC}
-    COMMAND echo "const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:${GIT_SHA}\";" >> ${BUILD_VERSION_CC}
-    COMMAND echo "const char* rocksdb_build_git_datetime = \"rocksdb_build_git_datetime:${GIT_DATE_TIME}\";" >> ${BUILD_VERSION_CC}
-    COMMAND echo const char* rocksdb_build_compile_date = __DATE__\; >> ${BUILD_VERSION_CC}
-)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /WX /wd4127 /wd4800 /wd4996 /wd4351")
+else()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall -Werror")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native -fno-omit-frame-pointer -momit-leaf-frame-pointer")
+endif()
 
-add_custom_target(GenerateBuildVersion DEPENDS ${BUILD_VERSION_CC})
+option(WITH_ASAN "build with ASAN" OFF)
+if(WITH_ASAN)
+  add_definitions(-DROCKSDB_TSAN_RUN)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
+  if(WITH_JEMALLOC)
+    message(FATAL "ASAN does not work well with JeMalloc")
+  endif()
+endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
+option(WITH_TSAN "build with TSAN" OFF)
+if(WITH_TSAN)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread -pie")
+  add_definitions(-DROCKSDB_TSAN_RUN)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread -fPIC")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=thread -fPIC")
+  if(WITH_JEMALLOC)
+    message(FATAL "TSAN does not work well with JeMalloc")
+  endif()
+endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /WX /wd4127 /wd4800 /wd4996 /wd4351")
+option(WITH_UBSAN "build with UBSAN" OFF)
+if(WITH_UBSAN)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=undefined")
+  if(WITH_JEMALLOC)
+    message(FATAL "UBSAN does not work well with JeMalloc")
+  endif()
+endif()
 
 # Used to run CI build and tests so we can run faster
 set(OPTIMIZE_DEBUG_DEFAULT 0)        # Debug build is unoptimized by default use -DOPTDBG=1 to optimize
@@ -70,33 +141,102 @@ else()
    set(OPTIMIZE_DEBUG ${OPTIMIZE_DEBUG_DEFAULT})
 endif()
 
-if((${OPTIMIZE_DEBUG} EQUAL 1))
-   message(STATUS "Debug optimization is enabled")
-   set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /MDd")
-else()
-   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /MDd")
+if(WIN32)
+  if((${OPTIMIZE_DEBUG} EQUAL 1))
+    message(STATUS "Debug optimization is enabled")
+    set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /MDd")
+  else()
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /MDd")
+  endif()
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /MD")
+
+  set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DEBUG")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
 endif()
 
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oxt /Zp8 /Gm- /Gy /MD")
+if(CMAKE_COMPILER_IS_GNUCXX)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-builtin-memcmp")
+endif()
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} /DEBUG")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
+option(ROCKSDB_LITE "Build RocksDBLite version" OFF)
+if(ROCKSDB_LITE)
+  add_definitions(-DROCKSDB_LITE)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
+endif()
 
-add_definitions(-DWIN32 -DOS_WIN -D_MBCS -DWIN64 -DNOMINMAX)
+if(CMAKE_SYSTEM_NAME MATCHES "Cygwin")
+  add_definitions(-fno-builtin-memcmp -DCYGWIN)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+  add_definitions(-DOS_MACOSX)
+  if(CMAKE_SYSTEM_PROCESSOR MATCHES arm)
+    add_definitions(-DIOS_CROSS_COMPILE -DROCKSDB_LITE)
+    # no debug info for IOS, that will make our library big
+    add_definitions(-DNDEBUG)
+  endif()
+elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
+  add_definitions(-DOS_LINUX)
+elseif(CMAKE_SYSTEM_NAME MATCHES "SunOS")
+  add_definitions(-DOS_SOLARIS)
+elseif(CMAKE_SYSTEM_NAME MATCHES "FreeBSD")
+  add_definitions(-DOS_FREEBSD)
+elseif(CMAKE_SYSTEM_NAME MATCHES "NetBSD")
+  add_definitions(-DOS_NETBSD)
+elseif(CMAKE_SYSTEM_NAME MATCHES "OpenBSD")
+  add_definitions(-DOS_OPENBSD)
+elseif(CMAKE_SYSTEM_NAME MATCHES "DragonFly")
+  add_definitions(-DOS_DRAGONFLYBSD)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Android")
+  add_definitions(-DOS_ANDROID)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Windows")
+  add_definitions(-DWIN32 -DOS_WIN -D_MBCS -DWIN64 -DNOMINMAX)
+endif()
+
+if(NOT WIN32)
+  add_definitions(-DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX)
+endif()
+
+option(WITH_FALLOCATE "build with fallocate" ON)
+
+if(WITH_FALLOCATE)
+  include(CheckCSourceCompiles)
+  CHECK_C_SOURCE_COMPILES("
+#include <fcntl.h>
+#include <linux/falloc.h>
+int main() {
+ int fd = open(\"/dev/null\", 0);
+ fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
+}
+" HAVE_FALLOCATE)
+  if(HAVE_FALLOCATE)
+    add_definitions(-DROCKSDB_FALLOCATE_PRESENT)
+  endif()
+endif()
+
+include(CheckFunctionExists)
+CHECK_FUNCTION_EXISTS(malloc_usable_size HAVE_MALLOC_USABLE_SIZE)
+if(HAVE_MALLOC_USABLE_SIZE)
+  add_definitions(-DROCKSDB_MALLOC_USABLE_SIZE)
+endif()
 
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
-include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
+include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
+
+find_package(Threads REQUIRED)
+if(WIN32)
+  set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
+else()
+  set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
+endif()
 
 set(ROCKSDB_LIBS rocksdblib${ARTIFACT_SUFFIX})
-set(THIRDPARTY_LIBS ${THIRDPARTY_LIBS} gtest)
-set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
-
 set(LIBS ${ROCKSDB_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
+add_subdirectory(tools)
 
 # Main library source code
+
 set(SOURCES
         db/auto_roll_logger.cc
         db/builder.cc
@@ -153,12 +293,6 @@ set(SOURCES
         memtable/skiplistrep.cc
         memtable/vectorrep.cc
         port/stack_trace.cc
-        port/win/io_win.cc
-        port/win/env_win.cc
-        port/win/env_default.cc
-        port/win/port_win.cc
-        port/win/win_logger.cc
-        port/win/xpress_win.cc
         table/adaptive_table_factory.cc
         table/block.cc
         table/block_based_filter_block.cc
@@ -192,7 +326,6 @@ set(SOURCES
         tools/dump/db_dump_tool.cc
         util/arena.cc
         util/bloom.cc
-        util/build_version.cc
         util/cf_options.cc
         util/clock_cache.cc
         util/coding.cc
@@ -238,7 +371,6 @@ set(SOURCES
         util/status_message.cc
         util/string_util.cc
         util/sync_point.cc
-        util/testharness.cc
         util/testutil.cc
         util/thread_local.cc
         util/threadpool_imp.cc
@@ -293,55 +425,55 @@ set(SOURCES
         utilities/col_buf_encoder.cc
         utilities/col_buf_decoder.cc
         utilities/column_aware_encoding_util.cc
-)
+        $<TARGET_OBJECTS:build_version>)
 
-# For test util library that is build only in DEBUG mode
-# and linked to tests. Add test only code that is not #ifdefed for Release here.
-set(TESTUTIL_SOURCE
-    db/db_test_util.cc
-    table/mock_table.cc
-    util/mock_env.cc
-    util/fault_injection_test_env.cc
-    util/thread_status_updater_debug.cc
-)
+if(WIN32)
+  list(APPEND SOURCES
+    port/win/io_win.cc
+    port/win/env_win.cc
+    port/win/env_default.cc
+    port/win/port_win.cc
+    port/win/win_logger.cc
+    port/win/xpress_win.cc)
+else()
+  list(APPEND SOURCES
+    port/port_posix.cc
+    util/env_posix.cc
+    util/io_posix.cc)
+endif()
 
-add_library(rocksdblib${ARTIFACT_SUFFIX} ${SOURCES})
-set_target_properties(rocksdblib${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib${ARTIFACT_SUFFIX}.pdb")
-add_dependencies(rocksdblib${ARTIFACT_SUFFIX} GenerateBuildVersion)
+option(WITH_LIBRADOS "Build with librados" OFF)
+if(WITH_LIBRADOS)
+  list(APPEND SOURCES
+    utilities/env_librados.cc)
+  list(APPEND THIRDPARTY_LIBS rados)
+endif()
+
+add_library(rocksdblib${ARTIFACT_SUFFIX} STATIC ${SOURCES})
+target_link_libraries(rocksdblib${ARTIFACT_SUFFIX}
+  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+
+if(WIN32)
+  set_target_properties(rocksdblib${ARTIFACT_SUFFIX} PROPERTIES
+    COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib${ARTIFACT_SUFFIX}.pdb")
+endif()
 
 add_library(rocksdb${ARTIFACT_SUFFIX} SHARED ${SOURCES})
-set_target_properties(rocksdb${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb${ARTIFACT_SUFFIX}.pdb")
-add_dependencies(rocksdb${ARTIFACT_SUFFIX} GenerateBuildVersion)
-target_link_libraries(rocksdb${ARTIFACT_SUFFIX} ${LIBS})
+target_link_libraries(rocksdb${ARTIFACT_SUFFIX}
+  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
-if (DEFINED JNI)
-  if (${JNI} EQUAL 1)
-    message(STATUS "JNI library is enabled")
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/java)
-  else()
-    message(STATUS "JNI library is disabled")
-  endif()
+if(WIN32)
+  set_target_properties(rocksdb${ARTIFACT_SUFFIX} PROPERTIES
+    COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb${ARTIFACT_SUFFIX}.pdb")
+endif()
+
+option(WITH_JNI "build with JNI" OFF)
+if(WITH_JNI OR JNI)
+  message(STATUS "JNI library is enabled")
+  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/java)
 else()
   message(STATUS "JNI library is disabled")
 endif()
-
-set(APPS
-        tools/db_bench.cc
-        db/memtablerep_bench.cc
-        table/table_reader_bench.cc
-        tools/db_stress.cc
-        tools/write_stress.cc
-        tools/db_repl_stress.cc
-        tools/ldb.cc
-        tools/sst_dump.cc
-        tools/dump/rocksdb_dump.cc
-        tools/dump/rocksdb_undump.cc
-        util/cache_bench.cc
-        utilities/persistent_cache/hash_table_bench.cc
-        utilities/column_aware_encoding_exp.cc
-)
-
-set(C_TESTS db/c_test.c)
 
 set(TESTS
         db/auto_roll_logger_test.cc
@@ -409,7 +541,6 @@ set(TESTS
         table/full_filter_block_test.cc
         table/merger_test.cc
         table/table_test.cc
-        tools/db_sanity_test.cc
         tools/ldb_cmd_test.cc
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
@@ -461,20 +592,42 @@ set(TESTS
         utilities/write_batch_with_index/write_batch_with_index_test.cc
         utilities/column_aware_encoding_test.cc
 )
+if(WITH_LIBRADOS)
+  list(APPEND TESTS utilities/env_librados_test.cc)
+endif()
 
-set(EXES ${APPS})
+set(BENCHMARKS
+  tools/db_bench.cc
+  table/table_reader_bench.cc
+  util/cache_bench.cc
+  db/memtablerep_bench.cc
+  utilities/column_aware_encoding_exp.cc
+  utilities/persistent_cache/hash_table_bench.cc)
+add_library(testharness OBJECT util/testharness.cc)
+foreach(sourcefile ${BENCHMARKS})
+  get_filename_component(exename ${sourcefile} NAME_WE)
+  add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
+    $<TARGET_OBJECTS:testharness>)
+  target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS} gtest)
+endforeach(sourcefile ${BENCHMARKS})
 
-foreach(sourcefile ${EXES})
-    string(REPLACE ".cc" "" exename ${sourcefile})
-    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS})
-endforeach(sourcefile ${EXES})
-
+# For test util library that is build only in DEBUG mode
+# and linked to tests. Add test only code that is not #ifdefed for Release here.
+set(TESTUTIL_SOURCE
+    db/db_test_util.cc
+    table/mock_table.cc
+    util/mock_env.cc
+    util/fault_injection_test_env.cc
+    util/thread_status_updater_debug.cc
+)
 # test utilities are only build in debug
+enable_testing()
+add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
 set(TESTUTILLIB testutillib${ARTIFACT_SUFFIX})
 add_library(${TESTUTILLIB} STATIC ${TESTUTIL_SOURCE})
-set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
+if(WIN32)
+  set_target_properties(${TESTUTILLIB} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/testutillib${ARTIFACT_SUFFIX}.pdb")
+endif()
 set_target_properties(${TESTUTILLIB}
       PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
       EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
@@ -485,18 +638,23 @@ set_target_properties(${TESTUTILLIB}
 set(TEST_EXES ${TESTS})
 
 foreach(sourcefile ${TEST_EXES})
-    string(REPLACE ".cc" "" exename ${sourcefile})
-    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+    get_filename_component(exename ${sourcefile} NAME_WE)
+    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
+      $<TARGET_OBJECTS:testharness>)
     set_target_properties(${exename}${ARTIFACT_SUFFIX}
       PROPERTIES EXCLUDE_FROM_DEFAULT_BUILD_RELEASE 1
       EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
       EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
       )
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS} testutillib${ARTIFACT_SUFFIX})
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} ${LIBS} gtest)
+    if(NOT "${exename}" MATCHES "db_sanity_test")
+      add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
+      add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
+    endif()
 endforeach(sourcefile ${TEST_EXES})
 
 # C executables must link to a shared object
+set(C_TESTS db/c_test.c)
 set(C_TEST_EXES ${C_TESTS})
 
 foreach(sourcefile ${C_TEST_EXES})
@@ -509,4 +667,6 @@ foreach(sourcefile ${C_TEST_EXES})
       EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
       )
     target_link_libraries(${exename}${ARTIFACT_SUFFIX} rocksdb${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX})
+    add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
+    add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
 endforeach(sourcefile ${C_TEST_EXES})
