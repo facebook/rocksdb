@@ -155,6 +155,7 @@ class EnvMirror : public EnvWrapper {
     Status as = a_->UnlockFile(ml->a_);
     Status bs = b_->UnlockFile(ml->b_);
     assert(as == bs);
+    delete ml;
     return as;
   }
 };
