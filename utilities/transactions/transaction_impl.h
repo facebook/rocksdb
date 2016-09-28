@@ -91,6 +91,10 @@ class TransactionImpl : public TransactionBaseImpl {
   // Returns true if locks were stolen successfully, false otherwise.
   bool TryStealingLocks();
 
+  bool IsDeadlockDetect() const { return deadlock_detect_; }
+
+  int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
+
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool read_only, bool untracked = false) override;
@@ -130,6 +134,12 @@ class TransactionImpl : public TransactionBaseImpl {
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
+
+  // Whether to perform deadlock detection or not.
+  bool deadlock_detect_;
+
+  // Whether to perform deadlock detection or not.
+  int64_t deadlock_detect_depth_;
 
   void Clear() override;
 

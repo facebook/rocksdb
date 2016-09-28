@@ -69,6 +69,7 @@ class Status {
     kLockTimeout = 2,
     kLockLimit = 3,
     kNoSpace = 4,
+    kDeadlock = 5,
     kMaxSubCode
   };
 
@@ -194,9 +195,15 @@ class Status {
 
   bool IsAborted() const { return code() == kAborted; }
 
+  bool IsLockLimit() const {
+    return code() == kAborted && subcode() == kLockLimit;
+  }
+
   // Returns true iff the status indicates that a resource is Busy and
   // temporarily could not be acquired.
   bool IsBusy() const { return code() == kBusy; }
+
+  bool IsDeadlock() const { return code() == kBusy && subcode() == kDeadlock; }
 
   // Returns true iff the status indicated that the operation has Expired.
   bool IsExpired() const { return code() == kExpired; }

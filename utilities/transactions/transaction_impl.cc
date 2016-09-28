@@ -44,7 +44,9 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
       waiting_cf_id_(0),
       waiting_key_(nullptr),
       expiration_time_(0),
-      lock_timeout_(0) {
+      lock_timeout_(0),
+      deadlock_detect_(false),
+      deadlock_detect_depth_(0) {
   txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
   assert(txn_db_impl_);
   db_impl_ = dynamic_cast<DBImpl*>(txn_db->GetRootDB());
@@ -56,6 +58,9 @@ void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
   txn_id_ = GenTxnID();
 
   txn_state_ = STARTED;
+
+  deadlock_detect_ = txn_options.deadlock_detect;
+  deadlock_detect_depth_ = txn_options.deadlock_detect_depth;
 
   lock_timeout_ = txn_options.lock_timeout * 1000;
   if (lock_timeout_ < 0) {

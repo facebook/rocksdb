@@ -106,8 +106,8 @@ TransactionLockMgr::TransactionLockMgr(
     : txn_db_impl_(nullptr),
       default_num_stripes_(default_num_stripes),
       max_num_locks_(max_num_locks),
-      mutex_factory_(mutex_factory),
-      lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)) {
+      lock_maps_cache_(new ThreadLocalPtr(&UnrefLockMapsCache)),
+      mutex_factory_(mutex_factory) {
   txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
   assert(txn_db_impl_);
 }
@@ -290,7 +290,20 @@ Status TransactionLockMgr::AcquireWithTimeout(
       }
 
       assert(result.IsBusy() || wait_id != 0);
-      txn->SetWaitingTxn(wait_id, column_family_id, &key);
+
+      // We are dependent on a transaction to finish, so perform deadlock
+      // detection.
+      if (wait_id != 0) {
+        if (txn->IsDeadlockDetect()) {
+          if (IncrementWaiters(txn, wait_id)) {
+            result = Status::Busy(Status::SubCode::kDeadlock);
+            stripe->stripe_mutex->UnLock();
+            return result;
+          }
+        }
+        txn->SetWaitingTxn(wait_id, column_family_id, &key);
+      }
+
       TEST_SYNC_POINT("TransactionLockMgr::AcquireWithTimeout:WaitingTxn");
       if (cv_end_time < 0) {
         // Wait indefinitely
@@ -302,7 +315,13 @@ Status TransactionLockMgr::AcquireWithTimeout(
                                               cv_end_time - now);
         }
       }
-      txn->SetWaitingTxn(0, 0, nullptr);
+
+      if (wait_id != 0) {
+        txn->SetWaitingTxn(0, 0, nullptr);
+        if (txn->IsDeadlockDetect()) {
+          DecrementWaiters(txn, wait_id);
+        }
+      }
 
       if (result.IsTimedOut()) {
           timed_out = true;
@@ -321,6 +340,54 @@ Status TransactionLockMgr::AcquireWithTimeout(
   stripe->stripe_mutex->UnLock();
 
   return result;
+}
+
+void TransactionLockMgr::DecrementWaiters(const TransactionImpl* txn,
+                                          TransactionID wait_id) {
+  std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
+  DecrementWaitersImpl(txn, wait_id);
+}
+
+void TransactionLockMgr::DecrementWaitersImpl(const TransactionImpl* txn,
+                                              TransactionID wait_id) {
+  auto id = txn->GetID();
+  assert(wait_txn_map_.count(id) > 0);
+  wait_txn_map_.erase(id);
+
+  rev_wait_txn_map_[wait_id]--;
+  if (rev_wait_txn_map_[wait_id] == 0) {
+    rev_wait_txn_map_.erase(wait_id);
+  }
+}
+
+bool TransactionLockMgr::IncrementWaiters(const TransactionImpl* txn,
+                                          TransactionID wait_id) {
+  auto id = txn->GetID();
+  std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
+  assert(wait_txn_map_.count(id) == 0);
+  wait_txn_map_[id] = wait_id;
+  rev_wait_txn_map_[wait_id]++;
+
+  // No deadlock if nobody is waiting on self.
+  if (rev_wait_txn_map_.count(id) == 0) {
+    return false;
+  }
+
+  TransactionID next = wait_id;
+  for (int i = 0; i < txn->GetDeadlockDetectDepth(); i++) {
+    if (next == id) {
+      DecrementWaitersImpl(txn, wait_id);
+      return true;
+    } else if (wait_txn_map_.count(next) == 0) {
+      return false;
+    } else {
+      next = wait_txn_map_[next];
+    }
+  }
+
+  // Wait cycle too big, just assume deadlock.
+  DecrementWaitersImpl(txn, wait_id);
+  return true;
 }
 
 // Try to lock this key after we have acquired the mutex.
@@ -476,32 +543,32 @@ void TransactionLockMgr::UnLock(const TransactionImpl* txn,
 
 TransactionLockMgr::LockStatusData TransactionLockMgr::GetLockStatusData() {
   LockStatusData data;
-  std::vector<uint32_t> cf_ids;
-
   // Lock order here is important. The correct order is lock_map_mutex_, then
   // for every column family ID in ascending order lock every stripe in
   // ascending order.
   InstrumentedMutexLock l(&lock_map_mutex_);
 
-  for (const auto& lock_map_iter : lock_maps_) {
-    uint32_t cf_id = lock_map_iter.first;
-    cf_ids.push_back(cf_id);
-    const auto& lock_map = lock_map_iter.second;
+  std::vector<uint32_t> cf_ids;
+  for (const auto& map : lock_maps_) {
+    cf_ids.push_back(map.first);
+  }
+  std::sort(cf_ids.begin(), cf_ids.end());
 
+  for (auto i : cf_ids) {
+    const auto& stripes = lock_maps_[i]->lock_map_stripes_;
     // Iterate and lock all stripes in ascending order.
-    for (const auto& stripe : lock_map->lock_map_stripes_) {
-      stripe->stripe_mutex->Lock();
-      // Iterate through all keys in stripe, and copy to data.
-      for (const auto& it : stripe->keys) {
-        data.insert({cf_id, {it.first, it.second.txn_id}});
+    for (const auto& j : stripes) {
+      j->stripe_mutex->Lock();
+      for (const auto& it : j->keys) {
+        data.insert({i, {it.first, it.second.txn_id}});
       }
     }
   }
 
   // Unlock everything. Unlocking order is not important.
   for (auto i : cf_ids) {
-    const auto stripes = lock_maps_[i]->lock_map_stripes_;
-    for (const auto j : stripes) {
+    const auto& stripes = lock_maps_[i]->lock_map_stripes_;
+    for (const auto& j : stripes) {
       j->stripe_mutex->UnLock();
     }
   }

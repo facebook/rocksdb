@@ -67,10 +67,13 @@ class TransactionLockMgr {
   // Limit on number of keys locked per column family
   const int64_t max_num_locks_;
 
-  // Used to allocate mutexes/condvars to use when locking keys
-  std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
-
-  // Must be held when accessing/modifying lock_maps_
+  // The following lock order must be satisfied in order to avoid deadlocking
+  // ourselves.
+  //   - lock_map_mutex_
+  //   - stripe mutexes in ascending cf id, ascending stripe order
+  //   - wait_txn_map_mutex_
+  //
+  // Must be held when accessing/modifying lock_maps_.
   InstrumentedMutex lock_map_mutex_;
 
   // Map of ColumnFamilyId to locked key info
@@ -80,6 +83,17 @@ class TransactionLockMgr {
   // Thread-local cache of entries in lock_maps_.  This is an optimization
   // to avoid acquiring a mutex in order to look up a LockMap
   std::unique_ptr<ThreadLocalPtr> lock_maps_cache_;
+
+  // Must be held when modifying wait_txn_map_ and rev_wait_txn_map_.
+  std::mutex wait_txn_map_mutex_;
+
+  // Maps from waitee -> number of waiters.
+  std::unordered_map<TransactionID, int> rev_wait_txn_map_;
+  // Maps from waiter -> waitee.
+  std::unordered_map<TransactionID, TransactionID> wait_txn_map_;
+
+  // Used to allocate mutexes/condvars to use when locking keys
+  std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
   bool IsLockExpired(const LockInfo& lock_info, Env* env, uint64_t* wait_time);
 
@@ -94,6 +108,10 @@ class TransactionLockMgr {
                        const std::string& key, Env* env,
                        const LockInfo& lock_info, uint64_t* wait_time,
                        TransactionID* txn_id);
+
+  bool IncrementWaiters(const TransactionImpl* txn, TransactionID wait_id);
+  void DecrementWaiters(const TransactionImpl* txn, TransactionID wait_id);
+  void DecrementWaitersImpl(const TransactionImpl* txn, TransactionID wait_id);
 
   // No copying allowed
   TransactionLockMgr(const TransactionLockMgr&);
