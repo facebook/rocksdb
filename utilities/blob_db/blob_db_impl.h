@@ -5,11 +5,14 @@
 #include <memory>
 #include <atomic>
 #include <set>
+#include <condition_variable>
+#include <thread>
 
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "utilities/blob_db/blob_db.h"
 #include "util/instrumented_mutex.h"
+#include "util/cf_options.h"
 #include "db/blob_log_writer.h"
 #include "db/blob_log_reader.h"
 #include "db/blob_log_format.h"
@@ -26,6 +29,8 @@
 namespace rocksdb {
 
 class BlobFile;
+class DBImpl;
+class ColumnFamilyHandle;
 
 struct blobf_compare_ttl {
     bool operator() (const BlobFile* lhs, const BlobFile* rhs) const;
@@ -34,17 +39,21 @@ struct blobf_compare_ttl {
 class BlobDBImpl : public BlobDB {
  public:
   using rocksdb::StackableDB::Put;
-  Status Put(const WriteOptions& options, const Slice& key,
+  Status Put(const WriteOptions& options, 
+             ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value) override;
 
   using rocksdb::StackableDB::Get;
-  Status Get(const ReadOptions& options, const Slice& key,
+  Status Get(const ReadOptions& options, 
+             ColumnFamilyHandle* column_family, const Slice& key,
              std::string* value) override;
   
-  Status PutWithTTL(const WriteOptions& options, const Slice& key,
+  Status PutWithTTL(const WriteOptions& options, 
+             ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value, uint32_t ttl) override;
 
-  Status PutUntil(const WriteOptions& options, const Slice& key,
+  Status PutUntil(const WriteOptions& options, 
+             ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value, uint32_t expiration) override;
 
   Status Open();
@@ -56,6 +65,12 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
  private:
+
+  void shutdown();
+
+  void runGC();
+
+  Status startGCThreads();
 
   Status openNewFile(BlobFile *& bfile_ret);
 
@@ -73,8 +88,11 @@ class BlobDBImpl : public BlobDB {
 
   Status ReadFooter(BlobFile *bfile, blob_log::BlobLogFooter& footer);
 
+  Status writeBatchOfDeleteKeys(BlobFile *bfptr, WriteBatch& batch);
+
  private:
 
+  DBImpl* db_impl_;
   BlobDBOptions bdb_options_;
 
   std::string dbname_;
@@ -94,6 +112,11 @@ class BlobDBImpl : public BlobDB {
   BlobFile *open_simple_file_;
 
   std::set<BlobFile*, blobf_compare_ttl> open_blob_files_;
+
+  std::vector<std::thread> gc_threads_;
+  std::atomic_bool shutdown_;
+  std::condition_variable gc_cv_;
+  std::mutex gc_mutex_;
 };
 
 class BlobFile {
@@ -136,6 +159,8 @@ class BlobFile {
   
   ~BlobFile() {}
 
+  ColumnFamilyHandle *GetColumnFamily(DB *db);
+
   // Returns log file's pathname relative to the main db dir
   // Eg. For a live-log-file = blob_dir/000003.blob
   std::string PathName() const;
@@ -152,6 +177,10 @@ class BlobFile {
   bool Immutable() const { return closed_; }
 
   bool ActiveForAppend() const { return !Immutable(); }
+
+  static void Fsync(void *arg);
+
+  void Fsync_member();
 
   std::pair<uint64_t, uint64_t> GetTimeRange() const { assert(HasTimestamps()); return time_range_; }
 

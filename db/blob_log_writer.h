@@ -15,6 +15,7 @@
 #include "db/blob_log_format.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace rocksdb {
 
@@ -83,6 +84,8 @@ class Writer {
   Status AddRecord(const Slice& key, const Slice& val,
     uint64_t& key_offset, uint64_t& blob_offset, uint32_t ttl);
 
+  Status AddRecordFooter(const SequenceNumber& sn);
+
   Status AppendFooter(blob_log::BlobLogFooter& footer);
 
   Status WriteHeader(blob_log::BlobLogHeader& header);
@@ -92,6 +95,12 @@ class Writer {
   const WritableFileWriter* file() const { return dest_.get(); }
 
   uint64_t get_log_number() const { return log_number_; }
+
+  bool ShouldSync() const { return block_offset_ > next_sync_offset_; }
+
+  void Sync();
+
+  void ResetSyncPointer() { next_sync_offset_ += bytes_per_sync_; }
 
  private:
   unique_ptr<WritableFileWriter> dest_;

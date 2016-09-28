@@ -65,18 +65,22 @@ class BlobDB : public StackableDB {
  public:
   using rocksdb::StackableDB::Put;
 
-  virtual Status Put(const WriteOptions& options, const Slice& key,
-             const Slice& value) override  = 0;
+  virtual Status Put(const WriteOptions& options,
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const Slice& value) override  = 0;
 
-  virtual Status PutWithTTL(const WriteOptions& options, const Slice& key,
-             const Slice& value, uint32_t ttl) = 0;
+  virtual Status PutWithTTL(const WriteOptions& options,
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const Slice& value, uint32_t ttl) = 0;
 
-  virtual Status PutUntil(const WriteOptions& options, const Slice& key,
-             const Slice& value, uint32_t expiration) = 0;
+  virtual Status PutUntil(const WriteOptions& options,
+    ColumnFamilyHandle* column_family, const Slice& key,
+    const Slice& value, uint32_t expiration) = 0;
 
   using rocksdb::StackableDB::Get;
-  virtual Status Get(const ReadOptions& options, const Slice& key,
-             std::string* value) override = 0;
+  virtual Status Get(const ReadOptions& options,
+    ColumnFamilyHandle* column_family, const Slice& key,
+    std::string* value) override = 0;
 
   static Status Open(const Options& options, const BlobDBOptions& bdb_options,
       const std::string& dbname, BlobDB** blob_db);

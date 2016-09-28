@@ -35,6 +35,7 @@ Writer::Writer(unique_ptr<WritableFileWriter>&& dest,
 Writer::~Writer() {
 }
 
+void Writer::Sync() { dest_->Sync(true); }
 
 Status Writer::WriteHeader(blob_log::BlobLogHeader& header)
 {
@@ -125,9 +126,6 @@ Status Writer::EmitPhysicalRecord(RecordType t, RecordSubType st,
     s = dest_->Append(key);
     if (s.ok()) {
       s = dest_->Append(val);
-      if (s.ok()) {
-        s = dest_->Flush();
-      }
     }
   }
  
@@ -135,10 +133,17 @@ Status Writer::EmitPhysicalRecord(RecordType t, RecordSubType st,
   blob_offset = key_offset + key.size();
   block_offset_ = blob_offset + val.size();
 
-  if (block_offset_ > next_sync_offset_) {
-    dest_->Sync(true);
-    next_sync_offset_ += bytes_per_sync_;
-  }
+  return s;
+}
+
+Status Writer::AddRecordFooter(const SequenceNumber& seq) {
+  char buf[8];
+  EncodeFixed64(buf, seq);
+  Status s = dest_->Append(Slice(buf, 8));
+  block_offset_ += 8;
+
+  if (s.ok())
+   dest_->Flush();
 
   return s;
 }

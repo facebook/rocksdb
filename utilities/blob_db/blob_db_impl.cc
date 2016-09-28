@@ -1,9 +1,17 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+#include <chrono>
+#include <iostream>
+#include <iomanip>
+#include <ctime>
+
 #include "utilities/blob_db/blob_db_impl.h"
 
 #include "db/filename.h"
+#include "db/write_batch_internal.h"
+#include "db/db_impl.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
@@ -16,7 +24,6 @@
 #include "util/file_reader_writer.h"
 #include "util/instrumented_mutex.h"
 #include "table/meta_blocks.h"
-#include <chrono>
 
 
 // create multiple writers.
@@ -33,7 +40,8 @@ using std::chrono::system_clock;
 
 namespace rocksdb {
 
-Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
+Status BlobDBImpl::Put(const WriteOptions& options,
+  ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value)
 {
    Status s;
@@ -121,10 +129,12 @@ namespace {
 
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
+  db_impl_(dynamic_cast<DBImpl*>(db)),
   bdb_options_(blob_db_options),
   ioptions_(db->GetOptions()),
   db_options_(db->GetOptions()),
-  next_file_number_(1)
+  next_file_number_(1),
+  shutdown_(false)
 {
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = ( bdb_options_.path_relative )  ? db_->GetName() + "/" + bdb_options_.blob_dir : bdb_options_.blob_dir;
@@ -132,6 +142,15 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
 
 BlobDBImpl::~BlobDBImpl()
 {
+  CancelAllBackgroundWork(db_, true);
+
+  shutdown();
+
+   // Wait for all other threads (if there are any) to finish execution
+  for (auto& gc_thd : gc_threads_) {
+    gc_thd.join();
+  }
+
   for (auto bfile: open_blob_files_) {
     assert(bfile->ActiveForAppend());
   }
@@ -199,7 +218,7 @@ Status BlobDBImpl::openNewFileWithTTL(std::pair<uint32_t, uint32_t>& ttl_guess, 
 // this is opening of the entire BlobDB.
 // go through the directory and do an fstat on all the files.
 Status BlobDBImpl::Open() {
- 
+
   if (blob_dir_.empty()) {
     return Status::NotSupported("No blob directory in options");
   }
@@ -210,6 +229,10 @@ Status BlobDBImpl::Open() {
   }
 
   s = openAllFiles();
+  if (!s.ok()) {
+    return s;
+  }
+  s = startGCThreads();
   return s;
 }
 
@@ -301,8 +324,8 @@ Status BlobDBImpl::openAllFiles()
 
         if (bfptr->HasTimestamps()) {
           bfptr->setTimeRange(ts_range);
-        } 
-   
+        }
+
         if (bfptr->HasTTL()) {
           ttl_range.second  = std::max(ttl_range.second, ttl_range.first + 3600);
           bfptr->setTTLRange(ttl_range);
@@ -330,7 +353,7 @@ Status BlobDBImpl::openAllFiles()
 
 BlobFile::BlobFile(const std::string& bdir, uint64_t fn)
   : path_to_dir_(bdir), blob_count_(0),
-    file_number_(fn), file_size_(0), 
+    file_number_(fn), file_size_(0),
     closed_(false), header_read_(false)
 {
 }
@@ -388,6 +411,49 @@ void BlobFile::setFromFooter(const blob_log::BlobLogFooter& footer)
   closed_ = true;
 }
 
+void BlobFile::Fsync_member() {
+  if (log_writer_.get()) {
+    log_writer_->Sync();
+  }
+}
+
+void BlobFile::Fsync(void *arg) {
+
+  return;
+  BlobFile *bfile = static_cast<BlobFile*>(arg);
+  assert(bfile != nullptr);
+  bfile->Fsync_member();
+}
+
+RandomAccessFileReader* BlobFile::openRandomAccess(Env *env, const EnvOptions& env_options)
+{
+  if (ra_file_reader_.get()) {
+    return ra_file_reader_.get();
+  }
+
+  std::unique_ptr<RandomAccessFile> rfile;
+  Status s = env->NewRandomAccessFile(BlobFileName(path_to_dir_, file_number_),
+                                         &rfile, env_options);
+  if (!s.ok()) {
+    return nullptr;
+  }
+  ra_file_reader_.reset(new RandomAccessFileReader(std::move(rfile)));
+  return ra_file_reader_.get();
+}
+
+Status BlobFile::ReadHeader() {
+
+  Status s = log_reader_->ReadHeader(header_);
+  if (s.ok()) {
+    header_read_ = true;
+  }
+  return s;
+}
+
+ColumnFamilyHandle* BlobFile::GetColumnFamily(DB *db) {
+  return db->DefaultColumnFamily();
+}
+
 Status BlobDBImpl::ReadFooter(BlobFile *bfile, blob_log::BlobLogFooter& bf) {
 
   EnvOptions env_options(db_->GetOptions());
@@ -403,15 +469,6 @@ Status BlobDBImpl::ReadFooter(BlobFile *bfile, blob_log::BlobLogFooter& bf) {
   }
 
   s = bf.DecodeFrom(&result);
-  return s;
-}
-
-Status BlobFile::ReadHeader() {
-
-  Status s = log_reader_->ReadHeader(header_);
-  if (s.ok()) {
-    header_read_ = true;
-  }
   return s;
 }
 
@@ -434,16 +491,18 @@ Status BlobDBImpl::createWriter(BlobFile *bfile, Env *env, const EnvOptions& env
   return s;
 }
 
-Status BlobDBImpl::PutWithTTL(const WriteOptions& options, const Slice& key,
-             const Slice& value, uint32_t ttl)
+Status BlobDBImpl::PutWithTTL(const WriteOptions& options,
+  ColumnFamilyHandle* column_family, const Slice& key,
+  const Slice& value, uint32_t ttl)
 {
   std::time_t epoch_now = system_clock::to_time_t(system_clock::now());
-  return PutUntil(options, key, value, epoch_now + ttl);
+  return PutUntil(options, column_family, key, value, epoch_now + ttl);
 }
 
 BlobFile* BlobDBImpl::findBlobFile(uint32_t expiration) const
 {
-   if (open_blob_files_.empty()) 
+   // TBD - Mutex required
+   if (open_blob_files_.empty())
      return nullptr;
 
    BlobFile tmp;
@@ -463,13 +522,17 @@ BlobFile* BlobDBImpl::findBlobFile(uint32_t expiration) const
            (*finditr)->ttl_range_.second < expiration) ? nullptr : *finditr;
 }
 
-Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
+Status BlobDBImpl::PutUntil(const WriteOptions& options,
+  ColumnFamilyHandle* column_family, const Slice& key,
                    const Slice& value, uint32_t expiration) {
   BlobFile *bfile = findBlobFile(expiration);
   if (!bfile)  {
+
     std::pair<uint32_t, uint32_t> ttl_guess;
+    // become smarter
     ttl_guess.first = expiration;
     ttl_guess.second = expiration + 3600;
+
     // this opens a new file with TTL support
     Status s =openNewFileWithTTL(ttl_guess, bfile);
     if (!s.ok() || !bfile) {
@@ -491,9 +554,9 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   uint64_t blob_offset = 0;
   uint64_t key_offset = 0;
 
-  // write the key to the blob log.
+  // write the blob to the blob log.
   Status s = writer->AddRecord(key, value, key_offset, blob_offset, expiration);
-  if (!s.ok()) 
+  if (!s.ok())
   {
     return s;
   }
@@ -509,31 +572,33 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options, const Slice& key,
   handle.set_size(raw_block_size);
 
   handle.EncodeTo(&index_entry);
-  s = db_->Put(options, key, index_entry);
+
+  WriteBatch batch;
+  batch.Put(column_family, key, index_entry);
+
+  s = db_->Write(options, &batch);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // this is the sequence number of the write
+  SequenceNumber sn = WriteBatchInternal::Sequence(&batch);
+  s = writer->AddRecordFooter(sn);
+
+  // this has a race condition where the bfile might have been
+  // deleted. We will need to hold locks etc.
+  if (writer->ShouldSync())
+    db_->GetEnv()->Schedule(&BlobFile::Fsync, bfile, Env::Priority::HIGH);
+
   return s;
 }
 
-RandomAccessFileReader* BlobFile::openRandomAccess(Env *env, const EnvOptions& env_options)
-{
-  if (ra_file_reader_.get()) {
-    return ra_file_reader_.get();
-  }
-
-  std::unique_ptr<RandomAccessFile> rfile;
-  Status s = env->NewRandomAccessFile(BlobFileName(path_to_dir_, file_number_),
-                                         &rfile, env_options);
-  if (!s.ok()) {
-    return nullptr;
-  }
-  ra_file_reader_.reset(new RandomAccessFileReader(std::move(rfile)));
-  return ra_file_reader_.get();
-}
-
-Status BlobDBImpl::Get(const ReadOptions& options, const Slice& key,
-                   std::string* value) {
+Status BlobDBImpl::Get(const ReadOptions& options,
+  ColumnFamilyHandle* column_family, const Slice& key,
+  std::string* value) {
   Status s;
   std::string index_entry;
-  s = db_->Get(options, key, &index_entry);
+  s = db_->Get(options, column_family, key, &index_entry);
   if (!s.ok()) {
     return s;
   }
@@ -585,6 +650,121 @@ Status BlobDBImpl::Get(const ReadOptions& options, const Slice& key,
 
 bool blobf_compare_ttl::operator() (const BlobFile* lhs, const BlobFile* rhs) const {
   return lhs->ttl_range_.first < rhs->ttl_range_.first;
+}
+
+void BlobDBImpl::shutdown()
+{
+   shutdown_.store(true);
+
+   // fire the conditional variable
+   gc_cv_.notify_all();
+}
+
+const int delta_time = 60;
+
+
+Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr, WriteBatch& batch)
+{
+  Status s;
+  EnvOptions env_options(db_->GetOptions());
+  // sequentially iterate over the file and read all the records
+  s = bfptr->createSequentialReader(db_->GetEnv(), db_options_, env_options);
+  if (!s.ok()) {
+    // report something here.
+    return s;
+  }
+
+  s = bfptr->ReadHeader();
+  if (!s.ok()) {
+    // report something here.
+    // close the file
+    return s;
+  }
+
+  ColumnFamilyHandle *cfh = bfptr->GetColumnFamily(db_);
+  auto cfhi = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh);
+  auto cfd = cfhi->cfd();
+
+  blob_log::Reader *reader = bfptr->GetReader();
+  uint64_t blob_count = 0;
+  blob_log::BlobLogRecord record;
+
+  // this reads the key but skips the blob
+  int shallow = 1;
+
+  SuperVersion* sv = db_impl_->GetAndRefSuperVersion(cfd);
+  if (sv == nullptr) {
+    Status result = Status::InvalidArgument("Could not access column family 0");
+    return result;
+  }
+
+  while (reader->ReadRecord(record, shallow).ok()) {
+    ++blob_count;
+    SequenceNumber seq = kMaxSequenceNumber;
+    bool found_record_for_key = false;
+
+    s = db_impl_->GetLatestSequenceForKey(sv, record.Key(), false,
+      &seq, &found_record_for_key);
+
+    if (!s.ok())
+      continue;
+
+    if (!found_record_for_key || seq == record.GetSN()) {
+      // stil could have a TOCTOU
+      batch.Delete(cfh, record.Key());
+    }
+  }
+
+  // Now write the 
+  db_impl_->ReturnAndCleanupSuperVersion(cfd, sv);
+
+  return s;
+}
+
+void BlobDBImpl::runGC() {
+
+  std::time_t last_time_run = system_clock::to_time_t(system_clock::now());
+  while (!shutdown_.load()) {
+
+    std::unique_lock<std::mutex> lock(gc_mutex_);
+    gc_cv_.wait_for(lock, std::chrono::milliseconds(delta_time*1000));
+
+    std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+    std::time_t tt = system_clock::to_time_t(now);
+
+    // protect against spurious wakeups
+    if ((tt - last_time_run) < (delta_time - 2))  {
+      std::cout << "tt = " << tt << " ltr " << last_time_run << std::endl;
+      last_time_run = tt;
+      continue;
+    }
+
+    last_time_run = tt;
+
+    for (auto itr = blob_files_.begin(); itr != blob_files_.end(); ++itr) {
+      BlobFile *bfile = itr->second.get();
+      if (bfile->HasTTL()) {
+        std::pair<uint32_t, uint32_t> ttl_range = bfile->GetTTLRange();
+        if (tt > ttl_range.second) {
+          // all the elements can be deleted.
+          // Go through all the keys and do a WriteBatch
+
+          WriteBatch batch;
+          Status s = writeBatchOfDeleteKeys(bfile, batch);
+        }
+      }
+    }
+
+    //std::cout << "current time: " << std::asctime(std::localtime(&tt)) << std::endl;
+  }
+}
+
+Status BlobDBImpl::startGCThreads() {
+  Status s;
+  // we can use more threads in the future, but 1 should be sufficient now.
+  gc_threads_.reserve(1);
+  gc_threads_.emplace_back(&BlobDBImpl::runGC, this);
+  return s;
 }
 
 }  // namespace rocksdb

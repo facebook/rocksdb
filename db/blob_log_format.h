@@ -16,6 +16,7 @@
 #include <string>
 #include <cstddef>
 #include "rocksdb/status.h"
+#include "rocksdb/types.h"
 
 namespace rocksdb {
 
@@ -116,7 +117,7 @@ class BlobLogFooter {
 
   const std::pair<uint64_t, uint64_t>& GetTimeRange() const { return ts_range_; }
 
-  const std::pair<uint64_t, uint64_t>& GetSNRange() const { return sn_range_; }
+  const std::pair<SequenceNumber, SequenceNumber>& GetSNRange() const { return sn_range_; }
 
  private:
 
@@ -127,7 +128,7 @@ class BlobLogFooter {
 
   std::pair<uint32_t, uint32_t> ttl_range_;
   std::pair<uint64_t, uint64_t> ts_range_;
-  std::pair<uint64_t, uint64_t> sn_range_;
+  std::pair<SequenceNumber, SequenceNumber> sn_range_;
 };
 
 static const int kMaxRecordType = kLastType;
@@ -146,7 +147,7 @@ private:
   uint64_t blob_size_;
   uint64_t time_val_;
   uint32_t ttl_val_;
-  uint64_t sn_;
+  SequenceNumber sn_;
   char type_;
   char subtype_;
   Slice key_;
@@ -158,12 +159,17 @@ public:
   // type (1 byte), subtype (1 byte)
   static const int kHeaderSize = 4 + 4 + 4 + 8 + 4 + 8 + 1 + 1;
   // 34
+  static const int kFooterSize = 8;
 
 public:
    
   BlobLogRecord();
 
   void clear();
+
+  const Slice& Key() const { return key_; }
+
+  const Slice& Blob() const { return blob_; }
 
   uint32_t GetKeySize() const { return key_size_; }
 
@@ -173,9 +179,9 @@ public:
   
   uint64_t GetTimeVal() const { return time_val_; }
 
-  uint64_t GetSN() const { return sn_; }
+  SequenceNumber GetSN() const { return sn_; }
 
-  Status DecodeFrom(Slice* input);
+  Status DecodeHeaderFrom(Slice* input);
 };
 
 

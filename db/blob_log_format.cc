@@ -173,7 +173,7 @@ void BlobLogRecord::clear()
   blob_.clear();
 }
 
-Status BlobLogRecord::DecodeFrom(Slice* input)
+Status BlobLogRecord::DecodeHeaderFrom(Slice* input)
 {
   if (input->size() < kHeaderSize) {
     return Status::Corruption("bad header");

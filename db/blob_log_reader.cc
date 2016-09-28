@@ -75,7 +75,7 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord& record,
      return status;
   }
 
-  status = record.DecodeFrom(&buffer_);
+  status = record.DecodeHeaderFrom(&buffer_);
   if (!status.ok()) {
     return status;
   } 
@@ -83,11 +83,16 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord& record,
   switch (level) {
     case 0 :
       file_->Skip(record.GetKeySize() + record.GetBlobSize());
+      status = file_->Read(8, &buffer_, backing_store_);
+      record.sn_ = DecodeFixed64(buffer_.data());
       return status;
 
     case 1 :
       resizeBackingStore((uint64_t)record.GetKeySize());
       status = file_->Read(record.GetKeySize(), &record.key_, backing_store_);
+      file_->Skip(record.GetBlobSize());
+      status = file_->Read(8, &buffer_, backing_store_);
+      record.sn_ = DecodeFixed64(buffer_.data());
       return status;
 
     case 2:
@@ -95,6 +100,8 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord& record,
       status = file_->Read(record.GetKeySize(), &record.key_, backing_store_);
       resizeBackingStore((uint64_t)record.GetBlobSize());
       status = file_->Read(record.GetBlobSize(), &record.blob_, backing_store_);
+      status = file_->Read(8, &buffer_, backing_store_);
+      record.sn_ = DecodeFixed64(buffer_.data());
       return status;
     default :
        return status;
