@@ -540,7 +540,6 @@ void DBIter::PrevInternal() {
   }
 
   ParsedInternalKey ikey;
-  bool match_prefix = true;
 
   while (iter_->Valid()) {
     saved_key_.SetKey(ExtractUserKey(iter_->key()),
@@ -557,8 +556,7 @@ void DBIter::PrevInternal() {
       if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
           prefix_extractor_->Transform(saved_key_.GetKey())
                   .compare(prefix_start_key_) != 0) {
-        match_prefix = false;
-        break;
+        valid_ = false;
       }
       return;
     }
@@ -572,7 +570,7 @@ void DBIter::PrevInternal() {
   }
   // We haven't found any key - iterator is not valid
   // Or the prefix is different than start prefix
-  assert(!iter_->Valid() || !match_prefix);
+  assert(!iter_->Valid());
   valid_ = false;
 }
 
