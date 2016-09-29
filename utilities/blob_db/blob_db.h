@@ -57,6 +57,8 @@ struct BlobDBOptions {
   // at what bytes will the blob files be synced to blob log.
   uint64_t bytes_per_sync;
 
+  uint64_t blob_file_size;
+
   // default constructor
   BlobDBOptions();
 };

@@ -34,8 +34,13 @@ class ColumnFamilyHandle;
 class OptimisticTransactionDBImpl;
 
 struct blobf_compare_ttl {
-    bool operator() (const BlobFile* lhs, const BlobFile* rhs) const;
+    bool operator() (const std::shared_ptr<BlobFile>& lhs,
+      const std::shared_ptr<BlobFile>& rhs) const;
 };
+
+typedef std::pair<uint32_t, uint32_t> ttlrange_t;
+typedef std::pair<uint64_t, uint64_t> tsrange_t;
+typedef std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber> snrange_t;
 
 class BlobDBImpl : public BlobDB {
  public:
@@ -61,8 +66,6 @@ class BlobDBImpl : public BlobDB {
 
   BlobDBImpl(DB* db, const BlobDBOptions& bdb_options);
 
-  BlobFile *findBlobFile(uint32_t expiration) const;
-
   ~BlobDBImpl();
 
  private:
@@ -73,11 +76,11 @@ class BlobDBImpl : public BlobDB {
 
   Status startGCThreads();
 
-  Status openNewFile(BlobFile *& bfile_ret);
+  Status openNewFileWithTTL_locked(const ttlrange_t& ttl_guess, std::shared_ptr<BlobFile>& bfile_ret);
 
-  Status openNewFileWithTTL(std::pair<uint32_t, uint32_t>& ttl_guess, BlobFile *& bfile_ret);
+  std::shared_ptr<BlobFile> findBlobFile_locked(uint32_t expiration) const;
 
-  Status openNewFile_P1_lock(std::unique_ptr<BlobFile>& bfile);
+  std::shared_ptr<BlobFile> openNewFile_P1();
 
   Status addNewFile();
 
@@ -85,13 +88,16 @@ class BlobDBImpl : public BlobDB {
 
   Status getSortedBlobLogs(const std::string& path);
 
-  Status createWriter(BlobFile *bfile, bool reopen = false);
+  // this holds BlobFile mutex
+  Status createWriter_locked(BlobFile *bfile, bool reopen = false);
 
   Status ReadFooter(BlobFile *bfile, blob_log::BlobLogFooter& footer);
 
   Status writeBatchOfDeleteKeys(BlobFile *bfptr);
 
-  bool TryDeleteFile(BlobFile *bfile);
+  bool TryDeleteFile(std::shared_ptr<BlobFile>& bfile);
+
+  std::shared_ptr<blob_log::Writer> checkOrCreateWriter_locked(BlobFile *bfile);
 
  private:
 
@@ -114,11 +120,11 @@ class BlobDBImpl : public BlobDB {
   std::atomic<uint64_t> next_file_number_;
 
   // entire metadata in memory
-  std::unordered_map<uint64_t, std::unique_ptr<BlobFile>> blob_files_;
+  std::unordered_map<uint64_t, std::shared_ptr<BlobFile>> blob_files_;
 
   BlobFile *open_simple_file_;
 
-  std::set<BlobFile*, blobf_compare_ttl> open_blob_files_;
+  std::set<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_blob_files_;
 
   std::vector<std::thread> gc_threads_;
   std::atomic_bool shutdown_;
@@ -133,28 +139,29 @@ class BlobFile {
 
  private:
    std::string path_to_dir_;
-   uint64_t blob_count_;
+   std::atomic<uint64_t> blob_count_;
    uint64_t file_number_;
-   uint64_t file_size_;
+   std::atomic<uint64_t> file_size_;
 
    blob_log::BlobLogHeader header_;
+
    bool closed_;
    bool header_read_;
    bool can_be_deleted_;
 
-   std::pair<uint64_t, uint64_t> time_range_;
-   std::pair<uint32_t, uint32_t> ttl_range_;
-   std::pair<SequenceNumber, SequenceNumber> sn_range_;
+   ttlrange_t ttl_range_;
+   tsrange_t time_range_;
+   snrange_t sn_range_;
 
-   std::unique_ptr<WritableFile> wfile_;
-   std::unique_ptr<WritableFileWriter> file_writer_;
-   std::unique_ptr<blob_log::Writer> log_writer_;
+   std::shared_ptr<blob_log::Writer> log_writer_;
 
-   std::unique_ptr<RandomAccessFileReader> ra_file_reader_;
+   std::shared_ptr<RandomAccessFileReader> ra_file_reader_;
 
    std::unique_ptr<SequentialFile> sfile_;
    std::unique_ptr<SequentialFileReader> sfile_reader_;
    std::unique_ptr<blob_log::Reader> log_reader_;
+
+   InstrumentedMutex mutex_;
 
    Status createSequentialReader(Env *env, const DBOptions& db_options, const EnvOptions& env_options);
 
@@ -164,7 +171,7 @@ class BlobFile {
 
   BlobFile() { }
 
-  BlobFile(const std::string& bdir, uint64_t fn);
+  BlobFile(const std::string& bdir, uint64_t fnum);
   
   ~BlobFile() {}
 
@@ -183,7 +190,7 @@ class BlobFile {
 
   blob_log::Reader* GetReader() const { return log_reader_.get(); }
 
-  blob_log::Writer* GetWriter() const { return log_writer_.get(); }
+  std::shared_ptr<blob_log::Writer> GetWriter() const { return log_writer_; }
 
   bool Immutable() const { return closed_; }
 
@@ -193,11 +200,11 @@ class BlobFile {
 
   void Fsync_member();
 
-  std::pair<uint64_t, uint64_t> GetTimeRange() const { assert(HasTimestamps()); return time_range_; }
+  tsrange_t GetTimeRange() const { assert(HasTimestamps()); return time_range_; }
 
-  std::pair<uint32_t, uint32_t> GetTTLRange() const { assert(HasTTL()); return ttl_range_; }
+  ttlrange_t GetTTLRange() const { assert(HasTTL()); return ttl_range_; }
 
-  std::pair<SequenceNumber, SequenceNumber> GetSNRange() const { return sn_range_; }
+  snrange_t GetSNRange() const { return sn_range_; }
 
   bool HasTTL() const { return header_.HasTTL(); }
 
@@ -207,13 +214,13 @@ class BlobFile {
 
   Status ReadHeader();
 
-  Status WriteFooterAndClose();
+  Status WriteFooterAndClose_locked();
 
-  uint64_t GetFileSize() const { return file_size_; }
+  uint64_t GetFileSize() const { return file_size_.load(); }
 
  private:
 
-  RandomAccessFileReader* openRandomAccess(Env *env, const EnvOptions& env_options);
+  std::shared_ptr<RandomAccessFileReader> openRandomAccess_locked(Env *env, const EnvOptions& env_options);
 
   // this is used, when you are reading only the footer of a 
   // previously closed file
@@ -225,13 +232,13 @@ class BlobFile {
 
   void setTimestamps() { header_.setTimestamps(); }
 
-  void setTimeRange(const std::pair<uint64_t, uint64_t>& tr) { time_range_ = tr; }
+  void setTimeRange(const tsrange_t& tr) { time_range_ = tr; }
 
-  void setTTLRange(const std::pair<uint32_t, uint32_t>& ttl) { ttl_range_ = ttl; }
+  void setTTLRange(const ttlrange_t& ttl) { ttl_range_ = ttl; }
 
-  void setSNRange(const std::pair<SequenceNumber, SequenceNumber>& snr) { sn_range_ = snr; }
+  void setSNRange(const snrange_t& snr) { sn_range_ = snr; }
 
-  void setFileSize(uint64_t fs) { file_size_ = fs; }
+  void setFileSize(uint64_t fs) { file_size_.store(fs); }
 };
 
 }
