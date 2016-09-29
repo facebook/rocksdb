@@ -203,6 +203,8 @@ class DBImpl : public DB {
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
 
+  bool HasActiveSnapshotLaterThanSN(SequenceNumber sn);
+
 #ifndef ROCKSDB_LITE
   using DB::ResetStats;
   virtual Status ResetStats() override;
@@ -552,6 +554,7 @@ class DBImpl : public DB {
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
+
 
   InternalIterator* NewInternalIterator(const ReadOptions&,
                                         ColumnFamilyData* cfd,

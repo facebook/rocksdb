@@ -31,6 +31,7 @@ namespace rocksdb {
 class BlobFile;
 class DBImpl;
 class ColumnFamilyHandle;
+class OptimisticTransactionDBImpl;
 
 struct blobf_compare_ttl {
     bool operator() (const BlobFile* lhs, const BlobFile* rhs) const;
@@ -84,22 +85,28 @@ class BlobDBImpl : public BlobDB {
 
   Status getSortedBlobLogs(const std::string& path);
 
-  Status createWriter(BlobFile *bfile, Env *env, const EnvOptions& env_options, bool reopen = false);
+  Status createWriter(BlobFile *bfile, bool reopen = false);
 
   Status ReadFooter(BlobFile *bfile, blob_log::BlobLogFooter& footer);
 
-  Status writeBatchOfDeleteKeys(BlobFile *bfptr, WriteBatch& batch);
+  Status writeBatchOfDeleteKeys(BlobFile *bfptr);
+
+  bool TryDeleteFile(BlobFile *bfile);
 
  private:
 
   DBImpl* db_impl_;
+  OptimisticTransactionDBImpl *opt_db_;
+  bool wo_set_;
+  WriteOptions write_options_;
   BlobDBOptions bdb_options_;
+  ImmutableCFOptions ioptions_;
+  DBOptions db_options_;
+  EnvOptions env_options_;
 
   std::string dbname_;
   std::string blob_dir_;
 
-  ImmutableCFOptions ioptions_;
-  DBOptions db_options_;
   InstrumentedMutex mutex_;
 
   std::unique_ptr<blob_log::Writer> current_log_writer_;
@@ -133,10 +140,11 @@ class BlobFile {
    blob_log::BlobLogHeader header_;
    bool closed_;
    bool header_read_;
+   bool can_be_deleted_;
 
    std::pair<uint64_t, uint64_t> time_range_;
    std::pair<uint32_t, uint32_t> ttl_range_;
-   std::pair<uint32_t, uint32_t> sn_range_;
+   std::pair<SequenceNumber, SequenceNumber> sn_range_;
 
    std::unique_ptr<WritableFile> wfile_;
    std::unique_ptr<WritableFileWriter> file_writer_;
@@ -150,6 +158,7 @@ class BlobFile {
 
    Status createSequentialReader(Env *env, const DBOptions& db_options, const EnvOptions& env_options);
 
+   void canBeDeleted() { can_be_deleted_ = true; }
 
  public:
 
@@ -158,6 +167,8 @@ class BlobFile {
   BlobFile(const std::string& bdir, uint64_t fn);
   
   ~BlobFile() {}
+
+  bool Obsolete() const { return can_be_deleted_; }
 
   ColumnFamilyHandle *GetColumnFamily(DB *db);
 
@@ -186,7 +197,7 @@ class BlobFile {
 
   std::pair<uint32_t, uint32_t> GetTTLRange() const { assert(HasTTL()); return ttl_range_; }
 
-  std::pair<uint64_t, uint64_t> GetSNRange() const { return sn_range_; }
+  std::pair<SequenceNumber, SequenceNumber> GetSNRange() const { return sn_range_; }
 
   bool HasTTL() const { return header_.HasTTL(); }
 
@@ -218,7 +229,7 @@ class BlobFile {
 
   void setTTLRange(const std::pair<uint32_t, uint32_t>& ttl) { ttl_range_ = ttl; }
 
-  void setSNRange(const std::pair<uint32_t, uint32_t>& snr) { sn_range_ = snr; }
+  void setSNRange(const std::pair<SequenceNumber, SequenceNumber>& snr) { sn_range_ = snr; }
 
   void setFileSize(uint64_t fs) { file_size_ = fs; }
 };

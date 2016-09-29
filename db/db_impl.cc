@@ -1577,6 +1577,15 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
   delete casted_s;
 }
 
+bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
+
+  InstrumentedMutexLock l(&mutex_);
+  if (snapshots_.empty())
+    return false;
+
+  return (snapshots_.newest()->GetSequenceNumber() > sn);
+}
+
 #ifndef ROCKSDB_LITE
 Status DBImpl::GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
                                         TablePropertiesCollection* props) {
