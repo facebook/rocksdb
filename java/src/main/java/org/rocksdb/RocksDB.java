@@ -1944,11 +1944,116 @@ public class RocksDB extends RocksObject {
   }
 
   public void setOptions(final ColumnFamilyHandle columnFamilyHandle,
-      final MutableColumnFamilyOptions mutableColumnFamilyOptions)
-      throws RocksDBException {
+                         final MutableColumnFamilyOptions mutableColumnFamilyOptions)
+          throws RocksDBException {
     setOptions(nativeHandle_, columnFamilyHandle.nativeHandle_,
-        mutableColumnFamilyOptions.getKeys(),
-        mutableColumnFamilyOptions.getValues());
+            mutableColumnFamilyOptions.getKeys(),
+            mutableColumnFamilyOptions.getValues());
+  }
+
+  private long[] toNativeHandleList(final List<? extends RocksObject> objectList) {
+    final int len = objectList.size();
+    final long[] handleList = new long[len];
+    for (int i = 0; i < len; i++) {
+      handleList[i] = objectList.get(i).nativeHandle_;
+    }
+    return handleList;
+  }
+
+  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
+      final List<String> filePathList) throws RocksDBException {
+    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
+        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), false);
+  }
+
+  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
+      final List<String> filePathList, final boolean moveFile) throws RocksDBException {
+    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_,
+        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), moveFile);
+  }
+
+  public void addFileWithFilePath(final List<String> filePathList) throws RocksDBException {
+    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
+        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), false);
+  }
+
+  public void addFileWithFilePath(final List<String> filePathList, final boolean moveFile)
+      throws RocksDBException {
+    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
+        filePathList.toArray(new String[filePathList.size()]), filePathList.size(), moveFile);
+  }
+
+  public void addFileWithFilePath(
+      final ColumnFamilyHandle columnFamilyHandle, final String filePath) throws RocksDBException {
+    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new String[] {filePath}, 1, false);
+  }
+
+  public void addFileWithFilePath(final ColumnFamilyHandle columnFamilyHandle,
+      final String filePath, final boolean moveFile) throws RocksDBException {
+    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new String[] {filePath}, 1, moveFile);
+  }
+
+  public void addFileWithFilePath(final String filePath) throws RocksDBException {
+    addFile(
+        nativeHandle_, getDefaultColumnFamily().nativeHandle_, new String[] {filePath}, 1, false);
+  }
+
+  public void addFileWithFilePath(final String filePath, final boolean moveFile)
+      throws RocksDBException {
+    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, new String[] {filePath}, 1,
+        moveFile);
+  }
+
+  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
+      final List<ExternalSstFileInfo> fileInfoList) throws RocksDBException {
+    final long[] fiHandleList = toNativeHandleList(fileInfoList);
+    addFile(
+        nativeHandle_, columnFamilyHandle.nativeHandle_, fiHandleList, fiHandleList.length, false);
+  }
+
+  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
+      final List<ExternalSstFileInfo> fileInfoList, final boolean moveFile)
+      throws RocksDBException {
+    final long[] fiHandleList = toNativeHandleList(fileInfoList);
+    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, fiHandleList, fiHandleList.length,
+        moveFile);
+  }
+
+  public void addFileWithFileInfo(final List<ExternalSstFileInfo> fileInfoList)
+      throws RocksDBException {
+    final long[] fiHandleList = toNativeHandleList(fileInfoList);
+    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, fiHandleList,
+        fiHandleList.length, false);
+  }
+
+  public void addFileWithFileInfo(final List<ExternalSstFileInfo> fileInfoList,
+      final boolean moveFile) throws RocksDBException {
+    final long[] fiHandleList = toNativeHandleList(fileInfoList);
+    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_, fiHandleList,
+        fiHandleList.length, moveFile);
+  }
+
+  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
+      final ExternalSstFileInfo fileInfo) throws RocksDBException {
+    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new long[] {fileInfo.nativeHandle_}, 1,
+        false);
+  }
+
+  public void addFileWithFileInfo(final ColumnFamilyHandle columnFamilyHandle,
+      final ExternalSstFileInfo fileInfo, final boolean moveFile) throws RocksDBException {
+    addFile(nativeHandle_, columnFamilyHandle.nativeHandle_, new long[] {fileInfo.nativeHandle_}, 1,
+        moveFile);
+  }
+
+  public void addFileWithFileInfo(final ExternalSstFileInfo fileInfo) throws RocksDBException {
+    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
+        new long[] {fileInfo.nativeHandle_}, 1, false);
+  }
+
+  public void addFileWithFileInfo(final ExternalSstFileInfo fileInfo, final boolean moveFile)
+      throws RocksDBException {
+    addFile(nativeHandle_, getDefaultColumnFamily().nativeHandle_,
+        new long[] {fileInfo.nativeHandle_}, 1, moveFile);
   }
 
   /**
@@ -2142,6 +2247,9 @@ public class RocksDB extends RocksObject {
       throws RocksDBException;
   private native void setOptions(long handle, long cfHandle, String[] keys,
       String[] values) throws RocksDBException;
-
+  private native void addFile(long handle, long cfHandle, String[] filePathList,
+      int filePathListLen, boolean moveFile) throws RocksDBException;
+  private native void addFile(long handle, long cfHandle, long[] fiHandleList, int fiHandleListLen,
+      boolean moveFile) throws RocksDBException;
   protected DBOptionsInterface options_;
 }

@@ -1740,3 +1740,75 @@ void Java_org_rocksdb_RocksDB_setOptions(JNIEnv* env, jobject jdb,
   auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   db->SetOptions(cf_handle, options_map);
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::AddFile
+
+void add_file_helper(JNIEnv* env, const jobjectArray& jfile_path_list,
+                     int file_path_list_len,
+                     std::vector<std::string>* file_path_list) {
+  for (int i = 0; i < file_path_list_len; i++) {
+    jstring jfile_path =
+        static_cast<jstring>(env->GetObjectArrayElement(jfile_path_list, i));
+    const char* file_path = env->GetStringUTFChars(jfile_path, NULL);
+    file_path_list->push_back(std::string(file_path));
+    env->ReleaseStringUTFChars(jfile_path, file_path);
+    env->DeleteLocalRef(jfile_path);
+  }
+}
+
+void add_file_helper(
+    JNIEnv* env, jlongArray jfi_handle_list, int fi_handle_list_len,
+    std::vector<rocksdb::ExternalSstFileInfo>* file_info_list) {
+  jlong* jfih = env->GetLongArrayElements(jfi_handle_list, NULL);
+  for (int i = 0; i < fi_handle_list_len; i++) {
+    auto* file_info =
+        reinterpret_cast<rocksdb::ExternalSstFileInfo*>(*(jfih + i));
+    file_info_list->push_back(*file_info);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    addFile
+ * Signature: (JJ[Ljava/lang/String;IZ)V
+ */
+void Java_org_rocksdb_RocksDB_addFile__JJ_3Ljava_lang_String_2IZ(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jcf_handle,
+    jobjectArray jfile_path_list, jint jfile_path_list_len,
+    jboolean jmove_file) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  std::vector<std::string> file_path_list;
+  add_file_helper(env, jfile_path_list, static_cast<int>(jfile_path_list_len),
+                  &file_path_list);
+  auto* column_family =
+      reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  rocksdb::Status s =
+      db->AddFile(column_family, file_path_list, static_cast<bool>(jmove_file));
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    addFile
+ * Signature: (JJ[JIZ)V
+ */
+void Java_org_rocksdb_RocksDB_addFile__JJ_3JIZ(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jcf_handle,
+    jlongArray jfile_info_handle_list, jint jfile_info_handle_list_len,
+    jboolean jmove_file) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  std::vector<rocksdb::ExternalSstFileInfo> file_info_list;
+  add_file_helper(env, jfile_info_handle_list,
+                  static_cast<int>(jfile_info_handle_list_len),
+                  &file_info_list);
+  auto* column_family =
+      reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  rocksdb::Status s =
+      db->AddFile(column_family, file_info_list, static_cast<bool>(jmove_file));
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
