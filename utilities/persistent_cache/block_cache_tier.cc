@@ -359,6 +359,36 @@ bool BlockCacheTier::Reserve(const size_t size) {
   return true;
 }
 
+Status NewPersistentCache(Env* const env, const std::string& path,
+                          const uint64_t size,
+                          const std::shared_ptr<Logger>& log,
+                          const bool optimized_for_nvm,
+                          std::shared_ptr<PersistentCache>* cache) {
+  if (!cache) {
+    return Status::IOError("invalid argument cache");
+  }
+
+  auto opt = PersistentCacheConfig(env, path, size, log);
+  if (optimized_for_nvm) {
+    // the default settings are optimized for SSD
+    // NVM devices are better accessed with 4K direct IO and written with
+    // parallelism
+    opt.enable_direct_writes = true;
+    opt.writer_qdepth = 4;
+    opt.writer_dispatch_size = 4 * 1024;
+  }
+
+  auto pcache = std::make_shared<BlockCacheTier>(opt);
+  Status s = pcache->Open();
+
+  if (!s.ok()) {
+    return s;
+  }
+
+  *cache = pcache;
+  return s;
+}
+
 }  // namespace rocksdb
 
 #endif  // ifndef ROCKSDB_LITE
