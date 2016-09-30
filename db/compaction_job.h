@@ -96,17 +96,18 @@ class CompactionJob {
   // kv-pairs
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
-  Status FinishCompactionOutputFile(const Status& input_status,
-                                    SubcompactionState* sub_compact,
-                                    RangeDelAggregator* range_del_agg = nullptr,
-                                    const Slice* next_table_min_key = nullptr);
+  Status FinishCompactionOutputFile(
+      const Status& input_status, SubcompactionState* sub_compact,
+      RangeDelAggregator* range_del_agg,
+      CompactionIterationStats* range_del_out_stats,
+      const Slice* next_table_min_key = nullptr);
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options);
   void RecordCompactionIOStats();
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact);
   void CleanupCompaction();
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;
-  void RecordDroppedKeys(const CompactionIteratorStats& c_iter_stats,
+  void RecordDroppedKeys(const CompactionIterationStats& c_iter_stats,
                          CompactionJobStats* compaction_job_stats = nullptr);
 
   void UpdateCompactionStats();

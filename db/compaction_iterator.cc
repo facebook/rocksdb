@@ -63,6 +63,8 @@ void CompactionIterator::ResetRecordCounts() {
   iter_stats_.num_record_drop_user = 0;
   iter_stats_.num_record_drop_hidden = 0;
   iter_stats_.num_record_drop_obsolete = 0;
+  iter_stats_.num_record_drop_range_del = 0;
+  iter_stats_.num_range_del_drop_obsolete = 0;
 }
 
 void CompactionIterator::SeekToFirst() {
@@ -424,6 +426,8 @@ void CompactionIterator::NextFromInput() {
       // 2. different snapshot stripe
       bool should_delete = range_del_agg_->ShouldDelete(key_);
       if (should_delete) {
+        ++iter_stats_.num_record_drop_hidden;
+        ++iter_stats_.num_record_drop_range_del;
         input_->Next();
       } else {
         valid_ = true;

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "db/compaction.h"
+#include "db/compaction_iteration_stats.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
@@ -19,27 +20,6 @@
 #include "util/log_buffer.h"
 
 namespace rocksdb {
-
-struct CompactionIteratorStats {
-  // Compaction statistics
-  int64_t num_record_drop_user = 0;
-  int64_t num_record_drop_hidden = 0;
-  int64_t num_record_drop_obsolete = 0;
-  uint64_t total_filter_time = 0;
-
-  // Input statistics
-  // TODO(noetzli): The stats are incomplete. They are lacking everything
-  // consumed by MergeHelper.
-  uint64_t num_input_records = 0;
-  uint64_t num_input_deletion_records = 0;
-  uint64_t num_input_corrupt_records = 0;
-  uint64_t total_input_raw_key_bytes = 0;
-  uint64_t total_input_raw_value_bytes = 0;
-
-  // Single-Delete diagnostics for exceptional situations
-  uint64_t num_single_del_fallthru = 0;
-  uint64_t num_single_del_mismatch = 0;
-};
 
 class CompactionIterator {
  public:
@@ -74,7 +54,7 @@ class CompactionIterator {
   const ParsedInternalKey& ikey() const { return ikey_; }
   bool Valid() const { return valid_; }
   const Slice& user_key() const { return current_user_key_; }
-  const CompactionIteratorStats& iter_stats() const { return iter_stats_; }
+  const CompactionIterationStats& iter_stats() const { return iter_stats_; }
 
  private:
   // Processes the input stream to find the next output
@@ -157,6 +137,6 @@ class CompactionIterator {
   // increasing so a later call to the function must be looking for a key that
   // is in or beyond the last file checked during the previous call
   std::vector<size_t> level_ptrs_;
-  CompactionIteratorStats iter_stats_;
+  CompactionIterationStats iter_stats_;
 };
 }  // namespace rocksdb

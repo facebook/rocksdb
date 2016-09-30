@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "db/compaction_iteration_stats.h"
 #include "db/dbformat.h"
 #include "db/pinned_iterators_manager.h"
 #include "db/version_edit.h"
@@ -81,6 +82,7 @@ class RangeDelAggregator {
   //    compaction.
   void AddToBuilder(TableBuilder* builder, const Slice* lower_bound,
                     const Slice* upper_bound, FileMetaData* meta,
+                    CompactionIterationStats* range_del_out_stats = nullptr,
                     bool bottommost_level = false);
   bool IsEmpty();
 

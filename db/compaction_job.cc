@@ -768,8 +768,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
                sub_compact->ShouldStopBefore(
                    key, sub_compact->current_output_file_size) &&
                sub_compact->builder != nullptr) {
-      status = FinishCompactionOutputFile(input->status(), sub_compact,
-                                          range_del_agg.get());
+      CompactionIterationStats range_del_out_stats;
+      status =
+          FinishCompactionOutputFile(input->status(), sub_compact,
+                                     range_del_agg.get(), &range_del_out_stats);
+      RecordDroppedKeys(range_del_out_stats,
+                        &sub_compact->compaction_job_stats);
       if (!status.ok()) {
         break;
       }
@@ -861,8 +865,12 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       if (c_iter->Valid()) {
         next_key = &c_iter->key();
       }
+      CompactionIterationStats range_del_out_stats;
       status = FinishCompactionOutputFile(input_status, sub_compact,
-                                          range_del_agg.get(), next_key);
+                                          range_del_agg.get(),
+                                          &range_del_out_stats, next_key);
+      RecordDroppedKeys(range_del_out_stats,
+                        &sub_compact->compaction_job_stats);
       if (sub_compact->outputs.size() == 1) {
         // Use dictionary from first output file for compression of subsequent
         // files.
@@ -902,8 +910,11 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     status = OpenCompactionOutputFile(sub_compact);
   }
   if (status.ok() && sub_compact->builder != nullptr) {
-    status = FinishCompactionOutputFile(input->status(), sub_compact,
-                                        range_del_agg.get());
+    CompactionIterationStats range_del_out_stats;
+    status =
+        FinishCompactionOutputFile(input->status(), sub_compact,
+                                   range_del_agg.get(), &range_del_out_stats);
+    RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
   }
   if (status.ok()) {
     status = input->status();
@@ -929,7 +940,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
 }
 
 void CompactionJob::RecordDroppedKeys(
-    const CompactionIteratorStats& c_iter_stats,
+    const CompactionIterationStats& c_iter_stats,
     CompactionJobStats* compaction_job_stats) {
   if (c_iter_stats.num_record_drop_user > 0) {
     RecordTick(stats_, COMPACTION_KEY_DROP_USER,
@@ -951,11 +962,20 @@ void CompactionJob::RecordDroppedKeys(
           c_iter_stats.num_record_drop_obsolete;
     }
   }
+  if (c_iter_stats.num_record_drop_range_del > 0) {
+    RecordTick(stats_, COMPACTION_KEY_DROP_RANGE_DEL,
+               c_iter_stats.num_record_drop_range_del);
+  }
+  if (c_iter_stats.num_range_del_drop_obsolete > 0) {
+    RecordTick(stats_, COMPACTION_RANGE_DEL_DROP_OBSOLETE,
+               c_iter_stats.num_range_del_drop_obsolete);
+  }
 }
 
 Status CompactionJob::FinishCompactionOutputFile(
     const Status& input_status, SubcompactionState* sub_compact,
     RangeDelAggregator* range_del_agg,
+    CompactionIterationStats* range_del_out_stats,
     const Slice* next_table_min_key /* = nullptr */) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_SYNC_FILE);
@@ -998,7 +1018,8 @@ Status CompactionJob::FinishCompactionOutputFile(
       upper_bound = sub_compact->end;
     }
     range_del_agg->AddToBuilder(sub_compact->builder.get(), lower_bound,
-                                upper_bound, meta, bottommost_level_);
+                                upper_bound, meta, range_del_out_stats,
+                                bottommost_level_);
   }
   const uint64_t current_entries = sub_compact->builder->NumEntries();
   meta->marked_for_compaction = sub_compact->builder->NeedCompact();

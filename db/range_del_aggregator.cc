@@ -140,6 +140,7 @@ RangeDelAggregator::TombstoneMap& RangeDelAggregator::GetTombstoneMap(
 void RangeDelAggregator::AddToBuilder(
     TableBuilder* builder, const Slice* lower_bound, const Slice* upper_bound,
     FileMetaData* meta,
+    CompactionIterationStats* range_del_out_stats /* = nullptr */,
     bool bottommost_level /* = false */) {
   if (rep_ == nullptr) {
     return;
@@ -147,6 +148,10 @@ void RangeDelAggregator::AddToBuilder(
   auto stripe_map_iter = rep_->stripe_map_.begin();
   assert(stripe_map_iter != rep_->stripe_map_.end());
   if (bottommost_level) {
+    range_del_out_stats->num_range_del_drop_obsolete +=
+        static_cast<int64_t>(stripe_map_iter->second.size());
+    range_del_out_stats->num_record_drop_obsolete +=
+        static_cast<int64_t>(stripe_map_iter->second.size());
     // For the bottommost level, keys covered by tombstones in the first
     // (oldest) stripe have been compacted away, so the tombstones are obsolete.
     ++stripe_map_iter;
