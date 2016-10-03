@@ -95,7 +95,7 @@ TEST_F(BlockTest, SimpleTest) {
   BlockContents contents;
   contents.data = rawblock;
   contents.cachable = false;
-  Block reader(std::move(contents));
+  Block reader(std::move(contents), kDisableGlobalSequenceNumber);
 
   // read contents of block sequentially
   int count = 0;
@@ -156,8 +156,8 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   // create block reader
   BlockContents contents_ref(contents.data, contents.cachable,
                              contents.compression_type);
-  Block reader1(std::move(contents));
-  Block reader2(std::move(contents_ref));
+  Block reader1(std::move(contents), kDisableGlobalSequenceNumber);
+  Block reader2(std::move(contents_ref), kDisableGlobalSequenceNumber);
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
@@ -358,7 +358,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     BlockContents contents;
     contents.data = rawblock;
     contents.cachable = true;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
+                 kBytesPerBit, stats.get());
 
     // read contents of block sequentially
     size_t read_bytes = 0;
@@ -391,7 +392,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     BlockContents contents;
     contents.data = rawblock;
     contents.cachable = true;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
+                 kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
     BlockIter *iter = static_cast<BlockIter *>(
@@ -426,7 +428,8 @@ TEST_F(BlockTest, BlockWithReadAmpBitmap) {
     BlockContents contents;
     contents.data = rawblock;
     contents.cachable = true;
-    Block reader(std::move(contents), kBytesPerBit, stats.get());
+    Block reader(std::move(contents), kDisableGlobalSequenceNumber,
+                 kBytesPerBit, stats.get());
 
     size_t read_bytes = 0;
     BlockIter *iter = static_cast<BlockIter *>(
