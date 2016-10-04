@@ -10,7 +10,7 @@ If you want a `GridBlock` as part of your content, you can do so directly with H
 <div class="gridBlock">
   <div class="blockElement twoByGridBlock alignLeft">
     <div class="blockContent">
-      <h3>HHVM Features</h3>
+      <h3>Your Features</h3>
       <ul>
         <li>The <a href="http://example.org/">Example</a></li>
         <li><a href="http://example.com">Another Example</a></li>
