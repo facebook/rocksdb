@@ -258,7 +258,8 @@ class RandomRWStringSink : public RandomRWFile {
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
     *result = Slice(nullptr, 0);
     if (offset < ss_->contents_.size()) {
-      size_t str_res_sz = std::min(ss_->contents_.size() - offset, n);
+      size_t str_res_sz =
+          std::min(static_cast<size_t>(ss_->contents_.size() - offset), n);
       *result = Slice(ss_->contents_.data() + offset, str_res_sz);
     }
     return Status::OK();
