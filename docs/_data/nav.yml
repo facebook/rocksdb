@@ -2,6 +2,10 @@
   href: /docs/
   category: docs
 
+- title: GitHub
+  href: https://github.com/facebook/rocksdb/
+  category: github
+
 - title: API (C++)
   href: https://github.com/facebook/rocksdb/tree/master/include/rocksdb
   category: api
