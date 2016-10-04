@@ -10,15 +10,7 @@ redirect_from:
 New RocksDB release - 4.2!
 
 
-
-
 **New Features**
-
-
-
-
-
-
 
   1. Introduce CreateLoggerFromOptions(), this function create a Logger for provided DBOptions.
 
@@ -29,14 +21,10 @@ New RocksDB release - 4.2!
   3. Add MemoryUtil in rocksdb/utilities/memory.h. It currently offers a way to get the memory usage by type from a list rocksdb instances.
 
 
-
-
+<!--truncate-->
 
 
 **Public API changes**
-
-
-
 
   1. CompactionFilter::Context includes information of Column Family ID
 
