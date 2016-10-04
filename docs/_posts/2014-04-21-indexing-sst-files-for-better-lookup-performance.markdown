@@ -11,6 +11,8 @@ For a `Get()` request, RocksDB goes through mutable memtable, list of immutable 
 
 On level 0, files are sorted based on the time they are flushed. Their key range (as defined by FileMetaData.smallest and FileMetaData.largest) are mostly overlapped with each other. So it needs to look up every L0 file.
 
+<!--truncate-->
+
 Compaction is scheduled periodically to pick up files from an upper level and merges them with files from lower level. As a result, key/values are moved from L0 down the LSM tree gradually. Compaction sorts key/values and split them into files. From level 1 and below, SST files are sorted based on key. Their key range are mutually exclusive. Instead of scanning through each SST file and checking if a key falls into its range, RocksDB performs a binary search based on FileMetaData.largest to locate a candidate file that can potentially contain the target key. This reduces complexity from O(N) to O(log(N)). However, log(N) can still be large for bottom levels. For a fan-out ratio of 10, level 3 can have 1000 files. That requires 10 comparisons to locate a candidate file. This is a significant cost for an in-memory database when you can do [several million gets per second](https://github.com/facebook/rocksdb/wiki/RocksDB-In-Memory-Workload-Performance-Benchmarks).
 
 One observation to this problem is that: after the LSM tree is built, an SST file's position in its level is fixed. Furthermore, its order relative to files from the next level is also fixed. Based on this idea, we can perform [fractional cascading](http://en.wikipedia.org/wiki/Fractional_cascading) kind of optimization to narrow down the binary search range. Here is an example:

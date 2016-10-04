@@ -11,14 +11,12 @@ Check out new RocksDB release on [GitHub](https://github.com/facebook/rocksdb/r
 
 New Features in RocksDB 3.2:
 
-
-
-
   * PlainTable now supports a new key encoding: for keys of the same prefix, the prefix is only written once. It can be enabled through encoding_type paramter of NewPlainTableFactory()
 
 
   * Add AdaptiveTableFactory, which is used to convert from a DB of PlainTable to BlockBasedTabe, or vise versa. It can be created using NewAdaptiveTableFactory()
 
+<!--truncate-->
 
 Public API changes:
 

@@ -17,6 +17,8 @@ Design goals:
 1. Minimize memory consumption.
 1. Queries efficiently return empty results
 
+<!--truncate-->
+
 Notice that our priority was not to maximize query performance, but to strike a balance between query performance and memory consumption. PlainTable query performance is not as good as you would see with a nicely-designed hash table, but they are of the same order of magnitude, while keeping memory overhead to a minimum.
 
 Since we are targeting micro-second latency, it is on the level of the number of CPU cache misses (if they cannot be parallellized, which are usually the case for index look-ups). On our target hardware with Intel CPUs of multiple sockets with NUMA, we can only allow 4-5 CPU cache misses (including costs of data TLB).

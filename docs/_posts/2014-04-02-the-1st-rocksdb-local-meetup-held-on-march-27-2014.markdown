@@ -9,6 +9,8 @@ redirect_from:
 
 On Mar 27, 2014, RocksDB team @ Facebook held the 1st RocksDB local meetup in FB HQ (Menlo Park, California). We invited around 80 guests from 20+ local companies, including LinkedIn, Twitter, Dropbox, Square, Pinterest, MapR, Microsoft and IBM. Finally around 50 guests showed up, totaling around 60% show-up rate.
 
+<!--truncate-->
+
 [![Resize of 20140327_200754](/static/images/Resize-of-20140327_200754-300x225.jpg)](/static/images/Resize-of-20140327_200754-300x225.jpg)
 
 RocksDB team @ Facebook gave four talks about the latest progress and experience on RocksDB:

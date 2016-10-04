@@ -13,6 +13,8 @@ We abandoned release candidates 4.10.x and directly go to 4.11.2 from 4.9, to ma
   * Segfault when failing to open an SST file for read-ahead iterators.
   * WAL without data for all CFs is not deleted after recovery.
 
+<!--truncate-->
+
 ## 4.11.1 (8/30/2016)
 
 ### Bug Fixes

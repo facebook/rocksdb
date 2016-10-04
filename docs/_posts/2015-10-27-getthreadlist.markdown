@@ -9,6 +9,8 @@ redirect_from:
 
 We recently added a new API, called `GetThreadList()`, that exposes the RocksDB background thread activity. With this feature, developers will be able to obtain the real-time information about the currently running compactions and flushes such as the input / output size, elapsed time, the number of bytes it has written. Below is an example output of `GetThreadList`.  To better illustrate the example, we have put a sample output of `GetThreadList` into a table where each column represents a thread status:
 
+<!--truncate-->
+
 <table width="637" >
 <tbody >
 <tr style="border:2px solid #000000" >

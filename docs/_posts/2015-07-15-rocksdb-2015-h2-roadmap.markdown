@@ -9,6 +9,8 @@ redirect_from:
 
 Every 6 months, RocksDB team gets together to prioritize the work ahead of us. We just went through this exercise and we wanted to share the results with the community. Here's what RocksDB team will be focusing on for the next 6 months:
 
+<!--truncate-->
+
 **MyRocks**
 
 As you might know, we're working hard to integrate RocksDB as a storage engine for MySQL. This project is pretty important for us because we're heavy users of MySQL. We're already getting pretty good performance results, but there is more work to be done. We need to focus on both performance and stability. The most high priority items on are list are:

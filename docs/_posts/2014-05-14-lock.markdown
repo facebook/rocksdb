@@ -11,8 +11,7 @@ In this post, we briefly introduce the recent improvements we did to RocksDB to 
 
 RocksDB has a simple thread synchronization mechanism (See [RocksDB Architecture Guide](https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide)  to understand terms used below, like SST tables or mem tables). SST tables are immutable after being written and mem tables are lock-free data structures supporting single writer and multiple readers. There is only one single major lock, the DB mutex (DBImpl.mutex_) protecting all the meta operations, including:
 
-
-
+<!--truncate-->
 
   * Increase or decrease reference counters of mem tables and SST tables
 

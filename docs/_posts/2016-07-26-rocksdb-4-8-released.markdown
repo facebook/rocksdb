@@ -22,6 +22,8 @@ redirect_from:
 
 <br/>
 
+<!--truncate-->
+
 ## [](https://github.com/facebook/rocksdb/blob/master/HISTORY.md#470-482016)4.7.0 (4/8/2016)
 
 ### [](https://github.com/facebook/rocksdb/blob/master/HISTORY.md#public-api-change-2)Public API Change

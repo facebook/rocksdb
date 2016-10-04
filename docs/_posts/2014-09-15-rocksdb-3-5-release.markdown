@@ -10,14 +10,7 @@ redirect_from:
 New RocksDB release - 3.5!
 
 
-
-
 **New Features**
-
-
-
-
-
 
 
   1. Add include/utilities/write_batch_with_index.h, providing a utility class to query data out of WriteBatch when building it.
@@ -25,14 +18,9 @@ New RocksDB release - 3.5!
 
   2. new ReadOptions.total_order_seek to force total order seek when block-based table is built with hash index.
 
-
-
-
-
+<!--truncate-->
 
 **Public API changes**
-
-
 
 
   1. The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.

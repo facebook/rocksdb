@@ -11,6 +11,8 @@ In many use cases of RocksDB, people rely on OS page cache for caching compresse
 
 As an example, a user can tune the DB as following: use level-based compaction, with L1 - L4 sizes to be 1GB, 10GB, 100GB and 1TB. And they reserve about 20GB memory as OS page cache, expecting level 0, 1 and 2 are mostly cached in memory, leaving only reads from level 3 and 4 requiring disk I/Os. However, in practice, it's not easy to verify whether OS page cache does exactly what we expect. For example, if we end up with doing 4 instead of 2 I/Os per query, it's not easy for users to figure out whether the it's because of efficiency of OS page cache or reading multiple blocks for a level. Analysis like it is especially important if users run RocksDB on hard drive disks, for the gap of latency between hard drives and memory is much higher than flash-based SSDs.
 
+<!--truncate-->
+
 In order to make tuning easier, we added new instrumentation to help users analysis latency distribution of file reads in different levels. If users turn DB statistics on, we always keep track of distribution of file read latency for each level. Users can retrieve the information by querying DB property “rocksdb.stats” ( [https://github.com/facebook/rocksdb/blob/v3.13.1/include/rocksdb/db.h#L315-L316](https://github.com/facebook/rocksdb/blob/v3.13.1/include/rocksdb/db.h#L315-L316) ). It will also printed out as a part of compaction summary in info logs periodically.
 
 The output looks like this:
