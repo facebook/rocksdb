@@ -405,7 +405,7 @@ class Transaction {
     return 0;
   }
 
-  enum ExecutionStatus {
+  enum TransactionState {
     STARTED = 0,
     AWAITING_PREPARE = 1,
     PREPARED = 2,
@@ -416,8 +416,8 @@ class Transaction {
     LOCKS_STOLEN = 7,
   };
 
-  // Execution status of the transaction.
-  std::atomic<ExecutionStatus> exec_status_;
+  TransactionState GetState() { return txn_state_; }
+  void SetState(TransactionState state) { txn_state_ = state; }
 
  protected:
   explicit Transaction(const TransactionDB* db) {}
@@ -427,6 +427,9 @@ class Transaction {
   // (for two phase commit)
   uint64_t log_number_;
   TransactionName name_;
+
+  // Execution status of the transaction.
+  std::atomic<TransactionState> txn_state_;
 
  private:
   // No copying allowed
