@@ -33,9 +33,21 @@ class WritableFileMirror;
 
 class EnvMirror : public EnvWrapper {
   Env* a_, *b_;
+  bool free_a_, free_b_;
 
  public:
-  EnvMirror(Env* a, Env* b) : EnvWrapper(a), a_(a), b_(b) {}
+  EnvMirror(Env* a, Env* b, bool free_a=false, bool free_b=false)
+    : EnvWrapper(a),
+      a_(a),
+      b_(b),
+      free_a_(free_a),
+      free_b_(free_b) {}
+  ~EnvMirror() {
+    if (free_a_)
+      delete a_;
+    if (free_b_)
+      delete b_;
+  }
 
   Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override;
@@ -155,6 +167,7 @@ class EnvMirror : public EnvWrapper {
     Status as = a_->UnlockFile(ml->a_);
     Status bs = b_->UnlockFile(ml->b_);
     assert(as == bs);
+    delete ml;
     return as;
   }
 };
