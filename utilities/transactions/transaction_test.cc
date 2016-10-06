@@ -176,7 +176,16 @@ TEST_P(TransactionTest, WaitingTxn) {
   Status s;
 
   txn_options.lock_timeout = 1;
-  db->Put(write_options, Slice("foo"), Slice("bar"));
+  s = db->Put(write_options, Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
+
+  /* create second cf */
+  ColumnFamilyHandle* cfa;
+  ColumnFamilyOptions cf_options;
+  s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
+  ASSERT_OK(s);
+  s = db->Put(write_options, cfa, Slice("foo"), Slice("bar"));
+  ASSERT_OK(s);
 
   Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
   Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
@@ -194,22 +203,35 @@ TEST_P(TransactionTest, WaitingTxn) {
         ASSERT_EQ(cf_id, 0);
       });
 
+  // lock key in default cf
   s = txn1->GetForUpdate(read_options, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
 
+  // lock key in cfa
+  s = txn1->GetForUpdate(read_options, cfa, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar");
+
   auto lock_data = db->GetLockStatusData();
-  // Locked keys exist in one column family.
-  ASSERT_EQ(lock_data.size(), 1);
+  // Locked keys exist in both column family.
+  ASSERT_EQ(lock_data.size(), 2);
+
+  auto cf_iterator = lock_data.begin();
 
   // Column family is 0 (default).
-  const auto& cf = *lock_data.cbegin();
-  ASSERT_EQ(cf.first, 0);
-
+  ASSERT_EQ(cf_iterator->first, 0);
   // The locked key is "foo" and is locked by txn1
-  const auto& key = cf.second;
-  ASSERT_EQ(key.key, "foo");
-  ASSERT_EQ(key.id, txn1->GetID());
+  ASSERT_EQ(cf_iterator->second.key, "foo");
+  ASSERT_EQ(cf_iterator->second.id, txn1->GetID());
+
+  cf_iterator++;
+
+  // Column family is 1 (cfa).
+  ASSERT_EQ(cf_iterator->first, 1);
+  // The locked key is "foo" and is locked by txn1
+  ASSERT_EQ(cf_iterator->second.key, "foo");
+  ASSERT_EQ(cf_iterator->second.id, txn1->GetID());
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -220,6 +242,7 @@ TEST_P(TransactionTest, WaitingTxn) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
+  delete cfa;
   delete txn1;
   delete txn2;
 }
