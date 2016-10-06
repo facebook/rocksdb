@@ -40,7 +40,7 @@ void RunBenchmark() {
   env->NewWritableFile(file_name, &file, env_options);
 
   std::string record;
-  record.assign('X', FLAGS_record_size);
+  record.assign(FLAGS_record_size, 'X');
 
   HistogramImpl hist;
 
