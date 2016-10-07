@@ -39,6 +39,25 @@ class ColumnFamilyHandle;
 struct SavePoints;
 struct SliceParts;
 
+struct SavePoint {
+  size_t size;  // size of rep_
+  int count;    // count of elements in rep_
+  uint32_t content_flags;
+
+  SavePoint() : size(0), count(0), content_flags(0) {}
+
+  SavePoint(size_t _size, int _count, uint32_t _flags)
+      : size(_size), count(_count), content_flags(_flags) {}
+
+  void clear() {
+    size = 0;
+    count = 0;
+    content_flags = 0;
+  }
+
+  bool is_cleared() const { return (size | count | content_flags) == 0; }
+};
+
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0);
@@ -280,9 +299,19 @@ class WriteBatch : public WriteBatchBase {
   WriteBatch& operator=(const WriteBatch& src);
   WriteBatch& operator=(WriteBatch&& src);
 
+  // marks this point in the WriteBatch as the last record to
+  // be inserted into the WAL, provided the WAL is enabled
+  void MarkWalTerminationPoint();
+  const SavePoint& GetWalTerminationPoint() const { return wal_term_point_; }
+
  private:
   friend class WriteBatchInternal;
   SavePoints* save_points_;
+
+  // When sending a WriteBatch through WriteImpl we might want to
+  // specify that only the first x records of the batch be written to
+  // the WAL.
+  SavePoint wal_term_point_;
 
   // For HasXYZ.  Mutable to allow lazy computation of results
   mutable std::atomic<uint32_t> content_flags_;

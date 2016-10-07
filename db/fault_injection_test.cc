@@ -503,6 +503,30 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   ASSERT_EQ(value_space, val);
 }
 
+TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
+  ReadOptions ro;
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  WriteOptions wo;
+  wo.sync = true;
+  wo.disableWAL = false;
+  WriteBatch batch;
+  batch.Put("cats", "dogs");
+  batch.MarkWalTerminationPoint();
+  batch.Put("boys", "girls");
+  ASSERT_OK(db_->Write(wo, &batch));
+
+  env_->SetFilesystemActive(false);
+  NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
+  ASSERT_OK(OpenDB());
+
+  std::string val;
+  ASSERT_OK(db_->Get(ro, "cats", &val));
+  ASSERT_EQ("dogs", val);
+  ASSERT_EQ(db_->Get(ro, "boys", &val), Status::NotFound());
+}
+
 INSTANTIATE_TEST_CASE_P(FaultTest, FaultInjectionTest, ::testing::Bool());
 
 }  // namespace rocksdb

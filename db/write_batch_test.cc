@@ -185,6 +185,27 @@ TEST_F(WriteBatchTest, Append) {
             "Delete(foo)@203",
             PrintContents(&b1));
   ASSERT_EQ(4, b1.Count());
+  b2.Clear();
+  b2.Put("c", "cc");
+  b2.Put("d", "dd");
+  b2.MarkWalTerminationPoint();
+  b2.Put("e", "ee");
+  WriteBatchInternal::Append(&b1, &b2, /*wal only*/ true);
+  ASSERT_EQ(
+      "Put(a, va)@200"
+      "Put(b, vb)@202"
+      "Put(b, vb)@201"
+      "Put(c, cc)@204"
+      "Put(d, dd)@205"
+      "Delete(foo)@203",
+      PrintContents(&b1));
+  ASSERT_EQ(6, b1.Count());
+  ASSERT_EQ(
+      "Put(c, cc)@0"
+      "Put(d, dd)@1"
+      "Put(e, ee)@2",
+      PrintContents(&b2));
+  ASSERT_EQ(3, b2.Count());
 }
 
 TEST_F(WriteBatchTest, SingleDeletion) {

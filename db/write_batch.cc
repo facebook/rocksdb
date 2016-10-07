@@ -118,13 +118,6 @@ struct BatchContentClassifier : public WriteBatch::Handler {
 
 }  // anon namespace
 
-
-struct SavePoint {
-  size_t size;  // size of rep_
-  int count;    // count of elements in rep_
-  uint32_t content_flags;
-};
-
 struct SavePoints {
   std::stack<SavePoint> stack;
 };
@@ -143,11 +136,13 @@ WriteBatch::WriteBatch(const std::string& rep)
 
 WriteBatch::WriteBatch(const WriteBatch& src)
     : save_points_(src.save_points_),
+      wal_term_point_(src.wal_term_point_),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       rep_(src.rep_) {}
 
 WriteBatch::WriteBatch(WriteBatch&& src)
     : save_points_(std::move(src.save_points_)),
+      wal_term_point_(std::move(src.wal_term_point_)),
       content_flags_(src.content_flags_.load(std::memory_order_relaxed)),
       rep_(std::move(src.rep_)) {}
 
@@ -191,6 +186,8 @@ void WriteBatch::Clear() {
       save_points_->stack.pop();
     }
   }
+
+  wal_term_point_.clear();
 }
 
 int WriteBatch::Count() const {
@@ -211,6 +208,12 @@ uint32_t WriteBatch::ComputeContentFlags() const {
     content_flags_.store(rv, std::memory_order_relaxed);
   }
   return rv;
+}
+
+void WriteBatch::MarkWalTerminationPoint() {
+  wal_term_point_.size = GetDataSize();
+  wal_term_point_.count = Count();
+  wal_term_point_.content_flags = content_flags_;
 }
 
 bool WriteBatch::HasPut() const {
@@ -729,8 +732,8 @@ void WriteBatch::SetSavePoint() {
     save_points_ = new SavePoints();
   }
   // Record length and count of current batch of writes.
-  save_points_->stack.push(SavePoint{
-      GetDataSize(), Count(), content_flags_.load(std::memory_order_relaxed)});
+  save_points_->stack.push(SavePoint(
+      GetDataSize(), Count(), content_flags_.load(std::memory_order_relaxed)));
 }
 
 Status WriteBatch::RollbackToSavePoint() {
@@ -1252,14 +1255,29 @@ void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   b->content_flags_.store(ContentFlags::DEFERRED, std::memory_order_relaxed);
 }
 
-void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
-  SetCount(dst, Count(dst) + Count(src));
+void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src,
+                                const bool wal_only) {
+  size_t src_len;
+  int src_count;
+  uint32_t src_flags;
+
+  const SavePoint& batch_end = src->GetWalTerminationPoint();
+
+  if (wal_only && !batch_end.is_cleared()) {
+    src_len = batch_end.size - WriteBatchInternal::kHeader;
+    src_count = batch_end.count;
+    src_flags = batch_end.content_flags;
+  } else {
+    src_len = src->rep_.size() - WriteBatchInternal::kHeader;
+    src_count = Count(src);
+    src_flags = src->content_flags_.load(std::memory_order_relaxed);
+  }
+
+  SetCount(dst, Count(dst) + src_count);
   assert(src->rep_.size() >= WriteBatchInternal::kHeader);
-  dst->rep_.append(src->rep_.data() + WriteBatchInternal::kHeader,
-    src->rep_.size() - WriteBatchInternal::kHeader);
+  dst->rep_.append(src->rep_.data() + WriteBatchInternal::kHeader, src_len);
   dst->content_flags_.store(
-      dst->content_flags_.load(std::memory_order_relaxed) |
-          src->content_flags_.load(std::memory_order_relaxed),
+      dst->content_flags_.load(std::memory_order_relaxed) | src_flags,
       std::memory_order_relaxed);
 }
 

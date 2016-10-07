@@ -4768,7 +4768,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       PERF_TIMER_GUARD(write_wal_time);
 
       WriteBatch* merged_batch = nullptr;
-      if (write_group.size() == 1 && write_group[0]->ShouldWriteToWAL()) {
+      if (write_group.size() == 1 && write_group[0]->ShouldWriteToWAL() &&
+          write_group[0]->batch->GetWalTerminationPoint().is_cleared()) {
+        // we simply write the first WriteBatch to WAL if the group only
+        // contains one batch, that batch should be written to the WAL,
+        // and the batch is not wanting to be truncated
         merged_batch = write_group[0]->batch;
         write_group[0]->log_used = logfile_number_;
       } else {
@@ -4778,7 +4782,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         merged_batch = &tmp_batch_;
         for (auto writer : write_group) {
           if (writer->ShouldWriteToWAL()) {
-            WriteBatchInternal::Append(merged_batch, writer->batch);
+            WriteBatchInternal::Append(merged_batch, writer->batch,
+                                       /*WAL_only*/ true);
           }
           writer->log_used = logfile_number_;
         }

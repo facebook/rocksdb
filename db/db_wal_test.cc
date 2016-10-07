@@ -1130,6 +1130,29 @@ TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
 
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBWALTest, WalTermTest) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+
+  WriteOptions wo;
+  wo.sync = true;
+  wo.disableWAL = false;
+
+  WriteBatch batch;
+  batch.Put("foo", "bar");
+  batch.MarkWalTerminationPoint();
+  batch.Put("foo2", "bar2");
+
+  ASSERT_OK(dbfull()->Write(wo, &batch));
+
+  // make sure we can re-open it.
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  ASSERT_EQ("bar", Get(1, "foo"));
+  ASSERT_EQ("NOT_FOUND", Get(1, "foo2"));
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

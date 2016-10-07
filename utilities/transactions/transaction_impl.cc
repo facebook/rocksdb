@@ -250,25 +250,23 @@ Status TransactionImpl::Commit() {
     }
   } else if (commit_prepared) {
     exec_status_.store(AWAITING_COMMIT);
-    WriteOptions write_options = write_options_;
 
-    // insert prepared batch into Memtable only.
-    // Memtable will ignore BeginPrepare/EndPrepare markers
-    // in non recovery mode and simply insert the values
-    write_options.disableWAL = true;
-    assert(log_number_ > 0);
-    s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
-                            nullptr, nullptr, log_number_);
-    if (!s.ok()) {
-      return s;
-    }
 
     // We take the commit-time batch and append the Commit marker.
-    // We then write this batch to both WAL and Memtable.
     // The Memtable will ignore the Commit marker in non-recovery mode
-    write_options.disableWAL = false;
-    WriteBatchInternal::MarkCommit(GetCommitTimeWriteBatch(), name_);
-    s = db_impl_->WriteImpl(write_options, GetCommitTimeWriteBatch());
+    WriteBatch* working_batch = GetCommitTimeWriteBatch();
+    WriteBatchInternal::MarkCommit(working_batch, name_);
+
+    // any operations appended to this working_batch will be ignored from WAL
+    working_batch->MarkWalTerminationPoint();
+
+    // insert prepared batch into Memtable only skipping WAL.
+    // Memtable will ignore BeginPrepare/EndPrepare markers
+    // in non recovery mode and simply insert the values
+    WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
+
+    s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
+                            log_number_);
     if (!s.ok()) {
       return s;
     }
