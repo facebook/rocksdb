@@ -68,10 +68,42 @@ Status ftruncate(const std::string& filename, HANDLE hFile,
 
 size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size);
 
-// mmap() based random-access
-class WinMmapReadableFile : public RandomAccessFile {
-  const std::string fileName_;
+class WinFileBase {
+protected:
+
+  const std::string filename_;
   HANDLE hFile_;
+  // There is no equivalent of advising away buffered pages as in posix.
+  // To implement this flag we would need to do unbuffered reads which
+  // will need to be aligned (not sure there is a guarantee that the buffer
+  // passed in is aligned).
+  // Hence we currently ignore this flag. It is used only in a few cases
+  // which should not be perf critical.
+  // If perf evaluation finds this to be a problem, we can look into
+  // implementing this.
+  const bool use_os_buffer_;
+
+  WinFileBase(const std::string& filename, HANDLE hFile, bool use_os_buffer) :
+    filename_(filename), hFile_(hFile), use_os_buffer_(use_os_buffer)
+  {}
+
+  ~WinFileBase() {
+    if (hFile_ != NULL && hFile_ != INVALID_HANDLE_VALUE) {
+      BOOL ret = ::CloseHandle(hFile_);
+      assert(ret == TRUE);
+      hFile_ = NULL;
+    }
+  }
+
+public:
+
+  WinFileBase(const WinFileBase&) = delete;
+  WinFileBase& operator=(const WinFileBase&) = delete;
+};
+
+
+// mmap() based random-access
+class WinMmapReadableFile : private WinFileBase, public RandomAccessFile {
   HANDLE hMap_;
 
   const void* mapped_region_;
@@ -96,10 +128,8 @@ public:
 // data to the file.  This is safe since we either properly close the
 // file before reading from it, or for log files, the reading code
 // knows enough to skip zero suffixes.
-class WinMmapFile : public WritableFile {
+class WinMmapFile : private WinFileBase, public WritableFile {
 private:
-  const std::string filename_;
-  HANDLE hFile_;
   HANDLE hMap_;
 
   const size_t page_size_;  // We flush the mapping view in page_size
@@ -174,21 +204,7 @@ public:
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
-class WinSequentialFile : public SequentialFile {
-private:
-  const std::string filename_;
-  HANDLE file_;
-
-  // There is no equivalent of advising away buffered pages as in posix.
-  // To implement this flag we would need to do unbuffered reads which
-  // will need to be aligned (not sure there is a guarantee that the buffer
-  // passed in is aligned).
-  // Hence we currently ignore this flag. It is used only in a few cases
-  // which should not be perf critical.
-  // If perf evaluation finds this to be a problem, we can look into
-  // implementing this.
-  bool use_os_buffer_;
-
+class WinSequentialFile : private WinFileBase, public SequentialFile {
 public:
   WinSequentialFile(const std::string& fname, HANDLE f,
     const EnvOptions& options);
@@ -202,45 +218,43 @@ public:
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 };
 
-// pread() based random-access
-class WinRandomAccessFile : public RandomAccessFile {
-  const std::string filename_;
-  HANDLE hFile_;
-  const bool use_os_buffer_;
-  bool read_ahead_;
+class WinRandomAccessBase : protected WinFileBase {
+protected:
+
+  bool         read_ahead_;
   const size_t compaction_readahead_size_;
   const size_t random_access_max_buffer_size_;
-  mutable std::mutex buffer_mut_;
+  mutable std::mutex    buffer_mut_;
   mutable AlignedBuffer buffer_;
   mutable uint64_t
     buffered_start_;  // file offset set that is currently buffered
 
-  /*
-  * The function reads a requested amount of bytes into the specified aligned
-  * buffer Upon success the function sets the length of the buffer to the
-  * amount of bytes actually read even though it might be less than actually
-  * requested. It then copies the amount of bytes requested by the user (left)
-  * to the user supplied buffer (dest) and reduces left by the amount of bytes
-  * copied to the user buffer
-  *
-  * @user_offset [in] - offset on disk where the read was requested by the user
-  * @first_page_start [in] - actual page aligned disk offset that we want to
-  *                          read from
-  * @bytes_to_read [in] - total amount of bytes that will be read from disk
-  *                       which is generally greater or equal to the amount
-  *                       that the user has requested due to the
-  *                       either alignment requirements or read_ahead in
-  *                       effect.
-  * @left [in/out] total amount of bytes that needs to be copied to the user
-  *                buffer. It is reduced by the amount of bytes that actually
-  *                copied
-  * @buffer - buffer to use
-  * @dest - user supplied buffer
-  */
+    /*
+    * The function reads a requested amount of bytes into the specified aligned
+    * buffer Upon success the function sets the length of the buffer to the
+    * amount of bytes actually read even though it might be less than actually
+    * requested. It then copies the amount of bytes requested by the user (left)
+    * to the user supplied buffer (dest) and reduces left by the amount of bytes
+    * copied to the user buffer
+    *
+    * @user_offset [in] - offset on disk where the read was requested by the user
+    * @first_page_start [in] - actual page aligned disk offset that we want to
+    *                          read from
+    * @bytes_to_read [in] - total amount of bytes that will be read from disk
+    *                       which is generally greater or equal to the amount
+    *                       that the user has requested due to the
+    *                       either alignment requirements or read_ahead in
+    *                       effect.
+    * @left [in/out] total amount of bytes that needs to be copied to the user
+    *                buffer. It is reduced by the amount of bytes that actually
+    *                copied
+    * @buffer - buffer to use
+    * @dest - user supplied buffer
+    */
   SSIZE_T ReadIntoBuffer(uint64_t user_offset, uint64_t first_page_start,
     size_t bytes_to_read, size_t& left,
     AlignedBuffer& buffer, char* dest) const;
-  
+
   SSIZE_T ReadIntoOneShotBuffer(uint64_t user_offset, uint64_t first_page_start,
     size_t bytes_to_read, size_t& left,
     char* dest) const;
@@ -250,13 +264,25 @@ class WinRandomAccessFile : public RandomAccessFile {
     size_t bytes_to_read, size_t& left,
     char* dest) const;
 
-  void CalculateReadParameters(uint64_t offset, size_t bytes_requested,
-    size_t& actual_bytes_toread,
-    uint64_t& first_page_start) const;
-
   // Override for behavior change
   virtual SSIZE_T PositionedReadInternal(char* src, size_t numBytes,
-     uint64_t offset) const;
+    uint64_t offset) const = 0;
+
+  WinRandomAccessBase(const std::string& fname, HANDLE hFile, size_t alignment,
+    const EnvOptions& options);
+
+  // Non-virtual because protected
+  ~WinRandomAccessBase() {}
+
+  Status Read(uint64_t offset, size_t n, Slice* result,
+    char* scratch) const;
+
+  void Hint(RandomAccessFile::AccessPattern pattern);
+};
+
+// pread() based random-access
+class WinRandomAccessFile : private WinRandomAccessBase,
+  public RandomAccessFile {
 
 public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
@@ -291,13 +317,9 @@ public:
 // the tail for the next write OR for Close() at which point we pad with zeros.
 // No padding is required for
 // buffered access.
-class WinWritableFile : public WritableFile {
+class WinWritableFile : private WinFileBase, public WritableFile {
 private:
-  const std::string filename_;
-  HANDLE            hFile_;
-  const bool        use_os_buffer_;  // Used to indicate unbuffered access, the file
   const uint64_t    alignment_;
-  // must be opened as unbuffered if false
   uint64_t          filesize_;      // How much data is actually written disk
   uint64_t          reservedsize_;  // how far we have reserved space
 
@@ -310,12 +332,14 @@ public:
   ~WinWritableFile();
 
   // Indicates if the class makes use of unbuffered I/O
+  // Use PositionedAppend
   virtual bool UseOSBuffer() const override;
 
   virtual size_t GetRequiredBufferAlignment() const override;
 
   virtual Status Append(const Slice& data) override;
 
+  // Requires that the data is aligned as specified by GetRequiredBufferAlignment()
   virtual Status PositionedAppend(const Slice& data, uint64_t offset) override;
 
   // Need to implement this so the file is truncated correctly
@@ -338,6 +362,49 @@ public:
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
+
+
+class WinRandomRWFile : public RandomRWFile {
+public:
+  WinRandomRWFile();
+  ~WinRandomRWFile() {}
+
+  // Indicates if the class makes use of unbuffered I/O
+  virtual bool UseOSBuffer() const override;
+
+  const size_t c_DefaultPageSize = 4 * 1024;
+
+  // This is needed when you want to allocate
+  // AlignedBuffer for use with file I/O classes
+  // Used for unbuffered file I/O when UseOSBuffer() returns false
+  virtual size_t GetRequiredBufferAlignment() const override;
+
+  // Used by the file_reader_writer to decide if the ReadAhead wrapper
+  // should simply forward the call and do not enact buffering or locking.
+  virtual bool ShouldForwardRawRequest() const override;
+
+  // For cases when read-ahead is implemented in the platform dependent
+  // layer
+  virtual void EnableReadAhead() {}
+
+  // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
+  virtual Status Write(uint64_t offset, const Slice& data) = 0;
+
+  // Read up to `n` bytes starting from offset `offset` and store them in
+  // result, provided `scratch` size should be at least `n`.
+  // Returns Status::OK() on success.
+  virtual Status Read(uint64_t offset, size_t n, Slice* result,
+    char* scratch) const override;
+
+  virtual Status Flush() override;
+
+  virtual Status Sync() override;
+
+  virtual Status Fsync() { return Sync(); }
+
+  virtual Status Close() override;
+};
+
 
 class WinDirectory : public Directory {
 public:

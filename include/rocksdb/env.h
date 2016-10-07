@@ -664,6 +664,30 @@ class RandomRWFile {
   RandomRWFile() {}
   virtual ~RandomRWFile() {}
 
+  // Indicates if the class makes use of unbuffered I/O
+  virtual bool UseOSBuffer() const {
+    return true;
+  }
+
+  const size_t c_DefaultPageSize = 4 * 1024;
+
+  // This is needed when you want to allocate
+  // AlignedBuffer for use with file I/O classes
+  // Used for unbuffered file I/O when UseOSBuffer() returns false
+  virtual size_t GetRequiredBufferAlignment() const {
+    return c_DefaultPageSize;
+  }
+
+  // Used by the file_reader_writer to decide if the ReadAhead wrapper
+  // should simply forward the call and do not enact buffering or locking.
+  virtual bool ShouldForwardRawRequest() const {
+    return false;
+  }
+
+  // For cases when read-ahead is implemented in the platform dependent
+  // layer
+  virtual void EnableReadAhead() {}
+
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
   virtual Status Write(uint64_t offset, const Slice& data) = 0;
 
@@ -681,7 +705,6 @@ class RandomRWFile {
 
   virtual Status Close() = 0;
 
- private:
   // No copying allowed
   RandomRWFile(const RandomRWFile&) = delete;
   RandomRWFile& operator=(const RandomRWFile&) = delete;

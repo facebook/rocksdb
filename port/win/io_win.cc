@@ -155,10 +155,12 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
   return static_cast<size_t>(rid - id);
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// WinMmapReadableFile
+
 WinMmapReadableFile::WinMmapReadableFile(const std::string& fileName, HANDLE hFile, HANDLE hMap,
   const void* mapped_region, size_t length)
-  : fileName_(fileName),
-  hFile_(hFile),
+  : WinFileBase(fileName, hFile, false),
   hMap_(hMap),
   mapped_region_(mapped_region),
   length_(length) {}
@@ -169,9 +171,6 @@ WinMmapReadableFile::~WinMmapReadableFile() {
 
   ret = ::CloseHandle(hMap_);
   assert(ret);
-
-  ret = ::CloseHandle(hFile_);
-  assert(ret);
 }
 
 Status WinMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result,
@@ -180,7 +179,7 @@ Status WinMmapReadableFile::Read(uint64_t offset, size_t n, Slice* result,
 
   if (offset > length_) {
     *result = Slice();
-    return IOError(fileName_, EINVAL);
+    return IOError(filename_, EINVAL);
   } else if (offset + n > length_) {
     n = length_ - offset;
   }
@@ -196,6 +195,10 @@ Status WinMmapReadableFile::InvalidateCache(size_t offset, size_t length) {
 size_t WinMmapReadableFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(hFile_, id, max_size);
 }
+
+///////////////////////////////////////////////////////////////////////////////
+/// WinMmapFile
+
 
 // Can only truncate or reserve to a sector size aligned if
 // used on files that are opened with Unbuffered I/O
@@ -302,8 +305,7 @@ Status WinMmapFile::PreallocateInternal(uint64_t spaceToReserve) {
 
 WinMmapFile::WinMmapFile(const std::string& fname, HANDLE hFile, size_t page_size,
   size_t allocation_granularity, const EnvOptions& options)
-  : filename_(fname),
-  hFile_(hFile),
+  : WinFileBase(fname, hFile, false),
   hMap_(NULL),
   page_size_(page_size),
   allocation_granularity_(allocation_granularity),
@@ -515,16 +517,16 @@ size_t WinMmapFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(hFile_, id, max_size);
 }
 
+//////////////////////////////////////////////////////////////////////////////////
+// WinSequentialFile
+
 WinSequentialFile::WinSequentialFile(const std::string& fname, HANDLE f,
   const EnvOptions& options)
-  : filename_(fname),
-  file_(f),
-  use_os_buffer_(options.use_os_buffer)
+  : WinFileBase(fname, f, options.use_os_buffer)
 {}
 
 WinSequentialFile::~WinSequentialFile() {
-  assert(file_ != INVALID_HANDLE_VALUE);
-  CloseHandle(file_);
+  assert(hFile_ != INVALID_HANDLE_VALUE);
 }
 
 Status WinSequentialFile::Read(size_t n, Slice* result, char* scratch) {
@@ -540,7 +542,7 @@ Status WinSequentialFile::Read(size_t n, Slice* result, char* scratch) {
 
   DWORD bytesToRead = static_cast<DWORD>(n); //cast is safe due to the check above
   DWORD bytesRead = 0;
-  BOOL ret = ReadFile(file_, scratch, bytesToRead, &bytesRead, NULL);
+  BOOL ret = ReadFile(hFile_, scratch, bytesToRead, &bytesRead, NULL);
   if (ret == TRUE) {
     r = bytesRead;
   } else {
@@ -561,7 +563,7 @@ Status WinSequentialFile::Skip(uint64_t n) {
 
   LARGE_INTEGER li;
   li.QuadPart = static_cast<int64_t>(n); //cast is safe due to the check above
-  BOOL ret = SetFilePointerEx(file_, li, NULL, FILE_CURRENT);
+  BOOL ret = SetFilePointerEx(hFile_, li, NULL, FILE_CURRENT);
   if (ret == FALSE) {
     return IOErrorFromWindowsError(filename_, GetLastError());
   }
@@ -572,7 +574,21 @@ Status WinSequentialFile::InvalidateCache(size_t offset, size_t length) {
   return Status::OK();
 }
 
-SSIZE_T WinRandomAccessFile::ReadIntoBuffer(uint64_t user_offset, uint64_t first_page_start,
+//////////////////////////////////////////////////////////////////////////////////////////////////
+/// WinRandomAccessBase
+
+// Helper
+void CalculateReadParameters(size_t alignment, uint64_t offset, size_t bytes_requested,
+  size_t& actual_bytes_toread,
+  uint64_t& first_page_start) {
+
+  first_page_start = TruncateToPageBoundary(alignment, offset);
+  const uint64_t last_page_start =
+    TruncateToPageBoundary(alignment, offset + bytes_requested - 1);
+  actual_bytes_toread = (last_page_start - first_page_start) + alignment;
+}
+
+SSIZE_T WinRandomAccessBase::ReadIntoBuffer(uint64_t user_offset, uint64_t first_page_start,
   size_t bytes_to_read, size_t& left,
   AlignedBuffer& buffer, char* dest) const {
   assert(buffer.CurrentSize() == 0);
@@ -597,7 +613,7 @@ SSIZE_T WinRandomAccessFile::ReadIntoBuffer(uint64_t user_offset, uint64_t first
   return read;
 }
 
-SSIZE_T WinRandomAccessFile::ReadIntoOneShotBuffer(uint64_t user_offset, uint64_t first_page_start,
+SSIZE_T WinRandomAccessBase::ReadIntoOneShotBuffer(uint64_t user_offset, uint64_t first_page_start,
   size_t bytes_to_read, size_t& left,
   char* dest) const {
   AlignedBuffer bigBuffer;
@@ -608,7 +624,7 @@ SSIZE_T WinRandomAccessFile::ReadIntoOneShotBuffer(uint64_t user_offset, uint64_
     bigBuffer, dest);
 }
 
-SSIZE_T WinRandomAccessFile::ReadIntoInstanceBuffer(uint64_t user_offset,
+SSIZE_T WinRandomAccessBase::ReadIntoInstanceBuffer(uint64_t user_offset,
   uint64_t first_page_start,
   size_t bytes_to_read, size_t& left,
   char* dest) const {
@@ -622,33 +638,21 @@ SSIZE_T WinRandomAccessFile::ReadIntoInstanceBuffer(uint64_t user_offset,
   return read;
 }
 
-void WinRandomAccessFile::CalculateReadParameters(uint64_t offset, size_t bytes_requested,
-  size_t& actual_bytes_toread,
-  uint64_t& first_page_start) const {
-
-  const size_t alignment = buffer_.Alignment();
-
-  first_page_start = TruncateToPageBoundary(alignment, offset);
-  const uint64_t last_page_start =
-    TruncateToPageBoundary(alignment, offset + bytes_requested - 1);
-  actual_bytes_toread = (last_page_start - first_page_start) + alignment;
-}
-
-SSIZE_T WinRandomAccessFile::PositionedReadInternal(char* src, size_t numBytes,
+SSIZE_T WinRandomAccessBase::PositionedReadInternal(char* src, size_t numBytes,
   uint64_t offset) const {
   return pread(hFile_, src, numBytes, offset);
 }
 
-WinRandomAccessFile::WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
-    const EnvOptions& options)
-    : filename_(fname),
-    hFile_(hFile),
-    use_os_buffer_(options.use_os_buffer),
+inline
+WinRandomAccessBase::WinRandomAccessBase(const std::string& fname, HANDLE hFile, size_t alignment,
+  const EnvOptions& options) :
+    WinFileBase(fname, hFile, options.use_os_buffer),
     read_ahead_(false),
     compaction_readahead_size_(options.compaction_readahead_size),
     random_access_max_buffer_size_(options.random_access_max_buffer_size),
     buffer_(),
     buffered_start_(0) {
+
   assert(!options.use_mmap_reads);
 
   // Unbuffered access, use internal buffer for reads
@@ -659,15 +663,8 @@ WinRandomAccessFile::WinRandomAccessFile(const std::string& fname, HANDLE hFile,
   }
 }
 
-WinRandomAccessFile::~WinRandomAccessFile() {
-  if (hFile_ != NULL && hFile_ != INVALID_HANDLE_VALUE) {
-    ::CloseHandle(hFile_);
-  }
-}
-
-void WinRandomAccessFile::EnableReadAhead() { this->Hint(SEQUENTIAL); }
-
-Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
+inline
+Status WinRandomAccessBase::Read(uint64_t offset, size_t n, Slice* result,
   char* scratch) const {
 
   Status s;
@@ -690,7 +687,8 @@ Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     size_t bytes_requested = left;
 
     if (!read_ahead_ && random_access_max_buffer_size_ == 0) {
-      CalculateReadParameters(offset, bytes_requested, actual_bytes_toread,
+      CalculateReadParameters(buffer_.Alignment(), offset, bytes_requested,
+        actual_bytes_toread,
         first_page_start);
 
       assert(actual_bytes_toread > 0);
@@ -723,7 +721,8 @@ Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
           bytes_requested = compaction_readahead_size_;
         }
 
-        CalculateReadParameters(offset, bytes_requested, actual_bytes_toread,
+        CalculateReadParameters(buffer_.Alignment(), offset, bytes_requested,
+          actual_bytes_toread,
           first_page_start);
 
         assert(actual_bytes_toread > 0);
@@ -765,12 +764,10 @@ Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   return s;
 }
 
-bool WinRandomAccessFile::ShouldForwardRawRequest() const {
-  return true;
-}
+inline
+void WinRandomAccessBase::Hint(RandomAccessFile::AccessPattern pattern) {
 
-void WinRandomAccessFile::Hint(AccessPattern pattern) {
-  if (pattern == SEQUENTIAL && !use_os_buffer_ &&
+  if (pattern == RandomAccessFile::SEQUENTIAL && !use_os_buffer_ &&
     compaction_readahead_size_ > 0) {
     std::lock_guard<std::mutex> lg(buffer_mut_);
     if (!read_ahead_) {
@@ -785,6 +782,33 @@ void WinRandomAccessFile::Hint(AccessPattern pattern) {
   }
 }
 
+///////////////////////////////////////////////////////////////////////////////////////////////////
+/// WinRandomAccessFile
+
+WinRandomAccessFile::WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
+  const EnvOptions& options) :
+  WinRandomAccessBase(fname, hFile, alignment, options) {
+}
+
+WinRandomAccessFile::~WinRandomAccessFile() {
+}
+
+Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
+  char* scratch) const {
+  return WinRandomAccessBase::Read(offset, n, result, scratch);
+}
+
+void WinRandomAccessFile::EnableReadAhead() { this->Hint(SEQUENTIAL); }
+
+
+bool WinRandomAccessFile::ShouldForwardRawRequest() const {
+  return true;
+}
+
+void WinRandomAccessFile::Hint(AccessPattern pattern) {
+  WinRandomAccessBase::Hint(pattern);
+}
+
 Status WinRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   return Status::OK();
 }
@@ -793,15 +817,16 @@ size_t WinRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(hFile_, id, max_size);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+/// WinWritableFile
+
 Status WinWritableFile::PreallocateInternal(uint64_t spaceToReserve) {
   return fallocate(filename_, hFile_, spaceToReserve);
 }
 
 WinWritableFile::WinWritableFile(const std::string& fname, HANDLE hFile, size_t alignment,
     size_t capacity, const EnvOptions& options)
-    : filename_(fname),
-    hFile_(hFile),
-    use_os_buffer_(options.use_os_buffer),
+    : WinFileBase(fname, hFile, options.use_os_buffer),
     alignment_(alignment),
     filesize_(0),
     reservedsize_(0) {
@@ -809,9 +834,6 @@ WinWritableFile::WinWritableFile(const std::string& fname, HANDLE hFile, size_t 
 }
 
 WinWritableFile::~WinWritableFile() {
-  if (NULL != hFile_ && INVALID_HANDLE_VALUE != hFile_) {
-    WinWritableFile::Close();
-  }
 }
 
   // Indicates if the class makes use of unbuffered I/O
@@ -950,13 +972,18 @@ size_t WinWritableFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(hFile_, id, max_size);
 }
 
+//////////////////////////////////////////////////////////////////////////
+/// WinDirectory
+
 Status WinDirectory::Fsync() { return Status::OK(); }
+
+//////////////////////////////////////////////////////////////////////////
+/// WinFileLock
 
 WinFileLock::~WinFileLock() {
   BOOL ret = ::CloseHandle(hFile_);
   assert(ret);
 }
-
 
 }
 }
