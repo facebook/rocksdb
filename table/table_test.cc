@@ -41,7 +41,6 @@
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/scoped_arena_iterator.h"
-#include "table/sst_file_writer_collectors.h"
 #include "util/compression.h"
 #include "util/random.h"
 #include "util/statistics.h"
@@ -223,7 +222,7 @@ class BlockConstructor: public Constructor {
     BlockContents contents;
     contents.data = data_;
     contents.cachable = false;
-    block_ = new Block(std::move(contents), kDisableGlobalSequenceNumber);
+    block_ = new Block(std::move(contents));
     return Status::OK();
   }
   virtual InternalIterator* NewIterator() const override {
@@ -2744,183 +2743,6 @@ TEST_F(PrefixTest, PrefixAndWholeKeyTest) {
   delete db;
   // In the second round, turn whole_key_filtering off and expect
   // rocksdb still works.
-}
-
-TEST_F(BlockBasedTableTest, TableWithGlobalSeqno) {
-  BlockBasedTableOptions bbto;
-  test::StringSink* sink = new test::StringSink();
-  unique_ptr<WritableFileWriter> file_writer(test::GetWritableFileWriter(sink));
-  Options options;
-  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
-  const ImmutableCFOptions ioptions(options);
-  InternalKeyComparator ikc(options.comparator);
-  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
-      int_tbl_prop_collector_factories;
-  int_tbl_prop_collector_factories.emplace_back(
-      new SstFileWriterPropertiesCollectorFactory(2 /* version */,
-                                                  0 /* global_seqno*/));
-  std::string column_family_name;
-  std::unique_ptr<TableBuilder> builder(options.table_factory->NewTableBuilder(
-      TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
-                          kNoCompression, CompressionOptions(),
-                          nullptr /* compression_dict */,
-                          false /* skip_filters */, column_family_name, -1),
-      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-      file_writer.get()));
-
-  for (char c = 'a'; c <= 'z'; ++c) {
-    std::string key(8, c);
-    std::string value = key;
-    InternalKey ik(key, 0, kTypeValue);
-
-    builder->Add(ik.Encode(), value);
-  }
-  ASSERT_OK(builder->Finish());
-  file_writer->Flush();
-
-  test::RandomRWStringSink ss_rw(sink);
-  uint32_t version;
-  uint64_t global_seqno;
-  uint64_t global_seqno_offset;
-
-  // Helper function to get version, global_seqno, global_seqno_offset
-  std::function<void()> GetVersionAndGlobalSeqno = [&]() {
-    unique_ptr<RandomAccessFileReader> file_reader(
-        test::GetRandomAccessFileReader(
-            new test::StringSource(ss_rw.contents(), 73342, true)));
-
-    TableProperties* props = nullptr;
-    ASSERT_OK(ReadTableProperties(file_reader.get(), ss_rw.contents().size(),
-                                  kBlockBasedTableMagicNumber, ioptions,
-                                  &props));
-
-    UserCollectedProperties user_props = props->user_collected_properties;
-    version = DecodeFixed32(
-        user_props[ExternalSstFilePropertyNames::kVersion].c_str());
-    global_seqno = DecodeFixed64(
-        user_props[ExternalSstFilePropertyNames::kGlobalSeqno].c_str());
-    global_seqno_offset =
-        props->properties_offsets[ExternalSstFilePropertyNames::kGlobalSeqno];
-
-    delete props;
-  };
-
-  // Helper function to update the value of the global seqno in the file
-  std::function<void(uint64_t)> SetGlobalSeqno = [&](uint64_t val) {
-    std::string new_global_seqno;
-    PutFixed64(&new_global_seqno, val);
-
-    ASSERT_OK(ss_rw.Write(global_seqno_offset, new_global_seqno));
-  };
-
-  // Helper function to get the contents of the table InternalIterator
-  unique_ptr<TableReader> table_reader;
-  std::function<InternalIterator*()> GetTableInternalIter = [&]() {
-    unique_ptr<RandomAccessFileReader> file_reader(
-        test::GetRandomAccessFileReader(
-            new test::StringSource(ss_rw.contents(), 73342, true)));
-
-    options.table_factory->NewTableReader(
-        TableReaderOptions(ioptions, EnvOptions(), ikc), std::move(file_reader),
-        ss_rw.contents().size(), &table_reader);
-
-    return table_reader->NewIterator(ReadOptions());
-  };
-
-  GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(0, global_seqno);
-
-  InternalIterator* iter = GetTableInternalIter();
-  char current_c = 'a';
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 0);
-    ASSERT_EQ(pik.user_key, iter->value());
-    ASSERT_EQ(pik.user_key.ToString(), std::string(8, current_c));
-    current_c++;
-  }
-  ASSERT_EQ(current_c, 'z' + 1);
-  delete iter;
-
-  // Update global sequence number to 10
-  SetGlobalSeqno(10);
-  GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(10, global_seqno);
-
-  iter = GetTableInternalIter();
-  current_c = 'a';
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 10);
-    ASSERT_EQ(pik.user_key, iter->value());
-    ASSERT_EQ(pik.user_key.ToString(), std::string(8, current_c));
-    current_c++;
-  }
-  ASSERT_EQ(current_c, 'z' + 1);
-
-  // Verify Seek
-  for (char c = 'a'; c <= 'z'; c++) {
-    std::string k = std::string(8, c);
-    InternalKey ik(k, 10, kValueTypeForSeek);
-    iter->Seek(ik.Encode());
-    ASSERT_TRUE(iter->Valid());
-
-    ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 10);
-    ASSERT_EQ(pik.user_key.ToString(), k);
-    ASSERT_EQ(iter->value().ToString(), k);
-  }
-  delete iter;
-
-  // Update global sequence number to 3
-  SetGlobalSeqno(3);
-  GetVersionAndGlobalSeqno();
-  ASSERT_EQ(2, version);
-  ASSERT_EQ(3, global_seqno);
-
-  iter = GetTableInternalIter();
-  current_c = 'a';
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
-    ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 3);
-    ASSERT_EQ(pik.user_key, iter->value());
-    ASSERT_EQ(pik.user_key.ToString(), std::string(8, current_c));
-    current_c++;
-  }
-  ASSERT_EQ(current_c, 'z' + 1);
-
-  // Verify Seek
-  for (char c = 'a'; c <= 'z'; c++) {
-    std::string k = std::string(8, c);
-    // seqno=4 is less than 3 so we still should get our key
-    InternalKey ik(k, 4, kValueTypeForSeek);
-    iter->Seek(ik.Encode());
-    ASSERT_TRUE(iter->Valid());
-
-    ParsedInternalKey pik;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &pik));
-
-    ASSERT_EQ(pik.type, ValueType::kTypeValue);
-    ASSERT_EQ(pik.sequence, 3);
-    ASSERT_EQ(pik.user_key.ToString(), k);
-    ASSERT_EQ(iter->value().ToString(), k);
-  }
-
-  delete iter;
 }
 
 }  // namespace rocksdb

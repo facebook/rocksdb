@@ -184,9 +184,6 @@ struct TableProperties {
   UserCollectedProperties user_collected_properties;
   UserCollectedProperties readable_properties;
 
-  // The offset of the value of each property in the file.
-  std::map<std::string, uint64_t> properties_offsets;
-
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.
   std::string ToString(const std::string& prop_delim = "; ",

@@ -190,7 +190,7 @@ Status BlobDB::Get(const ReadOptions& options, const Slice& key,
   if (!s.ok()) {
     return s;
   }
-  Block block(std::move(contents), kDisableGlobalSequenceNumber);
+  Block block(std::move(contents));
   BlockIter bit;
   InternalIterator* it = block.NewIterator(nullptr, &bit);
   it->SeekToFirst();

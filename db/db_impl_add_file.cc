@@ -11,12 +11,10 @@
 
 #include <inttypes.h>
 
+#include "db/builder.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_writer.h"
-
-#include "db/builder.h"
-#include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
 #include "util/file_reader_writer.h"
 #include "util/file_util.h"
@@ -69,12 +67,7 @@ Status DBImpl::ReadExternalSstFileInfo(ColumnFamilyHandle* column_family,
 
   file_info->version =
       DecodeFixed32(external_sst_file_version_iter->second.c_str());
-  if (file_info->version == 2) {
-    // version 2 imply that we have global sequence number
-
-    // TODO(tec): Implement version 2 ingestion
-    file_info->sequence_number = 0;
-  } else if (file_info->version == 1) {
+  if (file_info->version == 1) {
     // version 1 imply that all sequence numbers in table equal 0
     file_info->sequence_number = 0;
   } else {
@@ -172,20 +165,12 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
     if (file_info_list[i].num_entries == 0) {
       return Status::InvalidArgument("File contain no entries");
     }
-
-    if (file_info_list[i].version == 2) {
-      // version 2 imply that file have only Put Operations
-      // with global Sequence Number
-
-      // TODO(tec): Implement changing file global sequence number
-    } else if (file_info_list[i].version == 1) {
-      // version 1 imply that file have only Put Operations
-      // with Sequence Number = 0
-    } else {
-      // Unknown version !
+    if (file_info_list[i].version != 1) {
       return Status::InvalidArgument(
           "Generated table version is not supported");
     }
+    // version 1 imply that file have only Put Operations with Sequence Number =
+    // 0
 
     meta_list[i].smallest =
         InternalKey(file_info_list[i].smallest_key,
@@ -279,7 +264,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       for (size_t i = 0; i < num_files; i++) {
         StopWatch sw(env_, nullptr, 0, &micro_list[i], false);
         InternalKey range_start(file_info_list[i].smallest_key,
-                                kMaxSequenceNumber, kValueTypeForSeek);
+                                kMaxSequenceNumber, kTypeValue);
         iter->Seek(range_start.Encode());
         status = iter->status();
 

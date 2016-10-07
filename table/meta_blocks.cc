@@ -175,10 +175,9 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
     return s;
   }
 
-  Block properties_block(std::move(block_contents),
-                         kDisableGlobalSequenceNumber);
-  BlockIter iter;
-  properties_block.NewIterator(BytewiseComparator(), &iter);
+  Block properties_block(std::move(block_contents));
+  std::unique_ptr<InternalIterator> iter(
+      properties_block.NewIterator(BytewiseComparator()));
 
   auto new_table_properties = new TableProperties();
   // All pre-defined properties of type uint64_t
@@ -201,23 +200,20 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
   };
 
   std::string last_key;
-  for (iter.SeekToFirst(); iter.Valid(); iter.Next()) {
-    s = iter.status();
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    s = iter->status();
     if (!s.ok()) {
       break;
     }
 
-    auto key = iter.key().ToString();
+    auto key = iter->key().ToString();
     // properties block is strictly sorted with no duplicate key.
     assert(last_key.empty() ||
            BytewiseComparator()->Compare(key, last_key) > 0);
     last_key = key;
 
-    auto raw_val = iter.value();
+    auto raw_val = iter->value();
     auto pos = predefined_uint64_properties.find(key);
-
-    new_table_properties->properties_offsets.insert(
-        {key, handle.offset() + iter.ValueOffset()});
 
     if (pos != predefined_uint64_properties.end()) {
       // handle predefined rocksdb properties
@@ -281,8 +277,7 @@ Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
   if (!s.ok()) {
     return s;
   }
-  Block metaindex_block(std::move(metaindex_contents),
-                        kDisableGlobalSequenceNumber);
+  Block metaindex_block(std::move(metaindex_contents));
   std::unique_ptr<InternalIterator> meta_iter(
       metaindex_block.NewIterator(BytewiseComparator()));
 
@@ -336,8 +331,7 @@ Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   if (!s.ok()) {
     return s;
   }
-  Block metaindex_block(std::move(metaindex_contents),
-                        kDisableGlobalSequenceNumber);
+  Block metaindex_block(std::move(metaindex_contents));
 
   std::unique_ptr<InternalIterator> meta_iter;
   meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));
@@ -370,8 +364,7 @@ Status ReadMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
   }
 
   // Finding metablock
-  Block metaindex_block(std::move(metaindex_contents),
-                        kDisableGlobalSequenceNumber);
+  Block metaindex_block(std::move(metaindex_contents));
 
   std::unique_ptr<InternalIterator> meta_iter;
   meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));

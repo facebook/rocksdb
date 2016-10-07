@@ -71,8 +71,6 @@ inline bool IsExtendedValueType(ValueType t) {
 static const SequenceNumber kMaxSequenceNumber =
     ((0x1ull << 56) - 1);
 
-static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
-
 struct ParsedInternalKey {
   Slice user_key;
   SequenceNumber sequence;
@@ -357,15 +355,6 @@ class IterKey {
     SetKey(key);
     ikey->user_key = Slice(key_, key_n - 8);
     return Slice(key_, key_n);
-  }
-
-  // Copy the key into IterKey own buf_
-  void OwnKey() {
-    assert(IsKeyPinned() == true);
-
-    EnlargeBufferIfNeeded(key_size_);
-    memcpy(buf_, key_, key_size_);
-    key_ = buf_;
   }
 
   // Update the sequence number in the internal key.  Guarantees not to

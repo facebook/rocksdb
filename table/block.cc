@@ -241,27 +241,6 @@ bool BlockIter::ParseNextKey() {
       key_.TrimAppend(shared, p, non_shared);
       key_pinned_ = false;
     }
-
-    if (global_seqno_ != kDisableGlobalSequenceNumber) {
-      // If we are reading a file with a global sequence number we should
-      // expect that all encoded sequence numbers are zeros and all value
-      // types are kTypeValue
-      assert(GetInternalKeySeqno(key_.GetKey()) == 0);
-      assert(ExtractValueType(key_.GetKey()) == ValueType::kTypeValue);
-
-      if (key_pinned_) {
-        // TODO(tec): Investigate updating the seqno in the loaded block
-        // directly instead of doing a copy and update.
-
-        // We cannot use the key address in the block directly because
-        // we have a global_seqno_ that will overwrite the encoded one.
-        key_.OwnKey();
-        key_pinned_ = false;
-      }
-
-      key_.UpdateInternalKey(global_seqno_, ValueType::kTypeValue);
-    }
-
     value_ = Slice(p + non_shared, value_length);
     while (restart_index_ + 1 < num_restarts_ &&
            GetRestartPoint(restart_index_ + 1) < current_) {
@@ -393,12 +372,11 @@ uint32_t Block::NumRestarts() const {
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
 
-Block::Block(BlockContents&& contents, SequenceNumber _global_seqno,
-             size_t read_amp_bytes_per_bit, Statistics* statistics)
+Block::Block(BlockContents&& contents, size_t read_amp_bytes_per_bit,
+             Statistics* statistics)
     : contents_(std::move(contents)),
       data_(contents_.data.data()),
-      size_(contents_.data.size()),
-      global_seqno_(_global_seqno) {
+      size_(contents_.data.size()) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
@@ -440,11 +418,10 @@ InternalIterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter,
 
     if (iter != nullptr) {
       iter->Initialize(cmp, data_, restart_offset_, num_restarts,
-                       prefix_index_ptr, global_seqno_, read_amp_bitmap_.get());
+                       prefix_index_ptr, read_amp_bitmap_.get());
     } else {
       iter = new BlockIter(cmp, data_, restart_offset_, num_restarts,
-                           prefix_index_ptr, global_seqno_,
-                           read_amp_bitmap_.get());
+                           prefix_index_ptr, read_amp_bitmap_.get());
     }
 
     if (read_amp_bitmap_) {
