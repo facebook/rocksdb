@@ -9,6 +9,7 @@ gacode: "UA-49459723-1"
 # baseurl determines the subpath of your site. For example if you're using an
 # organisation.github.io/reponame/ basic site URL, then baseurl would be set
 # as "/reponame/" but leave blank if you have a top-level domain URL
+# https://byparker.com/blog/2014/clearing-up-confusion-around-baseurl/
 baseurl: ""
 url: "http://rocksdb.org" # the base hostname & protocol for your site
 ghrepo: "facebook/rocksdb"
