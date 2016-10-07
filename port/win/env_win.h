@@ -92,6 +92,11 @@ public:
     std::unique_ptr<WritableFile>* result,
     const EnvOptions& options);
 
+  // The returned file will only be accessed by one thread at a time.
+  virtual Status NewRandomRWFile(const std::string& fname,
+    unique_ptr<RandomRWFile>* result,
+    const EnvOptions& options);
+
   virtual Status NewDirectory(const std::string& name,
     std::unique_ptr<Directory>* result);
 
@@ -186,6 +191,11 @@ public:
 
   Status NewWritableFile(const std::string& fname,
     std::unique_ptr<WritableFile>* result,
+    const EnvOptions& options) override;
+
+  // The returned file will only be accessed by one thread at a time.
+  Status NewRandomRWFile(const std::string& fname,
+    unique_ptr<RandomRWFile>* result,
     const EnvOptions& options) override;
 
   Status NewDirectory(const std::string& name,
