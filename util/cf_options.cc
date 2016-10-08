@@ -69,6 +69,7 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       compaction_readahead_size(db_options.compaction_readahead_size),
       num_levels(cf_options.num_levels),
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
+      force_consistency_checks(cf_options.force_consistency_checks),
       listeners(db_options.listeners),
       row_cache(db_options.row_cache),
       max_subcompactions(db_options.max_subcompactions) {}

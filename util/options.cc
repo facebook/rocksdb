@@ -83,6 +83,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       min_partial_merge_operands(2),
       optimize_filters_for_hits(false),
       paranoid_file_checks(false),
+      force_consistency_checks(false),
       report_bg_io_stats(false) {
   assert(memtable_factory.get() != nullptr);
 }
@@ -149,6 +150,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       min_partial_merge_operands(options.min_partial_merge_operands),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       paranoid_file_checks(options.paranoid_file_checks),
+      force_consistency_checks(options.force_consistency_checks),
       report_bg_io_stats(options.report_bg_io_stats) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
@@ -559,6 +561,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         optimize_filters_for_hits);
     Header(log, "               Options.paranoid_file_checks: %d",
          paranoid_file_checks);
+    Header(log, "               Options.force_consistency_checks: %d",
+           force_consistency_checks);
     Header(log, "               Options.report_bg_io_stats: %d",
            report_bg_io_stats);
 }  // ColumnFamilyOptions::Dump

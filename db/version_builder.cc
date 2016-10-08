@@ -127,7 +127,13 @@ class VersionBuilder::Rep {
   }
 
   void CheckConsistency(VersionStorageInfo* vstorage) {
-#ifndef NDEBUG
+#ifdef NDEBUG
+    if (!vstorage->force_consistency_checks()) {
+      // Dont run consistency checks in release mode except if
+      // explicitly asked to
+      return;
+    }
+#endif
     // make sure the files are sorted correctly
     for (int level = 0; level < vstorage->num_levels(); level++) {
       auto& level_files = vstorage->LevelFiles(level);
@@ -135,31 +141,48 @@ class VersionBuilder::Rep {
         auto f1 = level_files[i - 1];
         auto f2 = level_files[i];
         if (level == 0) {
-          assert(level_zero_cmp_(f1, f2));
-          assert(f1->largest_seqno > f2->largest_seqno ||
-                 // We can have multiple files with seqno = 0 as a result of
-                 // using DB::AddFile()
-                 (f1->largest_seqno == 0 && f2->largest_seqno == 0));
+          if (!level_zero_cmp_(f1, f2)) {
+            fprintf(stderr, "L0 files are not sorted properly");
+            abort();
+          }
+
+          if (!(f1->largest_seqno > f2->largest_seqno ||
+                // We can have multiple files with seqno = 0 as a result of
+                // using DB::AddFile()
+                (f1->largest_seqno == 0 && f2->largest_seqno == 0))) {
+            fprintf(stderr,
+                    "L0 files seqno missmatch %" PRIu64 " vs. %" PRIu64 "\n",
+                    f1->largest_seqno, f2->largest_seqno);
+            abort();
+          }
         } else {
-          assert(level_nonzero_cmp_(f1, f2));
+          if (!level_nonzero_cmp_(f1, f2)) {
+            fprintf(stderr, "L%d files are not sorted properly", level);
+            abort();
+          }
 
           // Make sure there is no overlap in levels > 0
           if (vstorage->InternalComparator()->Compare(f1->largest,
                                                       f2->smallest) >= 0) {
-            fprintf(stderr, "overlapping ranges in same level %s vs. %s\n",
-                    (f1->largest).DebugString().c_str(),
-                    (f2->smallest).DebugString().c_str());
+            fprintf(stderr, "L%d have overlapping ranges %s vs. %s\n", level,
+                    (f1->largest).DebugString(true).c_str(),
+                    (f2->smallest).DebugString(true).c_str());
             abort();
           }
         }
       }
     }
-#endif
   }
 
   void CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
                                   int level) {
-#ifndef NDEBUG
+#ifdef NDEBUG
+    if (!base_vstorage_->force_consistency_checks()) {
+      // Dont run consistency checks in release mode except if
+      // explicitly asked to
+      return;
+    }
+#endif
     // a file to be deleted better exist in the previous version
     bool found = false;
     for (int l = 0; !found && l < base_vstorage_->num_levels(); l++) {
@@ -195,9 +218,8 @@ class VersionBuilder::Rep {
     }
     if (!found) {
       fprintf(stderr, "not found %" PRIu64 "\n", number);
+      abort();
     }
-    assert(found);
-#endif
   }
 
   // Apply all of the edits in *edit to the current state.

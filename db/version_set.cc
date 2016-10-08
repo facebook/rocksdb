@@ -845,7 +845,8 @@ void Version::AddIterators(const ReadOptions& read_options,
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
     const Comparator* user_comparator, int levels,
-    CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage)
+    CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage,
+    bool _force_consistency_checks)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
@@ -870,7 +871,8 @@ VersionStorageInfo::VersionStorageInfo(
       current_num_deletions_(0),
       current_num_samples_(0),
       estimated_compaction_needed_bytes_(0),
-      finalized_(false) {
+      finalized_(false),
+      force_consistency_checks_(_force_consistency_checks) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
     accumulated_raw_key_size_ = ref_vstorage->accumulated_raw_key_size_;
@@ -894,14 +896,16 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
       merge_operator_((cfd_ == nullptr) ? nullptr
                                         : cfd_->ioptions()->merge_operator),
-      storage_info_((cfd_ == nullptr) ? nullptr : &cfd_->internal_comparator(),
-                    (cfd_ == nullptr) ? nullptr : cfd_->user_comparator(),
-                    cfd_ == nullptr ? 0 : cfd_->NumberLevels(),
-                    cfd_ == nullptr ? kCompactionStyleLevel
-                                    : cfd_->ioptions()->compaction_style,
-                    (cfd_ == nullptr || cfd_->current() == nullptr)
-                        ? nullptr
-                        : cfd_->current()->storage_info()),
+      storage_info_(
+          (cfd_ == nullptr) ? nullptr : &cfd_->internal_comparator(),
+          (cfd_ == nullptr) ? nullptr : cfd_->user_comparator(),
+          cfd_ == nullptr ? 0 : cfd_->NumberLevels(),
+          cfd_ == nullptr ? kCompactionStyleLevel
+                          : cfd_->ioptions()->compaction_style,
+          (cfd_ == nullptr || cfd_->current() == nullptr)
+              ? nullptr
+              : cfd_->current()->storage_info(),
+          cfd_ == nullptr ? false : cfd_->ioptions()->force_consistency_checks),
       vset_(vset),
       next_(this),
       prev_(this),

@@ -93,7 +93,8 @@ class VersionStorageInfo {
   VersionStorageInfo(const InternalKeyComparator* internal_comparator,
                      const Comparator* user_comparator, int num_levels,
                      CompactionStyle compaction_style,
-                     VersionStorageInfo* src_vstorage);
+                     VersionStorageInfo* src_vstorage,
+                     bool _force_consistency_checks);
   ~VersionStorageInfo();
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
@@ -331,6 +332,8 @@ class VersionStorageInfo {
     estimated_compaction_needed_bytes_ = v;
   }
 
+  bool force_consistency_checks() const { return force_consistency_checks_; }
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
@@ -412,6 +415,10 @@ class VersionStorageInfo {
   uint64_t estimated_compaction_needed_bytes_;
 
   bool finalized_;
+
+  // If set to true, we will run consistency checks even if RocksDB
+  // is compiled in release mode
+  bool force_consistency_checks_;
 
   friend class Version;
   friend class VersionSet;

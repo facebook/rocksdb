@@ -66,8 +66,8 @@ class CompactionPickerTest : public testing::Test {
   void NewVersionStorage(int num_levels, CompactionStyle style) {
     DeleteVersionStorage();
     options_.num_levels = num_levels;
-    vstorage_.reset(new VersionStorageInfo(
-        &icmp_, ucmp_, options_.num_levels, style, nullptr));
+    vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
+                                           style, nullptr, false));
     vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
   }
 
