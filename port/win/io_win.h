@@ -68,7 +68,7 @@ Status ftruncate(const std::string& filename, HANDLE hFile,
 
 size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size);
 
-class WinFileBase {
+class WinFileData {
 protected:
 
   const std::string filename_;
@@ -83,27 +83,43 @@ protected:
   // implementing this.
   const bool use_os_buffer_;
 
-  WinFileBase(const std::string& filename, HANDLE hFile, bool use_os_buffer) :
+public:
+
+  // We want this class be usable both for inheritance (prive
+  // or protected) and for containment so __ctor and __dtor public
+  WinFileData(const std::string& filename, HANDLE hFile, bool use_os_buffer) :
     filename_(filename), hFile_(hFile), use_os_buffer_(use_os_buffer)
   {}
 
-  ~WinFileBase() {
-    if (hFile_ != NULL && hFile_ != INVALID_HANDLE_VALUE) {
-      BOOL ret = ::CloseHandle(hFile_);
-      assert(ret == TRUE);
-      hFile_ = NULL;
-    }
+  virtual ~WinFileData() {
+    this->CloseFile();
   }
 
-public:
+  bool CloseFile() {
 
-  WinFileBase(const WinFileBase&) = delete;
-  WinFileBase& operator=(const WinFileBase&) = delete;
+    bool result = true;
+
+    if (hFile_ != NULL && hFile_ != INVALID_HANDLE_VALUE) {
+      result = ::CloseHandle(hFile_);
+      assert(result);
+      hFile_ = NULL;
+    }
+    return result;
+  }
+
+  const std::string& GetName() const { return filename_; }
+
+  HANDLE GetFileHandle() const { return hFile_; }
+
+  bool UseOSBuffer() const { return use_os_buffer_; }
+
+  WinFileData(const WinFileData&) = delete;
+  WinFileData& operator=(const WinFileData&) = delete;
 };
 
 
 // mmap() based random-access
-class WinMmapReadableFile : private WinFileBase, public RandomAccessFile {
+class WinMmapReadableFile : private WinFileData, public RandomAccessFile {
   HANDLE hMap_;
 
   const void* mapped_region_;
@@ -115,6 +131,9 @@ public:
     const void* mapped_region, size_t length);
 
   ~WinMmapReadableFile();
+
+  WinMmapReadableFile(const WinMmapReadableFile&) = delete;
+  WinMmapReadableFile& operator=(const WinMmapReadableFile&) = delete;
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
     char* scratch) const override;
@@ -128,7 +147,7 @@ public:
 // data to the file.  This is safe since we either properly close the
 // file before reading from it, or for log files, the reading code
 // knows enough to skip zero suffixes.
-class WinMmapFile : private WinFileBase, public WritableFile {
+class WinMmapFile : private WinFileData, public WritableFile {
 private:
   HANDLE hMap_;
 
@@ -172,6 +191,9 @@ public:
 
   ~WinMmapFile();
 
+  WinMmapFile(const WinMmapFile&) = delete;
+  WinMmapFile& operator=(const WinMmapFile&) = delete;
+
   virtual Status Append(const Slice& data) override;
 
   // Means Close() will properly take care of truncate
@@ -204,12 +226,15 @@ public:
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
-class WinSequentialFile : private WinFileBase, public SequentialFile {
+class WinSequentialFile : private WinFileData, public SequentialFile {
 public:
   WinSequentialFile(const std::string& fname, HANDLE f,
     const EnvOptions& options);
 
   ~WinSequentialFile();
+
+  WinSequentialFile(const WinSequentialFile&) = delete;
+  WinSequentialFile& operator=(const WinSequentialFile&) = delete;
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override;
 
@@ -218,9 +243,10 @@ public:
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 };
 
-class WinRandomAccessBase : protected WinFileBase {
+class WinRandomAccessImpl {
 protected:
 
+  WinFileData* file_base_;
   bool         read_ahead_;
   const size_t compaction_readahead_size_;
   const size_t random_access_max_buffer_size_;
@@ -228,6 +254,12 @@ protected:
   mutable AlignedBuffer buffer_;
   mutable uint64_t
     buffered_start_;  // file offset set that is currently buffered
+
+  // Override for behavior change when creating a custom env
+  virtual SSIZE_T PositionedReadInternal(char* src, size_t numBytes,
+    uint64_t offset) const;
+
+public:
 
     /*
     * The function reads a requested amount of bytes into the specified aligned
@@ -251,6 +283,7 @@ protected:
     * @buffer - buffer to use
     * @dest - user supplied buffer
     */
+
   SSIZE_T ReadIntoBuffer(uint64_t user_offset, uint64_t first_page_start,
     size_t bytes_to_read, size_t& left,
     AlignedBuffer& buffer, char* dest) const;
@@ -264,15 +297,15 @@ protected:
     size_t bytes_to_read, size_t& left,
     char* dest) const;
 
-  // Override for behavior change
-  virtual SSIZE_T PositionedReadInternal(char* src, size_t numBytes,
-    uint64_t offset) const = 0;
-
-  WinRandomAccessBase(const std::string& fname, HANDLE hFile, size_t alignment,
+  // We want this class be usable both for inheritance (prive
+  // or protected) and for containment so __ctor and __dtor public
+  WinRandomAccessImpl(WinFileData* file_base, size_t alignment,
     const EnvOptions& options);
 
-  // Non-virtual because protected
-  ~WinRandomAccessBase() {}
+  virtual ~WinRandomAccessImpl() {}
+
+  WinRandomAccessImpl(const WinRandomAccessImpl&) = delete;
+  WinRandomAccessImpl& operator=(const WinRandomAccessImpl&) = delete;
 
   Status Read(uint64_t offset, size_t n, Slice* result,
     char* scratch) const;
@@ -281,8 +314,10 @@ protected:
 };
 
 // pread() based random-access
-class WinRandomAccessFile : private WinRandomAccessBase,
-  public RandomAccessFile {
+class WinRandomAccessFile : public RandomAccessFile {
+
+  WinFileData         file_impl_;
+  WinRandomAccessImpl randomaccess_impl_;
 
 public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
@@ -317,13 +352,57 @@ public:
 // the tail for the next write OR for Close() at which point we pad with zeros.
 // No padding is required for
 // buffered access.
-class WinWritableFile : private WinFileBase, public WritableFile {
-private:
+class WinWritableImpl {
+protected:
+
+  WinFileData*      file_data_;
   const uint64_t    alignment_;
   uint64_t          filesize_;      // How much data is actually written disk
   uint64_t          reservedsize_;  // how far we have reserved space
 
   virtual Status PreallocateInternal(uint64_t spaceToReserve);
+
+public:
+
+  // We want this class be usable both for inheritance (prive
+  // or protected) and for containment so __ctor and __dtor public
+  WinWritableImpl(WinFileData* file_data, size_t alignment);
+
+  ~WinWritableImpl() {}
+
+  WinWritableImpl(const WinWritableImpl&) = delete;
+  WinWritableImpl& operator=(const WinWritableImpl&) = delete;
+
+  uint64_t GetAlignement() const { return alignment_; }
+
+  Status Append(const Slice& data);
+
+  // Requires that the data is aligned as specified by GetRequiredBufferAlignment()
+  Status PositionedAppend(const Slice& data, uint64_t offset);
+
+  Status Truncate(uint64_t size);
+
+  Status Close();
+
+  Status Sync();
+
+  uint64_t GetFileSize() {
+    // Double accounting now here with WritableFileWriter
+    // and this size will be wrong when unbuffered access is used
+    // but tests implement their own writable files and do not use WritableFileWrapper
+    // so we need to squeeze a square peg through
+    // a round hole here.
+    return filesize_;
+  }
+
+  Status Allocate(uint64_t offset, uint64_t len);
+};
+
+
+class WinWritableFile : public WritableFile {
+private:
+  WinFileData       file_data_;
+  WinWritableImpl   writable_impl_;
 
 public:
   WinWritableFile(const std::string& fname, HANDLE hFile, size_t alignment,
@@ -365,8 +444,16 @@ public:
 
 
 class WinRandomRWFile : public RandomRWFile {
+
+  WinFileData          file_data_;
+  WinRandomAccessImpl  randomaccess_impl_;
+  WinWritableImpl      writable_impl_;
+
 public:
-  WinRandomRWFile();
+
+  WinRandomRWFile(const std::string& fname, HANDLE hFile, size_t alignment,
+    const EnvOptions& options);
+
   ~WinRandomRWFile() {}
 
   // Indicates if the class makes use of unbuffered I/O
@@ -385,10 +472,10 @@ public:
 
   // For cases when read-ahead is implemented in the platform dependent
   // layer
-  virtual void EnableReadAhead() {}
+  virtual void EnableReadAhead() override;
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  virtual Status Write(uint64_t offset, const Slice& data) = 0;
+  virtual Status Write(uint64_t offset, const Slice& data) override;
 
   // Read up to `n` bytes starting from offset `offset` and store them in
   // result, provided `scratch` size should be at least `n`.
