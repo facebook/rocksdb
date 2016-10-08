@@ -153,7 +153,12 @@ void MutableCFOptions::Dump(Logger* log) const {
     snprintf(buf, sizeof(buf), "%d, ", m);
     result += buf;
   }
-  result.resize(result.size() - 2);
+  if (result.size() >= 2) {
+    result.resize(result.size() - 2);
+  } else {
+    result = "";
+  }
+
   Log(log, "max_bytes_for_level_multiplier_additional: %s", result.c_str());
   Log(log, "           verify_checksums_in_compaction: %d",
       verify_checksums_in_compaction);
