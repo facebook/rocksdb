@@ -60,6 +60,9 @@ class InternalStats {
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
     BYTES_INGESTED_ADD_FILE,
+    INGESTED_NUM_FILES_TOTAL,
+    INGESTED_LEVEL0_NUM_FILES_TOTAL,
+    INGESTED_NUM_KEYS_TOTAL,
     INTERNAL_CF_STATS_ENUM_MAX,
   };
 
@@ -246,7 +249,6 @@ class InternalStats {
     // ColumnFamily-level stats
     CompactionStats comp_stats;
     uint64_t ingest_bytes_flush;      // Bytes written to L0 (Flush)
-    uint64_t ingest_bytes_add_file;   // Bytes written to L0 (AddFile)
     uint64_t stall_count;             // Stall count
     // Stats from compaction jobs - bytes written, bytes read, duration.
     uint64_t compact_bytes_write;
@@ -254,15 +256,24 @@ class InternalStats {
     uint64_t compact_micros;
     double seconds_up;
 
+    // AddFile specific stats
+    uint64_t ingest_bytes_addfile;     // Total Bytes ingested
+    uint64_t ingest_files_addfile;     // Total number of files ingested
+    uint64_t ingest_l0_files_addfile;  // Total number of files ingested to L0
+    uint64_t ingest_keys_addfile;      // Total number of keys ingested
+
     CFStatsSnapshot()
         : comp_stats(0),
           ingest_bytes_flush(0),
-          ingest_bytes_add_file(0),
           stall_count(0),
           compact_bytes_write(0),
           compact_bytes_read(0),
           compact_micros(0),
-          seconds_up(0) {}
+          seconds_up(0),
+          ingest_bytes_addfile(0),
+          ingest_files_addfile(0),
+          ingest_l0_files_addfile(0),
+          ingest_keys_addfile(0) {}
   } cf_stats_snapshot_;
 
   struct DBStatsSnapshot {
@@ -376,6 +387,9 @@ class InternalStats {
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
     BYTES_INGESTED_ADD_FILE,
+    INGESTED_NUM_FILES_TOTAL,
+    INGESTED_LEVEL0_NUM_FILES_TOTAL,
+    INGESTED_NUM_KEYS_TOTAL,
     INTERNAL_CF_STATS_ENUM_MAX,
   };
 

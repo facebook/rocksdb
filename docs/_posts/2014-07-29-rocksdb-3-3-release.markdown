@@ -3,20 +3,20 @@ title: RocksDB 3.3 Release
 layout: post
 author: yhciang
 category: blog
+redirect_from:
+  - /blog/1301/rocksdb-3-3-release/
 ---
 
 Check out new RocksDB release on [GitHub](https://github.com/facebook/rocksdb/releases/tag/rocksdb-3.3)!
 
 New Features in RocksDB 3.3:
 
-
-
-
   * **JSON API prototype**.
 
 
   * **Performance improvement on HashLinkList**:  We addressed performance outlier of HashLinkList caused by skewed bucket by switching data in the bucket from linked list to skip list. Add parameter threshold_use_skiplist in NewHashLinkListRepFactory().
 
+<!--truncate-->
 
   * **More effective on storage space reclaim**:  RocksDB is now able to reclaim storage space more effectively during the compaction process.  This is done by compensating the size of each deletion entry by the 2X average value size, which makes compaction to be triggerred by deletion entries more easily.
 

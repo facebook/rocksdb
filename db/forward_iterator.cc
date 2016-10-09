@@ -97,6 +97,10 @@ class LevelIterator : public InternalIterator {
     file_iter_->Seek(internal_key);
     valid_ = file_iter_->Valid();
   }
+  void SeekForPrev(const Slice& internal_key) override {
+    status_ = Status::NotSupported("LevelIterator::SeekForPrev()");
+    valid_ = false;
+  }
   void Next() override {
     assert(valid_);
     file_iter_->Next();

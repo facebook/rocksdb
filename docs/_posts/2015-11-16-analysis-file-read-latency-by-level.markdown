@@ -3,18 +3,22 @@ title: Analysis File Read Latency by Level
 layout: post
 author: sdong
 category: blog
+redirect_from:
+  - /blog/2537/analysis-file-read-latency-by-level/
 ---
 
 In many use cases of RocksDB, people rely on OS page cache for caching compressed data. With this approach, verifying effective of the OS page caching is challenging, because file system is a black box to users.
 
 As an example, a user can tune the DB as following: use level-based compaction, with L1 - L4 sizes to be 1GB, 10GB, 100GB and 1TB. And they reserve about 20GB memory as OS page cache, expecting level 0, 1 and 2 are mostly cached in memory, leaving only reads from level 3 and 4 requiring disk I/Os. However, in practice, it's not easy to verify whether OS page cache does exactly what we expect. For example, if we end up with doing 4 instead of 2 I/Os per query, it's not easy for users to figure out whether the it's because of efficiency of OS page cache or reading multiple blocks for a level. Analysis like it is especially important if users run RocksDB on hard drive disks, for the gap of latency between hard drives and memory is much higher than flash-based SSDs.
 
+<!--truncate-->
+
 In order to make tuning easier, we added new instrumentation to help users analysis latency distribution of file reads in different levels. If users turn DB statistics on, we always keep track of distribution of file read latency for each level. Users can retrieve the information by querying DB property “rocksdb.stats” ( [https://github.com/facebook/rocksdb/blob/v3.13.1/include/rocksdb/db.h#L315-L316](https://github.com/facebook/rocksdb/blob/v3.13.1/include/rocksdb/db.h#L315-L316) ). It will also printed out as a part of compaction summary in info logs periodically.
 
 The output looks like this:
 
 
-```bash
+```
 ** Level 0 read latency histogram (micros):
 Count: 696 Average: 489.8118 StdDev: 222.40
 Min: 3.0000 Median: 452.3077 Max: 1896.0000
@@ -146,3 +150,95 @@ Percentiles: P50: 376.00 P75: 438.00 P99: 1421.68 P99.9: 4164.43 P99.99: 9056.52
 In this example, you can see we only issued 696 reads from level 0 while issued 25 million reads from level 5. The latency distribution is also clearly shown among those reads. This will be helpful for users to analysis OS page cache efficiency.
 
 Currently the read latency per level includes reads from data blocks, index blocks, as well as bloom filter blocks. We are also working on a feature to break down those three type of blocks.
+
+### Comments
+
+**[Tao Feng](fengtao04@gmail.com)**
+
+Is this feature also included in RocksJava?
+
+**[Siying Dong](siying.d@fb.com)**
+
+Should be. As long as you enable statistics, you should be able to get the value from `RocksDB.getProperty()` with property `rocksdb.dbstats`. Let me know if you can’t find it.
+
+**[chiddu](cnbscience@gmail.com)**
+
+> In this example, you can see we only issued 696 reads from level 0 while issued 256K reads from level 5.
+
+Isn’t it 2.5 M of reads instead of 256K ? .
+
+Also could anyone please provide more description on the histogram ? especially
+
+> Count: 25583746 Average: 421.1326 StdDev: 385.11
+> Min: 1.0000 Median: 376.0011 Max: 202444.0000
+> Percentiles: P50: 376.00 P75: 438.00 P99: 1421.68 P99.9: 4164.43 P99.99: 9056.52
+
+and
+
+> [ 0, 1 ) 2351 0.009% 0.009%
+> [ 1, 2 ) 6077 0.024% 0.033%
+> [ 2, 3 ) 8471 0.033% 0.066%
+> [ 3, 4 ) 788 0.003% 0.069%”
+
+thanks in advance
+
+**[Siying Dong](siying.d@fb.com)**
+
+Thank you for pointing out the mistake. I fixed it now.
+
+In this output, there are 2.5 million samples, average latency is 421 micro seconds, with standard deviation 385. Median is 376, max value is 202 milliseconds. 0.009% has value of 1, 0.024% has value of 1, 0.033% has value of 2. Accumulated value from 0 to 2 is 0.066%.
+
+Hope it helps.
+
+**[chiddu](cnbscience@gmail.com)**
+
+Thank you Siying for the quick reply, I was running couple of benchmark testing to check the performance of rocksdb on SSD. One of the test is similar to what is mentioned in the wiki, TEST 4 : Random read , except the key_size is 10 and value_size is 20. I am inserting 1 billion hashes and reading 1 billion hashes with 32 threads. The histogram shows something like this
+
+```
+Level 5 read latency histogram (micros):
+Count: 7133903059 Average: 480.4357 StdDev: 309.18
+Min: 0.0000 Median: 551.1491 Max: 224142.0000
+Percentiles: P50: 551.15 P75: 651.44 P99: 996.52 P99.9: 2073.07 P99.99: 3196.32
+——————————————————
+[ 0, 1 ) 28587385 0.401% 0.401%
+[ 1, 2 ) 686572516 9.624% 10.025% ##
+[ 2, 3 ) 567317522 7.952% 17.977% ##
+[ 3, 4 ) 44979472 0.631% 18.608%
+[ 4, 5 ) 50379685 0.706% 19.314%
+[ 5, 6 ) 64930061 0.910% 20.224%
+[ 6, 7 ) 22613561 0.317% 20.541%
+…………more………….
+```
+
+If I understand your previous comment correctly,
+
+1. How is it that the count is around 7 billion when I have only inserted 1 billion hashes ? is the stat broken ?
+1. What does the percentiles and the numbers signify ?
+1. 0, 1 ) 28587385 0.401% 0.401% what does this “28587385” stand for in the histogram row ?
+
+**[Siying Dong](siying.d@fb.com)**
+
+If I remember correctly, with db_bench, if you specify –num=1000000000 –threads=32, it is every thread reading one billion keys, total of 32 billions. Is it the case you ran into?
+
+28,587,385 means that number of data points take the value [0,1)
+28,587,385 / 7,133,903,058 = 0.401% provides percentage.
+
+**[chiddu](cnbscience@gmail.com)**
+
+I do have `num=1000000000` and `t=32`. The script says reading 1 billion hashes and not 32 billion hashes.
+
+this is the script on which I have used
+
+```
+echo “Load 1B keys sequentially into database…..”
+bpl=10485760;overlap=10;mcz=2;del=300000000;levels=6;ctrig=4; delay=8; stop=12; wbn=3; mbc=20; mb=67108864;wbs=134217728; dds=1; sync=0; r=1000000000; t=1; vs=20; bs=4096; cs=1048576; of=500000; si=1000000; ./db_bench –benchmarks=fillseq –disable_seek_compaction=1 –mmap_read=0 –statistics=1 –histogram=1 –num=$r –threads=$t –value_size=$vs –block_size=$bs –cache_size=$cs –bloom_bits=10 –cache_numshardbits=6 –open_files=$of –verify_checksum=1 –db=/data/mysql/leveldb/test –sync=$sync –disable_wal=1 –compression_type=none –stats_interval=$si –compression_ratio=0.5 –disable_data_sync=$dds –write_buffer_size=$wbs –target_file_size_base=$mb –max_write_buffer_number=$wbn –max_background_compactions=$mbc –level0_file_num_compaction_trigger=$ctrig –level0_slowdown_writes_trigger=$delay –level0_stop_writes_trigger=$stop –num_levels=$levels –delete_obsolete_files_period_micros=$del –min_level_to_compress=$mcz –max_grandparent_overlap_factor=$overlap –stats_per_interval=1 –max_bytes_for_level_base=$bpl –use_existing_db=0 –key_size=10
+
+echo “Reading 1B keys in database in random order….”
+bpl=10485760;overlap=10;mcz=2;del=300000000;levels=6;ctrig=4; delay=8; stop=12; wbn=3; mbc=20; mb=67108864;wbs=134217728; dds=0; sync=0; r=1000000000; t=32; vs=20; bs=4096; cs=1048576; of=500000; si=1000000; ./db_bench –benchmarks=readrandom –disable_seek_compaction=1 –mmap_read=0 –statistics=1 –histogram=1 –num=$r –threads=$t –value_size=$vs –block_size=$bs –cache_size=$cs –bloom_bits=10 –cache_numshardbits=6 –open_files=$of –verify_checksum=1 –db=/some_data_base –sync=$sync –disable_wal=1 –compression_type=none –stats_interval=$si –compression_ratio=0.5 –disable_data_sync=$dds –write_buffer_size=$wbs –target_file_size_base=$mb –max_write_buffer_number=$wbn –max_background_compactions=$mbc –level0_file_num_compaction_trigger=$ctrig –level0_slowdown_writes_trigger=$delay –level0_stop_writes_trigger=$stop –num_levels=$levels –delete_obsolete_files_period_micros=$del –min_level_to_compress=$mcz –max_grandparent_overlap_factor=$overlap –stats_per_interval=1 –max_bytes_for_level_base=$bpl –use_existing_db=1 –key_size=10
+```
+
+After running this script, there were no issues wrt to loading billion hashes , but when it came to reading part, its been almost 4 days and still I have only read 7 billion hashes and have read 200 million hashes in 2 and half days. Is there something which is missing in db_bench or something which I am missing ?
+
+**[Siying Dong](siying.d@fb.com)**
+
+It’s a printing error then. If you have `num=1000000000` and `t=32`, it will be 32 threads, and each reads 1 billion keys.

@@ -159,6 +159,16 @@ class VectorIterator : public InternalIterator {
                keys_.begin();
   }
 
+  virtual void SeekForPrev(const Slice& target) override {
+    current_ = std::upper_bound(keys_.begin(), keys_.end(), target.ToString()) -
+               keys_.begin();
+    if (!Valid()) {
+      SeekToLast();
+    } else {
+      Prev();
+    }
+  }
+
   virtual void Next() override { current_++; }
   virtual void Prev() override { current_--; }
 
@@ -690,6 +700,8 @@ const SliceTransform* RandomSliceTransform(Random* rnd, int pre_defined = -1);
 TableFactory* RandomTableFactory(Random* rnd, int pre_defined = -1);
 
 std::string RandomName(Random* rnd, const size_t len);
+
+Status DestroyDir(Env* env, const std::string& dir);
 
 }  // namespace test
 }  // namespace rocksdb

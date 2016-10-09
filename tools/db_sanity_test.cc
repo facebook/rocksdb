@@ -186,7 +186,7 @@ class SanityTestZSTDCompression : public SanityTest {
  public:
   explicit SanityTestZSTDCompression(const std::string& path)
       : SanityTest(path) {
-    options_.compression = kZSTDNotFinalCompression;
+    options_.compression = kZSTD;
   }
   virtual Options GetOptions() const override { return options_; }
   virtual std::string Name() const override { return "ZSTDCompression"; }

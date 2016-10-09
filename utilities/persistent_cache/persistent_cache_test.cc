@@ -235,6 +235,19 @@ static void UniqueIdCallback(void* arg) {
 }
 #endif
 
+TEST_F(PersistentCacheTierTest, FactoryTest) {
+  for (auto nvm_opt : {true, false}) {
+    ASSERT_FALSE(cache_);
+    auto log = std::make_shared<ConsoleLogger>();
+    std::shared_ptr<PersistentCache> cache;
+    ASSERT_OK(NewPersistentCache(Env::Default(), path_,
+                                 /*size=*/1 * 1024 * 1024 * 1024, log, nvm_opt,
+                                 &cache));
+    ASSERT_TRUE(cache);
+    cache.reset();
+  }
+}
+
 PersistentCacheDBTest::PersistentCacheDBTest() : DBTestBase("/cache_test") {
 #ifdef OS_LINUX
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -403,6 +416,7 @@ TEST_F(PersistentCacheDBTest, TieredCacheTest) {
   RunTest(std::bind(&MakeTieredCache, dbname_));
 }
 #endif
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

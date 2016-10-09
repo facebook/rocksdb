@@ -3,6 +3,8 @@ title: How to backup RocksDB?
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/191/how-to-backup-rocksdb/
 ---
 
 In RocksDB, we have implemented an easy way to backup your DB. Here is a simple example:
@@ -20,7 +22,7 @@ In RocksDB, we have implemented an easy way to backup your DB. Here is a simple 
     backupable_db->CreateNewBackup();
     delete backupable_db; // no need to also delete db
 
-
+<!--truncate-->
 
 
 This simple example will create a backup of your DB in "/tmp/rocksdb_backup". Creating new BackupableDB consumes DB* and you should be calling all the DB methods on object `backupable_db` going forward.

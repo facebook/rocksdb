@@ -94,13 +94,14 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
         int_tbl_prop_collector_factories;
 
     file_writer.reset(new WritableFileWriter(std::move(file), env_options));
-
+    int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                             CompressionType::kNoCompression,
                             CompressionOptions(),
                             nullptr /* compression_dict */,
-                            false /* skip_filters */, kDefaultColumnFamilyName),
+                            false /* skip_filters */, kDefaultColumnFamilyName,
+                            unknown_level),
         0 /* column_family_id */, file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);

@@ -68,6 +68,9 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
           ioptions.info_log)),
+      range_del_table_(ioptions.memtable_factory->CreateMemTableRep(
+          comparator_, &allocator_, nullptr /* transform */,
+          ioptions.info_log)),
       data_size_(0),
       num_entries_(0),
       num_deletes_(0),
@@ -101,6 +104,7 @@ MemTable::~MemTable() { assert(refs_ == 0); }
 size_t MemTable::ApproximateMemoryUsage() {
   size_t arena_usage = arena_.ApproximateMemoryUsage();
   size_t table_usage = table_->ApproximateMemoryUsage();
+  table_usage += range_del_table_->ApproximateMemoryUsage();
   // let MAX_USAGE =  std::numeric_limits<size_t>::max()
   // then if arena_usage + total_usage >= MAX_USAGE, return MAX_USAGE.
   // the following variation is to avoid numeric overflow.
@@ -122,8 +126,9 @@ bool MemTable::ShouldFlushNow() const {
 
   // If arena still have room for new block allocation, we can safely say it
   // shouldn't flush.
-  auto allocated_memory =
-      table_->ApproximateMemoryUsage() + arena_.MemoryAllocatedBytes();
+  auto allocated_memory = table_->ApproximateMemoryUsage() +
+                          range_del_table_->ApproximateMemoryUsage() +
+                          arena_.MemoryAllocatedBytes();
 
   // if we can still allocate one more block without exceeding the
   // over-allocation ratio, then we should not flush.
@@ -219,13 +224,16 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 class MemTableIterator : public InternalIterator {
  public:
   MemTableIterator(const MemTable& mem, const ReadOptions& read_options,
-                   Arena* arena)
+                   Arena* arena, bool use_range_del_table = false)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
+        comparator_(mem.comparator_),
         valid_(false),
         arena_mode_(arena != nullptr),
         value_pinned_(!mem.GetMemTableOptions()->inplace_update_support) {
-    if (prefix_extractor_ != nullptr && !read_options.total_order_seek) {
+    if (use_range_del_table) {
+      iter_ = mem.range_del_table_->GetIterator(arena);
+    } else if (prefix_extractor_ != nullptr && !read_options.total_order_seek) {
       bloom_ = mem.prefix_bloom_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(arena);
     } else {
@@ -272,6 +280,28 @@ class MemTableIterator : public InternalIterator {
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
   }
+  virtual void SeekForPrev(const Slice& k) override {
+    PERF_TIMER_GUARD(seek_on_memtable_time);
+    PERF_COUNTER_ADD(seek_on_memtable_count, 1);
+    if (bloom_ != nullptr) {
+      if (!bloom_->MayContain(
+              prefix_extractor_->Transform(ExtractUserKey(k)))) {
+        PERF_COUNTER_ADD(bloom_memtable_miss_count, 1);
+        valid_ = false;
+        return;
+      } else {
+        PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
+      }
+    }
+    iter_->Seek(k, nullptr);
+    valid_ = iter_->Valid();
+    if (!Valid()) {
+      SeekToLast();
+    }
+    while (Valid() && comparator_.comparator.Compare(k, key()) < 0) {
+      Prev();
+    }
+  }
   virtual void SeekToFirst() override {
     iter_->SeekToFirst();
     valid_ = iter_->Valid();
@@ -315,6 +345,7 @@ class MemTableIterator : public InternalIterator {
  private:
   DynamicBloom* bloom_;
   const SliceTransform* const prefix_extractor_;
+  const MemTable::KeyComparator comparator_;
   MemTableRep::Iterator* iter_;
   bool valid_;
   bool arena_mode_;
@@ -332,6 +363,14 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
   return new (mem) MemTableIterator(*this, read_options, arena);
 }
 
+InternalIterator* MemTable::NewRangeTombstoneIterator(
+    const ReadOptions& read_options, Arena* arena) {
+  assert(arena != nullptr);
+  auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
+  return new (mem) MemTableIterator(*this, read_options, arena,
+                                    true /* use_range_del_table */);
+}
+
 port::RWMutex* MemTable::GetLock(const Slice& key) {
   static murmur_hash hash;
   return &locks_[hash(key) % locks_.size()];
@@ -340,6 +379,7 @@ port::RWMutex* MemTable::GetLock(const Slice& key) {
 uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
                                    const Slice& end_ikey) {
   uint64_t entry_count = table_->ApproximateNumEntries(start_ikey, end_ikey);
+  entry_count += range_del_table_->ApproximateNumEntries(start_ikey, end_ikey);
   if (entry_count == 0) {
     return 0;
   }
@@ -348,9 +388,9 @@ uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
     return 0;
   }
   if (entry_count > n) {
-    // table_->ApproximateNumEntries() is just an estimate so it can be larger
-    // than actual entries we have. Cap it to entries we have to limit the
-    // inaccuracy.
+    // (range_del_)table_->ApproximateNumEntries() is just an estimate so it can
+    // be larger than actual entries we have. Cap it to entries we have to limit
+    // the inaccuracy.
     entry_count = n;
   }
   uint64_t data_size = data_size_.load(std::memory_order_relaxed);
@@ -373,7 +413,9 @@ void MemTable::Add(SequenceNumber s, ValueType type,
                                internal_key_size + VarintLength(val_size) +
                                val_size;
   char* buf = nullptr;
-  KeyHandle handle = table_->Allocate(encoded_len, &buf);
+  std::unique_ptr<MemTableRep>& table =
+      type == kTypeRangeDeletion ? range_del_table_ : table_;
+  KeyHandle handle = table->Allocate(encoded_len, &buf);
 
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
@@ -385,7 +427,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   if (!allow_concurrent) {
-    table_->Insert(handle);
+    table->Insert(handle);
 
     // this is a bit ugly, but is the way to avoid locked instructions
     // when incrementing an atomic
@@ -417,7 +459,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
     assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
-    table_->InsertConcurrently(handle);
+    table->InsertConcurrently(handle);
 
     assert(post_process_info != nullptr);
     post_process_info->num_entries++;

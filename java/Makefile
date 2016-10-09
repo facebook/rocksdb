@@ -14,6 +14,8 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.DirectComparator\
 	org.rocksdb.DirectSlice\
 	org.rocksdb.Env\
+	org.rocksdb.EnvOptions\
+	org.rocksdb.ExternalSstFileInfo\
 	org.rocksdb.FlushOptions\
 	org.rocksdb.Filter\
 	org.rocksdb.GenericRateLimiterConfig\
@@ -23,6 +25,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.MergeOperator\
 	org.rocksdb.Options\
 	org.rocksdb.PlainTableConfig\
+	org.rocksdb.RateLimiter\
 	org.rocksdb.ReadOptions\
 	org.rocksdb.RemoveEmptyValueCompactionFilter\
 	org.rocksdb.RestoreOptions\
@@ -32,6 +35,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.RocksMemEnv\
 	org.rocksdb.SkipListMemTableConfig\
 	org.rocksdb.Slice\
+	org.rocksdb.SstFileWriter\
 	org.rocksdb.Statistics\
 	org.rocksdb.TransactionLogIterator\
 	org.rocksdb.TtlDB\
@@ -72,6 +76,8 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.DBOptionsTest\
 	org.rocksdb.DirectComparatorTest\
 	org.rocksdb.DirectSliceTest\
+	org.rocksdb.EnvOptionsTest\
+	org.rocksdb.ExternalSstFileInfoTest\
 	org.rocksdb.util.EnvironmentTest\
 	org.rocksdb.FilterTest\
 	org.rocksdb.FlushTest\
@@ -95,6 +101,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.util.SizeUnitTest\
 	org.rocksdb.SliceTest\
 	org.rocksdb.SnapshotTest\
+	org.rocksdb.SstFileWriterTest\
 	org.rocksdb.TransactionLogIteratorTest\
 	org.rocksdb.TtlDBTest\
 	org.rocksdb.StatisticsCollectorTest\
@@ -137,7 +144,7 @@ clean:
 	$(AM_V_at)rm -rf $(SAMPLES_OUTPUT)
 
 
-javadocs:
+javadocs: java
 	$(AM_V_GEN)mkdir -p $(JAVADOC)
 	$(AM_V_at)javadoc -d $(JAVADOC) -sourcepath $(MAIN_SRC) -subpackages org
 
@@ -176,7 +183,7 @@ resolve_test_deps:
 	test -s "$(JAVA_CGLIB_JAR)" || cp $(MVN_LOCAL)/cglib/cglib/2.2.2/cglib-2.2.2.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o "$(JAVA_CGLIB_JAR)" http://search.maven.org/remotecontent?filepath=cglib/cglib/2.2.2/cglib-2.2.2.jar
 	test -s "$(JAVA_ASSERTJ_JAR)" || cp $(MVN_LOCAL)/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o "$(JAVA_ASSERTJ_JAR)" http://central.maven.org/maven2/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar
 
-java_test: resolve_test_deps
+java_test: java resolve_test_deps
 	$(AM_V_GEN)mkdir -p $(TEST_CLASSES)
 	$(AM_V_at)javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES)\
 		$(TEST_SRC)/org/rocksdb/test/*.java\
@@ -184,7 +191,7 @@ java_test: resolve_test_deps
 		$(TEST_SRC)/org/rocksdb/*.java
 	$(AM_V_at)javah -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
 
-test: java resolve_test_deps java_test run_test
+test: java java_test run_test
 
 run_test:
 	java -ea -Xcheck:jni -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)

@@ -116,6 +116,9 @@ class InlineSkipList {
     // Advance to the first entry with a key >= target
     void Seek(const char* target);
 
+    // Retreat to the last entry with a key <= target
+    void SeekForPrev(const char* target);
+
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
     void SeekToFirst();
@@ -165,6 +168,10 @@ class InlineSkipList {
 
   bool Equal(const char* a, const char* b) const {
     return (compare_(a, b) == 0);
+  }
+
+  bool LessThan(const char* a, const char* b) const {
+    return (compare_(a, b) < 0);
   }
 
   // Return true if key is greater than the data stored in "n".  Null n
@@ -308,6 +315,18 @@ inline void InlineSkipList<Comparator>::Iterator::Prev() {
 template <class Comparator>
 inline void InlineSkipList<Comparator>::Iterator::Seek(const char* target) {
   node_ = list_->FindGreaterOrEqual(target);
+}
+
+template <class Comparator>
+inline void InlineSkipList<Comparator>::Iterator::SeekForPrev(
+    const char* target) {
+  Seek(target);
+  if (!Valid()) {
+    SeekToLast();
+  }
+  while (Valid() && list_->LessThan(target, key())) {
+    Prev();
+  }
 }
 
 template <class Comparator>

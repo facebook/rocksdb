@@ -518,6 +518,9 @@ bool AreEqualOptions(
     case OptionType::kInt:
       return (*reinterpret_cast<const int*>(offset1) ==
               *reinterpret_cast<const int*>(offset2));
+    case OptionType::kVectorInt:
+      return (*reinterpret_cast<const std::vector<int>*>(offset1) ==
+              *reinterpret_cast<const std::vector<int>*>(offset2));
     case OptionType::kUInt:
       return (*reinterpret_cast<const unsigned int*>(offset1) ==
               *reinterpret_cast<const unsigned int*>(offset2));

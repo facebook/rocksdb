@@ -2,6 +2,10 @@
 
 This directory will contain the user and feature documentation for RocksDB. The documentation will be hosted on GitHub pages.
 
+### Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for contribution details.
+
 ### Run the Site Locally
 
 The requirements for running a GitHub pages site locally is described in [GitHub help](https://help.github.com/articles/setting-up-your-github-pages-site-locally-with-jekyll/#requirements). The steps below summarize these steps.

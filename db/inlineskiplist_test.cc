@@ -58,6 +58,8 @@ TEST_F(InlineSkipTest, Empty) {
   key = 100;
   iter.Seek(Encode(&key));
   ASSERT_TRUE(!iter.Valid());
+  iter.SeekForPrev(Encode(&key));
+  ASSERT_TRUE(!iter.Valid());
   iter.SeekToLast();
   ASSERT_TRUE(!iter.Valid());
 }
@@ -97,6 +99,11 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
     ASSERT_TRUE(iter.Valid());
     ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
 
+    uint64_t max_key = R - 1;
+    iter.SeekForPrev(Encode(&max_key));
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(*(keys.rbegin()), Decode(iter.key()));
+
     iter.SeekToFirst();
     ASSERT_TRUE(iter.Valid());
     ASSERT_EQ(*(keys.begin()), Decode(iter.key()));
@@ -127,18 +134,22 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
   }
 
   // Backward iteration test
-  {
+  for (Key i = 0; i < R; i++) {
     InlineSkipList<TestComparator>::Iterator iter(&list);
-    iter.SeekToLast();
+    iter.SeekForPrev(Encode(&i));
 
     // Compare against model iterator
-    for (std::set<Key>::reverse_iterator model_iter = keys.rbegin();
-         model_iter != keys.rend(); ++model_iter) {
-      ASSERT_TRUE(iter.Valid());
-      ASSERT_EQ(*model_iter, Decode(iter.key()));
-      iter.Prev();
+    std::set<Key>::iterator model_iter = keys.upper_bound(i);
+    for (int j = 0; j < 3; j++) {
+      if (model_iter == keys.begin()) {
+        ASSERT_TRUE(!iter.Valid());
+        break;
+      } else {
+        ASSERT_TRUE(iter.Valid());
+        ASSERT_EQ(*--model_iter, Decode(iter.key()));
+        iter.Prev();
+      }
     }
-    ASSERT_TRUE(!iter.Valid());
   }
 }
 

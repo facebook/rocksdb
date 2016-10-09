@@ -57,6 +57,7 @@ class ArenaWrappedDBIter : public Iterator {
   virtual void SeekToFirst() override;
   virtual void SeekToLast() override;
   virtual void Seek(const Slice& target) override;
+  virtual void SeekForPrev(const Slice& target) override;
   virtual void Next() override;
   virtual void Prev() override;
   virtual Slice key() const override;

@@ -3,6 +3,8 @@ title: RocksDB 4.8 Released!
 layout: post
 author: yiwu
 category: blog
+redirect_from:
+  - /blog/3239/rocksdb-4-8-released/
 ---
 
 ## 4.8.0 (5/2/2016)
@@ -19,6 +21,8 @@ category: blog
   * Add ReadOptions::readahead_size. If non-zero, NewIterator will create a new table reader which performs reads of the given size.
 
 <br/>
+
+<!--truncate-->
 
 ## [](https://github.com/facebook/rocksdb/blob/master/HISTORY.md#470-482016)4.7.0 (4/8/2016)
 

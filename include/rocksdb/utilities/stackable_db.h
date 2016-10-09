@@ -219,13 +219,12 @@ class StackableDB : public DB {
   }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const
-      override {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return db_->GetOptions(column_family);
   }
 
   using DB::GetDBOptions;
-  virtual const DBOptions& GetDBOptions() const override {
+  virtual DBOptions GetDBOptions() const override {
     return db_->GetDBOptions();
   }
 

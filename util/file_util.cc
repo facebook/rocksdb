@@ -9,7 +9,6 @@
 #include <algorithm>
 
 #include "rocksdb/env.h"
-#include "rocksdb/options.h"
 #include "util/sst_file_manager_impl.h"
 #include "util/file_reader_writer.h"
 
@@ -82,8 +81,8 @@ Status CreateFile(Env* env, const std::string& destination,
   return dest_writer->Append(Slice(contents));
 }
 
-Status DeleteSSTFile(const DBOptions* db_options, const std::string& fname,
-                     uint32_t path_id) {
+Status DeleteSSTFile(const ImmutableDBOptions* db_options,
+                     const std::string& fname, uint32_t path_id) {
   // TODO(tec): support sst_file_manager for multiple path_ids
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options->sst_file_manager.get());

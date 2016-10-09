@@ -177,7 +177,8 @@ class WriteBatchInternal {
                            uint64_t log_number = 0, DB* db = nullptr,
                            bool concurrent_memtable_writes = false);
 
-  static void Append(WriteBatch* dst, const WriteBatch* src);
+  static void Append(WriteBatch* dst, const WriteBatch* src,
+                     const bool WAL_only = false);
 
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize

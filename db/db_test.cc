@@ -1193,7 +1193,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
     type = kXpressCompression;
     fprintf(stderr, "using xpress\n");
   } else if (ZSTD_Supported()) {
-    type = kZSTDNotFinalCompression;
+    type = kZSTD;
     fprintf(stderr, "using ZSTD\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");
@@ -2806,13 +2806,12 @@ class ModelDB : public DB {
   virtual Env* GetEnv() const override { return nullptr; }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(
-      ColumnFamilyHandle* column_family) const override {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return options_;
   }
 
   using DB::GetDBOptions;
-  virtual const DBOptions& GetDBOptions() const override { return options_; }
+  virtual DBOptions GetDBOptions() const override { return options_; }
 
   using DB::Flush;
   virtual Status Flush(const rocksdb::FlushOptions& options,
@@ -2881,6 +2880,10 @@ class ModelDB : public DB {
     }
     virtual void Seek(const Slice& k) override {
       iter_ = map_->lower_bound(k.ToString());
+    }
+    virtual void SeekForPrev(const Slice& k) override {
+      iter_ = map_->upper_bound(k.ToString());
+      Prev();
     }
     virtual void Next() override { ++iter_; }
     virtual void Prev() override {
@@ -4708,7 +4711,7 @@ TEST_F(DBTest, CompressionStatsTest) {
     type = kXpressCompression;
     fprintf(stderr, "using xpress\n");
   } else if (ZSTD_Supported()) {
-    type = kZSTDNotFinalCompression;
+    type = kZSTD;
     fprintf(stderr, "using ZSTD\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");

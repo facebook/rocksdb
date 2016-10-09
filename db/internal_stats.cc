@@ -769,10 +769,13 @@ void InternalStats::DumpCFStats(std::string* value) {
       value->append(buf);
     }
   }
-
   uint64_t flush_ingest = cf_stats_value_[BYTES_FLUSHED];
   uint64_t add_file_ingest = cf_stats_value_[BYTES_INGESTED_ADD_FILE];
   uint64_t curr_ingest = flush_ingest + add_file_ingest;
+  uint64_t ingest_files_addfile = cf_stats_value_[INGESTED_NUM_FILES_TOTAL];
+  uint64_t ingest_l0_files_addfile =
+      cf_stats_value_[INGESTED_LEVEL0_NUM_FILES_TOTAL];
+  uint64_t ingest_keys_addfile = cf_stats_value_[INGESTED_NUM_KEYS_TOTAL];
   // Cumulative summary
   double w_amp = stats_sum.bytes_written / static_cast<double>(curr_ingest + 1);
   uint64_t total_stall_count =
@@ -790,7 +793,7 @@ void InternalStats::DumpCFStats(std::string* value) {
   uint64_t interval_flush_ingest =
       flush_ingest - cf_stats_snapshot_.ingest_bytes_flush;
   uint64_t interval_add_file_inget =
-      add_file_ingest - cf_stats_snapshot_.ingest_bytes_add_file;
+      add_file_ingest - cf_stats_snapshot_.ingest_bytes_addfile;
   uint64_t interval_ingest =
       interval_flush_ingest + interval_add_file_inget + 1;
   CompactionStats interval_stats(stats_sum);
@@ -804,11 +807,32 @@ void InternalStats::DumpCFStats(std::string* value) {
   snprintf(buf, sizeof(buf), "Uptime(secs): %.1f total, %.1f interval\n",
            seconds_up, interval_seconds_up);
   value->append(buf);
-
   snprintf(buf, sizeof(buf), "Flush(GB): cumulative %.3f, interval %.3f\n",
            flush_ingest / kGB, interval_flush_ingest / kGB);
+  value->append(buf);
   snprintf(buf, sizeof(buf), "AddFile(GB): cumulative %.3f, interval %.3f\n",
            add_file_ingest / kGB, interval_add_file_inget / kGB);
+  value->append(buf);
+
+  uint64_t interval_ingest_files_addfile =
+      ingest_files_addfile - cf_stats_snapshot_.ingest_files_addfile;
+  snprintf(buf, sizeof(buf), "AddFile(Total Files): cumulative %" PRIu64
+                             ", interval %" PRIu64 "\n",
+           ingest_files_addfile, interval_ingest_files_addfile);
+  value->append(buf);
+
+  uint64_t interval_ingest_l0_files_addfile =
+      ingest_l0_files_addfile - cf_stats_snapshot_.ingest_l0_files_addfile;
+  snprintf(buf, sizeof(buf),
+           "AddFile(L0 Files): cumulative %" PRIu64 ", interval %" PRIu64 "\n",
+           ingest_l0_files_addfile, interval_ingest_l0_files_addfile);
+  value->append(buf);
+
+  uint64_t interval_ingest_keys_addfile =
+      ingest_keys_addfile - cf_stats_snapshot_.ingest_keys_addfile;
+  snprintf(buf, sizeof(buf),
+           "AddFile(Keys): cumulative %" PRIu64 ", interval %" PRIu64 "\n",
+           ingest_keys_addfile, interval_ingest_keys_addfile);
   value->append(buf);
 
   // Compact
@@ -881,7 +905,10 @@ void InternalStats::DumpCFStats(std::string* value) {
   value->append(buf);
 
   cf_stats_snapshot_.ingest_bytes_flush = flush_ingest;
-  cf_stats_snapshot_.ingest_bytes_add_file = add_file_ingest;
+  cf_stats_snapshot_.ingest_bytes_addfile = add_file_ingest;
+  cf_stats_snapshot_.ingest_files_addfile = ingest_files_addfile;
+  cf_stats_snapshot_.ingest_l0_files_addfile = ingest_l0_files_addfile;
+  cf_stats_snapshot_.ingest_keys_addfile = ingest_keys_addfile;
   cf_stats_snapshot_.comp_stats = stats_sum;
   cf_stats_snapshot_.stall_count = total_stall_count;
 }

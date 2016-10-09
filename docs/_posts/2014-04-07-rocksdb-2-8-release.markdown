@@ -3,14 +3,17 @@ title: RocksDB 2.8 release
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/371/rocksdb-2-8-release/
 ---
 
 Check out the new RocksDB 2.8 release on [Github](https://github.com/facebook/rocksdb/releases/tag/2.8.fb).
 
-RocksDB 2.8. is mostly focused on improving performance for in-memory workloads. We are seeing read QPS as high as 5M (we will write a separate blog post on this). Here is the summary of new features:
+RocksDB 2.8. is mostly focused on improving performance for in-memory workloads. We are seeing read QPS as high as 5M (we will write a separate blog post on this).
 
+<!--truncate-->
 
-
+Here is the summary of new features:
 
   * Added a new table format called PlainTable, which is optimized for RAM storage (ramfs or tmpfs). You can read more details about it on [our wiki](https://github.com/facebook/rocksdb/wiki/PlainTable-Format).
 

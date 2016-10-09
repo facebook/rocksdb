@@ -24,6 +24,7 @@
 #include "rocksdb/utilities/transaction_db_mutex.h"
 #include "util/autovector.h"
 #include "util/murmurhash.h"
+#include "util/sync_point.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/transaction_db_impl.h"
 
@@ -213,7 +214,7 @@ bool TransactionLockMgr::IsLockExpired(const LockInfo& lock_info, Env* env,
   return expired;
 }
 
-Status TransactionLockMgr::TryLock(const TransactionImpl* txn,
+Status TransactionLockMgr::TryLock(TransactionImpl* txn,
                                    uint32_t column_family_id,
                                    const std::string& key, Env* env) {
   // Lookup lock map for this column family id
@@ -232,18 +233,18 @@ Status TransactionLockMgr::TryLock(const TransactionImpl* txn,
   assert(lock_map->lock_map_stripes_.size() > stripe_num);
   LockMapStripe* stripe = lock_map->lock_map_stripes_.at(stripe_num);
 
-  LockInfo lock_info(txn->GetTxnID(), txn->GetExpirationTime());
+  LockInfo lock_info(txn->GetID(), txn->GetExpirationTime());
   int64_t timeout = txn->GetLockTimeout();
 
-  return AcquireWithTimeout(lock_map, stripe, key, env, timeout, lock_info);
+  return AcquireWithTimeout(txn, lock_map, stripe, column_family_id, key, env,
+                            timeout, lock_info);
 }
 
 // Helper function for TryLock().
-Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
-                                              LockMapStripe* stripe,
-                                              const std::string& key, Env* env,
-                                              int64_t timeout,
-                                              const LockInfo& lock_info) {
+Status TransactionLockMgr::AcquireWithTimeout(
+    TransactionImpl* txn, LockMap* lock_map, LockMapStripe* stripe,
+    uint32_t column_family_id, const std::string& key, Env* env,
+    int64_t timeout, const LockInfo& lock_info) {
   Status result;
   uint64_t start_time = 0;
   uint64_t end_time = 0;
@@ -267,8 +268,9 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
 
   // Acquire lock if we are able to
   uint64_t expire_time_hint = 0;
-  result =
-      AcquireLocked(lock_map, stripe, key, env, lock_info, &expire_time_hint);
+  TransactionID wait_id = 0;
+  result = AcquireLocked(lock_map, stripe, key, env, lock_info,
+                         &expire_time_hint, &wait_id);
 
   if (!result.ok() && timeout != 0) {
     // If we weren't able to acquire the lock, we will keep retrying as long
@@ -287,6 +289,9 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
         cv_end_time = end_time;
       }
 
+      assert(result.IsBusy() || wait_id != 0);
+      txn->SetWaitingTxn(wait_id, column_family_id, &key);
+      TEST_SYNC_POINT("TransactionLockMgr::AcquireWithTimeout:WaitingTxn");
       if (cv_end_time < 0) {
         // Wait indefinitely
         result = stripe->stripe_cv->Wait(stripe->stripe_mutex);
@@ -297,6 +302,7 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
                                               cv_end_time - now);
         }
       }
+      txn->SetWaitingTxn(0, 0, nullptr);
 
       if (result.IsTimedOut()) {
           timed_out = true;
@@ -307,7 +313,7 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
 
       if (result.ok() || result.IsTimedOut()) {
         result = AcquireLocked(lock_map, stripe, key, env, lock_info,
-                               &expire_time_hint);
+                               &expire_time_hint, &wait_id);
       }
     } while (!result.ok() && !timed_out);
   }
@@ -325,7 +331,8 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
                                          LockMapStripe* stripe,
                                          const std::string& key, Env* env,
                                          const LockInfo& txn_lock_info,
-                                         uint64_t* expire_time) {
+                                         uint64_t* expire_time,
+                                         TransactionID* txn_id) {
   Status result;
   // Check if this key is already locked
   if (stripe->keys.find(key) != stripe->keys.end()) {
@@ -341,6 +348,7 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
         // lock_cnt does not change
       } else {
         result = Status::TimedOut(Status::SubCode::kLockTimeout);
+        *txn_id = lock_info.txn_id;
       }
     }
   } else {  // Lock not held.
@@ -376,7 +384,7 @@ void TransactionLockMgr::UnLock(TransactionImpl* txn, uint32_t column_family_id,
   assert(lock_map->lock_map_stripes_.size() > stripe_num);
   LockMapStripe* stripe = lock_map->lock_map_stripes_.at(stripe_num);
 
-  TransactionID txn_id = txn->GetTxnID();
+  TransactionID txn_id = txn->GetID();
 
   stripe->stripe_mutex->Lock();
 
@@ -404,7 +412,7 @@ void TransactionLockMgr::UnLock(TransactionImpl* txn, uint32_t column_family_id,
 
 void TransactionLockMgr::UnLock(const TransactionImpl* txn,
                                 const TransactionKeyMap* key_map, Env* env) {
-  TransactionID txn_id = txn->GetTxnID();
+  TransactionID txn_id = txn->GetID();
 
   for (auto& key_map_iter : *key_map) {
     uint32_t column_family_id = key_map_iter.first;
@@ -464,6 +472,41 @@ void TransactionLockMgr::UnLock(const TransactionImpl* txn,
       stripe->stripe_cv->NotifyAll();
     }
   }
+}
+
+TransactionLockMgr::LockStatusData TransactionLockMgr::GetLockStatusData() {
+  LockStatusData data;
+  std::vector<uint32_t> cf_ids;
+
+  // Lock order here is important. The correct order is lock_map_mutex_, then
+  // for every column family ID in ascending order lock every stripe in
+  // ascending order.
+  InstrumentedMutexLock l(&lock_map_mutex_);
+
+  for (const auto& lock_map_iter : lock_maps_) {
+    uint32_t cf_id = lock_map_iter.first;
+    cf_ids.push_back(cf_id);
+    const auto& lock_map = lock_map_iter.second;
+
+    // Iterate and lock all stripes in ascending order.
+    for (const auto& stripe : lock_map->lock_map_stripes_) {
+      stripe->stripe_mutex->Lock();
+      // Iterate through all keys in stripe, and copy to data.
+      for (const auto& it : stripe->keys) {
+        data.insert({cf_id, {it.first, it.second.txn_id}});
+      }
+    }
+  }
+
+  // Unlock everything. Unlocking order is not important.
+  for (auto i : cf_ids) {
+    const auto stripes = lock_maps_[i]->lock_map_stripes_;
+    for (const auto j : stripes) {
+      j->stripe_mutex->UnLock();
+    }
+  }
+
+  return data;
 }
 
 }  //  namespace rocksdb

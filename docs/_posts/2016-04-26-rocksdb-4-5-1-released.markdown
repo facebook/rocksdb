@@ -3,6 +3,8 @@ title: RocksDB 4.5.1 Released!
 layout: post
 author: sdong
 category: blog
+redirect_from:
+  - /blog/3179/rocksdb-4-5-1-released/
 ---
 
 ## 4.5.1 (3/25/2016)
@@ -27,6 +29,8 @@ category: blog
   * Add DBOptions::sst_file_manager. Use NewSstFileManager() in include/rocksdb/sst_file_manager.h to create a SstFileManager that can be used to track the total size of SST files and control the SST files deletion rate.
 
 <br/>
+
+<!--truncate-->
 
 ## 4.4.0 (1/14/2016)
 

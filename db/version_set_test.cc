@@ -109,8 +109,8 @@ class VersionStorageInfoTest : public testing::Test {
         logger_(new CountingLogger()),
         options_(GetOptionsWithNumLevels(6, logger_)),
         ioptions_(options_),
-        mutable_cf_options_(options_, ioptions_),
-        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel, nullptr) {}
+        mutable_cf_options_(options_),
+        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel, nullptr, false) {}
 
   ~VersionStorageInfoTest() {
     for (int i = 0; i < vstorage_.num_levels(); i++) {

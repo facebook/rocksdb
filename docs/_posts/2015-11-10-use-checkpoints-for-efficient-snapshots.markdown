@@ -3,11 +3,13 @@ title: Use Checkpoints for Efficient Snapshots
 layout: post
 author: rven2
 category: blog
+redirect_from:
+  - /blog/2609/use-checkpoints-for-efficient-snapshots/
 ---
 
 **Checkpoint** is a feature in RocksDB which provides the ability to take a snapshot of a running RocksDB database in a separate directory. Checkpoints can be used as a point in time snapshot, which can be opened Read-only to query rows as of the point in time or as a Writeable snapshot by opening it Read-Write. Checkpoints can be used for both full and incremental backups.
 
-
+<!--truncate-->
 
 
 The Checkpoint feature enables RocksDB to create a consistent snapshot of a given RocksDB database in the specified directory. If the snapshot is on the same filesystem as the original database, the SST files will be hard-linked, otherwise SST files will be copied. The manifest and CURRENT files will be copied. In addition, if there are multiple column families, log files will be copied for the period covering the start and end of the checkpoint, in order to provide a consistent snapshot across column families.

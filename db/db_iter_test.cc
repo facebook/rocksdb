@@ -117,6 +117,11 @@ class TestIterator : public InternalIterator {
     }
   }
 
+  virtual void SeekForPrev(const Slice& target) override {
+    assert(initialized_);
+    SeekForPrevImpl(target, &cmp);
+  }
+
   virtual void Next() override {
     assert(initialized_);
     if (data_.empty() || (iter_ == data_.size() - 1)) {
@@ -1726,6 +1731,15 @@ TEST_F(DBIteratorTest, DBIterator9) {
     ASSERT_EQ(db_iter->key().ToString(), "a");
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
 
+    db_iter->SeekForPrev("b");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_5,merge_6");
+
     db_iter->Seek("c");
     ASSERT_TRUE(db_iter->Valid());
     ASSERT_EQ(db_iter->key().ToString(), "d");
@@ -1734,6 +1748,15 @@ TEST_F(DBIteratorTest, DBIterator9) {
     ASSERT_TRUE(db_iter->Valid());
     ASSERT_EQ(db_iter->key().ToString(), "b");
     ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+
+    db_iter->SeekForPrev("c");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_5,merge_6");
   }
 }
 
@@ -1761,6 +1784,18 @@ TEST_F(DBIteratorTest, DBIterator10) {
   ASSERT_EQ(db_iter->value().ToString(), "2");
 
   db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "c");
+  ASSERT_EQ(db_iter->value().ToString(), "3");
+
+  db_iter->SeekForPrev("c");
+  ASSERT_TRUE(db_iter->Valid());
+  db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "d");
+  ASSERT_EQ(db_iter->value().ToString(), "4");
+
+  db_iter->Prev();
   ASSERT_TRUE(db_iter->Valid());
   ASSERT_EQ(db_iter->key().ToString(), "c");
   ASSERT_EQ(db_iter->value().ToString(), "3");
@@ -1842,7 +1877,7 @@ TEST_F(DBIteratorTest, DBIterator12) {
   ASSERT_FALSE(db_iter->Valid());
 }
 
-class DBIterWithMergeIterTest : public ::testing::TestWithParam<bool> {
+class DBIterWithMergeIterTest : public testing::Test {
  public:
   DBIterWithMergeIterTest()
       : env_(Env::Default()), icomp_(BytewiseComparator()) {
@@ -1865,11 +1900,9 @@ class DBIterWithMergeIterTest : public ::testing::TestWithParam<bool> {
     child_iters.push_back(internal_iter1_);
     child_iters.push_back(internal_iter2_);
     InternalKeyComparator icomp(BytewiseComparator());
-    if (GetParam() == false) {
-      options_.prefix_extractor.reset(NewFixedPrefixTransform(0));
-    }
-    InternalIterator* merge_iter = NewMergingIterator(
-        &icomp_, &child_iters[0], 2u, nullptr, options_.prefix_extractor.get());
+    InternalIterator* merge_iter =
+        NewMergingIterator(&icomp_, &child_iters[0], 2u);
+
     db_iter_.reset(NewDBIterator(env_, ImmutableCFOptions(options_),
                                  BytewiseComparator(), merge_iter,
                                  8 /* read data earlier than seqId 8 */,
@@ -1885,7 +1918,7 @@ class DBIterWithMergeIterTest : public ::testing::TestWithParam<bool> {
   std::unique_ptr<Iterator> db_iter_;
 };
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIterator1) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIterator1) {
   db_iter_->SeekToFirst();
   ASSERT_TRUE(db_iter_->Valid());
   ASSERT_EQ(db_iter_->key().ToString(), "a");
@@ -1914,9 +1947,9 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIterator1) {
   ASSERT_FALSE(db_iter_->Valid());
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIterator2) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIterator2) {
   // Test Prev() when one child iterator is at its end.
-  db_iter_->Seek("g");
+  db_iter_->SeekForPrev("g");
   ASSERT_TRUE(db_iter_->Valid());
   ASSERT_EQ(db_iter_->key().ToString(), "g");
   ASSERT_EQ(db_iter_->value().ToString(), "3");
@@ -1942,7 +1975,7 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIterator2) {
   ASSERT_EQ(db_iter_->value().ToString(), "4");
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
   // Test Prev() when one child iterator is at its end but more rows
   // are added.
   db_iter_->Seek("f");
@@ -1978,7 +2011,7 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace2) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace2) {
   // Test Prev() when one child iterator is at its end but more rows
   // are added.
   db_iter_->Seek("f");
@@ -2016,7 +2049,7 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace2) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
   // Test Prev() when one child iterator is at its end but more rows
   // are added and max_skipped is triggered.
   db_iter_->Seek("f");
@@ -2058,7 +2091,7 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
   // Test Prev() when one child iterator has more rows inserted
   // between Seek() and Prev() when changing directions.
   internal_iter2_->Add("z", kTypeValue, "9", 4u);
@@ -2109,7 +2142,7 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
   internal_iter2_->Add("z", kTypeValue, "9", 4u);
 
   // Test Prev() when one child iterator has more rows inserted
@@ -2156,7 +2189,7 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace6) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace6) {
   internal_iter2_->Add("z", kTypeValue, "9", 4u);
 
   // Test Prev() when one child iterator has more rows inserted
@@ -2202,7 +2235,7 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace6) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
   internal_iter1_->Add("u", kTypeValue, "10", 4u);
   internal_iter1_->Add("v", kTypeValue, "11", 4u);
   internal_iter1_->Add("w", kTypeValue, "12", 4u);
@@ -2256,7 +2289,7 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
   // internal_iter1_: a, f, g
   // internal_iter2_: a, b, c, d, adding (z)
   internal_iter2_->Add("z", kTypeValue, "9", 4u);
@@ -2292,10 +2325,6 @@ TEST_P(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
-
-INSTANTIATE_TEST_CASE_P(InnerMergeIteratorDataRaceInstance,
-                        DBIterWithMergeIterTest, ::testing::Bool());
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

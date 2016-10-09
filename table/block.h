@@ -271,6 +271,8 @@ class BlockIter : public InternalIterator {
 
   virtual void Seek(const Slice& target) override;
 
+  virtual void SeekForPrev(const Slice& target) override;
+
   virtual void SeekToFirst() override;
 
   virtual void SeekToLast() override;

@@ -40,8 +40,7 @@ struct CuckooStep {
 
   CuckooStep() : bucket_id_(-1), prev_step_id_(kNullStep), depth_(1) {}
 
-  // MSVC does not support = default yet
-  CuckooStep(CuckooStep&& o) ROCKSDB_NOEXCEPT { *this = std::move(o); }
+  CuckooStep(CuckooStep&& o) = default;
 
   CuckooStep& operator=(CuckooStep&& rhs) {
     bucket_id_ = std::move(rhs.bucket_id_);
@@ -152,6 +151,10 @@ class HashCuckooRep : public MemTableRep {
 
     // Advance to the first entry with a key >= target
     virtual void Seek(const Slice& user_key, const char* memtable_key) override;
+
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& user_key,
+                             const char* memtable_key) override;
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
@@ -592,6 +595,12 @@ void HashCuckooRep::Iterator::Seek(const Slice& user_key,
                           [this](const char* a, const char* b) {
                             return compare_(a, b) < 0;
                           }).first;
+}
+
+// Retreat to the last entry with a key <= target
+void HashCuckooRep::Iterator::SeekForPrev(const Slice& user_key,
+                                          const char* memtable_key) {
+  assert(false);
 }
 
 // Position at the first entry in collection.

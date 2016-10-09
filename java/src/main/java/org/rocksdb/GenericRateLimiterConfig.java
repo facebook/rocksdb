@@ -9,7 +9,9 @@ package org.rocksdb;
  * compaction.
  *
  * @see RateLimiterConfig
+ * @deprecated obsolete. See: {@link org.rocksdb.RateLimiter}.
  */
+@Deprecated
 public class GenericRateLimiterConfig extends RateLimiterConfig {
   private static final long DEFAULT_REFILL_PERIOD_MICROS = (100 * 1000);
   private static final int DEFAULT_FAIRNESS = 10;

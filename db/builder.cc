@@ -45,6 +45,7 @@ TableBuilder* NewTableBuilder(
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts,
+    int level,
     const std::string* compression_dict, const bool skip_filters) {
   assert((column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) ==
@@ -53,7 +54,7 @@ TableBuilder* NewTableBuilder(
       TableBuilderOptions(ioptions, internal_comparator,
                           int_tbl_prop_collector_factories, compression_type,
                           compression_opts, compression_dict, skip_filters,
-                          column_family_name),
+                          column_family_name, level),
       column_family_id, file);
 }
 
@@ -108,7 +109,7 @@ Status BuildTable(
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
           column_family_id, column_family_name, file_writer.get(), compression,
-          compression_opts);
+          compression_opts, level);
     }
 
     MergeHelper merge(env, internal_comparator.user_comparator(),

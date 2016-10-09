@@ -345,6 +345,27 @@ class PosixEnv : public Env {
     return s;
   }
 
+  virtual Status NewRandomRWFile(const std::string& fname,
+                                 unique_ptr<RandomRWFile>* result,
+                                 const EnvOptions& options) override {
+    int fd = -1;
+    while (fd < 0) {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
+      if (fd < 0) {
+        // Error while opening the file
+        if (errno == EINTR) {
+          continue;
+        }
+        return IOError(fname, errno);
+      }
+    }
+
+    SetFD_CLOEXEC(fd, &options);
+    result->reset(new PosixRandomRWFile(fname, fd, options));
+    return Status::OK();
+  }
+
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
     result->reset();

@@ -754,8 +754,43 @@ TEST_F(EventListenerTest, MemTableSealedListenerTest) {
     ASSERT_OK(Flush());
   }
 }
-} // namespace rocksdb
 
+class ColumnFamilyHandleDeletionStartedListener : public EventListener {
+ private:
+  std::vector<std::string> cfs_;
+  int counter;
+
+ public:
+  explicit ColumnFamilyHandleDeletionStartedListener(
+      const std::vector<std::string>& cfs)
+      : cfs_(cfs), counter(0) {
+    cfs_.insert(cfs_.begin(), kDefaultColumnFamilyName);
+  }
+  void OnColumnFamilyHandleDeletionStarted(
+      ColumnFamilyHandle* handle) override {
+    ASSERT_EQ(cfs_[handle->GetID()], handle->GetName());
+    counter++;
+  }
+  int getCounter() { return counter; }
+};
+
+TEST_F(EventListenerTest, ColumnFamilyHandleDeletionStartedListenerTest) {
+  std::vector<std::string> cfs{"pikachu", "eevee", "Mewtwo"};
+  auto listener =
+      std::make_shared<ColumnFamilyHandleDeletionStartedListener>(cfs);
+  Options options;
+  options.create_if_missing = true;
+  options.listeners.push_back(listener);
+  CreateAndReopenWithCF(cfs, options);
+  ASSERT_EQ(handles_.size(), 4);
+  delete handles_[3];
+  delete handles_[2];
+  delete handles_[1];
+  handles_.resize(1);
+  ASSERT_EQ(listener->getCounter(), 3);
+}
+
+}  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE
 

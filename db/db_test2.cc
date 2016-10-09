@@ -145,6 +145,22 @@ TEST_F(DBTest2, CacheIndexAndFilterWithDBRestart) {
   value = Get(1, "a");
 }
 
+TEST_F(DBTest2, MaxSuccessiveMergesChangeWithDBRecovery) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.max_successive_merges = 3;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  Put("poi", "Finch");
+  db_->Merge(WriteOptions(), "poi", "Reese");
+  db_->Merge(WriteOptions(), "poi", "Shaw");
+  db_->Merge(WriteOptions(), "poi", "Root");
+  options.max_successive_merges = 2;
+  Reopen(options);
+}
+
 #ifndef ROCKSDB_LITE
 class DBTestSharedWriteBufferAcrossCFs
     : public DBTestBase,
@@ -961,9 +977,9 @@ TEST_F(DBTest2, PresetCompressionDict) {
   compression_types.push_back(kLZ4Compression);
   compression_types.push_back(kLZ4HCCompression);
 #endif                          // LZ4_VERSION_NUMBER >= 10400
-#if ZSTD_VERSION_NUMBER >= 500  // v0.5.0+
-  compression_types.push_back(kZSTDNotFinalCompression);
-#endif  // ZSTD_VERSION_NUMBER >= 500
+  if (ZSTD_Supported()) {
+    compression_types.push_back(kZSTD);
+  }
 
   for (auto compression_type : compression_types) {
     options.compression = compression_type;
@@ -1889,23 +1905,6 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
 }
 #endif  // ROCKSDB_LITE
 
-TEST_F(DBTest2, MaxSuccessiveMergesInRecovery) {
-  Options options;
-  options = CurrentOptions(options);
-  options.merge_operator = MergeOperators::CreatePutOperator();
-  DestroyAndReopen(options);
-
-  db_->Put(WriteOptions(), "foo", "bar");
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-  ASSERT_OK(db_->Merge(WriteOptions(), "foo", "bar"));
-
-  options.max_successive_merges = 3;
-  Reopen(options);
-}
-
 size_t GetEncodedEntrySize(size_t key_size, size_t value_size) {
   std::string buffer;
 
@@ -2065,7 +2064,6 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
   ASSERT_EQ(total_useful_bytes_iter1 + total_useful_bytes_iter2,
             total_loaded_bytes_iter1 + total_loaded_bytes_iter2);
 }
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

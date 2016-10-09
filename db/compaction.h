@@ -35,6 +35,7 @@ class CompactionFilter;
 class Compaction {
  public:
   Compaction(VersionStorageInfo* input_version,
+             const ImmutableCFOptions& immutable_cf_options,
              const MutableCFOptions& mutable_cf_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
              uint64_t target_file_size, uint64_t max_compaction_bytes,
@@ -171,6 +172,12 @@ class Compaction {
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
+  // Return the ImmutableCFOptions that should be used throughout the compaction
+  // procedure
+  const ImmutableCFOptions* immutable_cf_options() const {
+    return &immutable_cf_options_;
+  }
+
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
   const MutableCFOptions* mutable_cf_options() const {
@@ -253,7 +260,8 @@ class Compaction {
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
   uint64_t max_compaction_bytes_;
-  MutableCFOptions mutable_cf_options_;
+  const ImmutableCFOptions immutable_cf_options_;
+  const MutableCFOptions mutable_cf_options_;
   Version* input_version_;
   VersionEdit edit_;
   const int number_levels_;

@@ -8,20 +8,82 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include <limits>
 #include <string>
+#include <unordered_map>
 
+#include "db/column_family.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "rocksdb/convenience.h"
+#include "util/options_helper.h"
+#include "util/random.h"
 #include "util/sync_point.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 
 class DBOptionsTest : public DBTestBase {
  public:
   DBOptionsTest() : DBTestBase("/db_options_test") {}
+
+#ifndef ROCKSDB_LITE
+  std::unordered_map<std::string, std::string> GetMutableCFOptionsMap(
+      const ColumnFamilyOptions& options) {
+    std::string options_str;
+    GetStringFromColumnFamilyOptions(&options_str, options);
+    std::unordered_map<std::string, std::string> options_map;
+    StringToMap(options_str, &options_map);
+    std::unordered_map<std::string, std::string> mutable_map;
+    for (const auto opt : cf_options_type_info) {
+      if (opt.second.is_mutable &&
+          opt.second.verification != OptionVerificationType::kDeprecated) {
+        mutable_map[opt.first] = options_map[opt.first];
+      }
+    }
+    return mutable_map;
+  }
+
+  std::unordered_map<std::string, std::string> GetRandomizedMutableCFOptionsMap(
+      Random* rnd) {
+    Options options;
+    ImmutableDBOptions db_options(options);
+    test::RandomInitCFOptions(&options, rnd);
+    auto sanitized_options = SanitizeOptions(db_options, nullptr, options);
+    auto opt_map = GetMutableCFOptionsMap(sanitized_options);
+    delete options.compaction_filter;
+    return opt_map;
+  }
+#endif  // ROCKSDB_LITE
 };
 
 // RocksDB lite don't support dynamic options.
 #ifndef ROCKSDB_LITE
+
+TEST_F(DBOptionsTest, GetLatestOptions) {
+  // GetOptions should be able to get latest option changed by SetOptions.
+  Options options;
+  options.create_if_missing = true;
+  Random rnd(228);
+  Reopen(options);
+  CreateColumnFamilies({"foo"}, options);
+  ReopenWithColumnFamilies({"default", "foo"}, options);
+  auto options_default = GetRandomizedMutableCFOptionsMap(&rnd);
+  auto options_foo = GetRandomizedMutableCFOptionsMap(&rnd);
+  ASSERT_OK(dbfull()->SetOptions(handles_[0], options_default));
+  ASSERT_OK(dbfull()->SetOptions(handles_[1], options_foo));
+  ASSERT_EQ(options_default,
+            GetMutableCFOptionsMap(dbfull()->GetOptions(handles_[0])));
+  ASSERT_EQ(options_foo,
+            GetMutableCFOptionsMap(dbfull()->GetOptions(handles_[1])));
+}
+
+TEST_F(DBOptionsTest, SetOptionsAndReopen) {
+  Random rnd(1044);
+  auto rand_opts = GetRandomizedMutableCFOptionsMap(&rnd);
+  ASSERT_OK(dbfull()->SetOptions(rand_opts));
+  // Verify if DB can be reopen after setting options.
+  Options options;
+  ASSERT_OK(TryReopen(options));
+}
 
 TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
   const std::string kValue(1024, 'v');
@@ -124,6 +186,24 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
       ASSERT_FALSE(dbfull()->TEST_write_controler().NeedsDelay());
     }
   }
+}
+
+TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
+  Options options;
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 1000;
+  Reopen(options);
+  for (int i = 0; i < 3; i++) {
+    // Need to insert two keys to avoid trivial move.
+    ASSERT_OK(Put("foo", ToString(i)));
+    ASSERT_OK(Put("bar", ToString(i)));
+    Flush();
+  }
+  ASSERT_EQ("3", FilesPerLevel());
+  ASSERT_OK(
+      dbfull()->SetOptions({{"level0_file_num_compaction_trigger", "3"}}));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,1", FilesPerLevel());
 }
 
 #endif  // ROCKSDB_LITE

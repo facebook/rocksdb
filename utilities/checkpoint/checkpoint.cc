@@ -31,7 +31,7 @@ namespace rocksdb {
 
 class CheckpointImpl : public Checkpoint {
  public:
-  // Creates a Checkpoint object to be used for creating openable sbapshots
+  // Creates a Checkpoint object to be used for creating openable snapshots
   explicit CheckpointImpl(DB* db) : db_(db) {}
 
   // Builds an openable snapshot of RocksDB on the same disk, which

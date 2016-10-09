@@ -43,6 +43,7 @@ class ManagedIterator : public Iterator {
   virtual bool Valid() const override;
   void SeekToFirst() override;
   virtual void Seek(const Slice& target) override;
+  virtual void SeekForPrev(const Slice& target) override;
   virtual void Next() override;
   virtual Slice key() const override;
   virtual Slice value() const override;

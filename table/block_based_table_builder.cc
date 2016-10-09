@@ -377,6 +377,7 @@ Slice CompressBlock(const Slice& raw,
         return *compressed_output;
       }
       break;
+    case kZSTD:
     case kZSTDNotFinalCompression:
       if (ZSTD_Compress(compression_options, raw.data(), raw.size(),
                         compressed_output, compression_dict) &&
@@ -622,6 +623,11 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     // TODO(wanning&andrewkr) add num_tomestone to table properties
     r->range_del_block.Add(key, value);
     ++r->props.num_entries;
+    r->props.raw_key_size += key.size();
+    r->props.raw_value_size += value.size();
+    NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
+                                      r->table_properties_collectors,
+                                      r->ioptions.info_log);
   } else {
     assert(false);
   }

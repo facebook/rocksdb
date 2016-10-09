@@ -3,9 +3,13 @@ title: How to persist in-memory RocksDB database?
 layout: post
 author: icanadi
 category: blog
+redirect_from:
+  - /blog/245/how-to-persist-in-memory-rocksdb-database/
 ---
 
 In recent months, we have focused on optimizing RocksDB for in-memory workloads. With growing RAM sizes and strict low-latency requirements, lots of applications decide to keep their entire data in memory. Running in-memory database with RocksDB is easy -- just mount your RocksDB directory on tmpfs or ramfs [1]. Even if the process crashes, RocksDB can recover all of your data from in-memory filesystem. However, what happens if the machine reboots?
+
+<!--truncate-->
 
 In this article we will explain how you can recover your in-memory RocksDB database even after a machine reboot.
 

@@ -49,8 +49,8 @@ class BlockCacheTier : public PersistentCacheTier {
   }
 
   virtual ~BlockCacheTier() {
-    // By contract, the user should have called stop before destroying the
-    // object
+    // Close is re-entrant so we can call close even if it is already closed
+    Close();
     assert(!insert_th_.joinable());
   }
 

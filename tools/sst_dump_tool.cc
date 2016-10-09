@@ -185,25 +185,26 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
 
   fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
 
-  std::pair<CompressionType,const char*> compressions[] = {
-    { CompressionType::kNoCompression, "kNoCompression" },
-    { CompressionType::kSnappyCompression, "kSnappyCompression" },
-    { CompressionType::kZlibCompression, "kZlibCompression" },
-    { CompressionType::kBZip2Compression, "kBZip2Compression" },
-    { CompressionType::kLZ4Compression, "kLZ4Compression" },
-    { CompressionType::kLZ4HCCompression, "kLZ4HCCompression" },
-    { CompressionType::kXpressCompression, "kXpressCompression" },
-    { CompressionType::kZSTDNotFinalCompression, "kZSTDNotFinalCompression" }
-  };
+  std::pair<CompressionType, const char*> compressions[] = {
+      {CompressionType::kNoCompression, "kNoCompression"},
+      {CompressionType::kSnappyCompression, "kSnappyCompression"},
+      {CompressionType::kZlibCompression, "kZlibCompression"},
+      {CompressionType::kBZip2Compression, "kBZip2Compression"},
+      {CompressionType::kLZ4Compression, "kLZ4Compression"},
+      {CompressionType::kLZ4HCCompression, "kLZ4HCCompression"},
+      {CompressionType::kXpressCompression, "kXpressCompression"},
+      {CompressionType::kZSTD, "kZSTD"}};
 
   for (auto& i : compressions) {
     if (CompressionTypeSupported(i.first)) {
       CompressionOptions compress_opt;
       std::string column_family_name;
+      int unknown_level = -1;
       TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories,
                                   i.first, compress_opt,
                                   nullptr /* compression_dict */,
-                                  false /* skip_filters */, column_family_name);
+                                  false /* skip_filters */, column_family_name,
+                                  unknown_level);
       uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
       fprintf(stdout, "Compression: %s", i.second);
       fprintf(stdout, " Size: %" PRIu64 "\n", file_size);

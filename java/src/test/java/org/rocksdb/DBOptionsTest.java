@@ -403,6 +403,18 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void rateLimiter() {
+    try(final DBOptions options = new DBOptions();
+        final DBOptions anotherOptions = new DBOptions()) {
+      final RateLimiter rateLimiter = new RateLimiter(1000, 100 * 1000, 1);
+      options.setRateLimiter(rateLimiter);
+      // Test with parameter initialization
+      anotherOptions.setRateLimiter(
+          new RateLimiter(1000));
+    }
+  }
+
+  @Test
   public void statistics() {
     try(final DBOptions options = new DBOptions()) {
       Statistics statistics = options.createStatistics().

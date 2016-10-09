@@ -28,6 +28,8 @@ class FlushJobTest : public testing::Test {
   FlushJobTest()
       : env_(Env::Default()),
         dbname_(test::TmpDir() + "/flush_job_test"),
+        options_(),
+        db_options_(options_),
         table_cache_(NewLRUCache(50000, 16)),
         write_buffer_manager_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
@@ -74,9 +76,10 @@ class FlushJobTest : public testing::Test {
   Env* env_;
   std::string dbname_;
   EnvOptions env_options_;
+  Options options_;
+  ImmutableDBOptions db_options_;
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
-  DBOptions db_options_;
   WriteBufferManager write_buffer_manager_;
   ColumnFamilyOptions cf_options_;
   std::unique_ptr<VersionSet> versions_;

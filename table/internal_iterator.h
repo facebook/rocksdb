@@ -7,6 +7,7 @@
 #pragma once
 
 #include <string>
+#include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/status.h"
 
@@ -35,6 +36,11 @@ class InternalIterator : public Cleanable {
   // The iterator is Valid() after this call iff the source contains
   // an entry that comes at or past target.
   virtual void Seek(const Slice& target) = 0;
+
+  // Position at the first key in the source that at or before target
+  // The iterator is Valid() after this call iff the source contains
+  // an entry that comes at or before target.
+  virtual void SeekForPrev(const Slice& target) = 0;
 
   // Moves to the next entry in the source.  After this call, Valid() is
   // true iff the iterator was not positioned at the last entry in the source.
@@ -89,7 +95,16 @@ class InternalIterator : public Cleanable {
     return Status::NotSupported("");
   }
 
-  virtual void ResetPrefix(const Slice* prefix = nullptr) {}
+ protected:
+  void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {
+    Seek(target);
+    if (!Valid()) {
+      SeekToLast();
+    }
+    while (Valid() && cmp->Compare(target, key()) < 0) {
+      Prev();
+    }
+  }
 
  private:
   // No copying allowed
