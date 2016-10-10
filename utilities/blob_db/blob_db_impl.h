@@ -91,8 +91,6 @@ class BlobDBImpl : public BlobDB {
   // this holds BlobFile mutex
   Status createWriter_locked(BlobFile *bfile, bool reopen = false);
 
-  Status ReadFooter(BlobFile *bfile, blob_log::BlobLogFooter& footer);
-
   Status writeBatchOfDeleteKeys(BlobFile *bfptr);
 
   bool TryDeleteFile(std::shared_ptr<BlobFile>& bfile);
@@ -113,6 +111,7 @@ class BlobDBImpl : public BlobDB {
   std::string dbname_;
   std::string blob_dir_;
 
+  //RWMutex mutex_;
   InstrumentedMutex mutex_;
 
   std::unique_ptr<blob_log::Writer> current_log_writer_;
@@ -157,13 +156,13 @@ class BlobFile {
 
    std::shared_ptr<RandomAccessFileReader> ra_file_reader_;
 
-   std::unique_ptr<SequentialFile> sfile_;
-   std::unique_ptr<SequentialFileReader> sfile_reader_;
-   std::unique_ptr<blob_log::Reader> log_reader_;
+   std::shared_ptr<blob_log::Reader> log_reader_;
 
    InstrumentedMutex mutex_;
 
-   Status createSequentialReader(Env *env, const DBOptions& db_options, const EnvOptions& env_options);
+   std::shared_ptr<blob_log::Reader> openSequentialReader_locked(
+     Env *env, const DBOptions& db_options,
+     const EnvOptions& env_options);
 
    void canBeDeleted() { can_be_deleted_ = true; }
 
@@ -173,7 +172,7 @@ class BlobFile {
 
   BlobFile(const std::string& bdir, uint64_t fnum);
   
-  ~BlobFile() {}
+  ~BlobFile();
 
   bool Obsolete() const { return can_be_deleted_; }
 
@@ -188,7 +187,7 @@ class BlobFile {
 
   uint64_t BlobCount() const { return blob_count_; }
 
-  blob_log::Reader* GetReader() const { return log_reader_.get(); }
+  std::shared_ptr<blob_log::Reader> GetReader() const { return log_reader_; }
 
   std::shared_ptr<blob_log::Writer> GetWriter() const { return log_writer_; }
 
@@ -217,6 +216,8 @@ class BlobFile {
   Status WriteFooterAndClose_locked();
 
   uint64_t GetFileSize() const { return file_size_.load(); }
+
+  Status ReadFooter(blob_log::BlobLogFooter& footer, bool close_reader = false);
 
  private:
 

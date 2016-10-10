@@ -35,7 +35,6 @@
 // create an option which is just based on size of disk
 // create GC thread which evicts based on et-lt
 // create GC thread which evicts based on size of disk like FIFO
-// close the file after size has been reached and create a new file.
 // on startup have a recovery function which reads all files.
 // instead of TTL, use timestamp of the data.
 using std::chrono::system_clock;
@@ -290,16 +289,18 @@ Status BlobDBImpl::openAllFiles()
 
     std::shared_ptr<BlobFile> bfptr = std::make_shared<BlobFile>(blob_dir_, f_iter.first);
     bfptr->setFileSize(size_bytes);
+    bfptr->openRandomAccess_locked(ioptions_.env, env_options_);
 
     blob_log::BlobLogFooter bf;
-    s1 = ReadFooter(bfptr.get(), bf);
+    s1 = bfptr->ReadFooter(bf, true);
 
     if (s1.ok()) {
       bfptr->setFromFooter(bf);
     } else {
 
       // sequentially iterate over the file and read all the records
-      s1 = bfptr->createSequentialReader(db_->GetEnv(),
+      std::shared_ptr<blob_log::Reader> reader;
+      reader = bfptr->openSequentialReader_locked(db_->GetEnv(),
         db_options_, env_options_);
       if (!s1.ok()) {
         // report something here.
@@ -312,8 +313,6 @@ Status BlobDBImpl::openAllFiles()
         // close the file
         continue;
       }
-
-      blob_log::Reader *reader = bfptr->GetReader();
 
       uint64_t blob_count = 0;
       ttlrange_t ttl_range(std::numeric_limits<uint32_t>::max(),
@@ -376,26 +375,24 @@ Status BlobDBImpl::openAllFiles()
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
-Status BlobDBImpl::ReadFooter(BlobFile *bfile, blob_log::BlobLogFooter& bf) {
+Status BlobFile::ReadFooter(blob_log::BlobLogFooter& bf, bool close_reader) {
 
-  assert (bfile != nullptr);
   Slice result;
   char scratch[blob_log::BlobLogFooter::kFooterSize+10];
+  uint64_t footer_offset = GetFileSize() - blob_log::BlobLogFooter::kFooterSize;
 
-  std::shared_ptr<RandomAccessFileReader> reader;
-  {
-    InstrumentedMutexLock lockbfile(&bfile->mutex_);
-    reader  = bfile->openRandomAccess_locked(ioptions_.env, env_options_);
+  // assume that ra_file_reader_ is valid before we enter this
+  Status s = ra_file_reader_->Read(footer_offset,
+        blob_log::BlobLogFooter::kFooterSize, &result, scratch);
+
+  // if we don't close the reader, we don't need to take any locks.
+  if (close_reader) {
+    InstrumentedMutexLock lockbfile(&mutex_);
+    ra_file_reader_.reset();
   }
 
-  uint64_t footer_offset = bfile->GetFileSize() -
-    blob_log::BlobLogFooter::kFooterSize;
-
-  Status s = reader->Read(footer_offset, blob_log::BlobLogFooter::kFooterSize,
-      &result, scratch);
-  if (!s.ok()) {
+  if (!s.ok())
     return s;
-  }
 
   s = bf.DecodeFrom(&result);
   return s;
@@ -472,7 +469,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::findBlobFile_locked(uint32_t expiration) c
 ////////////////////////////////////////////////////////////////////////////////
 std::shared_ptr<blob_log::Writer> BlobDBImpl::checkOrCreateWriter_locked(BlobFile *bfile) {
   std::shared_ptr<blob_log::Writer> writer = bfile->GetWriter();
-  if (!writer.get()) {
+  if (!writer) {
     Status s = createWriter_locked(bfile, true);
     if (!s.ok())
       return writer;
@@ -509,7 +506,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
         return s;
       }
     }
-    // bfile cannot be deleted beyond this, because of 
+    // bfile cannot be deleted beyond this, because of
     // shared_ptr
   }
 
@@ -644,20 +641,34 @@ void BlobDBImpl::shutdown()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// iterate over the blobs sequentially and check if the blob sequence number
+// is the latest. If it is the latest, preserve it, otherwise delete it
+// if it is TTL based, and the TTL has expired, then
+// we can blow the entity if the key is still the latest or the Key is not
+// found
+// WHAT HAPPENS IF THE KEY HAS BEEN OVERRIDEN. Then we can drop the blob
+// without doing anything if the earliest snapshot is not
+// refering to that sequence number, i.e. it is later than the sequence number
+// of the new key
 //
-//
+// if it is not TTL based, then we can blow the key if the key has been
+// DELETED in the LSM
 ////////////////////////////////////////////////////////////////////////////////
 Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
 {
-  Status s;
-  // sequentially iterate over the file and read all the records
-  s = bfptr->createSequentialReader(db_->GetEnv(), db_options_, env_options_);
-  if (!s.ok()) {
-    // report something here.
-    return s;
+  std::shared_ptr<blob_log::Reader> reader;
+  {
+    InstrumentedMutexLock lockbfile(&(bfptr->mutex_));
+    // sequentially iterate over the file and read all the records
+    reader = bfptr->openSequentialReader_locked(db_->GetEnv(), db_options_,
+      env_options_);
+    if (!reader) {
+      // report something here.
+      return Status::IOError("failed to create sequential reader");
+    }
   }
 
-  s = bfptr->ReadHeader();
+  Status s = bfptr->ReadHeader();
   if (!s.ok()) {
     // report something here.
     // close the file
@@ -668,7 +679,6 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
   auto cfhi = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh);
   auto cfd = cfhi->cfd();
 
-  blob_log::Reader *reader = bfptr->GetReader();
   uint64_t blob_count = 0;
   blob_log::BlobLogRecord record;
 
@@ -696,7 +706,6 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
     if (!s.ok())
       continue;
 
-    //otxn->TrackKey(cfh->GetID(), record.Key().ToString(), seq, false);
     if (!found_record_for_key || seq == record.GetSN()) {
       // stil could have a TOCTOU
       txn->Delete(cfh, record.Key());
@@ -708,6 +717,7 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
   // Now write the
   db_impl_->ReturnAndCleanupSuperVersion(cfd, sv);
 
+  // if this fails, we should try to preserve the write batch.
   if (s.IsBusy()) {
     return s;
   }
@@ -728,6 +738,8 @@ bool BlobDBImpl::TryDeleteFile(std::shared_ptr<BlobFile>& bfile) {
 
    SequenceNumber esn = bfile->GetSNRange().first;
 
+   // this is not correct.
+   // you want to check that there are no snapshots in the
    bool notok = db_impl_->HasActiveSnapshotLaterThanSN(esn);
    if (notok)
      return false;
@@ -769,8 +781,20 @@ void BlobDBImpl::runGC() {
 
     last_time_run = tt;
 
-    for (auto itr = blob_files_.begin(); itr != blob_files_.end(); ++itr) {
-      std::shared_ptr<BlobFile> bfile = itr->second;
+    std::vector<std::shared_ptr<BlobFile> > blob_files;
+    {
+      // take a copy
+      InstrumentedMutexLock l(&mutex_);
+      blob_files.reserve(blob_files_.size());
+      for (auto const& ent : blob_files_) {
+        blob_files.push_back(ent.second);
+      }
+    }
+
+    for (auto bfile: blob_files) {
+      // File can be obsolete
+      // File can be Open for Writes
+      // File can be closed
 
       // in a previous pass, this file was marked obsolete
       if (bfile->Obsolete()) {
@@ -825,6 +849,16 @@ BlobFile::BlobFile(const std::string& bdir, uint64_t fn)
 {
 }
 
+BlobFile::~BlobFile()
+{
+  if (can_be_deleted_) {
+    Status s = Env::Default()->DeleteFile(PathName());
+     if (!s.ok()) {
+       // report something
+     }
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 //
@@ -837,20 +871,26 @@ std::string BlobFile::PathName() const {
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
-Status BlobFile::createSequentialReader(Env *env, const DBOptions& db_options,
-  const EnvOptions& env_options)
+std::shared_ptr<blob_log::Reader> BlobFile::openSequentialReader_locked(
+  Env *env, const DBOptions& db_options, const EnvOptions& env_options)
 {
-  Status s = env->NewSequentialFile(PathName(), &sfile_, env_options);
+  if (log_reader_)
+    return log_reader_;
+
+  std::unique_ptr<SequentialFile> sfile;
+  Status s = env->NewSequentialFile(PathName(), &sfile, env_options);
   if (!s.ok()) {
     // report something here.
-    return s;
+    return log_reader_;
   }
 
-  sfile_reader_.reset(new SequentialFileReader(std::move(sfile_)));
-  log_reader_.reset(new blob_log::Reader(db_options.info_log, std::move(sfile_reader_), nullptr,
-      true, 0, file_number_));
+  std::unique_ptr<SequentialFileReader> sfile_reader;
+  sfile_reader.reset(new SequentialFileReader(std::move(sfile)));
 
-  return s;
+  log_reader_ = std::make_shared<blob_log::Reader>(db_options.info_log,
+    std::move(sfile_reader), nullptr, true, 0, file_number_);
+
+  return log_reader_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
