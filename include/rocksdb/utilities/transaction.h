@@ -416,7 +416,7 @@ class Transaction {
     LOCKS_STOLEN = 7,
   };
 
-  TransactionState GetState() { return txn_state_; }
+  TransactionState GetState() const { return txn_state_; }
   void SetState(TransactionState state) { txn_state_ = state; }
 
  protected:
