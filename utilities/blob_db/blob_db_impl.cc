@@ -255,7 +255,7 @@ Status BlobDBImpl::Open() {
 ////////////////////////////////////////////////////////////////////////////////
 Status BlobDBImpl::openAllFiles()
 {
-  InstrumentedMutexLock l(&mutex_);
+  WriteLock wl(&mutex_);
 
   std::vector<std::string> all_files;
   Status status = db_->GetEnv()->GetChildren(blob_dir_, &all_files);
@@ -493,22 +493,24 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
 
   std::shared_ptr<BlobFile> bfile;
   {
-    InstrumentedMutexLock l(&mutex_);
+    ReadLock rl(&mutex_);
     bfile = findBlobFile_locked(expiration);
-    if (!bfile)  {
-      ttlrange_t ttl_guess = std::make_pair(expiration, expiration + 3600);
-
-      // this opens a new file with TTL support
-      Status s = openNewFileWithTTL_locked(ttl_guess, bfile);
-
-      if (!s.ok() || !bfile) {
-        // show some error
-        return s;
-      }
-    }
-    // bfile cannot be deleted beyond this, because of
-    // shared_ptr
   }
+  if (!bfile)  {
+    ttlrange_t ttl_guess = std::make_pair(expiration, expiration + 3600);
+
+    WriteLock wl(&mutex_);
+    // this opens a new file with TTL support
+    Status s = openNewFileWithTTL_locked(ttl_guess, bfile);
+
+    if (!s.ok() || !bfile) {
+      // show some error
+      return s;
+    }
+  }
+
+  // bfile cannot be deleted beyond this, because of
+  // shared_ptr
 
   BlockHandle handle;
   std::string index_entry;
@@ -554,7 +556,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
   bfile->file_size_.store(new_size);
   bool close = (new_size > bdb_options_.blob_file_size);
   if (close) {
-    InstrumentedMutexLock l(&mutex_);
+    WriteLock wl(&mutex_);
     open_blob_files_.erase(bfile);
   }
 
@@ -601,7 +603,7 @@ Status BlobDBImpl::Get(const ReadOptions& options,
 
   std::shared_ptr<BlobFile> bfile;
   {
-    InstrumentedMutexLock l(&mutex_);
+    ReadLock l(&mutex_);
     auto hitr = blob_files_.find(file_number);
 
     // file was deleted
@@ -784,7 +786,7 @@ void BlobDBImpl::runGC() {
     std::vector<std::shared_ptr<BlobFile> > blob_files;
     {
       // take a copy
-      InstrumentedMutexLock l(&mutex_);
+      ReadLock l(&mutex_);
       blob_files.reserve(blob_files_.size());
       for (auto const& ent : blob_files_) {
         blob_files.push_back(ent.second);

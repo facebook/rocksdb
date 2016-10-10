@@ -111,8 +111,7 @@ class BlobDBImpl : public BlobDB {
   std::string dbname_;
   std::string blob_dir_;
 
-  //RWMutex mutex_;
-  InstrumentedMutex mutex_;
+  port::RWMutex mutex_;
 
   std::unique_ptr<blob_log::Writer> current_log_writer_;
 
