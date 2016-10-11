@@ -670,7 +670,7 @@ WinRandomAccessImpl::WinRandomAccessImpl(WinFileData* file_base,
 }
 
 inline
-Status WinRandomAccessImpl::Read(uint64_t offset, size_t n, Slice* result,
+Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   char* scratch) const {
 
   Status s;
@@ -762,21 +762,22 @@ Status WinRandomAccessImpl::Read(uint64_t offset, size_t n, Slice* result,
     }
   }
 
-  *result = Slice(scratch, (r < 0) ? 0 : n - left);
-
   if (r < 0) {
     auto lastError = GetLastError();
     // Posix impl wants to treat reads from beyond
     // of the file as OK.
     if(lastError != ERROR_HANDLE_EOF) {
-      s = IOErrorFromWindowsError(file_base_->GetName(),lastError);
+      s = IOErrorFromWindowsError(file_base_->GetName(), lastError);
     }
   }
+
+  *result = Slice(scratch, (r < 0) ? 0 : n - left);
+
   return s;
 }
 
 inline
-void WinRandomAccessImpl::Hint(RandomAccessFile::AccessPattern pattern) {
+void WinRandomAccessImpl::HintImpl(RandomAccessFile::AccessPattern pattern) {
 
   if (pattern == RandomAccessFile::SEQUENTIAL &&
     !file_base_->UseOSBuffer() &&
@@ -799,8 +800,8 @@ void WinRandomAccessImpl::Hint(RandomAccessFile::AccessPattern pattern) {
 
 WinRandomAccessFile::WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
   const EnvOptions& options) :
-  file_impl_(fname, hFile, options.use_os_buffer),
-  randomaccess_impl_(&file_impl_, alignment, options) {
+  WinFileData(fname, hFile, options.use_os_buffer),
+  WinRandomAccessImpl(this, alignment, options) {
 }
 
 WinRandomAccessFile::~WinRandomAccessFile() {
@@ -808,11 +809,11 @@ WinRandomAccessFile::~WinRandomAccessFile() {
 
 Status WinRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   char* scratch) const {
-  return randomaccess_impl_.Read(offset, n, result, scratch);
+  return ReadImpl(offset, n, result, scratch);
 }
 
 void WinRandomAccessFile::EnableReadAhead() {
-  randomaccess_impl_.Hint(SEQUENTIAL);
+  HintImpl(SEQUENTIAL);
 }
 
 bool WinRandomAccessFile::ShouldForwardRawRequest() const {
@@ -820,7 +821,7 @@ bool WinRandomAccessFile::ShouldForwardRawRequest() const {
 }
 
 void WinRandomAccessFile::Hint(AccessPattern pattern) {
-  randomaccess_impl_.Hint(pattern);
+  HintImpl(pattern);
 }
 
 Status WinRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
@@ -828,7 +829,7 @@ Status WinRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
 }
 
 size_t WinRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
-  return GetUniqueIdFromFile(file_impl_.GetFileHandle(), id, max_size);
+  return GetUniqueIdFromFile(GetFileHandle(), id, max_size);
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -847,7 +848,7 @@ WinWritableImpl::WinWritableImpl(WinFileData* file_data, size_t alignment)
   reservedsize_(0) {
 }
 
-Status WinWritableImpl::Append(const Slice& data) {
+Status WinWritableImpl::AppendImpl(const Slice& data) {
 
   // Used for buffered access ONLY
   assert(file_data_->UseOSBuffer());
@@ -871,7 +872,7 @@ Status WinWritableImpl::Append(const Slice& data) {
   return s;
 }
 
-Status WinWritableImpl::PositionedAppend(const Slice& data, uint64_t offset) {
+Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset) {
   Status s;
 
   SSIZE_T ret = pwrite(file_data_->GetFileHandle(), data.data(), data.size(), offset);
@@ -897,7 +898,7 @@ Status WinWritableImpl::PositionedAppend(const Slice& data, uint64_t offset) {
 // Need to implement this so the file is truncated correctly
 // when buffered and unbuffered mode
 inline
-Status WinWritableImpl::Truncate(uint64_t size) {
+Status WinWritableImpl::TruncateImpl(uint64_t size) {
   Status s = ftruncate(file_data_->GetName(), file_data_->GetFileHandle(),
     size);
   if (s.ok()) {
@@ -906,7 +907,7 @@ Status WinWritableImpl::Truncate(uint64_t size) {
   return s;
 }
 
-Status WinWritableImpl::Close() {
+Status WinWritableImpl::CloseImpl() {
 
   Status s;
 
@@ -928,7 +929,7 @@ Status WinWritableImpl::Close() {
   return s;
 }
 
-Status WinWritableImpl::Sync() {
+Status WinWritableImpl::SyncImpl() {
   Status s;
   // Calls flush buffers
   if (fsync(file_data_->GetFileHandle()) < 0) {
@@ -941,7 +942,7 @@ Status WinWritableImpl::Sync() {
 }
 
 
-Status WinWritableImpl::Allocate(uint64_t offset, uint64_t len) {
+Status WinWritableImpl::AllocateImpl(uint64_t offset, uint64_t len) {
   Status status;
   TEST_KILL_RANDOM("WinWritableFile::Allocate", rocksdb_kill_odds);
 
@@ -968,8 +969,8 @@ Status WinWritableImpl::Allocate(uint64_t offset, uint64_t len) {
 
 WinWritableFile::WinWritableFile(const std::string& fname, HANDLE hFile, size_t alignment,
     size_t /* capacity */, const EnvOptions& options)
-    : file_data_(fname, hFile, options.use_os_buffer),
-      writable_impl_(&file_data_, alignment) {
+    : WinFileData(fname, hFile, options.use_os_buffer),
+  WinWritableImpl(this, alignment) {
 
   assert(!options.use_mmap_writes);
 }
@@ -979,29 +980,29 @@ WinWritableFile::~WinWritableFile() {
 
   // Indicates if the class makes use of unbuffered I/O
 bool WinWritableFile::UseOSBuffer() const {
-  return file_data_.UseOSBuffer();
+  return UseOSBuffer();
 }
 
 size_t WinWritableFile::GetRequiredBufferAlignment() const {
-  return writable_impl_.GetAlignement();
+  return GetAlignement();
 }
 
 Status WinWritableFile::Append(const Slice& data) {
-  return writable_impl_.Append(data);
+  return AppendImpl(data);
 }
 
 Status WinWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
-  return writable_impl_.PositionedAppend(data, offset);
+  return PositionedAppendImpl(data, offset);
 }
 
 // Need to implement this so the file is truncated correctly
 // when buffered and unbuffered mode
 Status WinWritableFile::Truncate(uint64_t size) {
-  return writable_impl_.Truncate(size);
+  return TruncateImpl(size);
 }
 
 Status WinWritableFile::Close() {
-  return writable_impl_.Close();
+  return CloseImpl();
 }
 
   // write out the cached data to the OS cache
@@ -1011,23 +1012,23 @@ Status WinWritableFile::Flush() {
 }
 
 Status WinWritableFile::Sync() {
-  return writable_impl_.Sync();
+  return SyncImpl();
 }
 
 Status WinWritableFile::Fsync() { 
-  return writable_impl_.Sync();
+  return SyncImpl();
 }
 
 uint64_t WinWritableFile::GetFileSize() {
-  return writable_impl_.GetFileSize();
+  return GetFileSizeImpl();
 }
 
 Status WinWritableFile::Allocate(uint64_t offset, uint64_t len) {
-  return writable_impl_.Allocate(offset, len);
+  return AllocateImpl(offset, len);
 }
 
 size_t WinWritableFile::GetUniqueId(char* id, size_t max_size) const {
-  return GetUniqueIdFromFile(file_data_.GetFileHandle(), id, max_size);
+  return GetUniqueIdFromFile(GetFileHandle(), id, max_size);
 }
 
 /////////////////////////////////////////////////////////////////////////
@@ -1035,18 +1036,18 @@ size_t WinWritableFile::GetUniqueId(char* id, size_t max_size) const {
 
 WinRandomRWFile::WinRandomRWFile(const std::string& fname, HANDLE hFile, size_t alignment,
   const EnvOptions& options) :
-  file_data_(fname, hFile, options.use_os_buffer),
-  randomaccess_impl_(&file_data_, alignment, options),
-  writable_impl_(&file_data_, alignment) {
+  WinFileData(fname, hFile, options.use_os_buffer),
+  WinRandomAccessImpl(this, alignment, options),
+  WinWritableImpl(this, alignment) {
 
 }
 
 bool WinRandomRWFile::UseOSBuffer() const {
-  return file_data_.UseOSBuffer();
+  return UseOSBuffer();
 }
 
 size_t WinRandomRWFile::GetRequiredBufferAlignment() const {
-  return writable_impl_.GetAlignement();
+  return GetAlignement();
 }
 
 bool WinRandomRWFile::ShouldForwardRawRequest() const {
@@ -1054,16 +1055,16 @@ bool WinRandomRWFile::ShouldForwardRawRequest() const {
 }
 
 void WinRandomRWFile::EnableReadAhead() {
-  randomaccess_impl_.Hint(RandomAccessFile::SEQUENTIAL);
+  HintImpl(RandomAccessFile::SEQUENTIAL);
 }
 
 Status WinRandomRWFile::Write(uint64_t offset, const Slice & data) {
-  return writable_impl_.PositionedAppend(data, offset);
+  return PositionedAppendImpl(data, offset);
 }
 
 Status WinRandomRWFile::Read(uint64_t offset, size_t n, Slice * result, 
   char * scratch) const {
-  return randomaccess_impl_.Read(offset, n, result, scratch);
+  return ReadImpl(offset, n, result, scratch);
 }
 
 Status WinRandomRWFile::Flush() {
@@ -1071,11 +1072,11 @@ Status WinRandomRWFile::Flush() {
 }
 
 Status WinRandomRWFile::Sync() {
-  return writable_impl_.Sync();
+  return SyncImpl();
 }
 
 Status WinRandomRWFile::Close() {
-  return writable_impl_.Close();
+  return CloseImpl();
 }
 
 //////////////////////////////////////////////////////////////////////////

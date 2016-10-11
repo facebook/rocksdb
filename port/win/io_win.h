@@ -259,8 +259,6 @@ protected:
   virtual SSIZE_T PositionedReadInternal(char* src, size_t numBytes,
     uint64_t offset) const;
 
-public:
-
     /*
     * The function reads a requested amount of bytes into the specified aligned
     * buffer Upon success the function sets the length of the buffer to the
@@ -297,27 +295,27 @@ public:
     size_t bytes_to_read, size_t& left,
     char* dest) const;
 
-  // We want this class be usable both for inheritance (prive
-  // or protected) and for containment so __ctor and __dtor public
   WinRandomAccessImpl(WinFileData* file_base, size_t alignment,
     const EnvOptions& options);
 
   virtual ~WinRandomAccessImpl() {}
 
+public:
+
   WinRandomAccessImpl(const WinRandomAccessImpl&) = delete;
   WinRandomAccessImpl& operator=(const WinRandomAccessImpl&) = delete;
 
-  Status Read(uint64_t offset, size_t n, Slice* result,
+
+  Status ReadImpl(uint64_t offset, size_t n, Slice* result,
     char* scratch) const;
 
-  void Hint(RandomAccessFile::AccessPattern pattern);
+  void HintImpl(RandomAccessFile::AccessPattern pattern);
 };
 
 // pread() based random-access
-class WinRandomAccessFile : public RandomAccessFile {
-
-  WinFileData         file_impl_;
-  WinRandomAccessImpl randomaccess_impl_;
+class WinRandomAccessFile : private WinFileData, 
+  protected WinRandomAccessImpl, // Want to be able to override PositionedReadInternal
+  public RandomAccessFile {
 
 public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
@@ -362,31 +360,24 @@ protected:
 
   virtual Status PreallocateInternal(uint64_t spaceToReserve);
 
-public:
-
-  // We want this class be usable both for inheritance (prive
-  // or protected) and for containment so __ctor and __dtor public
   WinWritableImpl(WinFileData* file_data, size_t alignment);
 
   ~WinWritableImpl() {}
 
-  WinWritableImpl(const WinWritableImpl&) = delete;
-  WinWritableImpl& operator=(const WinWritableImpl&) = delete;
-
   uint64_t GetAlignement() const { return alignment_; }
 
-  Status Append(const Slice& data);
+  Status AppendImpl(const Slice& data);
 
   // Requires that the data is aligned as specified by GetRequiredBufferAlignment()
-  Status PositionedAppend(const Slice& data, uint64_t offset);
+  Status PositionedAppendImpl(const Slice& data, uint64_t offset);
 
-  Status Truncate(uint64_t size);
+  Status TruncateImpl(uint64_t size);
 
-  Status Close();
+  Status CloseImpl();
 
-  Status Sync();
+  Status SyncImpl();
 
-  uint64_t GetFileSize() {
+  uint64_t GetFileSizeImpl() {
     // Double accounting now here with WritableFileWriter
     // and this size will be wrong when unbuffered access is used
     // but tests implement their own writable files and do not use WritableFileWrapper
@@ -395,14 +386,18 @@ public:
     return filesize_;
   }
 
-  Status Allocate(uint64_t offset, uint64_t len);
+  Status AllocateImpl(uint64_t offset, uint64_t len);
+
+public:
+
+  WinWritableImpl(const WinWritableImpl&) = delete;
+  WinWritableImpl& operator=(const WinWritableImpl&) = delete;
 };
 
 
-class WinWritableFile : public WritableFile {
-private:
-  WinFileData       file_data_;
-  WinWritableImpl   writable_impl_;
+class WinWritableFile : private WinFileData,
+  protected WinWritableImpl,
+  public WritableFile {
 
 public:
   WinWritableFile(const std::string& fname, HANDLE hFile, size_t alignment,
@@ -443,11 +438,10 @@ public:
 };
 
 
-class WinRandomRWFile : public RandomRWFile {
-
-  WinFileData          file_data_;
-  WinRandomAccessImpl  randomaccess_impl_;
-  WinWritableImpl      writable_impl_;
+class WinRandomRWFile : private WinFileData,
+  protected WinRandomAccessImpl,
+  protected WinWritableImpl,
+  public RandomRWFile {
 
 public:
 
