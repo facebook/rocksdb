@@ -980,7 +980,7 @@ WinWritableFile::~WinWritableFile() {
 
   // Indicates if the class makes use of unbuffered I/O
 bool WinWritableFile::UseOSBuffer() const {
-  return UseOSBuffer();
+  return WinFileData::UseOSBuffer();
 }
 
 size_t WinWritableFile::GetRequiredBufferAlignment() const {
@@ -1043,7 +1043,7 @@ WinRandomRWFile::WinRandomRWFile(const std::string& fname, HANDLE hFile, size_t 
 }
 
 bool WinRandomRWFile::UseOSBuffer() const {
-  return UseOSBuffer();
+  return WinFileData::UseOSBuffer();
 }
 
 size_t WinRandomRWFile::GetRequiredBufferAlignment() const {
