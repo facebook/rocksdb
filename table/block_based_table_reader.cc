@@ -877,6 +877,11 @@ Status BlockBasedTable::GetDataBlockFromCache(
           &DeleteCachedEntry<Block>, &(block->cache_handle));
       if (s.ok()) {
         RecordTick(statistics, BLOCK_CACHE_ADD);
+        RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
+        RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
+                   block->value->usable_size());
+        RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
+                   block->value->usable_size());
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
         delete block->value;
@@ -946,6 +951,9 @@ Status BlockBasedTable::PutDataBlockToCache(
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
       RecordTick(statistics, BLOCK_CACHE_ADD);
+      RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
+      RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
+                 block->value->usable_size());
       RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
                  block->value->usable_size());
       assert(reinterpret_cast<Block*>(
@@ -1052,8 +1060,9 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
               : Cache::Priority::LOW);
       if (s.ok()) {
         RecordTick(statistics, BLOCK_CACHE_ADD);
-        RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter->size());
+        RecordTick(statistics, BLOCK_CACHE_FILTER_ADD);
         RecordTick(statistics, BLOCK_CACHE_FILTER_BYTES_INSERT, filter->size());
+        RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, filter->size());
       } else {
         RecordTick(statistics, BLOCK_CACHE_ADD_FAILURES);
         delete filter;
@@ -1126,8 +1135,9 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
     if (s.ok()) {
       size_t usable_size = index_reader->usable_size();
       RecordTick(statistics, BLOCK_CACHE_ADD);
-      RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, usable_size);
+      RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
       RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT, usable_size);
+      RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE, usable_size);
     } else {
       if (index_reader != nullptr) {
         delete index_reader;

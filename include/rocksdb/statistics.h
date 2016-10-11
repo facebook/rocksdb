@@ -39,6 +39,8 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_INDEX_MISS,
   // # of times cache hit when accessing index block from block cache.
   BLOCK_CACHE_INDEX_HIT,
+  // # of index blocks added to block cache.
+  BLOCK_CACHE_INDEX_ADD,
   // # of bytes of index blocks inserted into cache
   BLOCK_CACHE_INDEX_BYTES_INSERT,
   // # of bytes of index block erased from cache
@@ -47,6 +49,8 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_FILTER_MISS,
   // # of times cache hit when accessing filter block from block cache.
   BLOCK_CACHE_FILTER_HIT,
+  // # of filter blocks added to block cache.
+  BLOCK_CACHE_FILTER_ADD,
   // # of bytes of bloom filter blocks inserted into cache
   BLOCK_CACHE_FILTER_BYTES_INSERT,
   // # of bytes of bloom filter block erased from cache
@@ -55,6 +59,10 @@ enum Tickers : uint32_t {
   BLOCK_CACHE_DATA_MISS,
   // # of times cache hit when accessing data block from block cache.
   BLOCK_CACHE_DATA_HIT,
+  // # of data blocks added to block cache.
+  BLOCK_CACHE_DATA_ADD,
+  // # of bytes of data blocks inserted into cache
+  BLOCK_CACHE_DATA_BYTES_INSERT,
   // # of bytes read from cache.
   BLOCK_CACHE_BYTES_READ,
   // # of bytes written into cache.
@@ -217,15 +225,19 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOCK_CACHE_ADD_FAILURES, "rocksdb.block.cache.add.failures"},
     {BLOCK_CACHE_INDEX_MISS, "rocksdb.block.cache.index.miss"},
     {BLOCK_CACHE_INDEX_HIT, "rocksdb.block.cache.index.hit"},
+    {BLOCK_CACHE_INDEX_ADD, "rocksdb.block.cache.index.add"},
     {BLOCK_CACHE_INDEX_BYTES_INSERT, "rocksdb.block.cache.index.bytes.insert"},
     {BLOCK_CACHE_INDEX_BYTES_EVICT, "rocksdb.block.cache.index.bytes.evict"},
     {BLOCK_CACHE_FILTER_MISS, "rocksdb.block.cache.filter.miss"},
     {BLOCK_CACHE_FILTER_HIT, "rocksdb.block.cache.filter.hit"},
+    {BLOCK_CACHE_FILTER_ADD, "rocksdb.block.cache.filter.add"},
     {BLOCK_CACHE_FILTER_BYTES_INSERT,
      "rocksdb.block.cache.filter.bytes.insert"},
     {BLOCK_CACHE_FILTER_BYTES_EVICT, "rocksdb.block.cache.filter.bytes.evict"},
     {BLOCK_CACHE_DATA_MISS, "rocksdb.block.cache.data.miss"},
     {BLOCK_CACHE_DATA_HIT, "rocksdb.block.cache.data.hit"},
+    {BLOCK_CACHE_DATA_ADD, "rocksdb.block.cache.data.add"},
+    {BLOCK_CACHE_DATA_BYTES_INSERT, "rocksdb.block.cache.data.bytes.insert"},
     {BLOCK_CACHE_BYTES_READ, "rocksdb.block.cache.bytes.read"},
     {BLOCK_CACHE_BYTES_WRITE, "rocksdb.block.cache.bytes.write"},
     {BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"},
