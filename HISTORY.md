@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * DB::GetOptions() reflect dynamic changed options (i.e. through DB::SetOptions()) and return copy of options instead of reference.
+* Added Statistics::getAndResetTickerCount().
 
 ## 4.12.0 (9/12/2016)
 ### Public API Change
