@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/merger.h"
+#include <string>
 #include <vector>
 #include "db/pinned_iterators_manager.h"
 #include "rocksdb/comparator.h"
@@ -157,7 +158,7 @@ class MergingIterator : public InternalIterator {
       ClearHeaps();
       for (auto& child : children_) {
         if (&child != current_) {
-          child.Seek(key());
+          child.Seek(prefix_seek_key_ ? *prefix_seek_key_ : key());
           if (child.Valid() && comparator_->Equal(key(), child.key())) {
             child.Next();
           }
@@ -203,15 +204,9 @@ class MergingIterator : public InternalIterator {
       InitMaxHeap();
       for (auto& child : children_) {
         if (&child != current_) {
-          child.Seek(key());
-          if (child.Valid()) {
-            // Child is at first entry >= key().  Step back one to be < key()
-            TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev", &child);
+          child.SeekForPrev(prefix_seek_key_ ? *prefix_seek_key_ : key());
+          if (child.Valid() && comparator_->Equal(key(), child.key())) {
             child.Prev();
-          } else {
-            // Child has no entries >= key().  Position at last entry.
-            TEST_SYNC_POINT("MergeIterator::Prev:BeforeSeekToLast");
-            child.SeekToLast();
           }
         }
         if (child.Valid()) {
@@ -219,11 +214,9 @@ class MergingIterator : public InternalIterator {
         }
       }
       direction_ = kReverse;
-      // Note that we don't do assert(current_ == CurrentReverse()) here
-      // because it is possible to have some keys larger than the seek-key
-      // inserted between Seek() and SeekToLast(), which makes current_ not
-      // equal to CurrentReverse().
-      current_ = CurrentReverse();
+      // The loop advanced all non-current children to be < key() so current_
+      // should still be strictly the smallest key.
+      assert(current_ == CurrentReverse());
     }
 
     // For the heap modifications below to be correct, current_ must be the
@@ -284,6 +277,17 @@ class MergingIterator : public InternalIterator {
            current_->IsValuePinned();
   }
 
+  virtual void ResetPrefixSeekKey(const Slice* db_iter_key) override {
+    if (db_iter_key == nullptr) {
+      prefix_seek_key_.reset();
+      return;
+    }
+    if (!prefix_seek_key_) {
+      prefix_seek_key_.reset(new std::string);
+    }
+    *prefix_seek_key_ = db_iter_key->ToString();
+  }
+
  private:
   // Clears heaps for both directions, used when changing direction or seeking
   void ClearHeaps();
@@ -310,6 +314,7 @@ class MergingIterator : public InternalIterator {
   // forward.  Lazily initialize it to save memory.
   std::unique_ptr<MergerMaxIterHeap> maxHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
+  std::unique_ptr<std::string> prefix_seek_key_;
 
   IteratorWrapper* CurrentForward() const {
     assert(direction_ == kForward);

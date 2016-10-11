@@ -94,6 +94,12 @@ class InternalIterator : public Cleanable {
   virtual Status GetProperty(std::string prop_name, std::string* prop) {
     return Status::NotSupported("");
   }
+  // Reset the key used for Seek() in merge iterator, especially for prefix
+  // seek mode
+  // When in prefix_seek_mode, there is inconsistency between db_iterator and
+  // merge iterator. This inconsistency can cause problem when do Seek() in
+  // merge iterator in prefix mode.
+  virtual void ResetPrefixSeekKey(const Slice* prefix_seek_key = nullptr) {}
 
  protected:
   void SeekForPrevImpl(const Slice& target, const Comparator* cmp) {

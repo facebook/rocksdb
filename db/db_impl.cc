@@ -4345,7 +4345,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         env_, *cfd->ioptions(), cfd->user_comparator(), snapshot,
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
         sv->version_number, read_options.iterate_upper_bound,
-        read_options.prefix_same_as_start, read_options.pin_data);
+        read_options.prefix_same_as_start, read_options.pin_data,
+        read_options.total_order_seek);
 
     InternalIterator* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena());

@@ -357,7 +357,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(perf_context.internal_key_skipped_count), 1);
+    ASSERT_EQ(static_cast<int>(perf_context.internal_key_skipped_count), 7);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -480,7 +480,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 0);
+    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 1);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
