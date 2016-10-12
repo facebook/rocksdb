@@ -51,7 +51,7 @@ if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     if [ -z "$USE_CLANG" ]; then
         CENTOS_VERSION=`rpm -q --qf "%{VERSION}" \
           $(rpm -q --whatprovides redhat-release)`
-        if [ "$CENTOS_VERSION" = "6" ]; then
+        if [ "$CENTOS_VERSION" -ge "6" ]; then
           source "$PWD/build_tools/fbcode.gcc481.sh"
         else
           source "$PWD/build_tools/fbcode.gcc471.sh"
