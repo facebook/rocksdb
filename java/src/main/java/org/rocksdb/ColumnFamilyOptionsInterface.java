@@ -455,7 +455,6 @@ public interface ColumnFamilyOptionsInterface {
    * @param multiplier the ratio between the total size of level-(L+1)
    *     files and the total size of level-L files for all L.
    * @return the reference to the current option.
-   * @see #setMaxBytesForLevelBase(long)
    */
   Object setMaxBytesForLevelMultiplier(int multiplier);
 
@@ -466,7 +465,6 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @return the ratio between the total size of level-(L+1) files and
    *     the total size of level-L files for all L.
-   * @see #maxBytesForLevelBase()
    */
   int maxBytesForLevelMultiplier();
 
