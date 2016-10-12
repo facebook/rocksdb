@@ -16,7 +16,7 @@ namespace rocksdb {
 class DBOptionChangeMigrationTest
     : public DBTestBase,
       public testing::WithParamInterface<
-          std::tuple<int, int, bool, int, int, bool>> {
+          std::tuple<int, int, bool, int, int, bool, bool>> {
  public:
   DBOptionChangeMigrationTest()
       : DBTestBase("/db_option_change_migration_test") {
@@ -27,6 +27,8 @@ class DBOptionChangeMigrationTest
     level2_ = std::get<3>(GetParam());
     compaction_style2_ = std::get<4>(GetParam());
     is_dynamic2_ = std::get<5>(GetParam());
+
+    change_lsm_setting_ = std::get<5>(GetParam());
   }
 
   // Required if inheriting from testing::WithParamInterface<>
@@ -40,6 +42,8 @@ class DBOptionChangeMigrationTest
   int level2_;
   int compaction_style2_;
   bool is_dynamic2_;
+
+  bool change_lsm_setting_;
 };
 
 #ifndef ROCKSDB_LITE
@@ -88,10 +92,12 @@ TEST_P(DBOptionChangeMigrationTest, Migrate1) {
   if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     new_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
   }
-  new_options.target_file_size_base = 256 * 1024;
   new_options.num_levels = level2_;
-  new_options.max_bytes_for_level_base = 150 * 1024;
-  new_options.max_bytes_for_level_multiplier = 4;
+  if (change_lsm_setting_) {
+    new_options.target_file_size_base = 256 * 1024;
+    new_options.max_bytes_for_level_base = 150 * 1024;
+    new_options.max_bytes_for_level_multiplier = 4;
+  }
   ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
   Reopen(new_options);
 
@@ -157,10 +163,12 @@ TEST_P(DBOptionChangeMigrationTest, Migrate2) {
   if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     new_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
   }
-  new_options.target_file_size_base = 256 * 1024;
   new_options.num_levels = level1_;
-  new_options.max_bytes_for_level_base = 150 * 1024;
-  new_options.max_bytes_for_level_multiplier = 4;
+  if (change_lsm_setting_) {
+    new_options.target_file_size_base = 256 * 1024;
+    new_options.max_bytes_for_level_base = 150 * 1024;
+    new_options.max_bytes_for_level_multiplier = 4;
+  }
   ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
   Reopen(new_options);
   // Wait for compaction to finish and make sure it can reopen
@@ -182,22 +190,26 @@ TEST_P(DBOptionChangeMigrationTest, Migrate2) {
 
 INSTANTIATE_TEST_CASE_P(
     DBOptionChangeMigrationTest, DBOptionChangeMigrationTest,
-    ::testing::Values(std::make_tuple(3, 0, false, 4, 0, false),
-                      std::make_tuple(3, 0, true, 4, 0, true),
-                      std::make_tuple(3, 0, true, 4, 0, false),
-                      std::make_tuple(3, 0, false, 4, 0, true),
-                      std::make_tuple(3, 1, false, 4, 1, false),
-                      std::make_tuple(1, 1, false, 4, 1, false),
-                      std::make_tuple(3, 0, false, 4, 1, false),
-                      std::make_tuple(3, 0, false, 1, 1, false),
-                      std::make_tuple(3, 0, true, 4, 1, false),
-                      std::make_tuple(3, 0, true, 1, 1, false),
-                      std::make_tuple(1, 1, false, 4, 0, false),
-                      std::make_tuple(4, 0, false, 1, 2, false),
-                      std::make_tuple(3, 0, true, 2, 2, false),
-                      std::make_tuple(3, 1, false, 3, 2, false),
-                      std::make_tuple(1, 1, false, 4, 2, false)));
-
+    ::testing::Values(std::make_tuple(4, 0, false, 4, 0, false, true),
+                      std::make_tuple(3, 0, true, 3, 0, true, true),
+                      std::make_tuple(3, 0, true, 3, 0, false, false),
+                      std::make_tuple(3, 1, true, 3, 1, true, true),
+                      std::make_tuple(1, 1, true, 1, 1, true, true),
+                      std::make_tuple(3, 0, true, 4, 0, true, true),
+                      std::make_tuple(3, 0, true, 4, 0, false, true),
+                      std::make_tuple(3, 0, true, 4, 0, true, false),
+                      std::make_tuple(3, 0, false, 4, 0, true, true),
+                      std::make_tuple(3, 1, false, 4, 1, false, true),
+                      std::make_tuple(1, 1, false, 4, 1, false, true),
+                      std::make_tuple(3, 0, false, 4, 1, false, true),
+                      std::make_tuple(3, 0, false, 1, 1, false, true),
+                      std::make_tuple(3, 0, true, 4, 1, false, true),
+                      std::make_tuple(3, 0, true, 1, 1, false, true),
+                      std::make_tuple(1, 1, false, 4, 0, false, true),
+                      std::make_tuple(4, 0, false, 1, 2, false, true),
+                      std::make_tuple(3, 0, true, 2, 2, false, true),
+                      std::make_tuple(3, 1, false, 3, 2, false, true),
+                      std::make_tuple(1, 1, false, 4, 2, false, true)));
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 

@@ -129,6 +129,23 @@ Status MigrateToLevelBase(std::string dbname, const Options& old_opts,
     }
   }
 }
+
+// Return true if the old and new options indicates the same level compaction
+// setting.
+bool SameLevelBaseSetting(const Options& old_opts, const Options& new_opts) {
+  return old_opts.compaction_style == CompactionStyle::kCompactionStyleLevel &&
+         new_opts.compaction_style == CompactionStyle::kCompactionStyleLevel &&
+         old_opts.num_levels == new_opts.num_levels &&
+         old_opts.level_compaction_dynamic_level_bytes ==
+             new_opts.level_compaction_dynamic_level_bytes &&
+         old_opts.max_bytes_for_level_base ==
+             new_opts.max_bytes_for_level_base &&
+         old_opts.max_bytes_for_level_multiplier ==
+             new_opts.max_bytes_for_level_multiplier &&
+         old_opts.max_bytes_for_level_multiplier_additional.empty() &&
+         new_opts.max_bytes_for_level_multiplier_additional.empty();
+}
+
 }  // namespace
 
 Status OptionChangeMigration(std::string dbname, const Options& old_opts,
@@ -139,6 +156,8 @@ Status OptionChangeMigration(std::string dbname, const Options& old_opts,
   } else if (new_opts.compaction_style ==
              CompactionStyle::kCompactionStyleUniversal) {
     return MigrateToUniversal(dbname, old_opts, new_opts);
+  } else if (SameLevelBaseSetting(old_opts, new_opts)) {
+    return Status::OK();
   } else if (new_opts.compaction_style ==
              CompactionStyle::kCompactionStyleLevel) {
     return MigrateToLevelBase(dbname, old_opts, new_opts);
