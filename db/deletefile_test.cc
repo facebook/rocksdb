@@ -9,12 +9,11 @@
 #include "db/write_batch_internal.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "boost/lexical_cast.hpp"
 #include "rocksdb/env.h"
 #include <vector>
-#include <boost/algorithm/string.hpp>
 #include <stdlib.h>
 #include <map>
+#include <string>
 
 namespace rocksdb {
 
@@ -57,7 +56,7 @@ class DeleteFileTest {
     options.sync = false;
     ReadOptions roptions;
     for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = boost::lexical_cast<std::string>(i);
+      std::string temp = std::to_string(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));
