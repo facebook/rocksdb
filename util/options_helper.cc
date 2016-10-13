@@ -26,6 +26,8 @@
 
 namespace rocksdb {
 
+const std::string kNullptrString = "nullptr";
+
 DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
                          const MutableDBOptions& mutable_db_options) {
   DBOptions options;
@@ -451,7 +453,7 @@ bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
     const std::string& value,
     std::shared_ptr<const SliceTransform>* slice_transform) {
-  static const std::string kNullptrString = "nullptr";
+
   auto& pe_value = value;
   if (pe_value.size() > kFixedPrefixName.size() &&
       pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) == 0) {
@@ -577,7 +579,7 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
 bool SerializeSingleOptionHelper(const char* opt_address,
                                  const OptionType opt_type,
                                  std::string* value) {
-  static const std::string kNullptrString = "nullptr";
+
   assert(value);
   switch (opt_type) {
     case OptionType::kBoolean:
