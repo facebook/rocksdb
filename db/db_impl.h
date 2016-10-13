@@ -13,6 +13,7 @@
 #include <functional>
 #include <limits>
 #include <list>
+#include <map>
 #include <queue>
 #include <set>
 #include <string>
@@ -123,6 +124,10 @@ class DBImpl : public DB {
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override;
+  using DB::GetMapProperty;
+  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property,
+                              std::map<std::string, double>* value) override;
   using DB::GetIntProperty;
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) override;

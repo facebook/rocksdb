@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -372,6 +373,10 @@ class DB {
     //      family stats per-level over db's lifetime ("L<n>"), aggregated over
     //      db's lifetime ("Sum"), and aggregated over the interval since the
     //      last retrieval ("Int").
+    //  It could also be used to return the stats in the format of the map.
+    //  In this case there will a pair of string to array of double for
+    //  each level as well as for "Sum". "Int" stats will not be affected
+    //  when this form of stats are retrived.
     static const std::string kCFStats;
 
     //  "rocksdb.dbstats" - returns a multi-line string with general database
@@ -510,6 +515,13 @@ class DB {
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
     return GetProperty(DefaultColumnFamily(), property, value);
+  }
+  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property,
+                              std::map<std::string, double>* value) = 0;
+  virtual bool GetMapProperty(const Slice& property,
+                              std::map<std::string, double>* value) {
+    return GetMapProperty(DefaultColumnFamily(), property, value);
   }
 
   // Similar to GetProperty(), but only works for a subset of properties whose
