@@ -21,6 +21,7 @@
 
 namespace rocksdb {
 
+// TODO(yhchiang): the rate will not be accurate when we run test in parallel.
 class RateLimiterTest : public testing::Test {};
 
 TEST_F(RateLimiterTest, OverflowRate) {
@@ -87,8 +88,8 @@ TEST_F(RateLimiterTest, Rate) {
               arg.request_size - 1, target / 1024, rate / 1024,
               elapsed / 1000000.0);
 
-      ASSERT_GE(rate / target, 0.85);
-      ASSERT_LE(rate / target, 1.15);
+      ASSERT_GE(rate / target, 0.80);
+      ASSERT_LE(rate / target, 1.25);
     }
   }
 }
