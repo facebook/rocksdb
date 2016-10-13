@@ -25,6 +25,7 @@ function postURL($diffID, $url) {
   $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
          . '"name":"click here for sandcastle tests for D' . $diffID . '", '
          . '"link":"' . $url . '"}\' | '
+         . 'no_proxy=facebook.com,tfbnw.net,fb.com '
          . 'http_proxy=fwdproxy.any.facebook.com:8080 '
          . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
          . 'differential.updateunitresults';
@@ -40,6 +41,7 @@ function buildUpdateTestStatusCmd($diffID, $test, $status) {
   $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
          . '"name":"' . $test . '", '
          . '"result":"' . $status . '"}\' | '
+         . 'no_proxy=facebook.com,tfbnw.net,fb.com '
          . 'http_proxy=fwdproxy.any.facebook.com:8080 '
          . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
          . 'differential.updateunitresults';
@@ -106,7 +108,8 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     // Patch the code (keep your fingures crossed).
     $patch = array(
       "name" => "Patch " . $diffID,
-      "shell" => "HTTPS_PROXY=fwdproxy:8080 arc --arcrc-file ~/.arcrc "
+      "shell" => "no_proxy=facebook.com,tfbnw.net,fb.com "
+                  ."HTTPS_PROXY=fwdproxy:8080 arc --arcrc-file ~/.arcrc "
                   . "patch --nocommit --diff " . $diffID,
       "user" => "root"
     );
