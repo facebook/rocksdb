@@ -1,5 +1,5 @@
 ---
-layout: support
+layout: top-level
 title: Support
 id: support
 category: support

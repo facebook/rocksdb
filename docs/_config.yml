@@ -30,13 +30,18 @@ color:
 #  apikey: ""
 #  indexname: ""
 
+# Blog posts are builtin to Jekyll by default, with the `_posts` directory.
+# Here you can specify other types of documentation. The names here are `docs`
+# and `top-level`. This means their content will be in `_docs` and `_top-level`.
+# The permalink format is also given.
+# http://ben.balter.com/2015/02/20/jekyll-collections/
 collections:
   docs:
     output: true
     permalink: /docs/:name/
-  support:
+  top-level:
     output: true
-    permalink: /support.html
+    permalink: :name.html
 
 # DO NOT ADJUST BELOW THIS LINE UNLESS YOU KNOW WHAT YOU ARE CHANGING
 
