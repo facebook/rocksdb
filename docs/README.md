@@ -12,7 +12,7 @@ The requirements for running a GitHub pages site locally is described in [GitHub
 
 > If you have run the site before, you can start with step 1 and then move on to step 5.
 
-1. Ensure that you are in the `YOUR-PROJECT/docs` directory in your local repo clone (i.e., the same directory where this `README.md` exists). The below RubyGems commands, etc. must be run from there.
+1. Ensure that you are in the `/docs` directory in your local RocksDB clone (i.e., the same directory where this `README.md` exists). The below RubyGems commands, etc. must be run from there.
 
 1. Make sure you have Ruby and [RubyGems](https://rubygems.org/) installed.
 
