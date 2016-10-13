@@ -822,6 +822,41 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->prev_log_number = versions_->prev_log_number();
 
   versions_->AddLiveFiles(&job_context->sst_live);
+  if (doing_the_full_scan) {
+    for (size_t path_id = 0; path_id < immutable_db_options_.db_paths.size();
+         path_id++) {
+      // set of all files in the directory. We'll exclude files that are still
+      // alive in the subsequent processings.
+      std::vector<std::string> files;
+      env_->GetChildren(immutable_db_options_.db_paths[path_id].path,
+                        &files);  // Ignore errors
+      for (std::string file : files) {
+        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
+        job_context->full_scan_candidate_files.emplace_back(
+            "/" + file, static_cast<uint32_t>(path_id));
+      }
+    }
+
+    // Add log files in wal_dir
+    if (immutable_db_options_.wal_dir != dbname_) {
+      std::vector<std::string> log_files;
+      env_->GetChildren(immutable_db_options_.wal_dir,
+                        &log_files);  // Ignore errors
+      for (std::string log_file : log_files) {
+        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
+      }
+    }
+    // Add info log files in db_log_dir
+    if (!immutable_db_options_.db_log_dir.empty() &&
+        immutable_db_options_.db_log_dir != dbname_) {
+      std::vector<std::string> info_log_files;
+      // Ignore errors
+      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files);
+      for (std::string log_file : info_log_files) {
+        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
+      }
+    }
+  }
 
   if (!alive_log_files_.empty()) {
     uint64_t min_log_number = job_context->log_number;
@@ -860,62 +895,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
     // Current log cannot be obsolete.
     assert(!logs_.empty());
-  }
-
-  if (doing_the_full_scan) {
-    for (size_t path_id = 0; path_id < immutable_db_options_.db_paths.size();
-         path_id++) {
-      // set of all files in the directory. We'll exclude files that are still
-      // alive in the subsequent processings.
-      std::vector<std::string> files;
-      env_->GetChildren(immutable_db_options_.db_paths[path_id].path,
-                        &files);  // Ignore errors
-      for (std::string file : files) {
-        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
-        job_context->full_scan_candidate_files.emplace_back(
-            "/" + file, static_cast<uint32_t>(path_id));
-      }
-    }
-
-    //Add log files in wal_dir
-    if (immutable_db_options_.wal_dir != dbname_) {
-      std::vector<std::string> log_files;
-      env_->GetChildren(immutable_db_options_.wal_dir,
-                        &log_files);  // Ignore errors
-      InfoLogPrefix info_log_prefix(!immutable_db_options_.db_log_dir.empty(),
-                                    dbname_);
-      for (std::string log_file : log_files) {
-        uint64_t number;
-        FileType type;
-        // Ignore file if we cannot recognize it.
-        if (!ParseFileName(log_file, &number, info_log_prefix.prefix, &type)) {
-          Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
-              "Unrecognized log file %s \n", log_file.c_str());
-          continue;
-        }
-        // If the log file is already in the log recycle list , don't put
-        // it in the candidate list.
-        if (std::find(log_recycle_files.begin(), log_recycle_files.end(),
-                      number) != log_recycle_files.end()) {
-          Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
-              "Log %" PRIu64 " Already added in the recycle list, skipping.\n",
-              number);
-          continue;
-        }
-
-        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
-      }
-    }
-    // Add info log files in db_log_dir
-    if (!immutable_db_options_.db_log_dir.empty() &&
-        immutable_db_options_.db_log_dir != dbname_) {
-      std::vector<std::string> info_log_files;
-      // Ignore errors
-      env_->GetChildren(immutable_db_options_.db_log_dir, &info_log_files);
-      for (std::string log_file : info_log_files) {
-        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
-      }
-    }
   }
 
   // We're just cleaning up for DB::Write().
