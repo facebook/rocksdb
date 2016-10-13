@@ -324,6 +324,10 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
         if (target_level_list[i] == 0) {
           total_l0_files += 1;
         }
+        Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
+            "[AddFile] External SST file %s was ingested in L%d with path %s\n",
+            file_info_list[i].file_path.c_str(), target_level_list[i],
+            db_fname_list[i].c_str());
       }
       cfd->internal_stats()->AddCFStats(InternalStats::INGESTED_NUM_KEYS_TOTAL,
                                         total_keys);
