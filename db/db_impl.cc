@@ -900,6 +900,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   // We're just cleaning up for DB::Write().
   assert(job_context->logs_to_free.empty());
   job_context->logs_to_free = logs_to_free_;
+  job_context->log_recycle_files.assign(log_recycle_files.begin(),
+                                        log_recycle_files.end());
   logs_to_free_.clear();
 }
 
@@ -969,6 +971,8 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
   for (const FileDescriptor& fd : state.sst_live) {
     sst_live_map[fd.GetNumber()] = &fd;
   }
+  std::unordered_set<uint64_t> log_recycle_files_set(
+      state.log_recycle_files.begin(), state.log_recycle_files.end());
 
   auto candidate_files = state.full_scan_candidate_files;
   candidate_files.reserve(
@@ -1027,7 +1031,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
     switch (type) {
       case kLogFile:
         keep = ((number >= state.log_number) ||
-                (number == state.prev_log_number));
+                (number == state.prev_log_number) ||
+                (log_recycle_files_set.find(number) !=
+                 log_recycle_files_set.end()));
         break;
       case kDescriptorFile:
         // Keep my manifest file, and any newer incarnations'
