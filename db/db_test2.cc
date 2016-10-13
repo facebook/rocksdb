@@ -2064,6 +2064,126 @@ TEST_F(DBTest2, ReadAmpBitmapLiveInCacheAfterDBClose) {
   ASSERT_EQ(total_useful_bytes_iter1 + total_useful_bytes_iter2,
             total_loaded_bytes_iter1 + total_loaded_bytes_iter2);
 }
+
+#ifndef ROCKSDB_LITE
+TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.IncreaseParallelism(20);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put(Key(0), "a"));
+  ASSERT_OK(Put(Key(5), "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(10), "a"));
+  ASSERT_OK(Put(Key(15), "a"));
+  ASSERT_OK(Flush());
+
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 2;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  // Trivial move 2 files to L2
+  ASSERT_EQ("0,0,2", FilesPerLevel());
+
+  // While the compaction is running, we will create 2 new files that
+  // can fit in L2, these 2 files will be moved to L2 and overlap with
+  // the running compaction and break the LSM consistency.
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():Start", [&](void* arg) {
+        ASSERT_OK(
+            dbfull()->SetOptions({{"level0_file_num_compaction_trigger", "2"},
+                                  {"max_bytes_for_level_base", "1"}}));
+        ASSERT_OK(Put(Key(6), "a"));
+        ASSERT_OK(Put(Key(7), "a"));
+        ASSERT_OK(Flush());
+
+        ASSERT_OK(Put(Key(8), "a"));
+        ASSERT_OK(Put(Key(9), "a"));
+        ASSERT_OK(Flush());
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Run a manual compaction that will compact the 2 files in L2
+  // into 1 file in L2
+  cro.exclusive_manual_compaction = false;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
+  Options options = CurrentOptions();
+  options.num_levels = 2;
+  options.IncreaseParallelism(20);
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put(Key(0), "a"));
+  ASSERT_OK(Put(Key(5), "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(10), "a"));
+  ASSERT_OK(Put(Key(15), "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+
+  // Trivial move 2 files to L1
+  ASSERT_EQ("0,2", FilesPerLevel());
+
+  std::function<void()> bg_manual_compact = [&]() {
+    std::string k1 = Key(6);
+    std::string k2 = Key(9);
+    Slice k1s(k1);
+    Slice k2s(k2);
+    CompactRangeOptions cro;
+    cro.exclusive_manual_compaction = false;
+    ASSERT_OK(db_->CompactRange(cro, &k1s, &k2s));
+  };
+  std::thread bg_thread;
+
+  // While the compaction is running, we will create 2 new files that
+  // can fit in L1, these 2 files will be moved to L1 and overlap with
+  // the running compaction and break the LSM consistency.
+  std::atomic<bool> flag(false);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():Start", [&](void* arg) {
+        if (flag.exchange(true)) {
+          // We want to make sure to call this callback only once
+          return;
+        }
+        ASSERT_OK(Put(Key(6), "a"));
+        ASSERT_OK(Put(Key(7), "a"));
+        ASSERT_OK(Flush());
+
+        ASSERT_OK(Put(Key(8), "a"));
+        ASSERT_OK(Put(Key(9), "a"));
+        ASSERT_OK(Flush());
+
+        // Start a non-exclusive manual compaction in a bg thread
+        bg_thread = std::thread(bg_manual_compact);
+        // This manual compaction conflict with the other manual compaction
+        // so it should wait until the first compaction finish
+        env_->SleepForMicroseconds(1000000);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Run a manual compaction that will compact the 2 files in L1
+  // into 1 file in L1
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = false;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+  bg_thread.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+#endif  // ROCKSDB_LITE
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

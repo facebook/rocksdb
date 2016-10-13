@@ -980,10 +980,6 @@ class DBImpl : public DB {
   // The options to access storage files
   const EnvOptions env_options_;
 
-  // A set of compactions that are running right now
-  // REQUIRES: mutex held
-  std::unordered_set<Compaction*> running_compactions_;
-
   // Number of running AddFile() calls.
   // REQUIRES: mutex held
   int num_running_addfile_;

@@ -2238,7 +2238,6 @@ Status DBImpl::CompactFilesImpl(
   c->SetInputVersion(version);
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
-  running_compactions_.insert(c.get());
 
   SequenceNumber earliest_write_conflict_snapshot;
   std::vector<SequenceNumber> snapshot_seqs =
@@ -2294,8 +2293,6 @@ Status DBImpl::CompactFilesImpl(
   c->ReleaseCompactionFiles(s);
 
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
-
-  running_compactions_.erase(c.get());
 
   if (status.ok()) {
     // Done
@@ -2798,10 +2795,6 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       ca->m = &manual;
       manual.incomplete = false;
       bg_compaction_scheduled_++;
-      // manual.compaction will be added to running_compactions_ and erased
-      // inside BackgroundCompaction() but we need to put it now since we
-      // will unlock the mutex.
-      running_compactions_.insert(manual.compaction);
       env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
                      &DBImpl::UnscheduleCallback);
       scheduled = true;
@@ -3431,10 +3424,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     }
   }
 
-  if (c != nullptr) {
-    running_compactions_.insert(c.get());
-  }
-
   if (!c) {
     // Nothing to do
     LogToBuffer(log_buffer, "Compaction nothing to do");
@@ -3561,7 +3550,6 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
     NotifyOnCompactionCompleted(
         c->column_family_data(), c.get(), status,
         compaction_job_stats, job_context->job_id);
-    running_compactions_.erase(c.get());
   }
   // this will unref its input_version and column_family_data
   c.reset();

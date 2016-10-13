@@ -719,6 +719,13 @@ Compaction* ColumnFamilyData::PickCompaction(
   return result;
 }
 
+bool ColumnFamilyData::RangeOverlapWithCompaction(
+    const Slice& smallest_user_key, const Slice& largest_user_key,
+    int level) const {
+  return compaction_picker_->RangeOverlapWithCompaction(
+      smallest_user_key, largest_user_key, level);
+}
+
 const int ColumnFamilyData::kCompactAllLevels = -1;
 const int ColumnFamilyData::kCompactToBaseLevel = -2;
 

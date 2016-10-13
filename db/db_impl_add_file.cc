@@ -264,7 +264,7 @@ Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
       for (size_t i = 0; i < num_files; i++) {
         StopWatch sw(env_, nullptr, 0, &micro_list[i], false);
         InternalKey range_start(file_info_list[i].smallest_key,
-                                kMaxSequenceNumber, kTypeValue);
+                                kMaxSequenceNumber, kValueTypeForSeek);
         iter->Seek(range_start.Encode());
         status = iter->status();
 
@@ -378,45 +378,22 @@ int DBImpl::PickLevelForIngestedFile(ColumnFamilyData* cfd,
 
   int target_level = 0;
   auto* vstorage = cfd->current()->storage_info();
-  auto* ucmp = vstorage->InternalComparator()->user_comparator();
-
   Slice file_smallest_user_key(file_info.smallest_key);
   Slice file_largest_user_key(file_info.largest_key);
 
   for (int lvl = cfd->NumberLevels() - 1; lvl >= vstorage->base_level();
        lvl--) {
+    // Make sure that the file fits in Level `lvl` and dont overlap with
+    // the output of any compaction running right now.
     if (vstorage->OverlapInLevel(lvl, &file_smallest_user_key,
-                                 &file_largest_user_key) == false) {
-      // Make sure that the file dont overlap with the output of any
-      // compaction running right now
-      Slice compaction_smallest_user_key;
-      Slice compaction_largest_user_key;
-      bool overlap_with_compaction_output = false;
-      for (Compaction* c : running_compactions_) {
-        if (c->column_family_data()->GetID() != cfd->GetID() ||
-            c->output_level() != lvl) {
-          continue;
-        }
-
-        compaction_smallest_user_key = c->GetSmallestUserKey();
-        compaction_largest_user_key = c->GetLargestUserKey();
-
-        if (ucmp->Compare(file_smallest_user_key,
-                          compaction_largest_user_key) <= 0 &&
-            ucmp->Compare(file_largest_user_key,
-                          compaction_smallest_user_key) >= 0) {
-          overlap_with_compaction_output = true;
-          break;
-        }
-      }
-
-      if (overlap_with_compaction_output == false) {
-        // Level lvl is the lowest level that dont have any files with key
-        // range overlapping with our file key range and no compactions
-        // planning to add overlapping files in it.
-        target_level = lvl;
-        break;
-      }
+                                 &file_largest_user_key) == false &&
+        cfd->RangeOverlapWithCompaction(file_smallest_user_key,
+                                        file_largest_user_key, lvl) == false) {
+      // Level lvl is the lowest level that dont have any files with key
+      // range overlapping with our file key range and no compactions
+      // planning to add overlapping files in it.
+      target_level = lvl;
+      break;
     }
   }
 

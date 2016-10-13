@@ -1299,6 +1299,52 @@ TEST_F(ExternalSSTFileTest, AddExternalSstFileWithCustomCompartor) {
   }
 }
 
+TEST_F(ExternalSSTFileTest, AddFileTrivialMoveBug) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  options.IncreaseParallelism(20);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 4}, 1));  // L3
+  ASSERT_OK(GenerateAndAddExternalFile(options, {2, 3}, 2));  // L2
+
+  ASSERT_OK(GenerateAndAddExternalFile(options, {10, 14}, 3));  // L3
+  ASSERT_OK(GenerateAndAddExternalFile(options, {12, 13}, 4));  // L2
+
+  ASSERT_OK(GenerateAndAddExternalFile(options, {20, 24}, 5));  // L3
+  ASSERT_OK(GenerateAndAddExternalFile(options, {22, 23}, 6));  // L2
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run():Start", [&](void* arg) {
+        // fit in L3 but will overlap with compaction so will be added
+        // to L2 but a compaction will trivially move it to L3
+        // and break LSM consistency
+        ASSERT_OK(dbfull()->SetOptions({{"max_bytes_for_level_base", "1"}}));
+        ASSERT_OK(GenerateAndAddExternalFile(options, {15, 16}, 7));
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  CompactRangeOptions cro;
+  cro.exclusive_manual_compaction = false;
+  ASSERT_OK(db_->CompactRange(cro, nullptr, nullptr));
+
+  dbfull()->TEST_WaitForCompact();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(ExternalSSTFileTest, CompactAddedFiles) {
+  Options options = CurrentOptions();
+  options.num_levels = 3;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 10}, 1));  // L3
+  ASSERT_OK(GenerateAndAddExternalFile(options, {2, 9}, 2));   // L2
+  ASSERT_OK(GenerateAndAddExternalFile(options, {3, 8}, 3));   // L1
+  ASSERT_OK(GenerateAndAddExternalFile(options, {4, 7}, 4));   // L0
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

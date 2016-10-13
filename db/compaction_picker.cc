@@ -151,17 +151,15 @@ CompactionPicker::~CompactionPicker() {}
 
 // Delete this compaction from the list of running compactions.
 void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
-  if (c->start_level() == 0 ||
-      ioptions_.compaction_style == kCompactionStyleUniversal) {
-    level0_compactions_in_progress_.erase(c);
-  }
+  UnregisterCompaction(c);
   if (!status.ok()) {
     c->ResetNextCompactionIndex();
   }
 }
 
 void CompactionPicker::GetRange(const CompactionInputFiles& inputs,
-                                InternalKey* smallest, InternalKey* largest) {
+                                InternalKey* smallest,
+                                InternalKey* largest) const {
   const int level = inputs.level;
   assert(!inputs.empty());
   smallest->Clear();
@@ -190,7 +188,8 @@ void CompactionPicker::GetRange(const CompactionInputFiles& inputs,
 
 void CompactionPicker::GetRange(const CompactionInputFiles& inputs1,
                                 const CompactionInputFiles& inputs2,
-                                InternalKey* smallest, InternalKey* largest) {
+                                InternalKey* smallest,
+                                InternalKey* largest) const {
   assert(!inputs1.empty() || !inputs2.empty());
   if (inputs1.empty()) {
     GetRange(inputs2, smallest, largest);
@@ -204,6 +203,33 @@ void CompactionPicker::GetRange(const CompactionInputFiles& inputs1,
         icmp_->Compare(smallest1, smallest2) < 0 ? smallest1 : smallest2;
     *largest = icmp_->Compare(largest1, largest2) < 0 ? largest2 : largest1;
   }
+}
+
+void CompactionPicker::GetRange(const std::vector<CompactionInputFiles>& inputs,
+                                InternalKey* smallest,
+                                InternalKey* largest) const {
+  InternalKey current_smallest;
+  InternalKey current_largest;
+  bool initialized = false;
+  for (const auto& in : inputs) {
+    if (in.empty()) {
+      continue;
+    }
+    GetRange(in, &current_smallest, &current_largest);
+    if (!initialized) {
+      *smallest = current_smallest;
+      *largest = current_largest;
+      initialized = true;
+    } else {
+      if (icmp_->Compare(current_smallest, *smallest) < 0) {
+        *smallest = current_smallest;
+      }
+      if (icmp_->Compare(current_largest, *largest) > 0) {
+        *largest = current_largest;
+      }
+    }
+  }
+  assert(initialized);
 }
 
 bool CompactionPicker::ExpandWhileOverlapping(const std::string& cf_name,
@@ -250,6 +276,42 @@ bool CompactionPicker::ExpandWhileOverlapping(const std::string& cf_name,
   return true;
 }
 
+bool CompactionPicker::RangeOverlapWithCompaction(
+    const Slice& smallest_user_key, const Slice& largest_user_key,
+    int level) const {
+  const Comparator* ucmp = icmp_->user_comparator();
+  for (Compaction* c : compactions_in_progress_) {
+    if (c->output_level() == level &&
+        ucmp->Compare(smallest_user_key, c->GetLargestUserKey()) <= 0 &&
+        ucmp->Compare(largest_user_key, c->GetSmallestUserKey()) >= 0) {
+      // Overlap
+      return true;
+    }
+  }
+  // Did not overlap with any running compaction in level `level`
+  return false;
+}
+
+bool CompactionPicker::FilesRangeOverlapWithCompaction(
+    const std::vector<CompactionInputFiles>& inputs, int level) const {
+  bool is_empty = true;
+  for (auto& in : inputs) {
+    if (!in.empty()) {
+      is_empty = false;
+      break;
+    }
+  }
+  if (is_empty) {
+    // No files in inputs
+    return false;
+  }
+
+  InternalKey smallest, largest;
+  GetRange(inputs, &smallest, &largest);
+  return RangeOverlapWithCompaction(smallest.user_key(), largest.user_key(),
+                                    level);
+}
+
 // Returns true if any one of specified files are being compacted
 bool CompactionPicker::FilesInCompaction(
     const std::vector<FileMetaData*>& files) {
@@ -274,6 +336,10 @@ Compaction* CompactionPicker::FormCompaction(
   if ((input_files[0].level == 0) && !level0_compactions_in_progress_.empty()) {
     return nullptr;
   }
+  // This compaction output could overlap with a running compaction
+  if (FilesRangeOverlapWithCompaction(input_files, output_level)) {
+    return nullptr;
+  }
   auto c =
       new Compaction(vstorage, ioptions_, mutable_cf_options, input_files,
                      output_level, compact_options.output_file_size_limit,
@@ -282,9 +348,7 @@ Compaction* CompactionPicker::FormCompaction(
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
-  if ((c != nullptr) && (input_files[0].level == 0)) {
-    level0_compactions_in_progress_.insert(c);
-  }
+  RegisterCompaction(c);
   return c;
 }
 
@@ -506,6 +570,16 @@ Compaction* CompactionPicker::CompactRange(
         return nullptr;
       }
     }
+
+    // 2 non-exclusive manual compactions could run at the same time producing
+    // overlaping outputs in the same level.
+    if (FilesRangeOverlapWithCompaction(inputs, output_level)) {
+      // This compaction output could potentially conflict with the output
+      // of a currently running compaction, we cannot run it.
+      *manual_conflict = true;
+      return nullptr;
+    }
+
     Compaction* c = new Compaction(
         vstorage, ioptions_, mutable_cf_options, std::move(inputs),
         output_level, mutable_cf_options.MaxFileSizeForLevel(output_level),
@@ -513,9 +587,7 @@ Compaction* CompactionPicker::CompactRange(
         GetCompressionType(ioptions_, vstorage, mutable_cf_options,
                            output_level, 1),
         /* grandparents */ {}, /* is manual */ true);
-    if (start_level == 0) {
-      level0_compactions_in_progress_.insert(c);
-    }
+    RegisterCompaction(c);
     return c;
   }
 
@@ -604,6 +676,15 @@ Compaction* CompactionPicker::CompactRange(
     }
   }
 
+  // 2 non-exclusive manual compactions could run at the same time producing
+  // overlaping outputs in the same level.
+  if (FilesRangeOverlapWithCompaction(compaction_inputs, output_level)) {
+    // This compaction output could potentially conflict with the output
+    // of a currently running compaction, we cannot run it.
+    *manual_conflict = true;
+    return nullptr;
+  }
+
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
   Compaction* compaction = new Compaction(
@@ -615,9 +696,7 @@ Compaction* CompactionPicker::CompactRange(
       std::move(grandparents), /* is manual compaction */ true);
 
   TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
-  if (input_level == 0) {
-    level0_compactions_in_progress_.insert(compaction);
-  }
+  RegisterCompaction(compaction);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -853,6 +932,30 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
 }
 #endif  // !ROCKSDB_LITE
 
+void CompactionPicker::RegisterCompaction(Compaction* c) {
+  if (c == nullptr) {
+    return;
+  }
+  assert(ioptions_.compaction_style != kCompactionStyleLevel ||
+         !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level()));
+  if (c->start_level() == 0 ||
+      ioptions_.compaction_style == kCompactionStyleUniversal) {
+    level0_compactions_in_progress_.insert(c);
+  }
+  compactions_in_progress_.insert(c);
+}
+
+void CompactionPicker::UnregisterCompaction(Compaction* c) {
+  if (c == nullptr) {
+    return;
+  }
+  if (c->start_level() == 0 ||
+      ioptions_.compaction_style == kCompactionStyleUniversal) {
+    level0_compactions_in_progress_.erase(c);
+  }
+  compactions_in_progress_.erase(c);
+}
+
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
   if (!vstorage->FilesMarkedForCompaction().empty()) {
@@ -936,7 +1039,8 @@ Compaction* LevelCompactionPicker::PickCompaction(
       output_level = (level == 0) ? vstorage->base_level() : level + 1;
       if (PickCompactionBySize(vstorage, level, output_level, &inputs,
                                &parent_index, &base_index) &&
-          ExpandWhileOverlapping(cf_name, vstorage, &inputs)) {
+          ExpandWhileOverlapping(cf_name, vstorage, &inputs) &&
+          !FilesRangeOverlapWithCompaction({inputs}, output_level)) {
         // found the compaction!
         if (level == 0) {
           // L0 score = `num L0 files` / `level0_file_num_compaction_trigger`
@@ -1009,6 +1113,18 @@ Compaction* LevelCompactionPicker::PickCompaction(
     compaction_inputs.push_back(output_level_inputs);
   }
 
+  // In some edge cases we could pick a compaction that will be compacting
+  // a key range that overlap with another running compaction, and both
+  // of them have the same output leve. This could happen if
+  // (1) we are running a non-exclusive manual compaction
+  // (2) AddFile ingest a new file into the LSM tree
+  // We need to disallow this from happening.
+  if (FilesRangeOverlapWithCompaction(compaction_inputs, output_level)) {
+    // This compaction output could potentially conflict with the output
+    // of a currently running compaction, we cannot run it.
+    return nullptr;
+  }
+
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
   auto c = new Compaction(
@@ -1023,9 +1139,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel
-  if (level == 0) {
-    level0_compactions_in_progress_.insert(c);
-  }
+  RegisterCompaction(c);
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -1421,7 +1535,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   MeasureTime(ioptions_.statistics, NUM_FILES_IN_SINGLE_COMPACTION,
               c->inputs(0)->size());
 
-  level0_compactions_in_progress_.insert(c);
+  RegisterCompaction(c);
 
   TEST_SYNC_POINT_CALLBACK("UniversalCompactionPicker::PickCompaction:Return",
                            c);
@@ -1835,7 +1949,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
       vstorage, ioptions_, mutable_cf_options, std::move(inputs), 0, 0, 0, 0,
       kNoCompression, {}, /* is manual */ false, vstorage->CompactionScore(0),
       /* is deletion compaction */ true, CompactionReason::kFIFOMaxSize);
-  level0_compactions_in_progress_.insert(c);
+  RegisterCompaction(c);
   return c;
 }
 
