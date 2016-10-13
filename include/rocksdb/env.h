@@ -504,15 +504,16 @@ class WritableFile {
   virtual ~WritableFile();
 
   // Indicates if the class makes use of unbuffered I/O
+  // If false you must pass aligned buffer to Write()
   virtual bool UseOSBuffer() const {
     return true;
   }
 
   const size_t c_DefaultPageSize = 4 * 1024;
 
-  // This is needed when you want to allocate
-  // AlignedBuffer for use with file I/O classes
-  // Used for unbuffered file I/O when UseOSBuffer() returns false
+  // Use the returned alignment value to allocate
+  // aligned buffer for Write() when UseOSBuffer()
+  // returns false
   virtual size_t GetRequiredBufferAlignment() const {
     return c_DefaultPageSize;
   }
@@ -664,7 +665,34 @@ class RandomRWFile {
   RandomRWFile() {}
   virtual ~RandomRWFile() {}
 
+  // Indicates if the class makes use of unbuffered I/O
+  // If false you must pass aligned buffer to Write()
+  virtual bool UseOSBuffer() const {
+    return true;
+  }
+
+  const size_t c_DefaultPageSize = 4 * 1024;
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Write() when UseOSBuffer()
+  // returns false
+  virtual size_t GetRequiredBufferAlignment() const {
+    return c_DefaultPageSize;
+  }
+
+  // Used by the file_reader_writer to decide if the ReadAhead wrapper
+  // should simply forward the call and do not enact read_ahead buffering or locking.
+  // The implementation below takes care of reading ahead
+  virtual bool ShouldForwardRawRequest() const {
+    return false;
+  }
+
+  // For cases when read-ahead is implemented in the platform dependent
+  // layer. This is when ShouldForwardRawRequest() returns true.
+  virtual void EnableReadAhead() {}
+
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
+  // Pass aligned buffer when UseOSBuffer() returns false.
   virtual Status Write(uint64_t offset, const Slice& data) = 0;
 
   // Read up to `n` bytes starting from offset `offset` and store them in
@@ -681,7 +709,6 @@ class RandomRWFile {
 
   virtual Status Close() = 0;
 
- private:
   // No copying allowed
   RandomRWFile(const RandomRWFile&) = delete;
   RandomRWFile& operator=(const RandomRWFile&) = delete;

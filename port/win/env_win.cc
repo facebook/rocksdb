@@ -293,6 +293,50 @@ Status WinEnvIO::NewWritableFile(const std::string& fname,
   return s;
 }
 
+Status WinEnvIO::NewRandomRWFile(const std::string & fname,
+  unique_ptr<RandomRWFile>* result, const EnvOptions & options) {
+
+  Status s;
+
+  // Open the file for read-only random access
+  // Random access is to disable read-ahead as the system reads too much data
+  DWORD desired_access = GENERIC_READ | GENERIC_WRITE;
+  DWORD shared_mode = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+  DWORD creation_disposition = OPEN_ALWAYS; // Create if necessary or open existing
+  DWORD file_flags = FILE_FLAG_RANDOM_ACCESS;
+
+  if (!options.use_os_buffer) {
+    file_flags |= FILE_FLAG_NO_BUFFERING;
+  }
+
+  /// Shared access is necessary for corruption test to pass
+  // almost all tests would work with a possible exception of fault_injection
+  HANDLE hFile = 0;
+  {
+    IOSTATS_TIMER_GUARD(open_nanos);
+    hFile =
+      CreateFileA(fname.c_str(),
+        desired_access,
+        shared_mode,
+        NULL, // Security attributes
+        creation_disposition,
+        file_flags,
+        NULL);
+  }
+
+  if (INVALID_HANDLE_VALUE == hFile) {
+    auto lastError = GetLastError();
+    return IOErrorFromWindowsError(
+      "NewRandomRWFile failed to Create/Open: " + fname, lastError);
+  }
+
+  UniqueCloseHandlePtr fileGuard(hFile, CloseHandleFunc);
+  result->reset(new WinRandomRWFile(fname, hFile, page_size_, options));
+  fileGuard.release();
+
+  return s;
+}
+
 Status WinEnvIO::NewDirectory(const std::string& name,
   std::unique_ptr<Directory>* result) {
   Status s;
@@ -866,6 +910,11 @@ Status WinEnv::NewWritableFile(const std::string& fname,
   std::unique_ptr<WritableFile>* result,
   const EnvOptions& options) {
   return winenv_io_.NewWritableFile(fname, result, options);
+}
+
+Status WinEnv::NewRandomRWFile(const std::string & fname,
+  unique_ptr<RandomRWFile>* result, const EnvOptions & options) {
+  return winenv_io_.NewRandomRWFile(fname, result, options);
 }
 
 Status WinEnv::NewDirectory(const std::string& name,
