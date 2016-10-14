@@ -178,5 +178,10 @@ Status DBImpl::TEST_GetLatestMutableCFOptions(
   return Status::OK();
 }
 
+int DBImpl::TEST_BGCompactionsAllowed() const {
+  InstrumentedMutexLock l(&mutex_);
+  return BGCompactionsAllowed();
+}
+
 }  // namespace rocksdb
 #endif  // NDEBUG

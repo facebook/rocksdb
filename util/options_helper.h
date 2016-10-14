@@ -69,6 +69,11 @@ Status GetMutableOptionsFromStrings(
     const std::unordered_map<std::string, std::string>& options_map,
     MutableCFOptions* new_options);
 
+Status GetMutableDBOptionsFromStrings(
+    const MutableDBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableDBOptions* new_options);
+
 Status GetTableFactoryFromMap(
     const std::string& factory_name,
     const std::unordered_map<std::string, std::string>& opt_map,
@@ -234,10 +239,12 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal, false, 0}},
     {"max_background_compactions",
      {offsetof(struct DBOptions, max_background_compactions), OptionType::kInt,
-      OptionVerificationType::kNormal, false, 0}},
+      OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, max_background_compactions)}},
     {"base_background_compactions",
      {offsetof(struct DBOptions, base_background_compactions), OptionType::kInt,
-      OptionVerificationType::kNormal, false, 0}},
+      OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, base_background_compactions)}},
     {"max_background_flushes",
      {offsetof(struct DBOptions, max_background_flushes), OptionType::kInt,
       OptionVerificationType::kNormal, false, 0}},

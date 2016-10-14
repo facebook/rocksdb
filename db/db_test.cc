@@ -2762,6 +2762,12 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
+  virtual Status SetDBOptions(
+      const std::unordered_map<std::string, std::string>& new_options)
+      override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
   using DB::CompactFiles;
   virtual Status CompactFiles(const CompactionOptions& compact_options,
                               ColumnFamilyHandle* column_family,

@@ -42,8 +42,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_dir(options.wal_dir),
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
-      base_background_compactions(options.base_background_compactions),
-      max_background_compactions(options.max_background_compactions),
       max_subcompactions(options.max_subcompactions),
       max_background_flushes(options.max_background_flushes),
       max_log_file_size(options.max_log_file_size),
@@ -144,10 +142,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          table_cache_numshardbits);
   Header(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
          delete_obsolete_files_period_micros);
-  Header(log, "            Options.base_background_compactions: %d",
-         base_background_compactions);
-  Header(log, "             Options.max_background_compactions: %d",
-         max_background_compactions);
   Header(log, "                     Options.max_subcompactions: %" PRIu32,
          max_subcompactions);
   Header(log, "                 Options.max_background_flushes: %d",
@@ -202,8 +196,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          wal_recovery_mode);
   Header(log, "                 Options.enable_thread_tracking: %d",
          enable_thread_tracking);
-  Log(log, "                       Options.delayed_write_rate : %" PRIu64,
-      delayed_write_rate);
+  Header(log, "                    Options.delayed_write_rate : %" PRIu64,
+         delayed_write_rate);
   Header(log, "        Options.allow_concurrent_memtable_write: %d",
          allow_concurrent_memtable_write);
   Header(log, "     Options.enable_write_thread_adaptive_yield: %d",
@@ -226,8 +220,18 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          avoid_flush_during_recovery);
 }
 
-MutableDBOptions::MutableDBOptions(const DBOptions& options) {}
+MutableDBOptions::MutableDBOptions()
+    : base_background_compactions(1), max_background_compactions(1) {}
 
-void MutableDBOptions::Dump(Logger* log) const {}
+MutableDBOptions::MutableDBOptions(const DBOptions& options)
+    : base_background_compactions(options.base_background_compactions),
+      max_background_compactions(options.max_background_compactions) {}
+
+void MutableDBOptions::Dump(Logger* log) const {
+  Header(log, "            Options.base_background_compactions: %d",
+         base_background_compactions);
+  Header(log, "             Options.max_background_compactions: %d",
+         max_background_compactions);
+}
 
 }  // namespace rocksdb

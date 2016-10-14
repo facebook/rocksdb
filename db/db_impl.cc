@@ -307,8 +307,9 @@ void DumpSupportInfo(Logger* logger) {
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
     : env_(options.env),
       dbname_(dbname),
-      immutable_db_options_(SanitizeOptions(dbname, options)),
-      mutable_db_options_(options),
+      initial_db_options_(SanitizeOptions(dbname, options)),
+      immutable_db_options_(initial_db_options_),
+      mutable_db_options_(initial_db_options_),
       stats_(immutable_db_options_.statistics.get()),
       db_lock_(nullptr),
       mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS,
@@ -2434,13 +2435,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
           InstallSuperVersionAndScheduleWork(cfd, nullptr, new_options);
       delete old_sv;
 
-      // Persist RocksDB options under the single write thread
-      WriteThread::Writer w;
-      write_thread_.EnterUnbatched(&w, &mutex_);
-
-      persist_options_status = WriteOptionsFile();
-
-      write_thread_.ExitUnbatched(&w);
+      persist_options_status = PersistOptions();
     }
   }
 
@@ -2452,12 +2447,12 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
   }
   if (s.ok()) {
     Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
-        "[%s] SetOptions succeeded", cfd->GetName().c_str());
+        "[%s] SetOptions() succeeded", cfd->GetName().c_str());
     new_options.Dump(immutable_db_options_.info_log.get());
     if (!persist_options_status.ok()) {
       if (immutable_db_options_.fail_if_options_file_error) {
         s = Status::IOError(
-            "SetOptions succeeded, but unable to persist options",
+            "SetOptions() succeeded, but unable to persist options",
             persist_options_status.ToString());
       }
       Warn(immutable_db_options_.info_log,
@@ -2466,11 +2461,80 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     }
   } else {
     Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
-        "[%s] SetOptions failed", cfd->GetName().c_str());
+        "[%s] SetOptions() failed", cfd->GetName().c_str());
   }
   LogFlush(immutable_db_options_.info_log);
   return s;
 #endif  // ROCKSDB_LITE
+}
+
+Status DBImpl::SetDBOptions(
+    const std::unordered_map<std::string, std::string>& options_map) {
+#ifdef ROCKSDB_LITE
+  return Status::NotSupported("Not supported in ROCKSDB LITE");
+#else
+  if (options_map.empty()) {
+    Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
+        "SetDBOptions(), empty input.");
+    return Status::InvalidArgument("empty input");
+  }
+
+  MutableDBOptions new_options;
+  Status s;
+  Status persist_options_status;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    s = GetMutableDBOptionsFromStrings(mutable_db_options_, options_map,
+                                       &new_options);
+    if (s.ok()) {
+      if (new_options.max_background_compactions >
+          mutable_db_options_.max_background_compactions) {
+        env_->IncBackgroundThreadsIfNeeded(
+            new_options.max_background_compactions, Env::Priority::LOW);
+        MaybeScheduleFlushOrCompaction();
+      }
+
+      mutable_db_options_ = new_options;
+
+      persist_options_status = PersistOptions();
+    }
+  }
+  Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
+      "SetDBOptions(), inputs:");
+  for (const auto& o : options_map) {
+    Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log, "%s: %s\n",
+        o.first.c_str(), o.second.c_str());
+  }
+  if (s.ok()) {
+    Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
+        "SetDBOptions() succeeded");
+    new_options.Dump(immutable_db_options_.info_log.get());
+    if (!persist_options_status.ok()) {
+      if (immutable_db_options_.fail_if_options_file_error) {
+        s = Status::IOError(
+            "SetDBOptions() succeeded, but unable to persist options",
+            persist_options_status.ToString());
+      }
+      Warn(immutable_db_options_.info_log,
+           "Unable to persist options in SetDBOptions() -- %s",
+           persist_options_status.ToString().c_str());
+    }
+  } else {
+    Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
+        "SetDBOptions failed");
+  }
+  LogFlush(immutable_db_options_.info_log);
+  return s;
+#endif  // ROCKSDB_LITE
+}
+
+Status DBImpl::PersistOptions() {
+  mutex_.AssertHeld();
+  WriteThread::Writer w;
+  write_thread_.EnterUnbatched(&w, &mutex_);
+  Status s = WriteOptionsFile();
+  write_thread_.ExitUnbatched(&w);
+  return s;
 }
 
 // return the same level if it cannot be moved
@@ -2957,10 +3021,11 @@ void DBImpl::SchedulePurge() {
 }
 
 int DBImpl::BGCompactionsAllowed() const {
+  mutex_.AssertHeld();
   if (write_controller_.NeedSpeedupCompaction()) {
-    return immutable_db_options_.max_background_compactions;
+    return mutable_db_options_.max_background_compactions;
   } else {
-    return immutable_db_options_.base_background_compactions;
+    return mutable_db_options_.base_background_compactions;
   }
 }
 

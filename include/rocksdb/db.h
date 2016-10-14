@@ -629,6 +629,9 @@ class DB {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
 
+  virtual Status SetDBOptions(
+      const std::unordered_map<std::string, std::string>& new_options) = 0;
+
   // CompactFiles() inputs a list of files specified by file numbers and
   // compacts them to the specified level. Note that the behavior is different
   // from CompactRange() in that CompactFiles() performs the compaction job

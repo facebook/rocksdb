@@ -289,6 +289,12 @@ class StackableDB : public DB {
     return db_->SetOptions(column_family_handle, new_options);
   }
 
+  virtual Status SetDBOptions(
+      const std::unordered_map<std::string, std::string>& new_options)
+      override {
+    return db_->SetDBOptions(new_options);
+  }
+
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
       ColumnFamilyHandle* column_family,

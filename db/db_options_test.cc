@@ -11,6 +11,7 @@
 #include <unordered_map>
 
 #include "db/column_family.h"
+#include "db/db_impl.h"
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
 #include "rocksdb/convenience.h"
@@ -26,6 +27,22 @@ class DBOptionsTest : public DBTestBase {
   DBOptionsTest() : DBTestBase("/db_options_test") {}
 
 #ifndef ROCKSDB_LITE
+  std::unordered_map<std::string, std::string> GetMutableDBOptionsMap(
+      const DBOptions& options) {
+    std::string options_str;
+    GetStringFromDBOptions(&options_str, options);
+    std::unordered_map<std::string, std::string> options_map;
+    StringToMap(options_str, &options_map);
+    std::unordered_map<std::string, std::string> mutable_map;
+    for (const auto opt : db_options_type_info) {
+      if (opt.second.is_mutable &&
+          opt.second.verification != OptionVerificationType::kDeprecated) {
+        mutable_map[opt.first] = options_map[opt.first];
+      }
+    }
+    return mutable_map;
+  }
+
   std::unordered_map<std::string, std::string> GetMutableCFOptionsMap(
       const ColumnFamilyOptions& options) {
     std::string options_str;
@@ -52,13 +69,32 @@ class DBOptionsTest : public DBTestBase {
     delete options.compaction_filter;
     return opt_map;
   }
+
+  std::unordered_map<std::string, std::string> GetRandomizedMutableDBOptionsMap(
+      Random* rnd) {
+    DBOptions db_options;
+    test::RandomInitDBOptions(&db_options, rnd);
+    auto sanitized_options = SanitizeOptions(dbname_, db_options);
+    return GetMutableDBOptionsMap(sanitized_options);
+  }
 #endif  // ROCKSDB_LITE
 };
 
 // RocksDB lite don't support dynamic options.
 #ifndef ROCKSDB_LITE
 
-TEST_F(DBOptionsTest, GetLatestOptions) {
+TEST_F(DBOptionsTest, GetLatestDBOptions) {
+  // GetOptions should be able to get latest option changed by SetOptions.
+  Options options;
+  options.create_if_missing = true;
+  Random rnd(228);
+  Reopen(options);
+  auto new_options = GetRandomizedMutableDBOptionsMap(&rnd);
+  ASSERT_OK(dbfull()->SetDBOptions(new_options));
+  ASSERT_EQ(new_options, GetMutableDBOptionsMap(dbfull()->GetDBOptions()));
+}
+
+TEST_F(DBOptionsTest, GetLatestCFOptions) {
   // GetOptions should be able to get latest option changed by SetOptions.
   Options options;
   options.create_if_missing = true;
@@ -204,6 +240,20 @@ TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
       dbfull()->SetOptions({{"level0_file_num_compaction_trigger", "3"}}));
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("0,1", FilesPerLevel());
+}
+
+TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
+  Options options;
+  options.create_if_missing = true;
+  options.base_background_compactions = 1;  // default value
+  options.max_background_compactions = 1;   // default value
+  Reopen(options);
+  ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
+  ASSERT_OK(dbfull()->SetDBOptions({{"base_background_compactions", "2"},
+                                    {"max_background_compactions", "3"}}));
+  ASSERT_EQ(2, dbfull()->TEST_BGCompactionsAllowed());
+  auto stop_token = dbfull()->TEST_write_controler().GetStopToken();
+  ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
 }
 
 #endif  // ROCKSDB_LITE

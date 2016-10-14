@@ -4,6 +4,9 @@
 * DB::GetOptions() reflect dynamic changed options (i.e. through DB::SetOptions()) and return copy of options instead of reference.
 * Added Statistics::getAndResetTickerCount().
 
+### New Features
+* Add DB::SetDBOptions() to dynamic change base_background_compactions and max_background_compactions.
+
 ## 4.12.0 (9/12/2016)
 ### Public API Change
 * CancelAllBackgroundWork() flushes all memtables for databases containing writes that have bypassed the WAL (writes issued with WriteOptions::disableWAL=true) before shutting down background threads.

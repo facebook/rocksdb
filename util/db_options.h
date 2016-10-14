@@ -37,8 +37,6 @@ struct ImmutableDBOptions {
   std::string db_log_dir;
   std::string wal_dir;
   uint64_t delete_obsolete_files_period_micros;
-  int base_background_compactions;
-  int max_background_compactions;
   uint32_t max_subcompactions;
   int max_background_flushes;
   size_t max_log_file_size;
@@ -87,10 +85,14 @@ struct ImmutableDBOptions {
 };
 
 struct MutableDBOptions {
+  MutableDBOptions();
   explicit MutableDBOptions(const MutableDBOptions& options) = default;
   explicit MutableDBOptions(const DBOptions& options);
 
   void Dump(Logger* log) const;
+
+  int base_background_compactions;
+  int max_background_compactions;
 };
 
 }  // namespace rocksdb
