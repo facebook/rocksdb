@@ -158,7 +158,7 @@ class MergingIterator : public InternalIterator {
       ClearHeaps();
       for (auto& child : children_) {
         if (&child != current_) {
-          child.Seek(prefix_seek_key_ ? *prefix_seek_key_ : key());
+          child.Seek(key());
           if (child.Valid() && comparator_->Equal(key(), child.key())) {
             child.Next();
           }
@@ -204,7 +204,7 @@ class MergingIterator : public InternalIterator {
       InitMaxHeap();
       for (auto& child : children_) {
         if (&child != current_) {
-          child.SeekForPrev(prefix_seek_key_ ? *prefix_seek_key_ : key());
+          child.SeekForPrev(key());
           if (child.Valid() && comparator_->Equal(key(), child.key())) {
             child.Prev();
           }
@@ -277,17 +277,6 @@ class MergingIterator : public InternalIterator {
            current_->IsValuePinned();
   }
 
-  virtual void ResetPrefixSeekKey(const Slice* db_iter_key) override {
-    if (db_iter_key == nullptr) {
-      prefix_seek_key_.reset();
-      return;
-    }
-    if (!prefix_seek_key_) {
-      prefix_seek_key_.reset(new std::string);
-    }
-    *prefix_seek_key_ = db_iter_key->ToString();
-  }
-
  private:
   // Clears heaps for both directions, used when changing direction or seeking
   void ClearHeaps();
@@ -314,7 +303,6 @@ class MergingIterator : public InternalIterator {
   // forward.  Lazily initialize it to save memory.
   std::unique_ptr<MergerMaxIterHeap> maxHeap_;
   PinnedIteratorsManager* pinned_iters_mgr_;
-  std::unique_ptr<std::string> prefix_seek_key_;
 
   IteratorWrapper* CurrentForward() const {
     assert(direction_ == kForward);
