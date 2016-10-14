@@ -693,6 +693,7 @@ static std::unordered_map<std::string, InfoLogLevel> info_log_level_string_map =
      {"FATAL_LEVEL", InfoLogLevel::FATAL_LEVEL},
      {"HEADER_LEVEL", InfoLogLevel::HEADER_LEVEL}};
 
+extern const std::string kNullptrString;
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
