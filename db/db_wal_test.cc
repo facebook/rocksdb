@@ -1006,6 +1006,32 @@ TEST_F(DBWALTest, AvoidFlushDuringRecovery) {
   ASSERT_EQ(2, TotalTableFiles());
 }
 
+TEST_F(DBWALTest, WalCleanupAfterAvoidFlushDuringRecovery) {
+  // Verifies WAL files that were present during recovery, but not flushed due
+  // to avoid_flush_during_recovery, will be considered for deletion at a later
+  // stage. We check at least one such file is deleted during Flush().
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.avoid_flush_during_recovery = true;
+  Reopen(options);
+
+  ASSERT_OK(Put("foo", "v1"));
+  Reopen(options);
+  for (int i = 0; i < 2; ++i) {
+    if (i > 0) {
+      // Flush() triggers deletion of obsolete tracked files
+      Flush();
+    }
+    VectorLogPtr log_files;
+    ASSERT_OK(dbfull()->GetSortedWalFiles(log_files));
+    if (i == 0) {
+      ASSERT_GT(log_files.size(), 0);
+    } else {
+      ASSERT_EQ(0, log_files.size());
+    }
+  }
+}
+
 TEST_F(DBWALTest, RecoverWithoutFlush) {
   Options options = CurrentOptions();
   options.avoid_flush_during_recovery = true;
