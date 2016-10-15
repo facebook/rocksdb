@@ -61,6 +61,11 @@ class IteratorWrapper {
   void Next()               { assert(iter_); iter_->Next();        Update(); }
   void Prev()               { assert(iter_); iter_->Prev();        Update(); }
   void Seek(const Slice& k) { assert(iter_); iter_->Seek(k);       Update(); }
+  void SeekForPrev(const Slice& k) {
+    assert(iter_);
+    iter_->SeekForPrev(k);
+    Update();
+  }
   void SeekToFirst()        { assert(iter_); iter_->SeekToFirst(); Update(); }
   void SeekToLast()         { assert(iter_); iter_->SeekToLast();  Update(); }
 

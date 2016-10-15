@@ -48,7 +48,7 @@ class CompactionPickerTest : public testing::Test {
       : ucmp_(BytewiseComparator()),
         icmp_(ucmp_),
         ioptions_(options_),
-        mutable_cf_options_(options_, ioptions_),
+        mutable_cf_options_(options_),
         level_compaction_picker(ioptions_, &icmp_),
         cf_name_("dummy"),
         log_buffer_(InfoLogLevel::INFO_LEVEL, &logger_),
@@ -66,8 +66,8 @@ class CompactionPickerTest : public testing::Test {
   void NewVersionStorage(int num_levels, CompactionStyle style) {
     DeleteVersionStorage();
     options_.num_levels = num_levels;
-    vstorage_.reset(new VersionStorageInfo(
-        &icmp_, ucmp_, options_.num_levels, style, nullptr));
+    vstorage_.reset(new VersionStorageInfo(&icmp_, ucmp_, options_.num_levels,
+                                           style, nullptr, false));
     vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
   }
 
@@ -115,11 +115,11 @@ class CompactionPickerTest : public testing::Test {
 
   void UpdateVersionStorageInfo() {
     vstorage_->CalculateBaseBytes(ioptions_, mutable_cf_options_);
-    vstorage_->UpdateFilesByCompactionPri(mutable_cf_options_);
+    vstorage_->UpdateFilesByCompactionPri(ioptions_.compaction_pri);
     vstorage_->UpdateNumNonEmptyLevels();
     vstorage_->GenerateFileIndexer();
     vstorage_->GenerateLevelFilesBrief();
-    vstorage_->ComputeCompactionScore(mutable_cf_options_);
+    vstorage_->ComputeCompactionScore(ioptions_, mutable_cf_options_);
     vstorage_->GenerateLevel0NonOverlapping();
     vstorage_->SetFinalized();
   }
@@ -350,10 +350,10 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic4) {
 TEST_F(CompactionPickerTest, LevelTriggerDynamic4) {
   int num_levels = ioptions_.num_levels;
   ioptions_.level_compaction_dynamic_level_bytes = true;
+  ioptions_.compaction_pri = kMinOverlappingRatio;
   mutable_cf_options_.level0_file_num_compaction_trigger = 2;
   mutable_cf_options_.max_bytes_for_level_base = 200;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
-  mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
   NewVersionStorage(num_levels, kCompactionStyleLevel);
   Add(0, 1U, "150", "200");
   Add(num_levels - 1, 3U, "200", "250", 300U);
@@ -489,10 +489,10 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
   NewVersionStorage(6, kCompactionStyleLevel);
+  ioptions_.compaction_pri = kMinOverlappingRatio;
   mutable_cf_options_.target_file_size_base = 10000000;
   mutable_cf_options_.target_file_size_multiplier = 10;
   mutable_cf_options_.max_bytes_for_level_base = 10 * 1024 * 1024;
-  mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
 
   Add(2, 6U, "150", "179", 50000000U);
   Add(2, 7U, "180", "220", 50000000U);
@@ -516,10 +516,10 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping1) {
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {
   NewVersionStorage(6, kCompactionStyleLevel);
+  ioptions_.compaction_pri = kMinOverlappingRatio;
   mutable_cf_options_.target_file_size_base = 10000000;
   mutable_cf_options_.target_file_size_multiplier = 10;
   mutable_cf_options_.max_bytes_for_level_base = 10 * 1024 * 1024;
-  mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
 
   Add(2, 6U, "150", "175",
       60000000U);  // Overlaps with file 26, 27, total size 521M
@@ -546,9 +546,9 @@ TEST_F(CompactionPickerTest, CompactionPriMinOverlapping2) {
 
 TEST_F(CompactionPickerTest, CompactionPriMinOverlapping3) {
   NewVersionStorage(6, kCompactionStyleLevel);
+  ioptions_.compaction_pri = kMinOverlappingRatio;
   mutable_cf_options_.max_bytes_for_level_base = 10000000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 10;
-  mutable_cf_options_.compaction_pri = kMinOverlappingRatio;
 
   // file 7 and 8 over lap with the same file, but file 8 is smaller so
   // it will be picked.
@@ -598,7 +598,7 @@ TEST_F(CompactionPickerTest, ParentIndexResetBug) {
 // ranges (with different sequence numbers) in the input files.
 TEST_F(CompactionPickerTest, OverlappingUserKeys) {
   NewVersionStorage(6, kCompactionStyleLevel);
-  mutable_cf_options_.compaction_pri = kByCompensatedSize;
+  ioptions_.compaction_pri = kByCompensatedSize;
 
   Add(1, 1U, "100", "150", 1U);
   // Overlapping user keys

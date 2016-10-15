@@ -204,6 +204,22 @@ TEST_F(DBIteratorTest, IterSeekBeforePrev) {
   delete iter;
 }
 
+TEST_F(DBIteratorTest, IterSeekForPrevBeforeNext) {
+  ASSERT_OK(Put("a", "b"));
+  ASSERT_OK(Put("c", "d"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("0", "f"));
+  ASSERT_OK(Put("1", "h"));
+  dbfull()->Flush(FlushOptions());
+  ASSERT_OK(Put("2", "j"));
+  auto iter = db_->NewIterator(ReadOptions());
+  iter->SeekForPrev(Slice("0"));
+  iter->Next();
+  iter->SeekForPrev(Slice("1"));
+  iter->Next();
+  delete iter;
+}
+
 namespace {
 std::string MakeLongKey(size_t length, char c) {
   return std::string(length, c);
@@ -231,6 +247,13 @@ TEST_F(DBIteratorTest, IterLongKeys) {
   ASSERT_EQ(IterStatus(iter), MakeLongKey(127, 3) + "->3");
   iter->Next();
   ASSERT_EQ(IterStatus(iter), MakeLongKey(64, 4) + "->4");
+
+  iter->SeekForPrev(MakeLongKey(127, 3));
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(127, 3) + "->3");
+  iter->Prev();
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(32, 2) + "->2");
+  iter->Prev();
+  ASSERT_EQ(IterStatus(iter), MakeLongKey(50, 1) + "->1");
   delete iter;
 
   iter = db_->NewIterator(ReadOptions());
@@ -261,6 +284,11 @@ TEST_F(DBIteratorTest, IterNextWithNewerSeq) {
   ASSERT_EQ(IterStatus(iter), "a->b");
   iter->Next();
   ASSERT_EQ(IterStatus(iter), "c->d");
+  iter->SeekForPrev(Slice("b"));
+  ASSERT_EQ(IterStatus(iter), "a->b");
+  iter->Next();
+  ASSERT_EQ(IterStatus(iter), "c->d");
+
   delete iter;
 }
 
@@ -284,7 +312,13 @@ TEST_F(DBIteratorTest, IterPrevWithNewerSeq) {
   ASSERT_EQ(IterStatus(iter), "c->d");
   iter->Prev();
   ASSERT_EQ(IterStatus(iter), "a->b");
-
+  iter->Prev();
+  iter->SeekForPrev(Slice("d"));
+  ASSERT_EQ(IterStatus(iter), "d->e");
+  iter->Prev();
+  ASSERT_EQ(IterStatus(iter), "c->d");
+  iter->Prev();
+  ASSERT_EQ(IterStatus(iter), "a->b");
   iter->Prev();
   delete iter;
 }
@@ -294,10 +328,13 @@ TEST_F(DBIteratorTest, IterPrevWithNewerSeq2) {
   dbfull()->Flush(FlushOptions());
   ASSERT_OK(Put("a", "b"));
   ASSERT_OK(Put("c", "d"));
-  ASSERT_OK(Put("d", "e"));
+  ASSERT_OK(Put("e", "f"));
   auto iter = db_->NewIterator(ReadOptions());
+  auto iter2 = db_->NewIterator(ReadOptions());
   iter->Seek(Slice("c"));
+  iter2->SeekForPrev(Slice("d"));
   ASSERT_EQ(IterStatus(iter), "c->d");
+  ASSERT_EQ(IterStatus(iter2), "c->d");
 
   // Create a key that needs to be skipped for Seq too new
   for (uint64_t i = 0; i < last_options_.max_sequential_skip_in_iterations + 1;
@@ -307,9 +344,12 @@ TEST_F(DBIteratorTest, IterPrevWithNewerSeq2) {
 
   iter->Prev();
   ASSERT_EQ(IterStatus(iter), "a->b");
-
   iter->Prev();
+  iter2->Prev();
+  ASSERT_EQ(IterStatus(iter2), "a->b");
+  iter2->Prev();
   delete iter;
+  delete iter2;
 }
 
 TEST_F(DBIteratorTest, IterEmpty) {
@@ -324,6 +364,9 @@ TEST_F(DBIteratorTest, IterEmpty) {
     ASSERT_EQ(IterStatus(iter), "(invalid)");
 
     iter->Seek("foo");
+    ASSERT_EQ(IterStatus(iter), "(invalid)");
+
+    iter->SeekForPrev("foo");
     ASSERT_EQ(IterStatus(iter), "(invalid)");
 
     delete iter;
@@ -358,13 +401,23 @@ TEST_F(DBIteratorTest, IterSingle) {
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Next();
     ASSERT_EQ(IterStatus(iter), "(invalid)");
+    iter->SeekForPrev("");
+    ASSERT_EQ(IterStatus(iter), "(invalid)");
 
     iter->Seek("a");
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Next();
     ASSERT_EQ(IterStatus(iter), "(invalid)");
+    iter->SeekForPrev("a");
+    ASSERT_EQ(IterStatus(iter), "a->va");
+    iter->Prev();
+    ASSERT_EQ(IterStatus(iter), "(invalid)");
 
     iter->Seek("b");
+    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    iter->SeekForPrev("b");
+    ASSERT_EQ(IterStatus(iter), "a->va");
+    iter->Prev();
     ASSERT_EQ(IterStatus(iter), "(invalid)");
 
     delete iter;
@@ -411,10 +464,20 @@ TEST_F(DBIteratorTest, IterMulti) {
     ASSERT_EQ(IterStatus(iter), "a->va");
     iter->Seek("ax");
     ASSERT_EQ(IterStatus(iter), "b->vb");
+    iter->SeekForPrev("d");
+    ASSERT_EQ(IterStatus(iter), "c->vc");
+    iter->SeekForPrev("c");
+    ASSERT_EQ(IterStatus(iter), "c->vc");
+    iter->SeekForPrev("bx");
+    ASSERT_EQ(IterStatus(iter), "b->vb");
 
     iter->Seek("b");
     ASSERT_EQ(IterStatus(iter), "b->vb");
     iter->Seek("z");
+    ASSERT_EQ(IterStatus(iter), "(invalid)");
+    iter->SeekForPrev("b");
+    ASSERT_EQ(IterStatus(iter), "b->vb");
+    iter->SeekForPrev("");
     ASSERT_EQ(IterStatus(iter), "(invalid)");
 
     // Switch from reverse to forward
@@ -603,7 +666,8 @@ TEST_F(DBIteratorTest, IterMultiWithDelete) {
       // TODO: merge operator does not support backward iteration yet
       if (kPlainTableAllBytesPrefix != option_config_ &&
           kBlockBasedTableWithWholeKeyHashIndex != option_config_ &&
-          kHashLinkList != option_config_) {
+          kHashLinkList != option_config_ &&
+          kHashSkipList != option_config_) {  // doesn't support SeekToLast
         iter->Prev();
         ASSERT_EQ(IterStatus(iter), "ka->va");
       }
@@ -658,6 +722,7 @@ TEST_F(DBIteratorTest, IterWithSnapshot) {
     options.snapshot = snapshot;
     Iterator* iter = db_->NewIterator(options, handles_[1]);
 
+    ASSERT_OK(Put(1, "key0", "val0"));
     // Put more values after the snapshot
     ASSERT_OK(Put(1, "key100", "val100"));
     ASSERT_OK(Put(1, "key101", "val101"));
@@ -668,7 +733,7 @@ TEST_F(DBIteratorTest, IterWithSnapshot) {
       // TODO: merge operator does not support backward iteration yet
       if (kPlainTableAllBytesPrefix != option_config_ &&
           kBlockBasedTableWithWholeKeyHashIndex != option_config_ &&
-          kHashLinkList != option_config_) {
+          kHashLinkList != option_config_ && kHashSkipList != option_config_) {
         iter->Prev();
         ASSERT_EQ(IterStatus(iter), "key4->val4");
         iter->Prev();
@@ -681,6 +746,26 @@ TEST_F(DBIteratorTest, IterWithSnapshot) {
       }
       iter->Next();
       ASSERT_TRUE(!iter->Valid());
+    }
+
+    if (!CurrentOptions().merge_operator) {
+      // TODO(gzh): merge operator does not support backward iteration yet
+      if (kPlainTableAllBytesPrefix != option_config_ &&
+          kBlockBasedTableWithWholeKeyHashIndex != option_config_ &&
+          kHashLinkList != option_config_ && kHashSkipList != option_config_) {
+        iter->SeekForPrev("key1");
+        ASSERT_EQ(IterStatus(iter), "key1->val1");
+        iter->Next();
+        ASSERT_EQ(IterStatus(iter), "key2->val2");
+        iter->Next();
+        ASSERT_EQ(IterStatus(iter), "key3->val3");
+        iter->Prev();
+        ASSERT_EQ(IterStatus(iter), "key2->val2");
+        iter->Prev();
+        ASSERT_EQ(IterStatus(iter), "key1->val1");
+        iter->Prev();
+        ASSERT_TRUE(!iter->Valid());
+      }
     }
     db_->ReleaseSnapshot(snapshot);
     delete iter;
@@ -745,6 +830,19 @@ TEST_F(DBIteratorTest, DBIteratorBoundTest) {
     iter->Next();
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().compare(Slice("g1")), 0);
+
+    iter->SeekForPrev("g1");
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("g1")), 0);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
+
+    iter->Prev();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
   }
 
   // testing iterate_upper_bound and forward iterator
@@ -877,7 +975,7 @@ TEST_F(DBIteratorTest, DBIteratorBoundTest) {
 
 // TODO(3.13): fix the issue of Seek() + Prev() which might not necessary
 //             return the biggest key which is smaller than the seek key.
-TEST_F(DBIteratorTest, PrevAfterMerge) {
+TEST_F(DBIteratorTest, PrevAfterAndNextAfterMerge) {
   Options options;
   options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreatePutOperator();
@@ -898,6 +996,14 @@ TEST_F(DBIteratorTest, PrevAfterMerge) {
   it->Prev();
   ASSERT_TRUE(it->Valid());
   ASSERT_EQ("1", it->key().ToString());
+
+  it->SeekForPrev("1");
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("1", it->key().ToString());
+
+  it->Next();
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("2", it->key().ToString());
 }
 
 TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
@@ -980,7 +1086,6 @@ TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
 
     {
       // Test Seek to random keys
-      printf("Testing seek on %" ROCKSDB_PRIszt " keys\n", random_keys.size());
       std::vector<Slice> keys_slices;
       std::vector<std::string> true_keys;
       for (auto& k : random_keys) {
@@ -1003,8 +1108,30 @@ TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
     }
 
     {
+      // Test SeekForPrev to random keys
+      std::vector<Slice> keys_slices;
+      std::vector<std::string> true_keys;
+      for (auto& k : random_keys) {
+        iter->SeekForPrev(k);
+        if (!iter->Valid()) {
+          ASSERT_EQ(true_data.upper_bound(k), true_data.begin());
+          continue;
+        }
+        std::string prop_value;
+        ASSERT_OK(
+            iter->GetProperty("rocksdb.iterator.is-key-pinned", &prop_value));
+        ASSERT_EQ("1", prop_value);
+        keys_slices.push_back(iter->key());
+        true_keys.push_back((--true_data.upper_bound(k))->first);
+      }
+
+      for (size_t i = 0; i < keys_slices.size(); i++) {
+        ASSERT_EQ(keys_slices[i].ToString(), true_keys[i]);
+      }
+    }
+
+    {
       // Test iterating all data forward
-      printf("Testing iterating forward on all keys\n");
       std::vector<Slice> all_keys;
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         std::string prop_value;
@@ -1025,7 +1152,6 @@ TEST_F(DBIteratorTest, PinnedDataIteratorRandomized) {
 
     {
       // Test iterating all data backward
-      printf("Testing iterating backward on all keys\n");
       std::vector<Slice> all_keys;
       for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
         std::string prop_value;
@@ -1228,6 +1354,60 @@ TEST_F(DBIteratorTest, PinnedDataIteratorReadAfterUpdate) {
   }
 
   delete iter;
+}
+
+TEST_F(DBIteratorTest, IterSeekForPrevCrossingFiles) {
+  Options options = CurrentOptions();
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  options.disable_auto_compactions = true;
+  // Enable prefix bloom for SST files
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("a1", "va1"));
+  ASSERT_OK(Put("a2", "va2"));
+  ASSERT_OK(Put("a3", "va3"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("b1", "vb1"));
+  ASSERT_OK(Put("b2", "vb2"));
+  ASSERT_OK(Put("b3", "vb3"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put("b4", "vb4"));
+  ASSERT_OK(Put("d1", "vd1"));
+  ASSERT_OK(Put("d2", "vd2"));
+  ASSERT_OK(Put("d4", "vd4"));
+  ASSERT_OK(Flush());
+
+  MoveFilesToLevel(1);
+  {
+    ReadOptions ro;
+    Iterator* iter = db_->NewIterator(ro);
+
+    iter->SeekForPrev("a4");
+    ASSERT_EQ(iter->key().ToString(), "a3");
+    ASSERT_EQ(iter->value().ToString(), "va3");
+
+    iter->SeekForPrev("c2");
+    ASSERT_EQ(iter->key().ToString(), "b3");
+    iter->SeekForPrev("d3");
+    ASSERT_EQ(iter->key().ToString(), "d2");
+    iter->SeekForPrev("b5");
+    ASSERT_EQ(iter->key().ToString(), "b4");
+    delete iter;
+  }
+
+  {
+    ReadOptions ro;
+    ro.prefix_same_as_start = true;
+    Iterator* iter = db_->NewIterator(ro);
+    iter->SeekForPrev("c2");
+    ASSERT_TRUE(!iter->Valid());
+    delete iter;
+  }
 }
 
 TEST_F(DBIteratorTest, IterPrevKeyCrossingBlocks) {

@@ -123,6 +123,30 @@ void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
   }
 }
 
+uint64_t StatisticsImpl::getAndResetTickerCount(uint32_t tickerType) {
+  uint64_t sum = 0;
+  {
+    MutexLock lock(&aggregate_lock_);
+    assert(enable_internal_stats_ ? tickerType < INTERNAL_TICKER_ENUM_MAX
+                                  : tickerType < TICKER_ENUM_MAX);
+    if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
+      tickers_[tickerType].thread_value->Fold(
+          [](void* curr_ptr, void* res) {
+            auto* sum_ptr = static_cast<uint64_t*>(res);
+            *sum_ptr += static_cast<std::atomic<uint64_t>*>(curr_ptr)->exchange(
+                0, std::memory_order_relaxed);
+          },
+          &sum);
+      sum += tickers_[tickerType].merged_sum.exchange(
+          0, std::memory_order_relaxed);
+    }
+  }
+  if (stats_ && tickerType < TICKER_ENUM_MAX) {
+    stats_->setTickerCount(tickerType, 0);
+  }
+  return sum;
+}
+
 void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
   assert(
     enable_internal_stats_ ?

@@ -80,6 +80,12 @@ class MockTableIterator : public InternalIterator {
     itr_ = table_.lower_bound(str_target);
   }
 
+  void SeekForPrev(const Slice& target) override {
+    std::string str_target(target.data(), target.size());
+    itr_ = table_.upper_bound(str_target);
+    Prev();
+  }
+
   void Next() override { ++itr_; }
 
   void Prev() override {

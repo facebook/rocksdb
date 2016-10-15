@@ -20,7 +20,9 @@ class Iterator;
 class TransactionDB;
 class WriteBatchWithIndex;
 
-typedef std::string TransactionName;
+using TransactionName = std::string;
+
+using TransactionID = uint64_t;
 
 // Provides notification to the caller of SetSnapshotOnNextOperation when
 // the actual snapshot gets created
@@ -389,13 +391,21 @@ class Transaction {
 
   virtual void SetLogNumber(uint64_t log) { log_number_ = log; }
 
-  virtual uint64_t GetLogNumber() { return log_number_; }
+  virtual uint64_t GetLogNumber() const { return log_number_; }
 
   virtual Status SetName(const TransactionName& name) = 0;
 
-  virtual TransactionName GetName() { return name_; }
+  virtual TransactionName GetName() const { return name_; }
 
-  enum ExecutionStatus {
+  virtual TransactionID GetID() const { return 0; }
+
+  virtual TransactionID GetWaitingTxn(uint32_t* column_family_id,
+                                      const std::string** key) const {
+    assert(false);
+    return 0;
+  }
+
+  enum TransactionState {
     STARTED = 0,
     AWAITING_PREPARE = 1,
     PREPARED = 2,
@@ -406,8 +416,8 @@ class Transaction {
     LOCKS_STOLEN = 7,
   };
 
-  // Execution status of the transaction.
-  std::atomic<ExecutionStatus> exec_status_;
+  TransactionState GetState() const { return txn_state_; }
+  void SetState(TransactionState state) { txn_state_ = state; }
 
  protected:
   explicit Transaction(const TransactionDB* db) {}
@@ -417,6 +427,9 @@ class Transaction {
   // (for two phase commit)
   uint64_t log_number_;
   TransactionName name_;
+
+  // Execution status of the transaction.
+  std::atomic<TransactionState> txn_state_;
 
  private:
   // No copying allowed

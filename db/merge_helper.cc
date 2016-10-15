@@ -128,17 +128,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
     assert(IsValueType(ikey.type));
     if (ikey.type != kTypeMerge) {
-      if (ikey.type != kTypeValue && ikey.type != kTypeDeletion) {
-        // Merges operands can only be used with puts and deletions, single
-        // deletions are not supported.
-        assert(false);
-        // release build doesn't have asserts, so we return error status
-        return Status::InvalidArgument(
-            " Merges operands can only be used with puts and deletions, single "
-            "deletions are not supported.");
-      }
 
-      // hit a put/delete
+      // hit a put/delete/single delete
       //   => merge the put value or a nullptr with operands_
       //   => store result in operands_.back() (and update keys_.back())
       //   => change the entry type to kTypeValue for keys_.back()

@@ -48,6 +48,7 @@ TableBuilder* NewTableBuilder(
     uint32_t column_family_id, const std::string& column_family_name,
     WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts,
+    int level,
     const std::string* compression_dict = nullptr,
     const bool skip_filters = false);
 

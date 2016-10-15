@@ -9,6 +9,8 @@ redirect_from:
 
 On Mar 27, 2014, RocksDB team @ Facebook held the 1st RocksDB local meetup in FB HQ (Menlo Park, California). We invited around 80 guests from 20+ local companies, including LinkedIn, Twitter, Dropbox, Square, Pinterest, MapR, Microsoft and IBM. Finally around 50 guests showed up, totaling around 60% show-up rate.
 
+<!--truncate-->
+
 [![Resize of 20140327_200754](/static/images/Resize-of-20140327_200754-300x225.jpg)](/static/images/Resize-of-20140327_200754-300x225.jpg)
 
 RocksDB team @ Facebook gave four talks about the latest progress and experience on RocksDB:
@@ -39,3 +41,13 @@ A very interesting question asked by a massive number of guests is: does RocksDB
 When will be the next meetup? We haven't decided yet. We will see whether the community is interested in it and how it can help RocksDB grow.
 
 If you have any questions or feedback for the meetup or RocksDB, please let us know in [our Facebook group](https://www.facebook.com/groups/rocksdb.dev/).
+
+### Comments
+
+**[Rajiv](geetasen@gmail.com)**
+
+Have any of these talks been recorded and if so will they be published?
+
+**[Igor Canadi](icanadi@fb.com)**
+
+Yes, I think we plan to publish them soon.

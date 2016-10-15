@@ -9,6 +9,8 @@ redirect_from:
 
 In recent months, we have focused on optimizing RocksDB for in-memory workloads. With growing RAM sizes and strict low-latency requirements, lots of applications decide to keep their entire data in memory. Running in-memory database with RocksDB is easy -- just mount your RocksDB directory on tmpfs or ramfs [1]. Even if the process crashes, RocksDB can recover all of your data from in-memory filesystem. However, what happens if the machine reboots?
 
+<!--truncate-->
+
 In this article we will explain how you can recover your in-memory RocksDB database even after a machine reboot.
 
 Every update to RocksDB is written to two places - one is an in-memory data structure called memtable and second is write-ahead log. Write-ahead log can be used to completely recover the data in memtable. By default, when we flush the memtable to table file, we also delete the current log, since we don't need it anymore for recovery (the data from the log is "persisted" in the table file -- we say that the log file is obsolete). However, if your table file is stored in in-memory file system, you may need the obsolete write-ahead log to recover the data after the machine reboots. Here's how you can do that.

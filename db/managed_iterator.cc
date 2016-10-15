@@ -122,6 +122,16 @@ void ManagedIterator::Seek(const Slice& user_key) {
   SeekInternal(user_key, false);
 }
 
+void ManagedIterator::SeekForPrev(const Slice& user_key) {
+  MILock l(&in_use_, this);
+  if (NeedToRebuild()) {
+    RebuildIterator();
+  }
+  assert(mutable_iter_ != nullptr);
+  mutable_iter_->SeekForPrev(user_key);
+  UpdateCurrent();
+}
+
 void ManagedIterator::SeekInternal(const Slice& user_key, bool seek_to_first) {
   if (NeedToRebuild()) {
     RebuildIterator();

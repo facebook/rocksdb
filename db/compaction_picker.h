@@ -113,6 +113,12 @@ class CompactionPicker {
     return !level0_compactions_in_progress_.empty();
   }
 
+  // Return true if the passed key range overlap with a compaction output
+  // that is currently running.
+  bool RangeOverlapWithCompaction(const Slice& smallest_user_key,
+                                  const Slice& largest_user_key,
+                                  int level) const;
+
  protected:
   int NumberLevels() const { return ioptions_.num_levels; }
 
@@ -120,14 +126,20 @@ class CompactionPicker {
   // *smallest, *largest.
   // REQUIRES: inputs is not empty
   void GetRange(const CompactionInputFiles& inputs, InternalKey* smallest,
-                InternalKey* largest);
+                InternalKey* largest) const;
 
   // Stores the minimal range that covers all entries in inputs1 and inputs2
   // in *smallest, *largest.
   // REQUIRES: inputs is not empty
   void GetRange(const CompactionInputFiles& inputs1,
                 const CompactionInputFiles& inputs2, InternalKey* smallest,
-                InternalKey* largest);
+                InternalKey* largest) const;
+
+  // Stores the minimal range that covers all entries in inputs
+  // in *smallest, *largest.
+  // REQUIRES: inputs is not empty (at least on entry have one file)
+  void GetRange(const std::vector<CompactionInputFiles>& inputs,
+                InternalKey* smallest, InternalKey* largest) const;
 
   // Add more files to the inputs on "level" to make sure that
   // no newer version of a key is compacted to "level+1" while leaving an older
@@ -147,6 +159,11 @@ class CompactionPicker {
   bool RangeInCompaction(VersionStorageInfo* vstorage,
                          const InternalKey* smallest,
                          const InternalKey* largest, int level, int* index);
+
+  // Returns true if the key range that `inputs` files cover overlap with the
+  // key range of a currently running compaction.
+  bool FilesRangeOverlapWithCompaction(
+      const std::vector<CompactionInputFiles>& inputs, int level) const;
 
   bool SetupOtherInputs(const std::string& cf_name,
                         const MutableCFOptions& mutable_cf_options,
@@ -170,9 +187,19 @@ class CompactionPicker {
       const ColumnFamilyMetaData& cf_meta, const int output_level) const;
 #endif  // ROCKSDB_LITE
 
+  // Register this compaction in the set of running compactions
+  void RegisterCompaction(Compaction* c);
+
+  // Remove this compaction from the set of running compactions
+  void UnregisterCompaction(Compaction* c);
+
   // Keeps track of all compactions that are running on Level0.
-  // It is protected by DB mutex
+  // Protected by DB mutex
   std::set<Compaction*> level0_compactions_in_progress_;
+
+  // Keeps track of all compactions that are running.
+  // Protected by DB mutex
+  std::unordered_set<Compaction*> compactions_in_progress_;
 
   const InternalKeyComparator* const icmp_;
 };

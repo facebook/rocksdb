@@ -104,7 +104,7 @@ class CompactionIterator {
   LogBuffer* log_buffer_;
   bool bottommost_level_;
   bool valid_ = false;
-  SequenceNumber visible_at_tip_;
+  bool visible_at_tip_;
   SequenceNumber earliest_snapshot_;
   SequenceNumber latest_snapshot_;
   bool ignore_snapshots_;

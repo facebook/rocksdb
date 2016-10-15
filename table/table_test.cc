@@ -257,6 +257,12 @@ class KeyConvertingIterator : public InternalIterator {
     AppendInternalKey(&encoded, ikey);
     iter_->Seek(encoded);
   }
+  virtual void SeekForPrev(const Slice& target) override {
+    ParsedInternalKey ikey(target, kMaxSequenceNumber, kTypeValue);
+    std::string encoded;
+    AppendInternalKey(&encoded, ikey);
+    iter_->SeekForPrev(encoded);
+  }
   virtual void SeekToFirst() override { iter_->SeekToFirst(); }
   virtual void SeekToLast() override { iter_->SeekToLast(); }
   virtual void Next() override { iter_->Next(); }
@@ -307,12 +313,14 @@ class TableConstructor: public Constructor {
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
     std::string column_family_name;
+    int unknown_level = -1;
     builder.reset(ioptions.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, internal_comparator,
                             &int_tbl_prop_collector_factories,
                             options.compression, CompressionOptions(),
                             nullptr /* compression_dict */,
-                            false /* skip_filters */, column_family_name),
+                            false /* skip_filters */, column_family_name,
+                            unknown_level),
         TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
         file_writer_.get()));
 
@@ -415,9 +423,9 @@ class MemTableConstructor: public Constructor {
         table_factory_(new SkipListFactory) {
     options_.memtable_factory = table_factory_;
     ImmutableCFOptions ioptions(options_);
-    memtable_ = new MemTable(internal_comparator_, ioptions,
-                             MutableCFOptions(options_, ioptions), wb,
-                             kMaxSequenceNumber);
+    memtable_ =
+        new MemTable(internal_comparator_, ioptions, MutableCFOptions(options_),
+                     wb, kMaxSequenceNumber);
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -430,8 +438,8 @@ class MemTableConstructor: public Constructor {
     delete memtable_->Unref();
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
-                             MutableCFOptions(options_, mem_ioptions),
-                             write_buffer_manager_, kMaxSequenceNumber);
+                             MutableCFOptions(options_), write_buffer_manager_,
+                             kMaxSequenceNumber);
     memtable_->Ref();
     int seq = 1;
     for (const auto kv : kv_map) {
@@ -463,6 +471,9 @@ class InternalIteratorFromIterator : public InternalIterator {
   explicit InternalIteratorFromIterator(Iterator* it) : it_(it) {}
   virtual bool Valid() const override { return it_->Valid(); }
   virtual void Seek(const Slice& target) override { it_->Seek(target); }
+  virtual void SeekForPrev(const Slice& target) override {
+    it_->SeekForPrev(target);
+  }
   virtual void SeekToFirst() override { it_->SeekToFirst(); }
   virtual void SeekToLast() override { it_->SeekToLast(); }
   virtual void Next() override { it_->Next(); }
@@ -2210,11 +2221,13 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
   std::string column_family_name;
+  int unknown_level = -1;
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                           kNoCompression, CompressionOptions(),
                           nullptr /* compression_dict */,
-                          false /* skip_filters */, column_family_name),
+                          false /* skip_filters */, column_family_name,
+                          unknown_level),
       TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
       file_writer.get()));
 
@@ -2410,9 +2423,8 @@ TEST_F(MemTableTest, Simple) {
   options.memtable_factory = table_factory;
   ImmutableCFOptions ioptions(options);
   WriteBufferManager wb(options.db_write_buffer_size);
-  MemTable* memtable =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
-                   kMaxSequenceNumber);
+  MemTable* memtable = new MemTable(cmp, ioptions, MutableCFOptions(options),
+                                    &wb, kMaxSequenceNumber);
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);
@@ -2420,18 +2432,25 @@ TEST_F(MemTableTest, Simple) {
   batch.Put(std::string("k2"), std::string("v2"));
   batch.Put(std::string("k3"), std::string("v3"));
   batch.Put(std::string("largekey"), std::string("vlarge"));
+  batch.DeleteRange(std::string("chi"), std::string("xigua"));
+  batch.DeleteRange(std::string("begin"), std::string("end"));
   ColumnFamilyMemTablesDefault cf_mems_default(memtable);
   ASSERT_TRUE(
       WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr).ok());
 
-  Arena arena;
-  ScopedArenaIterator iter(memtable->NewIterator(ReadOptions(), &arena));
-  iter->SeekToFirst();
-  while (iter->Valid()) {
-    fprintf(stderr, "key: '%s' -> '%s'\n",
-            iter->key().ToString().c_str(),
-            iter->value().ToString().c_str());
-    iter->Next();
+  for (int i = 0; i < 2; ++i) {
+    Arena arena;
+    ScopedArenaIterator iter =
+        i == 0
+            ? ScopedArenaIterator(memtable->NewIterator(ReadOptions(), &arena))
+            : ScopedArenaIterator(
+                  memtable->NewRangeTombstoneIterator(ReadOptions(), &arena));
+    iter->SeekToFirst();
+    while (iter->Valid()) {
+      fprintf(stderr, "key: '%s' -> '%s'\n", iter->key().ToString().c_str(),
+              iter->value().ToString().c_str());
+      iter->Next();
+    }
   }
 
   delete memtable->Unref();

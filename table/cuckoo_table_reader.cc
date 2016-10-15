@@ -187,6 +187,7 @@ class CuckooTableIterator : public InternalIterator {
   void SeekToFirst() override;
   void SeekToLast() override;
   void Seek(const Slice& target) override;
+  void SeekForPrev(const Slice& target) override;
   void Next() override;
   void Prev() override;
   Slice key() const override;
@@ -296,6 +297,11 @@ void CuckooTableIterator::Seek(const Slice& target) {
   curr_key_idx_ =
       static_cast<uint32_t>(std::distance(sorted_bucket_ids_.begin(), seek_it));
   PrepareKVAtCurrIdx();
+}
+
+void CuckooTableIterator::SeekForPrev(const Slice& target) {
+  // Not supported
+  assert(false);
 }
 
 bool CuckooTableIterator::Valid() const {

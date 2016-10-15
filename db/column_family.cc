@@ -45,6 +45,11 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
+#ifndef ROCKSDB_LITE
+    for (auto& listener : cfd_->ioptions()->listeners) {
+      listener->OnColumnFamilyHandleDeletionStarted(this);
+    }
+#endif  // ROCKSDB_LITE
     // Job id == 0 means that this is not our background process, but rather
     // user thread
     JobContext job_context(0);
@@ -71,10 +76,7 @@ Status ColumnFamilyHandleImpl::GetDescriptor(ColumnFamilyDescriptor* desc) {
 #ifndef ROCKSDB_LITE
   // accessing mutable cf-options requires db mutex.
   InstrumentedMutexLock l(mutex_);
-  *desc = ColumnFamilyDescriptor(
-      cfd()->GetName(),
-      BuildColumnFamilyOptions(*cfd()->options(),
-                               *cfd()->GetLatestMutableCFOptions()));
+  *desc = ColumnFamilyDescriptor(cfd()->GetName(), cfd()->GetLatestCFOptions());
   return Status::OK();
 #else
   return Status::NotSupported();
@@ -86,11 +88,11 @@ const Comparator* ColumnFamilyHandleImpl::GetComparator() const {
 }
 
 void GetIntTblPropCollectorFactory(
-    const ColumnFamilyOptions& cf_options,
+    const ImmutableCFOptions& ioptions,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories) {
-  auto& collector_factories = cf_options.table_properties_collector_factories;
-  for (size_t i = 0; i < cf_options.table_properties_collector_factories.size();
+  auto& collector_factories = ioptions.table_properties_collector_factories;
+  for (size_t i = 0; i < ioptions.table_properties_collector_factories.size();
        ++i) {
     assert(collector_factories[i]);
     int_tbl_prop_collector_factories->emplace_back(
@@ -136,7 +138,7 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
   return Status::OK();
 }
 
-ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
+ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                     const InternalKeyComparator* icmp,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
@@ -338,7 +340,7 @@ void SuperVersionUnrefHandle(void* ptr) {
 ColumnFamilyData::ColumnFamilyData(
     uint32_t id, const std::string& name, Version* _dummy_versions,
     Cache* _table_cache, WriteBufferManager* write_buffer_manager,
-    const ColumnFamilyOptions& cf_options, const DBOptions* db_options,
+    const ColumnFamilyOptions& cf_options, const ImmutableDBOptions& db_options,
     const EnvOptions& env_options, ColumnFamilySet* column_family_set)
     : id_(id),
       name_(name),
@@ -347,14 +349,14 @@ ColumnFamilyData::ColumnFamilyData(
       refs_(0),
       dropped_(false),
       internal_comparator_(cf_options.comparator),
-      options_(*db_options,
-               SanitizeOptions(*db_options, &internal_comparator_, cf_options)),
-      ioptions_(options_),
-      mutable_cf_options_(options_, ioptions_),
+      initial_cf_options_(
+          SanitizeOptions(db_options, &internal_comparator_, cf_options)),
+      ioptions_(db_options, initial_cf_options_),
+      mutable_cf_options_(initial_cf_options_),
       write_buffer_manager_(write_buffer_manager),
       mem_(nullptr),
-      imm_(options_.min_write_buffer_number_to_merge,
-           options_.max_write_buffer_number_to_maintain),
+      imm_(ioptions_.min_write_buffer_number_to_merge,
+           ioptions_.max_write_buffer_number_to_maintain),
       super_version_(nullptr),
       super_version_number_(0),
       local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
@@ -368,12 +370,12 @@ ColumnFamilyData::ColumnFamilyData(
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
-  GetIntTblPropCollectorFactory(options_, &int_tbl_prop_collector_factories_);
+  GetIntTblPropCollectorFactory(ioptions_, &int_tbl_prop_collector_factories_);
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {
     internal_stats_.reset(
-        new InternalStats(ioptions_.num_levels, db_options->env, this));
+        new InternalStats(ioptions_.num_levels, db_options.env, this));
     table_cache_.reset(new TableCache(ioptions_, env_options, _table_cache));
     if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
@@ -405,7 +407,7 @@ ColumnFamilyData::ColumnFamilyData(
     if (column_family_set_->NumberOfColumnFamilies() < 10) {
       Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
           "--------------- Options for column family [%s]:\n", name.c_str());
-      options_.DumpCFOptions(ioptions_.info_log);
+      initial_cf_options_.Dump(ioptions_.info_log);
     } else {
       Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
           "\t(skipping printing options)\n");
@@ -480,6 +482,10 @@ void ColumnFamilyData::SetDropped() {
 
   // remove from column_family_set
   column_family_set_->RemoveColumnFamily(this);
+}
+
+ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {
+  return BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
 }
 
 const double kSlowdownRatio = 1.2;
@@ -713,6 +719,13 @@ Compaction* ColumnFamilyData::PickCompaction(
   return result;
 }
 
+bool ColumnFamilyData::RangeOverlapWithCompaction(
+    const Slice& smallest_user_key, const Slice& largest_user_key,
+    int level) const {
+  return compaction_picker_->RangeOverlapWithCompaction(
+      smallest_user_key, largest_user_key, level);
+}
+
 const int ColumnFamilyData::kCompactAllLevels = -1;
 const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
@@ -863,14 +876,14 @@ Status ColumnFamilyData::SetOptions(
 #endif  // ROCKSDB_LITE
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
-                                 const DBOptions* db_options,
+                                 const ImmutableDBOptions* db_options,
                                  const EnvOptions& env_options,
                                  Cache* table_cache,
                                  WriteBufferManager* write_buffer_manager,
                                  WriteController* write_controller)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(0, "", nullptr, nullptr, nullptr,
-                                      ColumnFamilyOptions(), db_options,
+                                      ColumnFamilyOptions(), *db_options,
                                       env_options, nullptr)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
@@ -942,7 +955,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd = new ColumnFamilyData(
       id, name, dummy_versions, table_cache_, write_buffer_manager_, options,
-      db_options_, env_options_, this);
+      *db_options_, env_options_, this);
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
   max_column_family_ = std::max(max_column_family_, id);

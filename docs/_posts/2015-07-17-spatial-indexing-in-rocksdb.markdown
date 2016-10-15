@@ -9,6 +9,8 @@ redirect_from:
 
 About a year ago, there was a need to develop a spatial database at Facebook. We needed to store and index Earth's map data. Before building our own, we looked at the existing spatial databases. They were all very good technology, but also general purpose. We could sacrifice a general-purpose API, so we thought we could build a more performant database, since it would be specifically designed for our use-case. Furthermore, we decided to build the spatial database on top of RocksDB, because we have a lot of operational experience with running and tuning RocksDB at a large scale.
 
+<!--truncate-->
+
 When we started looking at this project, the first thing that surprised us was that our planet is not that big. Earth's entire map data can fit in memory on a reasonably high-end machine. Thus, we also decided to build a spatial database optimized for memory-resident dataset.
 
 The first use-case of our spatial database was an experimental map renderer. As part of our project, we successfully loaded [Open Street Maps](https://www.openstreetmap.org/) dataset and hooked it up with [Mapnik](http://mapnik.org/), a map rendering engine.

@@ -14,6 +14,7 @@ int main() {
 #include <gflags/gflags.h>
 
 #include "rocksdb/env.h"
+#include "util/file_reader_writer.h"
 #include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -38,19 +39,21 @@ void RunBenchmark() {
   env_options.bytes_per_sync = FLAGS_bytes_per_sync;
   unique_ptr<WritableFile> file;
   env->NewWritableFile(file_name, &file, env_options);
+  unique_ptr<WritableFileWriter> writer;
+  writer.reset(new WritableFileWriter(std::move(file), env_options));
 
   std::string record;
-  record.assign('X', FLAGS_record_size);
+  record.assign(FLAGS_record_size, 'X');
 
   HistogramImpl hist;
 
   uint64_t start_time = env->NowMicros();
   for (int i = 0; i < FLAGS_num_records; i++) {
     uint64_t start_nanos = env->NowNanos();
-    file->Append(record);
-    file->Flush();
+    writer->Append(record);
+    writer->Flush();
     if (FLAGS_enable_sync) {
-      file->Sync();
+      writer->Sync(false);
     }
     hist.Add(env->NowNanos() - start_nanos);
 

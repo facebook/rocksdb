@@ -30,6 +30,8 @@ redirect_from:
 
 <br/>
 
+<!--truncate-->
+
 ## 4.4.0 (1/14/2016)
 
 ### Public API Changes

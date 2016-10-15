@@ -8,6 +8,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <atomic>
+#include <mutex>
 #include <stack>
 #include <string>
 #include <unordered_map>
@@ -26,8 +27,6 @@
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
-
-using TransactionID = uint64_t;
 
 class TransactionDBImpl;
 
@@ -56,7 +55,23 @@ class TransactionImpl : public TransactionBaseImpl {
   // Generate a new unique transaction identifier
   static TransactionID GenTxnID();
 
-  TransactionID GetTxnID() const { return txn_id_; }
+  TransactionID GetID() const override { return txn_id_; }
+
+  TransactionID GetWaitingTxn(uint32_t* column_family_id,
+                              const std::string** key) const override {
+    std::lock_guard<std::mutex> lock(wait_mutex_);
+    if (key) *key = waiting_key_;
+    if (column_family_id) *column_family_id = waiting_cf_id_;
+    return waiting_txn_id_;
+  }
+
+  void SetWaitingTxn(TransactionID id, uint32_t column_family_id,
+                     const std::string* key) {
+    std::lock_guard<std::mutex> lock(wait_mutex_);
+    waiting_txn_id_ = id;
+    waiting_cf_id_ = column_family_id;
+    waiting_key_ = key;
+  }
 
   // Returns the time (in microseconds according to Env->GetMicros())
   // that this transaction will be expired.  Returns 0 if this transaction does
@@ -89,6 +104,25 @@ class TransactionImpl : public TransactionBaseImpl {
 
   // Unique ID for this transaction
   TransactionID txn_id_;
+
+  // ID for the transaction that is blocking the current transaction.
+  //
+  // 0 if current transaction is not waiting.
+  TransactionID waiting_txn_id_;
+
+  // The following two represents the (cf, key) that a transaction is waiting
+  // on.
+  //
+  // If waiting_key_ is not null, then the pointer should always point to
+  // a valid string object. The reason is that it is only non-null when the
+  // transaction is blocked in the TransactionLockMgr::AcquireWithTimeout
+  // function. At that point, the key string object is one of the function
+  // parameters.
+  uint32_t waiting_cf_id_;
+  const std::string* waiting_key_;
+
+  // Mutex protecting waiting_txn_id_, waiting_cf_id_ and waiting_key_.
+  mutable std::mutex wait_mutex_;
 
   // If non-zero, this transaction should not be committed after this time (in
   // microseconds according to Env->NowMicros())

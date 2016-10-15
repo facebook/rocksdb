@@ -72,7 +72,8 @@ struct PerfContext {
   uint64_t seek_child_seek_time;
   // number of seek issued in child iterators
   uint64_t seek_child_seek_count;
-  uint64_t seek_min_heap_time;  // total nanos spent on the merge heap
+  uint64_t seek_min_heap_time;  // total nanos spent on the merge min heap
+  uint64_t seek_max_heap_time;  // total nanos spent on the merge max heap
   // total nanos spent on seeking the internal entries
   uint64_t seek_internal_seek_time;
   // total nanos spent on iterating internal entries to find the next user entry

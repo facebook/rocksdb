@@ -8,20 +8,46 @@
 #pragma once
 
 #include "table/internal_iterator.h"
+#include "port/port.h"
 
 namespace rocksdb {
 class ScopedArenaIterator {
+
+  void reset(InternalIterator* iter) ROCKSDB_NOEXCEPT {
+    if (iter_ != nullptr) {
+      iter_->~InternalIterator();
+    }
+    iter_ = iter;
+  }
+
  public:
+
   explicit ScopedArenaIterator(InternalIterator* iter = nullptr)
       : iter_(iter) {}
 
+  ScopedArenaIterator(const ScopedArenaIterator&) = delete;
+  ScopedArenaIterator& operator=(const ScopedArenaIterator&) = delete;
+
+  ScopedArenaIterator(ScopedArenaIterator&& o) ROCKSDB_NOEXCEPT {
+    iter_ = o.iter_;
+    o.iter_ = nullptr;
+  }
+
+  ScopedArenaIterator& operator=(ScopedArenaIterator&& o) ROCKSDB_NOEXCEPT {
+    reset(o.iter_);
+    o.iter_ = nullptr;
+    return *this;
+  }
+
   InternalIterator* operator->() { return iter_; }
 
-  void set(InternalIterator* iter) { iter_ = iter; }
+  void set(InternalIterator* iter) { reset(iter); }
 
   InternalIterator* get() { return iter_; }
 
-  ~ScopedArenaIterator() { iter_->~InternalIterator(); }
+  ~ScopedArenaIterator() {
+    reset(nullptr);
+  }
 
  private:
   InternalIterator* iter_;

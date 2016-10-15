@@ -282,7 +282,7 @@ Status GetStringFromDBOptions(std::string* opts_str,
                               const std::string& delimiter = ";  ");
 
 Status GetStringFromColumnFamilyOptions(std::string* opts_str,
-                                        const ColumnFamilyOptions& db_options,
+                                        const ColumnFamilyOptions& cf_options,
                                         const std::string& delimiter = ";  ");
 
 Status GetStringFromCompressionType(std::string* compression_str,

@@ -11,8 +11,7 @@ In this post, we briefly introduce the recent improvements we did to RocksDB to 
 
 RocksDB has a simple thread synchronization mechanism (See [RocksDB Architecture Guide](https://github.com/facebook/rocksdb/wiki/Rocksdb-Architecture-Guide)  to understand terms used below, like SST tables or mem tables). SST tables are immutable after being written and mem tables are lock-free data structures supporting single writer and multiple readers. There is only one single major lock, the DB mutex (DBImpl.mutex_) protecting all the meta operations, including:
 
-
-
+<!--truncate-->
 
   * Increase or decrease reference counters of mem tables and SST tables
 
@@ -52,3 +51,38 @@ When I said there was only one single major lock, I was lying. In RocksDB, all L
 (2) [New PlainTable format](//github.com/facebook/rocksdb/wiki/PlainTable-Format) (optimized for SST in ramfs/tmpfs) does not organize data by blocks. Data are located by memory addresses so no block cache is needed.
 
 With all of those improvements, lock contention is not a bottleneck anymore, which is shown in our [memory-only benchmark](https://github.com/facebook/rocksdb/wiki/RocksDB-In-Memory-Workload-Performance-Benchmarks) . Furthermore, lock contentions are not causing some huge (50 milliseconds+) latency outliers they used to cause.
+
+### Comments
+
+**[Lee Hounshell](lee@apsalar.com)**
+
+Please post an example of reading the same rocksdb concurrently.
+
+We are using the latest 3.0 rocksdb; however, when two separate processes
+try and open the same rocksdb for reading, only one of the open requests
+succeed. The other open always fails with “db/LOCK: Resource temporarily unavailable” So far we have not found an option that allows sharing the rocksdb for reads. An example would be most appreciated.
+
+**[Siying Dong](siying.d@fb.com)**
+
+Sorry for the delay. We don’t have feature support for this scenario yet. Here is an example you can work around this problem. You can build a snapshot of the DB by doing this:
+
+1. create a separate directory on the same host for a snapshot of the DB.
+1. call `DB::DisableFileDeletions()`
+1. call `DB::GetLiveFiles()` to get a full list of the files.
+1. for all the files except manifest, add a hardlink file in your new directory pointing to the original file
+1. copy the manifest file and truncate the size (you can read the comments of `DB::GetLiveFiles()` for more information)
+1. call `DB::EnableFileDeletions()`
+1. now you can open the snapshot directory in another process to access those files. Please remember to delete the directory after reading the data to allow those files to be recycled.
+
+By the way, the best way to ask those questions is in our [facebook group](https://www.facebook.com/groups/rocksdb.dev/). Let us know if you need any further help.
+
+**[Darshan](darshan.ghumare@gmail.com)**
+
+Will this consistency problem of RocksDB all occurs in case of single put/write?
+What all ACID properties is supported by RocksDB, only durability irrespective of single or batch write?
+
+**[Siying Dong](siying.d@fb.com)**
+
+We recently [introduced optimistic transaction](https://reviews.facebook.net/D33435) which can help you ensure all of ACID.
+
+This blog post is mainly about optimizations in implementation. The RocksDB consistency semantic is not changed.

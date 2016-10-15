@@ -1,18 +1,18 @@
 .slideshow {
   position: relative;
-  
+
   .slide {
     display: none;
-    
+
     img {
       display: block;
       margin: 0 auto;
     }
-    
+
     &.slideActive {
       display: block;
     }
-    
+
     a {
       border: none;
       display: block;
@@ -25,7 +25,7 @@
     padding: 1em 0;
     text-align: center;
     width: 100%;
-    
+
     .pager {
       background: transparent;
       border: 2px solid rgba(255, 255, 255, 0.5);
@@ -36,7 +36,7 @@
       margin: 10px;
       transition: background-color 0.3s, border-color 0.3s;
       width: 12px;
-      
+
       &.pagerActive {
         background: rgba(255, 255, 255, 0.5);
         border-width: 4px;

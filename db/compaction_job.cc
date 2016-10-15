@@ -262,7 +262,7 @@ void CompactionJob::AggregateStatistics() {
 }
 
 CompactionJob::CompactionJob(
-    int job_id, Compaction* compaction, const DBOptions& db_options,
+    int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const EnvOptions& env_options, VersionSet* versions,
     std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
@@ -297,7 +297,7 @@ CompactionJob::CompactionJob(
   assert(log_buffer_ != nullptr);
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
-                                    cfd->options()->enable_thread_tracking);
+                                    db_options_.enable_thread_tracking);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
   ReportStartedCompaction(compaction);
 }
@@ -311,7 +311,7 @@ void CompactionJob::ReportStartedCompaction(
     Compaction* compaction) {
   const auto* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd, cfd->ioptions()->env,
-                                    cfd->options()->enable_thread_tracking);
+                                    db_options_.enable_thread_tracking);
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_JOB_ID,
@@ -539,7 +539,7 @@ Status CompactionJob::Run() {
     thread.join();
   }
 
-  if (output_directory_ && !db_options_.disableDataSync) {
+  if (output_directory_ && !db_options_.disable_data_sync) {
     output_directory_->Fsync();
   }
 
@@ -762,7 +762,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (end != nullptr &&
         cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
       break;
-    } else if (sub_compact->ShouldStopBefore(
+    } else if (sub_compact->compaction->output_level() != 0 &&
+               sub_compact->ShouldStopBefore(
                    key, sub_compact->current_output_file_size) &&
                sub_compact->builder != nullptr) {
       status = FinishCompactionOutputFile(input->status(), sub_compact);
@@ -963,7 +964,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
-  if (s.ok() && !db_options_.disableDataSync) {
+  if (s.ok() && !db_options_.disable_data_sync) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }
@@ -1136,7 +1137,9 @@ Status CompactionJob::OpenCompactionOutputFile(
       *cfd->ioptions(), cfd->internal_comparator(),
       cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
       sub_compact->outfile.get(), sub_compact->compaction->output_compression(),
-      cfd->ioptions()->compression_opts, &sub_compact->compression_dict,
+      cfd->ioptions()->compression_opts,
+      sub_compact->compaction->output_level(),
+      &sub_compact->compression_dict,
       skip_filters));
   LogFlush(db_options_.info_log);
   return s;

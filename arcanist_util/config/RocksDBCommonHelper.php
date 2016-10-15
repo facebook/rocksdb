@@ -25,6 +25,7 @@ function postURL($diffID, $url) {
   $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
          . '"name":"click here for sandcastle tests for D' . $diffID . '", '
          . '"link":"' . $url . '"}\' | '
+         . 'no_proxy=facebook.com,tfbnw.net,fb.com '
          . 'http_proxy=fwdproxy.any.facebook.com:8080 '
          . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
          . 'differential.updateunitresults';
@@ -40,6 +41,7 @@ function buildUpdateTestStatusCmd($diffID, $test, $status) {
   $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
          . '"name":"' . $test . '", '
          . '"result":"' . $status . '"}\' | '
+         . 'no_proxy=facebook.com,tfbnw.net,fb.com '
          . 'http_proxy=fwdproxy.any.facebook.com:8080 '
          . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
          . 'differential.updateunitresults';
@@ -106,7 +108,8 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     // Patch the code (keep your fingures crossed).
     $patch = array(
       "name" => "Patch " . $diffID,
-      "shell" => "HTTPS_PROXY=fwdproxy:8080 arc --arcrc-file ~/.arcrc "
+      "shell" => "no_proxy=facebook.com,tfbnw.net,fb.com "
+                  ."HTTPS_PROXY=fwdproxy:8080 arc --arcrc-file ~/.arcrc "
                   . "patch --nocommit --diff " . $diffID,
       "user" => "root"
     );
@@ -183,6 +186,14 @@ function getSandcastleConfig() {
   } else {
     // This is a typical `[p]arc diff` case. Fetch the values from the specific
     // configuration files.
+    for ($i = 0; $i < 50; $i++) {
+      if (file_exists(PRIMARY_TOKEN_FILE) ||
+          file_exists(SECONDARY_TOKEN_FILE)) {
+        break;
+      }
+      // If we failed to fetch the tokens, sleep for 0.2 second and try again
+      usleep(200000);
+    }
     assert(file_exists(PRIMARY_TOKEN_FILE) ||
            file_exists(SECONDARY_TOKEN_FILE));
 

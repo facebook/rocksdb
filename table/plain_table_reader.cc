@@ -65,6 +65,8 @@ class PlainTableIterator : public InternalIterator {
 
   void Seek(const Slice& target) override;
 
+  void SeekForPrev(const Slice& target) override;
+
   void Next() override;
 
   void Prev() override;
@@ -686,6 +688,12 @@ void PlainTableIterator::Seek(const Slice& target) {
   } else {
     offset_ = table_->file_info_.data_end_offset;
   }
+}
+
+void PlainTableIterator::SeekForPrev(const Slice& target) {
+  assert(false);
+  status_ =
+      Status::NotSupported("SeekForPrev() is not supported in PlainTable");
 }
 
 void PlainTableIterator::Next() {

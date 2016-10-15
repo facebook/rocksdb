@@ -9,6 +9,8 @@ redirect_from:
 
 Every 6 months, RocksDB team gets together to prioritize the work ahead of us. We just went through this exercise and we wanted to share the results with the community. Here's what RocksDB team will be focusing on for the next 6 months:
 
+<!--truncate-->
+
 **MyRocks**
 
 As you might know, we're working hard to integrate RocksDB as a storage engine for MySQL. This project is pretty important for us because we're heavy users of MySQL. We're already getting pretty good performance results, but there is more work to be done. We need to focus on both performance and stability. The most high priority items on are list are:
@@ -80,4 +82,11 @@ When talking to our customers, there are couple of issues that keep reoccurring.
 
 As we increase deployment of RocksDB, engineers are spending more time on debugging RocksDB issues. We plan to improve user experience when running RocksDB. The goal is to reduce TTD (time-to-debug). The work includes monitoring, visualizations and documentations.
 
-[1][ http://blog.parse.com/announcements/mongodb-rocksdb-parse/](http://blog.parse.com/announcements/mongodb-rocksdb-parse/)
+[1]( http://blog.parse.com/announcements/mongodb-rocksdb-parse/](http://blog.parse.com/announcements/mongodb-rocksdb-parse/)
+
+
+### Comments
+
+**[Mike](allspace2012@outlook.com)**
+
+What’s the status of this roadmap? “RocksDB on cheaper storage media”, has this been implemented?

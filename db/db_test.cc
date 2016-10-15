@@ -2762,6 +2762,12 @@ class ModelDB : public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
+  virtual Status SetDBOptions(
+      const std::unordered_map<std::string, std::string>& new_options)
+      override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
   using DB::CompactFiles;
   virtual Status CompactFiles(const CompactionOptions& compact_options,
                               ColumnFamilyHandle* column_family,
@@ -2806,13 +2812,12 @@ class ModelDB : public DB {
   virtual Env* GetEnv() const override { return nullptr; }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(
-      ColumnFamilyHandle* column_family) const override {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return options_;
   }
 
   using DB::GetDBOptions;
-  virtual const DBOptions& GetDBOptions() const override { return options_; }
+  virtual DBOptions GetDBOptions() const override { return options_; }
 
   using DB::Flush;
   virtual Status Flush(const rocksdb::FlushOptions& options,
@@ -2881,6 +2886,10 @@ class ModelDB : public DB {
     }
     virtual void Seek(const Slice& k) override {
       iter_ = map_->lower_bound(k.ToString());
+    }
+    virtual void SeekForPrev(const Slice& k) override {
+      iter_ = map_->upper_bound(k.ToString());
+      Prev();
     }
     virtual void Next() override { ++iter_; }
     virtual void Prev() override {

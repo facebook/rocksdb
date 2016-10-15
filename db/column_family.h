@@ -136,14 +136,14 @@ extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 extern Status CheckConcurrentWritesSupported(
     const ColumnFamilyOptions& cf_options);
 
-extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
+extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                            const InternalKeyComparator* icmp,
                                            const ColumnFamilyOptions& src);
 // Wrap user defined table proproties collector factories `from cf_options`
 // into internal ones in int_tbl_prop_collector_factories. Add a system internal
 // one too.
 extern void GetIntTblPropCollectorFactory(
-    const ColumnFamilyOptions& cf_options,
+    const ImmutableCFOptions& ioptions,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories);
 
@@ -201,9 +201,6 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
-  // !!! To be deprecated! Please don't not use this function anymore!
-  const Options* options() const { return &options_; }
-
   // thread-safe
   const EnvOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
@@ -218,6 +215,12 @@ class ColumnFamilyData {
   const MutableCFOptions* GetLatestMutableCFOptions() const {
     return &mutable_cf_options_;
   }
+
+  // REQUIRES: DB mutex held
+  // Build ColumnFamiliesOptions with immutable options and latest mutable
+  // options.
+  ColumnFamilyOptions GetLatestCFOptions() const;
+
 #ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(
@@ -249,6 +252,13 @@ class ColumnFamilyData {
   // REQUIRES: DB mutex held
   Compaction* PickCompaction(const MutableCFOptions& mutable_options,
                              LogBuffer* log_buffer);
+
+  // Check if the passed range overlap with any running compactions.
+  // REQUIRES: DB mutex held
+  bool RangeOverlapWithCompaction(const Slice& smallest_user_key,
+                                  const Slice& largest_user_key,
+                                  int level) const;
+
   // A flag to tell a manual compaction is to compact all levels together
   // instad of for specific level.
   static const int kCompactAllLevels;
@@ -325,7 +335,8 @@ class ColumnFamilyData {
                    Version* dummy_versions, Cache* table_cache,
                    WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
-                   const DBOptions* db_options, const EnvOptions& env_options,
+                   const ImmutableDBOptions& db_options,
+                   const EnvOptions& env_options,
                    ColumnFamilySet* column_family_set);
 
   uint32_t id_;
@@ -340,7 +351,7 @@ class ColumnFamilyData {
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories_;
 
-  const Options options_;
+  const ColumnFamilyOptions initial_cf_options_;
   const ImmutableCFOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
 
@@ -436,7 +447,8 @@ class ColumnFamilySet {
     ColumnFamilyData* current_;
   };
 
-  ColumnFamilySet(const std::string& dbname, const DBOptions* db_options,
+  ColumnFamilySet(const std::string& dbname,
+                  const ImmutableDBOptions* db_options,
                   const EnvOptions& env_options, Cache* table_cache,
                   WriteBufferManager* write_buffer_manager,
                   WriteController* write_controller);
@@ -493,7 +505,7 @@ class ColumnFamilySet {
   ColumnFamilyData* default_cfd_cache_;
 
   const std::string db_name_;
-  const DBOptions* const db_options_;
+  const ImmutableDBOptions* const db_options_;
   const EnvOptions env_options_;
   Cache* table_cache_;
   WriteBufferManager* write_buffer_manager_;

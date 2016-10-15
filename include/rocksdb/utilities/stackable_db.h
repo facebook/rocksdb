@@ -219,13 +219,12 @@ class StackableDB : public DB {
   }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const
-      override {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return db_->GetOptions(column_family);
   }
 
   using DB::GetDBOptions;
-  virtual const DBOptions& GetDBOptions() const override {
+  virtual DBOptions GetDBOptions() const override {
     return db_->GetDBOptions();
   }
 
@@ -288,6 +287,12 @@ class StackableDB : public DB {
                             const std::unordered_map<std::string, std::string>&
                                 new_options) override {
     return db_->SetOptions(column_family_handle, new_options);
+  }
+
+  virtual Status SetDBOptions(
+      const std::unordered_map<std::string, std::string>& new_options)
+      override {
+    return db_->SetDBOptions(new_options);
   }
 
   using DB::GetPropertiesOfAllTables;

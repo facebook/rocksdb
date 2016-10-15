@@ -9,7 +9,9 @@
 
 #include <stdint.h>
 #include <memory>
+#include <string>
 
+#include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -46,4 +48,10 @@ class PersistentCache {
   virtual bool IsCompressed() = 0;
 };
 
+// Factor method to create a new persistent cache
+Status NewPersistentCache(Env* const env, const std::string& path,
+                          const uint64_t size,
+                          const std::shared_ptr<Logger>& log,
+                          const bool optimized_for_nvm,
+                          std::shared_ptr<PersistentCache>* cache);
 }  // namespace rocksdb

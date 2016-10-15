@@ -36,11 +36,11 @@ CompactionIterator::CompactionIterator(
 
   if (snapshots_->size() == 0) {
     // optimize for fast path if there are no snapshots
-    visible_at_tip_ = last_sequence;
-    earliest_snapshot_ = visible_at_tip_;
+    visible_at_tip_ = true;
+    earliest_snapshot_ = last_sequence;
     latest_snapshot_ = 0;
   } else {
-    visible_at_tip_ = 0;
+    visible_at_tip_ = false;
     earliest_snapshot_ = snapshots_->at(0);
     latest_snapshot_ = snapshots_->back();
   }
@@ -210,8 +210,9 @@ void CompactionIterator::NextFromInput() {
     SequenceNumber last_snapshot = current_user_key_snapshot_;
     SequenceNumber prev_snapshot = 0;  // 0 means no previous snapshot
     current_user_key_snapshot_ =
-        visible_at_tip_ ? visible_at_tip_ : findEarliestVisibleSnapshot(
-                                                ikey_.sequence, &prev_snapshot);
+        visible_at_tip_
+            ? earliest_snapshot_
+            : findEarliestVisibleSnapshot(ikey_.sequence, &prev_snapshot);
 
     if (clear_and_output_next_key_) {
       // In the previous iteration we encountered a single delete that we could

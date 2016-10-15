@@ -796,6 +796,12 @@ struct ColumnFamilyOptions {
   // Default: false
   bool paranoid_file_checks;
 
+  // In debug mode, RocksDB run consistency checks on the LSM everytime the LSM
+  // change (Flush, Compaction, AddFile). These checks are disabled in release
+  // mode, use this option to enable them in release mode as well.
+  // Default: false
+  bool force_consistency_checks;
+
   // Measure IO stats in compactions and flushes, if true.
   // Default: false
   bool report_bg_io_stats;
@@ -913,7 +919,7 @@ struct DBOptions {
   // to stable storage. Their contents remain in the OS buffers till the
   // OS decides to flush them. This option is good for bulk-loading
   // of data. Once the bulk-loading is complete, please issue a
-  // sync to the OS to flush all dirty buffesrs to stable storage.
+  // sync to the OS to flush all dirty buffers to stable storage.
   // Default: false
   bool disableDataSync;
 

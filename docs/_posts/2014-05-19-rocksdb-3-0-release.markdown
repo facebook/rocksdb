@@ -11,9 +11,6 @@ Check out new RocksDB release on [Github](https://github.com/facebook/rocksdb/re
 
 New features in RocksDB 3.0:
 
-
-
-
   * [Column Family support](https://github.com/facebook/rocksdb/wiki/Column-Families)
 
 
@@ -22,6 +19,6 @@ New features in RocksDB 3.0:
 
   * Deprecated ReadOptions::prefix_seek and ReadOptions::prefix
 
-
+<!--truncate-->
 
 Check out the full [change log](https://github.com/facebook/rocksdb/blob/3.0.fb/HISTORY.md).

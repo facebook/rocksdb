@@ -109,6 +109,8 @@ class TtlIterator : public Iterator {
 
   void Seek(const Slice& target) override { iter_->Seek(target); }
 
+  void SeekForPrev(const Slice& target) override { iter_->SeekForPrev(target); }
+
   void Next() override { iter_->Next(); }
 
   void Prev() override { iter_->Prev(); }

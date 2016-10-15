@@ -658,6 +658,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_prepare_for_bulk_load(
     rocksdb_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_vector_rep(
     rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_prefix_bloom_size_ratio(
+    rocksdb_options_t*, double);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_compaction_bytes(
     rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hash_skip_list_rep(
@@ -688,6 +690,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_inplace_update_support(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_inplace_update_num_locks(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_report_bg_io_stats(
+    rocksdb_options_t*, int);
+
+enum {
+  rocksdb_tolerate_corrupted_tail_records_recovery = 0,
+  rocksdb_absolute_consistency_recovery = 1,
+  rocksdb_point_in_time_recovery = 2,
+  rocksdb_skip_any_corrupted_records_recovery = 3
+};
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_wal_recovery_mode(
     rocksdb_options_t*, int);
 
 enum {

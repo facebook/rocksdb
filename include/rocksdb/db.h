@@ -629,6 +629,9 @@ class DB {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
 
+  virtual Status SetDBOptions(
+      const std::unordered_map<std::string, std::string>& new_options) = 0;
+
   // CompactFiles() inputs a list of files specified by file numbers and
   // compacts them to the specified level. Note that the behavior is different
   // from CompactRange() in that CompactFiles() performs the compaction job
@@ -696,13 +699,12 @@ class DB {
   // column family, the options provided when calling DB::Open() or
   // DB::CreateColumnFamily() will have been "sanitized" and transformed
   // in an implementation-defined manner.
-  virtual const Options& GetOptions(ColumnFamilyHandle* column_family)
-      const = 0;
-  virtual const Options& GetOptions() const {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const = 0;
+  virtual Options GetOptions() const {
     return GetOptions(DefaultColumnFamily());
   }
 
-  virtual const DBOptions& GetDBOptions() const = 0;
+  virtual DBOptions GetDBOptions() const = 0;
 
   // Flush all mem-table data.
   virtual Status Flush(const FlushOptions& options,

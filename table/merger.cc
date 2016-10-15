@@ -8,9 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "table/merger.h"
-
+#include <string>
 #include <vector>
-
 #include "db/pinned_iterators_manager.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
@@ -123,6 +122,29 @@ class MergingIterator : public InternalIterator {
     }
   }
 
+  virtual void SeekForPrev(const Slice& target) override {
+    ClearHeaps();
+    InitMaxHeap();
+
+    for (auto& child : children_) {
+      {
+        PERF_TIMER_GUARD(seek_child_seek_time);
+        child.SeekForPrev(target);
+      }
+      PERF_COUNTER_ADD(seek_child_seek_count, 1);
+
+      if (child.Valid()) {
+        PERF_TIMER_GUARD(seek_max_heap_time);
+        maxHeap_->push(&child);
+      }
+    }
+    direction_ = kReverse;
+    {
+      PERF_TIMER_GUARD(seek_max_heap_time);
+      current_ = CurrentReverse();
+    }
+  }
+
   virtual void Next() override {
     assert(Valid());
 
@@ -182,15 +204,9 @@ class MergingIterator : public InternalIterator {
       InitMaxHeap();
       for (auto& child : children_) {
         if (&child != current_) {
-          child.Seek(key());
-          if (child.Valid()) {
-            // Child is at first entry >= key().  Step back one to be < key()
-            TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev", &child);
+          child.SeekForPrev(key());
+          if (child.Valid() && comparator_->Equal(key(), child.key())) {
             child.Prev();
-          } else {
-            // Child has no entries >= key().  Position at last entry.
-            TEST_SYNC_POINT("MergeIterator::Prev:BeforeSeekToLast");
-            child.SeekToLast();
           }
         }
         if (child.Valid()) {
@@ -198,11 +214,9 @@ class MergingIterator : public InternalIterator {
         }
       }
       direction_ = kReverse;
-      // Note that we don't do assert(current_ == CurrentReverse()) here
-      // because it is possible to have some keys larger than the seek-key
-      // inserted between Seek() and SeekToLast(), which makes current_ not
-      // equal to CurrentReverse().
-      current_ = CurrentReverse();
+      // The loop advanced all non-current children to be < key() so current_
+      // should still be strictly the smallest key.
+      assert(current_ == CurrentReverse());
     }
 
     // For the heap modifications below to be correct, current_ must be the

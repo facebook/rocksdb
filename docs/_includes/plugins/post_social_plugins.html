@@ -1,14 +1,14 @@
 <div class="postSocialPlugins">
-  <a 
-    href="https://twitter.com/share" 
-    class="twitter-share-button" 
-    data-url="{{ page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}" 
-    data-text="{% if page.title %}{{ page.title }}{% else %}{{ site.title }}{% endif %}" 
+  <a
+    href="https://twitter.com/share"
+    class="twitter-share-button"
+    data-url="{{ page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}"
+    data-text="{% if page.title %}{{ page.title }}{% else %}{{ site.title }}{% endif %}"
     data-hashtags="flowtype">Tweet</a>
-  <div 
-    class="fb-like" 
-    data-href="{{ page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}" 
-    data-layout="button_count" 
+  <div
+    class="fb-like"
+    data-href="{{ page.url | replace:'index.html','' | prepend: site.baseurl | prepend: site.url }}"
+    data-layout="button_count"
     data-action="like"
     data-show-faces="false"
     data-share="true"></div>

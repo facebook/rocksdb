@@ -7,6 +7,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/comparator.h"
@@ -95,6 +96,11 @@ struct TransactionOptions {
   int64_t expiration = -1;
 };
 
+struct KeyLockInfo {
+  std::string key;
+  TransactionID id;
+};
+
 class TransactionDB : public StackableDB {
  public:
   // Open a TransactionDB similar to DB::Open().
@@ -147,6 +153,12 @@ class TransactionDB : public StackableDB {
 
   virtual Transaction* GetTransactionByName(const TransactionName& name) = 0;
   virtual void GetAllPreparedTransactions(std::vector<Transaction*>* trans) = 0;
+
+  // Returns set of all locks held.
+  //
+  // The mapping is column family id -> KeyLockInfo
+  virtual std::unordered_multimap<uint32_t, KeyLockInfo>
+  GetLockStatusData() = 0;
 
  protected:
   // To Create an TransactionDB, call Open()

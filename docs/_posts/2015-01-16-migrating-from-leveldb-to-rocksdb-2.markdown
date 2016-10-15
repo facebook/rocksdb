@@ -9,6 +9,8 @@ redirect_from:
 
 If you have an existing application that uses LevelDB and would like to migrate to using RocksDB, one problem you need to overcome is to map the options for LevelDB to proper options for RocksDB. As of release 3.9 this can be automatically done by using our option conversion utility found in rocksdb/utilities/leveldb_options.h. What is needed, is to first replace `leveldb::Options` with `rocksdb::LevelDBOptions`. Then, use `rocksdb::ConvertOptions( )` to convert the `LevelDBOptions` struct into appropriate RocksDB options. Here is an example:
 
+<!--truncate-->
+
 LevelDB code:
 
 ```c++

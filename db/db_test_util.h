@@ -310,7 +310,18 @@ class SpecialEnv : public EnvWrapper {
         return s;
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
-      Status Close() override { return base_->Close(); }
+      Status Close() override {
+// SyncPoint is not supported in Released Windows Mode.
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        // Check preallocation size
+        // preallocation size is never passed to base file.
+        size_t preallocation_size = preallocation_block_size();
+        TEST_SYNC_POINT_CALLBACK("DBTestWalFile.GetPreallocationStatus",
+                                 &preallocation_size);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+
+        return base_->Close();
+      }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;

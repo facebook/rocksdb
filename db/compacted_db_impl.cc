@@ -151,9 +151,9 @@ Status CompactedDBImpl::Open(const Options& options,
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
   Status s = db->Init(options);
   if (s.ok()) {
-    Log(INFO_LEVEL, db->db_options_.info_log,
+    Log(INFO_LEVEL, db->immutable_db_options_.info_log,
         "Opened the db as fully compacted mode");
-    LogFlush(db->db_options_.info_log);
+    LogFlush(db->immutable_db_options_.info_log);
     *dbptr = db.release();
   }
   return s;

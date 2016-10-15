@@ -9,18 +9,11 @@ redirect_from:
 
 As promised in the previous [blog post](blog/2014/05/14/lock.html)!
 
-
-
-
 RocksDB employs a multiversion concurrency control strategy. Before reading data, it needs to grab the current version, which is encapsulated in a data structure called [SuperVersion](https://reviews.facebook.net/rROCKSDB1fdb3f7dc60e96394e3e5b69a46ede5d67fb976c).
 
-
-
+<!--truncate-->
 
 At the beginning of `GetImpl()`, it used to do this:
-
-
-
 
 
     <span class="zw-portion">mutex_.Lock();
@@ -28,11 +21,7 @@ At the beginning of `GetImpl()`, it used to do this:
     mutex_.Unlock();
 
 
-
-
 The lock is necessary because pointer super_version_ may be updated, the corresponding SuperVersion may be deleted while Ref() is in progress.
-
-
 
 
 `Ref()` simply increases the reference counter and returns “this” pointer. However, this simple operation posed big challenges for in-memory workload and stopped RocksDB from scaling read throughput beyond 8 cores. Running 32 read threads on a 32-core CPU leads to [70% system CPU usage](https://github.com/facebook/rocksdb/raw/gh-pages/talks/2014-03-27-RocksDB-Meetup-Lei-Lockless-Get.pdf). This is outrageous!
@@ -88,3 +77,13 @@ The new approach entails one issue: a thread can visit GetImpl() once but can ne
 
 
 (3) After any flush/compaction, the background thread performs a sweep (CAS) across all threads’ local storage and frees encountered SuperVersion. A reader thread must re-acquire a new SuperVersion reference on its next visit.
+
+### Comments
+
+**[David Barbour](dmbarbour@gmail.com)**
+
+Please post an example of reading the same rocksdb concurrently.
+
+We are using the latest 3.0 rocksdb; however, when two separate processes
+try and open the same rocksdb for reading, only one of the open requests
+succeed. The other open always fails with “db/LOCK: Resource temporarily unavailable” So far we have not found an option that allows sharing the rocksdb for reads. An example would be most appreciated.

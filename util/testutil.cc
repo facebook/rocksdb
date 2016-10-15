@@ -302,6 +302,7 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
   cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
   cf_opt->verify_checksums_in_compaction = rnd->Uniform(2);
+  cf_opt->force_consistency_checks = rnd->Uniform(2);
 
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
@@ -320,6 +321,12 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->min_write_buffer_number_to_merge = rnd->Uniform(100);
   cf_opt->num_levels = rnd->Uniform(100);
   cf_opt->target_file_size_multiplier = rnd->Uniform(100);
+
+  // vector int options
+  cf_opt->max_bytes_for_level_multiplier_additional.resize(cf_opt->num_levels);
+  for (int i = 0; i < cf_opt->num_levels; i++) {
+    cf_opt->max_bytes_for_level_multiplier_additional[i] = rnd->Uniform(100);
+  }
 
   // size_t options
   cf_opt->arena_block_size = rnd->Uniform(10000);

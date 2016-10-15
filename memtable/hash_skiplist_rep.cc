@@ -130,6 +130,13 @@ class HashSkipListRep : public MemTableRep {
       }
     }
 
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {
+      // not supported
+      assert(false);
+    }
+
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
     virtual void SeekToFirst() override {
@@ -214,6 +221,8 @@ class HashSkipListRep : public MemTableRep {
     virtual void Prev() override {}
     virtual void Seek(const Slice& internal_key,
                       const char* memtable_key) override {}
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {}
     virtual void SeekToFirst() override {}
     virtual void SeekToLast() override {}
 

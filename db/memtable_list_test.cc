@@ -57,14 +57,16 @@ class MemTableListTest : public testing::Test {
 
     // Create a mock VersionSet
     DBOptions db_options;
+    ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;
     shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
     WriteController write_controller(10000000u);
 
     CreateDB();
-    VersionSet versions(dbname, &db_options, env_options, table_cache.get(),
-                        &write_buffer_manager, &write_controller);
+    VersionSet versions(dbname, &immutable_db_options, env_options,
+                        table_cache.get(), &write_buffer_manager,
+                        &write_controller);
 
     // Create mock default ColumnFamilyData
     ColumnFamilyOptions cf_options;
@@ -127,9 +129,8 @@ TEST_F(MemTableListTest, GetTest) {
   ImmutableCFOptions ioptions(options);
 
   WriteBufferManager wb(options.db_write_buffer_size);
-  MemTable* mem =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
-                   kMaxSequenceNumber);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -164,9 +165,8 @@ TEST_F(MemTableListTest, GetTest) {
 
   // Create another memtable and write some keys to it
   WriteBufferManager wb2(options.db_write_buffer_size);
-  MemTable* mem2 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2,
-                   kMaxSequenceNumber);
+  MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
+                                kMaxSequenceNumber);
   mem2->Ref();
 
   mem2->Add(++seq, kTypeDeletion, "key1", "");
@@ -229,9 +229,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ImmutableCFOptions ioptions(options);
 
   WriteBufferManager wb(options.db_write_buffer_size);
-  MemTable* mem =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
-                   kMaxSequenceNumber);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -272,8 +271,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   list.PickMemtablesToFlush(&to_flush);
   ASSERT_EQ(1, to_flush.size());
 
-  s = Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush, &to_delete);
+  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
+                                       to_flush, &to_delete);
   ASSERT_OK(s);
   ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_EQ(1, list.NumFlushed());
@@ -304,9 +303,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Create another memtable and write some keys to it
   WriteBufferManager wb2(options.db_write_buffer_size);
-  MemTable* mem2 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2,
-                   kMaxSequenceNumber);
+  MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
+                                kMaxSequenceNumber);
   mem2->Ref();
 
   mem2->Add(++seq, kTypeDeletion, "key1", "");
@@ -321,8 +319,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_EQ(1, to_flush.size());
 
   // Flush second memtable
-  s = Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush, &to_delete);
+  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
+                                       to_flush, &to_delete);
   ASSERT_OK(s);
   ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_EQ(2, list.NumFlushed());
@@ -330,9 +328,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Add a third memtable to push the first memtable out of the history
   WriteBufferManager wb3(options.db_write_buffer_size);
-  MemTable* mem3 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb3,
-                   kMaxSequenceNumber);
+  MemTable* mem3 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb3,
+                                kMaxSequenceNumber);
   mem3->Ref();
   list.Add(mem3, &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
@@ -401,7 +398,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Create some MemTables
   std::vector<MemTable*> tables;
-  MutableCFOptions mutable_cf_options(options, ioptions);
+  MutableCFOptions mutable_cf_options(options);
   for (int i = 0; i < num_tables; i++) {
     MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
                                  kMaxSequenceNumber);
@@ -539,8 +536,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Flush the 4 memtables that were picked in to_flush
-  s = Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush, &to_delete);
+  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
+                                       to_flush, &to_delete);
   ASSERT_OK(s);
 
   // Note:  now to_flush contains tables[0,1,2,4].  to_flush2 contains
@@ -560,7 +557,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Flush the 1 memtable that was picked in to_flush2
   s = MemTableListTest::Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush2, &to_delete);
+      &list, MutableCFOptions(options), to_flush2, &to_delete);
   ASSERT_OK(s);
 
   // This will actually install 2 tables.  The 1 we told it to flush, and also
