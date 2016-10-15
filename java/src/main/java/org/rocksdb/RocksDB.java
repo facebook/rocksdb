@@ -1917,6 +1917,8 @@ public class RocksDB extends RocksObject {
    * This function will wait until all currently running background processes
    * finish. After it returns, no background process will be run until
    * {@link #continueBackgroundWork()} is called
+   *
+   * @throws RocksDBException If an error occurs when pausing background work
    */
   public void pauseBackgroundWork() throws RocksDBException {
     pauseBackgroundWork(nativeHandle_);
@@ -1925,6 +1927,8 @@ public class RocksDB extends RocksObject {
   /**
    * Resumes backround work which was suspended by
    * previously calling {@link #pauseBackgroundWork()}
+   *
+   * @throws RocksDBException If an error occurs when resuming background work
    */
   public void continueBackgroundWork() throws RocksDBException {
     continueBackgroundWork(nativeHandle_);
