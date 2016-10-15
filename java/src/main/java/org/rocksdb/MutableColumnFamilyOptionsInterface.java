@@ -386,7 +386,7 @@ public interface MutableColumnFamilyOptionsInterface {
    * threshold. But it's not guaranteed.
    * Value 0 will be sanitized.
    *
-   * @param max bytes in a compaction
+   * @param maxCompactionBytes max bytes in a compaction
    * @return the reference to the current option.
    * @see #maxCompactionBytes()
    */
