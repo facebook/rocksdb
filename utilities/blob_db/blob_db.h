@@ -71,6 +71,11 @@ class BlobDB : public StackableDB {
     ColumnFamilyHandle* column_family, const Slice& key,
     const Slice& value) override  = 0;
 
+  using rocksdb::StackableDB::Delete;
+  virtual Status Delete(const WriteOptions& options,
+    ColumnFamilyHandle* column_family, const Slice& key)
+    override = 0;
+
   virtual Status PutWithTTL(const WriteOptions& options,
     ColumnFamilyHandle* column_family, const Slice& key,
     const Slice& value, uint32_t ttl) = 0;

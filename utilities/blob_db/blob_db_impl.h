@@ -13,6 +13,7 @@
 #include "utilities/blob_db/blob_db.h"
 #include "util/instrumented_mutex.h"
 #include "util/cf_options.h"
+#include "util/mpsc.h"
 #include "db/blob_log_writer.h"
 #include "db/blob_log_reader.h"
 #include "db/blob_log_format.h"
@@ -45,20 +46,25 @@ typedef std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber> snrange_t;
 class BlobDBImpl : public BlobDB {
  public:
   using rocksdb::StackableDB::Put;
-  Status Put(const WriteOptions& options, 
+  Status Put(const WriteOptions& options,
              ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value) override;
 
+  using rocksdb::StackableDB::Delete;
+  Status Delete(const WriteOptions& options,
+             ColumnFamilyHandle* column_family, const Slice& key)
+             override;
+
   using rocksdb::StackableDB::Get;
-  Status Get(const ReadOptions& options, 
+  Status Get(const ReadOptions& options,
              ColumnFamilyHandle* column_family, const Slice& key,
              std::string* value) override;
-  
-  Status PutWithTTL(const WriteOptions& options, 
+
+  Status PutWithTTL(const WriteOptions& options,
              ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value, uint32_t ttl) override;
 
-  Status PutUntil(const WriteOptions& options, 
+  Status PutUntil(const WriteOptions& options,
              ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value, uint32_t expiration) override;
 
@@ -124,6 +130,13 @@ class BlobDBImpl : public BlobDB {
 
   std::set<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_blob_files_;
 
+  struct delete_packet_t {
+    ColumnFamilyHandle *cfh_;
+    std::string key_;
+  };
+
+  mpsc_queue_t<delete_packet_t> delete_keys_q_;
+
   std::vector<std::thread> gc_threads_;
   std::atomic_bool shutdown_;
   std::condition_variable gc_cv_;
@@ -137,9 +150,9 @@ class BlobFile {
 
  private:
    std::string path_to_dir_;
-   std::atomic<uint64_t> blob_count_;
+   uint64_t blob_count_;
    uint64_t file_number_;
-   std::atomic<uint64_t> file_size_;
+   uint64_t file_size_;
 
    blob_log::BlobLogHeader header_;
 
@@ -170,7 +183,7 @@ class BlobFile {
   BlobFile() { }
 
   BlobFile(const std::string& bdir, uint64_t fnum);
-  
+
   ~BlobFile();
 
   bool Obsolete() const { return can_be_deleted_; }
@@ -214,7 +227,7 @@ class BlobFile {
 
   Status WriteFooterAndClose_locked();
 
-  uint64_t GetFileSize() const { return file_size_.load(); }
+  uint64_t GetFileSize() const { return file_size_; }
 
   Status ReadFooter(blob_log::BlobLogFooter& footer, bool close_reader = false);
 
@@ -222,7 +235,7 @@ class BlobFile {
 
   std::shared_ptr<RandomAccessFileReader> openRandomAccess_locked(Env *env, const EnvOptions& env_options);
 
-  // this is used, when you are reading only the footer of a 
+  // this is used, when you are reading only the footer of a
   // previously closed file
   void setFromFooter(const blob_log::BlobLogFooter& footer);
 
@@ -238,7 +251,7 @@ class BlobFile {
 
   void setSNRange(const snrange_t& snr) { sn_range_ = snr; }
 
-  void setFileSize(uint64_t fs) { file_size_.store(fs); }
+  void setFileSize(uint64_t fs) { file_size_ = fs; }
 };
 
 }

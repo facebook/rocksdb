@@ -148,6 +148,20 @@ Status BlobDBImpl::Put(const WriteOptions& options,
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
+Status BlobDBImpl::Delete(const WriteOptions& options,
+  ColumnFamilyHandle* column_family, const Slice& key)
+{
+   std::atomic<std::shared_ptr<ColumnFamilyHandle>>
+     myat(std::shared_ptr<ColumnFamilyHandle>(column_family));
+
+   delete_keys_q_.enqueue({column_family, key.ToString() });
+   return db_->Delete(options, column_family, key);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
   : BlobDB(db), db_impl_(dynamic_cast<DBImpl*>(db)),
   opt_db_(new OptimisticTransactionDBImpl(db)),
@@ -213,6 +227,7 @@ Status BlobDBImpl::openNewFileWithTTL_locked(const ttlrange_t& ttl_guess,
   if (!s.ok())
     return s;
 
+  bfile->file_size_ = blob_log::BlobLogHeader::kHeaderSize;
   bfile_ret = bfile;
 
   // set the first value of the range, since that is concrete at this time.
@@ -488,6 +503,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
   const Slice& value, uint32_t expiration) {
 
   if (!wo_set_) {
+    wo_set_ = true;
     write_options_ = options;
   }
 
@@ -496,6 +512,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
     ReadLock rl(&mutex_);
     bfile = findBlobFile_locked(expiration);
   }
+
   if (!bfile)  {
     ttlrange_t ttl_guess = std::make_pair(expiration, expiration + 3600);
 
@@ -509,14 +526,13 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
     }
   }
 
-  // bfile cannot be deleted beyond this, because of
-  // shared_ptr
-
+  // bfile cannot be deleted beyond this, because of shared_ptr
   BlockHandle handle;
   std::string index_entry;
   PutVarint64(&index_entry, bfile->BlobFileNumber());
 
   auto raw_block_size = value.size();
+  auto key_size = key.size();
   handle.set_size(raw_block_size);
 
   Status s;
@@ -532,10 +548,12 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
     s = writer->AddRecord(key, value, key_offset, blob_offset, expiration);
     if (!s.ok())
       return s;
-  }
 
-  // increment blob count
-  bfile->blob_count_++;
+    // increment blob count
+    bfile->blob_count_++;
+    bfile->file_size_ += blob_log::BlobLogRecord::kHeaderSize
+      + key_size + raw_block_size;
+  }
 
   handle.set_offset(blob_offset);
   handle.EncodeTo(&index_entry);
@@ -551,26 +569,26 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
 
   // this is the sequence number of the write.
   SequenceNumber sn = WriteBatchInternal::Sequence(&batch);
-
   uint64_t new_size = blob_offset + raw_block_size + 8;
-  bfile->file_size_.store(new_size);
   bool close = (new_size > bdb_options_.blob_file_size);
   if (close) {
     WriteLock wl(&mutex_);
+
+    // this prevents others from picking up this file
     open_blob_files_.erase(bfile);
   }
 
-  {
-    InstrumentedMutexLock lockbfile(&bfile->mutex_);
-    s = writer->AddRecordFooter(sn);
-    extendTTL(bfile->ttl_range_, expiration);
-    extendSN(bfile->sn_range_, sn);
+  InstrumentedMutexLock lockbfile(&bfile->mutex_);
+  s = writer->AddRecordFooter(sn);
+  bfile->file_size_ += blob_log::BlobLogRecord::kFooterSize;
 
-    if (close) {
-      bfile->WriteFooterAndClose_locked();
-    } else if (writer->ShouldSync())
-      db_->GetEnv()->Schedule(&BlobFile::Fsync, bfile.get(), Env::Priority::HIGH);
-  }
+  extendTTL(bfile->ttl_range_, expiration);
+  extendSN(bfile->sn_range_, sn);
+
+  if (close) {
+    bfile->WriteFooterAndClose_locked();
+  } else if (writer->ShouldSync())
+    db_->GetEnv()->Schedule(&BlobFile::Fsync, bfile.get(), Env::Priority::HIGH);
 
   return s;
 }
