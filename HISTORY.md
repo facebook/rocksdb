@@ -7,6 +7,9 @@
 ### New Features
 * Add DB::SetDBOptions() to dynamic change base_background_compactions and max_background_compactions.
 
+### New Features
+* Added Iterator::SeekForPrev(). This new API will seek to the last key that less than or equal to the target key.
+
 ## 4.12.0 (9/12/2016)
 ### Public API Change
 * CancelAllBackgroundWork() flushes all memtables for databases containing writes that have bypassed the WAL (writes issued with WriteOptions::disableWAL=true) before shutting down background threads.
