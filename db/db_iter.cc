@@ -658,7 +658,8 @@ bool DBIter::FindValueForCurrentKey() {
       return false;
     case kTypeMerge:
       current_entry_is_merged_ = true;
-      if (last_not_merge_type == kTypeDeletion) {
+      if (last_not_merge_type == kTypeDeletion ||
+          last_not_merge_type == kTypeSingleDeletion) {
         MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
                                     nullptr, merge_context_.GetOperands(),
                                     &saved_value_, logger_, statistics_, env_,
