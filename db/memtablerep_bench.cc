@@ -48,6 +48,8 @@ DEFINE_string(benchmarks, "fillrandom",
               "Comma-separated list of benchmarks to run. Options:\n"
               "\tfillrandom             -- write N random values\n"
               "\tfillseq                -- write N values in sequential order\n"
+              "\tfillmultiseq           -- write N values consisting of K "
+              "sequences of ordered values\n"
               "\treadrandom             -- read N values in random order\n"
               "\treadseq                -- scan the DB\n"
               "\treadwrite              -- 1 thread writes while N - 1 threads "
@@ -119,6 +121,12 @@ DEFINE_int32(num_scans, 10,
              "sequential read "
              "benchmarks");
 
+DEFINE_int32(num_sequences, 10,
+             "Number of sequences in case of fillmultiseq benchmark.");
+
+DEFINE_int32(in_sequence_reorder_window, 0,
+             "Within each sequence, the distance each key can be reordered.");
+
 DEFINE_int32(item_size, 100, "Number of bytes each item should be");
 
 DEFINE_int32(prefix_length, 8,
@@ -167,12 +175,13 @@ class RandomGenerator {
   }
 };
 
-enum WriteMode { SEQUENTIAL, RANDOM, UNIQUE_RANDOM };
+enum WriteMode { SEQUENTIAL, MULTIPLE_SEQUENCE, RANDOM, UNIQUE_RANDOM };
 
 class KeyGenerator {
  public:
-  KeyGenerator(Random64* rand, WriteMode mode, uint64_t num)
-      : rand_(rand), mode_(mode), num_(num), next_(0) {
+  KeyGenerator(Random64* rand, WriteMode mode, uint64_t num, uint64_t num_seq = 0)
+      : rand_(rand), mode_(mode), num_(num), num_seq_(num_seq),
+        reorder_window_(FLAGS_in_sequence_reorder_window), next_(0) {
     if (mode_ == UNIQUE_RANDOM) {
       // NOTE: if memory consumption of this approach becomes a concern,
       // we can either break it into pieces and only random shuffle a section
@@ -185,6 +194,9 @@ class KeyGenerator {
       std::shuffle(
           values_.begin(), values_.end(),
           std::default_random_engine(static_cast<unsigned int>(FLAGS_seed)));
+    } else if (mode_ == MULTIPLE_SEQUENCE) {
+      seq_index_.resize(num_seq_, 0);
+      seq_queue_.resize(num_seq_);
     }
   }
 
@@ -196,6 +208,26 @@ class KeyGenerator {
         return rand_->Next() % num_;
       case UNIQUE_RANDOM:
         return values_[next_++];
+      case MULTIPLE_SEQUENCE:
+        uint64_t bucket = rand_->Uniform(num_seq_);
+        if (seq_index_[bucket] == 0) {
+          // fill the queue.
+          seq_queue_[bucket].resize(reorder_window_ + 1);
+          for (uint32_t i = 0; i <= reorder_window_; i++) {
+            seq_queue_[bucket][i] = i;
+          }
+        }
+        uint64_t pos = 0;
+        if (seq_index_[bucket] - seq_queue_[bucket][0] < reorder_window_) {
+          pos = rand_->Uniform(reorder_window_ + 1);
+        }
+        uint32_t seq_next = seq_queue_[bucket][pos];
+        for (uint32_t i = pos; i < reorder_window_; i++) {
+          seq_queue_[bucket][i] = seq_queue_[bucket][i + 1];
+        }
+        seq_index_[bucket]++;
+        seq_queue_[bucket][reorder_window_] = seq_index_[bucket] + reorder_window_;
+        return (bucket << 32) + seq_next;
     }
     assert(false);
     return std::numeric_limits<uint64_t>::max();
@@ -205,9 +237,24 @@ class KeyGenerator {
   Random64* rand_;
   WriteMode mode_;
   const uint64_t num_;
+  const uint64_t num_seq_;
+  const uint32_t reorder_window_;
   uint64_t next_;
   std::vector<uint64_t> values_;
+  std::vector<std::vector<uint32_t>> seq_queue_;
+  std::vector<uint32_t> seq_index_;
 };
+
+void EncodeFixed64BigEndian(char* buf, uint64_t value) {
+  buf[0] = (value >> 56) & 0xff;
+  buf[1] = (value >> 48) & 0xff;
+  buf[2] = (value >> 40) & 0xff;
+  buf[3] = (value >> 32) & 0xff;
+  buf[4] = (value >> 24) & 0xff;
+  buf[5] = (value >> 16) & 0xff;
+  buf[6] = (value >> 8) & 0xff;
+  buf[7] = value & 0xff;
+}
 
 class BenchmarkThread {
  public:
@@ -254,7 +301,8 @@ class FillBenchmarkThread : public BenchmarkThread {
     assert(buf != nullptr);
     char* p = EncodeVarint32(buf, internal_key_size);
     auto key = key_gen_->Next();
-    EncodeFixed64(p, key);
+    // Make sure the keys are byte-wise sequential.
+    EncodeFixed64BigEndian(p, key);
     p += 8;
     EncodeFixed64(p, ++(*sequence_));
     p += 8;
@@ -650,6 +698,12 @@ int main(int argc, char** argv) {
       memtablerep.reset(createMemtableRep());
       key_gen.reset(new rocksdb::KeyGenerator(&rng, rocksdb::SEQUENTIAL,
                                               FLAGS_num_operations));
+      benchmark.reset(new rocksdb::FillBenchmark(memtablerep.get(),
+                                                 key_gen.get(), &sequence));
+    } else if (name == rocksdb::Slice("fillmultiseq")) {
+      memtablerep.reset(createMemtableRep());
+      key_gen.reset(new rocksdb::KeyGenerator(&rng, rocksdb::MULTIPLE_SEQUENCE,
+                                              FLAGS_num_operations, FLAGS_num_sequences));
       benchmark.reset(new rocksdb::FillBenchmark(memtablerep.get(),
                                                  key_gen.get(), &sequence));
     } else if (name == rocksdb::Slice("fillrandom")) {
