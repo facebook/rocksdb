@@ -1,13 +1,11 @@
 # Rocksdb Change Log
-## Unreleased
+## 4.13.0 (10/18/2016)
 ### Public API Change
 * DB::GetOptions() reflect dynamic changed options (i.e. through DB::SetOptions()) and return copy of options instead of reference.
 * Added Statistics::getAndResetTickerCount().
 
 ### New Features
 * Add DB::SetDBOptions() to dynamic change base_background_compactions and max_background_compactions.
-
-### New Features
 * Added Iterator::SeekForPrev(). This new API will seek to the last key that less than or equal to the target key.
 
 ## 4.12.0 (9/12/2016)
