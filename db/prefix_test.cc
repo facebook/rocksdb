@@ -292,6 +292,7 @@ TEST(SamePrefixTest, InDomainTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   {
+    ASSERT_OK(DestroyDB(kDbName, Options()));
     ASSERT_OK(DB::Open(options, kDbName, &db));
     ASSERT_OK(db->Put(write_options, "HHKB pro2", "Mar 24, 2006"));
     ASSERT_OK(db->Put(write_options, "HHKB pro2 Type-S", "June 29, 2011"));
