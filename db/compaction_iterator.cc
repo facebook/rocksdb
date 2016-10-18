@@ -14,8 +14,9 @@ CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
     SequenceNumber last_sequence, std::vector<SequenceNumber>* snapshots,
     SequenceNumber earliest_write_conflict_snapshot, Env* env,
-    bool expect_valid_internal_key, const Compaction* compaction,
-    const CompactionFilter* compaction_filter, LogBuffer* log_buffer)
+    bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
+    const Compaction* compaction, const CompactionFilter* compaction_filter,
+    LogBuffer* log_buffer)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -23,6 +24,7 @@ CompactionIterator::CompactionIterator(
       earliest_write_conflict_snapshot_(earliest_write_conflict_snapshot),
       env_(env),
       expect_valid_internal_key_(expect_valid_internal_key),
+      range_del_agg_(range_del_agg),
       compaction_(compaction),
       compaction_filter_(compaction_filter),
       log_buffer_(log_buffer),
@@ -153,6 +155,7 @@ void CompactionIterator::NextFromInput() {
     if (!has_current_user_key_ ||
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
       // First occurrence of this user key
+      // Copy key for output
       key_ = current_key_.SetKey(key_, &ikey_);
       current_user_key_ = ikey_.user_key;
       has_current_user_key_ = true;
@@ -321,7 +324,7 @@ void CompactionIterator::NextFromInput() {
         }
       } else {
         // We are at the end of the input, could not parse the next key, or hit
-        // the next key. The iterator returns the single delete if the key
+        // a different key. The iterator returns the single delete if the key
         // possibly exists beyond the current output level.  We set
         // has_current_user_key to false so that if the iterator is at the next
         // key, we do not compare it again against the previous key at the next
@@ -390,7 +393,8 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      merge_helper_->MergeUntil(input_, prev_snapshot, bottommost_level_);
+      merge_helper_->MergeUntil(input_, range_del_agg_, prev_snapshot,
+                                bottommost_level_);
       merge_out_iter_.SeekToFirst();
 
       if (merge_out_iter_.Valid()) {
@@ -416,7 +420,15 @@ void CompactionIterator::NextFromInput() {
         pinned_iters_mgr_.ReleasePinnedData();
       }
     } else {
-      valid_ = true;
+      // 1. new user key -OR-
+      // 2. different snapshot stripe
+      bool should_delete =
+          range_del_agg_->ShouldDelete(key_, true /* for_compaction */);
+      if (should_delete) {
+        input_->Next();
+      } else {
+        valid_ = true;
+      }
     }
   }
 }

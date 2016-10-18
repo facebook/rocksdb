@@ -305,7 +305,8 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   dbfull()->TEST_WaitForCompact();
   // Preloading iterator issues one table cache lookup and creates
   // a new table reader. One file is created for flush and one for compaction.
-  // Compaction inputs make no table cache look-up.
+  // Compaction inputs make no table cache look-up for data iterators or
+  // range tombstone iterators since they're already cached.
   ASSERT_EQ(num_table_cache_lookup, 2);
   // Create new iterator for:
   // (1) 1 for verifying flush results

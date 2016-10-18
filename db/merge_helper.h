@@ -12,6 +12,7 @@
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
+#include "db/range_del_aggregator.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
@@ -71,6 +72,7 @@ class MergeHelper {
   //  or - the end of iteration
   // iter: (IN)  points to the first merge type entry
   //       (OUT) points to the first entry not included in the merge process
+  // range_del_agg: (IN) filters merge operands covered by range tombstones.
   // stop_before: (IN) a sequence number that merge should not cross.
   //                   0 means no restriction
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
@@ -85,6 +87,7 @@ class MergeHelper {
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(InternalIterator* iter,
+                    RangeDelAggregator* range_del_agg = nullptr,
                     const SequenceNumber stop_before = 0,
                     const bool at_bottom = false);
 

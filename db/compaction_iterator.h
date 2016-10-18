@@ -14,6 +14,7 @@
 #include "db/compaction.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "db/range_del_aggregator.h"
 #include "rocksdb/compaction_filter.h"
 #include "util/log_buffer.h"
 
@@ -47,6 +48,7 @@ class CompactionIterator {
                      std::vector<SequenceNumber>* snapshots,
                      SequenceNumber earliest_write_conflict_snapshot, Env* env,
                      bool expect_valid_internal_key,
+                     RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      LogBuffer* log_buffer = nullptr);
@@ -99,6 +101,7 @@ class CompactionIterator {
   const SequenceNumber earliest_write_conflict_snapshot_;
   Env* env_;
   bool expect_valid_internal_key_;
+  RangeDelAggregator* range_del_agg_;
   const Compaction* compaction_;
   const CompactionFilter* compaction_filter_;
   LogBuffer* log_buffer_;

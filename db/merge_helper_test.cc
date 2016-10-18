@@ -29,7 +29,8 @@ class MergeHelperTest : public testing::Test {
     merge_helper_.reset(new MergeHelper(env_, BytewiseComparator(),
                                         merge_op_.get(), filter_.get(), nullptr,
                                         2U, false, latest_snapshot));
-    return merge_helper_->MergeUntil(iter_.get(), stop_before, at_bottom);
+    return merge_helper_->MergeUntil(iter_.get(), nullptr /* range_del_agg */,
+                                     stop_before, at_bottom);
   }
 
   void AddKeyVal(const std::string& user_key, const SequenceNumber& seq,

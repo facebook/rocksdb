@@ -121,7 +121,10 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   size_t meta_bytes_buf_size = 0;
 
   ParsedInternalKey internal_key;
-  ParseInternalKey(key, &internal_key);
+  if (!ParseInternalKey(key, &internal_key)) {
+    assert(false);
+    return;
+  }
   if (internal_key.type == kTypeRangeDeletion) {
     status_ = Status::NotSupported("Range deletion unsupported");
     return;

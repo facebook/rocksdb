@@ -497,7 +497,8 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
                          const EnvOptions& env_options,
                          const InternalKeyComparator& icomparator,
                          HistogramImpl* file_read_hist, bool for_compaction,
-                         bool prefix_enabled, bool skip_filters, int level)
+                         bool prefix_enabled, bool skip_filters, int level,
+                         RangeDelAggregator* range_del_agg)
       : TwoLevelIteratorState(prefix_enabled),
         table_cache_(table_cache),
         read_options_(read_options),
@@ -506,7 +507,8 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
         file_read_hist_(file_read_hist),
         for_compaction_(for_compaction),
         skip_filters_(skip_filters),
-        level_(level) {}
+        level_(level),
+        range_del_agg_(range_del_agg) {}
 
   InternalIterator* NewSecondaryIterator(const Slice& meta_handle) override {
     if (meta_handle.size() != sizeof(FileDescriptor)) {
@@ -518,7 +520,8 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
       return table_cache_->NewIterator(
           read_options_, env_options_, icomparator_, *fd,
           nullptr /* don't need reference to table*/, file_read_hist_,
-          for_compaction_, nullptr /* arena */, skip_filters_, level_);
+          for_compaction_, nullptr /* arena */, skip_filters_, level_,
+          range_del_agg_, false /* is_range_del_only */);
     }
   }
 
@@ -535,6 +538,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
   bool for_compaction_;
   bool skip_filters_;
   int level_;
+  RangeDelAggregator* range_del_agg_;
 };
 
 // A wrapper of version builder which references the current version in
@@ -826,13 +830,13 @@ void Version::AddIterators(const ReadOptions& read_options,
   for (int level = 1; level < storage_info_.num_non_empty_levels(); level++) {
     if (storage_info_.LevelFilesBrief(level).num_files != 0) {
       auto* mem = arena->AllocateAligned(sizeof(LevelFileIteratorState));
-      auto* state = new (mem)
-          LevelFileIteratorState(cfd_->table_cache(), read_options, soptions,
-                                 cfd_->internal_comparator(),
-                                 cfd_->internal_stats()->GetFileReadHist(level),
-                                 false /* for_compaction */,
-                                 cfd_->ioptions()->prefix_extractor != nullptr,
-                                 IsFilterSkipped(level), level);
+      auto* state = new (mem) LevelFileIteratorState(
+          cfd_->table_cache(), read_options, soptions,
+          cfd_->internal_comparator(),
+          cfd_->internal_stats()->GetFileReadHist(level),
+          false /* for_compaction */,
+          cfd_->ioptions()->prefix_extractor != nullptr, IsFilterSkipped(level),
+          level, nullptr /* range_del_agg */);
       mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
       auto* first_level_iter = new (mem) LevelFileNumIterator(
           cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
@@ -3343,7 +3347,8 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   }
 }
 
-InternalIterator* VersionSet::MakeInputIterator(const Compaction* c) {
+InternalIterator* VersionSet::MakeInputIterator(
+    const Compaction* c, RangeDelAggregator* range_del_agg) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums =
@@ -3371,7 +3376,7 @@ InternalIterator* VersionSet::MakeInputIterator(const Compaction* c) {
               cfd->internal_comparator(), flevel->files[i].fd, nullptr,
               nullptr, /* no per level latency histogram*/
               true /* for_compaction */, nullptr /* arena */,
-              false /* skip_filters */, (int)which /* level */);
+              false /* skip_filters */, (int)which /* level */, range_del_agg);
         }
       } else {
         // Create concatenating iterator for the files from this level
@@ -3381,7 +3386,8 @@ InternalIterator* VersionSet::MakeInputIterator(const Compaction* c) {
                 cfd->internal_comparator(),
                 nullptr /* no per level latency histogram */,
                 true /* for_compaction */, false /* prefix enabled */,
-                false /* skip_filters */, (int)which /* level */),
+                false /* skip_filters */, (int)which /* level */,
+                range_del_agg),
             new LevelFileNumIterator(cfd->internal_comparator(),
                                      c->input_levels(which)));
       }

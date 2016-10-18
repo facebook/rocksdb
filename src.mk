@@ -10,6 +10,7 @@ LIB_SOURCES =                                                   \
   db/compaction_job.cc                                          \
   db/compaction_picker.cc                                       \
   db/convenience.cc                                             \
+  db/range_del_aggregator.cc                                    \
   db/db_filesnapshot.cc                                         \
   db/dbformat.cc                                                \
   db/db_impl.cc                                                 \

@@ -170,7 +170,10 @@ InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileDescriptor& fd,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
-    bool for_compaction, Arena* arena, bool skip_filters, int level) {
+    bool for_compaction, Arena* arena, bool skip_filters, int level,
+    RangeDelAggregator* range_del_agg /* = nullptr */,
+    bool is_range_del_only /* = false */) {
+  assert(!is_range_del_only || range_del_agg != nullptr);
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   if (table_reader_ptr != nullptr) {
@@ -182,14 +185,18 @@ InternalIterator* TableCache::NewIterator(
 
   size_t readahead = 0;
   bool create_new_table_reader = false;
-  if (for_compaction) {
-    if (ioptions_.new_table_reader_for_compaction_inputs) {
-      readahead = ioptions_.compaction_readahead_size;
-      create_new_table_reader = true;
+  // pointless to create a new table reader for range tombstones only since the
+  // reader isn't reused
+  if (!is_range_del_only) {
+    if (for_compaction) {
+      if (ioptions_.new_table_reader_for_compaction_inputs) {
+        readahead = ioptions_.compaction_readahead_size;
+        create_new_table_reader = true;
+      }
+    } else {
+      readahead = options.readahead_size;
+      create_new_table_reader = readahead > 0;
     }
-  } else {
-    readahead = options.readahead_size;
-    create_new_table_reader = readahead > 0;
   }
 
   if (create_new_table_reader) {
@@ -216,23 +223,36 @@ InternalIterator* TableCache::NewIterator(
     }
   }
 
-  InternalIterator* result =
-      table_reader->NewIterator(options, arena, skip_filters);
-
-  if (create_new_table_reader) {
-    assert(handle == nullptr);
-    result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
-  } else if (handle != nullptr) {
-    result->RegisterCleanup(&UnrefEntry, cache_, handle);
+  if (range_del_agg != nullptr) {
+    std::unique_ptr<InternalIterator> iter(
+        table_reader->NewRangeTombstoneIterator(options));
+    range_del_agg->AddTombstones(std::move(iter));
   }
 
-  if (for_compaction) {
-    table_reader->SetupForCompaction();
-  }
-  if (table_reader_ptr != nullptr) {
-    *table_reader_ptr = table_reader;
-  }
+  InternalIterator* result = nullptr;
+  if (!is_range_del_only) {
+    result = table_reader->NewIterator(options, arena, skip_filters);
+    if (create_new_table_reader) {
+      assert(handle == nullptr);
+      result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
+    } else if (handle != nullptr) {
+      result->RegisterCleanup(&UnrefEntry, cache_, handle);
+    }
 
+    if (for_compaction) {
+      table_reader->SetupForCompaction();
+    }
+    if (table_reader_ptr != nullptr) {
+      *table_reader_ptr = table_reader;
+    }
+  } else {
+    assert(!create_new_table_reader);
+    // don't need the table reader at all since the iterator over the meta-block
+    // doesn't require it
+    if (handle != nullptr) {
+      UnrefEntry(cache_, handle);
+    }
+  }
   return result;
 }
 
