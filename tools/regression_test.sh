@@ -15,8 +15,8 @@
 #
 # = Examples =
 # * Run the regression test using rocksdb commit abcdef that outputs results
-#   and temp files in "/my/output/dir" 
-# 
+#   and temp files in "/my/output/dir"
+#r
 #   TEST_PATH=/my/output/dir COMMIT_ID=abcdef ./tools/regression_test.sh
 #
 # * Run the regression test on a remost host under "/my/output/dir" directory
@@ -89,14 +89,13 @@ function main {
 
   init_arguments $test_root_dir
 
-  checkout_rocksdb $commit
-  build_db_bench
+#  checkout_rocksdb $commit
+#  build_db_bench
 
   setup_test_directory
 
   # an additional dot indicates we share same env variables
-  run_db_bench "fillseq" $NUM_KEYS 1 0
-  run_db_bench "overwrite"
+  run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
   run_db_bench "readrandom"
   run_db_bench "readwhilewriting"
   run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
@@ -120,8 +119,8 @@ function init_arguments {
   COMMIT_ID=`git log | head -n1 | cut -c 8-`
   SUMMARY_FILE="$RESULT_PATH/SUMMARY.csv"
 
-  DB_PATH=${3:-"$1/db/"}
-  WAL_PATH=${4:-"$1/wal/"}
+  DB_PATH=${3:-"$1/db"}
+  WAL_PATH=${4:-""}
   if [ -z "$REMOTE_USER_AT_HOST" ]; then
     DB_BENCH_DIR=${5:-"."}
   else
@@ -139,10 +138,11 @@ function init_arguments {
   STATISTICS=${STATISTICS:-0}
   COMPRESSION_RATIO=${COMPRESSION_RATIO:-0.5}
   HISTOGRAM=${HISTOGRAM:-1}
+  NUM_MULTI_DB=${NUM_MULTI_DB:-1}
   STATS_PER_INTERVAL=${STATS_PER_INTERVAL:-1}
   STATS_INTERVAL_SECONDS=${STATS_INTERVAL_SECONDS:-600}
   MAX_BACKGROUND_FLUSHES=${MAX_BACKGROUND_FLUSHES:-4}
-  MAX_BACKGROUND_COMPACTIONS=${MAX_BACKGROUND_COMPACTIONS:-16} 
+  MAX_BACKGROUND_COMPACTIONS=${MAX_BACKGROUND_COMPACTIONS:-16}
   DELETE_TEST_PATH=${DELETE_TEST_PATH:-0}
   SEEK_NEXTS=${SEEK_NEXTS:-10}
   SEED=${SEED:-$( date +%s )}
@@ -170,6 +170,7 @@ function run_db_bench {
   db_bench_cmd="$DB_BENCH_DIR/db_bench \
       --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
+      --disable_auto_compactions \
       --threads=$threads \
       --num=$NUM_KEYS \
       --reads=$ops \
@@ -186,6 +187,7 @@ function run_db_bench {
       --stats_per_interval=$STATS_PER_INTERVAL \
       --stats_interval_seconds=$STATS_INTERVAL_SECONDS \
       --max_background_flushes=$MAX_BACKGROUND_FLUSHES \
+      --num_multi_db=$NUM_MULTI_DB \
       --max_background_compactions=$MAX_BACKGROUND_COMPACTIONS \
       --seed=$SEED 2>&1"
   kill_db_bench_cmd="pkill db_bench"
@@ -245,7 +247,7 @@ function update_report {
   main_pattern="$1"'[[:blank:]]+:[[:blank:]]+([0-9\.]+)[[:blank:]]+micros/op'
   [[ $main_result =~ $main_pattern ]]
   micros_op=${BASH_REMATCH[1]}
-  
+
   # Obtain percentile information
   perc_pattern='Percentiles: P50: ([0-9\.]+) P75: ([0-9\.]+) P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)'
   [[ $perc_statement =~ $perc_pattern ]]
@@ -256,8 +258,8 @@ function update_report {
   perc[3]=${BASH_REMATCH[4]}  # p99.9
   perc[4]=${BASH_REMATCH[5]}  # p99.99
 
-  (printf "$COMMIT_ID,%25s,%30s,%9s,%8s,%10s,%13.0f,%14s,%11s,%12s,%7s,%11s,%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f\n" \
-    $1 $REMOTE_USER_AT_HOST $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
+  (printf "$COMMIT_ID,%25s,%30s,%7s,%9s,%8s,%10s,%13.0f,%14s,%11s,%12s,%7s,%11s,%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f\n" \
+    $1 $REMOTE_USER_AT_HOST $NUM_MULTI_DB $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
        $(multiply $COMPRESSION_RATIO 100) \
        $3 $4 $CACHE_SIZE \
        $MAX_BACKGROUND_FLUSHES $MAX_BACKGROUND_COMPACTIONS \
@@ -310,7 +312,7 @@ function run_remote {
   else
     cmd="$1"
   fi
-  
+
   eval "$cmd"
   exit_on_error $? "$cmd"
 }
@@ -337,23 +339,27 @@ function setup_test_directory {
   echo "Deleting old regression test directories and creating new ones"
 
   run_remote "rm -rf $DB_PATH"
-  run_remote "rm -rf $WAL_PATH"
-  if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-    run_remote "rm -rf $DB_BENCH_DIR"
+  run_remote "rm -rf $DB_BENCH_DIR"
+  run_local "rm -rf $RESULT_PATH"
+
+  if ! [ -z "$WAL_PATH" ]; then
+    run_remote "rm -rf $WAL_PATH"
+    run_remote "mkdir -p $WAL_PATH"
   fi
+
   run_remote "mkdir -p $DB_PATH"
-  run_remote "mkdir -p $WAL_PATH"
+
+  run_remote "mkdir -p $DB_BENCH_DIR"
+  run_remote "ls -l $DB_BENCH_DIR"
+
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-    run_remote "mkdir -p $DB_BENCH_DIR"
-    run_remote "ls -l $DB_BENCH_DIR"
     run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
   fi
-  
-  run_local "rm -rf $RESULT_PATH"
+
   run_local "mkdir -p $RESULT_PATH"
 
-  (printf "%40s,%25s,%30s,%9s,%8s,%10s,%13s,%14s,%11s,%12s,%7s,%11s,%9s,%10s,%10s,%10s,%10s,%10s\n" \
-      "commit id" "benchmark" "user@host" \
+  (printf "%40s,%25s,%30s,%7s,%9s,%8s,%10s,%13s,%14s,%11s,%12s,%7s,%11s,%9s,%10s,%10s,%10s,%10s,%10s\n" \
+      "commit id" "benchmark" "user@host" "num-dbs" \
       "key-range" "key-size" "value-size" "compress-rate" \
       "ops-per-thread" "num-threads" "cache-size" \
       "flushes" "compactions" \
