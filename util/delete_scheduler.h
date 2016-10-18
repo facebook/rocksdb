@@ -11,6 +11,7 @@
 #include <thread>
 
 #include "port/port.h"
+#include "util/instrumented_mutex.h"
 
 #include "rocksdb/status.h"
 
@@ -63,7 +64,7 @@ class DeleteScheduler {
   // Maximum number of bytes that should be deleted per second
   int64_t rate_bytes_per_sec_;
   // Mutex to protect queue_, pending_files_, bg_errors_, closing_
-  port::Mutex mu_;
+  InstrumentedMutex mu_;
   // Queue of files in trash that need to be deleted
   std::queue<std::string> queue_;
   // Number of files in trash that are waiting to be deleted
@@ -76,11 +77,11 @@ class DeleteScheduler {
   //    - pending_files_ value change from 0 => 1
   //    - pending_files_ value change from 1 => 0
   //    - closing_ value is set to true
-  port::CondVar cv_;
+  InstrumentedCondVar cv_;
   // Background thread running BackgroundEmptyTrash
   std::unique_ptr<std::thread> bg_thread_;
   // Mutex to protect threads from file name conflicts
-  port::Mutex file_move_mu_;
+  InstrumentedMutex file_move_mu_;
   Logger* info_log_;
   SstFileManagerImpl* sst_file_manager_;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;

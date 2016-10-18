@@ -5,6 +5,7 @@
 
 #include "util/instrumented_mutex.h"
 #include "util/perf_context_imp.h"
+#include "util/sync_point.h"
 #include "util/thread_status_util.h"
 
 namespace rocksdb {
@@ -80,6 +81,10 @@ bool InstrumentedCondVar::TimedWaitInternal(uint64_t abs_time_us) {
 #ifndef NDEBUG
   ThreadStatusUtil::TEST_StateDelay(ThreadStatus::STATE_MUTEX_WAIT);
 #endif
+
+  TEST_SYNC_POINT_CALLBACK("InstrumentedCondVar::TimedWaitInternal",
+                           &abs_time_us);
+
   return cond_.TimedWait(abs_time_us);
 }
 

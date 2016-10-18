@@ -38,7 +38,7 @@ DeleteScheduler::DeleteScheduler(Env* env, const std::string& trash_dir,
 
 DeleteScheduler::~DeleteScheduler() {
   {
-    MutexLock l(&mu_);
+    InstrumentedMutexLock l(&mu_);
     closing_ = true;
     cv_.SignalAll();
   }
@@ -74,7 +74,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
 
   // Add file to delete queue
   {
-    MutexLock l(&mu_);
+    InstrumentedMutexLock l(&mu_);
     queue_.push(path_in_trash);
     pending_files_++;
     if (pending_files_ == 1) {
@@ -85,7 +85,7 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
 }
 
 std::map<std::string, Status> DeleteScheduler::GetBackgroundErrors() {
-  MutexLock l(&mu_);
+  InstrumentedMutexLock l(&mu_);
   return bg_errors_;
 }
 
@@ -107,7 +107,7 @@ Status DeleteScheduler::MoveToTrash(const std::string& file_path,
 
   // TODO(tec) : Implement Env::RenameFileIfNotExist and remove
   //             file_move_mu mutex.
-  MutexLock l(&file_move_mu_);
+  InstrumentedMutexLock l(&file_move_mu_);
   while (true) {
     s = env_->FileExists(*path_in_trash + unique_suffix);
     if (s.IsNotFound()) {
@@ -133,7 +133,7 @@ void DeleteScheduler::BackgroundEmptyTrash() {
   TEST_SYNC_POINT("DeleteScheduler::BackgroundEmptyTrash");
 
   while (true) {
-    MutexLock l(&mu_);
+    InstrumentedMutexLock l(&mu_);
     while (queue_.empty() && !closing_) {
       cv_.Wait();
     }
@@ -204,7 +204,7 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
 }
 
 void DeleteScheduler::WaitForEmptyTrash() {
-  MutexLock l(&mu_);
+  InstrumentedMutexLock l(&mu_);
   while (pending_files_ > 0 && !closing_) {
     cv_.Wait();
   }
