@@ -396,6 +396,10 @@ class DBImpl : public DB {
 
   const SnapshotList& snapshots() const { return snapshots_; }
 
+  const ImmutableDBOptions& immutable_db_options() const {
+    return immutable_db_options_;
+  }
+
   void CancelAllBackgroundWork(bool wait);
 
   // Find Super version and reference it. Based on options, it might return

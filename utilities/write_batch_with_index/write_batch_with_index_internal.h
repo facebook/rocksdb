@@ -10,12 +10,13 @@
 #include <string>
 #include <vector>
 
+#include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
-#include "port/port.h"
+#include "util/db_options.h"
 
 namespace rocksdb {
 
@@ -103,7 +104,7 @@ class WriteBatchWithIndexInternal {
   // If batch does not contain this key, return kNotFound
   // Else, return kError on error with error Status stored in *s.
   static WriteBatchWithIndexInternal::Result GetFromBatch(
-      const DBOptions& options, WriteBatchWithIndex* batch,
+      const ImmutableDBOptions& ioptions, WriteBatchWithIndex* batch,
       ColumnFamilyHandle* column_family, const Slice& key,
       MergeContext* merge_context, WriteBatchEntryComparator* cmp,
       std::string* value, bool overwrite_key, Status* s);

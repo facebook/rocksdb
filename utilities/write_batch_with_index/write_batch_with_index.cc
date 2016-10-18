@@ -11,12 +11,14 @@
 #include <memory>
 
 #include "db/column_family.h"
+#include "db/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/skiplist.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
+#include "util/db_options.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -680,11 +682,12 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value) {
   Status s;
   MergeContext merge_context;
+  const ImmutableDBOptions immuable_db_options(options);
 
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
-          options, this, column_family, key, &merge_context, &rep->comparator,
-          value, rep->overwrite_key, &s);
+          immuable_db_options, this, column_family, key, &merge_context,
+          &rep->comparator, value, rep->overwrite_key, &s);
 
   switch (result) {
     case WriteBatchWithIndexInternal::Result::kFound:
@@ -720,13 +723,14 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                                               std::string* value) {
   Status s;
   MergeContext merge_context;
-  const DBOptions& options = db->GetDBOptions();
+  const ImmutableDBOptions& immuable_db_options =
+      reinterpret_cast<DBImpl*>(db)->immutable_db_options();
 
   std::string batch_value;
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
-          options, this, column_family, key, &merge_context, &rep->comparator,
-          &batch_value, rep->overwrite_key, &s);
+          immuable_db_options, this, column_family, key, &merge_context,
+          &rep->comparator, &batch_value, rep->overwrite_key, &s);
 
   if (result == WriteBatchWithIndexInternal::Result::kFound) {
     value->assign(batch_value.data(), batch_value.size());
@@ -758,9 +762,9 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
       auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
       const MergeOperator* merge_operator =
           cfh->cfd()->ioptions()->merge_operator;
-      Statistics* statistics = options.statistics.get();
-      Env* env = options.env;
-      Logger* logger = options.info_log.get();
+      Statistics* statistics = immuable_db_options.statistics.get();
+      Env* env = immuable_db_options.env;
+      Logger* logger = immuable_db_options.info_log.get();
 
       Slice db_slice(*value);
       Slice* merge_data;
