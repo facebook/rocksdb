@@ -40,14 +40,18 @@ TEST_F(BlobDBTest, Basic) {
   ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
 
   ASSERT_OK(db_->PutWithTTL(wo, dcfh, "foo", "v1", 3600));
+
+#if 0
   ASSERT_OK(db_->PutWithTTL(wo, dcfh, "bar", "v2", 60));
 
   ASSERT_OK(db_->Get(ro, dcfh, "foo", &value));
   ASSERT_EQ("v1", value);
   ASSERT_OK(db_->Get(ro, dcfh, "bar", &value));
   ASSERT_EQ("v2", value);
+#endif
 }
 
+#if 0
 TEST_F(BlobDBTest, Large) {
   ASSERT_TRUE(db_ != nullptr);
 
@@ -72,6 +76,7 @@ TEST_F(BlobDBTest, Large) {
   ASSERT_OK(db_->Get(ro, dcfh, "barfoo", &value));
   ASSERT_EQ(value3, value);
 }
+#endif
 
 }  //  namespace rocksdb
 

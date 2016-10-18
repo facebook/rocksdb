@@ -78,11 +78,17 @@ class Writer {
                   bool use_fsync, uint64_t boffset = 0);
   ~Writer();
 
+  static void ConstructBlobHeader(char *headerbuf, const Slice& key,
+    const Slice& val, int32_t ttl, int64_t ts);
+
   Status AddRecord(const Slice& key, const Slice& val,
     uint64_t& key_offset, uint64_t& blob_offset);
 
   Status AddRecord(const Slice& key, const Slice& val,
     uint64_t& key_offset, uint64_t& blob_offset, uint32_t ttl);
+
+  Status EmitPhysicalRecord(char *headerbuf, const Slice& key,
+    const Slice& val, uint64_t& key_offset, uint64_t& blob_offset);
 
   Status AddRecordFooter(const SequenceNumber& sn);
 
@@ -114,10 +120,6 @@ class Writer {
   // pre-computed to reduce the overhead of computing the crc of the
   // record type stored in the header.
   uint32_t type_crc_[kMaxRecordType + 1];
-
-  Status EmitPhysicalRecord(RecordType type, RecordSubType st, const Slice& key,
-    const Slice& val, uint64_t& key_offset, uint64_t& blob_offset,
-    int32_t ttl = -1, int64_t ts = -1);
 
   // No copying allowed
   Writer(const Writer&);

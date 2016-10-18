@@ -11,19 +11,12 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "utilities/blob_db/blob_db.h"
-#include "util/instrumented_mutex.h"
+#include "util/mutexlock.h"
 #include "util/cf_options.h"
 #include "util/mpsc.h"
 #include "db/blob_log_writer.h"
 #include "db/blob_log_reader.h"
 #include "db/blob_log_format.h"
-//#include "db/filename.h"
-//#include "db/write_batch_internal.h"
-//#include "rocksdb/convenience.h"
-//#include "rocksdb/env.h"
-//#include "rocksdb/iterator.h"
-//#include "rocksdb/utilities/stackable_db.h"
-//#include "table/block.h"
 #include "util/file_reader_writer.h"
 
 
@@ -107,7 +100,9 @@ class BlobDBImpl : public BlobDB {
 
   DBImpl* db_impl_;
   OptimisticTransactionDBImpl *opt_db_;
-  bool wo_set_;
+
+  // a boolean to capture whether write_options has been set
+  std::atomic<bool> wo_set_;
   WriteOptions write_options_;
   BlobDBOptions bdb_options_;
   ImmutableCFOptions ioptions_;
@@ -145,42 +140,42 @@ class BlobDBImpl : public BlobDB {
 
 class BlobFile {
 
-   friend class BlobDBImpl;
-   friend struct blobf_compare_ttl;
+  friend class BlobDBImpl;
+  friend struct blobf_compare_ttl;
 
- private:
-   std::string path_to_dir_;
-   uint64_t blob_count_;
-   uint64_t file_number_;
-   uint64_t file_size_;
+private:
+  std::string path_to_dir_;
+  uint64_t blob_count_;
+  uint64_t file_number_;
+  uint64_t file_size_;
 
-   blob_log::BlobLogHeader header_;
+  blob_log::BlobLogHeader header_;
 
-   bool closed_;
-   bool header_read_;
-   bool can_be_deleted_;
+  bool closed_;
+  bool header_read_;
+  bool can_be_deleted_;
 
-   ttlrange_t ttl_range_;
-   tsrange_t time_range_;
-   snrange_t sn_range_;
+  ttlrange_t ttl_range_;
+  tsrange_t time_range_;
+  snrange_t sn_range_;
 
-   std::shared_ptr<blob_log::Writer> log_writer_;
+  std::shared_ptr<blob_log::Writer> log_writer_;
 
-   std::shared_ptr<RandomAccessFileReader> ra_file_reader_;
+  std::shared_ptr<RandomAccessFileReader> ra_file_reader_;
 
-   std::shared_ptr<blob_log::Reader> log_reader_;
+  std::shared_ptr<blob_log::Reader> log_reader_;
 
-   InstrumentedMutex mutex_;
+  port::RWMutex mutex_;
 
-   std::shared_ptr<blob_log::Reader> openSequentialReader_locked(
-     Env *env, const DBOptions& db_options,
-     const EnvOptions& env_options);
+  std::shared_ptr<blob_log::Reader> openSequentialReader_locked(
+    Env *env, const DBOptions& db_options,
+    const EnvOptions& env_options);
 
-   void canBeDeleted() { can_be_deleted_ = true; }
+  void canBeDeleted() { can_be_deleted_ = true; }
 
- public:
+public:
 
-  BlobFile() { }
+  BlobFile();
 
   BlobFile(const std::string& bdir, uint64_t fnum);
 

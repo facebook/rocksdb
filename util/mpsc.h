@@ -82,12 +82,14 @@ public:
     std::atomic<buffer_node_t*> next;
   };
 
-  mpsc_queue_t() :
-    _head(reinterpret_cast<buffer_node_t*>(new buffer_node_aligned_t)),
-    _tail(_head.load(std::memory_order_relaxed))
+  mpsc_queue_t()
   {
-    buffer_node_t* front = _head.load(std::memory_order_relaxed);
-    front->next.store(nullptr, std::memory_order_relaxed);
+    buffer_node_aligned_t *al_st = new buffer_node_aligned_t;
+    buffer_node_t *node = new(al_st) buffer_node_t();
+    _head.store(node);
+    _tail.store(node);
+
+    node->next.store(nullptr, std::memory_order_relaxed);
   }
 
   ~mpsc_queue_t()
@@ -95,13 +97,16 @@ public:
     T output;
     while (this->dequeue(output)) {}
     buffer_node_t* front = _head.load(std::memory_order_relaxed);
-    delete front;
+    front->~buffer_node_t();
+
+    ::operator delete(front);
   }
 
   void enqueue(const T& input)
   {
-    buffer_node_t* node =
-      reinterpret_cast<buffer_node_t*>(new buffer_node_aligned_t);
+    buffer_node_aligned_t *al_st = new buffer_node_aligned_t;
+    buffer_node_t* node = new(al_st) buffer_node_t();
+
     node->data = input;
     node->next.store(nullptr, std::memory_order_relaxed);
 
@@ -120,7 +125,10 @@ public:
 
     output = next->data;
     _tail.store(next, std::memory_order_release);
-    delete tail;
+
+    tail->~buffer_node_t();
+
+    ::operator delete(tail);
     return true;
   }
 
@@ -132,7 +140,7 @@ public:
     buffer_node_t* next = tptr->next.exchange(nullptr, std::memory_order_acquire);
     _head.exchange(tptr, std::memory_order_acquire);
 
-    // there is a race condition here 
+    // there is a race condition here
     return next;
   }
 
