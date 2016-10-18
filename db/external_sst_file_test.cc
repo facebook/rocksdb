@@ -24,6 +24,32 @@ class ExternalSSTFileTest : public DBTestBase {
     env_->CreateDir(sst_files_dir_);
   }
 
+  Status GenerateAndAddExternalFile(const Options options,
+                                    std::vector<int> keys, size_t file_id) {
+    std::string file_path = sst_files_dir_ + ToString(file_id);
+    SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+
+    Status s = sst_file_writer.Open(file_path);
+    if (!s.ok()) {
+      return s;
+    }
+    for (auto& entry : keys) {
+      std::string k = Key(entry);
+      std::string v = k + ToString(file_id);
+      s = sst_file_writer.Add(k, v);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+    s = sst_file_writer.Finish();
+
+    if (s.ok()) {
+      s = db_->AddFile(std::vector<std::string>(1, file_path));
+    }
+
+    return s;
+  }
+
   ~ExternalSSTFileTest() { test::DestroyDir(env_, sst_files_dir_); }
 
  protected:
@@ -1091,7 +1117,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
 
   std::vector<std::thread> threads;
   while (range_id < 5000) {
-    int range_start = (range_id * 20);
+    int range_start = range_id * 10;
     int range_end = range_start + 10;
 
     file_keys.clear();
@@ -1113,6 +1139,18 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
     threads.clear();
 
     range_id++;
+  }
+
+  for (int rid = 0; rid < 5000; rid++) {
+    int range_start = rid * 10;
+    int range_end = range_start + 10;
+
+    ASSERT_EQ(Get(Key(range_start)), Key(range_start)) << rid;
+    ASSERT_EQ(Get(Key(range_end)), Key(range_end)) << rid;
+    for (int k = range_start + 1; k < range_end; k++) {
+      std::string v = Key(k) + ToString(rid);
+      ASSERT_EQ(Get(Key(k)), v) << rid;
+    }
   }
 }
 
@@ -1345,6 +1383,26 @@ TEST_F(ExternalSSTFileTest, CompactAddedFiles) {
 
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 }
+
+TEST_F(ExternalSSTFileTest, SstFileWriterNonSharedKeys) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::string file_path = sst_files_dir_ + "/not_shared";
+  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+
+  std::string suffix(100, 'X');
+  ASSERT_OK(sst_file_writer.Open(file_path));
+  ASSERT_OK(sst_file_writer.Add("A" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Add("BB" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Add("CC" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Add("CXD" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Add("CZZZ" + suffix, "VAL"));
+  ASSERT_OK(sst_file_writer.Add("ZAAAX" + suffix, "VAL"));
+
+  ASSERT_OK(sst_file_writer.Finish());
+  ASSERT_OK(db_->AddFile(std::vector<std::string>(1, file_path)));
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

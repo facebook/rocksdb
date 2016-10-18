@@ -18,6 +18,7 @@
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -34,26 +35,11 @@ class DeleteSchedulerTest : public testing::Test {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
-    DestroyDir(dummy_files_dir_);
-  }
-
-  void DestroyDir(const std::string& dir) {
-    if (env_->FileExists(dir).IsNotFound()) {
-      return;
-    }
-    std::vector<std::string> files_in_dir;
-    EXPECT_OK(env_->GetChildren(dir, &files_in_dir));
-    for (auto& file_in_dir : files_in_dir) {
-      if (file_in_dir == "." || file_in_dir == "..") {
-        continue;
-      }
-      EXPECT_OK(env_->DeleteFile(dir + "/" + file_in_dir));
-    }
-    EXPECT_OK(env_->DeleteDir(dir));
+    test::DestroyDir(env_, dummy_files_dir_);
   }
 
   void DestroyAndCreateDir(const std::string& dir) {
-    DestroyDir(dir);
+    ASSERT_OK(test::DestroyDir(env_, dir));
     EXPECT_OK(env_->CreateDir(dir));
   }
 
@@ -423,7 +409,7 @@ TEST_F(DeleteSchedulerTest, MoveToTrashError) {
 
   // We will delete the trash directory, that mean that DeleteScheduler wont
   // be able to move files to trash and will delete files them immediately.
-  DestroyDir(trash_dir_);
+  ASSERT_OK(test::DestroyDir(env_, trash_dir_));
   for (int i = 0; i < 10; i++) {
     std::string file_name = "data_" + ToString(i) + ".data";
     ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name)));

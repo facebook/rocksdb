@@ -13,12 +13,6 @@ namespace rocksdb {
 
 class Comparator;
 
-// Table Properties that are specific to tables created by SstFileWriter.
-struct ExternalSstFilePropertyNames {
-  // value of this property is a fixed int32 number.
-  static const std::string kVersion;
-};
-
 // ExternalSstFileInfo include information about sst files created
 // using SstFileWriter
 struct ExternalSstFileInfo {
@@ -68,8 +62,6 @@ class SstFileWriter {
   Status Finish(ExternalSstFileInfo* file_info = nullptr);
 
  private:
-  class SstFileWriterPropertiesCollectorFactory;
-  class SstFileWriterPropertiesCollector;
   struct Rep;
   Rep* rep_;
 };
