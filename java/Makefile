@@ -194,7 +194,7 @@ java_test: java resolve_test_deps
 test: java java_test run_test
 
 run_test:
-	java -ea -Xcheck:jni -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
+	java -ea -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
 	$(AM_V_GEN)mkdir -p $(BENCHMARK_MAIN_CLASSES)
