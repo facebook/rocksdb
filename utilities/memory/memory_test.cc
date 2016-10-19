@@ -93,7 +93,7 @@ class MemoryTest : public testing::Test {
   std::vector<uint64_t> usage_history_[MemoryUtil::kNumUsageTypes];
 };
 
-TEST_F(MemoryTest, DISABLED_SharedBlockCacheTotal) {
+TEST_F(MemoryTest, SharedBlockCacheTotal) {
   std::vector<DB*> dbs;
   std::vector<uint64_t> usage_by_type;
   const int kNumDBs = 10;
@@ -104,6 +104,7 @@ TEST_F(MemoryTest, DISABLED_SharedBlockCacheTotal) {
   opt.write_buffer_size = kKeySize + kValueSize;
   opt.max_write_buffer_number = 10;
   opt.min_write_buffer_number_to_merge = 10;
+  opt.disable_auto_compactions = true;
   BlockBasedTableOptions bbt_opts;
   bbt_opts.block_cache = NewLRUCache(4096 * 1000 * 10);
   for (int i = 0; i < kNumDBs; ++i) {
@@ -144,7 +145,7 @@ TEST_F(MemoryTest, DISABLED_SharedBlockCacheTotal) {
   }
 }
 
-TEST_F(MemoryTest, DISABLED_MemTableAndTableReadersTotal) {
+TEST_F(MemoryTest, MemTableAndTableReadersTotal) {
   std::vector<DB*> dbs;
   std::vector<uint64_t> usage_by_type;
   std::vector<std::vector<ColumnFamilyHandle*>> vec_handles;
@@ -157,6 +158,7 @@ TEST_F(MemoryTest, DISABLED_MemTableAndTableReadersTotal) {
   opt.write_buffer_size = kKeySize + kValueSize;
   opt.max_write_buffer_number = 10;
   opt.min_write_buffer_number_to_merge = 10;
+  opt.disable_auto_compactions = true;
 
   std::vector<ColumnFamilyDescriptor> cf_descs = {
       {kDefaultColumnFamilyName, ColumnFamilyOptions(opt)},
