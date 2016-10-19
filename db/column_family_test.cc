@@ -280,29 +280,23 @@ class ColumnFamilyTest : public testing::Test {
     }
   }
 
+#ifndef ROCKSDB_LITE  // TEST functions in DB are not supported in lite
   void WaitForFlush(int cf) {
-#ifndef ROCKSDB_LITE  // TEST functions are not supported in lite
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[cf]));
-#endif  // !ROCKSDB_LITE
   }
 
   void WaitForCompaction() {
-#ifndef ROCKSDB_LITE  // TEST functions are not supported in lite
     ASSERT_OK(dbfull()->TEST_WaitForCompact());
-#endif  // !ROCKSDB_LITE
   }
 
   uint64_t MaxTotalInMemoryState() {
-#ifndef ROCKSDB_LITE
     return dbfull()->TEST_MaxTotalInMemoryState();
-#else
-    return 0;
-#endif  // !ROCKSDB_LITE
   }
 
   void AssertMaxTotalInMemoryState(uint64_t value) {
     ASSERT_EQ(value, MaxTotalInMemoryState());
   }
+#endif  // !ROCKSDB_LITE
 
   Status Put(int cf, const std::string& key, const std::string& value) {
     return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(value));
@@ -798,6 +792,7 @@ TEST_F(ColumnFamilyTest, IgnoreRecoveredLog) {
   }
 }
 
+#ifndef ROCKSDB_LITE  // TEST functions used are not supported
 TEST_F(ColumnFamilyTest, FlushTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
@@ -912,6 +907,7 @@ TEST_F(ColumnFamilyTest, LogDeletionTest) {
   AssertCountLiveLogFiles(4);
   Close();
 }
+#endif  // !ROCKSDB_LITE
 
 TEST_F(ColumnFamilyTest, CrashAfterFlush) {
   std::unique_ptr<FaultInjectionTestEnv> fault_env(
@@ -945,6 +941,7 @@ TEST_F(ColumnFamilyTest, CrashAfterFlush) {
   db_options_.env = env_;
 }
 
+#ifndef ROCKSDB_LITE  // WaitForFlush() is not supported
 // Makes sure that obsolete log files get deleted
 TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   // disable flushing stale column families
@@ -1049,6 +1046,7 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   AssertCountLiveLogFiles(7);
   Close();
 }
+#endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // Cuckoo is not supported in lite
 TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
@@ -1136,6 +1134,7 @@ TEST_F(ColumnFamilyTest, DifferentMergeOperators) {
   Close();
 }
 
+#ifndef ROCKSDB_LITE  // WaitForFlush() is not supported
 TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   Open();
   CreateColumnFamilies({"one", "two"});
@@ -1204,6 +1203,7 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
 
   Close();
 }
+#endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE
 // Sync points not supported in RocksDB Lite
@@ -2097,6 +2097,7 @@ TEST_F(ColumnFamilyTest, ReadOnlyDBTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE  //  WaitForFlush() is not supported in lite
 TEST_F(ColumnFamilyTest, DontRollEmptyLogs) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
@@ -2118,7 +2119,9 @@ TEST_F(ColumnFamilyTest, DontRollEmptyLogs) {
   ASSERT_EQ(static_cast<size_t>(total_new_writable_files), handles_.size() + 1);
   Close();
 }
+#endif  // !ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE  //  WaitForCompaction() is not supported in lite
 TEST_F(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Open();
   CreateColumnFamilies({"one", "two"});
@@ -2152,6 +2155,7 @@ TEST_F(ColumnFamilyTest, FlushStaleColumnFamilies) {
   ASSERT_EQ(0, dbfull()->TEST_total_log_size());
   Close();
 }
+#endif  // !ROCKSDB_LITE
 
 TEST_F(ColumnFamilyTest, CreateMissingColumnFamilies) {
   Status s = TryOpen({"one", "two"});
@@ -2873,6 +2877,7 @@ TEST_F(ColumnFamilyTest, FlushCloseWALFiles) {
 }
 #endif  // !ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE  // WaitForFlush() is not supported
 TEST_F(ColumnFamilyTest, IteratorCloseWALFile1) {
   SpecialEnv env(Env::Default());
   db_options_.env = &env;
@@ -2972,6 +2977,7 @@ TEST_F(ColumnFamilyTest, IteratorCloseWALFile2) {
   db_options_.env = env_;
   Close();
 }
+#endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // TEST functions are not supported in lite
 TEST_F(ColumnFamilyTest, ForwardIteratorCloseWALFile) {
