@@ -26,7 +26,7 @@ class CompactionIteratorTest : public testing::Test {
     std::unique_ptr<InternalIterator> range_del_iter(
         new test::VectorIterator(range_del_ks, range_del_vs));
     range_del_agg_.reset(new RangeDelAggregator(icmp_, snapshots_));
-    range_del_agg_->AddTombstones(std::move(range_del_iter));
+    ASSERT_OK(range_del_agg_->AddTombstones(std::move(range_del_iter)));
 
     merge_helper_.reset(new MergeHelper(Env::Default(), cmp_, nullptr, nullptr,
                                         nullptr, 0U, false, 0));

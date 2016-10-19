@@ -516,11 +516,7 @@ struct RangeTombstone {
   explicit RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
       : start_key_(sk), end_key_(ek), seq_(sn) {}
 
-  explicit RangeTombstone(Slice internal_key, Slice value) {
-    ParsedInternalKey parsed_key;
-    if (!ParseInternalKey(internal_key, &parsed_key)) {
-      assert(false);
-    }
+  explicit RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
     start_key_ = parsed_key.user_key;
     seq_ = parsed_key.sequence;
     end_key_ = value;

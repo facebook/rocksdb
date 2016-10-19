@@ -1184,7 +1184,9 @@ TEST_F(BlockBasedTableTest, RangeDelBlock) {
   ASSERT_EQ(true, iter->Valid());
   for (int i = 0; i < 2; i++) {
     ASSERT_TRUE(iter->Valid());
-    RangeTombstone t(iter->key(), iter->value());
+    ParsedInternalKey parsed_key;
+    ASSERT_TRUE(ParseInternalKey(iter->key(), &parsed_key));
+    RangeTombstone t(parsed_key, iter->value());
     ASSERT_EQ(t.start_key_, keys[i]);
     ASSERT_EQ(t.end_key_, vals[i]);
     ASSERT_EQ(t.seq_, i);

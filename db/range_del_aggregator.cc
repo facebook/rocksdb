@@ -73,25 +73,30 @@ bool RangeDelAggregator::ShouldAddTombstones(
   return false;
 }
 
-void RangeDelAggregator::AddTombstones(ScopedArenaIterator input) {
-  AddTombstones(input.release(), true /* arena */);
+Status RangeDelAggregator::AddTombstones(ScopedArenaIterator input) {
+  return AddTombstones(input.release(), true /* arena */);
 }
 
-void RangeDelAggregator::AddTombstones(
+Status RangeDelAggregator::AddTombstones(
     std::unique_ptr<InternalIterator> input) {
-  AddTombstones(input.release(), false /* arena */);
+  return AddTombstones(input.release(), false /* arena */);
 }
 
-void RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
+Status RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
   pinned_iters_mgr_.PinIterator(input, arena);
   input->SeekToFirst();
   while (input->Valid()) {
-    RangeTombstone tombstone(input->key(), input->value());
+    ParsedInternalKey parsed_key;
+    if (!ParseInternalKey(input->key(), &parsed_key)) {
+      return Status::Corruption("Unable to parse range tombstone InternalKey");
+    }
+    RangeTombstone tombstone(parsed_key, input->value());
     auto& tombstone_map = GetStripeMapIter(tombstone.seq_)->second;
     tombstone_map.emplace(tombstone.start_key_.ToString(),
                           std::move(tombstone));
     input->Next();
   }
+  return Status::OK();
 }
 
 RangeDelAggregator::StripeMap::iterator RangeDelAggregator::GetStripeMapIter(

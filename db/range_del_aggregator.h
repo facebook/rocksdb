@@ -27,8 +27,8 @@ class RangeDelAggregator {
 
   bool ShouldDelete(const Slice& internal_key, bool for_compaction = false);
   bool ShouldAddTombstones(bool bottommost_level = false);
-  void AddTombstones(ScopedArenaIterator input);
-  void AddTombstones(std::unique_ptr<InternalIterator> input);
+  Status AddTombstones(ScopedArenaIterator input);
+  Status AddTombstones(std::unique_ptr<InternalIterator> input);
   // write tombstones covering a range to a table builder
   // usually don't add to a max-level table builder
   void AddToBuilder(TableBuilder* builder, bool extend_before_min_key,
@@ -43,7 +43,7 @@ class RangeDelAggregator {
   // their seqnums are greater than the next smaller snapshot's seqnum.
   typedef std::map<SequenceNumber, TombstoneMap> StripeMap;
 
-  void AddTombstones(InternalIterator* input, bool arena);
+  Status AddTombstones(InternalIterator* input, bool arena);
   StripeMap::iterator GetStripeMapIter(SequenceNumber seq);
 
   PinnedIteratorsManager pinned_iters_mgr_;
