@@ -71,6 +71,9 @@ class BlobDBImpl : public BlobDB {
 
   void shutdown();
 
+  // periodic sanity check
+  void sanityCheck();
+
   void runGC();
 
   Status startGCThreads();
@@ -99,7 +102,7 @@ class BlobDBImpl : public BlobDB {
  private:
 
   DBImpl* db_impl_;
-  OptimisticTransactionDBImpl *opt_db_;
+  std::shared_ptr<OptimisticTransactionDBImpl> opt_db_;
 
   // a boolean to capture whether write_options has been set
   std::atomic<bool> wo_set_;

@@ -74,66 +74,6 @@ bool blobf_compare_ttl::operator() (const std::shared_ptr<BlobFile>& lhs,
   return lhs->ttl_range_.first < rhs->ttl_range_.first;
 }
 
-#if 0
-Status BlobDBImpl::Put(const WriteOptions& options, const Slice& key,
-                   const Slice& value) {
-  BlockBuilder block_builder(1, false);
-  block_builder.Add(key, value);
-
-  CompressionType compression = CompressionType::kLZ4Compression;
-  CompressionOptions compression_opts;
-
-  Slice block_contents;
-  std::string compression_output;
-
-  block_contents = CompressBlock(block_builder.Finish(), compression_opts,
-                                 &compression, kBlockBasedTableVersionFormat,
-                                 Slice() /* dictionary */, &compression_output);
-
-  char header[kBlockHeaderSize];
-  char trailer[kBlockTrailerSize];
-  trailer[0] = compression;
-  auto crc = crc32c::Value(block_contents.data(), block_contents.size());
-  crc = crc32c::Extend(crc, trailer, 1);  // Extend to cover block type
-  EncodeFixed32(trailer + 1, crc32c::Mask(crc));
-
-  BlockHandle handle;
-  std::string index_entry;
-  Status s;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    auto raw_block_size = block_contents.size();
-    EncodeFixed64(header, raw_block_size);
-    s = file_writer_->Append(Slice(header, kBlockHeaderSize));
-    writer_offset_ += kBlockHeaderSize;
-    if (s.ok()) {
-      handle.set_offset(writer_offset_);
-      handle.set_size(raw_block_size);
-      s = file_writer_->Append(block_contents);
-    }
-    if (s.ok()) {
-      s = file_writer_->Append(Slice(trailer, kBlockTrailerSize));
-    }
-    if (s.ok()) {
-      s = file_writer_->Flush();
-    }
-    if (s.ok() && writer_offset_ > next_sync_offset_) {
-      // Sync every kBytesPerSync. This is a hacky way to limit unsynced data.
-      next_sync_offset_ += kBytesPerSync;
-      s = file_writer_->Sync(db_->GetOptions().use_fsync);
-    }
-    if (s.ok()) {
-      writer_offset_ += block_contents.size() + kBlockTrailerSize;
-      // Put file number
-      PutVarint64(&index_entry, 0);
-      handle.EncodeTo(&index_entry);
-      s = db_->Put(options, key, index_entry);
-    }
-  }
-  return s;
-}
-#endif
-
 ////////////////////////////////////////////////////////////////////////////////
 //
 //
@@ -152,10 +92,8 @@ Status BlobDBImpl::Put(const WriteOptions& options,
 Status BlobDBImpl::Delete(const WriteOptions& options,
   ColumnFamilyHandle* column_family, const Slice& key)
 {
-   std::atomic<std::shared_ptr<ColumnFamilyHandle>>
-     myat(std::shared_ptr<ColumnFamilyHandle>(column_family));
-
    delete_keys_q_.enqueue({column_family, key.ToString()});
+
    return db_->Delete(options, column_family, key);
 }
 
@@ -165,7 +103,7 @@ Status BlobDBImpl::Delete(const WriteOptions& options,
 ////////////////////////////////////////////////////////////////////////////////
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
   : BlobDB(db), db_impl_(dynamic_cast<DBImpl*>(db)),
-  opt_db_(new OptimisticTransactionDBImpl(db)),
+  opt_db_(new OptimisticTransactionDBImpl(db, false)),
   wo_set_(false), bdb_options_(blob_db_options), ioptions_(db->GetOptions()),
   db_options_(db->GetOptions()), env_options_(db_->GetOptions()),
   next_file_number_(1), shutdown_(false)
@@ -174,6 +112,16 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = (bdb_options_.path_relative)  ? db_->GetName() +
       "/" + bdb_options_.blob_dir : bdb_options_.blob_dir;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+void BlobDBImpl::sanityCheck() {
+  for (auto bfile: open_blob_files_) {
+    assert(bfile->ActiveForAppend());
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -189,10 +137,6 @@ BlobDBImpl::~BlobDBImpl()
   // Wait for all other threads (if there are any) to finish execution
   for (auto& gc_thd : gc_threads_) {
     gc_thd.join();
-  }
-
-  for (auto bfile: open_blob_files_) {
-    assert(bfile->ActiveForAppend());
   }
 }
 
@@ -231,7 +175,7 @@ Status BlobDBImpl::openNewFileWithTTL_locked(const ttlrange_t& ttl_guess,
 
   // set the first value of the range, since that is concrete at this time.
   // also necessary to add to open_blob_files_
-  bfile->ttl_range_.first = ttl_guess.first;
+  bfile->ttl_range_ = ttl_guess;
 
   blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
   open_blob_files_.insert(bfile);
@@ -737,7 +681,8 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
     return result;
   }
 
-  Transaction* txn = static_cast<OptimisticTransactionDB*>(opt_db_)->BeginTransaction(write_options_);
+  assert (opt_db_);
+  Transaction* txn = static_cast<OptimisticTransactionDB*>(opt_db_.get())->BeginTransaction(write_options_);
   OptimisticTransactionImpl *otxn = dynamic_cast<OptimisticTransactionImpl*>(txn);
   assert (otxn != nullptr);
 

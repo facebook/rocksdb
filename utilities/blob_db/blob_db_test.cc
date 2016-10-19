@@ -8,6 +8,7 @@
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include <cstdlib>
 
 namespace rocksdb {
 class BlobDBTest : public testing::Test {
@@ -30,6 +31,20 @@ class BlobDBTest : public testing::Test {
   std::string dbname_;
 };  // class BlobDBTest
 
+
+static void gen_random(char *s, const int len) {
+    static const char alphanum[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+
+    for (int i = 0; i < len; ++i) {
+        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+
+    s[len] = 0;
+}
+
 TEST_F(BlobDBTest, Basic) {
   ASSERT_TRUE(db_ != nullptr);
 
@@ -38,20 +53,39 @@ TEST_F(BlobDBTest, Basic) {
   std::string value;
 
   ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
+  
+  for (size_t i = 0; i < 100000; i++) {
+    int len = rand() % 16384;
+    if (!len)
+      continue;
 
-  ASSERT_OK(db_->PutWithTTL(wo, dcfh, "foo", "v1", 3600));
+    char *val = new char[len+1];
+    gen_random(val, len);
+    
+    int lenk = rand() % 1024;
+    if (!lenk)
+      continue;
 
-#if 0
-  ASSERT_OK(db_->PutWithTTL(wo, dcfh, "bar", "v2", 60));
+    char *key = new char[lenk+1];
+    gen_random(key, lenk);
 
-  ASSERT_OK(db_->Get(ro, dcfh, "foo", &value));
-  ASSERT_EQ("v1", value);
-  ASSERT_OK(db_->Get(ro, dcfh, "bar", &value));
-  ASSERT_EQ("v2", value);
-#endif
+    Slice keyslice(key, lenk+1);
+    Slice valslice(val, len+1);
+
+    int ttl = rand() % 86400;
+
+    ASSERT_OK(db_->PutWithTTL(wo, dcfh, keyslice, valslice, ttl));
+    delete [] key;
+    delete [] val;
+  }
+  
+  //ASSERT_OK(db_->PutWithTTL(wo, dcfh, "bar", "v2", 60));
+  //ASSERT_OK(db_->Get(ro, dcfh, "foo", &value));
+  //ASSERT_EQ("v1", value);
+  //ASSERT_OK(db_->Get(ro, dcfh, "bar", &value));
+  //ASSERT_EQ("v2", value);
 }
 
-#if 0
 TEST_F(BlobDBTest, Large) {
   ASSERT_TRUE(db_ != nullptr);
 
@@ -76,7 +110,6 @@ TEST_F(BlobDBTest, Large) {
   ASSERT_OK(db_->Get(ro, dcfh, "barfoo", &value));
   ASSERT_EQ(value3, value);
 }
-#endif
 
 }  //  namespace rocksdb
 
