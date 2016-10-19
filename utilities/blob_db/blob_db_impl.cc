@@ -39,7 +39,8 @@
 // on startup have a recovery function which reads all files.
 // instead of TTL, use timestamp of the data.
 using std::chrono::system_clock;
-const int delta_time = 60;
+const int delta_time1 = 1;
+const int delta_time2 = 60;
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -81,8 +82,8 @@ bool blobf_compare_ttl::operator() (const std::shared_ptr<BlobFile>& lhs,
 Status BlobDBImpl::Put(const WriteOptions& options,
   ColumnFamilyHandle* column_family, const Slice& key, const Slice& value)
 {
-   Status s;
-   return s;
+  Status s;
+  return s;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -92,9 +93,9 @@ Status BlobDBImpl::Put(const WriteOptions& options,
 Status BlobDBImpl::Delete(const WriteOptions& options,
   ColumnFamilyHandle* column_family, const Slice& key)
 {
-   delete_keys_q_.enqueue({column_family, key.ToString()});
+  delete_keys_q_.enqueue({column_family, key.ToString(), db_impl_->GetLatestSequenceNumber()});
 
-   return db_->Delete(options, column_family, key);
+  return db_->Delete(options, column_family, key);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -119,8 +120,22 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
 //
 ////////////////////////////////////////////////////////////////////////////////
 void BlobDBImpl::sanityCheck() {
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    "Starting Sanity Check");
+
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    "Number of files %" PRIu64, blob_files_.size());
+
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    "Number of open files %" PRIu64, open_blob_files_.size());
+
   for (auto bfile: open_blob_files_) {
     assert(bfile->ActiveForAppend());
+    
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      "Blob File %s %" PRIu64 " %" PRIu64 
+      " %" PRIu64, bfile->PathName().c_str(), bfile->file_size_,
+      bfile->deleted_count_, bfile->deleted_size_);
   }
 }
 
@@ -752,26 +767,95 @@ bool BlobDBImpl::TryDeleteFile(std::shared_ptr<BlobFile>& bfile) {
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
+void BlobDBImpl::evictDeletions() {
+  ColumnFamilyHandle *last_cfh = nullptr;
+  Options last_op;
+
+  Arena arena;
+  ScopedArenaIterator iter;
+
+  delete_packet_t dpacket;
+  while (delete_keys_q_.dequeue(dpacket)) {
+    if (last_cfh != dpacket.cfh_) {
+      // this can be expensive
+      last_cfh = dpacket.cfh_;
+      last_op = db_impl_->GetOptions(last_cfh);
+      iter.set(db_impl_->NewInternalIterator(&arena, dpacket.cfh_));
+      // this will not work for multiple CF's.
+    }
+
+    Slice user_key(dpacket.key_);
+    InternalKey target(user_key, dpacket.dsn_, kTypeValue);
+
+    Slice eslice = target.Encode();
+    iter->Seek(eslice);
+
+    if (!iter->status().ok()) {
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "Invalid iterator seek %s", dpacket.key_.c_str());
+      continue;
+    }
+
+    while (iter->Valid()) {
+      if (!last_op.comparator->Equal(iter->key(), eslice))
+        break;
+
+      Slice val = iter->value();
+      iter->Next();
+
+      BlockHandle handle;
+      uint64_t file_number;
+      Status s;
+      if (!GetVarint64(&val, &file_number) || !(s = handle.DecodeFrom(&val)).ok()) {
+        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+            "Invalid parse of key-value for file_number %s", val.ToString().c_str());
+        continue;
+      }
+
+      std::shared_ptr<BlobFile> bfile;
+      {
+        ReadLock l(&mutex_);
+        auto hitr = blob_files_.find(file_number);
+
+        // file was deleted
+        if (hitr == blob_files_.end()) {
+          Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+              "Could not find file_number %" PRIu64, file_number);
+          continue;
+        }
+
+        bfile = hitr->second;
+        bfile->deleted_count_++;
+        bfile->deleted_size_ += handle.size() + blob_log::BlobLogRecord::kHeaderSize
+          + blob_log::BlobLogRecord::kFooterSize;
+      }
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 void BlobDBImpl::runGC() {
 
   std::time_t last_time_run = system_clock::to_time_t(system_clock::now());
   while (!shutdown_.load()) {
 
     std::unique_lock<std::mutex> lock(gc_mutex_);
-    gc_cv_.wait_for(lock, std::chrono::milliseconds(delta_time*1000));
+    gc_cv_.wait_for(lock, std::chrono::milliseconds(delta_time1*1000));
+
+    evictDeletions();
 
     system_clock::time_point now = system_clock::now();
     std::time_t tt = system_clock::to_time_t(now);
 
     // protect against spurious wakeups
-    if ((tt - last_time_run) < (delta_time - 2))  {
-      std::cout << "tt = " << tt << " ltr " << last_time_run << std::endl;
-      last_time_run = tt;
+    if ((tt - last_time_run) < delta_time2)
       continue;
-    }
 
     last_time_run = tt;
-
+    sanityCheck();
     std::vector<std::shared_ptr<BlobFile> > blob_files;
     {
       // take a copy
@@ -833,7 +917,8 @@ Status BlobDBImpl::startGCThreads() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 BlobFile::BlobFile()
-  : blob_count_(0), file_number_(0), file_size_(0), closed_(false),
+  : blob_count_(0), file_number_(0), file_size_(0),
+    deleted_count_(0), deleted_size_(0), closed_(false),
     header_read_(false), can_be_deleted_(false),
     ttl_range_(std::make_pair(0,0)), time_range_(std::make_pair(0,0)),
     sn_range_(std::make_pair(0, 0))
@@ -846,6 +931,7 @@ BlobFile::BlobFile()
 ////////////////////////////////////////////////////////////////////////////////
 BlobFile::BlobFile(const std::string& bdir, uint64_t fn)
   : path_to_dir_(bdir), blob_count_(0), file_number_(fn), file_size_(0),
+    deleted_count_(0), deleted_size_(0),
     closed_(false), header_read_(false), can_be_deleted_(false),
     ttl_range_(std::make_pair(0,0)), time_range_(std::make_pair(0,0)),
     sn_range_(std::make_pair(0, 0))

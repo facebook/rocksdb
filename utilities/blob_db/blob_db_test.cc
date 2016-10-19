@@ -66,19 +66,26 @@ TEST_F(BlobDBTest, Basic) {
     if (!lenk)
       continue;
 
-    char *key = new char[lenk+1];
-    gen_random(key, lenk);
+    std::string key("key");
+    key += std::to_string(i % 500);
 
-    Slice keyslice(key, lenk+1);
+    Slice keyslice(key);
     Slice valslice(val, len+1);
 
     int ttl = rand() % 86400;
 
     ASSERT_OK(db_->PutWithTTL(wo, dcfh, keyslice, valslice, ttl));
-    delete [] key;
     delete [] val;
   }
-  
+
+  for (size_t i = 0; i < 10; i++) {
+    std::string key("key");
+    key += std::to_string(i % 500);
+    Slice keyslice(key);
+    db_->Delete(wo, dcfh, keyslice);
+  }
+
+  sleep(60);
   //ASSERT_OK(db_->PutWithTTL(wo, dcfh, "bar", "v2", 60));
   //ASSERT_OK(db_->Get(ro, dcfh, "foo", &value));
   //ASSERT_EQ("v1", value);

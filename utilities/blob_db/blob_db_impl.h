@@ -99,6 +99,8 @@ class BlobDBImpl : public BlobDB {
 
   std::shared_ptr<blob_log::Writer> checkOrCreateWriter_locked(BlobFile *bfile);
 
+  void evictDeletions();
+
  private:
 
   DBImpl* db_impl_;
@@ -131,6 +133,7 @@ class BlobDBImpl : public BlobDB {
   struct delete_packet_t {
     ColumnFamilyHandle *cfh_;
     std::string key_;
+    SequenceNumber dsn_;
   };
 
   mpsc_queue_t<delete_packet_t> delete_keys_q_;
@@ -151,6 +154,8 @@ private:
   uint64_t blob_count_;
   uint64_t file_number_;
   uint64_t file_size_;
+  uint64_t deleted_count_;
+  uint64_t deleted_size_;
 
   blob_log::BlobLogHeader header_;
 
