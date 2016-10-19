@@ -47,6 +47,7 @@
 #include <atomic>
 #include "port/port.h"
 #include "util/allocator.h"
+#include "util/coding.h"
 #include "util/random.h"
 
 namespace rocksdb {
@@ -139,6 +140,8 @@ class InlineSkipList {
   const uint16_t kMaxHeight_;
   const uint16_t kBranching_;
   const uint32_t kScaledInverseBranching_;
+  
+  const uint32_t kBuckets_;
 
   // Immutable after construction
   Comparator const compare_;
@@ -157,6 +160,8 @@ class InlineSkipList {
   // to head when max_height_ and prev_height_ are both 1.
   Node** prev_;
   std::atomic<int32_t> prev_height_;
+
+  Node** bucket_prev_;
 
   inline int GetMaxHeight() const {
     return max_height_.load(std::memory_order_relaxed);
@@ -479,6 +484,7 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
     : kMaxHeight_(max_height),
       kBranching_(branching_factor),
       kScaledInverseBranching_((Random::kMaxNext + 1) / kBranching_),
+      kBuckets_(10000),
       compare_(cmp),
       allocator_(allocator),
       head_(AllocateNode(0, max_height)),
@@ -493,9 +499,14 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
   // the allocator as a whole.
   prev_ = reinterpret_cast<Node**>(
       allocator_->AllocateAligned(sizeof(Node*) * kMaxHeight_));
-  for (int i = 0; i < kMaxHeight_; i++) {
+  for (uint32_t i = 0; i < kMaxHeight_; i++) {
     head_->SetNext(i, nullptr);
     prev_[i] = head_;
+  }
+  bucket_prev_ = reinterpret_cast<Node**>(
+      allocator_->AllocateAligned(sizeof(Node*) * kMaxHeight_ * kBuckets_));
+  for (uint32_t i = 0; i < kBuckets_; i++) {
+    bucket_prev_[i * kMaxHeight_] = nullptr;
   }
 }
 
@@ -530,6 +541,48 @@ InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
 
 template <class Comparator>
 void InlineSkipList<Comparator>::Insert(const char* key) {
+  uint32_t key_len;
+  const char* p = GetVarint32Ptr(key, key+100, &key_len);
+  uint64_t key_content = DecodeFixed64(p);
+  auto to_little_endian = [](uint64_t value) -> uint32_t {
+    return ((value & 0xff) << 24)
+      + (((value >> 8) & 0xff) << 16)
+      + (((value >> 16) & 0xff) << 8)
+      + ((value >> 24) & 0xff);
+  };
+  uint32_t bucket = to_little_endian(key_content & 0xffffffff);
+  Node** bucket_prev = &bucket_prev_[bucket * kMaxHeight_];
+
+  // Find the Node that we placed before the key in AllocateKey
+  Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
+  int height = x->UnstashHeight();
+  assert(height >= 1 && height <= kMaxHeight_);
+  if (height > GetMaxHeight()) {
+    max_height_.store(height, std::memory_order_relaxed);
+  }
+
+  if (bucket_prev[0] != nullptr &&
+      !KeyIsAfterNode(key, bucket_prev[0]->NoBarrier_Next(0)) &&
+      (bucket_prev[0] == head_ ||
+          KeyIsAfterNode(key, bucket_prev[0])) &&
+      !KeyIsAfterNode(key, bucket_prev[height - 1]->NoBarrier_Next(height - 1)) &&
+      (bucket_prev[height - 1] == head_ ||
+          KeyIsAfterNode(key, bucket_prev[height - 1]))) {
+    // do nothing
+  } else {
+    FindLessThan(key, bucket_prev);
+    for (int i = GetMaxHeight(); i < kMaxHeight_; i++) {
+      bucket_prev[i] = head_;
+    }
+  }
+
+  for (int i = 0; i < height; i++) {
+    x->NoBarrier_SetNext(i, bucket_prev[i]->NoBarrier_Next(i));
+    bucket_prev[i]->NoBarrier_SetNext(i, x);
+    bucket_prev[i] = x;
+  }
+  
+  /*
   // InsertConcurrently often can't maintain the prev_ invariants, so
   // it just sets prev_height_ to zero, letting us know that we should
   // ignore it.  A relaxed load suffices here because write thread
@@ -586,6 +639,7 @@ void InlineSkipList<Comparator>::Insert(const char* key) {
   }
   prev_[0] = x;
   prev_height_.store(height, std::memory_order_relaxed);
+  */
 }
 
 template <class Comparator>
