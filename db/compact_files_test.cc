@@ -50,7 +50,10 @@ class FlushedFileCollector : public EventListener {
     }
     return result;
   }
-  void ClearFlushedFiles() { flushed_files_.clear(); }
+  void ClearFlushedFiles() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    flushed_files_.clear();
+  }
 
  private:
   std::vector<std::string> flushed_files_;
