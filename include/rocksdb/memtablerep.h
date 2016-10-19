@@ -83,6 +83,14 @@ class MemTableRep {
   // collection, and no concurrent modifications to the table in progress
   virtual void Insert(KeyHandle handle) = 0;
 
+  // Same as Insert(), but in additional pass a hint to optimize sequential
+  // inserts. A new hint will be return from the hint pointer. Caller can get
+  // an initial hint by passing hint pointing to nullptr.
+  virtual void InsertWithHint(KeyHandle handle, void** hint) {
+    // Ignore the hint by default.
+    Insert(handle);
+  }
+
   // Like Insert(handle), but may be called concurrent with other calls
   // to InsertConcurrently for other handles
   virtual void InsertConcurrently(KeyHandle handle) {

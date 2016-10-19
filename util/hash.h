@@ -27,4 +27,9 @@ inline uint32_t GetSliceHash(const Slice& s) {
   return Hash(s.data(), s.size(), 397);
 }
 
+// std::hash compatible interface.
+struct SliceHasher {
+  uint32_t operator()(const Slice& s) const { return GetSliceHash(s); }
+};
+
 }  // namespace rocksdb

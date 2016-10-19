@@ -312,6 +312,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
 // kColumnFamilyOptionsBlacklist, and maybe add customized verification
 // for it.
 TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
+  // options in the blacklist need to appear in the same order as in
+  // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsBlacklist = {
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
@@ -336,6 +338,9 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
       {offsetof(struct ColumnFamilyOptions, inplace_callback),
        sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
+      {offsetof(struct ColumnFamilyOptions,
+                memtable_insert_with_hint_prefix_extractor),
+       sizeof(std::shared_ptr<const SliceTransform>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -419,6 +424,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "verify_checksums_in_compaction=false;"
       "merge_operator=aabcxehazrMergeOperator;"
       "memtable_prefix_bloom_size_ratio=0.4642;"
+      "memtable_insert_with_hint_prefix_extractor=rocksdb.CappedPrefix.13;"
       "paranoid_file_checks=true;"
       "force_consistency_checks=true;"
       "inplace_update_num_locks=7429;"

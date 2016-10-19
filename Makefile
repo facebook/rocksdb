@@ -276,6 +276,7 @@ TESTS = \
 	db_flush_test \
 	db_inplace_update_test \
 	db_iterator_test \
+	db_memtable_test \
 	db_options_test \
 	db_sst_test \
 	external_sst_file_test \
@@ -953,6 +954,9 @@ db_inplace_update_test: db/db_inplace_update_test.o db/db_test_util.o $(LIBOBJEC
 	$(AM_LINK)
 
 db_iterator_test: db/db_iterator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_memtable_test: db/db_memtable_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

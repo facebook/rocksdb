@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "db/dbformat.h"
 #include "db/memtable_allocator.h"
@@ -25,6 +26,7 @@
 #include "util/cf_options.h"
 #include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
+#include "util/hash.h"
 #include "util/instrumented_mutex.h"
 
 namespace rocksdb {
@@ -389,6 +391,12 @@ class MemTable {
   std::atomic<FlushStateEnum> flush_state_;
 
   Env* env_;
+
+  // Extract sequential insert prefixes.
+  const SliceTransform* insert_with_hint_prefix_extractor_;
+
+  // Insert hints for each prefix.
+  std::unordered_map<Slice, void*, SliceHasher> insert_hints_;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;
