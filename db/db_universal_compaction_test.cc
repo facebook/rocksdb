@@ -1044,7 +1044,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
   options.num_levels = 15;
   options.write_buffer_size = 100 << 10;  // 100KB
   options.level0_file_num_compaction_trigger = 8;
-  options.max_background_compactions = 4;
+  options.max_background_compactions = 1;
   options.target_file_size_base = 64 * 1024;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
