@@ -372,8 +372,14 @@ Status ExternalSstFileIngestionJob::AssignLevelForIngestedFile(
       bool overlap_with_level = false;
       MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
                                               &arena);
+      RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
+                                       {} /* snapshots */);
       sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder,
-                                        lvl);
+                                        lvl, &range_del_agg);
+      if (!range_del_agg.IsEmpty()) {
+        return Status::NotSupported(
+            "file ingestion with range tombstones is currently unsupported");
+      }
       ScopedArenaIterator level_iter(merge_iter_builder.Finish());
 
       status = IngestedFileOverlapWithIteratorRange(

@@ -514,15 +514,14 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
     if (meta_handle.size() != sizeof(FileDescriptor)) {
       return NewErrorInternalIterator(
           Status::Corruption("FileReader invoked with unexpected value"));
-    } else {
-      const FileDescriptor* fd =
-          reinterpret_cast<const FileDescriptor*>(meta_handle.data());
-      return table_cache_->NewIterator(
-          read_options_, env_options_, icomparator_, *fd,
-          nullptr /* don't need reference to table*/, file_read_hist_,
-          for_compaction_, nullptr /* arena */, skip_filters_, level_,
-          range_del_agg_, false /* is_range_del_only */);
     }
+    const FileDescriptor* fd =
+        reinterpret_cast<const FileDescriptor*>(meta_handle.data());
+    return table_cache_->NewIterator(
+        read_options_, env_options_, icomparator_, *fd,
+        nullptr /* don't need reference to table */, file_read_hist_,
+        for_compaction_, nullptr /* arena */, skip_filters_, level_,
+        range_del_agg_, false /* is_range_del_only */);
   }
 
   bool PrefixMayMatch(const Slice& internal_key) override {
@@ -805,18 +804,21 @@ double VersionStorageInfo::GetEstimatedCompressionRatioAtLevel(
 
 void Version::AddIterators(const ReadOptions& read_options,
                            const EnvOptions& soptions,
-                           MergeIteratorBuilder* merge_iter_builder) {
+                           MergeIteratorBuilder* merge_iter_builder,
+                           RangeDelAggregator* range_del_agg) {
   assert(storage_info_.finalized_);
 
   for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
-    AddIteratorsForLevel(read_options, soptions, merge_iter_builder, level);
+    AddIteratorsForLevel(read_options, soptions, merge_iter_builder, level,
+                         range_del_agg);
   }
 }
 
 void Version::AddIteratorsForLevel(const ReadOptions& read_options,
                                    const EnvOptions& soptions,
                                    MergeIteratorBuilder* merge_iter_builder,
-                                   int level) {
+                                   int level,
+                                   RangeDelAggregator* range_del_agg) {
   assert(storage_info_.finalized_);
   if (level >= storage_info_.num_non_empty_levels()) {
     // This is an empty level
@@ -834,20 +836,20 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
       merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
           read_options, soptions, cfd_->internal_comparator(), file.fd, nullptr,
           cfd_->internal_stats()->GetFileReadHist(0), false, arena,
-          false /* skip_filters */, 0 /* level */));
+          false /* skip_filters */, 0 /* level */, range_del_agg));
     }
   } else {
     // For levels > 0, we can use a concatenating iterator that sequentially
     // walks through the non-overlapping files in the level, opening them
     // lazily.
     auto* mem = arena->AllocateAligned(sizeof(LevelFileIteratorState));
-    auto* state = new (mem) LevelFileIteratorState(
-        cfd_->table_cache(), read_options, soptions,
-        cfd_->internal_comparator(),
-        cfd_->internal_stats()->GetFileReadHist(level),
-        false /* for_compaction */,
-        cfd_->ioptions()->prefix_extractor != nullptr, IsFilterSkipped(level),
-        level, nullptr /* range_del_agg */);
+    auto* state = new (mem)
+        LevelFileIteratorState(cfd_->table_cache(), read_options, soptions,
+                               cfd_->internal_comparator(),
+                               cfd_->internal_stats()->GetFileReadHist(level),
+                               false /* for_compaction */,
+                               cfd_->ioptions()->prefix_extractor != nullptr,
+                               IsFilterSkipped(level), level, range_del_agg);
     mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
     auto* first_level_iter = new (mem) LevelFileNumIterator(
         cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));

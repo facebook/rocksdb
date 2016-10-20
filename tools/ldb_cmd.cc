@@ -1183,7 +1183,9 @@ void InternalDumpCommand::DoCommand() {
   uint64_t s1=0,s2=0;
   // Setup internal key iterator
   Arena arena;
-  ScopedArenaIterator iter(idb->NewInternalIterator(&arena));
+  RangeDelAggregator range_del_agg(InternalKeyComparator(options_.comparator),
+                                   {} /* snapshots */);
+  ScopedArenaIterator iter(idb->NewInternalIterator(&arena, &range_del_agg));
   Status st = iter->status();
   if (!st.ok()) {
     exec_state_ =

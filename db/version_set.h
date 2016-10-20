@@ -434,11 +434,12 @@ class Version {
   // yield the contents of this Version when merged together.
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   void AddIterators(const ReadOptions&, const EnvOptions& soptions,
-                    MergeIteratorBuilder* merger_iter_builder);
+                    MergeIteratorBuilder* merger_iter_builder,
+                    RangeDelAggregator* range_del_agg);
 
   void AddIteratorsForLevel(const ReadOptions&, const EnvOptions& soptions,
                             MergeIteratorBuilder* merger_iter_builder,
-                            int level);
+                            int level, RangeDelAggregator* range_del_agg);
 
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
