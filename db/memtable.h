@@ -16,6 +16,7 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "db/memtable_allocator.h"
+#include "db/range_del_aggregator.h"
 #include "db/skiplist.h"
 #include "db/version_edit.h"
 #include "rocksdb/db.h"
@@ -158,8 +159,7 @@ class MemTable {
   //        those allocated in arena.
   InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
 
-  InternalIterator* NewRangeTombstoneIterator(const ReadOptions& read_options,
-                                              Arena* arena);
+  InternalIterator* NewRangeTombstoneIterator(Arena* arena);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
@@ -185,12 +185,15 @@ class MemTable {
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context, SequenceNumber* seq);
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           SequenceNumber* seq, bool ignore_range_deletions = false);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context) {
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           bool ignore_range_deletions = false) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, &seq);
+    return Get(key, value, s, merge_context, range_del_agg, &seq,
+               ignore_range_deletions);
   }
 
   // Attempts to update the new_value inplace, else does normal Add

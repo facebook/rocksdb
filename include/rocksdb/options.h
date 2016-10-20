@@ -1517,6 +1517,12 @@ struct ReadOptions {
   // Default: 0
   size_t readahead_size;
 
+  // If true, keys deleted using the DeleteRange() API will be visible to
+  // readers until they are naturally deleted during compaction. This improves
+  // read performance in DBs with many range deletions.
+  // Default: false
+  bool ignore_range_deletions;
+
   ReadOptions();
   ReadOptions(bool cksum, bool cache);
 };

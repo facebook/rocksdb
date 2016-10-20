@@ -47,8 +47,7 @@ static std::string PrintContents(WriteBatch* b) {
     Arena arena;
     auto iter =
         i == 0 ? ScopedArenaIterator(mem->NewIterator(ReadOptions(), &arena))
-               : ScopedArenaIterator(
-                     mem->NewRangeTombstoneIterator(ReadOptions(), &arena));
+               : ScopedArenaIterator(mem->NewRangeTombstoneIterator(&arena));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
       memset((void*)&ikey, 0, sizeof(ikey));

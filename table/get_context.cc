@@ -36,7 +36,8 @@ GetContext::GetContext(const Comparator* ucmp,
                        const MergeOperator* merge_operator, Logger* logger,
                        Statistics* statistics, GetState init_state,
                        const Slice& user_key, std::string* ret_value,
-                       bool* value_found, MergeContext* merge_context, Env* env,
+                       bool* value_found, MergeContext* merge_context,
+                       RangeDelAggregator* range_del_agg, Env* env,
                        SequenceNumber* seq,
                        PinnedIteratorsManager* _pinned_iters_mgr)
     : ucmp_(ucmp),
@@ -48,6 +49,7 @@ GetContext::GetContext(const Comparator* ucmp,
       value_(ret_value),
       value_found_(value_found),
       merge_context_(merge_context),
+      range_del_agg_(range_del_agg),
       env_(env),
       seq_(seq),
       replay_log_(nullptr),
@@ -98,18 +100,27 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       case kTypeValue:
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
-          state_ = kFound;
-          if (value_ != nullptr) {
-            value_->assign(value.data(), value.size());
+          if (range_del_agg_ != nullptr &&
+              range_del_agg_->ShouldDelete(parsed_key)) {
+            state_ = kDeleted;
+          } else {
+            state_ = kFound;
+            if (value_ != nullptr) {
+              value_->assign(value.data(), value.size());
+            }
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
           if (value_ != nullptr) {
-            Status merge_status =
-                MergeHelper::TimedFullMerge(merge_operator_, user_key_, &value,
-                                            merge_context_->GetOperands(),
-                                            value_, logger_, statistics_, env_);
+            Status merge_status = MergeHelper::TimedFullMerge(
+                merge_operator_, user_key_,
+                (range_del_agg_ != nullptr &&
+                 range_del_agg_->ShouldDelete(parsed_key))
+                    ? nullptr
+                    : &value,
+                merge_context_->GetOperands(), value_, logger_, statistics_,
+                env_);
             if (!merge_status.ok()) {
               state_ = kCorrupt;
             }
@@ -141,6 +152,21 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
       case kTypeMerge:
         assert(state_ == kNotFound || state_ == kMerge);
+        if (range_del_agg_ != nullptr &&
+            range_del_agg_->ShouldDelete(parsed_key)) {
+          if (kNotFound == state_) {
+            state_ = kDeleted;
+          } else {
+            Status merge_status =
+                MergeHelper::TimedFullMerge(merge_operator_, user_key_, nullptr,
+                                            merge_context_->GetOperands(),
+                                            value_, logger_, statistics_, env_);
+            if (!merge_status.ok()) {
+              state_ = kCorrupt;
+            }
+          }
+          return false;
+        }
         state_ = kMerge;
         merge_context_->PushOperand(value, value_pinned);
         return true;

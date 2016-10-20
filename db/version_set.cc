@@ -928,7 +928,8 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
                   std::string* value, Status* status,
-                  MergeContext* merge_context, bool* value_found,
+                  MergeContext* merge_context,
+                  RangeDelAggregator* range_del_agg, bool* value_found,
                   bool* key_exists, SequenceNumber* seq) {
   Slice ikey = k.internal_key();
   Slice user_key = k.user_key();
@@ -944,7 +945,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, value_found, merge_context, this->env_, seq,
+      value, value_found, merge_context, range_del_agg, this->env_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr);
 
   // Pin blocks that we read to hold merge operands
@@ -958,6 +959,18 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
   while (f != nullptr) {
+    if (!read_options.ignore_range_deletions) {
+      table_cache_->NewIterator(
+          read_options, vset_->env_options(), *internal_comparator(), f->fd,
+          nullptr /* table_reader_ptr */,
+          cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
+          false /* for_compaction */, nullptr /* arena */,
+          IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
+                          fp.IsHitFileLastInLevel()),
+          fp.GetCurrentLevel() /* level */, range_del_agg,
+          true /* is_range_del_only */);
+    }
+
     *status = table_cache_->Get(
         read_options, *internal_comparator(), f->fd, ikey, &get_context,
         cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),

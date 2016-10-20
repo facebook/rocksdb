@@ -363,11 +363,10 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
   return new (mem) MemTableIterator(*this, read_options, arena);
 }
 
-InternalIterator* MemTable::NewRangeTombstoneIterator(
-    const ReadOptions& read_options, Arena* arena) {
+InternalIterator* MemTable::NewRangeTombstoneIterator(Arena* arena) {
   assert(arena != nullptr);
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
-  return new (mem) MemTableIterator(*this, read_options, arena,
+  return new (mem) MemTableIterator(*this, ReadOptions() /* unused */, arena,
                                     true /* use_range_del_table */);
 }
 
@@ -500,6 +499,7 @@ struct Saver {
   const MergeOperator* merge_operator;
   // the merge operations encountered;
   MergeContext* merge_context;
+  RangeDelAggregator* range_del_agg;
   MemTable* mem;
   Logger* logger;
   Statistics* statistics;
@@ -511,9 +511,10 @@ struct Saver {
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   MergeContext* merge_context = s->merge_context;
+  RangeDelAggregator* range_del_agg = s->range_del_agg;
   const MergeOperator* merge_operator = s->merge_operator;
 
-  assert(s != nullptr && merge_context != nullptr);
+  assert(s != nullptr && merge_context != nullptr && range_del_agg != nullptr);
 
   // entry format is:
   //    klength  varint32
@@ -535,20 +536,26 @@ static bool SaveValue(void* arg, const char* entry) {
 
     switch (type) {
       case kTypeValue: {
-        if (s->inplace_update_support) {
+        bool deleted = range_del_agg->ShouldDelete(Slice(key_ptr, key_length));
+        if (!deleted && s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
         }
-        Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
+        Slice v;
+        if (!deleted) {
+          v = GetLengthPrefixedSlice(key_ptr + key_length);
+        }
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
           *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), &v,
+              merge_operator, s->key->user_key(), deleted ? nullptr : &v,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
               s->env_);
+        } else if (deleted) {
+          *(s->status) = Status::NotFound();
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
         }
-        if (s->inplace_update_support) {
+        if (!deleted && s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
         }
         *(s->found_final_value) = true;
@@ -579,9 +586,22 @@ static bool SaveValue(void* arg, const char* entry) {
           return false;
         }
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
-        *(s->merge_in_progress) = true;
-        merge_context->PushOperand(
-            v, s->inplace_update_support == false /* operand_pinned */);
+        if (range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
+          if (*(s->merge_in_progress)) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), s->value, s->logger,
+                s->statistics, s->env_);
+          } else {
+            *(s->status) = Status::NotFound();
+          }
+          *(s->found_final_value) = true;
+          return false;
+        } else {
+          *(s->merge_in_progress) = true;
+          merge_context->PushOperand(
+              v, s->inplace_update_support == false /* operand_pinned */);
+        }
         return true;
       }
       default:
@@ -595,7 +615,9 @@ static bool SaveValue(void* arg, const char* entry) {
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext* merge_context, SequenceNumber* seq) {
+                   MergeContext* merge_context,
+                   RangeDelAggregator* range_del_agg, SequenceNumber* seq,
+                   bool ignore_range_deletions /* = false */) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -618,6 +640,15 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     if (prefix_bloom_) {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
+    if (!ignore_range_deletions) {
+      ScopedArenaIterator range_del_iter(
+          NewRangeTombstoneIterator(range_del_agg->GetArena()));
+      Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
+      if (!status.ok()) {
+        *s = status;
+        return false;
+      }
+    }
     Saver saver;
     saver.status = s;
     saver.found_final_value = &found_final_value;
@@ -627,6 +658,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.seq = kMaxSequenceNumber;
     saver.mem = this;
     saver.merge_context = merge_context;
+    saver.range_del_agg = range_del_agg;
     saver.merge_operator = moptions_.merge_operator;
     saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;

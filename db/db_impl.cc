@@ -51,6 +51,7 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
+#include "db/range_del_aggregator.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/transaction_log_impl.h"
@@ -1795,7 +1796,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options, env_options_,
           cfd->table_cache(), iter.get(),
-          ScopedArenaIterator(mem->NewRangeTombstoneIterator(ro, &arena)),
+          ScopedArenaIterator(mem->NewRangeTombstoneIterator(&arena)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           snapshot_seqs, earliest_write_conflict_snapshot,
@@ -3960,6 +3961,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
+  RangeDelAggregator range_del_agg(cfd->internal_comparator(), {snapshot});
 
   Status s;
   // First look in the memtable, then in the immutable memtable (if any).
@@ -3972,18 +3974,24 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
       (read_options.read_tier == kPersistedTier && has_unpersisted_data_);
   bool done = false;
   if (!skip_memtable) {
-    if (sv->mem->Get(lkey, value, &s, &merge_context)) {
+    if (sv->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
+                     read_options.ignore_range_deletions)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
-    } else if (sv->imm->Get(lkey, value, &s, &merge_context)) {
+    } else if (s.ok() &&
+               sv->imm->Get(lkey, value, &s, &merge_context, &range_del_agg,
+                            read_options.ignore_range_deletions)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
+    }
+    if (!done && !s.ok() && !s.IsMergeInProgress()) {
+      return s;
     }
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(read_options, lkey, value, &s, &merge_context,
-                     value_found);
+                     &range_del_agg, value_found);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
@@ -4061,6 +4069,8 @@ std::vector<Status> DBImpl::MultiGet(
 
     LookupKey lkey(keys[i], snapshot);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
+    RangeDelAggregator range_del_agg(cfh->cfd()->internal_comparator(),
+                                     {snapshot});
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
     assert(mgd_iter != multiget_cf_data.end());
     auto mgd = mgd_iter->second;
@@ -4069,18 +4079,22 @@ std::vector<Status> DBImpl::MultiGet(
         (read_options.read_tier == kPersistedTier && has_unpersisted_data_);
     bool done = false;
     if (!skip_memtable) {
-      if (super_version->mem->Get(lkey, value, &s, &merge_context)) {
+      if (super_version->mem->Get(lkey, value, &s, &merge_context,
+                                  &range_del_agg,
+                                  read_options.ignore_range_deletions)) {
         done = true;
         // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
-      } else if (super_version->imm->Get(lkey, value, &s, &merge_context)) {
+      } else if (super_version->imm->Get(lkey, value, &s, &merge_context,
+                                         &range_del_agg,
+                                         read_options.ignore_range_deletions)) {
         done = true;
         // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
       }
     }
     if (!done) {
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(read_options, lkey, value, &s,
-                                  &merge_context);
+      super_version->current->Get(read_options, lkey, value, &s, &merge_context,
+                                  &range_del_agg);
       // TODO(?): RecordTick(stats_, MEMTABLE_MISS)?
     }
 
@@ -6292,6 +6306,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool* found_record_for_key) {
   Status s;
   MergeContext merge_context;
+  RangeDelAggregator range_del_agg(sv->mem->GetInternalKeyComparator(), {});
 
   SequenceNumber current_seq = versions_->LastSequence();
   LookupKey lkey(key, current_seq);
@@ -6300,7 +6315,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, nullptr, &s, &merge_context, seq);
+  sv->mem->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6318,7 +6333,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, nullptr, &s, &merge_context, seq);
+  sv->imm->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6336,7 +6351,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->GetFromHistory(lkey, nullptr, &s, &merge_context, seq);
+  sv->imm->GetFromHistory(lkey, nullptr, &s, &merge_context, &range_del_agg,
+                          seq);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6360,7 +6376,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
     ReadOptions read_options;
 
     sv->current->Get(read_options, lkey, nullptr, &s, &merge_context,
-                     nullptr /* value_found */, found_record_for_key, seq);
+                     &range_del_agg, nullptr /* value_found */,
+                     found_record_for_key, seq);
 
     if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
       // unexpected error reading SST files
