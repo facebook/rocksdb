@@ -124,8 +124,6 @@ class Reader {
   // which log number this is
   uint64_t const log_number_;
 
-  void resizeBackingStore(uint64_t bss);
-
 #if 0
   // Extend record types with the following special values
   enum {

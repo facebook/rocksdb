@@ -152,6 +152,10 @@ private:
   char subtype_;
   Slice key_;
   Slice blob_;
+  char *key_buffer_;
+  uint64_t kbs_;
+  char *blob_buffer_;
+  uint64_t bbs_;
 
 public:
   // Header is checksum (4 bytes), header checksum (4bytes), Key Length ( 4 bytes ),
@@ -165,7 +169,17 @@ public:
    
   BlobLogRecord();
 
+  ~BlobLogRecord();
+
   void clear();
+
+  char *getKeyBuffer() { return key_buffer_; }
+
+  char *getBlobBuffer() { return blob_buffer_; }
+
+  void resizeKeyBuffer(uint64_t kbs);
+
+  void resizeBlobBuffer(uint64_t bbs);
 
   const Slice& Key() const { return key_; }
 

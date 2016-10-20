@@ -23,7 +23,7 @@ class BlobDBTest : public testing::Test {
   }
 
   ~BlobDBTest() {
-   if (db_) 
+   if (db_)
      delete db_;
   }
 
@@ -53,7 +53,7 @@ TEST_F(BlobDBTest, Basic) {
   std::string value;
 
   ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
-  
+
   for (size_t i = 0; i < 100000; i++) {
     int len = rand() % 16384;
     if (!len)
@@ -61,7 +61,7 @@ TEST_F(BlobDBTest, Basic) {
 
     char *val = new char[len+1];
     gen_random(val, len);
-    
+
     int lenk = rand() % 1024;
     if (!lenk)
       continue;
@@ -85,7 +85,7 @@ TEST_F(BlobDBTest, Basic) {
     db_->Delete(wo, dcfh, keyslice);
   }
 
-  sleep(60);
+  sleep(180);
   //ASSERT_OK(db_->PutWithTTL(wo, dcfh, "bar", "v2", 60));
   //ASSERT_OK(db_->Get(ro, dcfh, "foo", &value));
   //ASSERT_EQ("v1", value);

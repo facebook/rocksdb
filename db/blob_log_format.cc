@@ -155,8 +155,40 @@ Status BlobLogHeader::DecodeFrom(Slice* input)
 }
 
 BlobLogRecord::BlobLogRecord()
+: checksum_(0), header_cksum_(0), key_size_(0), blob_size_(0),
+  time_val_(0), ttl_val_(0), sn_(0), type_(0), subtype_(0),
+  key_buffer_(nullptr), kbs_(0), blob_buffer_(nullptr),
+  bbs_(0)
 {
-  clear();
+}
+
+BlobLogRecord::~BlobLogRecord()
+{
+  if (key_buffer_) {
+    delete [] key_buffer_;
+    key_buffer_ = nullptr;
+  }
+
+  if (blob_buffer_) {
+    delete [] blob_buffer_;
+    blob_buffer_ = nullptr;
+  }
+}
+
+void BlobLogRecord::resizeKeyBuffer(uint64_t kbs) {
+  if (kbs > kbs_) {
+    delete [] key_buffer_;
+    key_buffer_ = new char[kbs];
+    kbs_ = kbs;
+  }
+}
+
+void BlobLogRecord::resizeBlobBuffer(uint64_t bbs) {
+  if (bbs > bbs_) {
+    delete [] blob_buffer_;
+    blob_buffer_ = new char[bbs];
+    bbs_ = bbs;
+  }
 }
 
 void BlobLogRecord::clear()

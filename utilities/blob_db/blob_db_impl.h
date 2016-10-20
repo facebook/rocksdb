@@ -177,7 +177,7 @@ private:
 
   std::shared_ptr<blob_log::Reader> openSequentialReader_locked(
     Env *env, const DBOptions& db_options,
-    const EnvOptions& env_options);
+    const EnvOptions& env_options, bool rewind = false);
 
   void canBeDeleted() { can_be_deleted_ = true; }
 

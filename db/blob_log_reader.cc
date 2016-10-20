@@ -43,15 +43,6 @@ Reader::~Reader() {
   delete[] backing_store_;
 }
 
-void Reader::resizeBackingStore(uint64_t bss) {
-  if (bss < bs_size_)
-    return;
-
-   bs_size_ = bss;
-   delete [] backing_store_;
-   backing_store_ = new char[bs_size_*2];
-}
-
 Status Reader::ReadHeader(blob_log::BlobLogHeader& header)
 {
   Status status = file_->Read(blob_log::BlobLogHeader::kHeaderSize, &buffer_, backing_store_);
@@ -88,18 +79,18 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord& record,
       return status;
 
     case 1 :
-      resizeBackingStore((uint64_t)record.GetKeySize());
-      status = file_->Read(record.GetKeySize(), &record.key_, backing_store_);
+      record.resizeKeyBuffer((uint64_t)record.GetKeySize());
+      status = file_->Read(record.GetKeySize(), &record.key_, record.key_buffer_);
       file_->Skip(record.GetBlobSize());
       status = file_->Read(8, &buffer_, backing_store_);
       record.sn_ = DecodeFixed64(buffer_.data());
       return status;
 
     case 2:
-      resizeBackingStore((uint64_t)record.GetKeySize());
-      status = file_->Read(record.GetKeySize(), &record.key_, backing_store_);
-      resizeBackingStore((uint64_t)record.GetBlobSize());
-      status = file_->Read(record.GetBlobSize(), &record.blob_, backing_store_);
+      record.resizeKeyBuffer((uint64_t)record.GetKeySize());
+      status = file_->Read(record.GetKeySize(), &record.key_, record.key_buffer_);
+      record.resizeBlobBuffer((uint64_t)record.GetBlobSize());
+      status = file_->Read(record.GetBlobSize(), &record.blob_, record.blob_buffer_);
       status = file_->Read(8, &buffer_, backing_store_);
       record.sn_ = DecodeFixed64(buffer_.data());
       return status;

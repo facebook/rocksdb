@@ -133,12 +133,14 @@ void BlobDBImpl::sanityCheck() {
     assert(bfile->ActiveForAppend());
   }
     
+  std::time_t epoch_now = system_clock::to_time_t(system_clock::now());
+
   for (auto bfile_pair: blob_files_) {
     auto bfile = bfile_pair.second;
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
       "Blob File %s %" PRIu64 " %" PRIu64  " %" PRIu64
-      " %" PRIu64, bfile->PathName().c_str(), bfile->file_size_,
-      bfile->blob_count_, bfile->deleted_count_, bfile->deleted_size_);
+      " %" PRIu64 " %d", bfile->PathName().c_str(), bfile->file_size_,
+      bfile->blob_count_, bfile->deleted_count_, bfile->deleted_size_, (bfile->ttl_range_.second - epoch_now));
   }
 }
 
@@ -331,7 +333,7 @@ Status BlobDBImpl::openAllFiles()
       }
 
       if (bfptr->HasTTL()) {
-        ttl_range.second  = std::max(ttl_range.second, ttl_range.first + 3600);
+        ttl_range.second  = std::max(ttl_range.second, ttl_range.first + (uint32_t)bdb_options_.ttl_range);
         bfptr->setTTLRange(ttl_range);
         std::time_t epoch_now = system_clock::to_time_t(system_clock::now());
         if (ttl_range.second < epoch_now) {
@@ -492,7 +494,7 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
   }
 
   if (UNLIKELY(!bfile)) {
-    ttlrange_t ttl_guess = std::make_pair(expiration, expiration + 3600);
+    ttlrange_t ttl_guess = std::make_pair(expiration, expiration + bdb_options_.ttl_range);
 
     WriteLock wl(&mutex_);
     // check condition again, because of missing upgrade lock
@@ -669,7 +671,7 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
     WriteLock lockbfile_w(&(bfptr->mutex_));
     // sequentially iterate over the file and read all the records
     reader = bfptr->openSequentialReader_locked(db_->GetEnv(), db_options_,
-      env_options_);
+      env_options_, true);
     if (!reader) {
       // report something here.
       return Status::IOError("failed to create sequential reader");
@@ -678,8 +680,8 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
 
   Status s = bfptr->ReadHeader();
   if (!s.ok()) {
-    // report something here.
-    // close the file
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+      "Failure to read Header for blob-file %s", bfptr->PathName().c_str());
     return s;
   }
 
@@ -750,8 +752,16 @@ bool BlobDBImpl::TryDeleteFile(std::shared_ptr<BlobFile>& bfile) {
    // this is not correct.
    // you want to check that there are no snapshots in the
    bool notok = db_impl_->HasActiveSnapshotLaterThanSN(esn);
-   if (notok)
+   if (notok) {
+     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+       "Could not delete file due to snapshot failure %s",
+       bfile->PathName().c_str());
      return false;
+   } else {
+     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+       "Will delete file due to snapshot success %s",
+       bfile->PathName().c_str());
+   }
 
    // race here
    open_blob_files_.erase(bfile);
@@ -983,10 +993,16 @@ std::string BlobFile::PathName() const {
 //
 ////////////////////////////////////////////////////////////////////////////////
 std::shared_ptr<blob_log::Reader> BlobFile::openSequentialReader_locked(
-  Env *env, const DBOptions& db_options, const EnvOptions& env_options)
+  Env *env, const DBOptions& db_options, const EnvOptions& env_options,
+  bool rewind)
 {
-  if (log_reader_)
+  if (log_reader_) {
+    if (rewind) {
+      assert(log_reader_->file() != nullptr);
+      log_reader_->file()->Rewind();
+    }
     return log_reader_;
+  }
 
   std::unique_ptr<SequentialFile> sfile;
   Status s = env->NewSequentialFile(PathName(), &sfile, env_options);
