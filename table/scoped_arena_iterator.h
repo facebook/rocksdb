@@ -42,9 +42,17 @@ class ScopedArenaIterator {
   InternalIterator* operator->() { return iter_; }
   InternalIterator* get() { return iter_; }
 
+  void set(InternalIterator* iter) { reset(iter); }
+
+  InternalIterator* release() {
+    assert(iter_ != nullptr);
+    auto* res = iter_;
+    iter_ = nullptr;
+    return res;
+  }
+
   ~ScopedArenaIterator() {
-    if (iter_) 
-      iter_->~InternalIterator();
+    reset(nullptr);
   }
 
  private:

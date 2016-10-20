@@ -131,11 +131,14 @@ void BlobDBImpl::sanityCheck() {
 
   for (auto bfile: open_blob_files_) {
     assert(bfile->ActiveForAppend());
+  }
     
+  for (auto bfile_pair: blob_files_) {
+    auto bfile = bfile_pair.second;
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-      "Blob File %s %" PRIu64 " %" PRIu64 
+      "Blob File %s %" PRIu64 " %" PRIu64  " %" PRIu64
       " %" PRIu64, bfile->PathName().c_str(), bfile->file_size_,
-      bfile->deleted_count_, bfile->deleted_size_);
+      bfile->blob_count_, bfile->deleted_count_, bfile->deleted_size_);
   }
 }
 
@@ -796,8 +799,19 @@ void BlobDBImpl::evictDeletions() {
       continue;
     }
 
+    const Comparator *bwc = BytewiseComparator();
     while (iter->Valid()) {
-      if (!last_op.comparator->Equal(iter->key(), eslice))
+      if (!bwc->Equal(ExtractUserKey(iter->key()), ExtractUserKey(eslice)))
+        break;
+
+      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
+      if (!ParseInternalKey(iter->key(), &ikey)) {
+        continue;
+      }
+
+      // once you hit a DELETE, assume the keys below have been
+      // processed previously
+      if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion)
         break;
 
       Slice val = iter->value();
@@ -870,9 +884,12 @@ void BlobDBImpl::runGC() {
       // File can be obsolete
       // File can be Open for Writes
       // File can be closed
+      std::string pn = bfile->PathName();
 
       // in a previous pass, this file was marked obsolete
       if (bfile->Obsolete()) {
+        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+          "File will be deleted as obsolete %s", pn.c_str());
         TryDeleteFile(bfile);
         continue;
       }
@@ -880,6 +897,9 @@ void BlobDBImpl::runGC() {
       if (bfile->HasTTL()) {
         ttlrange_t ttl_range = bfile->GetTTLRange();
         if (tt > ttl_range.second) {
+          Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+            "File has expired ttl %s %d %d", pn.c_str(), tt,
+            ttl_range.second);
           // all the elements can be deleted.
           // Go through all the keys and do a WriteBatch
 

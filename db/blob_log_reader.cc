@@ -78,7 +78,7 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord& record,
   status = record.DecodeHeaderFrom(&buffer_);
   if (!status.ok()) {
     return status;
-  } 
+  }
 
   switch (level) {
     case 0 :

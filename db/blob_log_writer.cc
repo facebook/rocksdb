@@ -56,7 +56,7 @@ Status Writer::WriteHeader(blob_log::BlobLogHeader& header)
 {
   std::string str;
   header.EncodeTo(&str);
-  
+
   Status s = dest_->Append(Slice(str));
   if (s.ok()) {
     block_offset_ += str.size();
@@ -73,7 +73,7 @@ Status Writer::AppendFooter(blob_log::BlobLogFooter& footer)
 {
   std::string str;
   footer.EncodeTo(&str);
-   
+
   Status s = dest_->Append(Slice(str));
   if (s.ok())
   {
@@ -175,7 +175,7 @@ Status Writer::EmitPhysicalRecord(char *headerbuf, const Slice& key,
       s = dest_->Append(val);
     }
   }
- 
+
   key_offset = block_offset_ + blob_log::BlobLogRecord::kHeaderSize;
   blob_offset = key_offset + key.size();
   block_offset_ = blob_offset + val.size();

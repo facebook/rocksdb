@@ -20,7 +20,7 @@ BlobLogFooter::BlobLogFooter()
   has_ttl_(false), has_ts_(false)
 {
 }
-  
+
 Status BlobLogFooter::DecodeFrom(Slice* input)
 {
   Status s;
