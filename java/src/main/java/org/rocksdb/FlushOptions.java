@@ -5,6 +5,9 @@ package org.rocksdb;
  * {@link org.rocksdb.RocksDB}.
  */
 public class FlushOptions extends RocksObject {
+  static {
+    RocksDB.loadLibrary();
+  }
 
   /**
    * Construct a new instance of FlushOptions.
