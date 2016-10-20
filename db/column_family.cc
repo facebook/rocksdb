@@ -27,6 +27,7 @@
 #include "db/version_set.h"
 #include "db/write_controller.h"
 #include "memtable/hash_skiplist_rep.h"
+#include "table/block_based_table_factory.h"
 #include "util/autovector.h"
 #include "util/compression.h"
 #include "util/options_helper.h"
@@ -359,6 +360,8 @@ ColumnFamilyData::ColumnFamilyData(
       initial_cf_options_(SanitizeOptions(db_options, cf_options)),
       ioptions_(db_options, initial_cf_options_),
       mutable_cf_options_(initial_cf_options_),
+      is_delete_range_supported_(strcmp(cf_options.table_factory->Name(),
+                                        BlockBasedTableFactory().Name()) == 0),
       write_buffer_manager_(write_buffer_manager),
       mem_(nullptr),
       imm_(ioptions_.min_write_buffer_number_to_merge,
