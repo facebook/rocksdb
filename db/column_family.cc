@@ -139,10 +139,8 @@ Status CheckConcurrentWritesSupported(const ColumnFamilyOptions& cf_options) {
 }
 
 ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
-                                    const InternalKeyComparator* icmp,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
-  result.comparator = icmp;
   size_t clamp_max = std::conditional<
       sizeof(size_t) == 4, std::integral_constant<size_t, 0xffffffff>,
       std::integral_constant<uint64_t, 64ull << 30>>::type::value;
@@ -349,8 +347,7 @@ ColumnFamilyData::ColumnFamilyData(
       refs_(0),
       dropped_(false),
       internal_comparator_(cf_options.comparator),
-      initial_cf_options_(
-          SanitizeOptions(db_options, &internal_comparator_, cf_options)),
+      initial_cf_options_(SanitizeOptions(db_options, cf_options)),
       ioptions_(db_options, initial_cf_options_),
       mutable_cf_options_(initial_cf_options_),
       write_buffer_manager_(write_buffer_manager),

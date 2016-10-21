@@ -122,12 +122,11 @@ struct DBImpl::WriteContext {
 };
 
 Options SanitizeOptions(const std::string& dbname,
-                        const InternalKeyComparator* icmp,
                         const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
   ImmutableDBOptions immutable_db_options(db_options);
   auto cf_options =
-      SanitizeOptions(immutable_db_options, icmp, ColumnFamilyOptions(src));
+      SanitizeOptions(immutable_db_options, ColumnFamilyOptions(src));
   return Options(db_options, cf_options);
 }
 

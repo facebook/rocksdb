@@ -1089,7 +1089,6 @@ class DBImpl : public DB {
 };
 
 extern Options SanitizeOptions(const std::string& db,
-                               const InternalKeyComparator* icmp,
                                const Options& src);
 
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);

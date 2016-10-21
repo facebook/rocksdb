@@ -391,7 +391,6 @@ void TestInternalKeyPropertiesCollector(
     // SanitizeOptions().
     options.info_log = std::make_shared<test::NullLogger>();
     options = SanitizeOptions("db",            // just a place holder
-                              &pikc,
                               options);
     ImmutableCFOptions ioptions(options);
     GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);

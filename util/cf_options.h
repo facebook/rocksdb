@@ -34,7 +34,7 @@ struct ImmutableCFOptions {
 
   const SliceTransform* prefix_extractor;
 
-  const Comparator* comparator;
+  const Comparator* user_comparator;
 
   MergeOperator* merge_operator;
 

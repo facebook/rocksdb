@@ -137,7 +137,6 @@ extern Status CheckConcurrentWritesSupported(
     const ColumnFamilyOptions& cf_options);
 
 extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
-                                           const InternalKeyComparator* icmp,
                                            const ColumnFamilyOptions& src);
 // Wrap user defined table proproties collector factories `from cf_options`
 // into internal ones in int_tbl_prop_collector_factories. Add a system internal
