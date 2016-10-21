@@ -89,8 +89,8 @@ function main {
 
   init_arguments $test_root_dir
 
-#  checkout_rocksdb $commit
-#  build_db_bench
+  checkout_rocksdb $commit
+  build_db_bench
 
   setup_test_directory
 
