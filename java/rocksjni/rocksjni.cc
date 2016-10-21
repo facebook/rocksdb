@@ -16,8 +16,9 @@
 #include <algorithm>
 
 #include "include/org_rocksdb_RocksDB.h"
-#include "rocksdb/db.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksjni/portal.h"
 
@@ -1757,17 +1758,6 @@ void add_file_helper(JNIEnv* env, const jobjectArray& jfile_path_list,
   }
 }
 
-void add_file_helper(
-    JNIEnv* env, jlongArray jfi_handle_list, int fi_handle_list_len,
-    std::vector<rocksdb::ExternalSstFileInfo>* file_info_list) {
-  jlong* jfih = env->GetLongArrayElements(jfi_handle_list, NULL);
-  for (int i = 0; i < fi_handle_list_len; i++) {
-    auto* file_info =
-        reinterpret_cast<rocksdb::ExternalSstFileInfo*>(*(jfih + i));
-    file_info_list->push_back(*file_info);
-  }
-}
-
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    addFile
@@ -1783,32 +1773,15 @@ void Java_org_rocksdb_RocksDB_addFile__JJ_3Ljava_lang_String_2IZ(
                   &file_path_list);
   auto* column_family =
       reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  rocksdb::IngestExternalFileOptions ifo;
+  ifo.move_files = static_cast<bool>(jmove_file);
+  ifo.snapshot_consistency = true;
+  ifo.allow_global_seqno = false;
+  ifo.allow_blocking_flush = false;
   rocksdb::Status s =
-      db->AddFile(column_family, file_path_list, static_cast<bool>(jmove_file));
+      db->IngestExternalFile(column_family, file_path_list, ifo);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
 
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    addFile
- * Signature: (JJ[JIZ)V
- */
-void Java_org_rocksdb_RocksDB_addFile__JJ_3JIZ(
-    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jcf_handle,
-    jlongArray jfile_info_handle_list, jint jfile_info_handle_list_len,
-    jboolean jmove_file) {
-  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
-  std::vector<rocksdb::ExternalSstFileInfo> file_info_list;
-  add_file_helper(env, jfile_info_handle_list,
-                  static_cast<int>(jfile_info_handle_list_len),
-                  &file_info_list);
-  auto* column_family =
-      reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
-  rocksdb::Status s =
-      db->AddFile(column_family, file_info_list, static_cast<bool>(jmove_file));
-  if (!s.ok()) {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
-  }
-}

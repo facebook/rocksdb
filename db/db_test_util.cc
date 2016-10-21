@@ -1077,7 +1077,7 @@ std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
 }
 
 void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
-                                 size_t* total_reads_res) {
+                                 size_t* total_reads_res, bool tailing_iter) {
   size_t total_reads = 0;
 
   for (auto& kv : true_data) {
@@ -1126,36 +1126,38 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     delete iter;
   }
 
+  if (tailing_iter) {
 #ifndef ROCKSDB_LITE
-  // Tailing iterator
-  int iter_cnt = 0;
-  ReadOptions ro;
-  ro.tailing = true;
-  ro.total_order_seek = true;
-  Iterator* iter = db_->NewIterator(ro);
+    // Tailing iterator
+    int iter_cnt = 0;
+    ReadOptions ro;
+    ro.tailing = true;
+    ro.total_order_seek = true;
+    Iterator* iter = db_->NewIterator(ro);
 
-  // Verify ForwardIterator::Next()
-  iter_cnt = 0;
-  auto data_iter = true_data.begin();
-  for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
-    ASSERT_EQ(iter->key().ToString(), data_iter->first);
-    ASSERT_EQ(iter->value().ToString(), data_iter->second);
-    iter_cnt++;
-    total_reads++;
-  }
-  ASSERT_EQ(data_iter, true_data.end()) << iter_cnt << " / "
-                                        << true_data.size();
+    // Verify ForwardIterator::Next()
+    iter_cnt = 0;
+    auto data_iter = true_data.begin();
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
+      ASSERT_EQ(iter->key().ToString(), data_iter->first);
+      ASSERT_EQ(iter->value().ToString(), data_iter->second);
+      iter_cnt++;
+      total_reads++;
+    }
+    ASSERT_EQ(data_iter, true_data.end()) << iter_cnt << " / "
+                                          << true_data.size();
 
-  // Verify ForwardIterator::Seek()
-  for (auto kv : true_data) {
-    iter->Seek(kv.first);
-    ASSERT_EQ(kv.first, iter->key().ToString());
-    ASSERT_EQ(kv.second, iter->value().ToString());
-    total_reads++;
-  }
+    // Verify ForwardIterator::Seek()
+    for (auto kv : true_data) {
+      iter->Seek(kv.first);
+      ASSERT_EQ(kv.first, iter->key().ToString());
+      ASSERT_EQ(kv.second, iter->value().ToString());
+      total_reads++;
+    }
 
-  delete iter;
+    delete iter;
 #endif  // ROCKSDB_LITE
+  }
 
   if (total_reads_res) {
     *total_reads_res = total_reads;

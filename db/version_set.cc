@@ -808,41 +808,51 @@ void Version::AddIterators(const ReadOptions& read_options,
                            MergeIteratorBuilder* merge_iter_builder) {
   assert(storage_info_.finalized_);
 
-  if (storage_info_.num_non_empty_levels() == 0) {
-    // No file in the Version.
+  for (int level = 0; level < storage_info_.num_non_empty_levels(); level++) {
+    AddIteratorsForLevel(read_options, soptions, merge_iter_builder, level);
+  }
+}
+
+void Version::AddIteratorsForLevel(const ReadOptions& read_options,
+                                   const EnvOptions& soptions,
+                                   MergeIteratorBuilder* merge_iter_builder,
+                                   int level) {
+  assert(storage_info_.finalized_);
+  if (level >= storage_info_.num_non_empty_levels()) {
+    // This is an empty level
+    return;
+  } else if (storage_info_.LevelFilesBrief(level).num_files == 0) {
+    // No files in this level
     return;
   }
 
   auto* arena = merge_iter_builder->GetArena();
-
-  // Merge all level zero files together since they may overlap
-  for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
-    const auto& file = storage_info_.LevelFilesBrief(0).files[i];
-    merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
-        read_options, soptions, cfd_->internal_comparator(), file.fd, nullptr,
-        cfd_->internal_stats()->GetFileReadHist(0), false, arena,
-        false /* skip_filters */, 0 /* level */));
-  }
-
-  // For levels > 0, we can use a concatenating iterator that sequentially
-  // walks through the non-overlapping files in the level, opening them
-  // lazily.
-  for (int level = 1; level < storage_info_.num_non_empty_levels(); level++) {
-    if (storage_info_.LevelFilesBrief(level).num_files != 0) {
-      auto* mem = arena->AllocateAligned(sizeof(LevelFileIteratorState));
-      auto* state = new (mem) LevelFileIteratorState(
-          cfd_->table_cache(), read_options, soptions,
-          cfd_->internal_comparator(),
-          cfd_->internal_stats()->GetFileReadHist(level),
-          false /* for_compaction */,
-          cfd_->ioptions()->prefix_extractor != nullptr, IsFilterSkipped(level),
-          level, nullptr /* range_del_agg */);
-      mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
-      auto* first_level_iter = new (mem) LevelFileNumIterator(
-          cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
-      merge_iter_builder->AddIterator(
-          NewTwoLevelIterator(state, first_level_iter, arena, false));
+  if (level == 0) {
+    // Merge all level zero files together since they may overlap
+    for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
+      const auto& file = storage_info_.LevelFilesBrief(0).files[i];
+      merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
+          read_options, soptions, cfd_->internal_comparator(), file.fd, nullptr,
+          cfd_->internal_stats()->GetFileReadHist(0), false, arena,
+          false /* skip_filters */, 0 /* level */));
     }
+  } else {
+    // For levels > 0, we can use a concatenating iterator that sequentially
+    // walks through the non-overlapping files in the level, opening them
+    // lazily.
+    auto* mem = arena->AllocateAligned(sizeof(LevelFileIteratorState));
+    auto* state = new (mem) LevelFileIteratorState(
+        cfd_->table_cache(), read_options, soptions,
+        cfd_->internal_comparator(),
+        cfd_->internal_stats()->GetFileReadHist(level),
+        false /* for_compaction */,
+        cfd_->ioptions()->prefix_extractor != nullptr, IsFilterSkipped(level),
+        level, nullptr /* range_del_agg */);
+    mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
+    auto* first_level_iter = new (mem) LevelFileNumIterator(
+        cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
+    merge_iter_builder->AddIterator(
+        NewTwoLevelIterator(state, first_level_iter, arena, false));
   }
 }
 

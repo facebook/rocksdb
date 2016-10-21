@@ -68,16 +68,12 @@ class StackableDB : public DB {
     return db_->MultiGet(options, column_family, keys, values);
   }
 
-  using DB::AddFile;
-  virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const std::vector<ExternalSstFileInfo>& file_info_list,
-                         bool move_file, bool skip_snapshot_check) override {
-    return db_->AddFile(column_family, file_info_list, move_file, skip_snapshot_check);
-  }
-  virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const std::vector<std::string>& file_path_list,
-                         bool move_file, bool skip_snapshot_check) override {
-    return db_->AddFile(column_family, file_path_list, move_file, skip_snapshot_check);
+  using DB::IngestExternalFile;
+  virtual Status IngestExternalFile(
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& external_files,
+      const IngestExternalFileOptions& options) override {
+    return db_->IngestExternalFile(column_family, external_files, options);
   }
 
   using DB::KeyMayExist;
