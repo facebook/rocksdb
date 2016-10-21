@@ -62,10 +62,6 @@ TEST_F(BlobDBTest, Basic) {
     char *val = new char[len+1];
     gen_random(val, len);
 
-    int lenk = rand() % 1024;
-    if (!lenk)
-      continue;
-
     std::string key("key");
     key += std::to_string(i % 500);
 

@@ -85,9 +85,11 @@ Status BlobDBImpl::Put(const WriteOptions& options,
   updateWriteOptions(options);
 
   std::shared_ptr<BlobFile> bfile = selectBlobFile();
+  if (!bfile)
+    return Status::NotFound("blob file not found");
+
   char headerbuf[blob_log::BlobLogRecord::kHeaderSize];
-  blob_log::Writer::ConstructBlobHeader(headerbuf,
-    key, value, -1, -1);
+  blob_log::Writer::ConstructBlobHeader(headerbuf, key, value, -1, -1);
 
   Status s = PutCommon(bfile, options, column_family, headerbuf, key, value);
 
@@ -142,15 +144,16 @@ void BlobDBImpl::sanityCheck() {
   for (auto bfile: open_blob_files_) {
     assert(bfile->ActiveForAppend());
   }
-    
+
   std::time_t epoch_now = system_clock::to_time_t(system_clock::now());
 
   for (auto bfile_pair: blob_files_) {
     auto bfile = bfile_pair.second;
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
       "Blob File %s %" PRIu64 " %" PRIu64  " %" PRIu64
-      " %" PRIu64 " %d", bfile->PathName().c_str(), bfile->file_size_,
-      bfile->blob_count_, bfile->deleted_count_, bfile->deleted_size_, (bfile->ttl_range_.second - epoch_now));
+      " %" PRIu64 " %d", bfile->PathName().c_str(),
+      bfile->GetFileSize(), bfile->BlobCount(), bfile->deleted_count_,
+      bfile->deleted_size_, (bfile->ttl_range_.second - epoch_now));
   }
 }
 
@@ -178,39 +181,6 @@ std::shared_ptr<BlobFile> BlobDBImpl::openNewFile_P1()
 {
   uint64_t file_num = next_file_number_++;
   return std::make_shared<BlobFile>(blob_dir_, file_num);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// this opens a new file with TTL support
-//
-////////////////////////////////////////////////////////////////////////////////
-Status BlobDBImpl::openNewFileWithTTL_locked(const ttlrange_t& ttl_guess,
-  std::shared_ptr<BlobFile>& bfile_ret)
-{
-  assert(!bfile_ret);
-  std::shared_ptr<BlobFile> bfile = openNewFile_P1();
-
-  // we don't need to take blob file lock as no other thread is seeing bfile yet
-  std::shared_ptr<blob_log::Writer> writer = checkOrCreateWriter_locked(bfile.get());
-
-  blob_log::BlobLogHeader& header(bfile->Header());
-  header.setTTLGuess(ttl_guess);
-
-  Status s = writer->WriteHeader(header);
-  if (!s.ok())
-    return s;
-
-  bfile->file_size_ = blob_log::BlobLogHeader::kHeaderSize;
-  bfile_ret = bfile;
-
-  // set the first value of the range, since that is concrete at this time.
-  // also necessary to add to open_blob_files_
-  bfile->ttl_range_ = ttl_guess;
-
-  blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
-  open_blob_files_.insert(bfile);
-
-  return s;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -453,14 +423,17 @@ std::shared_ptr<BlobFile> BlobDBImpl::findBlobFile_locked(uint32_t expiration) c
      return (check->ttl_range_.second  < expiration) ? nullptr : check;
    }
 
+   if (citr.first != citr.second) {
+     return *(citr.first);
+   }
+
    auto finditr = citr.second;
    if (finditr != open_blob_files_.begin())
      --finditr;
 
-   bool b1 = (*finditr)->ttl_range_.first >= expiration;
    bool b2 = (*finditr)->ttl_range_.second < expiration;
 
-   return (b1 || b2) ?  nullptr : (*finditr);
+   return (b2) ?  nullptr : (*finditr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -507,29 +480,32 @@ std::shared_ptr<BlobFile> BlobDBImpl::selectBlobFile() {
     ReadLock rl(&mutex_);
     uint32_t val = blob_rgen.Next();
     if (!open_simple_files_.empty() && open_simple_files_.size() <
-      bdb_options_.num_simple_blobs) 
+      bdb_options_.num_simple_blobs)
       return open_simple_files_[val % bdb_options_.num_simple_blobs];
   }
 
+  std::shared_ptr<BlobFile> bfile = openNewFile_P1();
+  if (!bfile)
+    return bfile;
+
+  std::shared_ptr<blob_log::Writer> writer =
+    checkOrCreateWriter_locked(bfile.get());
+
+  blob_log::BlobLogHeader& header(bfile->Header());
+
+  bfile->file_size_ = blob_log::BlobLogHeader::kHeaderSize;
+
   WriteLock wl(&mutex_);
+  // CHECK again
   if (open_simple_files_.size() == bdb_options_.num_simple_blobs) {
     uint32_t val = blob_rgen.Next();
     return open_simple_files_[val % bdb_options_.num_simple_blobs];
   }
 
-  std::shared_ptr<BlobFile> bfile;
-  std::shared_ptr<BlobFile> bfile_tmp = openNewFile_P1();
-
-  // we don't need to take blob file lock as no other thread is seeing bfile yet
-  std::shared_ptr<blob_log::Writer> writer = checkOrCreateWriter_locked(bfile_tmp.get());
-
-  blob_log::BlobLogHeader& header(bfile_tmp->Header());
   Status s = writer->WriteHeader(header);
   if (!s.ok())
-    return bfile;
+    return nullptr;
 
-  bfile = bfile_tmp;
-  bfile->file_size_ = blob_log::BlobLogHeader::kHeaderSize;
   open_simple_files_.push_back(bfile);
   return bfile;
 }
@@ -544,26 +520,44 @@ std::shared_ptr<BlobFile> BlobDBImpl::selectBlobFileTTL(uint32_t expiration)
   {
     ReadLock rl(&mutex_);
     bfile = findBlobFile_locked(expiration);
-    if (bfile)
-      return bfile;
   }
+
+  if (bfile)
+    return bfile;
 
   ttlrange_t ttl_guess = std::make_pair(expiration, expiration +
     bdb_options_.ttl_range);
 
-  WriteLock wl(&mutex_);
-  // check condition again, because of missing upgrade lock
-  bfile = findBlobFile_locked(expiration);
-  if (bfile)
+  bfile = openNewFile_P1();
+  if (!bfile)
     return bfile;
 
-  // this opens a new file with TTL support
-  Status s = openNewFileWithTTL_locked(ttl_guess, bfile);
-  if (!s.ok()) {
-    assert(!bfile);
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-      "Not able to open file with TTL %d", next_file_number_.load());
-  }
+  // we don't need to take blob file lock as no other thread is seeing bfile yet
+  std::shared_ptr<blob_log::Writer> writer =
+    checkOrCreateWriter_locked(bfile.get());
+
+  blob_log::BlobLogHeader& header(bfile->Header());
+  header.setTTLGuess(ttl_guess);
+
+  bfile->file_size_ = blob_log::BlobLogHeader::kHeaderSize;
+
+  // set the first value of the range, since that is concrete at this time.
+  // also necessary to add to open_blob_files_
+  bfile->ttl_range_ = ttl_guess;
+
+  WriteLock wl(&mutex_);
+  // check condition again, because of missing upgrade lock
+  auto bfile2 = findBlobFile_locked(expiration);
+  if (bfile2)
+    return bfile2;
+
+  Status s = writer->WriteHeader(header);
+  if (!s.ok())
+    return nullptr;
+
+  blob_files_.insert(std::make_pair(bfile->BlobFileNumber(), bfile));
+  open_blob_files_.insert(bfile);
+
   return bfile;
 }
 
@@ -578,10 +572,11 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
   updateWriteOptions(options);
 
   std::shared_ptr<BlobFile> bfile = selectBlobFileTTL(expiration);
+  if (!bfile)
+    return Status::NotFound("blob file not found");
 
   char headerbuf[blob_log::BlobLogRecord::kHeaderSize];
-  blob_log::Writer::ConstructBlobHeader(headerbuf,
-    key, value, expiration, -1);
+  blob_log::Writer::ConstructBlobHeader(headerbuf, key, value, expiration, -1);
 
   Status s = PutCommon(bfile, options, column_family, headerbuf, key, value);
 
@@ -619,14 +614,13 @@ void BlobDBImpl::closeIf(std::shared_ptr<BlobFile>& bfile) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-//
+// bfile wont be deleted because of shared_ptr
 //
 ////////////////////////////////////////////////////////////////////////////////
 Status BlobDBImpl::PutCommon(std::shared_ptr<BlobFile>& bfile,
   const WriteOptions& options, ColumnFamilyHandle *column_family,
   const char *headerbuf, const Slice& key, const Slice& value) {
 
-  // bfile cannot be deleted beyond this, because of shared_ptr
   BlockHandle handle;
   std::string index_entry;
   PutVarint64(&index_entry, bfile->BlobFileNumber());
@@ -646,15 +640,15 @@ Status BlobDBImpl::PutCommon(std::shared_ptr<BlobFile>& bfile,
     // write the blob to the blob log.
     s = writer->EmitPhysicalRecord(headerbuf, key, value,
       key_offset, blob_offset);
-
-    if (!s.ok())
-      return s;
-
-    // increment blob count
-    bfile->blob_count_++;
-    bfile->file_size_ += blob_log::BlobLogRecord::kHeaderSize
-      + key_size + raw_block_size;
   }
+
+  if (!s.ok())
+    return s;
+
+  // increment blob count
+  bfile->blob_count_++;
+  bfile->file_size_ += blob_log::BlobLogRecord::kHeaderSize
+    + key_size + raw_block_size;
 
   handle.set_offset(blob_offset);
   handle.EncodeTo(&index_entry);
@@ -664,18 +658,20 @@ Status BlobDBImpl::PutCommon(std::shared_ptr<BlobFile>& bfile,
 
   // this goes to the base db and can be expensive
   s = db_->Write(options, &batch);
-  if (!s.ok()) {
-    return s;
-  }
 
   // this is the sequence number of the write.
   SequenceNumber sn = WriteBatchInternal::Sequence(&batch);
 
-  WriteLock lockbfile(&bfile->mutex_);
-  s = writer->AddRecordFooter(sn);
-  bfile->file_size_ += blob_log::BlobLogRecord::kFooterSize;
+  {
+    WriteLock lockbfile(&bfile->mutex_);
+    Status s1 = writer->AddRecordFooter(sn);
+    if (!s1.ok()) {
+      // do something here.
+    }
+    extendSN(bfile->sn_range_, sn);
+  }
 
-  extendSN(bfile->sn_range_, sn);
+  bfile->file_size_ += blob_log::BlobLogRecord::kFooterSize;
   return s;
 }
 
@@ -689,21 +685,18 @@ Status BlobDBImpl::Get(const ReadOptions& options,
   Status s;
   std::string index_entry;
   s = db_->Get(options, column_family, key, &index_entry);
-  if (!s.ok()) {
+  if (!s.ok())
     return s;
-  }
 
   BlockHandle handle;
   Slice index_entry_slice(index_entry);
   uint64_t file_number;
-  if (!GetVarint64(&index_entry_slice, &file_number)) {
+  if (!GetVarint64(&index_entry_slice, &file_number))
     return Status::Corruption();
-  }
 
   s = handle.DecodeFrom(&index_entry_slice);
-  if (!s.ok()) {
+  if (!s.ok())
     return s;
-  }
 
   std::shared_ptr<BlobFile> bfile;
   {
@@ -724,12 +717,12 @@ Status BlobDBImpl::Get(const ReadOptions& options,
     reader = bfile->openRandomAccess_locked(ioptions_.env, env_options_);
   }
 
-  char buffer[16384];
+  // allocate the buffer
+  value->resize(handle.size());
+  char *buffer = &(*value)[0];
+
   Slice blob_value;
   s = reader->Read(handle.offset(), handle.size(), &blob_value, buffer);
-
-  std::string ret(blob_value.ToString());
-  value->swap(ret);
 
   return s;
 }

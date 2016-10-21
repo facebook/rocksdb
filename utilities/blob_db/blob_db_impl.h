@@ -90,8 +90,6 @@ class BlobDBImpl : public BlobDB {
 
   Status startGCThreads();
 
-  Status openNewFileWithTTL_locked(const ttlrange_t& ttl_guess, std::shared_ptr<BlobFile>& bfile_ret);
-
   std::shared_ptr<BlobFile> findBlobFile_locked(uint32_t expiration) const;
 
   std::shared_ptr<BlobFile> openNewFile_P1();
@@ -163,9 +161,9 @@ class BlobFile {
 
 private:
   std::string path_to_dir_;
-  uint64_t blob_count_;
+  std::atomic<uint64_t> blob_count_;
   uint64_t file_number_;
-  uint64_t file_size_;
+  std::atomic<uint64_t> file_size_;
   uint64_t deleted_count_;
   uint64_t deleted_size_;
 
@@ -212,7 +210,7 @@ public:
   // Primary identifier for blob file.
   uint64_t BlobFileNumber() const { return file_number_; }
 
-  uint64_t BlobCount() const { return blob_count_; }
+  uint64_t BlobCount() const { return blob_count_.load(std::memory_order_acquire); }
 
   std::shared_ptr<blob_log::Reader> GetReader() const { return log_reader_; }
 
@@ -242,7 +240,7 @@ public:
 
   Status WriteFooterAndClose_locked();
 
-  uint64_t GetFileSize() const { return file_size_; }
+  uint64_t GetFileSize() const { return file_size_.load(std::memory_order_acquire); }
 
   Status ReadFooter(blob_log::BlobLogFooter& footer, bool close_reader = false);
 

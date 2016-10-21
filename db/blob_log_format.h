@@ -135,7 +135,6 @@ static const int kMaxRecordType = kLastType;
 
 static const unsigned int kBlockSize = 32768;
 
-
 class BlobLogRecord {
   friend class Reader;
 
