@@ -399,6 +399,8 @@ class Transaction {
 
   virtual TransactionID GetID() const { return 0; }
 
+  virtual bool IsDeadlockDetect() const { return false; }
+
   virtual TransactionID GetWaitingTxn(uint32_t* column_family_id,
                                       const std::string** key) const {
     assert(false);

@@ -91,7 +91,7 @@ class TransactionImpl : public TransactionBaseImpl {
   // Returns true if locks were stolen successfully, false otherwise.
   bool TryStealingLocks();
 
-  bool IsDeadlockDetect() const { return deadlock_detect_; }
+  bool IsDeadlockDetect() const override { return deadlock_detect_; }
 
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
