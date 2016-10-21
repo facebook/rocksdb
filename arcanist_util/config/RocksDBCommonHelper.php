@@ -25,9 +25,7 @@ function postURL($diffID, $url) {
   $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
          . '"name":"click here for sandcastle tests for D' . $diffID . '", '
          . '"link":"' . $url . '"}\' | '
-         . 'no_proxy=facebook.com,tfbnw.net,fb.com '
-         . 'http_proxy=fwdproxy.any.facebook.com:8080 '
-         . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
+         . 'arc call-conduit '
          . 'differential.updateunitresults';
   shell_exec($cmd);
 }
@@ -41,9 +39,7 @@ function buildUpdateTestStatusCmd($diffID, $test, $status) {
   $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
          . '"name":"' . $test . '", '
          . '"result":"' . $status . '"}\' | '
-         . 'no_proxy=facebook.com,tfbnw.net,fb.com '
-         . 'http_proxy=fwdproxy.any.facebook.com:8080 '
-         . 'https_proxy=fwdproxy.any.facebook.com:8080 arc call-conduit '
+         . 'arc call-conduit '
          . 'differential.updateunitresults';
   return $cmd;
 }
@@ -108,9 +104,8 @@ function getSteps($applyDiff, $diffID, $username, $test) {
     // Patch the code (keep your fingures crossed).
     $patch = array(
       "name" => "Patch " . $diffID,
-      "shell" => "no_proxy=facebook.com,tfbnw.net,fb.com "
-                  ."HTTPS_PROXY=fwdproxy:8080 arc --arcrc-file ~/.arcrc "
-                  . "patch --nocommit --diff " . $diffID,
+      "shell" => "arc --arcrc-file ~/.arcrc "
+                  . "patch --trace --nocommit --diff " . $diffID,
       "user" => "root"
     );
 
@@ -315,7 +310,7 @@ function getSandcastleConfig() {
   $app = $sandcastle_config[0];
   $token = $sandcastle_config[1];
 
-  $cmd = 'https_proxy= HTTPS_PROXY= curl -s -k -F app=' . $app . ' '
+  $cmd = 'curl -s -k -F app=' . $app . ' '
           . '-F token=' . $token . ' "' . $url . '"';
 
   $output = shell_exec($cmd);
