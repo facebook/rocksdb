@@ -59,6 +59,8 @@ struct BlobDBOptions {
 
   uint64_t blob_file_size;
 
+  uint32_t num_simple_blobs;
+
   // default constructor
   BlobDBOptions();
 };

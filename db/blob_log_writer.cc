@@ -164,7 +164,7 @@ void Writer::ConstructBlobHeader(char *headerbuf, const Slice& key,
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
-Status Writer::EmitPhysicalRecord(char *headerbuf, const Slice& key,
+Status Writer::EmitPhysicalRecord(const char *headerbuf, const Slice& key,
   const Slice& val, uint64_t& key_offset, uint64_t& blob_offset) {
 
   Status s = dest_->Append(Slice(headerbuf,

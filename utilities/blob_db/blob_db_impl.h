@@ -69,6 +69,18 @@ class BlobDBImpl : public BlobDB {
 
  private:
 
+  void closeIf(std::shared_ptr<BlobFile>& bfile);
+
+  Status PutCommon(std::shared_ptr<BlobFile>& bfile,
+    const WriteOptions& options, ColumnFamilyHandle *column_family,
+    const char *headerbuf, const Slice& key, const Slice& val);
+
+  std::shared_ptr<BlobFile> selectBlobFileTTL(uint32_t expiration);
+
+  std::shared_ptr<BlobFile> selectBlobFile();
+
+  void updateWriteOptions(const WriteOptions& options);
+
   void shutdown();
 
   // periodic sanity check
@@ -126,7 +138,7 @@ class BlobDBImpl : public BlobDB {
   // entire metadata in memory
   std::unordered_map<uint64_t, std::shared_ptr<BlobFile>> blob_files_;
 
-  BlobFile *open_simple_file_;
+  std::vector<std::shared_ptr<BlobFile> > open_simple_files_;
 
   std::set<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_blob_files_;
 

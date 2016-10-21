@@ -87,7 +87,7 @@ class Writer {
   Status AddRecord(const Slice& key, const Slice& val,
     uint64_t& key_offset, uint64_t& blob_offset, uint32_t ttl);
 
-  Status EmitPhysicalRecord(char *headerbuf, const Slice& key,
+  Status EmitPhysicalRecord(const char *headerbuf, const Slice& key,
     const Slice& val, uint64_t& key_offset, uint64_t& blob_offset);
 
   Status AddRecordFooter(const SequenceNumber& sn);
