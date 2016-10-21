@@ -260,13 +260,11 @@ class DBImpl : public DB {
                                  bool cache_only, SequenceNumber* seq,
                                  bool* found_record_for_key);
 
-  using DB::AddFile;
-  virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const std::vector<ExternalSstFileInfo>& file_info_list,
-                         bool move_file, bool skip_snapshot_check) override;
-  virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const std::vector<std::string>& file_path_list,
-                         bool move_file, bool skip_snapshot_check) override;
+  using DB::IngestExternalFile;
+  virtual Status IngestExternalFile(
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& external_files,
+      const IngestExternalFileOptions& ingestion_options) override;
 
 #endif  // ROCKSDB_LITE
 
@@ -650,20 +648,13 @@ class DBImpl : public DB {
   Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   // Force current memtable contents to be flushed.
-  Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options);
+  Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options,
+                       bool writes_stopped = false);
 
   // Wait for memtable flushed
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
 #ifndef ROCKSDB_LITE
-  // Finds the lowest level in the DB that the ingested file can be added to
-  // REQUIRES: mutex_ held
-  int PickLevelForIngestedFile(ColumnFamilyData* cfd,
-                               const ExternalSstFileInfo& file_info);
-
-  // Wait for current AddFile() calls to finish.
-  // REQUIRES: mutex_ held
-  void WaitForAddFile();
 
   Status CompactFilesImpl(const CompactionOptions& compact_options,
                           ColumnFamilyData* cfd, Version* version,
@@ -671,14 +662,14 @@ class DBImpl : public DB {
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer);
 
-  Status ReadExternalSstFileInfo(ColumnFamilyHandle* column_family,
-                                 const std::string& file_path,
-                                 ExternalSstFileInfo* file_info);
+  // Wait for current IngestExternalFile() calls to finish.
+  // REQUIRES: mutex_ held
+  void WaitForIngestFile();
 
 #else
-  // AddFile is not supported in ROCKSDB_LITE so this function
+  // IngestExternalFile is not supported in ROCKSDB_LITE so this function
   // will be no-op
-  void WaitForAddFile() {}
+  void WaitForIngestFile() {}
 #endif  // ROCKSDB_LITE
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
@@ -752,7 +743,7 @@ class DBImpl : public DB {
   // * whenever bg_flush_scheduled_ or bg_purge_scheduled_ value decreases
   // (i.e. whenever a flush is done, even if it didn't make any progress)
   // * whenever there is an error in background purge, flush or compaction
-  // * whenever num_running_addfile_ goes to 0.
+  // * whenever num_running_ingest_file_ goes to 0.
   InstrumentedCondVar bg_cv_;
   uint64_t logfile_number_;
   std::deque<uint64_t>
@@ -994,9 +985,9 @@ class DBImpl : public DB {
   // The options to access storage files
   const EnvOptions env_options_;
 
-  // Number of running AddFile() calls.
+  // Number of running IngestExternalFile() calls.
   // REQUIRES: mutex held
-  int num_running_addfile_;
+  int num_running_ingest_file_;
 
 #ifndef ROCKSDB_LITE
   WalManager wal_manager_;

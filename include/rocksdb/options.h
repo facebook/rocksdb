@@ -1617,6 +1617,21 @@ struct CompactRangeOptions {
       BottommostLevelCompaction::kIfHaveCompactionFilter;
 };
 
+// IngestExternalFileOptions is used by IngestExternalFile()
+struct IngestExternalFileOptions {
+  // Can be set to true to move the files instead of copying them.
+  bool move_files = false;
+  // If set to false, an ingested file keys could appear in existing snapshots
+  // that where created before the file was ingested.
+  bool snapshot_consistency = true;
+  // If set to false, IngestExternalFile() will fail if the file key range
+  // overlaps with existing keys or tombstones in the DB.
+  bool allow_global_seqno = true;
+  // If set to false and the file key range overlaps with the memtable key range
+  // (memtable flush required), IngestExternalFile will fail.
+  bool allow_blocking_flush = true;
+};
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_

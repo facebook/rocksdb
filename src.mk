@@ -17,9 +17,9 @@ LIB_SOURCES =                                                   \
   db/db_impl_debug.cc                                           \
   db/db_impl_readonly.cc                                        \
   db/db_impl_experimental.cc                                    \
-  db/db_impl_add_file.cc                                        \
   db/db_info_dumper.cc                                          \
   db/db_iter.cc                                                 \
+  db/external_sst_file_ingestion_job.cc                         \
   db/experimental.cc                                            \
   db/event_helpers.cc                                           \
   db/file_indexer.cc                                            \

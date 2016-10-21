@@ -32,11 +32,11 @@
 namespace rocksdb {
 
 bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b) {
-  if (a->smallest_seqno != b->smallest_seqno) {
-    return a->smallest_seqno > b->smallest_seqno;
-  }
   if (a->largest_seqno != b->largest_seqno) {
     return a->largest_seqno > b->largest_seqno;
+  }
+  if (a->smallest_seqno != b->smallest_seqno) {
+    return a->smallest_seqno > b->smallest_seqno;
   }
   // Break ties by file number
   return a->fd.GetNumber() > b->fd.GetNumber();
@@ -146,13 +146,22 @@ class VersionBuilder::Rep {
             abort();
           }
 
-          if (!(f1->largest_seqno > f2->largest_seqno ||
-                // We can have multiple files with seqno = 0 as a result of
-                // using DB::AddFile()
-                (f1->largest_seqno == 0 && f2->largest_seqno == 0))) {
-            fprintf(stderr,
-                    "L0 files seqno missmatch %" PRIu64 " vs. %" PRIu64 "\n",
-                    f1->largest_seqno, f2->largest_seqno);
+          if (f2->smallest_seqno == f2->largest_seqno) {
+            // This is an external file that we ingested
+            SequenceNumber external_file_seqno = f2->smallest_seqno;
+            if (!(external_file_seqno < f1->largest_seqno ||
+                  external_file_seqno == 0)) {
+              fprintf(stderr, "L0 file with seqno %" PRIu64 " %" PRIu64
+                              " vs. file with global_seqno %" PRIu64 "\n",
+                      f1->smallest_seqno, f1->largest_seqno,
+                      external_file_seqno);
+              abort();
+            }
+          } else if (f1->smallest_seqno <= f2->smallest_seqno) {
+            fprintf(stderr, "L0 files seqno %" PRIu64 " %" PRIu64
+                            " vs. %" PRIu64 " %" PRIu64 "\n",
+                    f1->smallest_seqno, f1->largest_seqno, f2->smallest_seqno,
+                    f2->largest_seqno);
             abort();
           }
         } else {

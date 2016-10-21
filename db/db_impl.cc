@@ -39,6 +39,7 @@
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
+#include "db/external_sst_file_ingestion_job.h"
 #include "db/filename.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
@@ -346,7 +347,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       next_job_id_(1),
       has_unpersisted_data_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
-      num_running_addfile_(0),
+      num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
       wal_manager_(immutable_db_options_, env_options_),
 #endif  // ROCKSDB_LITE
@@ -2143,8 +2144,8 @@ Status DBImpl::CompactFiles(
     InstrumentedMutexLock l(&mutex_);
 
     // This call will unlock/lock the mutex to wait for current running
-    // AddFile() calls to finish.
-    WaitForAddFile();
+    // IngestExternalFile() calls to finish.
+    WaitForIngestFile();
 
     s = CompactFilesImpl(compact_options, cfd, sv->current,
                          input_file_names, output_level,
@@ -2899,7 +2900,8 @@ InternalIterator* DBImpl::NewInternalIterator(
 }
 
 Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
-                             const FlushOptions& flush_options) {
+                             const FlushOptions& flush_options,
+                             bool writes_stopped) {
   Status s;
   {
     WriteContext context;
@@ -2911,12 +2913,17 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
 
     WriteThread::Writer w;
-    write_thread_.EnterUnbatched(&w, &mutex_);
+    if (!writes_stopped) {
+      write_thread_.EnterUnbatched(&w, &mutex_);
+    }
 
     // SwitchMemtable() will release and reacquire mutex
     // during execution
     s = SwitchMemtable(cfd, &context);
-    write_thread_.ExitUnbatched(&w);
+
+    if (!writes_stopped) {
+      write_thread_.ExitUnbatched(&w);
+    }
 
     cfd->imm()->FlushRequested();
 
@@ -3295,8 +3302,8 @@ void DBImpl::BackgroundCallCompaction(void* arg) {
     InstrumentedMutexLock l(&mutex_);
 
     // This call will unlock/lock the mutex to wait for current running
-    // AddFile() calls to finish.
-    WaitForAddFile();
+    // IngestExternalFile() calls to finish.
+    WaitForIngestFile();
 
     num_running_compactions_++;
 
@@ -3704,8 +3711,8 @@ void DBImpl::RemoveManualCompaction(DBImpl::ManualCompaction* m) {
 }
 
 bool DBImpl::ShouldntRunManualCompaction(ManualCompaction* m) {
-  if (num_running_addfile_ > 0) {
-    // We need to wait for other AddFile() calls to finish
+  if (num_running_ingest_file_ > 0) {
+    // We need to wait for other IngestExternalFile() calls to finish
     // before running a manual compaction.
     return true;
   }
@@ -6364,6 +6371,99 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   return Status::OK();
 }
+
+Status DBImpl::IngestExternalFile(
+    ColumnFamilyHandle* column_family,
+    const std::vector<std::string>& external_files,
+    const IngestExternalFileOptions& ingestion_options) {
+  Status status;
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  auto cfd = cfh->cfd();
+
+  ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
+                                            immutable_db_options_, env_options_,
+                                            &snapshots_, ingestion_options);
+
+  // Make sure that bg cleanup wont delete the files that we are ingesting
+  std::list<uint64_t>::iterator pending_output_elem;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
+  }
+
+  status = ingestion_job.Prepare(external_files);
+  if (!status.ok()) {
+    return status;
+  }
+
+  {
+    // Lock db mutex
+    InstrumentedMutexLock l(&mutex_);
+    TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
+    num_running_ingest_file_++;
+
+    // Stop writes to the DB
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
+
+    // Figure out if we need to flush the memtable first
+    bool need_flush = false;
+    status = ingestion_job.NeedsFlush(&need_flush);
+    if (status.ok() && need_flush) {
+      mutex_.Unlock();
+      status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);
+      mutex_.Lock();
+    }
+
+    // Run the ingestion job
+    if (status.ok()) {
+      status = ingestion_job.Run();
+    }
+
+    // Install job edit [Mutex will be unlocked here]
+    auto mutable_cf_options = cfd->GetLatestMutableCFOptions();
+    if (status.ok()) {
+      status =
+          versions_->LogAndApply(cfd, *mutable_cf_options, ingestion_job.edit(),
+                                 &mutex_, directories_.GetDbDir());
+    }
+    if (status.ok()) {
+      delete InstallSuperVersionAndScheduleWork(cfd, nullptr,
+                                                *mutable_cf_options);
+    }
+
+    // Resume writes to the DB
+    write_thread_.ExitUnbatched(&w);
+
+    // Update stats
+    if (status.ok()) {
+      ingestion_job.UpdateStats();
+    }
+
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
+
+    num_running_ingest_file_--;
+    if (num_running_ingest_file_ == 0) {
+      bg_cv_.SignalAll();
+    }
+
+    TEST_SYNC_POINT("DBImpl::AddFile:MutexUnlock");
+  }
+  // mutex_ is unlocked here
+
+  // Cleanup
+  ingestion_job.Cleanup(status);
+
+  return status;
+}
+
+void DBImpl::WaitForIngestFile() {
+  mutex_.AssertHeld();
+  while (num_running_ingest_file_ > 0) {
+    bg_cv_.Wait();
+  }
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

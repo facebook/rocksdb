@@ -435,6 +435,10 @@ class Version {
   void AddIterators(const ReadOptions&, const EnvOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder);
 
+  void AddIteratorsForLevel(const ReadOptions&, const EnvOptions& soptions,
+                            MergeIteratorBuilder* merger_iter_builder,
+                            int level);
+
   // Lookup the value for key.  If found, store it in *val and
   // return OK.  Else return a non-OK status.
   // Uses *operands to store merge_operator operations to apply later.
