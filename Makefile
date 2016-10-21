@@ -723,6 +723,9 @@ ubsan_crash_test:
 	COMPILE_WITH_UBSAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
+valgrind_test:
+	DISABLE_JEMALLOC=1 $(MAKE) valgrind_check
+
 valgrind_check: $(TESTS)
 	$(MAKE) DRIVER="$(VALGRIND_VER) $(VALGRIND_OPTS)" gen_parallel_tests
 	$(AM_V_GEN)if test "$(J)" != 1                                  \
