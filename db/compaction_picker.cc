@@ -451,12 +451,13 @@ bool CompactionPicker::SetupOtherInputs(
   vstorage->GetOverlappingInputs(output_level, &smallest, &largest,
                                  &output_level_inputs->files, *parent_index,
                                  parent_index);
-  if (!output_level_inputs->empty()) {
-    ExpandWhileOverlapping(cf_name, vstorage, output_level_inputs);
-  }
-
   if (FilesInCompaction(output_level_inputs->files)) {
     return false;
+  }
+  if (!output_level_inputs->empty()) {
+    if (!ExpandWhileOverlapping(cf_name, vstorage, output_level_inputs)) {
+      return false;
+    }
   }
 
   // See if we can further grow the number of inputs in "level" without
@@ -484,11 +485,15 @@ bool CompactionPicker::SetupOtherInputs(
         !vstorage->HasOverlappingUserKey(&expanded0.files, input_level)) {
       InternalKey new_start, new_limit;
       GetRange(expanded0, &new_start, &new_limit);
-      std::vector<FileMetaData*> expanded1;
+      CompactionInputFiles expanded1;
+      expanded1.level = output_level;
       vstorage->GetOverlappingInputs(output_level, &new_start, &new_limit,
-                                     &expanded1, *parent_index, parent_index);
-      if (expanded1.size() == output_level_inputs->size() &&
-          !FilesInCompaction(expanded1)) {
+                                     &expanded1.files, *parent_index,
+                                     parent_index);
+      assert(!expanded1.empty());
+      if (!FilesInCompaction(expanded1.files) &&
+          ExpandWhileOverlapping(cf_name, vstorage, &expanded1) &&
+          expanded1.size() == output_level_inputs->size()) {
         Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
             "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64
             "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
@@ -499,7 +504,7 @@ bool CompactionPicker::SetupOtherInputs(
         smallest = new_start;
         largest = new_limit;
         inputs->files = expanded0.files;
-        output_level_inputs->files = expanded1;
+        output_level_inputs->files = expanded1.files;
       }
     }
   }
