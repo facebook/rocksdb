@@ -71,90 +71,22 @@ class Reader {
     int level = 0, WALRecoveryMode wal_recovery_mode =
     WALRecoveryMode::kTolerateCorruptedTailRecords);
 
-#if 0
-  // Returns the physical offset of the last record returned by ReadRecord.
-  //
-  // Undefined before the first call to ReadRecord.
-  uint64_t LastRecordOffset();
-
-  // returns true if the reader has encountered an eof condition.
-  bool IsEOF() {
-    return eof_;
-  }
-
-  // when we know more data has been written to the file. we can use this
-  // function to force the reader to look again in the file.
-  // Also aligns the file position indicator to the start of the next block
-  // by reading the rest of the data from the EOF position to the end of the
-  // block that was partially read.
-  void UnmarkEOF();
-#endif
-
   SequentialFileReader* file() { return file_.get(); }
 
  private:
   std::shared_ptr<Logger> info_log_;
   const unique_ptr<SequentialFileReader> file_;
   Reporter* const reporter_;
-#if 0
-  bool const checksum_;
-#endif
 
   char* backing_store_;
   uint64_t bs_size_;
   Slice buffer_;
-
-#if 0
-  bool eof_;   // Last Read() indicated EOF by returning < kBlockSize
-  bool read_error_;   // Error occurred while reading from file
-
-  // Offset of the file position indicator within the last block when an
-  // EOF was detected.
-  size_t eof_offset_;
-
-  // Offset of the last record returned by ReadRecord.
-  uint64_t last_record_offset_;
-  // Offset of the first location past the end of buffer_.
-  uint64_t end_of_buffer_offset_;
-#endif
 
   // Offset at which to start looking for the first record to return
   uint64_t const initial_offset_;
 
   // which log number this is
   uint64_t const log_number_;
-
-#if 0
-  // Extend record types with the following special values
-  enum {
-    kEof = kMaxRecordType + 1,
-    // Returned whenever we find an invalid physical record.
-    // Currently there are three situations in which this happens:
-    // * The record has an invalid CRC (ReadPhysicalRecord reports a drop)
-    // * The record is a 0-length record (No drop is reported)
-    // * The record is below constructor's initial_offset (No drop is reported)
-    kBadRecord = kMaxRecordType + 2,
-    // Returned when we fail to read a valid header.
-    kBadHeader = kMaxRecordType + 3,
-    // Returned when we read an old record from a previous user of the log.
-    kOldRecord = kMaxRecordType + 4,
-    // Returned when we get a bad record length
-    kBadRecordLen = kMaxRecordType + 5,
-    // Returned when we get a bad record checksum
-    kBadRecordChecksum = kMaxRecordType + 6,
-  };
-
-  // Return type, or one of the preceding special values
-  unsigned int ReadPhysicalRecord(Slice* result, size_t* drop_size);
-
-  // Read some more
-  bool ReadMore(size_t* drop_size, int *error);
-
-  // Reports dropped bytes to the reporter.
-  // buffer_ must be updated to remove the dropped bytes prior to invocation.
-  void ReportCorruption(size_t bytes, const char* reason);
-  void ReportDrop(size_t bytes, const Status& reason);
-#endif
 
   // No copying allowed
   Reader(const Reader&);

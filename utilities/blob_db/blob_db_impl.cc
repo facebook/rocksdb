@@ -432,8 +432,9 @@ std::shared_ptr<BlobFile> BlobDBImpl::findBlobFile_locked(uint32_t expiration) c
      --finditr;
 
    bool b2 = (*finditr)->ttl_range_.second < expiration;
+   bool b1 = (*finditr)->ttl_range_.first > expiration;
 
-   return (b2) ?  nullptr : (*finditr);
+   return (b1 || b2) ?  nullptr : (*finditr);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -525,8 +526,8 @@ std::shared_ptr<BlobFile> BlobDBImpl::selectBlobFileTTL(uint32_t expiration)
   if (bfile)
     return bfile;
 
-  ttlrange_t ttl_guess = std::make_pair(expiration, expiration +
-    bdb_options_.ttl_range);
+  uint32_t exp_low = (expiration / bdb_options_.ttl_range) * bdb_options_.ttl_range;
+  ttlrange_t ttl_guess = std::make_pair(exp_low, exp_low + bdb_options_.ttl_range);
 
   bfile = openNewFile_P1();
   if (!bfile)
@@ -875,6 +876,8 @@ void BlobDBImpl::evictDeletions() {
 
   Arena arena;
   ScopedArenaIterator iter;
+  RangeDelAggregator range_del_agg(InternalKeyComparator(ioptions_.user_comparator),
+    {} /* snapshots */);                   
 
   delete_packet_t dpacket;
   while (delete_keys_q_.dequeue(dpacket)) {
@@ -882,7 +885,7 @@ void BlobDBImpl::evictDeletions() {
       // this can be expensive
       last_cfh = dpacket.cfh_;
       last_op = db_impl_->GetOptions(last_cfh);
-      iter.set(db_impl_->NewInternalIterator(&arena, dpacket.cfh_));
+      iter.set(db_impl_->NewInternalIterator(&arena, &range_del_agg, dpacket.cfh_));
       // this will not work for multiple CF's.
     }
 

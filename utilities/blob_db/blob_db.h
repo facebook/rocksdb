@@ -31,9 +31,6 @@ struct BlobDBOptions {
   // whether the blob_dir path is relative or absolute.
   bool path_relative;
 
-  // Is the blob db mindful of ttl and eviction is done on TTL.
-  bool has_ttl;
-
   // is the eviction strategy fifo based
   bool is_fifo;
 
@@ -59,6 +56,7 @@ struct BlobDBOptions {
 
   uint64_t blob_file_size;
 
+  // how many files to use for simple blobs at one time
   uint32_t num_simple_blobs;
 
   // default constructor
