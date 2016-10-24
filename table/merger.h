@@ -28,7 +28,8 @@ class Arena;
 // REQUIRES: n >= 0
 extern InternalIterator* NewMergingIterator(const Comparator* comparator,
                                             InternalIterator** children, int n,
-                                            Arena* arena = nullptr);
+                                            Arena* arena = nullptr,
+                                            bool prefix_seek_mode = false);
 
 class MergingIterator;
 
@@ -37,7 +38,8 @@ class MergeIteratorBuilder {
  public:
   // comparator: the comparator used in merging comparator
   // arena: where the merging iterator needs to be allocated from.
-  explicit MergeIteratorBuilder(const Comparator* comparator, Arena* arena);
+  explicit MergeIteratorBuilder(const Comparator* comparator, Arena* arena,
+                                bool prefix_seek_mode = false);
   ~MergeIteratorBuilder() {}
 
   // Add iter to the merging iterator.
