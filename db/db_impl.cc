@@ -3856,7 +3856,10 @@ InternalIterator* DBImpl::NewInternalIterator(const ReadOptions& read_options,
   InternalIterator* internal_iter;
   assert(arena != nullptr);
   // Need to create internal iterator from the arena.
-  MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena);
+  MergeIteratorBuilder merge_iter_builder(
+      &cfd->internal_comparator(), arena,
+      !read_options.total_order_seek &&
+          cfd->ioptions()->prefix_extractor != nullptr);
   // Collect iterator for mutable mem
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));
