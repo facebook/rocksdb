@@ -548,7 +548,7 @@ VALGRIND_TEST_COMMANDS="[
             {
                 'name':'Run RocksDB debug unit tests',
                 'timeout': 86400,
-                'shell':'$DISABLE_JEMALLOC $SHM $DEBUG make $PARALLELISM valgrind_check || $CONTRUN_NAME=valgrind_check $TASK_CREATION_TOOL',
+                'shell':'$SHM $DEBUG make $PARALLELISM valgrind_test || $CONTRUN_NAME=valgrind_check $TASK_CREATION_TOOL',
                 'user':'root',
                 $PARSER
             },
