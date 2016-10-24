@@ -542,14 +542,34 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
   // SanitizeOptions() ensures it.
   assert(level0_file_num_compaction_trigger <= level0_slowdown_writes_trigger);
 
+  if (level0_file_num_compaction_trigger < 0) {
+    return std::numeric_limits<int>::max();
+  }
+
+  const int twice_level0_trigger = level0_file_num_compaction_trigger * 2;
+
+  // overflow protection
+  if (twice_level0_trigger < 0) {
+    return std::numeric_limits<int>::max();
+  }
+
   // 1/4 of the way between L0 compaction trigger threshold and slowdown
   // condition.
+  const int one_fourth_trigger_slowdown =
+      level0_file_num_compaction_trigger +
+      ((level0_slowdown_writes_trigger - level0_file_num_compaction_trigger) /
+       4);
+
+  // overflow protection
+  if (one_fourth_trigger_slowdown < 0) {
+    return std::numeric_limits<int>::max();
+  }
+
+  assert(twice_level0_trigger >= 0);
+  assert(one_fourth_trigger_slowdown >= 0);
+
   // Or twice as compaction trigger, if it is smaller.
-  return std::min(level0_file_num_compaction_trigger * 2,
-                  level0_file_num_compaction_trigger +
-                      (level0_slowdown_writes_trigger -
-                       level0_file_num_compaction_trigger) /
-                          4);
+  return std::min(twice_level0_trigger, one_fourth_trigger_slowdown);
 }
 }  // namespace
 

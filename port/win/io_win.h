@@ -26,7 +26,7 @@ namespace port {
 std::string GetWindowsErrSz(DWORD err);
 
 inline Status IOErrorFromWindowsError(const std::string& context, DWORD err) {
-  return (err == ERROR_HANDLE_DISK_FULL) ?
+  return ((err == ERROR_HANDLE_DISK_FULL) || (err == ERROR_DISK_FULL)) ?
       Status::NoSpace(context, GetWindowsErrSz(err)) :
       Status::IOError(context, GetWindowsErrSz(err));
 }
