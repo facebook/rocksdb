@@ -16,16 +16,16 @@ namespace rocksdb {
 class DBOptionChangeMigrationTest
     : public DBTestBase,
       public testing::WithParamInterface<
-          std::tuple<int, bool, bool, int, bool, bool>> {
+          std::tuple<int, int, bool, int, int, bool>> {
  public:
   DBOptionChangeMigrationTest()
       : DBTestBase("/db_option_change_migration_test") {
     level1_ = std::get<0>(GetParam());
-    is_universal1_ = std::get<1>(GetParam());
+    compaction_style1_ = std::get<1>(GetParam());
     is_dynamic1_ = std::get<2>(GetParam());
 
     level2_ = std::get<3>(GetParam());
-    is_universal2_ = std::get<4>(GetParam());
+    compaction_style2_ = std::get<4>(GetParam());
     is_dynamic2_ = std::get<5>(GetParam());
   }
 
@@ -34,23 +34,23 @@ class DBOptionChangeMigrationTest
   static void TearDownTestCase() {}
 
   int level1_;
-  bool is_universal1_;
+  int compaction_style1_;
   bool is_dynamic1_;
 
   int level2_;
-  bool is_universal2_;
+  int compaction_style2_;
   bool is_dynamic2_;
 };
 
 #ifndef ROCKSDB_LITE
 TEST_P(DBOptionChangeMigrationTest, Migrate1) {
   Options old_options = CurrentOptions();
-  if (is_universal1_) {
-    old_options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
-  } else {
-    old_options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  old_options.compaction_style =
+      static_cast<CompactionStyle>(compaction_style1_);
+  if (old_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     old_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
   }
+
   old_options.level0_file_num_compaction_trigger = 3;
   old_options.write_buffer_size = 64 * 1024;
   old_options.target_file_size_base = 128 * 1024;
@@ -83,10 +83,9 @@ TEST_P(DBOptionChangeMigrationTest, Migrate1) {
   Close();
 
   Options new_options = old_options;
-  if (is_universal2_) {
-    new_options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
-  } else {
-    new_options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  new_options.compaction_style =
+      static_cast<CompactionStyle>(compaction_style2_);
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     new_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
   }
   new_options.target_file_size_base = 256 * 1024;
@@ -115,10 +114,9 @@ TEST_P(DBOptionChangeMigrationTest, Migrate1) {
 
 TEST_P(DBOptionChangeMigrationTest, Migrate2) {
   Options old_options = CurrentOptions();
-  if (is_universal2_) {
-    old_options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
-  } else {
-    old_options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  old_options.compaction_style =
+      static_cast<CompactionStyle>(compaction_style2_);
+  if (old_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     old_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
   }
   old_options.level0_file_num_compaction_trigger = 3;
@@ -154,10 +152,9 @@ TEST_P(DBOptionChangeMigrationTest, Migrate2) {
   Close();
 
   Options new_options = old_options;
-  if (is_universal1_) {
-    new_options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
-  } else {
-    new_options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  new_options.compaction_style =
+      static_cast<CompactionStyle>(compaction_style1_);
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
     new_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
   }
   new_options.target_file_size_base = 256 * 1024;
@@ -185,17 +182,21 @@ TEST_P(DBOptionChangeMigrationTest, Migrate2) {
 
 INSTANTIATE_TEST_CASE_P(
     DBOptionChangeMigrationTest, DBOptionChangeMigrationTest,
-    ::testing::Values(std::make_tuple(3, false, false, 4, false, false),
-                      std::make_tuple(3, false, true, 4, false, true),
-                      std::make_tuple(3, false, true, 4, false, false),
-                      std::make_tuple(3, false, false, 4, false, true),
-                      std::make_tuple(3, true, false, 4, true, false),
-                      std::make_tuple(1, true, false, 4, true, false),
-                      std::make_tuple(3, false, false, 4, true, false),
-                      std::make_tuple(3, false, false, 1, true, false),
-                      std::make_tuple(3, false, true, 4, true, false),
-                      std::make_tuple(3, false, true, 1, true, false),
-                      std::make_tuple(1, true, false, 4, false, false)));
+    ::testing::Values(std::make_tuple(3, 0, false, 4, 0, false),
+                      std::make_tuple(3, 0, true, 4, 0, true),
+                      std::make_tuple(3, 0, true, 4, 0, false),
+                      std::make_tuple(3, 0, false, 4, 0, true),
+                      std::make_tuple(3, 1, false, 4, 1, false),
+                      std::make_tuple(1, 1, false, 4, 1, false),
+                      std::make_tuple(3, 0, false, 4, 1, false),
+                      std::make_tuple(3, 0, false, 1, 1, false),
+                      std::make_tuple(3, 0, true, 4, 1, false),
+                      std::make_tuple(3, 0, true, 1, 1, false),
+                      std::make_tuple(1, 1, false, 4, 0, false),
+                      std::make_tuple(4, 0, false, 1, 2, false),
+                      std::make_tuple(3, 0, true, 2, 2, false),
+                      std::make_tuple(3, 1, false, 3, 2, false),
+                      std::make_tuple(1, 1, false, 4, 2, false)));
 
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
