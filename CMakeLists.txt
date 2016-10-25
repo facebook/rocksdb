@@ -79,12 +79,7 @@ endif()
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
-file(GENERATE OUTPUT ${BUILD_VERSION_CC} CONTENT
-  "#include \"build_version.h\"
-const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:${GIT_SHA}\";
-const char* rocksdb_build_git_datetime = \"rocksdb_build_git_datetime:${GIT_DATE_TIME}\";
-const char* rocksdb_build_compile_date = __DATE__;
-")
+configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 add_library(build_version OBJECT ${BUILD_VERSION_CC})
 target_include_directories(build_version PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/util)
