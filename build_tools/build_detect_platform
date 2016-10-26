@@ -134,7 +134,7 @@ case "$TARGET_OS" in
         ;;
     FreeBSD)
         PLATFORM=OS_FREEBSD
-        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD"
+        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD -D_GLIBCXX_USE_C99"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
         # PORT_FILES=port/freebsd/freebsd_specific.cc
         ;;
