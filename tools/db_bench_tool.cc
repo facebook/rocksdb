@@ -761,6 +761,9 @@ DEFINE_bool(mmap_read, rocksdb::EnvOptions().use_mmap_reads,
 DEFINE_bool(mmap_write, rocksdb::EnvOptions().use_mmap_writes,
             "Allow writes to occur via mmap-ing files");
 
+DEFINE_bool(use_direct_reads, rocksdb::EnvOptions().use_direct_reads,
+            "Use O_DIRECT for reading data");
+
 DEFINE_bool(advise_random_on_open, rocksdb::Options().advise_random_on_open,
             "Advise random access on table file open");
 
@@ -2722,6 +2725,9 @@ class Benchmark {
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
     options.compaction_pri = FLAGS_compaction_pri_e;
+    options.allow_mmap_reads = FLAGS_mmap_read;
+    options.allow_mmap_writes = FLAGS_mmap_write;
+    options.use_direct_reads = FLAGS_use_direct_reads;
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));

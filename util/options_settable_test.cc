@@ -274,6 +274,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "stats_dump_period_sec=70127;"
                              "allow_fallocate=true;"
                              "allow_mmap_reads=false;"
+                             "use_direct_reads=false;"
                              "max_log_file_size=4607;"
                              "random_access_max_buffer_size=1048576;"
                              "advise_random_on_open=true;"
