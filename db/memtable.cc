@@ -68,7 +68,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
           ioptions.info_log)),
-      range_del_table_(ioptions.memtable_factory->CreateMemTableRep(
+      range_del_table_(SkipListFactory().CreateMemTableRep(
           comparator_, &allocator_, nullptr /* transform */,
           ioptions.info_log)),
       data_size_(0),
