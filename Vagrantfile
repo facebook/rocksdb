@@ -29,5 +29,4 @@ Vagrant.configure("2") do |config|
       gmake all OPT=-g
     SCRIPT
   end
-
 end
