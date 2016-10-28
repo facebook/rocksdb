@@ -3646,14 +3646,24 @@ TEST_F(DBTest, GetThreadStatus) {
       env_->SetBackgroundThreads(kHighPriCounts[test], Env::HIGH);
       env_->SetBackgroundThreads(kLowPriCounts[test], Env::LOW);
       // Wait to ensure the all threads has been registered
-      env_->SleepForMicroseconds(100000);
-      s = env_->GetThreadList(&thread_list);
-      ASSERT_OK(s);
       unsigned int thread_type_counts[ThreadStatus::NUM_THREAD_TYPES];
-      memset(thread_type_counts, 0, sizeof(thread_type_counts));
-      for (auto thread : thread_list) {
-        ASSERT_LT(thread.thread_type, ThreadStatus::NUM_THREAD_TYPES);
-        thread_type_counts[thread.thread_type]++;
+      // Try up to 60 seconds.
+      for (int num_try = 0; num_try < 60000; num_try++) {
+        env_->SleepForMicroseconds(1000);
+        thread_list.clear();
+        s = env_->GetThreadList(&thread_list);
+        ASSERT_OK(s);
+        memset(thread_type_counts, 0, sizeof(thread_type_counts));
+        for (auto thread : thread_list) {
+          ASSERT_LT(thread.thread_type, ThreadStatus::NUM_THREAD_TYPES);
+          thread_type_counts[thread.thread_type]++;
+        }
+        if (thread_type_counts[ThreadStatus::HIGH_PRIORITY] ==
+                kHighPriCounts[test] &&
+            thread_type_counts[ThreadStatus::LOW_PRIORITY] ==
+                kLowPriCounts[test]) {
+          break;
+        }
       }
       // Verify the total number of threades
       ASSERT_EQ(thread_type_counts[ThreadStatus::HIGH_PRIORITY] +
