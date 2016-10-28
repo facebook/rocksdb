@@ -642,8 +642,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_bytes_per_sync(
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_verify_checksums_in_compaction(rocksdb_options_t*,
                                                    unsigned char);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_filter_deletes(
-    rocksdb_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_max_sequential_skip_in_iterations(rocksdb_options_t*,
                                                       uint64_t);
@@ -672,10 +670,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_plain_table_factory(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_min_level_to_compress(
     rocksdb_options_t* opt, int level);
 
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_prefix_bloom_bits(
-    rocksdb_options_t*, uint32_t);
-extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_memtable_prefix_bloom_probes(rocksdb_options_t*, uint32_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_huge_page_size(
     rocksdb_options_t*, size_t);
 
