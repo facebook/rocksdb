@@ -1259,7 +1259,8 @@ TEST_F(DBCompactionTest, ManualPartialFill) {
   uint64_t target_size = 4 * options.max_bytes_for_level_base;
   for (int32_t i = 1; i < options.num_levels; i++) {
     ASSERT_LE(SizeAtLevel(i), target_size);
-    target_size *= options.max_bytes_for_level_multiplier;
+    target_size = static_cast<uint64_t>(target_size *
+                                        options.max_bytes_for_level_multiplier);
   }
 
   TEST_SYNC_POINT("DBCompaction::PartialFill:2");
@@ -1336,7 +1337,8 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   uint64_t target_size = 4 * options.max_bytes_for_level_base;
   for (int32_t i = 1; i < options.num_levels; i++) {
     ASSERT_LE(SizeAtLevel(i), target_size);
-    target_size *= options.max_bytes_for_level_multiplier;
+    target_size = static_cast<uint64_t>(target_size *
+                                        options.max_bytes_for_level_multiplier);
   }
 
   size_t old_num_files = CountFiles();

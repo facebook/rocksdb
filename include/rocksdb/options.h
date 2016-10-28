@@ -527,7 +527,7 @@ struct ColumnFamilyOptions {
   // Default: 10.
   //
   // Dynamically changeable through SetOptions() API
-  int max_bytes_for_level_multiplier;
+  double max_bytes_for_level_multiplier;
 
   // Different max-size multipliers for different levels.
   // These are multiplied by max_bytes_for_level_multiplier to arrive

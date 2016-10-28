@@ -303,8 +303,8 @@ DEFINE_int32(target_file_size_multiplier, 1,
 
 DEFINE_uint64(max_bytes_for_level_base, 256 * KB, "Max bytes for level-1");
 
-DEFINE_int32(max_bytes_for_level_multiplier, 2,
-             "A multiplier to compute max bytes for level-N (N >= 2)");
+DEFINE_double(max_bytes_for_level_multiplier, 2,
+              "A multiplier to compute max bytes for level-N (N >= 2)");
 
 // Temporarily disable this to allows it to detect new bugs
 DEFINE_int32(compact_files_one_in, 0,

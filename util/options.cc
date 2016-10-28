@@ -489,8 +489,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         max_bytes_for_level_base);
     Header(log, "Options.level_compaction_dynamic_level_bytes: %d",
         level_compaction_dynamic_level_bytes);
-    Header(log, "         Options.max_bytes_for_level_multiplier: %d",
-        max_bytes_for_level_multiplier);
+    Header(log, "         Options.max_bytes_for_level_multiplier: %f",
+           max_bytes_for_level_multiplier);
     for (size_t i = 0; i < max_bytes_for_level_multiplier_additional.size();
          i++) {
       Header(log,

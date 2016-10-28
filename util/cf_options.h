@@ -220,7 +220,7 @@ struct MutableCFOptions {
   uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;
-  int max_bytes_for_level_multiplier;
+  double max_bytes_for_level_multiplier;
   std::vector<int> max_bytes_for_level_multiplier_additional;
   bool verify_checksums_in_compaction;
 
@@ -236,6 +236,6 @@ struct MutableCFOptions {
   std::vector<uint64_t> max_file_size;
 };
 
-uint64_t MultiplyCheckOverflow(uint64_t op1, int op2);
+uint64_t MultiplyCheckOverflow(uint64_t op1, double op2);
 
 }  // namespace rocksdb

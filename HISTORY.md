@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## Unreleased
+### Public API Change
+* Options::max_bytes_for_level_multiplier is now a double along with all getters and setters.
+
 ## 4.13.0 (10/18/2016)
 ### Public API Change
 * DB::GetOptions() reflect dynamic changed options (i.e. through DB::SetOptions()) and return copy of options instead of reference.
