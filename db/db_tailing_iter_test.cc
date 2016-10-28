@@ -428,6 +428,59 @@ TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
   ASSERT_EQ(0, immutable_seeks);
 }
 
+TEST_F(DBTestTailingIterator, TailingIteratorGap) {
+  // level 1:            [20, 25]  [35, 40]
+  // level 2:  [10 - 15]                    [45 - 50]
+  // level 3:            [20,    30,    40]
+  // Previously there is a bug in tailing_iterator that if there is a gap in
+  // lower level, the key will be skipped if it is within the range between
+  // the largest key of index n file and the smallest key of index n+1 file
+  // if both file fit in that gap. In this example, 25 < key < 35
+  // https://github.com/facebook/rocksdb/issues/1372
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  ReadOptions read_options;
+  read_options.tailing = true;
+
+  ASSERT_OK(Put(1, "20", "20"));
+  ASSERT_OK(Put(1, "30", "30"));
+  ASSERT_OK(Put(1, "40", "40"));
+  ASSERT_OK(Flush(1));
+  MoveFilesToLevel(3, 1);
+
+  ASSERT_OK(Put(1, "10", "10"));
+  ASSERT_OK(Put(1, "15", "15"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, "45", "45"));
+  ASSERT_OK(Put(1, "50", "50"));
+  ASSERT_OK(Flush(1));
+  MoveFilesToLevel(2, 1);
+
+  ASSERT_OK(Put(1, "20", "20"));
+  ASSERT_OK(Put(1, "25", "25"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, "35", "35"));
+  ASSERT_OK(Put(1, "40", "40"));
+  ASSERT_OK(Flush(1));
+  MoveFilesToLevel(1, 1);
+
+  ColumnFamilyMetaData meta;
+  db_->GetColumnFamilyMetaData(handles_[1], &meta);
+
+  std::unique_ptr<Iterator> it(db_->NewIterator(read_options, handles_[1]));
+  it->Seek("30");
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("30", it->key().ToString());
+
+  it->Next();
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("35", it->key().ToString());
+
+  it->Next();
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("40", it->key().ToString());
+}
+
 TEST_F(DBTestTailingIterator, ManagedTailingIteratorSingle) {
   ReadOptions read_options;
   read_options.tailing = true;
