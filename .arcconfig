@@ -1,6 +1,6 @@
 {
   "project_id" : "rocksdb",
-  "conduit_uri" : "https://reviews.facebook.net/",
+  "conduit_uri" : "https://phabricator.fb.com/api/",
   "copyright_holder" : "Facebook",
   "load" : [
     "arcanist_util"
