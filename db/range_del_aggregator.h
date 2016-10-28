@@ -20,17 +20,52 @@
 #include "util/kv_map.h"
 
 namespace rocksdb {
+
+// A RangeDelAggregator aggregates range deletion tombstones as they are
+// encountered in memtables/SST files. It provides methods that check whether a
+// key is covered by range tombstones or write the relevant tombstones to a new
+// SST file.
 class RangeDelAggregator {
  public:
+  // @param snapshots These are used to organize the tombstones into snapshot
+  //    stripes, which is the seqnum range between consecutive snapshots,
+  //    including the higher snapshot and excluding the lower one. Currently,
+  //    this is used by ShouldDelete() to prevent deletion of keys that are
+  //    covered by range tombstones in other snapshot stripes. In case of writes
+  //    (flush/compaction), all DB snapshots are provided such that no keys are
+  //    removed that are uncovered according to any DB snapshot. In case of read
+  //    (get/iterator), only the user snapshot is provided such that the seqnum
+  //    space is divided into two stripes, where only tombstones in the older
+  //    stripe are considered by ShouldDelete().
   RangeDelAggregator(const InternalKeyComparator& icmp,
                      const std::vector<SequenceNumber>& snapshots);
 
+  // Returns whether the key should be deleted, which is the case when it is
+  // covered by a range tombstone residing in the same snapshot stripe.
   bool ShouldDelete(const Slice& internal_key, bool for_compaction = false);
   bool ShouldAddTombstones(bool bottommost_level = false);
+
+  // Adds tombstones to the tombstone aggregation structure maintained by this
+  // object.
+  // @return non-OK status if any of the tombstone keys are corrupted.
   Status AddTombstones(ScopedArenaIterator input);
   Status AddTombstones(std::unique_ptr<InternalIterator> input);
-  // write tombstones covering a range to a table builder
-  // usually don't add to a max-level table builder
+
+  // Writes tombstones covering a range to a table builder.
+  // @param extend_before_min_key If true, the range of tombstones to be added
+  //    to the TableBuilder starts from the beginning of the key-range;
+  //    otherwise, it starts from meta->smallest.
+  // @param next_table_min_key If nullptr, the range of tombstones to be added
+  //    to the TableBuilder ends at the end of the key-range; otherwise, it
+  //    ends at next_table_min_key.
+  // @param meta The file's metadata. We modify the begin and end keys according
+  //    to the range tombstones added to this file such that the read path does
+  //    not miss range tombstones that cover gaps before/after/between files in
+  //    a level.
+  // @param bottommost_level If true, we will filter out any tombstones
+  //    belonging to the oldest snapshot stripe, because all keys potentially
+  //    covered by this tombstone are guaranteed to have been deleted by
+  //    compaction.
   void AddToBuilder(TableBuilder* builder, bool extend_before_min_key,
                     const Slice* next_table_min_key, FileMetaData* meta,
                     bool bottommost_level = false);
