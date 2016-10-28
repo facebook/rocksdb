@@ -359,61 +359,19 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       }
     }
 
-    int32_t search_left_bound = 0;
-    int32_t search_right_bound = FileIndexer::kLevelMaxIndex;
     for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
       const std::vector<FileMetaData*>& level_files =
           vstorage->LevelFiles(level);
       if (level_files.empty()) {
-        search_left_bound = 0;
-        search_right_bound = FileIndexer::kLevelMaxIndex;
         continue;
       }
       if (level_iters_[level - 1] == nullptr) {
         continue;
       }
       uint32_t f_idx = 0;
-      const auto& indexer = vstorage->file_indexer();
       if (!seek_to_first) {
-        if (search_left_bound == search_right_bound) {
-          f_idx = search_left_bound;
-        } else if (search_left_bound < search_right_bound) {
-          f_idx =
-              FindFileInRange(level_files, internal_key, search_left_bound,
-                              search_right_bound == FileIndexer::kLevelMaxIndex
-                                  ? static_cast<uint32_t>(level_files.size())
-                                  : search_right_bound);
-        } else {
-          // search_left_bound > search_right_bound
-          // There are only 2 cases this can happen:
-          // (1) target key is smaller than left most file
-          // (2) target key is larger than right most file
-          assert(search_left_bound == (int32_t)level_files.size() ||
-                 search_right_bound == -1);
-          if (search_right_bound == -1) {
-            assert(search_left_bound == 0);
-            f_idx = 0;
-          } else {
-            indexer.GetNextLevelIndex(
-                level, level_files.size() - 1,
-                1, 1, &search_left_bound, &search_right_bound);
-            continue;
-          }
-        }
-
-        // Prepare hints for the next level
-        if (f_idx < level_files.size()) {
-          int cmp_smallest = user_comparator_->Compare(
-              user_key, level_files[f_idx]->smallest.user_key());
-          assert(user_comparator_->Compare(
-                     user_key, level_files[f_idx]->largest.user_key()) <= 0);
-          indexer.GetNextLevelIndex(level, f_idx, cmp_smallest, -1,
-                                    &search_left_bound, &search_right_bound);
-        } else {
-          indexer.GetNextLevelIndex(
-              level, level_files.size() - 1,
-              1, 1, &search_left_bound, &search_right_bound);
-        }
+        f_idx = FindFileInRange(level_files, internal_key, 0,
+                                static_cast<uint32_t>(level_files.size()));
       }
 
       // Seek
