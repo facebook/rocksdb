@@ -9,7 +9,11 @@
 
 #include "util/arena.h"
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#ifdef OS_FREEBSD
+#include <malloc_np.h>
+#else
 #include <malloc.h>
+#endif
 #endif
 #ifndef OS_WIN
 #include <sys/mman.h>
