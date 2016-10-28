@@ -51,6 +51,7 @@ struct ImmutableDBOptions {
   bool allow_os_buffer;
   bool allow_mmap_reads;
   bool allow_mmap_writes;
+  bool use_direct_reads;
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   unsigned int stats_dump_period_sec;

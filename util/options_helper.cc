@@ -74,6 +74,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_os_buffer = immutable_db_options.allow_os_buffer;
   options.allow_mmap_reads = immutable_db_options.allow_mmap_reads;
   options.allow_mmap_writes = immutable_db_options.allow_mmap_writes;
+  options.use_direct_reads = immutable_db_options.use_direct_reads;
   options.allow_fallocate = immutable_db_options.allow_fallocate;
   options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
   options.stats_dump_period_sec = immutable_db_options.stats_dump_period_sec;

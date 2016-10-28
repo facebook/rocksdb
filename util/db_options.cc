@@ -56,6 +56,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_os_buffer(options.allow_os_buffer),
       allow_mmap_reads(options.allow_mmap_reads),
       allow_mmap_writes(options.allow_mmap_writes),
+      use_direct_reads(options.use_direct_reads),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       stats_dump_period_sec(options.stats_dump_period_sec),
@@ -132,6 +133,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          allow_fallocate);
   Header(log, "                      Options.allow_mmap_writes: %d",
          allow_mmap_writes);
+  Header(log, "                       Options.use_direct_reads: %d",
+         use_direct_reads);
   Header(log, "         Options.create_missing_column_families: %d",
          create_missing_column_families);
   Header(log, "                             Options.db_log_dir: %s",

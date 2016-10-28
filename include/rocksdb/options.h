@@ -1106,6 +1106,10 @@ struct DBOptions {
   // Default: false
   bool allow_mmap_writes;
 
+  // Use O_DIRECT for reading file
+  // Default: false
+  bool use_direct_reads;
+
   // If false, fallocate() calls are bypassed
   bool allow_fallocate;
 
