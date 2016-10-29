@@ -634,13 +634,20 @@ void DBImpl::MaybeDumpStats() {
       default_cf_internal_stats_->GetStringProperty(
           *db_property_info, DB::Properties::kDBStats, &stats);
     }
-    if (immutable_db_options_.dump_malloc_stats) {
-      DumpMallocStats(&stats);
-    }
     Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
         "------- DUMPING STATS -------");
     Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log, "%s",
         stats.c_str());
+    if (immutable_db_options_.dump_malloc_stats) {
+      stats.clear();
+      DumpMallocStats(&stats);
+      if (!stats.empty()) {
+        Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
+            "------- Malloc STATS -------");
+        Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log, "%s",
+            stats.c_str());
+      }
+    }
 #endif  // !ROCKSDB_LITE
 
     PrintStatistics();
