@@ -40,7 +40,7 @@ your make commands, like this: `PORTABLE=1 make static_lib`
 ## Supported platforms
 
 * **Linux - Ubuntu**
-    * Upgrade your gcc to version at least 4.7 to get C++11 support.
+    * Upgrade your gcc to version at least 4.8 to get C++11 support.
     * Install gflags. First, try: `sudo apt-get install libgflags-dev`
       If this doesn't work and you're using Ubuntu, here's a nice tutorial:
       (http://askubuntu.com/questions/312173/installing-gflags-12-04)
@@ -49,8 +49,8 @@ your make commands, like this: `PORTABLE=1 make static_lib`
     * Install zlib. Try: `sudo apt-get install zlib1g-dev`.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
 * **Linux - CentOS**
-    * Upgrade your gcc to version at least 4.7 to get C++11 support:
-      `yum install gcc47-c++`
+    * Upgrade your gcc to version at least 4.8 to get C++11 support:
+      `yum install gcc48-c++`
     * Install gflags:
 
               wget https://gflags.googlecode.com/files/gflags-2.0-no-svn-files.tar.gz
@@ -80,7 +80,7 @@ your make commands, like this: `PORTABLE=1 make static_lib`
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
-            * run `brew tap homebrew/versions; brew install gcc47 --use-llvm` to install gcc 4.7 (or higher).
+            * run `brew tap homebrew/versions; brew install gcc48 --use-llvm` to install gcc 4.8 (or higher).
     * run `brew install rocksdb`
 
 * **iOS**:

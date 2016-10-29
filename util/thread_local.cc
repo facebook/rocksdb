@@ -126,10 +126,9 @@ ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   // of using __thread.  The major difference between thread_local and __thread
   // is that thread_local supports dynamic construction and destruction of
   // non-primitive typed variables.  As a result, we can guarantee the
-  // desturction order even when the main thread dies before any child threads.
-  // However, thread_local requires gcc 4.8 and is not supported in all the
-  // compilers that accepts -std=c++11 (e.g., the default clang on Mac), while
-  // the current RocksDB still accept gcc 4.7.
+  // destruction order even when the main thread dies before any child threads.
+  // However, thread_local is not supported in all compilers that accept -std=c++11
+  // (e.g., eg Mac with XCode < 8. XCode 8+ supports thread_local).
   static ThreadLocalPtr::StaticMeta* inst = new ThreadLocalPtr::StaticMeta();
   return inst;
 }

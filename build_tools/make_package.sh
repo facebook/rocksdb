@@ -65,8 +65,8 @@ function main() {
 
   if [[ -d /vagrant ]]; then
     if [[ $OS = "ubuntu" ]]; then
-      package g++-4.7
-      export CXX=g++-4.7
+      package g++-4.8
+      export CXX=g++-4.8
 
       # the deb would depend on libgflags2, but the static lib is the only thing
       # installed by make install
