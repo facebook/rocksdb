@@ -270,22 +270,17 @@ CompressionType GetCompressionFlush(
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
   // latency overhead is not offset by saving much space.
-
-  bool can_compress;
-
   if (ioptions.compaction_style == kCompactionStyleUniversal) {
-    can_compress =
-        (ioptions.compaction_options_universal.compression_size_percent < 0);
+    if (ioptions.compaction_options_universal.compression_size_percent < 0) {
+      return mutable_cf_options.compression;
+    } else {
+      return kNoCompression;
+    }
+  } else if (!ioptions.compression_per_level.empty()) {
+    // For leveled compress when min_level_to_compress != 0.
+    return ioptions.compression_per_level[0];
   } else {
-    // For leveled compress when min_level_to_compress == 0.
-    can_compress = ioptions.compression_per_level.empty() ||
-                   ioptions.compression_per_level[0] != kNoCompression;
-  }
-
-  if (can_compress) {
     return mutable_cf_options.compression;
-  } else {
-    return kNoCompression;
   }
 }
 
