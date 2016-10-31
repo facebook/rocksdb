@@ -2987,6 +2987,7 @@ class Benchmark {
     options.statistics = dbstats;
     options.wal_dir = FLAGS_wal_dir;
     options.create_if_missing = !FLAGS_use_existing_db;
+    options.dump_malloc_stats = FLAGS_dump_malloc_stats;
 
     if (FLAGS_row_cache_size) {
       if (FLAGS_cache_numshardbits >= 1) {
@@ -3032,7 +3033,6 @@ class Benchmark {
       }
       options.wal_dir = wal_dir;
     }
-    options.dump_malloc_stats = FLAGS_dump_malloc_stats;
   }
 
   void Open(Options* opts) {
