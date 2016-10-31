@@ -1317,6 +1317,11 @@ else
 	JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 endif
+ifeq ($(PLATFORM), OS_FREEBSD)
+	JAVA_INCLUDE += -I$(JAVA_HOME)/include/freebsd
+	ROCKSDBJNILIB = librocksdbjni-freebsd$(ARCH).so
+	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-freebsd$(ARCH).jar
+endif
 ifeq ($(PLATFORM), OS_SOLARIS)
 	ROCKSDBJNILIB = librocksdbjni-solaris$(ARCH).so
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
