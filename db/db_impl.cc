@@ -285,16 +285,13 @@ CompressionType GetCompressionFlush(
 }
 
 void DumpSupportInfo(Logger* logger) {
-  Log(InfoLogLevel::INFO_LEVEL, logger, "Compression algorithms supported:");
-  Log(InfoLogLevel::INFO_LEVEL, logger, "\tSnappy supported: %d",
-      Snappy_Supported());
-  Log(InfoLogLevel::INFO_LEVEL, logger, "\tZlib supported: %d",
-      Zlib_Supported());
-  Log(InfoLogLevel::INFO_LEVEL, logger, "\tBzip supported: %d",
-      BZip2_Supported());
-  Log(InfoLogLevel::INFO_LEVEL, logger, "\tLZ4 supported: %d", LZ4_Supported());
-  Log(InfoLogLevel::INFO_LEVEL, logger, "Fast CRC32 supported: %d",
-      crc32c::IsFastCrc32Supported());
+  Header(logger, "Compression algorithms supported:");
+  Header(logger, "\tSnappy supported: %d", Snappy_Supported());
+  Header(logger, "\tZlib supported: %d", Zlib_Supported());
+  Header(logger, "\tBzip supported: %d", BZip2_Supported());
+  Header(logger, "\tLZ4 supported: %d", LZ4_Supported());
+  Header(logger, "\tZSTD supported: %d", ZSTD_Supported());
+  Header(logger, "Fast CRC32 supported: %d", crc32c::IsFastCrc32Supported());
 }
 
 }  // namespace
