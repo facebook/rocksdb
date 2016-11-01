@@ -12,7 +12,7 @@
 #include <string.h>
 #include <sys/types.h>
 #ifndef OS_WIN
-#  include <unistd.h>
+#include <unistd.h>
 #endif
 #include <inttypes.h>
 
@@ -21,11 +21,10 @@
 
 #include <Windows.h>
 
-# define snprintf _snprintf
+#define snprintf _snprintf
 
 // Ok for uniqueness
 int geteuid() {
-
   int result = 0;
 
   result = ((int)GetCurrentProcessId() << 16);
@@ -38,13 +37,13 @@ int geteuid() {
 
 const char* phase = "";
 static char dbname[200];
+static char sstfilename[200];
 static char dbbackupname[200];
 
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
   phase = name;
 }
-
 static const char* GetTempDir(void) {
     const char* ret = getenv("TEST_TMPDIR");
     if (ret == NULL || ret[0] == '\0')
@@ -303,6 +302,11 @@ int main(int argc, char** argv) {
            "%s/rocksdb_c_test-%d-backup",
            GetTempDir(),
            ((int) geteuid()));
+
+  snprintf(sstfilename, sizeof(sstfilename),
+           "%s/rocksdb_c_test-%d-sst",
+           GetTempDir(),
+           ((int)geteuid()));
 
   StartPhase("create_objects");
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
@@ -565,6 +569,59 @@ int main(int argc, char** argv) {
     rocksdb_release_snapshot(db, snap);
   }
 
+  StartPhase("addfile");
+  {
+    rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
+    rocksdb_options_t* io_options = rocksdb_options_create();
+    rocksdb_sstfilewriter_t* writer =
+        rocksdb_sstfilewriter_create(env_opt, io_options);
+
+    unlink(sstfilename);
+    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk1", 5, "v1", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk2", 5, "v2", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk3", 5, "v3", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+
+    rocksdb_ingestexternalfileoptions_t* ing_opt =
+        rocksdb_ingestexternalfileoptions_create();
+    const char* file_list[1] = {sstfilename};
+    rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "sstk1", "v1");
+    CheckGet(db, roptions, "sstk2", "v2");
+    CheckGet(db, roptions, "sstk3", "v3");
+
+    unlink(sstfilename);
+    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk2", 5, "v4", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk22", 6, "v5", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk3", 5, "v6", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+
+    rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "sstk1", "v1");
+    CheckGet(db, roptions, "sstk2", "v4");
+    CheckGet(db, roptions, "sstk22", "v5");
+    CheckGet(db, roptions, "sstk3", "v6");
+
+    rocksdb_ingestexternalfileoptions_destroy(ing_opt);
+    rocksdb_sstfilewriter_destroy(writer);
+    rocksdb_options_destroy(io_options);
+    rocksdb_envoptions_destroy(env_opt);
+  }
+
   StartPhase("repair");
   {
     // If we do not compact here, then the lazy deletion of
@@ -700,7 +757,7 @@ int main(int argc, char** argv) {
     rocksdb_destroy_db(options, dbname, &err);
     CheckNoError(err)
 
-    rocksdb_options_t* db_options = rocksdb_options_create();
+        rocksdb_options_t* db_options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(db_options, 1);
     db = rocksdb_open(db_options, dbname, &err);
     CheckNoError(err)

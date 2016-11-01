@@ -105,6 +105,9 @@ typedef struct rocksdb_writeoptions_t    rocksdb_writeoptions_t;
 typedef struct rocksdb_universal_compaction_options_t rocksdb_universal_compaction_options_t;
 typedef struct rocksdb_livefiles_t     rocksdb_livefiles_t;
 typedef struct rocksdb_column_family_handle_t rocksdb_column_family_handle_t;
+typedef struct rocksdb_envoptions_t      rocksdb_envoptions_t;
+typedef struct rocksdb_ingestexternalfileoptions_t rocksdb_ingestexternalfileoptions_t;
+typedef struct rocksdb_sstfilewriter_t   rocksdb_sstfilewriter_t;
 
 /* DB operations */
 
@@ -864,6 +867,56 @@ rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_join_all_threads(
     rocksdb_env_t* env);
 extern ROCKSDB_LIBRARY_API void rocksdb_env_destroy(rocksdb_env_t*);
+
+extern ROCKSDB_LIBRARY_API rocksdb_envoptions_t* rocksdb_envoptions_create();
+extern ROCKSDB_LIBRARY_API void rocksdb_envoptions_destroy(
+    rocksdb_envoptions_t* opt);
+
+/* SstFile */
+
+extern ROCKSDB_LIBRARY_API rocksdb_sstfilewriter_t*
+rocksdb_sstfilewriter_create(const rocksdb_envoptions_t* env,
+                             const rocksdb_options_t* io_options);
+extern ROCKSDB_LIBRARY_API rocksdb_sstfilewriter_t*
+rocksdb_sstfilewriter_create_with_comparator(
+    const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options,
+    const rocksdb_comparator_t* comparator);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_open(
+    rocksdb_sstfilewriter_t* writer, const char* name, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_add(
+    rocksdb_sstfilewriter_t* writer, const char* key, size_t keylen,
+    const char* val, size_t vallen, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_finish(
+    rocksdb_sstfilewriter_t* writer, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_sstfilewriter_destroy(
+    rocksdb_sstfilewriter_t* writer);
+
+extern ROCKSDB_LIBRARY_API rocksdb_ingestexternalfileoptions_t*
+rocksdb_ingestexternalfileoptions_create();
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfileoptions_set_move_files(
+    rocksdb_ingestexternalfileoptions_t* opt, unsigned char move_files);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfileoptions_set_snapshot_consistency(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char snapshot_consistency);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfileoptions_set_allow_global_seqno(
+    rocksdb_ingestexternalfileoptions_t* opt, unsigned char allow_global_seqno);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_ingestexternalfileoptions_set_allow_blocking_flush(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char allow_blocking_flush);
+extern ROCKSDB_LIBRARY_API void rocksdb_ingestexternalfileoptions_destroy(
+    rocksdb_ingestexternalfileoptions_t* opt);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_ingest_external_file(
+    rocksdb_t* db, const char* const* file_list, const size_t list_len,
+    const rocksdb_ingestexternalfileoptions_t* opt, char** errptr);
+extern ROCKSDB_LIBRARY_API void rocksdb_ingest_external_file_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* handle,
+    const char* const* file_list, const size_t list_len,
+    const rocksdb_ingestexternalfileoptions_t* opt, char** errptr);
 
 /* SliceTransform */
 
