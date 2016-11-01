@@ -299,11 +299,21 @@ function getSandcastleConfig() {
   );
 
   // Submit to Sandcastle.
-  $url = 'https://interngraph.intern.facebook.com/sandcastle/generate?'
-          .'command=SandcastleUniversalCommand'
-          .'&vcs=rocksdb-int-git&revision=origin%2Fmaster&type=lego'
-          .'&user=' . $username . '&alias=rocksdb-precommit'
-          .'&command-args=' . urlencode(json_encode($command));
+  $url = 'https://interngraph.intern.facebook.com/sandcastle/create';
+
+  $job = array(
+    'command' => 'SandcastleUniversalCommand',
+    'args' => $command,
+    'capabilities' => array(
+      'vcs' => 'rocksdb-int-git',
+      'type' => 'lego',
+    ),
+    'hash' => 'origin/master',
+    'user' => $username,
+    'alias' => 'rocksdb-precommit',
+    'tags' => array('rocksdb'),
+    'description' => 'Rocksdb precommit job',
+  );
 
   // Fetch the configuration necessary to submit a successful HTTPS request.
   $sandcastle_config = getSandcastleConfig();
@@ -312,7 +322,8 @@ function getSandcastleConfig() {
   $token = $sandcastle_config[1];
 
   $cmd = 'curl -s -k -F app=' . $app . ' '
-          . '-F token=' . $token . ' "' . $url . '"';
+          . '-F token=' . $token . ' -F job=\'' . json_encode($job)
+          .'\' "' . $url . '"';
 
   $output = shell_exec($cmd);
   assert(strlen($output) > 0);
