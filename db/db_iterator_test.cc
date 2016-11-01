@@ -1698,13 +1698,14 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
     t.join();
   }
 
-  ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_NEXT), total_next);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_NEXT), (uint64_t)total_next);
   ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_NEXT_FOUND),
-            total_next_found);
-  ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_PREV), total_prev);
+            (uint64_t)total_next_found);
+  ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_PREV), (uint64_t)total_prev);
   ASSERT_EQ(TestGetTickerCount(options, NUMBER_DB_PREV_FOUND),
-            total_prev_found);
-  ASSERT_EQ(TestGetTickerCount(options, ITER_BYTES_READ), total_bytes);
+            (uint64_t)total_prev_found);
+  ASSERT_EQ(TestGetTickerCount(options, ITER_BYTES_READ), (uint64_t)total_bytes);
+
 }
 
 TEST_F(DBIteratorTest, ReadAhead) {
