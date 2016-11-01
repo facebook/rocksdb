@@ -2136,7 +2136,7 @@ jintArray Java_org_rocksdb_Options_maxBytesForLevelMultiplierAdditional(
 
   jint* additionals = new jint[size];
   for (size_t i = 0; i < size; i++) {
-    additionals[i] = reinterpret_cast<jint>(mbflma[i]);
+    additionals[i] = static_cast<jint>(mbflma[i]);
   }
 
   jsize jlen = static_cast<jsize>(size);
@@ -2162,7 +2162,7 @@ void Java_org_rocksdb_Options_setMaxBytesForLevelMultiplierAdditional(
   auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
   opt->max_bytes_for_level_multiplier_additional.clear();
   for (jsize i = 0; i < len; i++) {
-    opt->max_bytes_for_level_multiplier_additional.push_back(reinterpret_cast<int32_t>(additionals[i]));
+    opt->max_bytes_for_level_multiplier_additional.push_back(static_cast<int32_t>(additionals[i]));
   }
 }
 
@@ -3398,7 +3398,7 @@ jintArray Java_org_rocksdb_ColumnFamilyOptions_maxBytesForLevelMultiplierAdditio
 
   jint* additionals = new jint[size];
   for (size_t i = 0; i < size; i++) {
-    additionals[i] = reinterpret_cast<jint>(mbflma[i]);
+    additionals[i] = static_cast<jint>(mbflma[i]);
   }
 
   jsize jlen = static_cast<jsize>(size);
@@ -3425,7 +3425,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelMultiplierAdditiona
   auto* cf_opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
   cf_opt->max_bytes_for_level_multiplier_additional.clear();
   for (jsize i = 0; i < len; i++) {
-    cf_opt->max_bytes_for_level_multiplier_additional.push_back(reinterpret_cast<int32_t>(additionals[i]));
+    cf_opt->max_bytes_for_level_multiplier_additional.push_back(static_cast<int32_t>(additionals[i]));
   }
 }
 
