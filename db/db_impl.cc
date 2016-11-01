@@ -1794,7 +1794,9 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options, env_options_,
-          cfd->table_cache(), iter.get(), &meta, cfd->internal_comparator(),
+          cfd->table_cache(), iter.get(),
+          ScopedArenaIterator(mem->NewRangeTombstoneIterator(ro, &arena)),
+          &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           snapshot_seqs, earliest_write_conflict_snapshot,
           GetCompressionFlush(*cfd->ioptions(), mutable_cf_options),

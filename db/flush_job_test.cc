@@ -115,18 +115,19 @@ TEST_F(FlushJobTest, NonEmpty) {
   // Test data:
   //   seqno [    1,    2 ... 8998, 8999, 9000, 9001, 9002 ... 9999 ]
   //   key   [ 1001, 1002 ... 9998, 9999,    0,    1,    2 ...  999 ]
-  // Expected:
-  //   smallest_key   = "0"
-  //   largest_key    = "9999"
-  //   smallest_seqno = 1
-  //   smallest_seqno = 9999
+  //   range-delete "9995" -> "9999" at seqno 10000
   for (int i = 1; i < 10000; ++i) {
     std::string key(ToString((i + 1000) % 10000));
     std::string value("value" + key);
     new_mem->Add(SequenceNumber(i), kTypeValue, key, value);
-    InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
-    inserted_keys.insert({internal_key.Encode().ToString(), value});
+    if ((i + 1000) % 10000 < 9995) {
+      InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
+      inserted_keys.insert({internal_key.Encode().ToString(), value});
+    }
   }
+  new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999");
+  InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
+  inserted_keys.insert({internal_key.Encode().ToString(), "9999"});
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
@@ -146,9 +147,10 @@ TEST_F(FlushJobTest, NonEmpty) {
   ASSERT_OK(flush_job.Run(&fd));
   mutex_.Unlock();
   ASSERT_EQ(ToString(0), fd.smallest.user_key().ToString());
-  ASSERT_EQ(ToString(9999), fd.largest.user_key().ToString());
+  ASSERT_EQ(ToString(9999),
+            fd.largest.user_key().ToString());  // range tombstone end key
   ASSERT_EQ(1, fd.smallest_seqno);
-  ASSERT_EQ(9999, fd.largest_seqno);
+  ASSERT_EQ(10000, fd.largest_seqno);  // range tombstone seqnum 10000
   mock_table_factory_->AssertSingleFile(inserted_keys);
   job_context.Clean();
 }

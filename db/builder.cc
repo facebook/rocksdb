@@ -61,7 +61,8 @@ TableBuilder* NewTableBuilder(
 Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
-    TableCache* table_cache, InternalIterator* iter, FileMetaData* meta,
+    TableCache* table_cache, InternalIterator* iter,
+    ScopedArenaIterator&& range_del_iter, FileMetaData* meta,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
@@ -81,6 +82,14 @@ Status BuildTable(
   Status s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
+  range_del_iter->SeekToFirst();
+  std::unique_ptr<RangeDelAggregator> range_del_agg(
+      new RangeDelAggregator(internal_comparator, snapshots));
+  s = range_del_agg->AddTombstones(std::move(range_del_iter));
+  if (!s.ok()) {
+    // may be non-ok if a range tombstone key is unparsable
+    return s;
+  }
 
   std::string fname = TableFileName(ioptions.db_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
@@ -90,7 +99,7 @@ Status BuildTable(
 #endif  // !ROCKSDB_LITE
   TableProperties tp;
 
-  if (iter->Valid()) {
+  if (iter->Valid() || range_del_agg->ShouldAddTombstones()) {
     TableBuilder* builder;
     unique_ptr<WritableFileWriter> file_writer;
     {
@@ -112,8 +121,6 @@ Status BuildTable(
           compression_opts, level);
     }
 
-    std::unique_ptr<RangeDelAggregator> range_del_agg;
-    range_del_agg.reset(new RangeDelAggregator(internal_comparator, snapshots));
     MergeHelper merge(env, internal_comparator.user_comparator(),
                       ioptions.merge_operator, nullptr, ioptions.info_log,
                       mutable_cf_options.min_partial_merge_operands,
@@ -138,6 +145,9 @@ Status BuildTable(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
       }
     }
+    // nullptr for table_{min,max} so all range tombstones will be flushed
+    range_del_agg->AddToBuilder(builder, true /* extend_before_min_key */,
+                                nullptr /* next_table_min_key*/, meta);
 
     // Finish and check for builder errors
     bool empty = builder->NumEntries() == 0;

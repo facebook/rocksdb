@@ -17,6 +17,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
+#include "table/scoped_arena_iterator.h"
 #include "util/cf_options.h"
 #include "util/event_logger.h"
 
@@ -63,7 +64,8 @@ TableBuilder* NewTableBuilder(
 extern Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& options,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
-    TableCache* table_cache, InternalIterator* iter, FileMetaData* meta,
+    TableCache* table_cache, InternalIterator* iter,
+    ScopedArenaIterator&& range_del_iter, FileMetaData* meta,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
