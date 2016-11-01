@@ -256,6 +256,28 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   ASSERT_EQ(3, dbfull()->TEST_BGCompactionsAllowed());
 }
 
+TEST_F(DBOptionsTest, AvoidFlushDuringShutdown) {
+  Options options;
+  options.create_if_missing = true;
+  options.disable_auto_compactions = true;
+  WriteOptions write_without_wal;
+  write_without_wal.disableWAL = true;
+
+  ASSERT_FALSE(options.avoid_flush_during_shutdown);
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "v1", write_without_wal));
+  Reopen(options);
+  ASSERT_EQ("v1", Get("foo"));
+  ASSERT_EQ("1", FilesPerLevel());
+
+  DestroyAndReopen(options);
+  ASSERT_OK(Put("foo", "v2", write_without_wal));
+  ASSERT_OK(dbfull()->SetDBOptions({{"avoid_flush_during_shutdown", "true"}}));
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ("", FilesPerLevel());
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

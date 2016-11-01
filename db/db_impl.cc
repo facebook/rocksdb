@@ -375,7 +375,8 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   InstrumentedMutexLock l(&mutex_);
 
   if (!shutting_down_.load(std::memory_order_acquire) &&
-      has_unpersisted_data_) {
+      has_unpersisted_data_ &&
+      !mutable_db_options_.avoid_flush_during_shutdown) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
