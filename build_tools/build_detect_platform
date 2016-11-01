@@ -16,6 +16,8 @@
 #   PLATFORM_CXXFLAGS           C++ compiler flags.  Will contain:
 #   PLATFORM_SHARED_VERSIONED   Set to 'true' if platform supports versioned
 #                               shared libraries, empty otherwise.
+#   PLATFORM_WEAK_SYMBOLS       Set to 'true' if we support weak symbols, empty
+#                               otherwise
 #
 # The PLATFORM_CCFLAGS and PLATFORM_CXXFLAGS might include the following:
 #
@@ -310,15 +312,13 @@ EOF
     # Test whether jemalloc is available
     if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null -ljemalloc \
       2>/dev/null; then
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ljemalloc"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -ljemalloc"
         JEMALLOC=1
+        MALLOC_LIB="-ljemalloc"
     else
         # jemalloc is not available. Let's try tcmalloc
         if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null \
           -ltcmalloc 2>/dev/null; then
-            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
-            JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
+            MALLOC_LIB="-ltcmalloc"
         fi
     fi
 
@@ -381,6 +381,17 @@ EOF
 EOF
     if [ "$?" = 0 ]; then
         PROFILING_FLAGS=-pg
+    fi
+
+    # Test if weak linking is supported
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null <<EOF
+      __attribute__((__weak__)) void foo(int);
+      int main() {
+        return 0;
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        PLATFORM_WEAK_SYMBOLS=true
     fi
 fi
 
@@ -454,9 +465,9 @@ echo "PLATFORM_SHARED_CFLAGS=$PLATFORM_SHARED_CFLAGS" >> "$OUTPUT"
 echo "PLATFORM_SHARED_EXT=$PLATFORM_SHARED_EXT" >> "$OUTPUT"
 echo "PLATFORM_SHARED_LDFLAGS=$PLATFORM_SHARED_LDFLAGS" >> "$OUTPUT"
 echo "PLATFORM_SHARED_VERSIONED=$PLATFORM_SHARED_VERSIONED" >> "$OUTPUT"
+echo "PLATFORM_WEAK_SYMBOLS=$PLATFORM_WEAK_SYMBOLS" >> "$OUTPUT"
 echo "EXEC_LDFLAGS=$EXEC_LDFLAGS" >> "$OUTPUT"
-echo "JEMALLOC_INCLUDE=$JEMALLOC_INCLUDE" >> "$OUTPUT"
-echo "JEMALLOC_LIB=$JEMALLOC_LIB" >> "$OUTPUT"
+echo "MALLOC_LIB=$MALLOC_LIB" >> $OUTPUT
 echo "ROCKSDB_MAJOR=$ROCKSDB_MAJOR" >> "$OUTPUT"
 echo "ROCKSDB_MINOR=$ROCKSDB_MINOR" >> "$OUTPUT"
 echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"

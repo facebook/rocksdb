@@ -570,7 +570,16 @@ void DBImpl::PrintStatistics() {
 }
 
 #ifndef ROCKSDB_LITE
-#ifdef ROCKSDB_JEMALLOC
+
+#if (defined(ROCKSDB_JEMALLOC) && defined(ROCKSDB_WEAK_SYMBOLS))
+
+extern "C" __attribute__((__weak__)) void malloc_stats_print(
+    void (*write_cb)(void *, const char *),
+    void *je_cbopaque,
+    const char *opts);
+extern "C" __attribute__((__weak__)) int mallctl(
+    const char*, void*, size_t*, void*, size_t);
+
 typedef struct {
   char* cur;
   char* end;
@@ -587,10 +596,62 @@ static void GetJemallocStatus(void* mstat_arg, const char* status) {
   snprintf(mstat->cur, buf_size, "%s", status);
   mstat->cur += status_len;
 }
-#endif  // ROCKSDB_JEMALLOC
+
+static bool UsingJEMalloc() {
+  // Ugly test copied from folly/Malloc.h
+  //
+  // Checking for malloc_stats_print != NULL is not sufficient; we may be in a
+  // dlopen()ed module that depends on libjemalloc, so malloc_stats_print is
+  // resolved, but the main program might be using a different memory
+  // allocator. How do we determine that we're using jemalloc? In the hackiest
+  // way possible. We allocate memory using malloc() and see if the per-thread
+  // counter of allocated memory increases. This makes me feel dirty inside.
+  // Also note that this requires jemalloc to have been compiled with
+  // --enable-stats.
+  static const bool result = [] () noexcept {
+    // Some platforms (*cough* OSX *cough*) require weak symbol checks to be
+    // in the form if (mallctl != nullptr). Not if (mallctl) or if (!mallctl)
+    // (!!). http://goo.gl/xpmctm
+    if (mallctl == nullptr || malloc_stats_print == nullptr) {
+      return false;
+    }
+
+    // "volatile" because gcc optimizes out the reads from *counter, because
+    // it "knows" malloc doesn't modify global state...
+    /* nolint */ volatile uint64_t* counter;
+    size_t counterLen = sizeof(uint64_t*);
+
+    if (mallctl("thread.allocatedp", static_cast<void*>(&counter), &counterLen,
+                nullptr, 0) != 0) {
+      return false;
+    }
+
+    if (counterLen != sizeof(uint64_t*)) {
+      return false;
+    }
+
+    uint64_t origAllocated = *counter;
+
+    // Static because otherwise clever compilers will find out that
+    // the ptr is not used and does not escape the scope, so they will
+    // just optimize away the malloc.
+    static const void* ptr = malloc(1);
+    if (!ptr) {
+      // wtf, failing to allocate 1 byte
+      return false;
+    }
+
+    return (origAllocated != *counter);
+  }();
+
+  return result;
+}
 
 static void DumpMallocStats(std::string* stats) {
-#ifdef ROCKSDB_JEMALLOC
+  static bool usingJEMalloc = UsingJEMalloc();
+  if (!usingJEMalloc) {
+    return;
+  }
   MallocStatus mstat;
   const uint kMallocStatusLen = 1000000;
   std::unique_ptr<char> buf{new char[kMallocStatusLen + 1]};
@@ -598,8 +659,14 @@ static void DumpMallocStats(std::string* stats) {
   mstat.end = buf.get() + kMallocStatusLen;
   malloc_stats_print(GetJemallocStatus, &mstat, "");
   stats->append(buf.get());
-#endif  // ROCKSDB_JEMALLOC
 }
+
+#else  // ROCKSDB_JEMALLOC && ROCKSDB_WEAK_SYMBOLS
+
+static void DumpMallocStats(std::string* stats) { }
+
+#endif  // ROCKSDB_JEMALLOC && ROCKSDB_WEAK_SYMBOLS
+
 #endif  // !ROCKSDB_LITE
 
 void DBImpl::MaybeDumpStats() {
