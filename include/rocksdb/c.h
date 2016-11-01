@@ -722,7 +722,7 @@ rocksdb_options_set_universal_compaction_options(
     rocksdb_options_t*, rocksdb_universal_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_fifo_compaction_options(
     rocksdb_options_t* opt, rocksdb_fifo_compaction_options_t* fifo);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_rate_limiter(
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_ratelimiter(
     rocksdb_options_t* opt, rocksdb_ratelimiter_t* limiter);
 
 /* RateLimiter */
