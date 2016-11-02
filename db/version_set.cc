@@ -1980,14 +1980,15 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
       base_level_ = num_levels_ - 1;
     } else {
       uint64_t base_bytes_max = options.max_bytes_for_level_base;
-      uint64_t base_bytes_min =
-          base_bytes_max / options.max_bytes_for_level_multiplier;
+      uint64_t base_bytes_min = static_cast<uint64_t>(
+          base_bytes_max / options.max_bytes_for_level_multiplier);
 
       // Try whether we can make last level's target size to be max_level_size
       uint64_t cur_level_size = max_level_size;
       for (int i = num_levels_ - 2; i >= first_non_empty_level; i--) {
         // Round up after dividing
-        cur_level_size /= options.max_bytes_for_level_multiplier;
+        cur_level_size = static_cast<uint64_t>(
+            cur_level_size / options.max_bytes_for_level_multiplier);
       }
 
       // Calculate base level and its size.
@@ -2006,8 +2007,8 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         base_level_ = first_non_empty_level;
         while (base_level_ > 1 && cur_level_size > base_bytes_max) {
           --base_level_;
-          cur_level_size =
-              cur_level_size / options.max_bytes_for_level_multiplier;
+          cur_level_size = static_cast<uint64_t>(
+              cur_level_size / options.max_bytes_for_level_multiplier);
         }
         if (cur_level_size > base_bytes_max) {
           // Even L1 will be too large

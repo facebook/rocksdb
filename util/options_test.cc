@@ -68,7 +68,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"target_file_size_multiplier", "13"},
       {"max_bytes_for_level_base", "14"},
       {"level_compaction_dynamic_level_bytes", "true"},
-      {"max_bytes_for_level_multiplier", "15"},
+      {"max_bytes_for_level_multiplier", "15.0"},
       {"max_bytes_for_level_multiplier_additional", "16:17:18"},
       {"max_compaction_bytes", "21"},
       {"soft_rate_limit", "1.1"},
@@ -164,7 +164,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
   ASSERT_EQ(new_cf_opt.level_compaction_dynamic_level_bytes, true);
-  ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15);
+  ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15.0);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional.size(), 3U);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[0], 16);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[1], 17);

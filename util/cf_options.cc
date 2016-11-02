@@ -75,18 +75,14 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       max_subcompactions(db_options.max_subcompactions) {}
 
 // Multiple two operands. If they overflow, return op1.
-uint64_t MultiplyCheckOverflow(uint64_t op1, int op2) {
-  if (op1 == 0) {
+uint64_t MultiplyCheckOverflow(uint64_t op1, double op2) {
+  if (op1 == 0 || op2 <= 0) {
     return 0;
   }
-  if (op2 <= 0) {
+  if (port::kMaxUint64 / op1 < op2) {
     return op1;
   }
-  uint64_t casted_op2 = (uint64_t) op2;
-  if (std::numeric_limits<uint64_t>::max() / op1 < casted_op2) {
-    return op1;
-  }
-  return op1 * casted_op2;
+  return static_cast<uint64_t>(op1 * op2);
 }
 
 void MutableCFOptions::RefreshDerivedOptions(int num_levels,
@@ -146,7 +142,7 @@ void MutableCFOptions::Dump(Logger* log) const {
       target_file_size_multiplier);
   Log(log, "                 max_bytes_for_level_base: %" PRIu64,
       max_bytes_for_level_base);
-  Log(log, "           max_bytes_for_level_multiplier: %d",
+  Log(log, "           max_bytes_for_level_multiplier: %f",
       max_bytes_for_level_multiplier);
   std::string result;
   char buf[10];

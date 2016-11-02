@@ -1184,7 +1184,8 @@ uint32_t LevelCompactionPicker::GetPathId(
         return p;
       } else {
         current_path_size -= level_size;
-        level_size *= mutable_cf_options.max_bytes_for_level_multiplier;
+        level_size = static_cast<uint64_t>(
+            level_size * mutable_cf_options.max_bytes_for_level_multiplier);
         cur_level++;
         continue;
       }

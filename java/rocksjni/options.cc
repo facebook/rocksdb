@@ -1522,10 +1522,11 @@ void Java_org_rocksdb_Options_setLevelCompactionDynamicLevelBytes(
 /*
  * Class:     org_rocksdb_Options
  * Method:    maxBytesForLevelMultiplier
- * Signature: (J)I
+ * Signature: (J)D
  */
-jint Java_org_rocksdb_Options_maxBytesForLevelMultiplier(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
+jdouble Java_org_rocksdb_Options_maxBytesForLevelMultiplier(JNIEnv* env,
+                                                            jobject jobj,
+                                                            jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(
       jhandle)->max_bytes_for_level_multiplier;
 }
@@ -1533,14 +1534,13 @@ jint Java_org_rocksdb_Options_maxBytesForLevelMultiplier(
 /*
  * Class:     org_rocksdb_Options
  * Method:    setMaxBytesForLevelMultiplier
- * Signature: (JI)V
+ * Signature: (JD)V
  */
 void Java_org_rocksdb_Options_setMaxBytesForLevelMultiplier(
     JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmax_bytes_for_level_multiplier) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->max_bytes_for_level_multiplier =
-          static_cast<int>(jmax_bytes_for_level_multiplier);
+    jdouble jmax_bytes_for_level_multiplier) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->max_bytes_for_level_multiplier =
+      static_cast<double>(jmax_bytes_for_level_multiplier);
 }
 
 /*
@@ -2823,9 +2823,9 @@ void Java_org_rocksdb_ColumnFamilyOptions_setLevelCompactionDynamicLevelBytes(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    maxBytesForLevelMultiplier
- * Signature: (J)I
+ * Signature: (J)D
  */
-jint Java_org_rocksdb_ColumnFamilyOptions_maxBytesForLevelMultiplier(
+jdouble Java_org_rocksdb_ColumnFamilyOptions_maxBytesForLevelMultiplier(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
       jhandle)->max_bytes_for_level_multiplier;
@@ -2834,14 +2834,14 @@ jint Java_org_rocksdb_ColumnFamilyOptions_maxBytesForLevelMultiplier(
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    setMaxBytesForLevelMultiplier
- * Signature: (JI)V
+ * Signature: (JD)V
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelMultiplier(
     JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmax_bytes_for_level_multiplier) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->max_bytes_for_level_multiplier =
-          static_cast<int>(jmax_bytes_for_level_multiplier);
+    jdouble jmax_bytes_for_level_multiplier) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
+      ->max_bytes_for_level_multiplier =
+      static_cast<double>(jmax_bytes_for_level_multiplier);
 }
 
 /*

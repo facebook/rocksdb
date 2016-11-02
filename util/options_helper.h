@@ -490,7 +490,7 @@ static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
       offsetof(struct MutableCFOptions, max_bytes_for_level_base)}},
     {"max_bytes_for_level_multiplier",
      {offsetof(struct ColumnFamilyOptions, max_bytes_for_level_multiplier),
-      OptionType::kInt, OptionVerificationType::kNormal, true,
+      OptionType::kDouble, OptionVerificationType::kNormal, true,
       offsetof(struct MutableCFOptions, max_bytes_for_level_multiplier)}},
     {"max_bytes_for_level_multiplier_additional",
      {offsetof(struct ColumnFamilyOptions,
