@@ -47,10 +47,12 @@ using rocksdb::WALRecoveryMode;
 using rocksdb::DB;
 using rocksdb::DBOptions;
 using rocksdb::Env;
+using rocksdb::EnvOptions;
 using rocksdb::InfoLogLevel;
 using rocksdb::FileLock;
 using rocksdb::FilterPolicy;
 using rocksdb::FlushOptions;
+using rocksdb::IngestExternalFileOptions;
 using rocksdb::Iterator;
 using rocksdb::Logger;
 using rocksdb::MergeOperator;
@@ -68,6 +70,7 @@ using rocksdb::Slice;
 using rocksdb::SliceParts;
 using rocksdb::SliceTransform;
 using rocksdb::Snapshot;
+using rocksdb::SstFileWriter;
 using rocksdb::Status;
 using rocksdb::WritableFile;
 using rocksdb::WriteBatch;
@@ -108,6 +111,9 @@ struct rocksdb_logger_t          { shared_ptr<Logger>  rep; };
 struct rocksdb_cache_t           { shared_ptr<Cache>   rep; };
 struct rocksdb_livefiles_t       { std::vector<LiveFileMetaData> rep; };
 struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
+struct rocksdb_envoptions_t      { EnvOptions        rep; };
+struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
+struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
@@ -2185,6 +2191,107 @@ void rocksdb_env_join_all_threads(rocksdb_env_t* env) {
 void rocksdb_env_destroy(rocksdb_env_t* env) {
   if (!env->is_default) delete env->rep;
   delete env;
+}
+
+rocksdb_envoptions_t* rocksdb_envoptions_create() {
+  rocksdb_envoptions_t* opt = new rocksdb_envoptions_t;
+  return opt;
+}
+
+void rocksdb_envoptions_destroy(rocksdb_envoptions_t* opt) { delete opt; }
+
+rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create(
+    const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options) {
+  rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
+  writer->rep =
+      new SstFileWriter(env->rep, io_options->rep, io_options->rep.comparator);
+  return writer;
+}
+
+rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create_with_comparator(
+    const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options,
+    const rocksdb_comparator_t* comparator) {
+  rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
+  writer->rep =
+      new SstFileWriter(env->rep, io_options->rep, io_options->rep.comparator);
+  return writer;
+}
+
+void rocksdb_sstfilewriter_open(rocksdb_sstfilewriter_t* writer,
+                                const char* name, char** errptr) {
+  SaveError(errptr, writer->rep->Open(std::string(name)));
+}
+
+void rocksdb_sstfilewriter_add(rocksdb_sstfilewriter_t* writer, const char* key,
+                               size_t keylen, const char* val, size_t vallen,
+                               char** errptr) {
+  SaveError(errptr, writer->rep->Add(Slice(key, keylen), Slice(val, vallen)));
+}
+
+void rocksdb_sstfilewriter_finish(rocksdb_sstfilewriter_t* writer,
+                                  char** errptr) {
+  SaveError(errptr, writer->rep->Finish(NULL));
+}
+
+void rocksdb_sstfilewriter_destroy(rocksdb_sstfilewriter_t* writer) {
+  delete writer->rep;
+  delete writer;
+}
+
+rocksdb_ingestexternalfileoptions_t*
+rocksdb_ingestexternalfileoptions_create() {
+  rocksdb_ingestexternalfileoptions_t* opt =
+      new rocksdb_ingestexternalfileoptions_t;
+  return opt;
+}
+
+void rocksdb_ingestexternalfileoptions_set_move_files(
+    rocksdb_ingestexternalfileoptions_t* opt, unsigned char move_files) {
+  opt->rep.move_files = move_files;
+}
+
+void rocksdb_ingestexternalfileoptions_set_snapshot_consistency(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char snapshot_consistency) {
+  opt->rep.snapshot_consistency = snapshot_consistency;
+}
+
+void rocksdb_ingestexternalfileoptions_set_allow_global_seqno(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char allow_global_seqno) {
+  opt->rep.allow_global_seqno = allow_global_seqno;
+}
+
+void rocksdb_ingestexternalfileoptions_set_allow_blocking_flush(
+    rocksdb_ingestexternalfileoptions_t* opt,
+    unsigned char allow_blocking_flush) {
+  opt->rep.allow_blocking_flush = allow_blocking_flush;
+}
+
+void rocksdb_ingestexternalfileoptions_destroy(
+    rocksdb_ingestexternalfileoptions_t* opt) {
+  delete opt;
+}
+
+void rocksdb_ingest_external_file(
+    rocksdb_t* db, const char* const* file_list, const size_t list_len,
+    const rocksdb_ingestexternalfileoptions_t* opt, char** errptr) {
+  std::vector<std::string> files(list_len);
+  for (size_t i = 0; i < list_len; ++i) {
+    files[i] = std::string(file_list[i]);
+  }
+  SaveError(errptr, db->rep->IngestExternalFile(files, opt->rep));
+}
+
+void rocksdb_ingest_external_file_cf(
+    rocksdb_t* db, rocksdb_column_family_handle_t* handle,
+    const char* const* file_list, const size_t list_len,
+    const rocksdb_ingestexternalfileoptions_t* opt, char** errptr) {
+  std::vector<std::string> files(list_len);
+  for (size_t i = 0; i < list_len; ++i) {
+    files[i] = std::string(file_list[i]);
+  }
+  SaveError(errptr, db->rep->IngestExternalFile(handle->rep, files, opt->rep));
 }
 
 rocksdb_slicetransform_t* rocksdb_slicetransform_create(
