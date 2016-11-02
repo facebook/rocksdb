@@ -162,6 +162,9 @@ class BlockBasedTable : public TableReader {
   static InternalIterator* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
       BlockIter* input_iter = nullptr);
+  static Status MaybeLoadDataBlockToCache(
+      Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
+      Slice compression_dict, CachableEntry<Block>* block_entry);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
