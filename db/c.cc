@@ -1886,6 +1886,7 @@ char *rocksdb_options_statistics_get_string(rocksdb_options_t *opt) {
 
 void rocksdb_options_set_ratelimiter(rocksdb_options_t *opt, rocksdb_ratelimiter_t *limiter) {
   opt->rep.rate_limiter.reset(limiter->rep);
+  limiter->rep = nullptr;
 }
 
 rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
@@ -1899,6 +1900,9 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
 }
 
 void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t *limiter) {
+  if (limiter->rep) {
+	delete limiter->rep;
+  }
   delete limiter;
 }
 
