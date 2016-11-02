@@ -34,13 +34,23 @@ class OptimisticTransactionTest : public testing::Test {
     dbname = test::TmpDir() + "/optimistic_transaction_testdb";
 
     DestroyDB(dbname, options);
-    Status s = OptimisticTransactionDB::Open(options, dbname, &txn_db);
-    assert(s.ok());
-    db = txn_db->GetBaseDB();
+    Open();
   }
   ~OptimisticTransactionTest() {
     delete txn_db;
     DestroyDB(dbname, options);
+  }
+
+  void Reopen() {
+    delete txn_db;
+    Open();
+  }
+
+private:
+  void Open() {
+    Status s = OptimisticTransactionDB::Open(options, dbname, &txn_db);
+    assert(s.ok());
+    db = txn_db->GetBaseDB();
   }
 };
 
@@ -1336,6 +1346,33 @@ TEST_F(OptimisticTransactionTest, OptimisticTransactionStressTest) {
   // Verify that data is consistent
   Status s = RandomTransactionInserter::Verify(db, num_sets);
   ASSERT_OK(s);
+}
+
+TEST_F(OptimisticTransactionTest, SequenceNumberAfterRecoverTest) {
+  WriteOptions write_options;
+  OptimisticTransactionOptions transaction_options;
+
+  Transaction* transaction(txn_db->BeginTransaction(write_options, transaction_options));
+  Status s = transaction->Put("foo", "val");
+  ASSERT_OK(s);
+  s = transaction->Put("foo2", "val");
+  ASSERT_OK(s);
+  s = transaction->Put("foo3", "val");
+  ASSERT_OK(s);
+  s = transaction->Commit();
+  ASSERT_OK(s);
+  delete transaction;
+
+  Reopen();
+  transaction = txn_db->BeginTransaction(write_options, transaction_options);
+  s = transaction->Put("bar", "val");
+  ASSERT_OK(s);
+  s = transaction->Put("bar2", "val");
+  ASSERT_OK(s);
+  s = transaction->Commit();
+  ASSERT_OK(s);
+
+  delete transaction;
 }
 
 }  // namespace rocksdb
