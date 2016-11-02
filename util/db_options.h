@@ -94,6 +94,7 @@ struct MutableDBOptions {
 
   int base_background_compactions;
   int max_background_compactions;
+  bool avoid_flush_during_shutdown;
 };
 
 }  // namespace rocksdb

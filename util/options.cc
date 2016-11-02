@@ -228,7 +228,8 @@ DBOptions::DBOptions()
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(false),
       dump_malloc_stats(false),
-      avoid_flush_during_recovery(false) {
+      avoid_flush_during_recovery(false),
+      avoid_flush_during_shutdown(false) {
 }
 
 DBOptions::DBOptions(const Options& options)
@@ -301,7 +302,8 @@ DBOptions::DBOptions(const Options& options)
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
       dump_malloc_stats(options.dump_malloc_stats),
-      avoid_flush_during_recovery(options.avoid_flush_during_recovery) {
+      avoid_flush_during_recovery(options.avoid_flush_during_recovery),
+      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown) {
 }
 
 static const char* const access_hints[] = {

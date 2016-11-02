@@ -3,6 +3,9 @@
 ### Public API Change
 * Options::max_bytes_for_level_multiplier is now a double along with all getters and setters.
 
+### New Features
+* Add avoid_flush_during_shutdown option, which speeds up DB shutdown by not flushing unpersisted data (i.e. with disableWAL = true). Unpersisted data will be lost. The options is dynamically changeable.
+
 ## 4.13.0 (10/18/2016)
 ### Public API Change
 * DB::GetOptions() reflect dynamic changed options (i.e. through DB::SetOptions()) and return copy of options instead of reference.

@@ -288,7 +288,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "info_log_level=DEBUG_LEVEL;"
                              "dump_malloc_stats=false;"
                              "allow_2pc=false;"
-                             "avoid_flush_during_recovery=false;",
+                             "avoid_flush_during_recovery=false;"
+                             "avoid_flush_during_shutdown=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
