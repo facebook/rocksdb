@@ -162,6 +162,15 @@ class BlockBasedTable : public TableReader {
   static InternalIterator* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
       BlockIter* input_iter = nullptr);
+  // If block cache enabled (compressed or uncompressed), looks for the block
+  // identified by handle in (1) uncompressed cache, (2) compressed cache, and
+  // then (3) file. If found, inserts into the cache(s) that were searched
+  // unsuccessfully (e.g., if found in file, will add to both uncompressed and
+  // compressed caches if they're enabled).
+  //
+  // @param block_entry value is set to the uncompressed block if found. If
+  //    in uncompressed block cache, also sets cache_handle to reference that
+  //    block.
   static Status MaybeLoadDataBlockToCache(
       Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
       Slice compression_dict, CachableEntry<Block>* block_entry);
