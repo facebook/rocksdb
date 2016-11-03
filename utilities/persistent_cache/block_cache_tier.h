@@ -103,7 +103,7 @@ class BlockCacheTier : public PersistentCacheTier {
   // insert implementation
   Status InsertImpl(const Slice& key, const Slice& data);
   // Create a new cache file
-  void NewCacheFile();
+  Status NewCacheFile();
   // Get cache directory path
   std::string GetCachePath() const { return opt_.path + "/cache"; }
   // Cleanup folder
