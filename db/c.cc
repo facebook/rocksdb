@@ -30,6 +30,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "utilities/merge_operators.h"
 
@@ -81,6 +82,8 @@ using rocksdb::BackupableDBOptions;
 using rocksdb::BackupInfo;
 using rocksdb::RestoreOptions;
 using rocksdb::CompactRangeOptions;
+using rocksdb::RateLimiter;
+using rocksdb::NewGenericRateLimiter;
 
 using std::shared_ptr;
 
@@ -114,6 +117,7 @@ struct rocksdb_column_family_handle_t  { ColumnFamilyHandle* rep; };
 struct rocksdb_envoptions_t      { EnvOptions        rep; };
 struct rocksdb_ingestexternalfileoptions_t  { IngestExternalFileOptions rep; };
 struct rocksdb_sstfilewriter_t   { SstFileWriter*    rep; };
+struct rocksdb_ratelimiter_t     { RateLimiter*      rep; };
 
 struct rocksdb_compactionfiltercontext_t {
   CompactionFilter::Context rep;
@@ -1878,6 +1882,28 @@ char *rocksdb_options_statistics_get_string(rocksdb_options_t *opt) {
     return strdup(statistics->ToString().c_str());
   }
   return nullptr;
+}
+
+void rocksdb_options_set_ratelimiter(rocksdb_options_t *opt, rocksdb_ratelimiter_t *limiter) {
+  opt->rep.rate_limiter.reset(limiter->rep);
+  limiter->rep = nullptr;
+}
+
+rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
+    int64_t rate_bytes_per_sec,
+    int64_t refill_period_us,
+    int32_t fairness) {
+  rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
+  rate_limiter->rep = NewGenericRateLimiter(rate_bytes_per_sec,
+		  refill_period_us, fairness);
+  return rate_limiter;
+}
+
+void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t *limiter) {
+  if (limiter->rep) {
+	delete limiter->rep;
+  }
+  delete limiter;
 }
 
 /*

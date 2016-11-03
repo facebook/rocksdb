@@ -108,6 +108,7 @@ typedef struct rocksdb_column_family_handle_t rocksdb_column_family_handle_t;
 typedef struct rocksdb_envoptions_t      rocksdb_envoptions_t;
 typedef struct rocksdb_ingestexternalfileoptions_t rocksdb_ingestexternalfileoptions_t;
 typedef struct rocksdb_sstfilewriter_t   rocksdb_sstfilewriter_t;
+typedef struct rocksdb_ratelimiter_t     rocksdb_ratelimiter_t;
 
 /* DB operations */
 
@@ -721,6 +722,13 @@ rocksdb_options_set_universal_compaction_options(
     rocksdb_options_t*, rocksdb_universal_compaction_options_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_fifo_compaction_options(
     rocksdb_options_t* opt, rocksdb_fifo_compaction_options_t* fifo);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_ratelimiter(
+    rocksdb_options_t* opt, rocksdb_ratelimiter_t* limiter);
+
+/* RateLimiter */
+extern ROCKSDB_LIBRARY_API rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
+    int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness);
+extern ROCKSDB_LIBRARY_API void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t*);
 
 /* Compaction Filter */
 
