@@ -3,7 +3,7 @@
 <br />
 <div class="pagination">
   {% if paginator.previous_page %}
-    <a href="{{ paginator.previous_page_path | prepend: site.baseurl | replace: '//', '/' }}">&laquo; Prev</a>
+    <a href="{{ paginator.previous_page_path | replace: '//', '/' }}">&laquo; Prev</a>
   {% else %}
     <span>&laquo; Prev</span>
   {% endif %}
@@ -12,18 +12,17 @@
     {% if page == paginator.page %}
       <em>{{ page }}</em>
     {% elsif page == 1 %}
-      <a href="{{ '/blog' | prepend: site.baseurl }}">{{ page }}</a>
+      <a href="/blog">{{ page }}</a>
     {% else %}
-      <a href="{{ site.paginate_path | prepend: site.baseurl | replace: '//', '/' | replace: ':num', page }}">{{ page }}</a>
+      <a href="{{ site.paginate_path | replace: '//', '/' | replace: ':num', page }}">{{ page }}</a>
     {% endif %}
   {% endfor %}
 
   {% if paginator.next_page %}
-    <a href="{{ paginator.next_page_path | prepend: site.baseurl | replace: '//', '/' }}">Next &raquo;</a>
+    <a href="{{ paginator.next_page_path | replace: '//', '/' }}">Next &raquo;</a>
   {% else %}
     <span>Next &raquo;</span>
   {% endif %}
 </div>
 <br />
 {% endif %}
-
