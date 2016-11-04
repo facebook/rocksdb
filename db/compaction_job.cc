@@ -1007,14 +1007,15 @@ Status CompactionJob::FinishCompactionOutputFile(
     // Verify that the table is usable
     InternalIterator* iter;
     s = cfd->table_cache()->NewIterator(
-        ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd, &iter,
-        nullptr, cfd->internal_stats()->GetFileReadHist(
-                     compact_->compaction->output_level()),
+        ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
+        &iter, nullptr, cfd->internal_stats()->GetFileReadHist(
+                            compact_->compaction->output_level()),
         false);
 
     if (s.ok()) {
       if (paranoid_file_checks_) {
-        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {}
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        }
         s = iter->status();
       }
       delete iter;

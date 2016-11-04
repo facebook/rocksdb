@@ -467,9 +467,9 @@ class Repairer {
     }
     InternalIterator* iter = nullptr;
     if (status.ok()) {
-      status = table_cache_->NewIterator(
-          ReadOptions(), env_options_, cfd->internal_comparator(), t->meta.fd,
-          &iter);
+      status = table_cache_->NewIterator(ReadOptions(), env_options_,
+                                         cfd->internal_comparator(), t->meta.fd,
+                                         &iter);
     }
     if (status.ok()) {
       bool empty = true;

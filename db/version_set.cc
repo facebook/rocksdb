@@ -3415,8 +3415,8 @@ InternalIterator* VersionSet::MakeInputIterator(
         for (size_t i = 0; i < flevel->num_files; i++) {
           Status s = cfd->table_cache()->NewIterator(
               read_options, env_options_compactions_,
-              cfd->internal_comparator(), flevel->files[i].fd, &list[num], nullptr,
-              nullptr, /* no per level latency histogram*/
+              cfd->internal_comparator(), flevel->files[i].fd, &list[num],
+              nullptr, nullptr, /* no per level latency histogram*/
               true /* for_compaction */, nullptr /* arena */,
               false /* skip_filters */, (int)which /* level */, range_del_agg);
           if (!s.ok()) {

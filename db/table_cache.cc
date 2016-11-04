@@ -169,9 +169,9 @@ Status TableCache::FindTable(const EnvOptions& env_options,
 Status TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileDescriptor& fd,
-    InternalIterator** data_iter,
-    TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
-    bool for_compaction, Arena* arena, bool skip_filters, int level,
+    InternalIterator** data_iter, TableReader** table_reader_ptr,
+    HistogramImpl* file_read_hist, bool for_compaction, Arena* arena,
+    bool skip_filters, int level,
     RangeDelAggregator* range_del_agg /* = nullptr */) {
   assert(data_iter != nullptr || range_del_agg != nullptr);
   PERF_TIMER_GUARD(new_table_iterator_nanos);
@@ -202,10 +202,10 @@ Status TableCache::NewIterator(
   Status s;
   if (create_new_table_reader) {
     unique_ptr<TableReader> table_reader_unique_ptr;
-    s = GetTableReader(
-        env_options, icomparator, fd, true /* sequential_mode */, readahead,
-        !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
-        false /* skip_filters */, level);
+    s = GetTableReader(env_options, icomparator, fd, true /* sequential_mode */,
+                       readahead, !for_compaction /* record stats */, nullptr,
+                       &table_reader_unique_ptr, false /* skip_filters */,
+                       level);
     if (s.ok()) {
       table_reader = table_reader_unique_ptr.release();
     }
@@ -213,9 +213,9 @@ Status TableCache::NewIterator(
     table_reader = fd.table_reader;
     if (table_reader == nullptr) {
       s = FindTable(env_options, icomparator, fd, &handle,
-                           options.read_tier == kBlockCacheTier /* no_io */,
-                           !for_compaction /* record read_stats */,
-                           file_read_hist, skip_filters, level);
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    !for_compaction /* record read_stats */, file_read_hist,
+                    skip_filters, level);
       if (s.ok()) {
         table_reader = GetTableReaderFromHandle(handle);
       }
@@ -233,7 +233,8 @@ Status TableCache::NewIterator(
       *data_iter = table_reader->NewIterator(options, arena, skip_filters);
       if (create_new_table_reader) {
         assert(handle == nullptr);
-        (*data_iter)->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
+        (*data_iter)
+            ->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
       } else if (handle != nullptr) {
         (*data_iter)->RegisterCleanup(&UnrefEntry, cache_, handle);
       }
@@ -246,8 +247,8 @@ Status TableCache::NewIterator(
       }
     } else {
       assert(!create_new_table_reader);
-      // don't need the table reader at all since the iterator over the meta-block
-      // doesn't require it
+      // don't need the table reader at all since the iterator over the
+      // meta-block doesn't require it
       if (handle != nullptr) {
         UnrefEntry(cache_, handle);
       }
