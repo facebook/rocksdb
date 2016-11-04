@@ -59,6 +59,9 @@ Status BlockHandle::DecodeFrom(Slice* input) {
       GetVarint64(input, &size_)) {
     return Status::OK();
   } else {
+    // reset in case failure after partially decoding
+    offset_ = 0;
+    size_ = 0;
     return Status::Corruption("bad block handle");
   }
 }

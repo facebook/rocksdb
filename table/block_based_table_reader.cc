@@ -712,9 +712,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
         "Error when seeking to range delete tombstones block from file: %s",
         s.ToString().c_str());
-    // SeekToRangeDelBlock() can fail after populating some of BlockHandle's
-    // members, so reset to null for safety.
-    rep->range_del_handle = BlockHandle::NullBlockHandle();
   } else {
     if (found_range_del_block && !rep->range_del_handle.IsNull()) {
       ReadOptions read_options;

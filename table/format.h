@@ -65,8 +65,8 @@ class BlockHandle {
   enum { kMaxEncodedLength = 10 + 10 };
 
  private:
-  uint64_t offset_ = 0;
-  uint64_t size_ = 0;
+  uint64_t offset_;
+  uint64_t size_;
 
   static const BlockHandle kNullBlockHandle;
 };
@@ -242,6 +242,9 @@ extern Status UncompressBlockContentsForCompressionType(
 
 // Implementation details follow.  Clients should ignore,
 
+// TODO(andrewkr): we should prefer one way of representing a null/uninitialized
+// BlockHandle. Currently we use zeros for null and use negation-of-zeros for
+// uninitialized.
 inline BlockHandle::BlockHandle()
     : BlockHandle(~static_cast<uint64_t>(0),
                   ~static_cast<uint64_t>(0)) {
