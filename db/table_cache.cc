@@ -223,7 +223,7 @@ InternalIterator* TableCache::NewIterator(
     }
   }
 
-  if (range_del_agg != nullptr) {
+  if (range_del_agg != nullptr && !options.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> iter(
         table_reader->NewRangeTombstoneIterator(options));
     Status s = range_del_agg->AddTombstones(std::move(iter));

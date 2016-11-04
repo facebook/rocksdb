@@ -585,11 +585,15 @@ std::string DBTestBase::Contents(int cf) {
 
 std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   Arena arena;
+  auto options = CurrentOptions();
+  RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
+                                   {} /* snapshots */);
   ScopedArenaIterator iter;
   if (cf == 0) {
-    iter.set(dbfull()->NewInternalIterator(&arena));
+    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg));
   } else {
-    iter.set(dbfull()->NewInternalIterator(&arena, handles_[cf]));
+    iter.set(
+        dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[cf]));
   }
   InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
   iter->Seek(target.Encode());
@@ -990,10 +994,14 @@ UpdateStatus DBTestBase::updateInPlaceNoAction(char* prevValue,
 void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   ScopedArenaIterator iter;
   Arena arena;
+  auto options = CurrentOptions();
+  RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
+                                   {} /* snapshots */);
   if (cf != 0) {
-    iter.set(dbfull()->NewInternalIterator(&arena, handles_[cf]));
+    iter.set(
+        dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[cf]));
   } else {
-    iter.set(dbfull()->NewInternalIterator(&arena));
+    iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg));
   }
   iter->SeekToFirst();
   ASSERT_EQ(iter->status().ok(), true);

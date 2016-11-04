@@ -122,7 +122,8 @@ class DBIter: public Iterator {
         iterate_upper_bound_(iterate_upper_bound),
         prefix_same_as_start_(prefix_same_as_start),
         pin_thru_lifetime_(pin_data),
-        total_order_seek_(total_order_seek) {
+        total_order_seek_(total_order_seek),
+        range_del_agg_(InternalKeyComparator(cmp), {s}) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = ioptions.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
@@ -151,6 +152,10 @@ class DBIter: public Iterator {
     iter_ = iter;
     iter_->SetPinnedItersMgr(&pinned_iters_mgr_);
   }
+  virtual RangeDelAggregator* GetRangeDelAggregator() {
+    return &range_del_agg_;
+  }
+
   virtual bool Valid() const override { return valid_; }
   virtual Slice key() const override {
     assert(valid_);
@@ -273,6 +278,7 @@ class DBIter: public Iterator {
   const bool total_order_seek_;
   // List of operands for merge operator.
   MergeContext merge_context_;
+  RangeDelAggregator range_del_agg_;
   LocalStatistics local_stats_;
   PinnedIteratorsManager pinned_iters_mgr_;
 
@@ -384,20 +390,39 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
               break;
             case kTypeValue:
-              valid_ = true;
               saved_key_.SetKey(
                   ikey.user_key,
                   !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
-              return;
+              if (range_del_agg_.ShouldDelete(ikey)) {
+                // Arrange to skip all upcoming entries for this key since
+                // they are hidden by this deletion.
+                skipping = true;
+                num_skipped = 0;
+                PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+              } else {
+                valid_ = true;
+                return;
+              }
+              break;
             case kTypeMerge:
-              // By now, we are sure the current ikey is going to yield a value
               saved_key_.SetKey(
                   ikey.user_key,
                   !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
-              current_entry_is_merged_ = true;
-              valid_ = true;
-              MergeValuesNewToOld();  // Go to a different state machine
-              return;
+              if (range_del_agg_.ShouldDelete(ikey)) {
+                // Arrange to skip all upcoming entries for this key since
+                // they are hidden by this deletion.
+                skipping = true;
+                num_skipped = 0;
+                PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+              } else {
+                // By now, we are sure the current ikey is going to yield a
+                // value
+                current_entry_is_merged_ = true;
+                valid_ = true;
+                MergeValuesNewToOld();  // Go to a different state machine
+                return;
+              }
+              break;
             default:
               assert(false);
               break;
@@ -456,7 +481,8 @@ void DBIter::MergeValuesNewToOld() {
     if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
       // hit the next user key, stop right here
       break;
-    } else if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type) {
+    } else if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
+               range_del_agg_.ShouldDelete(ikey)) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_->Next();
@@ -624,10 +650,15 @@ bool DBIter::FindValueForCurrentKey() {
     last_key_entry_type = ikey.type;
     switch (last_key_entry_type) {
       case kTypeValue:
+        if (range_del_agg_.ShouldDelete(ikey)) {
+          last_key_entry_type = kTypeRangeDeletion;
+          PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+        } else {
+          assert(iter_->IsValuePinned());
+          pinned_value_ = iter_->value();
+        }
         merge_context_.Clear();
-        assert(iter_->IsValuePinned());
-        pinned_value_ = iter_->value();
-        last_not_merge_type = kTypeValue;
+        last_not_merge_type = last_key_entry_type;
         break;
       case kTypeDeletion:
       case kTypeSingleDeletion:
@@ -636,9 +667,16 @@ bool DBIter::FindValueForCurrentKey() {
         PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         break;
       case kTypeMerge:
-        assert(merge_operator_ != nullptr);
-        merge_context_.PushOperandBack(
-            iter_->value(), iter_->IsValuePinned() /* operand_pinned */);
+        if (range_del_agg_.ShouldDelete(ikey)) {
+          merge_context_.Clear();
+          last_key_entry_type = kTypeRangeDeletion;
+          last_not_merge_type = last_key_entry_type;
+          PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
+        } else {
+          assert(merge_operator_ != nullptr);
+          merge_context_.PushOperandBack(
+              iter_->value(), iter_->IsValuePinned() /* operand_pinned */);
+        }
         break;
       default:
         assert(false);
@@ -654,12 +692,14 @@ bool DBIter::FindValueForCurrentKey() {
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeSingleDeletion:
+    case kTypeRangeDeletion:
       valid_ = false;
       return false;
     case kTypeMerge:
       current_entry_is_merged_ = true;
       if (last_not_merge_type == kTypeDeletion ||
-          last_not_merge_type == kTypeSingleDeletion) {
+          last_not_merge_type == kTypeSingleDeletion ||
+          last_not_merge_type == kTypeRangeDeletion) {
         MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
                                     nullptr, merge_context_.GetOperands(),
                                     &saved_value_, logger_, statistics_, env_,
@@ -699,16 +739,16 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kForward);
 
-  if (ikey.type == kTypeValue || ikey.type == kTypeDeletion ||
-      ikey.type == kTypeSingleDeletion) {
-    if (ikey.type == kTypeValue) {
-      assert(iter_->IsValuePinned());
-      pinned_value_ = iter_->value();
-      valid_ = true;
-      return true;
-    }
+  if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
+      range_del_agg_.ShouldDelete(ikey)) {
     valid_ = false;
     return false;
+  }
+  if (ikey.type == kTypeValue) {
+    assert(iter_->IsValuePinned());
+    pinned_value_ = iter_->value();
+    valid_ = true;
+    return true;
   }
 
   // kTypeMerge. We need to collect all kTypeMerge values and save them
@@ -717,7 +757,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   merge_context_.Clear();
   while (iter_->Valid() &&
          user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) &&
-         ikey.type == kTypeMerge) {
+         ikey.type == kTypeMerge && !range_del_agg_.ShouldDelete(ikey)) {
     merge_context_.PushOperand(iter_->value(),
                                iter_->IsValuePinned() /* operand_pinned */);
     iter_->Next();
@@ -726,7 +766,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   if (!iter_->Valid() ||
       !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) ||
-      ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
+      ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
+      range_del_agg_.ShouldDelete(ikey)) {
     MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), nullptr,
                                 merge_context_.GetOperands(), &saved_value_,
                                 logger_, statistics_, env_, &pinned_value_);
@@ -971,6 +1012,10 @@ Iterator* NewDBIterator(
 ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
 
 void ArenaWrappedDBIter::SetDBIter(DBIter* iter) { db_iter_ = iter; }
+
+RangeDelAggregator* ArenaWrappedDBIter::GetRangeDelAggregator() {
+  return db_iter_->GetRangeDelAggregator();
+}
 
 void ArenaWrappedDBIter::SetIterUnderDBIter(InternalIterator* iter) {
   static_cast<DBIter*>(db_iter_)->SetIter(iter);

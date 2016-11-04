@@ -261,8 +261,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   int total = 0;
   Arena arena;
   {
+    RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
+                                     {} /* snapshots */);
     ScopedArenaIterator iter(
-        dbfull()->NewInternalIterator(&arena, handles_[1]));
+        dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -349,8 +351,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   // level Lmax because this record is at the tip
   count = 0;
   {
+    RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
+                                     {} /* snapshots */);
     ScopedArenaIterator iter(
-        dbfull()->NewInternalIterator(&arena, handles_[1]));
+        dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[1]));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {
@@ -566,7 +570,10 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     int count = 0;
     int total = 0;
     Arena arena;
-    ScopedArenaIterator iter(dbfull()->NewInternalIterator(&arena));
+    RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
+                                     {} /* snapshots */);
+    ScopedArenaIterator iter(
+        dbfull()->NewInternalIterator(&arena, &range_del_agg));
     iter->SeekToFirst();
     ASSERT_OK(iter->status());
     while (iter->Valid()) {

@@ -64,8 +64,9 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
            : latest_snapshot),
       super_version->mutable_cf_options.max_sequential_skip_in_iterations,
       super_version->version_number);
-  auto internal_iter = NewInternalIterator(
-      read_options, cfd, super_version, db_iter->GetArena());
+  auto internal_iter =
+      NewInternalIterator(read_options, cfd, super_version, db_iter->GetArena(),
+                          db_iter->GetRangeDelAggregator());
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
@@ -92,8 +93,9 @@ Status DBImplReadOnly::NewIterators(
              : latest_snapshot),
         sv->mutable_cf_options.max_sequential_skip_in_iterations,
         sv->version_number);
-    auto* internal_iter = NewInternalIterator(
-        read_options, cfd, sv, db_iter->GetArena());
+    auto* internal_iter =
+        NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
+                            db_iter->GetRangeDelAggregator());
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }

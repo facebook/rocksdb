@@ -42,9 +42,8 @@ class RangeDelAggregator {
 
   // Returns whether the key should be deleted, which is the case when it is
   // covered by a range tombstone residing in the same snapshot stripe.
-  bool ShouldDelete(const ParsedInternalKey& parsed,
-                    bool for_compaction = false);
-  bool ShouldDelete(const Slice& internal_key, bool for_compaction = false);
+  bool ShouldDelete(const ParsedInternalKey& parsed);
+  bool ShouldDelete(const Slice& internal_key);
   bool ShouldAddTombstones(bool bottommost_level = false);
 
   // Adds tombstones to the tombstone aggregation structure maintained by this
@@ -72,6 +71,7 @@ class RangeDelAggregator {
                     const Slice* next_table_min_key, FileMetaData* meta,
                     bool bottommost_level = false);
   Arena* GetArena() { return &arena_; }
+  bool IsEmpty();
 
  private:
   // Maps tombstone start key -> tombstone object
@@ -82,7 +82,7 @@ class RangeDelAggregator {
   typedef std::map<SequenceNumber, TombstoneMap> StripeMap;
 
   Status AddTombstones(InternalIterator* input, bool arena);
-  StripeMap::iterator GetStripeMapIter(SequenceNumber seq);
+  TombstoneMap& GetTombstoneMap(SequenceNumber seq);
 
   PinnedIteratorsManager pinned_iters_mgr_;
   StripeMap stripe_map_;

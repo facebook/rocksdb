@@ -23,38 +23,28 @@ RangeDelAggregator::RangeDelAggregator(
   stripe_map_.emplace(kMaxSequenceNumber, TombstoneMap());
 }
 
-bool RangeDelAggregator::ShouldDelete(const Slice& internal_key,
-                                      bool for_compaction /* = false */) {
+bool RangeDelAggregator::ShouldDelete(const Slice& internal_key) {
   ParsedInternalKey parsed;
   if (!ParseInternalKey(internal_key, &parsed)) {
     assert(false);
   }
-  return ShouldDelete(parsed, for_compaction);
+  return ShouldDelete(parsed);
 }
 
-bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed,
-                                      bool for_compaction /* = false */) {
+bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed) {
   assert(IsValueType(parsed.type));
 
-  // Starting point is the snapshot stripe in which the key lives, then need to
-  // search all earlier stripes too, unless it's for compaction.
-  for (auto stripe_map_iter = GetStripeMapIter(parsed.sequence);
-       stripe_map_iter != stripe_map_.end(); ++stripe_map_iter) {
-    const auto& tombstone_map = stripe_map_iter->second;
-    for (const auto& start_key_and_tombstone : tombstone_map) {
-      const auto& tombstone = start_key_and_tombstone.second;
-      if (icmp_.user_comparator()->Compare(parsed.user_key,
-                                           tombstone.start_key_) < 0) {
-        break;
-      }
-      if (parsed.sequence < tombstone.seq_ &&
-          icmp_.user_comparator()->Compare(parsed.user_key,
-                                           tombstone.end_key_) <= 0) {
-        return true;
-      }
-    }
-    if (for_compaction) {
+  const auto& tombstone_map = GetTombstoneMap(parsed.sequence);
+  for (const auto& start_key_and_tombstone : tombstone_map) {
+    const auto& tombstone = start_key_and_tombstone.second;
+    if (icmp_.user_comparator()->Compare(parsed.user_key,
+                                         tombstone.start_key_) < 0) {
       break;
+    }
+    if (parsed.sequence < tombstone.seq_ &&
+        icmp_.user_comparator()->Compare(parsed.user_key, tombstone.end_key_) <=
+            0) {
+      return true;
     }
   }
   return false;
@@ -96,7 +86,7 @@ Status RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
       return Status::Corruption("Unable to parse range tombstone InternalKey");
     }
     RangeTombstone tombstone(parsed_key, input->value());
-    auto& tombstone_map = GetStripeMapIter(tombstone.seq_)->second;
+    auto& tombstone_map = GetTombstoneMap(tombstone.seq_);
     tombstone_map.emplace(tombstone.start_key_.ToString(),
                           std::move(tombstone));
     input->Next();
@@ -104,7 +94,7 @@ Status RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
   return Status::OK();
 }
 
-RangeDelAggregator::StripeMap::iterator RangeDelAggregator::GetStripeMapIter(
+RangeDelAggregator::TombstoneMap& RangeDelAggregator::GetTombstoneMap(
     SequenceNumber seq) {
   // The stripe includes seqnum for the snapshot above and excludes seqnum for
   // the snapshot below.
@@ -117,7 +107,7 @@ RangeDelAggregator::StripeMap::iterator RangeDelAggregator::GetStripeMapIter(
   }
   // catch-all stripe justifies this assertion in either of above cases
   assert(iter != stripe_map_.end());
-  return iter;
+  return iter->second;
 }
 
 // TODO(andrewkr): We should implement an iterator over range tombstones in our
@@ -200,6 +190,16 @@ void RangeDelAggregator::AddToBuilder(TableBuilder* builder,
     }
     ++stripe_map_iter;
   }
+}
+
+bool RangeDelAggregator::IsEmpty() {
+  for (auto stripe_map_iter = stripe_map_.begin();
+       stripe_map_iter != stripe_map_.end(); ++stripe_map_iter) {
+    if (!stripe_map_iter->second.empty()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace rocksdb
