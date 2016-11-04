@@ -14,6 +14,7 @@
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "db/memtable.h"
+#include "db/range_del_aggregator.h"
 #include "db/skiplist.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
@@ -53,12 +54,14 @@ class MemTableListVersion {
   // will be stored in *seq on success (regardless of whether true/false is
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context, SequenceNumber* seq);
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           SequenceNumber* seq, const ReadOptions& read_opts);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context) {
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           const ReadOptions& read_opts) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, &seq);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
   }
 
   // Similar to Get(), but searches the Memtable history of memtables that
@@ -66,11 +69,16 @@ class MemTableListVersion {
   // queries (such as Transaction validation) as the history may contain
   // writes that are also present in the SST files.
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
-                      MergeContext* merge_context, SequenceNumber* seq);
+                      MergeContext* merge_context,
+                      RangeDelAggregator* range_del_agg, SequenceNumber* seq,
+                      const ReadOptions& read_opts);
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
-                      MergeContext* merge_context) {
+                      MergeContext* merge_context,
+                      RangeDelAggregator* range_del_agg,
+                      const ReadOptions& read_opts) {
     SequenceNumber seq;
-    return GetFromHistory(key, value, s, merge_context, &seq);
+    return GetFromHistory(key, value, s, merge_context, range_del_agg, &seq,
+                          read_opts);
   }
 
   void AddIterators(const ReadOptions& options,
@@ -102,7 +110,8 @@ class MemTableListVersion {
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
                    std::string* value, Status* s, MergeContext* merge_context,
-                   SequenceNumber* seq);
+                   RangeDelAggregator* range_del_agg, SequenceNumber* seq,
+                   const ReadOptions& read_opts);
 
   void AddMemTable(MemTable* m);
 

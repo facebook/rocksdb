@@ -24,6 +24,7 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/write_buffer_manager.h"
 #include "table/internal_iterator.h"
+#include "table/iterator_wrapper.h"
 #include "table/merger.h"
 #include "util/arena.h"
 #include "util/coding.h"
@@ -366,6 +367,9 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
 InternalIterator* MemTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options, Arena* arena) {
   assert(arena != nullptr);
+  if (read_options.ignore_range_deletions) {
+    return NewEmptyInternalIterator(arena);
+  }
   auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
   return new (mem) MemTableIterator(*this, read_options, arena,
                                     true /* use_range_del_table */);
@@ -500,6 +504,7 @@ struct Saver {
   const MergeOperator* merge_operator;
   // the merge operations encountered;
   MergeContext* merge_context;
+  RangeDelAggregator* range_del_agg;
   MemTable* mem;
   Logger* logger;
   Statistics* statistics;
@@ -511,9 +516,10 @@ struct Saver {
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
   MergeContext* merge_context = s->merge_context;
+  RangeDelAggregator* range_del_agg = s->range_del_agg;
   const MergeOperator* merge_operator = s->merge_operator;
 
-  assert(s != nullptr && merge_context != nullptr);
+  assert(s != nullptr && merge_context != nullptr && range_del_agg != nullptr);
 
   // entry format is:
   //    klength  varint32
@@ -533,6 +539,10 @@ static bool SaveValue(void* arg, const char* entry) {
     ValueType type;
     UnPackSequenceAndType(tag, &s->seq, &type);
 
+    if ((type == kTypeValue || type == kTypeDeletion) &&
+        range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
+      type = kTypeRangeDeletion;
+    }
     switch (type) {
       case kTypeValue: {
         if (s->inplace_update_support) {
@@ -555,7 +565,8 @@ static bool SaveValue(void* arg, const char* entry) {
         return false;
       }
       case kTypeDeletion:
-      case kTypeSingleDeletion: {
+      case kTypeSingleDeletion:
+      case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
@@ -595,7 +606,9 @@ static bool SaveValue(void* arg, const char* entry) {
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext* merge_context, SequenceNumber* seq) {
+                   MergeContext* merge_context,
+                   RangeDelAggregator* range_del_agg, SequenceNumber* seq,
+                   const ReadOptions& read_opts) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -618,6 +631,13 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     if (prefix_bloom_) {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
+    ScopedArenaIterator range_del_iter(
+        NewRangeTombstoneIterator(read_opts, range_del_agg->GetArena()));
+    Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
+    if (!status.ok()) {
+      *s = status;
+      return false;
+    }
     Saver saver;
     saver.status = s;
     saver.found_final_value = &found_final_value;
@@ -627,6 +647,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.seq = kMaxSequenceNumber;
     saver.mem = this;
     saver.merge_context = merge_context;
+    saver.range_del_agg = range_del_agg;
     saver.merge_operator = moptions_.merge_operator;
     saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;

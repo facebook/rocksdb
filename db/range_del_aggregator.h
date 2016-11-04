@@ -42,6 +42,8 @@ class RangeDelAggregator {
 
   // Returns whether the key should be deleted, which is the case when it is
   // covered by a range tombstone residing in the same snapshot stripe.
+  bool ShouldDelete(const ParsedInternalKey& parsed,
+                    bool for_compaction = false);
   bool ShouldDelete(const Slice& internal_key, bool for_compaction = false);
   bool ShouldAddTombstones(bool bottommost_level = false);
 
@@ -69,6 +71,7 @@ class RangeDelAggregator {
   void AddToBuilder(TableBuilder* builder, bool extend_before_min_key,
                     const Slice* next_table_min_key, FileMetaData* meta,
                     bool bottommost_level = false);
+  Arena* GetArena() { return &arena_; }
 
  private:
   // Maps tombstone start key -> tombstone object
@@ -84,5 +87,6 @@ class RangeDelAggregator {
   PinnedIteratorsManager pinned_iters_mgr_;
   StripeMap stripe_map_;
   const InternalKeyComparator icmp_;
+  Arena arena_;
 };
 }  // namespace rocksdb

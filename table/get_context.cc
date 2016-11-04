@@ -36,7 +36,8 @@ GetContext::GetContext(const Comparator* ucmp,
                        const MergeOperator* merge_operator, Logger* logger,
                        Statistics* statistics, GetState init_state,
                        const Slice& user_key, std::string* ret_value,
-                       bool* value_found, MergeContext* merge_context, Env* env,
+                       bool* value_found, MergeContext* merge_context,
+                       RangeDelAggregator* range_del_agg, Env* env,
                        SequenceNumber* seq,
                        PinnedIteratorsManager* _pinned_iters_mgr)
     : ucmp_(ucmp),
@@ -48,6 +49,7 @@ GetContext::GetContext(const Comparator* ucmp,
       value_(ret_value),
       value_found_(value_found),
       merge_context_(merge_context),
+      range_del_agg_(range_del_agg),
       env_(env),
       seq_(seq),
       replay_log_(nullptr),
@@ -93,8 +95,13 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       }
     }
 
+    auto type = parsed_key.type;
     // Key matches. Process it
-    switch (parsed_key.type) {
+    if ((type == kTypeValue || type == kTypeMerge) &&
+        range_del_agg_ != nullptr && range_del_agg_->ShouldDelete(parsed_key)) {
+      type = kTypeRangeDeletion;
+    }
+    switch (type) {
       case kTypeValue:
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
@@ -106,10 +113,10 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           assert(merge_operator_ != nullptr);
           state_ = kFound;
           if (value_ != nullptr) {
-            Status merge_status =
-                MergeHelper::TimedFullMerge(merge_operator_, user_key_, &value,
-                                            merge_context_->GetOperands(),
-                                            value_, logger_, statistics_, env_);
+            Status merge_status = MergeHelper::TimedFullMerge(
+                merge_operator_, user_key_, &value,
+                merge_context_->GetOperands(), value_, logger_, statistics_,
+                env_);
             if (!merge_status.ok()) {
               state_ = kCorrupt;
             }
@@ -119,6 +126,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
       case kTypeDeletion:
       case kTypeSingleDeletion:
+      case kTypeRangeDeletion:
         // TODO(noetzli): Verify correctness once merge of single-deletes
         // is supported
         assert(state_ == kNotFound || state_ == kMerge);

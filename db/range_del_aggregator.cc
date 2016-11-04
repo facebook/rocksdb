@@ -29,6 +29,11 @@ bool RangeDelAggregator::ShouldDelete(const Slice& internal_key,
   if (!ParseInternalKey(internal_key, &parsed)) {
     assert(false);
   }
+  return ShouldDelete(parsed, for_compaction);
+}
+
+bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed,
+                                      bool for_compaction /* = false */) {
   assert(IsValueType(parsed.type));
 
   // Starting point is the snapshot stripe in which the key lives, then need to
