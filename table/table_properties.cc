@@ -47,6 +47,9 @@ namespace {
   Status SeekToMetaBlock(InternalIterator* meta_iter,
                          const std::string& block_name, bool* is_found,
                          BlockHandle* block_handle = nullptr) {
+    if (block_handle != nullptr) {
+      *block_handle = BlockHandle::NullBlockHandle();
+    }
     *is_found = true;
     meta_iter->Seek(block_name);
     if (meta_iter->status().ok()) {
