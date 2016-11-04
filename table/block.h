@@ -363,7 +363,7 @@ class BlockIter : public InternalIterator {
 
   // Return the offset in data_ just past the end of the current entry.
   inline uint32_t NextEntryOffset() const {
-    // NOTE: We don't support files bigger than 2GB
+    // NOTE: We don't support blocks bigger than 2GB
     return static_cast<uint32_t>((value_.data() + value_.size()) - data_);
   }
 
