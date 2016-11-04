@@ -166,14 +166,14 @@ Status TableCache::FindTable(const EnvOptions& env_options,
   return s;
 }
 
-InternalIterator* TableCache::NewIterator(
+Status TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileDescriptor& fd,
+    InternalIterator** data_iter,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
     bool for_compaction, Arena* arena, bool skip_filters, int level,
-    RangeDelAggregator* range_del_agg /* = nullptr */,
-    bool is_range_del_only /* = false */) {
-  assert(!is_range_del_only || range_del_agg != nullptr);
+    RangeDelAggregator* range_del_agg /* = nullptr */) {
+  assert(data_iter != nullptr || range_del_agg != nullptr);
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   if (table_reader_ptr != nullptr) {
@@ -187,7 +187,7 @@ InternalIterator* TableCache::NewIterator(
   bool create_new_table_reader = false;
   // pointless to create a new table reader for range tombstones only since the
   // reader isn't reused
-  if (!is_range_del_only) {
+  if (data_iter != nullptr) {
     if (for_compaction) {
       if (ioptions_.new_table_reader_for_compaction_inputs) {
         readahead = ioptions_.compaction_readahead_size;
@@ -199,64 +199,61 @@ InternalIterator* TableCache::NewIterator(
     }
   }
 
+  Status s;
   if (create_new_table_reader) {
     unique_ptr<TableReader> table_reader_unique_ptr;
-    Status s = GetTableReader(
+    s = GetTableReader(
         env_options, icomparator, fd, true /* sequential_mode */, readahead,
         !for_compaction /* record stats */, nullptr, &table_reader_unique_ptr,
         false /* skip_filters */, level);
-    if (!s.ok()) {
-      return NewErrorInternalIterator(s, arena);
+    if (s.ok()) {
+      table_reader = table_reader_unique_ptr.release();
     }
-    table_reader = table_reader_unique_ptr.release();
   } else {
     table_reader = fd.table_reader;
     if (table_reader == nullptr) {
-      Status s = FindTable(env_options, icomparator, fd, &handle,
+      s = FindTable(env_options, icomparator, fd, &handle,
                            options.read_tier == kBlockCacheTier /* no_io */,
                            !for_compaction /* record read_stats */,
                            file_read_hist, skip_filters, level);
-      if (!s.ok()) {
-        return NewErrorInternalIterator(s, arena);
+      if (s.ok()) {
+        table_reader = GetTableReaderFromHandle(handle);
       }
-      table_reader = GetTableReaderFromHandle(handle);
     }
   }
 
-  if (range_del_agg != nullptr && !options.ignore_range_deletions) {
+  if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> iter(
         table_reader->NewRangeTombstoneIterator(options));
-    Status s = range_del_agg->AddTombstones(std::move(iter));
-    if (!s.ok()) {
-      return NewErrorInternalIterator(s, arena);
-    }
+    s = range_del_agg->AddTombstones(std::move(iter));
   }
 
-  InternalIterator* result = nullptr;
-  if (!is_range_del_only) {
-    result = table_reader->NewIterator(options, arena, skip_filters);
-    if (create_new_table_reader) {
-      assert(handle == nullptr);
-      result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
-    } else if (handle != nullptr) {
-      result->RegisterCleanup(&UnrefEntry, cache_, handle);
-    }
+  if (s.ok()) {
+    if (data_iter != nullptr) {
+      *data_iter = table_reader->NewIterator(options, arena, skip_filters);
+      if (create_new_table_reader) {
+        assert(handle == nullptr);
+        (*data_iter)->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
+      } else if (handle != nullptr) {
+        (*data_iter)->RegisterCleanup(&UnrefEntry, cache_, handle);
+      }
 
-    if (for_compaction) {
-      table_reader->SetupForCompaction();
-    }
-    if (table_reader_ptr != nullptr) {
-      *table_reader_ptr = table_reader;
-    }
-  } else {
-    assert(!create_new_table_reader);
-    // don't need the table reader at all since the iterator over the meta-block
-    // doesn't require it
-    if (handle != nullptr) {
-      UnrefEntry(cache_, handle);
+      if (for_compaction) {
+        table_reader->SetupForCompaction();
+      }
+      if (table_reader_ptr != nullptr) {
+        *table_reader_ptr = table_reader;
+      }
+    } else {
+      assert(!create_new_table_reader);
+      // don't need the table reader at all since the iterator over the meta-block
+      // doesn't require it
+      if (handle != nullptr) {
+        UnrefEntry(cache_, handle);
+      }
     }
   }
-  return result;
+  return s;
 }
 
 Status TableCache::Get(const ReadOptions& options,

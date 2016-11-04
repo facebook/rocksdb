@@ -1005,19 +1005,20 @@ Status CompactionJob::FinishCompactionOutputFile(
   TableProperties tp;
   if (s.ok() && current_entries > 0) {
     // Verify that the table is usable
-    InternalIterator* iter = cfd->table_cache()->NewIterator(
-        ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
+    InternalIterator* iter;
+    s = cfd->table_cache()->NewIterator(
+        ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd, &iter,
         nullptr, cfd->internal_stats()->GetFileReadHist(
                      compact_->compaction->output_level()),
         false);
-    s = iter->status();
 
-    if (s.ok() && paranoid_file_checks_) {
-      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {}
-      s = iter->status();
+    if (s.ok()) {
+      if (paranoid_file_checks_) {
+        for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {}
+        s = iter->status();
+      }
+      delete iter;
     }
-
-    delete iter;
 
     // Output to event logger and fire events.
     if (s.ok()) {
