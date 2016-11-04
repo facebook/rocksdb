@@ -55,14 +55,13 @@ class MemTableListVersion {
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           SequenceNumber* seq, bool ignore_range_deletions = false);
+           SequenceNumber* seq, const ReadOptions& read_opts);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           bool ignore_range_deletions = false) {
+           const ReadOptions& read_opts) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq,
-               ignore_range_deletions);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
   }
 
   // Similar to Get(), but searches the Memtable history of memtables that
@@ -72,14 +71,14 @@ class MemTableListVersion {
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
                       RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                      bool ignore_range_deletions = false);
+                      const ReadOptions& read_opts);
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
                       MergeContext* merge_context,
                       RangeDelAggregator* range_del_agg,
-                      bool ignore_range_deletions = false) {
+                      const ReadOptions& read_opts) {
     SequenceNumber seq;
     return GetFromHistory(key, value, s, merge_context, range_del_agg, &seq,
-                          ignore_range_deletions);
+                          read_opts);
   }
 
   void AddIterators(const ReadOptions& options,
@@ -112,7 +111,7 @@ class MemTableListVersion {
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
                    std::string* value, Status* s, MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   bool ignore_range_deletions = false);
+                   const ReadOptions& read_opts);
 
   void AddMemTable(MemTable* m);
 

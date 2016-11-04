@@ -104,30 +104,34 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                               Status* s, MergeContext* merge_context,
                               RangeDelAggregator* range_del_agg,
                               SequenceNumber* seq,
-                              bool ignore_range_deletions /* = false */) {
+                              const ReadOptions& read_opts) {
   return GetFromList(&memlist_, key, value, s, merge_context, range_del_agg,
-                     seq, ignore_range_deletions);
+                     seq, read_opts);
 }
 
-bool MemTableListVersion::GetFromHistory(
-    const LookupKey& key, std::string* value, Status* s,
-    MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-    SequenceNumber* seq, bool ignore_range_deletions /* = false */) {
+bool MemTableListVersion::GetFromHistory(const LookupKey& key,
+                                         std::string* value, Status* s,
+                                         MergeContext* merge_context,
+                                         RangeDelAggregator* range_del_agg,
+                                         SequenceNumber* seq,
+                                         const ReadOptions& read_opts) {
   return GetFromList(&memlist_history_, key, value, s, merge_context,
-                     range_del_agg, seq, ignore_range_deletions);
+                     range_del_agg, seq, read_opts);
 }
 
-bool MemTableListVersion::GetFromList(
-    std::list<MemTable*>* list, const LookupKey& key, std::string* value,
-    Status* s, MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-    SequenceNumber* seq, bool ignore_range_deletions /* = false */) {
+bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
+                                      const LookupKey& key, std::string* value,
+                                      Status* s, MergeContext* merge_context,
+                                      RangeDelAggregator* range_del_agg,
+                                      SequenceNumber* seq,
+                                      const ReadOptions& read_opts) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
     SequenceNumber current_seq = kMaxSequenceNumber;
 
     bool done = memtable->Get(key, value, s, merge_context, range_del_agg,
-                              &current_seq, ignore_range_deletions);
+                              &current_seq, read_opts);
     if (*seq == kMaxSequenceNumber) {
       // Store the most recent sequence number of any operation on this key.
       // Since we only care about the most recent change, we only need to

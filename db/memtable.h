@@ -159,7 +159,8 @@ class MemTable {
   //        those allocated in arena.
   InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
 
-  InternalIterator* NewRangeTombstoneIterator(Arena* arena);
+  InternalIterator* NewRangeTombstoneIterator(const ReadOptions& read_options,
+                                              Arena* arena);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
@@ -186,14 +187,13 @@ class MemTable {
   // status returned indicates a corruption or other unexpected error.
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           SequenceNumber* seq, bool ignore_range_deletions = false);
+           SequenceNumber* seq, const ReadOptions& read_opts);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           bool ignore_range_deletions = false) {
+           const ReadOptions& read_opts) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq,
-               ignore_range_deletions);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
   }
 
   // Attempts to update the new_value inplace, else does normal Add

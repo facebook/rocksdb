@@ -41,7 +41,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   RangeDelAggregator range_del_agg(cfd->internal_comparator(), {snapshot});
   LookupKey lkey(key, snapshot);
   if (super_version->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
-                              read_options.ignore_range_deletions)) {
+                              read_options)) {
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
     super_version->current->Get(read_options, lkey, value, &s, &merge_context,

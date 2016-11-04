@@ -1796,7 +1796,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options, env_options_,
           cfd->table_cache(), iter.get(),
-          ScopedArenaIterator(mem->NewRangeTombstoneIterator(&arena)),
+          ScopedArenaIterator(mem->NewRangeTombstoneIterator(ro, &arena)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           snapshot_seqs, earliest_write_conflict_snapshot,
@@ -3975,12 +3975,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   bool done = false;
   if (!skip_memtable) {
     if (sv->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
-                     read_options.ignore_range_deletions)) {
+                     read_options)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
-    } else if (s.ok() &&
+    } else if ((s.ok() || s.IsMergeInProgress()) &&
                sv->imm->Get(lkey, value, &s, &merge_context, &range_del_agg,
-                            read_options.ignore_range_deletions)) {
+                            read_options)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     }
@@ -4080,13 +4080,11 @@ std::vector<Status> DBImpl::MultiGet(
     bool done = false;
     if (!skip_memtable) {
       if (super_version->mem->Get(lkey, value, &s, &merge_context,
-                                  &range_del_agg,
-                                  read_options.ignore_range_deletions)) {
+                                  &range_del_agg, read_options)) {
         done = true;
         // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
       } else if (super_version->imm->Get(lkey, value, &s, &merge_context,
-                                         &range_del_agg,
-                                         read_options.ignore_range_deletions)) {
+                                         &range_del_agg, read_options)) {
         done = true;
         // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
       }
@@ -6315,7 +6313,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq);
+  sv->mem->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
+               ReadOptions());
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6333,7 +6332,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq);
+  sv->imm->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
+               ReadOptions());
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.
@@ -6352,7 +6352,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
 
   // Check if there is a record for this key in the immutable memtables
   sv->imm->GetFromHistory(lkey, nullptr, &s, &merge_context, &range_del_agg,
-                          seq);
+                          seq, ReadOptions());
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
     // unexpected error reading memtable.

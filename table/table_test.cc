@@ -2446,7 +2446,8 @@ TEST_F(MemTableTest, Simple) {
     ScopedArenaIterator iter =
         i == 0
             ? ScopedArenaIterator(memtable->NewIterator(ReadOptions(), &arena))
-            : ScopedArenaIterator(memtable->NewRangeTombstoneIterator(&arena));
+            : ScopedArenaIterator(
+                  memtable->NewRangeTombstoneIterator(ReadOptions(), &arena));
     iter->SeekToFirst();
     while (iter->Valid()) {
       fprintf(stderr, "key: '%s' -> '%s'\n", iter->key().ToString().c_str(),

@@ -95,30 +95,26 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       }
     }
 
+    auto type = parsed_key.type;
     // Key matches. Process it
-    switch (parsed_key.type) {
+    if ((type == kTypeValue || type == kTypeMerge) &&
+        range_del_agg_ != nullptr && range_del_agg_->ShouldDelete(parsed_key)) {
+      type = kTypeRangeDeletion;
+    }
+    switch (type) {
       case kTypeValue:
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
-          if (range_del_agg_ != nullptr &&
-              range_del_agg_->ShouldDelete(parsed_key)) {
-            state_ = kDeleted;
-          } else {
-            state_ = kFound;
-            if (value_ != nullptr) {
-              value_->assign(value.data(), value.size());
-            }
+          state_ = kFound;
+          if (value_ != nullptr) {
+            value_->assign(value.data(), value.size());
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
           if (value_ != nullptr) {
             Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_,
-                (range_del_agg_ != nullptr &&
-                 range_del_agg_->ShouldDelete(parsed_key))
-                    ? nullptr
-                    : &value,
+                merge_operator_, user_key_, &value,
                 merge_context_->GetOperands(), value_, logger_, statistics_,
                 env_);
             if (!merge_status.ok()) {
@@ -130,6 +126,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
       case kTypeDeletion:
       case kTypeSingleDeletion:
+      case kTypeRangeDeletion:
         // TODO(noetzli): Verify correctness once merge of single-deletes
         // is supported
         assert(state_ == kNotFound || state_ == kMerge);
@@ -152,21 +149,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
       case kTypeMerge:
         assert(state_ == kNotFound || state_ == kMerge);
-        if (range_del_agg_ != nullptr &&
-            range_del_agg_->ShouldDelete(parsed_key)) {
-          if (kNotFound == state_) {
-            state_ = kDeleted;
-          } else {
-            Status merge_status =
-                MergeHelper::TimedFullMerge(merge_operator_, user_key_, nullptr,
-                                            merge_context_->GetOperands(),
-                                            value_, logger_, statistics_, env_);
-            if (!merge_status.ok()) {
-              state_ = kCorrupt;
-            }
-          }
-          return false;
-        }
         state_ = kMerge;
         merge_context_->PushOperand(value, value_pinned);
         return true;
