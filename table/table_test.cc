@@ -1177,23 +1177,29 @@ TEST_F(BlockBasedTableTest, RangeDelBlock) {
   c.Finish(options, ioptions, table_options, *internal_cmp, &sorted_keys,
            &kvmap);
 
-  std::unique_ptr<InternalIterator> iter(
-      c.GetTableReader()->NewRangeTombstoneIterator(ReadOptions()));
-  ASSERT_EQ(false, iter->Valid());
-  iter->SeekToFirst();
-  ASSERT_EQ(true, iter->Valid());
-  for (int i = 0; i < 2; i++) {
-    ASSERT_TRUE(iter->Valid());
-    ParsedInternalKey parsed_key;
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &parsed_key));
-    RangeTombstone t(parsed_key, iter->value());
-    ASSERT_EQ(t.start_key_, keys[i]);
-    ASSERT_EQ(t.end_key_, vals[i]);
-    ASSERT_EQ(t.seq_, i);
-    iter->Next();
+  for (int j = 0; j < 2; ++j) {
+    std::unique_ptr<InternalIterator> iter(
+        c.GetTableReader()->NewRangeTombstoneIterator(ReadOptions()));
+    if (j > 0) {
+      // For second iteration, delete the table reader object and verify the
+      // iterator can still access its metablock's range tombstones.
+      c.ResetTableReader();
+    }
+    ASSERT_EQ(false, iter->Valid());
+    iter->SeekToFirst();
+    ASSERT_EQ(true, iter->Valid());
+    for (int i = 0; i < 2; i++) {
+      ASSERT_TRUE(iter->Valid());
+      ParsedInternalKey parsed_key;
+      ASSERT_TRUE(ParseInternalKey(iter->key(), &parsed_key));
+      RangeTombstone t(parsed_key, iter->value());
+      ASSERT_EQ(t.start_key_, keys[i]);
+      ASSERT_EQ(t.end_key_, vals[i]);
+      ASSERT_EQ(t.seq_, i);
+      iter->Next();
+    }
+    ASSERT_TRUE(!iter->Valid());
   }
-  ASSERT_TRUE(!iter->Valid());
-  c.ResetTableReader();
 }
 
 TEST_F(BlockBasedTableTest, FilterPolicyNameProperties) {
