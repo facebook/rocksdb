@@ -752,6 +752,58 @@ TEST_F(DBTestTailingIterator, ForwardIteratorVersionProperty) {
   }
   ASSERT_EQ(v3, v4);
 }
+
+TEST_F(DBTestTailingIterator, SeekWithUpperBoundBug) {
+  ReadOptions read_options;
+  read_options.tailing = true;
+  const Slice upper_bound("cc", 3);
+  read_options.iterate_upper_bound = &upper_bound;
+
+
+  // 1st L0 file
+  ASSERT_OK(db_->Put(WriteOptions(), "aa", "SEEN"));
+  ASSERT_OK(Flush());
+
+  // 2nd L0 file
+  ASSERT_OK(db_->Put(WriteOptions(), "zz", "NOT-SEEN"));
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+  iter->Seek("aa");
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "aa");
+}
+
+TEST_F(DBTestTailingIterator, SeekToFirstWithUpperBoundBug) {
+  ReadOptions read_options;
+  read_options.tailing = true;
+  const Slice upper_bound("cc", 3);
+  read_options.iterate_upper_bound = &upper_bound;
+
+
+  // 1st L0 file
+  ASSERT_OK(db_->Put(WriteOptions(), "aa", "SEEN"));
+  ASSERT_OK(Flush());
+
+  // 2nd L0 file
+  ASSERT_OK(db_->Put(WriteOptions(), "zz", "NOT-SEEN"));
+  ASSERT_OK(Flush());
+
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "aa");
+
+  iter->Next();
+  ASSERT_FALSE(iter->Valid());
+
+  iter->SeekToFirst();
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(iter->key().ToString(), "aa");
+}
+
 }  // namespace rocksdb
 
 #endif  // !defined(ROCKSDB_LITE)
