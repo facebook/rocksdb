@@ -335,6 +335,7 @@ int main(int argc, char** argv) {
   rocksdb_options_set_compression_per_level(options, compression_levels, 4);
   rate_limiter = rocksdb_ratelimiter_create(1000 * 1024 * 1024, 100 * 1000, 10);
   rocksdb_options_set_ratelimiter(options, rate_limiter);
+  rocksdb_options_enable_statistics(options);
   rocksdb_ratelimiter_destroy(rate_limiter);
 
   roptions = rocksdb_readoptions_create();
@@ -530,6 +531,22 @@ int main(int argc, char** argv) {
         break;
       }
       Free(&vals[i]);
+    }
+  }
+
+  StartPhase("statistics");
+  {
+    uint64_t block_cache_miss;
+    uint64_t block_cache_hit;
+    char* db_get_histogram;
+    block_cache_miss = rocksdb_options_statistics_get_ticker_count(
+        options, 0 /* Tickers::BLOCK_CACHE_MISS */);
+    block_cache_hit = rocksdb_options_statistics_get_ticker_count(
+        options, 1 /* Tickers::BLOCK_CACHE_HIT */);
+    db_get_histogram = rocksdb_options_statistics_get_histogram_string(
+        options, 0 /* Histograms::DB_GET */);
+    if (db_get_histogram) {
+      free(db_get_histogram);
     }
   }
 

@@ -579,6 +579,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
     rocksdb_options_t* opt);
 
+extern ROCKSDB_LIBRARY_API uint64_t rocksdb_options_statistics_get_ticker_count(
+    rocksdb_options_t* opt, uint32_t ticker_type);
+extern ROCKSDB_LIBRARY_API char*
+rocksdb_options_statistics_get_histogram_string(rocksdb_options_t* opt,
+                                                uint32_t type);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_write_buffer_number(
     rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void

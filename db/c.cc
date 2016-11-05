@@ -1909,6 +1909,24 @@ char *rocksdb_options_statistics_get_string(rocksdb_options_t *opt) {
   return nullptr;
 }
 
+uint64_t rocksdb_options_statistics_get_ticker_count(rocksdb_options_t* opt,
+                                                     uint32_t ticker_type) {
+  rocksdb::Statistics* statistics = opt->rep.statistics.get();
+  if (statistics) {
+    return statistics->getTickerCount(ticker_type);
+  }
+  return 0;
+}
+
+char* rocksdb_options_statistics_get_histogram_string(rocksdb_options_t* opt,
+                                                      uint32_t type) {
+  rocksdb::Statistics* statistics = opt->rep.statistics.get();
+  if (statistics) {
+    return strdup(statistics->getHistogramString(type).c_str());
+  }
+  return nullptr;
+}
+
 void rocksdb_options_set_ratelimiter(rocksdb_options_t *opt, rocksdb_ratelimiter_t *limiter) {
   opt->rep.rate_limiter.reset(limiter->rep);
   limiter->rep = nullptr;
