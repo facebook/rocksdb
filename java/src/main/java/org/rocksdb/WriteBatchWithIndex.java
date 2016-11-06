@@ -136,6 +136,88 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
         baseIterator);
   }
 
+  /**
+   * Similar to {@link RocksDB#get(ColumnFamilyHandle, byte[])} but will only
+   * read the key from this batch.
+   *
+   * @param columnFamilyHandle The column family to retrieve the value from
+   * @param options The database options to use
+   * @param key The key to read the value for
+   *
+   * @throws RocksDBException if the batch does not have enough data to resolve
+   * Merge operations, MergeInProgress status may be returned.
+   */
+  public byte[] getFromBatch(final ColumnFamilyHandle columnFamilyHandle,
+      final DBOptions options, final byte[] key) throws RocksDBException {
+    return getFromBatch(nativeHandle_, options.nativeHandle_,
+        key, key.length, columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Similar to {@link RocksDB#get(byte[])} but will only
+   * read the key from this batch.
+   *
+   * @param options The database options to use
+   * @param key The key to read the value for
+   *
+   * @throws RocksDBException if the batch does not have enough data to resolve
+   * Merge operations, MergeInProgress status may be returned.
+   */
+  public byte[] getFromBatch(final DBOptions options, final byte[] key)
+      throws RocksDBException {
+    return getFromBatch(nativeHandle_, options.nativeHandle_, key, key.length);
+  }
+
+  /**
+   * Similar to {@link RocksDB#get(ColumnFamilyHandle, byte[])} but will also
+   * read writes from this batch.
+   *
+   * This function will query both this batch and the DB and then merge
+   * the results using the DB's merge operator (if the batch contains any
+   * merge requests).
+   *
+   * Setting {@link ReadOptions#setSnapshot(long, long)} will affect what is
+   * read from the DB but will NOT change which keys are read from the batch
+   * (the keys in this batch do not yet belong to any snapshot and will be
+   * fetched regardless).
+   *
+   * @param columnFamilyHandle The column family to retrieve the value from
+   * @param options The read options to use
+   * @param key The key to read the value for
+   *
+   * @throws RocksDBException if the value for the key cannot be read
+   */
+  public byte[] getFromBatchAndDB(final RocksDB db, final ColumnFamilyHandle columnFamilyHandle,
+      final ReadOptions options, final byte[] key) throws RocksDBException {
+    return getFromBatchAndDB(nativeHandle_, db.nativeHandle_,
+        options.nativeHandle_, key, key.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Similar to {@link RocksDB#get(byte[])} but will also
+   * read writes from this batch.
+   *
+   * This function will query both this batch and the DB and then merge
+   * the results using the DB's merge operator (if the batch contains any
+   * merge requests).
+   *
+   * Setting {@link ReadOptions#setSnapshot(long, long)} will affect what is
+   * read from the DB but will NOT change which keys are read from the batch
+   * (the keys in this batch do not yet belong to any snapshot and will be
+   * fetched regardless).
+   *
+   * @param options The read options to use
+   * @param key The key to read the value for
+   *
+   * @throws RocksDBException if the value for the key cannot be read
+   */
+  public byte[] getFromBatchAndDB(final RocksDB db, final ReadOptions options,
+      final byte[] key) throws RocksDBException {
+    return getFromBatchAndDB(nativeHandle_, db.nativeHandle_,
+        options.nativeHandle_, key, key.length);
+  }
+
   @Override protected final native void disposeInternal(final long handle);
   @Override final native int count0(final long handle);
   @Override final native void put(final long handle, final byte[] key,
@@ -167,4 +249,14 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
   private native long iterator1(final long handle, final long cfHandle);
   private native long iteratorWithBase(final long handle,
       final long baseIteratorHandle, final long cfHandle);
+  private native byte[] getFromBatch(final long handle, final long optHandle,
+      final byte[] key, final int keyLen);
+  private native byte[] getFromBatch(final long handle, final long optHandle,
+      final byte[] key, final int keyLen, final long cfHandle);
+  private native byte[] getFromBatchAndDB(final long handle,
+      final long dbHandle,  final long readOptHandle, final byte[] key,
+      final int keyLen);
+  private native byte[] getFromBatchAndDB(final long handle,
+      final long dbHandle, final long readOptHandle, final byte[] key,
+      final int keyLen, final long cfHandle);
 }
