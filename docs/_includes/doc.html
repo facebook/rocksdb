@@ -1,6 +1,6 @@
 <div class="post">
   <header class="post-header">
-    <h1 class="post-title">{% if include.truncate %}<a href="{{ page.url }}">{{ page.title }}</a>{% else %}{{ page.title }}{% endif %}</h1>
+    <h1 class="post-title">{% if include.truncate %}<a href="{{ absolute_url }}{{ page.url }}">{{ page.title }}</a>{% else %}{{ page.title }}{% endif %}</h1>
   </header>
 
   <article class="post-content">
@@ -8,7 +8,7 @@
       {% if page.content contains '<!--truncate-->' %}
         {{ page.content | split:'<!--truncate-->' | first }}
         <div class="read-more">
-          <a href="{{ page.url }}" >
+          <a href="{{ absolute_url }}{{ page.url }}" >
             ...Read More
           </a>
         </div>

@@ -7,7 +7,7 @@ You should only have to do these one time.
 - Rename this file to `CONTRIBUTING.md`.
 - Rename `EXAMPLE-README-FOR-RUNNING-DOCS.md` to `README.md` (replacing the existing `README.md` that came with the template).
 - Rename `EXAMPLE-LICENSE` to `LICENSE`.
-- Checkout the [template information](./TEMPLATE-INFORMATION.md).
+- Review the [template information](./TEMPLATE-INFORMATION.md).
 - Review `./_config.yml`.
 - Make sure you update `title`, `description`, `tagline` and `gacode` (Google Analytics) in `./_config.yml`.
 

@@ -11,7 +11,7 @@ category: blog
       {% assign author = site.data.authors[post.author] %}
       <p>
         <strong>
-          <a href="{{ post.url }}">{{ post.title }}</a>
+          <a href="{{ relative_url }}{{ post.url }}">{{ post.title }}</a>
         </strong>
           on {{ post.date | date: "%B %e, %Y" }} by {{ author.display_name }}
       </p>

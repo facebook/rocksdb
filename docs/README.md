@@ -44,18 +44,26 @@ The requirements for running a GitHub pages site locally is described in [GitHub
     - On first runs or for structural changes to the documentation (e.g., new sidebar menu item), do a full build.
 
     ```
-    bundle exec jekyll serve --config=_config.yml,_config_local_dev.yml
+    bundle exec jekyll serve
     ```
 
     - For content changes only, you can use `--incremental` for faster builds.
 
     ```
-    bundle exec jekyll serve --config=_config.yml,_config_local_dev.yml --incremental
+    bundle exec jekyll serve --incremental
     ```
 
     > We use `bundle exec` instead of running straight `jekyll` because `bundle exec` will always use the version of Jekyll from our `Gemfile`. Just running `jekyll` will use the system version and may not necessarily be compatible.
 
-    > The `_config_local_dev` file overrides some URL settings that you might be using in production to allow you to test links, etc. locally.
+    - To run using an actual IP address, you can use `--host=0.0.0.0`
+
+    ```
+    bundle exec jekyll serve --host=0.0.0.0
+    ```
+
+    This will allow you to use the IP address associated with your machine in the URL. That way you could share it with other people.
+
+    e.g., on a Mac, you can your IP address with something like `ifconfig | grep "inet " | grep -v 127.0.0.1`.    
 
 1. Either of commands in the previous step will serve up the site on your local device at http://127.0.0.1:4000/ or http://localhost:4000.
 
