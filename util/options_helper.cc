@@ -96,7 +96,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.wal_bytes_per_sync = immutable_db_options.wal_bytes_per_sync;
   options.listeners = immutable_db_options.listeners;
   options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
-  options.delayed_write_rate = immutable_db_options.delayed_write_rate;
+  options.delayed_write_rate = mutable_db_options.delayed_write_rate;
   options.allow_concurrent_memtable_write =
       immutable_db_options.allow_concurrent_memtable_write;
   options.enable_write_thread_adaptive_yield =

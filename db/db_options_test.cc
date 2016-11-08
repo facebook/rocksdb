@@ -278,6 +278,17 @@ TEST_F(DBOptionsTest, AvoidFlushDuringShutdown) {
   ASSERT_EQ("", FilesPerLevel());
 }
 
+TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
+  Options options;
+  options.create_if_missing = true;
+  options.delayed_write_rate = 2 * 1024U * 1024U;
+  Reopen(options);
+  ASSERT_EQ(2 * 1024U * 1024U, dbfull()->TEST_write_controler().max_delayed_write_rate());
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"delayed_write_rate", "20000"}}));
+  ASSERT_EQ(20000, dbfull()->TEST_write_controler().max_delayed_write_rate());
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
