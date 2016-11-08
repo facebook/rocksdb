@@ -9,7 +9,7 @@
     {% if author.full_name %}
     <p class="post-authorName">{{ author.full_name }}</p>
     {% endif %}
-    <h1 class="post-title">{% if include.truncate %}<a href="{{ absolute_url }}{{ page.url }}">{{ page.title }}</a>{% else %}{{ page.title }}{% endif %}</h1>
+    <h1 class="post-title">{% if include.truncate %}<a href="{{ page.url | absolute_url }}">{{ page.title }}</a>{% else %}{{ page.title }}{% endif %}</h1>
     <p class="post-meta">Posted {{ page.date | date: '%B %d, %Y' }}{% if page.meta %} • {{ page.meta }}{% endif %}</p>
   </header>
 
@@ -18,7 +18,7 @@
     {% if page.content contains '<!--truncate-->' %}
       {{ page.content | split:'<!--truncate-->' | first | markdownify }}
       <div class="read-more">
-        <a href="{{ absolute_url }}{{ page.url }}" >
+        <a href="{{ page.url | absolute_url }}" >
           Read More
         </a>
       </div>
