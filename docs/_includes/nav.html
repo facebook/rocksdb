@@ -11,7 +11,7 @@
           <ul>
             {% for item in site.data.nav %}
             <li class="navItem{% if page.collection == item.category or page.category == item.category %} navItemActive{% endif %}">
-              <a href="{{ item.href | absolute_url }}">{{ item.title }}</a>
+              <a href="{{ item.href }}">{{ item.title }}</a>
             </li>
             {% endfor %}
             {% if site.searchconfig %}
