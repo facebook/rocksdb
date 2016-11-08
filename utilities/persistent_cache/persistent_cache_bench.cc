@@ -302,9 +302,9 @@ class CacheTierBenchmark {
 // main
 //
 int main(int argc, char** argv) {
-  google::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
+  GFLAGS::SetUsageMessage(std::string("\nUSAGE:\n") + std::string(argv[0]) +
                           " [OPTIONS]...");
-  google::ParseCommandLineFlags(&argc, &argv, false);
+  GFLAGS::ParseCommandLineFlags(&argc, &argv, false);
 
   std::ostringstream msg;
   msg << "Config" << std::endl
