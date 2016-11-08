@@ -1,8 +1,8 @@
 <div id="fixed_header" class="fixedHeaderContainer{% if include.alwayson %} visible{% endif %}">
   <div class="headerWrapper wrapper">
     <header>
-      <a href="{{ absolute_url }}/">
-        <img src="{{ relative_url }}/static/logo.svg">
+      <a href="{{ '/' | absolute_url }}">
+        <img src="{{ '/static/logo.svg' | relative_url }}">
         <h2>{{ site.title }}</h2>
       </a>
 
@@ -11,7 +11,7 @@
           <ul>
             {% for item in site.data.nav %}
             <li class="navItem{% if page.collection == item.category or page.category == item.category %} navItemActive{% endif %}">
-              <a href="{{ item.href }}">{{ item.title }}</a>
+              <a href="{{ item.href | absolute_url }}">{{ item.title }}</a>
             </li>
             {% endfor %}
             {% if site.searchconfig %}
