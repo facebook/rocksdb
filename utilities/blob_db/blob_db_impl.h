@@ -8,17 +8,17 @@
 #include <condition_variable>
 #include <thread>
 
+#include "db/blob_log_format.h"
+#include "db/blob_log_reader.h"
+#include "db/blob_log_writer.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
-#include "utilities/blob_db/blob_db.h"
-#include "util/mutexlock.h"
 #include "util/cf_options.h"
-#include "util/mpsc.h"
-#include "db/blob_log_writer.h"
-#include "db/blob_log_reader.h"
-#include "db/blob_log_format.h"
 #include "util/file_reader_writer.h"
-
+#include "util/mpsc.h"
+#include "util/mutexlock.h"
+#include "util/timer_queue.h"
+#include "utilities/blob_db/blob_db.h"
 
 namespace rocksdb {
 
@@ -68,6 +68,7 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
  private:
+  Status getAllLogFiles(std::set<std::pair<uint64_t, std::string>>& file_nums);
 
   void closeIf(std::shared_ptr<BlobFile>& bfile);
 
@@ -84,11 +85,13 @@ class BlobDBImpl : public BlobDB {
   void shutdown();
 
   // periodic sanity check
-  void sanityCheck();
+  std::pair<bool, int64_t> sanityCheck(bool aborted);
 
-  void runGC();
+  std::pair<bool, int64_t> runGC(bool aborted);
 
-  Status startGCThreads();
+  std::pair<bool, int64_t> reclaimOpenFiles(bool aborted);
+
+  void startGCThreads();
 
   std::shared_ptr<BlobFile> findBlobFile_locked(uint32_t expiration) const;
 
@@ -109,7 +112,7 @@ class BlobDBImpl : public BlobDB {
 
   std::shared_ptr<blob_log::Writer> checkOrCreateWriter_locked(BlobFile *bfile);
 
-  void evictDeletions();
+  std::pair<bool, int64_t> evictDeletions(bool aborted);
 
  private:
 
@@ -152,6 +155,9 @@ class BlobDBImpl : public BlobDB {
   std::atomic_bool shutdown_;
   std::condition_variable gc_cv_;
   std::mutex gc_mutex_;
+  TimerQueue tqueue_;
+  std::uint64_t current_epoch_;
+  std::atomic<std::uint32_t> open_file_count_;
 };
 
 class BlobFile {
@@ -162,6 +168,8 @@ class BlobFile {
 private:
   std::string path_to_dir_;
   std::atomic<uint64_t> blob_count_;
+  std::time_t last_gc_;
+  std::atomic<int64_t> gc_epoch_;
   uint64_t file_number_;
   std::atomic<uint64_t> file_size_;
   uint64_t deleted_count_;
@@ -184,6 +192,8 @@ private:
   std::shared_ptr<blob_log::Reader> log_reader_;
 
   port::RWMutex mutex_;
+
+  std::atomic<std::time_t> last_access_;
 
   std::shared_ptr<blob_log::Reader> openSequentialReader_locked(
     Env *env, const DBOptions& db_options,
@@ -245,8 +255,10 @@ public:
   Status ReadFooter(blob_log::BlobLogFooter& footer, bool close_reader = false);
 
  private:
+  void closeRandomAccess_locked();
 
-  std::shared_ptr<RandomAccessFileReader> openRandomAccess_locked(Env *env, const EnvOptions& env_options);
+  std::shared_ptr<RandomAccessFileReader> openRandomAccess_locked(
+      Env* env, const EnvOptions& env_options, bool& fresh_open);
 
   // this is used, when you are reading only the footer of a
   // previously closed file

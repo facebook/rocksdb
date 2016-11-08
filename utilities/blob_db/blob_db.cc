@@ -45,11 +45,19 @@ BlobDB::BlobDB(DB* db)
 }
 
 BlobDBOptions::BlobDBOptions()
-  : path_relative(true), is_fifo(false), blob_dir_size(0),
-    ttl_range(3600), min_blob_size(512), bytes_per_sync(0),
-    blob_file_size(256 * 1024 * 1024), num_simple_blobs(4)
-{
-}
+    : path_relative(true),
+      is_fifo(false),
+      blob_dir_size(0),
+      ttl_range(3600),
+      min_blob_size(512),
+      bytes_per_sync(0),
+      blob_file_size(256 * 1024 * 1024),
+      num_simple_blobs(4),
+      deletion_check_period(2 * 1000),
+      gc_file_pct(20),
+      gc_check_period(60 * 1000),
+      sanity_check_period(20 * 60 * 1000),
+      open_files_trigger(100) {}
 
 }  // namespace rocksdb
 #endif

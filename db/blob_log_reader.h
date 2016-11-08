@@ -32,6 +32,12 @@ namespace blob_log {
  */
 class Reader {
  public:
+  enum READ_LEVEL {
+    READ_LEVEL_HDR_FOOTER,
+    READ_LEVEL_HDR_FOOTER_KEY,
+    READ_LEVEL_HDR_FOOTER_KEY_BLOB
+  };
+
   // Interface for reporting errors.
   class Reporter {
    public:
@@ -54,9 +60,8 @@ class Reader {
   // The Reader will start reading at the first record located at physical
   // position >= initial_offset within the file.
   Reader(std::shared_ptr<Logger> info_log,
-	 unique_ptr<SequentialFileReader>&& file,
-         Reporter* reporter, bool checksum, uint64_t initial_offset,
-         uint64_t log_num);
+         unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
+         bool checksum, uint64_t initial_offset, uint64_t log_num);
 
   ~Reader();
 
@@ -68,8 +73,9 @@ class Reader {
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
   Status ReadRecord(blob_log::BlobLogRecord& record,
-    int level = 0, WALRecoveryMode wal_recovery_mode =
-    WALRecoveryMode::kTolerateCorruptedTailRecords);
+                    READ_LEVEL level = READ_LEVEL_HDR_FOOTER,
+                    WALRecoveryMode wal_recovery_mode =
+                        WALRecoveryMode::kTolerateCorruptedTailRecords);
 
   SequentialFileReader* file() { return file_.get(); }
 

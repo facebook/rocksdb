@@ -89,6 +89,7 @@ TEST_F(BlobDBTest, Basic) {
   //ASSERT_EQ("v2", value);
 }
 
+#if 0
 TEST_F(BlobDBTest, Large) {
   ASSERT_TRUE(db_ != nullptr);
 
@@ -113,6 +114,7 @@ TEST_F(BlobDBTest, Large) {
   ASSERT_OK(db_->Get(ro, dcfh, "barfoo", &value));
   ASSERT_EQ(value3, value);
 }
+#endif
 
 }  //  namespace rocksdb
 

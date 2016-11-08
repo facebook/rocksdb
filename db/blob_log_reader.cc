@@ -54,9 +54,8 @@ Status Reader::ReadHeader(blob_log::BlobLogHeader& header)
   return status;
 }
 
-Status Reader::ReadRecord(blob_log::BlobLogRecord& record,
-  int level, WALRecoveryMode wal_recovery_mode) {
-
+Status Reader::ReadRecord(blob_log::BlobLogRecord& record, READ_LEVEL level,
+                          WALRecoveryMode wal_recovery_mode) {
   record.clear();
   buffer_.clear();
   backing_store_[0] = '\0';
@@ -72,13 +71,13 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord& record,
   }
 
   switch (level) {
-    case 0 :
+    case READ_LEVEL_HDR_FOOTER:
       file_->Skip(record.GetKeySize() + record.GetBlobSize());
       status = file_->Read(8, &buffer_, backing_store_);
       record.sn_ = DecodeFixed64(buffer_.data());
       return status;
 
-    case 1 :
+    case READ_LEVEL_HDR_FOOTER_KEY:
       record.resizeKeyBuffer((uint64_t)record.GetKeySize());
       status = file_->Read(record.GetKeySize(), &record.key_, record.key_buffer_);
       file_->Skip(record.GetBlobSize());
@@ -86,7 +85,7 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord& record,
       record.sn_ = DecodeFixed64(buffer_.data());
       return status;
 
-    case 2:
+    case READ_LEVEL_HDR_FOOTER_KEY_BLOB:
       record.resizeKeyBuffer((uint64_t)record.GetKeySize());
       status = file_->Read(record.GetKeySize(), &record.key_, record.key_buffer_);
       record.resizeBlobBuffer((uint64_t)record.GetBlobSize());

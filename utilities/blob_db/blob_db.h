@@ -59,6 +59,21 @@ struct BlobDBOptions {
   // how many files to use for simple blobs at one time
   uint32_t num_simple_blobs;
 
+  // deletions check period
+  uint32_t deletion_check_period;
+
+  // gc percentage each check period
+  uint32_t gc_file_pct;
+
+  // gc period
+  uint32_t gc_check_period;
+
+  // sanity check task
+  uint32_t sanity_check_period;
+
+  // how many random access open files can we tolerate
+  uint32_t open_files_trigger;
+
   // default constructor
   BlobDBOptions();
 };
