@@ -1900,7 +1900,7 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
     int32_t fairness) {
   rocksdb_ratelimiter_t* rate_limiter = new rocksdb_ratelimiter_t;
   rate_limiter->rep = NewGenericRateLimiter(rate_bytes_per_sec,
-		  refill_period_us, fairness);
+                                            refill_period_us, fairness);
   return rate_limiter;
 }
 
