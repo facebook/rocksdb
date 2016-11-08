@@ -495,6 +495,10 @@ int main(int argc, char** argv) {
     CheckIter(iter, "foo", "hello");
     rocksdb_iter_seek(iter, "b", 1);
     CheckIter(iter, "box", "c");
+    rocksdb_iter_seek_for_prev(iter, "g", 1);
+    CheckIter(iter, "foo", "hello");
+    rocksdb_iter_seek_for_prev(iter, "box", 3);
+    CheckIter(iter, "box", "c");
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);

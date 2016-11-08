@@ -347,6 +347,9 @@ extern ROCKSDB_LIBRARY_API void rocksdb_iter_seek_to_first(rocksdb_iterator_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_seek_to_last(rocksdb_iterator_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_seek(rocksdb_iterator_t*,
                                                   const char* k, size_t klen);
+extern ROCKSDB_LIBRARY_API void rocksdb_iter_seek_for_prev(rocksdb_iterator_t*,
+                                                           const char* k,
+                                                           size_t klen);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_next(rocksdb_iterator_t*);
 extern ROCKSDB_LIBRARY_API void rocksdb_iter_prev(rocksdb_iterator_t*);
 extern ROCKSDB_LIBRARY_API const char* rocksdb_iter_key(

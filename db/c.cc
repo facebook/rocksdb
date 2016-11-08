@@ -1031,6 +1031,11 @@ void rocksdb_iter_seek(rocksdb_iterator_t* iter, const char* k, size_t klen) {
   iter->rep->Seek(Slice(k, klen));
 }
 
+void rocksdb_iter_seek_for_prev(rocksdb_iterator_t* iter, const char* k,
+                                size_t klen) {
+  iter->rep->SeekForPrev(Slice(k, klen));
+}
+
 void rocksdb_iter_next(rocksdb_iterator_t* iter) {
   iter->rep->Next();
 }
