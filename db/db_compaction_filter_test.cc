@@ -262,7 +262,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Arena arena;
   {
     RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
-                                     {} /* snapshots */);
+                                     {} /* snapshots */,
+                                     true /* collapse_tombstones */);
     ScopedArenaIterator iter(
         dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[1]));
     iter->SeekToFirst();
@@ -352,7 +353,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   count = 0;
   {
     RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
-                                     {} /* snapshots */);
+                                     {} /* snapshots */,
+                                     true /* collapse_tombstones */);
     ScopedArenaIterator iter(
         dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[1]));
     iter->SeekToFirst();
@@ -571,7 +573,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     int total = 0;
     Arena arena;
     RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
-                                     {} /* snapshots */);
+                                     {} /* snapshots */,
+                                     true /* collapse_tombstones */);
     ScopedArenaIterator iter(
         dbfull()->NewInternalIterator(&arena, &range_del_agg));
     iter->SeekToFirst();

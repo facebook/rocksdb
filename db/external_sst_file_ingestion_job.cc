@@ -373,7 +373,8 @@ Status ExternalSstFileIngestionJob::AssignLevelForIngestedFile(
       MergeIteratorBuilder merge_iter_builder(&cfd_->internal_comparator(),
                                               &arena);
       RangeDelAggregator range_del_agg(cfd_->internal_comparator(),
-                                       {} /* snapshots */);
+                                       {} /* snapshots */,
+                                       false /* collapse_tombstones */);
       sv->current->AddIteratorsForLevel(ro, env_options_, &merge_iter_builder,
                                         lvl, &range_del_agg);
       if (!range_del_agg.IsEmpty()) {

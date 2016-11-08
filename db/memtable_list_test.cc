@@ -118,7 +118,8 @@ TEST_F(MemTableListTest, GetTest) {
   Status s;
   MergeContext merge_context;
   InternalKeyComparator ikey_cmp(options.comparator);
-  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */);
+  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */,
+                                   false /* collapse_tombstones */);
   autovector<MemTable*> to_delete;
 
   LookupKey lkey("key1", seq);
@@ -225,7 +226,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   Status s;
   MergeContext merge_context;
   InternalKeyComparator ikey_cmp(options.comparator);
-  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */);
+  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */,
+                                   false /* collapse_tombstones */);
   autovector<MemTable*> to_delete;
 
   LookupKey lkey("key1", seq);

@@ -513,10 +513,11 @@ struct RangeTombstone {
   Slice start_key_;
   Slice end_key_;
   SequenceNumber seq_;
-  explicit RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
+  RangeTombstone() : start_key_(), end_key_(), seq_(0) {}
+  RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
       : start_key_(sk), end_key_(ek), seq_(sn) {}
 
-  explicit RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
+  RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
     start_key_ = parsed_key.user_key;
     seq_ = parsed_key.sequence;
     end_key_ = value;
