@@ -296,9 +296,15 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
   // an option to turn it off.
   if (seek_to_first || NeedToSeekImmutable(internal_key)) {
     immutable_status_ = Status::OK();
-    if ((has_iter_trimmed_for_upper_bound_) &&
-        (cfd_->internal_comparator().InternalKeyComparator::Compare(
-             prev_key_.GetKey(), internal_key) > 0)) {
+    if (has_iter_trimmed_for_upper_bound_ &&
+        (
+            // prev_ is not set yet
+            is_prev_set_ == false ||
+            // We are doing SeekToFirst() and internal_key.size() = 0
+            seek_to_first ||
+            // prev_key_ > internal_key
+            cfd_->internal_comparator().InternalKeyComparator::Compare(
+                prev_key_.GetKey(), internal_key) > 0)) {
       // Some iterators are trimmed. Need to rebuild.
       RebuildIterators(true);
       // Already seeked mutable iter, so seek again
