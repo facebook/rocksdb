@@ -18,8 +18,8 @@ void VolatileCacheTier::DeleteCacheData(VolatileCacheTier::CacheData* data) {
 
 VolatileCacheTier::~VolatileCacheTier() { index_.Clear(&DeleteCacheData); }
 
-std::vector<PersistentCacheTier::TierStats> VolatileCacheTier::Stats() {
-  PersistentCacheTier::TierStats stat;
+PersistentCache::StatsType VolatileCacheTier::Stats() {
+  std::map<std::string, double> stat;
   stat.insert({"persistent_cache.volatile_cache.hits",
                static_cast<double>(stats_.cache_hits_)});
   stat.insert({"persistent_cache.volatile_cache.misses",
@@ -33,26 +33,9 @@ std::vector<PersistentCacheTier::TierStats> VolatileCacheTier::Stats() {
   stat.insert({"persistent_cache.volatile_cache.miss_pct",
                static_cast<double>(stats_.CacheMissPct())});
 
-  std::vector<PersistentCacheTier::TierStats> tier_stats;
-  if (next_tier()) {
-    tier_stats = next_tier()->Stats();
-  }
-  tier_stats.push_back(stat);
-  return tier_stats;
-}
-
-std::string VolatileCacheTier::PrintStats() {
-  std::ostringstream ss;
-  ss << "pagecache.volatilecache.hits: " << stats_.cache_hits_ << std::endl
-     << "pagecache.volatilecache.misses: " << stats_.cache_misses_ << std::endl
-     << "pagecache.volatilecache.inserts: " << stats_.cache_inserts_
-     << std::endl
-     << "pagecache.volatilecache.evicts: " << stats_.cache_evicts_ << std::endl
-     << "pagecache.volatilecache.hit_pct: " << stats_.CacheHitPct() << std::endl
-     << "pagecache.volatilecache.miss_pct: " << stats_.CacheMissPct()
-     << std::endl
-     << PersistentCacheTier::PrintStats();
-  return ss.str();
+  auto out = PersistentCacheTier::Stats();
+  out.push_back(stat);
+  return out;
 }
 
 Status VolatileCacheTier::Insert(const Slice& page_key, const char* data,
