@@ -385,6 +385,10 @@ void print_help() {
     --set_block_size=<block_size>
       Can be combined with --show_compression_sizes to set the block size that will be used
       when trying different compression algorithms
+
+    --parse_internal_key=<0xKEY>
+      Convenience option to parse an internal key on the command line. Dumps the
+      internal key in hex format {'key' @ SN: type}
 )");
 }
 
@@ -443,6 +447,26 @@ int SSTDumpTool::Run(int argc, char** argv) {
         exit(1);
       }
       iss >> block_size;
+    } else if (strncmp(argv[i], "--parse_internal_key=", 21) == 0) {
+      std::string in_key(argv[i] + 21);
+      try {
+        in_key = rocksdb::LDBCommand::HexToString(in_key);
+      } catch (...) {
+        std::cerr << "ERROR: Invalid key input '"
+          << in_key
+          << "' Use 0x{hex representation of internal rocksdb key}" << std::endl;
+        return -1;
+      }
+      Slice sl_key = rocksdb::Slice(in_key);
+      ParsedInternalKey ikey;
+      int retc = 0;
+      if (!ParseInternalKey(sl_key, &ikey)) {
+        std::cerr << "Internal Key [" << sl_key.ToString(true /* in hex*/)
+                  << "] parse error!\n";
+        retc = -1;
+      }
+      fprintf(stdout, "key=%s\n", ikey.DebugString(true).c_str());
+      return retc;
     } else {
       print_help();
       exit(1);
