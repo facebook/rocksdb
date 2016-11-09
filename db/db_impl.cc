@@ -6437,15 +6437,17 @@ Status DBImpl::IngestExternalFile(
     return status;
   }
 
+  TEST_SYNC_POINT("DBImpl::AddFile:Start");
   {
     // Lock db mutex
     InstrumentedMutexLock l(&mutex_);
     TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
-    num_running_ingest_file_++;
 
     // Stop writes to the DB
     WriteThread::Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
+
+    num_running_ingest_file_++;
 
     // Figure out if we need to flush the memtable first
     bool need_flush = false;
