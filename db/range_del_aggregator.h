@@ -74,8 +74,8 @@ class RangeDelAggregator {
   bool IsEmpty();
 
  private:
-  // Maps tombstone start key -> tombstone object
-  typedef std::map<std::string, RangeTombstone, stl_wrappers::LessOfComparator>
+  // Maps tombstone internal start key -> tombstone object
+  typedef std::map<Slice, RangeTombstone, stl_wrappers::LessOfComparator>
       TombstoneMap;
   // Maps snapshot seqnum -> map of tombstones that fall in that stripe, i.e.,
   // their seqnums are greater than the next smaller snapshot's seqnum.
