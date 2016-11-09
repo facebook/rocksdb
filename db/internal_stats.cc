@@ -108,8 +108,10 @@ void PrepareLevelStats(std::map<LevelStatType, double>* level_stats,
   (*level_stats)[LevelStatType::COMP_COUNT] = stats.count;
   (*level_stats)[LevelStatType::AVG_SEC] =
       stats.count == 0 ? 0 : stats.micros / kMicrosInSec / stats.count;
-  (*level_stats)[LevelStatType::KEY_IN] = stats.num_input_records;
-  (*level_stats)[LevelStatType::KEY_DROP] = stats.num_dropped_records;
+  (*level_stats)[LevelStatType::KEY_IN] =
+      static_cast<double>(stats.num_input_records);
+  (*level_stats)[LevelStatType::KEY_DROP] =
+      static_cast<double>(stats.num_dropped_records);
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
@@ -147,8 +149,12 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
            stat_value.at(LevelStatType::COMP_SEC),
            static_cast<int>(stat_value.at(LevelStatType::COMP_COUNT)),
            stat_value.at(LevelStatType::AVG_SEC),
-           NumberToHumanString(stat_value.at(LevelStatType::KEY_IN)).c_str(),
-           NumberToHumanString(stat_value.at(LevelStatType::KEY_DROP)).c_str());
+           NumberToHumanString(
+               static_cast<std::int64_t>(stat_value.at(LevelStatType::KEY_IN)))
+               .c_str(),
+           NumberToHumanString(static_cast<std::int64_t>(
+                                   stat_value.at(LevelStatType::KEY_DROP)))
+               .c_str());
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
