@@ -15,9 +15,8 @@ RangeDelAggregator::RangeDelAggregator(
     : icmp_(icmp) {
   pinned_iters_mgr_.StartPinning();
   for (auto snapshot : snapshots) {
-    stripe_map_.emplace(
-        snapshot,
-        TombstoneMap(stl_wrappers::LessOfComparator(icmp_.user_comparator())));
+    stripe_map_.emplace(snapshot,
+                        TombstoneMap(stl_wrappers::LessOfComparator(&icmp_)));
   }
   // Data newer than any snapshot falls in this catch-all stripe
   stripe_map_.emplace(kMaxSequenceNumber, TombstoneMap());
@@ -87,8 +86,7 @@ Status RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
     }
     RangeTombstone tombstone(parsed_key, input->value());
     auto& tombstone_map = GetTombstoneMap(tombstone.seq_);
-    tombstone_map.emplace(tombstone.start_key_.ToString(),
-                          std::move(tombstone));
+    tombstone_map.emplace(input->key(), std::move(tombstone));
     input->Next();
   }
   return Status::OK();

@@ -22,6 +22,9 @@ struct LessOfComparator {
   bool operator()(const std::string& a, const std::string& b) const {
     return cmp->Compare(Slice(a), Slice(b)) < 0;
   }
+  bool operator()(const Slice& a, const Slice& b) const {
+    return cmp->Compare(a, b) < 0;
+  }
 
   const Comparator* cmp;
 };
