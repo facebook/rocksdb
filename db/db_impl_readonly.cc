@@ -38,7 +38,8 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
-  RangeDelAggregator range_del_agg(cfd->internal_comparator(), {snapshot});
+  RangeDelAggregator range_del_agg(cfd->internal_comparator(), {snapshot},
+                                   false /* collapse_tombstones */);
   LookupKey lkey(key, snapshot);
   if (super_version->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
                               read_options)) {

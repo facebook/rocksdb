@@ -168,7 +168,8 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           if (!through_db) {
             std::string value;
             MergeContext merge_context;
-            RangeDelAggregator range_del_agg(ikc, {} /* snapshots */);
+            RangeDelAggregator range_del_agg(ikc, {} /* snapshots */,
+                                             false /* collapse_tombstones */);
             GetContext get_context(ioptions.user_comparator,
                                    ioptions.merge_operator, ioptions.info_log,
                                    ioptions.statistics, GetContext::kNotFound,

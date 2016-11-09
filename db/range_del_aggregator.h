@@ -38,7 +38,8 @@ class RangeDelAggregator {
   //    space is divided into two stripes, where only tombstones in the older
   //    stripe are considered by ShouldDelete().
   RangeDelAggregator(const InternalKeyComparator& icmp,
-                     const std::vector<SequenceNumber>& snapshots);
+                     const std::vector<SequenceNumber>& snapshots,
+                     bool tombstones_collapsed);
 
   // Returns whether the key should be deleted, which is the case when it is
   // covered by a range tombstone residing in the same snapshot stripe.
@@ -87,6 +88,7 @@ class RangeDelAggregator {
   PinnedIteratorsManager pinned_iters_mgr_;
   StripeMap stripe_map_;
   const InternalKeyComparator icmp_;
+  const bool tombstones_collapsed_;
   Arena arena_;
 };
 }  // namespace rocksdb

@@ -83,8 +83,8 @@ Status BuildTable(
   meta->fd.file_size = 0;
   iter->SeekToFirst();
   range_del_iter->SeekToFirst();
-  std::unique_ptr<RangeDelAggregator> range_del_agg(
-      new RangeDelAggregator(internal_comparator, snapshots));
+  std::unique_ptr<RangeDelAggregator> range_del_agg(new RangeDelAggregator(
+      internal_comparator, snapshots, false /* collapse_tombstones */));
   s = range_del_agg->AddTombstones(std::move(range_del_iter));
   if (!s.ok()) {
     // may be non-ok if a range tombstone key is unparsable

@@ -587,7 +587,8 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
   Arena arena;
   auto options = CurrentOptions();
   RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
-                                   {} /* snapshots */);
+                                   {} /* snapshots */,
+                                   true /* collapse_tombstones */);
   ScopedArenaIterator iter;
   if (cf == 0) {
     iter.set(dbfull()->NewInternalIterator(&arena, &range_del_agg));
@@ -996,7 +997,8 @@ void DBTestBase::validateNumberOfEntries(int numValues, int cf) {
   Arena arena;
   auto options = CurrentOptions();
   RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
-                                   {} /* snapshots */);
+                                   {} /* snapshots */,
+                                   true /* collapse_tombstones */);
   if (cf != 0) {
     iter.set(
         dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[cf]));

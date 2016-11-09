@@ -1184,7 +1184,8 @@ void InternalDumpCommand::DoCommand() {
   // Setup internal key iterator
   Arena arena;
   RangeDelAggregator range_del_agg(InternalKeyComparator(options_.comparator),
-                                   {} /* snapshots */);
+                                   {} /* snapshots */,
+                                   true /* collapse_tombstones */);
   ScopedArenaIterator iter(idb->NewInternalIterator(&arena, &range_del_agg));
   Status st = iter->status();
   if (!st.ok()) {

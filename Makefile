@@ -1254,6 +1254,9 @@ statistics_test: util/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 lru_cache_test: util/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 
 #-------------------------------------------------
 # make install related stuff
