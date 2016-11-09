@@ -2132,15 +2132,11 @@ TEST_F(DBTest2, AutomaticCompactionOverlapManualCompaction) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
-  ASSERT_EQ("1,1,1", FilesPerLevel());
-  // Also test that the stats GetMapProperty API reporting the same result
+  // Test that the stats GetMapProperty API reporting 1 file in L2
   {
     std::map<std::string, double> prop;
     ASSERT_TRUE(dbfull()->GetMapProperty("rocksdb.cfstats", &prop));
-    ASSERT_EQ(1, get_stat("L0", LevelStatType::NUM_FILES, prop));
-    ASSERT_EQ(1, get_stat("L1", LevelStatType::NUM_FILES, prop));
     ASSERT_EQ(1, get_stat("L2", LevelStatType::NUM_FILES, prop));
-    ASSERT_EQ(3, get_stat("Sum", LevelStatType::NUM_FILES, prop));
   }
 }
 
