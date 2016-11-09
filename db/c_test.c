@@ -2,12 +2,13 @@
    Use of this source code is governed by a BSD-style license that can be
    found in the LICENSE file. See the AUTHORS file for names of contributors. */
 
+#include <stdio.h>
+
 #ifndef ROCKSDB_LITE  // Lite does not support C API
 
 #include "rocksdb/c.h"
 
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
