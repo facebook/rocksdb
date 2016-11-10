@@ -886,7 +886,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
         auto cf_handle = cf_mems_->GetColumnFamilyHandle();
         Status s = Status::NotSupported();
-        if (db_ != nullptr && recovering_log_number_ != 0) {
+        if (db_ != nullptr && recovering_log_number_ == 0) {
           if (cf_handle == nullptr) {
             cf_handle = db_->DefaultColumnFamily();
           }
