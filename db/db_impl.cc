@@ -1617,7 +1617,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // TODO(sdong) fix the allow_2pc case too.
       status = WriteBatchInternal::InsertInto(
           &batch, column_family_memtables_.get(), &flush_scheduler_, true,
-          log_number, db_options_.allow_2pc ? this : nullptr,
+          log_number, immutable_db_options_.allow_2pc ? this : nullptr,
           false /* concurrent_memtable_writes */, next_sequence,
           &has_valid_writes);
       // If it is the first log file and there is no column family updated
