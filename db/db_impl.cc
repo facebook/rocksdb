@@ -1445,6 +1445,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
   bool stop_replay_by_wal_filter = false;
   bool stop_replay_for_corruption = false;
+  bool first_log_in_recover = true;
   bool flushed = false;
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
@@ -1512,6 +1513,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     std::string scratch;
     Slice record;
     WriteBatch batch;
+    bool first_record_in_log = true;
 
     while (!stop_replay_by_wal_filter &&
            reader.ReadRecord(&record, &scratch,
@@ -1524,6 +1526,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
       WriteBatchInternal::SetContents(&batch, record);
       SequenceNumber sequence = WriteBatchInternal::Sequence(&batch);
+
+      // If we detect a gap in our log stream then we have been reading in
+      // stale log data and should remove all recovered 2pc transactions because
+      // the commit/rollback marker could have been in the missing log.
+      if (allow_2pc() && first_record_in_log && !first_log_in_recover &&
+          (*next_sequence != sequence)) {
+        DeleteAllRecoveredTransactions();
+      }
 
       if (immutable_db_options_.wal_recovery_mode ==
           WALRecoveryMode::kPointInTimeRecovery) {
@@ -1659,6 +1669,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
                                  *next_sequence);
         }
       }
+      first_record_in_log = false;
     }
 
     if (!status.ok()) {
@@ -1689,6 +1700,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         (versions_->LastSequence() <= last_sequence)) {
       versions_->SetLastSequence(last_sequence);
     }
+    first_log_in_recover = false;
   }
 
   // True if there's any data in the WALs; if not, we can skip re-processing

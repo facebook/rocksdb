@@ -142,6 +142,10 @@ class FaultInjectionTestEnv : public EnvWrapper {
     MutexLock l(&mutex_);
     SetFilesystemActiveNoLock(active);
   }
+
+  void SetIgnoreDeletes(bool ignore_deletes) {
+    ignore_deletes_ = ignore_deletes;
+  }
   void AssertNoOpenFile() { assert(open_files_.empty()); }
 
  private:
@@ -151,6 +155,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
   std::unordered_map<std::string, std::set<std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes
+  bool ignore_deletes_;     // silently ignore deletes
 };
 
 }  // namespace rocksdb
