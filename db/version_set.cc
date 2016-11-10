@@ -517,11 +517,16 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
     }
     const FileDescriptor* fd =
         reinterpret_cast<const FileDescriptor*>(meta_handle.data());
-    return table_cache_->NewIterator(
-        read_options_, env_options_, icomparator_, *fd,
+    InternalIterator* res;
+    Status s = table_cache_->NewIterator(
+        read_options_, env_options_, icomparator_, *fd, &res,
         nullptr /* don't need reference to table */, file_read_hist_,
         for_compaction_, nullptr /* arena */, skip_filters_, level_,
-        range_del_agg_, false /* is_range_del_only */);
+        range_del_agg_);
+    if (!s.ok()) {
+      res = NewErrorInternalIterator(s, nullptr /* arena */);
+    }
+    return res;
   }
 
   bool PrefixMayMatch(const Slice& internal_key) override {
@@ -833,10 +838,15 @@ void Version::AddIteratorsForLevel(const ReadOptions& read_options,
     // Merge all level zero files together since they may overlap
     for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
       const auto& file = storage_info_.LevelFilesBrief(0).files[i];
-      merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
-          read_options, soptions, cfd_->internal_comparator(), file.fd, nullptr,
-          cfd_->internal_stats()->GetFileReadHist(0), false, arena,
-          false /* skip_filters */, 0 /* level */, range_del_agg));
+      InternalIterator* iter;
+      Status s = cfd_->table_cache()->NewIterator(
+          read_options, soptions, cfd_->internal_comparator(), file.fd, &iter,
+          nullptr, cfd_->internal_stats()->GetFileReadHist(0), false, arena,
+          false /* skip_filters */, 0 /* level */, range_del_agg);
+      if (!s.ok()) {
+        iter = NewErrorInternalIterator(s, arena);
+      }
+      merge_iter_builder->AddIterator(iter);
     }
   } else {
     // For levels > 0, we can use a concatenating iterator that sequentially
@@ -962,15 +972,18 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   FdWithKeyRange* f = fp.GetNextFile();
   while (f != nullptr) {
     if (!read_options.ignore_range_deletions) {
-      table_cache_->NewIterator(
+      *status = table_cache_->NewIterator(
           read_options, vset_->env_options(), *internal_comparator(), f->fd,
-          nullptr /* table_reader_ptr */,
+          nullptr /* data_iter */, nullptr /* table_reader_ptr */,
           cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()),
           false /* for_compaction */, nullptr /* arena */,
           IsFilterSkipped(static_cast<int>(fp.GetHitFileLevel()),
                           fp.IsHitFileLastInLevel()),
-          fp.GetCurrentLevel() /* level */, range_del_agg,
-          true /* is_range_del_only */);
+          fp.GetCurrentLevel() /* level */, range_del_agg);
+      // TODO: examine the behavior for corrupted key
+      if (!status->ok()) {
+        return;
+      }
     }
 
     *status = table_cache_->Get(
@@ -3326,13 +3339,16 @@ uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
     // "key" falls in the range for this table.  Add the
     // approximate offset of "key" within the table.
     TableReader* table_reader_ptr;
-    InternalIterator* iter = v->cfd_->table_cache()->NewIterator(
+    InternalIterator* iter;
+    Status s = v->cfd_->table_cache()->NewIterator(
         ReadOptions(), env_options_, v->cfd_->internal_comparator(), f.fd,
-        &table_reader_ptr);
+        &iter, &table_reader_ptr);
     if (table_reader_ptr != nullptr) {
       result = table_reader_ptr->ApproximateOffsetOf(key);
     }
-    delete iter;
+    if (s.ok()) {
+      delete iter;
+    }
   }
   return result;
 }
@@ -3397,12 +3413,16 @@ InternalIterator* VersionSet::MakeInputIterator(
       if (c->level(which) == 0) {
         const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
-          list[num++] = cfd->table_cache()->NewIterator(
+          Status s = cfd->table_cache()->NewIterator(
               read_options, env_options_compactions_,
-              cfd->internal_comparator(), flevel->files[i].fd, nullptr,
-              nullptr, /* no per level latency histogram*/
+              cfd->internal_comparator(), flevel->files[i].fd, &list[num],
+              nullptr, nullptr, /* no per level latency histogram*/
               true /* for_compaction */, nullptr /* arena */,
               false /* skip_filters */, (int)which /* level */, range_del_agg);
+          if (!s.ok()) {
+            list[num] = NewErrorInternalIterator(s);
+          }
+          ++num;
         }
       } else {
         // Create concatenating iterator for the files from this level

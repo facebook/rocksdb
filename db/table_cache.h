@@ -39,27 +39,28 @@ class TableCache {
              const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
-  // Return an iterator for the specified file number (the corresponding
-  // file length must be exactly "file_size" bytes).  If "tableptr" is
-  // non-nullptr, also sets "*tableptr" to point to the Table object
-  // underlying the returned iterator, or nullptr if no Table object underlies
-  // the returned iterator.  The returned "*tableptr" object is owned by
-  // the cache and should not be deleted, and is valid for as long as the
-  // returned iterator is live.
+  // Creates an iterator for the specified file number (the corresponding
+  // file length must be exactly "file_size" bytes) and sets it to "*data_iter"
+  // if non-nullptr.  If "tableptr" is non-nullptr, also sets "*tableptr" to
+  // point to the Table object underlying the created iterator, or nullptr if
+  // no Table object underlies the created iterator.  The returned "*tableptr"
+  // object is owned by the cache and should not be deleted, and is valid for as
+  // long as the returned iterator is live.
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   // @param range_del_agg When non-nullptr, creates a range tombstone iterator
   //    over this file's meta-block and gives it to this object
-  // @param is_range_del_only When set, this function only gives a range
-  //    tombstone iterator to range_del_agg and then returns nullptr
-  InternalIterator* NewIterator(
-      const ReadOptions& options, const EnvOptions& toptions,
-      const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& file_fd, TableReader** table_reader_ptr = nullptr,
-      HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
-      Arena* arena = nullptr, bool skip_filters = false, int level = -1,
-      RangeDelAggregator* range_del_agg = nullptr,
-      bool is_range_del_only = false);
+  // @param data_iter When non-nullptr, the iterator over the table's data
+  //    is returned in "*data_iter".
+  Status NewIterator(const ReadOptions& options, const EnvOptions& toptions,
+                     const InternalKeyComparator& internal_comparator,
+                     const FileDescriptor& file_fd,
+                     InternalIterator** data_iter = nullptr,
+                     TableReader** table_reader_ptr = nullptr,
+                     HistogramImpl* file_read_hist = nullptr,
+                     bool for_compaction = false, Arena* arena = nullptr,
+                     bool skip_filters = false, int level = -1,
+                     RangeDelAggregator* range_del_agg = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until

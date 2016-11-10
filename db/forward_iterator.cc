@@ -69,11 +69,12 @@ class LevelIterator : public InternalIterator {
       delete file_iter_;
     }
 
-    file_iter_ = cfd_->table_cache()->NewIterator(
+    Status s = cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        files_[file_index_]->fd, nullptr /* table_reader_ptr */, nullptr,
-        false);
-
+        files_[file_index_]->fd, &file_iter_);
+    if (!s.ok()) {
+      file_iter_ = NewErrorInternalIterator(s);
+    }
     file_iter_->SetPinnedItersMgr(pinned_iters_mgr_);
   }
   void SeekToLast() override {
@@ -573,8 +574,13 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
       l0_iters_.push_back(nullptr);
       continue;
     }
-    l0_iters_.push_back(cfd_->table_cache()->NewIterator(
-        read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd));
+    l0_iters_.emplace_back();
+    Status s = cfd_->table_cache()->NewIterator(
+        read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd,
+        &l0_iters_.back());
+    if (!s.ok()) {
+      l0_iters_.back() = NewErrorInternalIterator(s);
+    }
   }
   BuildLevelIterators(vstorage);
   current_ = nullptr;
@@ -627,9 +633,13 @@ void ForwardIterator::RenewIterators() {
       }
       continue;
     }
-    l0_iters_new.push_back(cfd_->table_cache()->NewIterator(
+    l0_iters_new.emplace_back();
+    Status s = cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
-        l0_files_new[inew]->fd));
+        l0_files_new[inew]->fd, &l0_iters_new.back());
+    if (!s.ok()) {
+      l0_iters_new.back() = NewErrorInternalIterator(s);
+    }
   }
 
   for (auto* f : l0_iters_) {
@@ -679,9 +689,12 @@ void ForwardIterator::ResetIncompleteIterators() {
       continue;
     }
     DeleteIterator(l0_iters_[i]);
-    l0_iters_[i] = cfd_->table_cache()->NewIterator(
+    Status s = cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
-        l0_files[i]->fd);
+        l0_files[i]->fd, &l0_iters_[i]);
+    if (!s.ok()) {
+      l0_iters_[i] = NewErrorInternalIterator(s);
+    }
     l0_iters_[i]->SetPinnedItersMgr(pinned_iters_mgr_);
   }
 

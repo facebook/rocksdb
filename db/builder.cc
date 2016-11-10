@@ -181,17 +181,23 @@ Status BuildTable(
 
     if (s.ok() && !empty) {
       // Verify that the table is usable
-      std::unique_ptr<InternalIterator> it(table_cache->NewIterator(
-          ReadOptions(), env_options, internal_comparator, meta->fd, nullptr,
+      InternalIterator* table_iter;
+      s = table_cache->NewIterator(
+          ReadOptions(), env_options, internal_comparator, meta->fd,
+          &table_iter, nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
           false /* for_compaction */, nullptr /* arena */,
-          false /* skip_filter */, level));
-      s = it->status();
-      if (s.ok() && paranoid_file_checks) {
-        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+          false /* skip_filter */, level);
+      std::unique_ptr<InternalIterator> table_iter_guard;
+      if (s.ok()) {
+        table_iter_guard.reset(table_iter);
+        if (paranoid_file_checks) {
+          for (table_iter->SeekToFirst(); table_iter->Valid();
+               table_iter->Next()) {
+          }
+          s = table_iter->status();
         }
-        s = it->status();
       }
     }
   }

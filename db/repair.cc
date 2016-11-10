@@ -465,9 +465,13 @@ class Repairer {
         status = Status::Corruption(dbname_, "inconsistent column family name");
       }
     }
+    InternalIterator* iter = nullptr;
     if (status.ok()) {
-      InternalIterator* iter = table_cache_->NewIterator(
-          ReadOptions(), env_options_, cfd->internal_comparator(), t->meta.fd);
+      status = table_cache_->NewIterator(ReadOptions(), env_options_,
+                                         cfd->internal_comparator(), t->meta.fd,
+                                         &iter);
+    }
+    if (status.ok()) {
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;
