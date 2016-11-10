@@ -1688,6 +1688,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
   }
 
+  bool data_seen = false;
   if (!read_only) {
     // no need to refcount since client still doesn't have access
     // to the DB and can not drop column families while we iterate
@@ -1723,6 +1724,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
                                  versions_->LastSequence());
         }
+        data_seen = true;
       }
 
       // write MANIFEST with update
@@ -1748,7 +1750,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
   }
 
-  if (!flushed) {
+  if (data_seen && !flushed) {
     // Mark these as alive so they'll be considered for deletion later by
     // FindObsoleteFiles()
     for (auto log_number : log_numbers) {
