@@ -941,6 +941,12 @@ TEST_F(ColumnFamilyTest, CrashAfterFlush) {
   db_options_.env = env_;
 }
 
+TEST_F(ColumnFamilyTest, OpenNonexistentColumnFamily) {
+  ASSERT_OK(TryOpen({"default"}));
+  Close();
+  ASSERT_TRUE(TryOpen({"default", "dne"}).IsInvalidArgument());
+}
+
 #ifndef ROCKSDB_LITE  // WaitForFlush() is not supported
 // Makes sure that obsolete log files get deleted
 TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
