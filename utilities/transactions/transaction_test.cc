@@ -170,6 +170,44 @@ TEST_P(TransactionTest, SuccessTest) {
   delete txn;
 }
 
+TEST_P(TransactionTest, CommitNotClearTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+  Status s;
+
+  db->Put(write_options, Slice("foo"), Slice("bar"));
+
+  Transaction* txn = db->BeginTransaction(write_options, TransactionOptions());
+  ASSERT_TRUE(txn);
+
+  s = txn->Put(Slice("foo"), Slice("bar2"));
+  ASSERT_OK(s);
+
+  std::unique_ptr<Iterator> itr(txn->GetIterator(read_options));
+  itr->Seek("foo");
+
+  s = txn->Commit(false);
+  ASSERT_OK(s);
+
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_EQ("foo", itr->key().ToString());
+  ASSERT_EQ("bar2", itr->value().ToString());
+  itr.reset();
+
+  s = txn->Get(read_options, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar2");
+
+  txn->ClearBatch();
+
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar2");
+
+  delete txn;
+}
+
 TEST_P(TransactionTest, WaitingTxn) {
   WriteOptions write_options;
   ReadOptions read_options;

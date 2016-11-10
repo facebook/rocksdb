@@ -213,7 +213,7 @@ Status TransactionImpl::Prepare() {
   return s;
 }
 
-Status TransactionImpl::Commit() {
+Status TransactionImpl::Commit(bool clear_batch) {
   Status s;
   bool commit_single = false;
   bool commit_prepared = false;
@@ -248,7 +248,9 @@ Status TransactionImpl::Commit() {
     } else {
       txn_state_.store(AWAITING_COMMIT);
       s = db_->Write(write_options_, GetWriteBatch()->GetWriteBatch());
-      Clear();
+      if (clear_batch) {
+        Clear();
+      }
       if (s.ok()) {
         txn_state_.store(COMMITED);
       }
@@ -282,7 +284,9 @@ Status TransactionImpl::Commit() {
     dbimpl_->MarkLogAsHavingPrepSectionFlushed(log_number_);
     txn_db_impl_->UnregisterTransaction(this);
 
-    Clear();
+    if (clear_batch) {
+      Clear();
+    }
     txn_state_.store(COMMITED);
   } else if (txn_state_ == LOCKS_STOLEN) {
     s = Status::Expired();

@@ -42,7 +42,7 @@ class TransactionImpl : public TransactionBaseImpl {
 
   Status Prepare() override;
 
-  Status Commit() override;
+  Status Commit(bool clear_batch = true) override;
 
   Status CommitBatch(WriteBatch* batch);
 
@@ -94,6 +94,9 @@ class TransactionImpl : public TransactionBaseImpl {
   bool IsDeadlockDetect() const override { return deadlock_detect_; }
 
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
+
+  // Clear local batch. Should only be called after transaction commits.
+  void ClearBatch() override { Clear(); }
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,

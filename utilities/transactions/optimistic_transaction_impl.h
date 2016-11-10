@@ -40,7 +40,7 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
 
   Status Prepare() override;
 
-  Status Commit() override;
+  Status Commit(bool clear_batch = true) override;
 
   Status Rollback() override;
 
@@ -63,6 +63,8 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
   //
   // Should only be called on writer thread.
   Status CheckTransactionForConflicts(DB* db);
+
+  void ClearBatch() override { Clear(); }
 
   void Clear() override;
 
