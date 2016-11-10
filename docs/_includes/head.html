@@ -9,16 +9,14 @@
   <meta property="og:image" content="{{ '/static/og_image.png' | absolute_url }}" />
   <meta property="og:description" content="{% if page.excerpt %}{{ page.excerpt | strip_html | strip_newlines | truncate: 160 }}{% else %}{{ site.description }}{% endif %}" />
 
-  <link rel="stylesheet" href="{{ '/css/main.css' | absolute_url }}" media="screen">
-  <link rel="icon" href="{{ '/static/favicon.png' | absolute_url }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ '/css/main.css' | relative_url }}" media="screen">
+  <link rel="icon" href="{{ '/static/favicon.png' | relative_url }}" type="image/x-icon">
   {% if site.searchconfig %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/docsearch.js/1/docsearch.min.css" />
   {% endif %}
 
   <title>{% if page.title %}{{ page.title }} | {{ site.title }}{% else %}{{ site.title }}{% endif %}</title>
   <meta name="description" content="{% if page.excerpt %}{{ page.excerpt | strip_html | strip_newlines | truncate: 160 }}{% else %}{{ site.description }}{% endif %}">
-
-  <base href="{{ absolute_url }}/" />
 
   <link rel="canonical" href="{{ page.url | replace:'index.html','' | absolute_url }}">
   <link rel="alternate" type="application/rss+xml" title="{{ site.title }}" href="{{ '/feed.xml' |  absolute_url }}" />
