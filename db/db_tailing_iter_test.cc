@@ -305,6 +305,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorPrefixSeek) {
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
   options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+  options.allow_concurrent_memtable_write = false;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -625,6 +626,7 @@ TEST_F(DBTestTailingIterator, ManagedTailingIteratorPrefixSeek) {
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
   options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+  options.allow_concurrent_memtable_write = false;
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 

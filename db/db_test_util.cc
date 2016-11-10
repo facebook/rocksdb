@@ -233,6 +233,7 @@ Options DBTestBase::CurrentOptions(
     case kHashSkipList:
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
       options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+      options.allow_concurrent_memtable_write = false;
       break;
     case kPlainTableFirstBytePrefix:
       options.table_factory.reset(new PlainTableFactory());
@@ -264,15 +265,18 @@ Options DBTestBase::CurrentOptions(
       break;
     case kVectorRep:
       options.memtable_factory.reset(new VectorRepFactory(100));
+      options.allow_concurrent_memtable_write = false;
       break;
     case kHashLinkList:
       options.prefix_extractor.reset(NewFixedPrefixTransform(1));
       options.memtable_factory.reset(
           NewHashLinkListRepFactory(4, 0, 3, true, 4));
+      options.allow_concurrent_memtable_write = false;
       break;
     case kHashCuckoo:
       options.memtable_factory.reset(
           NewHashCuckooRepFactory(options.write_buffer_size));
+      options.allow_concurrent_memtable_write = false;
       break;
 #endif  // ROCKSDB_LITE
     case kMergePut:

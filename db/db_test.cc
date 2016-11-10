@@ -2469,11 +2469,13 @@ class MultiThreadedDBTest : public DBTest,
 TEST_P(MultiThreadedDBTest, MultiThreaded) {
   anon::OptionsOverride options_override;
   options_override.skip_policy = kSkipNoSnapshot;
+  Options options = CurrentOptions(options_override);
   std::vector<std::string> cfs;
   for (int i = 1; i < kColumnFamilies; ++i) {
     cfs.push_back(ToString(i));
   }
-  CreateAndReopenWithCF(cfs, CurrentOptions(options_override));
+  Reopen(options);
+  CreateAndReopenWithCF(cfs, options);
   // Initialize state
   MTState mt;
   mt.test = this;

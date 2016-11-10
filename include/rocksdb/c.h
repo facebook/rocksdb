@@ -647,6 +647,12 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_use_adaptive_mutex(
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_bytes_per_sync(
     rocksdb_options_t*, uint64_t);
 extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_allow_concurrent_memtable_write(rocksdb_options_t*,
+                                                    unsigned char);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_options_set_enable_write_thread_adaptive_yield(rocksdb_options_t*,
+                                                       unsigned char);
+extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_verify_checksums_in_compaction(rocksdb_options_t*,
                                                    unsigned char);
 extern ROCKSDB_LIBRARY_API void

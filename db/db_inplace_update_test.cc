@@ -23,6 +23,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdate) {
     options.inplace_update_support = true;
     options.env = env_;
     options.write_buffer_size = 100000;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller size
@@ -45,6 +47,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateLargeNewValue) {
     options.inplace_update_support = true;
     options.env = env_;
     options.write_buffer_size = 100000;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of larger size
@@ -70,6 +74,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerSize) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTestInPlaceUpdate::updateInPlaceSmallerSize;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller size
@@ -97,6 +103,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackSmallerVarintSize) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTestInPlaceUpdate::updateInPlaceSmallerVarintSize;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller varint size
@@ -124,6 +132,8 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackLargeNewValue) {
     options.write_buffer_size = 100000;
     options.inplace_callback =
       rocksdb::DBTestInPlaceUpdate::updateInPlaceLargerSize;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of larger size
@@ -148,7 +158,9 @@ TEST_F(DBTestInPlaceUpdate, InPlaceUpdateCallbackNoAction) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options.inplace_callback =
-      rocksdb::DBTestInPlaceUpdate::updateInPlaceNoAction;
+        rocksdb::DBTestInPlaceUpdate::updateInPlaceNoAction;
+    options.allow_concurrent_memtable_write = false;
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 
     // Callback function requests no actions from db

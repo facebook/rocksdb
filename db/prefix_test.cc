@@ -222,6 +222,7 @@ class PrefixTest : public testing::Test {
     bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
     bbto.whole_key_filtering = false;
     options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+    options.allow_concurrent_memtable_write = false;
 
     Status s = DB::Open(options, kDbName,  &db);
     EXPECT_OK(s);

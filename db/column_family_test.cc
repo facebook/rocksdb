@@ -1056,6 +1056,7 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
 
 #ifndef ROCKSDB_LITE  // Cuckoo is not supported in lite
 TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
+  db_options_.allow_concurrent_memtable_write = false;
   Open();
   auto* s1 = dbfull()->GetSnapshot();
   ASSERT_TRUE(s1 != nullptr);

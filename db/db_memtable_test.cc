@@ -86,6 +86,8 @@ class MockMemTableRepFactory : public MemTableRepFactory {
 
   MockMemTableRep* rep() { return mock_rep_; }
 
+  bool IsInsertConcurrentlySupported() const override { return false; }
+
  private:
   MockMemTableRep* mock_rep_;
 };
@@ -116,6 +118,7 @@ class TestPrefixExtractor : public SliceTransform {
 
 TEST_F(DBMemTableTest, InsertWithHint) {
   Options options;
+  options.allow_concurrent_memtable_write = false;
   options.create_if_missing = true;
   options.memtable_factory.reset(new MockMemTableRepFactory());
   options.memtable_insert_with_hint_prefix_extractor.reset(
