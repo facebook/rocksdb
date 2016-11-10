@@ -834,8 +834,8 @@ void InternalStats::DumpDBStats(std::string* value) {
 /**
  * Dump Compaction Level stats to a map of stat name to value in double.
  * The level in stat name is represented with a prefix "Lx" where "x"
- * is the level number. A special level "Sum" represnts the sum of a stat
- * fir all levels.
+ * is the level number. A special level "Sum" represents the sum of a stat
+ * for all levels.
  */
 void InternalStats::DumpCFMapStats(std::map<std::string, double>* cf_stats) {
   CompactionStats compaction_stats_sum(0);
@@ -896,7 +896,7 @@ int InternalStats::DumpCFMapStats(
               ? 0.0
               : static_cast<double>(comp_stats_[level].bytes_written) /
                     comp_stats_[level].bytes_read_non_output_levels;
-      auto level_stats = std::map<LevelStatType, double>();
+      std::map<LevelStatType, double> level_stats;
       PrepareLevelStats(&level_stats, files, files_being_compacted[level],
                         static_cast<double>(vstorage->NumLevelBytes(level)),
                         compaction_score[level], w_amp, comp_stats_[level]);
@@ -910,10 +910,10 @@ int InternalStats::DumpCFMapStats(
   double w_amp = compaction_stats_sum->bytes_written /
                  static_cast<double>(curr_ingest + 1);
   // Stats summary across levels
-  auto level_stats = std::map<LevelStatType, double>();
-  PrepareLevelStats(&level_stats, total_files, total_files_being_compacted,
+  std::map<LevelStatType, double> sum_stats;
+  PrepareLevelStats(&sum_stats, total_files, total_files_being_compacted,
                     total_file_size, 0, w_amp, *compaction_stats_sum);
-  (*levels_stats)[-1] = level_stats;  //  -1 is for the Sum level
+  (*levels_stats)[-1] = sum_stats;  //  -1 is for the Sum level
   return num_levels_to_check;
 }
 
