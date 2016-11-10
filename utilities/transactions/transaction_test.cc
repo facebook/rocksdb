@@ -1178,6 +1178,65 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
   delete cfb;
 }
 
+/*
+ * 1) use prepare to keep first log around to determine starting sequence
+ * during recovery.
+ * 2) insert many values, skipping wal, to increase seqid.
+ * 3) insert final value into wal
+ * 4) recover and see that final value was properly recovered - not
+ * hidden behind improperly summed sequence ids
+ */
+TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  WriteOptions wal_on, wal_off;
+  wal_on.sync = true;
+  wal_on.disableWAL = false;
+  wal_off.disableWAL = true;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+
+  std::string value;
+  Status s;
+
+  Transaction* txn1 = db->BeginTransaction(wal_on, txn_options);
+
+  s = txn1->SetName("1");
+  ASSERT_OK(s);
+
+  s = db->Put(wal_on, "first", "first");
+  ASSERT_OK(s);
+
+  s = txn1->Put(Slice("dummy"), Slice("dummy"));
+  ASSERT_OK(s);
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  s = db->Put(wal_off, "cats", "dogs1");
+  ASSERT_OK(s);
+  s = db->Put(wal_off, "cats", "dogs2");
+  ASSERT_OK(s);
+  s = db->Put(wal_off, "cats", "dogs3");
+  ASSERT_OK(s);
+
+  s = db_impl->TEST_FlushMemTable(true);
+  ASSERT_OK(s);
+
+  s = db->Put(wal_on, "cats", "dogs4");
+  ASSERT_OK(s);
+
+  // kill and reopen
+  env->SetFilesystemActive(false);
+  ReOpenNoDelete();
+
+  s = db->Get(read_options, "first", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "first");
+
+  s = db->Get(read_options, "cats", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "dogs4");
+}
+
 TEST_P(TransactionTest, FirstWriteTest) {
   WriteOptions write_options;
 

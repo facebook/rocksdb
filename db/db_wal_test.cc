@@ -645,8 +645,6 @@ TEST_F(DBWALTest, PartOfWritesWithWALDisabled) {
   Options options = CurrentOptions();
   options.env = fault_env.get();
   options.disable_auto_compactions = true;
-  // TODO(yiwu): fix for 2PC.
-  options.allow_2pc = false;
   WriteOptions wal_on, wal_off;
   wal_on.sync = true;
   wal_on.disableWAL = false;
