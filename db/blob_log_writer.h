@@ -82,13 +82,13 @@ class Writer {
     const Slice& val, int32_t ttl, int64_t ts);
 
   Status AddRecord(const Slice& key, const Slice& val,
-    uint64_t& key_offset, uint64_t& blob_offset);
+    uint64_t* key_offset, uint64_t* blob_offset);
 
   Status AddRecord(const Slice& key, const Slice& val,
-    uint64_t& key_offset, uint64_t& blob_offset, uint32_t ttl);
+    uint64_t* key_offset, uint64_t* blob_offset, uint32_t ttl);
 
   Status EmitPhysicalRecord(const char *headerbuf, const Slice& key,
-    const Slice& val, uint64_t& key_offset, uint64_t& blob_offset);
+    const Slice& val, uint64_t* key_offset, uint64_t* blob_offset);
 
   Status AddRecordFooter(const SequenceNumber& sn);
 

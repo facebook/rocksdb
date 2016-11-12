@@ -76,11 +76,23 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
  private:
-  bool shouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt);
+
+  // timer queue callback to close a file by appending a footer
+  // removes file from open files list
+  std::pair<bool, int64_t> closeSeqWrite(std::shared_ptr<BlobFile> bfile,
+                                         bool aborted);
+
+  // is this file ready for Garbage collection. if the TTL of the file
+  // has expired or if threshold of the file has been evicted
+  // tt - current time
+  // last_id - the id of the non-TTL file to evict
+  bool shouldGCFile_locked(std::shared_ptr<BlobFile> bfile, std::time_t tt,
+                           uint64_t last_id);
 
   Status getAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
 
-  void closeIf(std::shared_ptr<BlobFile>& bfile);
+  // appends a task into timer queue to close the file
+  void closeIf(const std::shared_ptr<BlobFile>& bfile);
 
   Status PutCommon(std::shared_ptr<BlobFile>& bfile,
     const WriteOptions& options, ColumnFamilyHandle *column_family,
@@ -96,6 +108,8 @@ class BlobDBImpl : public BlobDB {
 
   // periodic sanity check
   std::pair<bool, int64_t> sanityCheck(bool aborted);
+
+  std::pair<bool, int64_t> deleteObsFiles(bool aborted);
 
   std::pair<bool, int64_t> runGC(bool aborted);
 
@@ -120,7 +134,7 @@ class BlobDBImpl : public BlobDB {
 
   Status writeBatchOfDeleteKeys(BlobFile *bfptr);
 
-  bool TryDeleteFile(std::shared_ptr<BlobFile>& bfile);
+  bool DeleteFileOK_locked(const std::shared_ptr<BlobFile>& bfile);
 
   std::shared_ptr<blob_log::Writer> checkOrCreateWriter_locked(BlobFile *bfile);
 
@@ -150,6 +164,8 @@ class BlobDBImpl : public BlobDB {
 
   // entire metadata in memory
   std::unordered_map<uint64_t, std::shared_ptr<BlobFile>> blob_files_;
+
+  std::atomic<uint64_t> epoch_of_;
 
   std::vector<std::shared_ptr<BlobFile> > open_simple_files_;
 
@@ -183,7 +199,8 @@ class BlobDBImpl : public BlobDB {
   uint64_t total_periods_write_;
   uint64_t total_periods_ampl_;
 
-  uint64_t total_blob_file_size_;
+  std::atomic<uint64_t> total_blob_space_;
+  std::list<std::shared_ptr<BlobFile>> obsolete_files_;
 };
 
 class BlobFile {
@@ -205,7 +222,7 @@ private:
 
   bool closed_;
   bool header_read_;
-  bool can_be_deleted_;
+  std::atomic<bool> can_be_deleted_;
 
   ttlrange_t ttl_range_;
   tsrange_t time_range_;
@@ -235,7 +252,7 @@ public:
 
   ~BlobFile();
 
-  bool Obsolete() const { return can_be_deleted_; }
+  bool Obsolete() const { return can_be_deleted_.load(); }
 
   ColumnFamilyHandle *GetColumnFamily(DB *db);
 

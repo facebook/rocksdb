@@ -61,7 +61,7 @@ BlobDBOptions::BlobDBOptions()
       wa_num_stats_periods(24),
       wa_stats_period(3600 * 1000),
       partial_expiration_gc_range(4 * 3600),
-      partial_expiration_pct(15) {}
+      partial_expiration_pct(75) {}
 
 }  // namespace rocksdb
 #endif

@@ -90,7 +90,7 @@ Status Writer::AppendFooter(blob_log::BlobLogFooter& footer)
 //
 ////////////////////////////////////////////////////////////////////////////////
 Status Writer::AddRecord(const Slice& key, const Slice& val,
-  uint64_t& key_offset, uint64_t& blob_offset, uint32_t ttl)
+  uint64_t* key_offset, uint64_t* blob_offset, uint32_t ttl)
 {
   char buf[blob_log::BlobLogRecord::kHeaderSize];
   ConstructBlobHeader(buf, key, val, ttl, -1);
@@ -104,7 +104,7 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
 //
 ////////////////////////////////////////////////////////////////////////////////
 Status Writer::AddRecord(const Slice& key, const Slice& val,
-  uint64_t& key_offset, uint64_t& blob_offset) {
+  uint64_t* key_offset, uint64_t* blob_offset) {
   char buf[blob_log::BlobLogRecord::kHeaderSize];
   ConstructBlobHeader(buf, key, val, -1, -1);
 
@@ -165,7 +165,7 @@ void Writer::ConstructBlobHeader(char *headerbuf, const Slice& key,
 //
 ////////////////////////////////////////////////////////////////////////////////
 Status Writer::EmitPhysicalRecord(const char *headerbuf, const Slice& key,
-  const Slice& val, uint64_t& key_offset, uint64_t& blob_offset) {
+  const Slice& val, uint64_t* key_offset, uint64_t* blob_offset) {
 
   Status s = dest_->Append(Slice(headerbuf,
     blob_log::BlobLogRecord::kHeaderSize));
@@ -176,9 +176,9 @@ Status Writer::EmitPhysicalRecord(const char *headerbuf, const Slice& key,
     }
   }
 
-  key_offset = block_offset_ + blob_log::BlobLogRecord::kHeaderSize;
-  blob_offset = key_offset + key.size();
-  block_offset_ = blob_offset + val.size();
+  *key_offset = block_offset_ + blob_log::BlobLogRecord::kHeaderSize;
+  *blob_offset = *key_offset + key.size();
+  block_offset_ = *blob_offset + val.size();
 
   return s;
 }
