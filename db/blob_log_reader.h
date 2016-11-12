@@ -72,7 +72,7 @@ class Reader {
   // "*scratch" as temporary storage.  The contents filled in *record
   // will only be valid until the next mutating operation on this
   // reader or the next mutation to *scratch.
-  Status ReadRecord(blob_log::BlobLogRecord& record,
+  Status ReadRecord(blob_log::BlobLogRecord* record,
                     READ_LEVEL level = READ_LEVEL_HDR_FOOTER,
                     WALRecoveryMode wal_recovery_mode =
                         WALRecoveryMode::kTolerateCorruptedTailRecords);

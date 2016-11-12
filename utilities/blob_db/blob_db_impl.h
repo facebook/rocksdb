@@ -1,12 +1,20 @@
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
+
 #pragma once
 
 
-#include <string>
-#include <memory>
 #include <atomic>
-#include <set>
 #include <condition_variable>
+#include <list>
+#include <memory>
+#include <set>
+#include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "db/blob_log_format.h"
 #include "db/blob_log_reader.h"
@@ -68,7 +76,9 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
  private:
-  Status getAllLogFiles(std::set<std::pair<uint64_t, std::string>>& file_nums);
+  bool shouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt);
+
+  Status getAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
 
   void closeIf(std::shared_ptr<BlobFile>& bfile);
 
@@ -90,6 +100,8 @@ class BlobDBImpl : public BlobDB {
   std::pair<bool, int64_t> runGC(bool aborted);
 
   std::pair<bool, int64_t> reclaimOpenFiles(bool aborted);
+
+  std::pair<bool, int64_t> waStats(bool aborted);
 
   void startGCThreads();
 
@@ -158,6 +170,20 @@ class BlobDBImpl : public BlobDB {
   TimerQueue tqueue_;
   std::uint64_t current_epoch_;
   std::atomic<std::uint32_t> open_file_count_;
+
+  // should hold mutex to modify
+  // STATISTICS for WA of Blob Files due to GC
+  // collect by default 24 hourly periods
+  std::list<uint64_t> all_periods_write_;
+  std::list<uint64_t> all_periods_ampl_;
+
+  std::atomic<uint64_t> last_period_write_;
+  std::atomic<uint64_t> last_period_ampl_;
+
+  uint64_t total_periods_write_;
+  uint64_t total_periods_ampl_;
+
+  uint64_t total_blob_file_size_;
 };
 
 class BlobFile {
@@ -258,7 +284,7 @@ public:
   void closeRandomAccess_locked();
 
   std::shared_ptr<RandomAccessFileReader> openRandomAccess_locked(
-      Env* env, const EnvOptions& env_options, bool& fresh_open);
+      Env* env, const EnvOptions& env_options, bool* fresh_open);
 
   // this is used, when you are reading only the footer of a
   // previously closed file

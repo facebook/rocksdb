@@ -57,7 +57,7 @@ struct BlobDBOptions {
   uint64_t blob_file_size;
 
   // how many files to use for simple blobs at one time
-  uint32_t num_simple_blobs;
+  uint32_t num_concurrent_simple_blobs;
 
   // deletions check period
   uint32_t deletion_check_period;
@@ -73,6 +73,23 @@ struct BlobDBOptions {
 
   // how many random access open files can we tolerate
   uint32_t open_files_trigger;
+
+  // how many periods of stats do we keep.
+  uint32_t wa_num_stats_periods;
+
+  // what is the length of any period
+  uint32_t wa_stats_period;
+
+  // we will garbage collect blob files in
+  // which entire files have expired. However if the
+  // ttl_range of files is very large say a day, we
+  // would have to wait for the entire day, before we
+  // recover most of the space.
+  uint32_t partial_expiration_gc_range;
+
+  // this should be based on allowed Write Amplification
+  // if 50% of the space of a blob file has been deleted/expired,
+  uint32_t partial_expiration_pct;
 
   // default constructor
   BlobDBOptions();

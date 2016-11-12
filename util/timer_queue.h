@@ -1,4 +1,4 @@
-////////////////////////////////////////////////////////////////////////////////
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
 // borrowed from
 // http://www.crazygaze.com/blog/2016/03/24/portable-c-timer-queue/
 //
@@ -8,7 +8,7 @@
 // The source code in this article is licensed under the CC0 license, so feel
 // free
 // to copy, modify, share, do whatever you want with it.
-// No attribution is required, but I’ll be happy if you do.
+// No attribution is required, but Ill be happy if you do.
 // CC0 license
 
 // The person who associated a work with this deed has dedicated the work to the
@@ -23,8 +23,11 @@
 #include <assert.h>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <queue>
 #include <thread>
+#include <utility>
+#include <vector>
 
 ////////////////////////////////////////////////////////////////////////////////
 // borrowed from
@@ -61,7 +64,7 @@ class TimerQueue {
     m_th = std::thread([this] { run(); });
   }
 
-  //! Adds a new timer
+  // Adds a new timer
   // \return
   //  Returns the ID of the new timer. You can use this ID to cancel the
   // timer
@@ -82,7 +85,7 @@ class TimerQueue {
     return id;
   }
 
-  //! Cancels the specified timer
+  // Cancels the specified timer
   // \return
   //  1 if the timer was cancelled.
   //  0 if you were too late to cancel (or the timer ID was never valid to
@@ -112,7 +115,7 @@ class TimerQueue {
     return 0;
   }
 
-  //! Cancels all timers
+  // Cancels all timers
   // \return
   //  The number of timers cancelled
   size_t cancelAll() {
@@ -151,7 +154,7 @@ class TimerQueue {
 
       // Check and execute as much work as possible, such as, all expired
       // timers
-      checkWork(lk);
+      checkWork(&lk);
     }
 
     // If we are shutting down, we should not have any items left,
@@ -175,12 +178,12 @@ class TimerQueue {
     return std::make_pair(false, Clock::time_point());
   }
 
-  void checkWork(std::unique_lock<std::mutex>& lk) {
+  void checkWork(std::unique_lock<std::mutex>* lk) {
     while (m_items.size() && m_items.top().end <= Clock::now()) {
       WorkItem item(std::move(m_items.top()));
       m_items.pop();
 
-      lk.unlock();
+      (*lk).unlock();
       if (item.handler) {
         auto reschedule_pair = item.handler(item.id == 0);
         if (reschedule_pair.first) {
@@ -193,7 +196,7 @@ class TimerQueue {
           m_items.push(std::move(item));
         }
       }
-      lk.lock();
+      (*lk).lock();
     }
   }
 

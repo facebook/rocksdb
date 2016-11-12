@@ -7,7 +7,6 @@
 #include <cinttypes>
 #include <ctime>
 #include <iomanip>
-#include <iostream>
 #include <memory>
 
 #include "db/db_impl.h"
@@ -125,7 +124,11 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
       next_file_number_(1),
       shutdown_(false),
       current_epoch_(0),
-      open_file_count_(0) {
+      open_file_count_(0),
+      last_period_write_(0),
+      last_period_ampl_(0),
+      total_periods_write_(0),
+      total_periods_ampl_(0) {
   assert (db_impl_ != nullptr);
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = (bdb_options_.path_relative)  ? db_->GetName() +
@@ -222,7 +225,7 @@ Status BlobDBImpl::Open() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 Status BlobDBImpl::getAllLogFiles(
-    std::set<std::pair<uint64_t, std::string> >& file_nums) {
+    std::set<std::pair<uint64_t, std::string> >* file_nums) {
   std::vector<std::string> all_files;
   Status status = db_->GetEnv()->GetChildren(blob_dir_, &all_files);
   if (!status.ok()) {
@@ -233,7 +236,7 @@ Status BlobDBImpl::getAllLogFiles(
     uint64_t number;
     FileType type;
     if (ParseFileName(f, &number, &type) && type == kBlobFile) {
-      file_nums.insert(std::make_pair(number, f));
+      file_nums->insert(std::make_pair(number, f));
     } else {
       Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "Skipping file in blob directory %s", f.c_str());
@@ -251,7 +254,7 @@ Status BlobDBImpl::openAllFiles() {
   WriteLock wl(&mutex_);
 
   std::set<std::pair<uint64_t, std::string> > file_nums;
-  Status status = getAllLogFiles(file_nums);
+  Status status = getAllLogFiles(&file_nums);
   if (!status.ok()) return status;
 
   if (!file_nums.empty()) {
@@ -275,7 +278,7 @@ Status BlobDBImpl::openAllFiles() {
     bfptr->setFileSize(size_bytes);
     bool f_open = false;
     std::shared_ptr<RandomAccessFileReader> ra_reader =
-        bfptr->openRandomAccess_locked(ioptions_.env, env_options_, f_open);
+        bfptr->openRandomAccess_locked(ioptions_.env, env_options_, &f_open);
     if (f_open) open_file_count_++;
 
     blob_log::BlobLogFooter bf;
@@ -309,7 +312,7 @@ Status BlobDBImpl::openAllFiles() {
       blob_log::BlobLogRecord record;
       blob_log::Reader::READ_LEVEL shallow =
           blob_log::Reader::READ_LEVEL_HDR_FOOTER_KEY;
-      while (reader->ReadRecord(record, shallow).ok()) {
+      while (reader->ReadRecord(&record, shallow).ok()) {
         ++blob_count;
         if (bfptr->HasTTL()) {
           extendTTL(ttl_range, record.GetTTL());
@@ -502,9 +505,9 @@ std::shared_ptr<BlobFile> BlobDBImpl::selectBlobFile() {
   {
     ReadLock rl(&mutex_);
     uint32_t val = blob_rgen.Next();
-    if (!open_simple_files_.empty() && open_simple_files_.size() <
-      bdb_options_.num_simple_blobs)
-      return open_simple_files_[val % bdb_options_.num_simple_blobs];
+    if (!open_simple_files_.empty() &&
+        open_simple_files_.size() < bdb_options_.num_concurrent_simple_blobs)
+      return open_simple_files_[val % bdb_options_.num_concurrent_simple_blobs];
   }
 
   std::shared_ptr<BlobFile> bfile = openNewFile_P1();
@@ -520,9 +523,9 @@ std::shared_ptr<BlobFile> BlobDBImpl::selectBlobFile() {
 
   WriteLock wl(&mutex_);
   // CHECK again
-  if (open_simple_files_.size() == bdb_options_.num_simple_blobs) {
+  if (open_simple_files_.size() == bdb_options_.num_concurrent_simple_blobs) {
     uint32_t val = blob_rgen.Next();
-    return open_simple_files_[val % bdb_options_.num_simple_blobs];
+    return open_simple_files_[val % bdb_options_.num_concurrent_simple_blobs];
   }
 
   Status s = writer->WriteHeader(header);
@@ -672,8 +675,9 @@ Status BlobDBImpl::PutCommon(std::shared_ptr<BlobFile>& bfile,
 
   // increment blob count
   bfile->blob_count_++;
-  bfile->file_size_ += blob_log::BlobLogRecord::kHeaderSize
-    + key_size + raw_block_size;
+  auto size_part1 =
+      blob_log::BlobLogRecord::kHeaderSize + key_size + raw_block_size;
+  bfile->file_size_ += size_part1;
 
   handle.set_offset(blob_offset);
   handle.EncodeTo(&index_entry);
@@ -697,6 +701,7 @@ Status BlobDBImpl::PutCommon(std::shared_ptr<BlobFile>& bfile,
   }
 
   bfile->file_size_ += blob_log::BlobLogRecord::kFooterSize;
+  last_period_write_ += size_part1 + blob_log::BlobLogRecord::kFooterSize;
   return s;
 }
 
@@ -741,7 +746,7 @@ Status BlobDBImpl::Get(const ReadOptions& options,
     WriteLock lockbfile_w(&bfile->mutex_);
     bool f_open = false;
     reader =
-        bfile->openRandomAccess_locked(ioptions_.env, env_options_, f_open);
+        bfile->openRandomAccess_locked(ioptions_.env, env_options_, &f_open);
     if (f_open) open_file_count_++;
   }
 
@@ -826,7 +831,7 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
 
   uint32_t num_deletes = 0;
 
-  while (reader->ReadRecord(record, shallow).ok()) {
+  while (reader->ReadRecord(&record, shallow).ok()) {
     ++blob_count;
     SequenceNumber seq = kMaxSequenceNumber;
     bool found_record_for_key = false;
@@ -1021,6 +1026,63 @@ std::pair<bool, int64_t> BlobDBImpl::reclaimOpenFiles(bool aborted) {
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
+std::pair<bool, int64_t> BlobDBImpl::waStats(bool aborted) {
+  if (aborted) return std::make_pair(false, -1);
+
+  WriteLock wl(&mutex_);
+
+  if (all_periods_write_.size() < bdb_options_.wa_num_stats_periods) {
+    total_periods_write_ -= (*all_periods_write_.begin());
+    total_periods_ampl_ = (*all_periods_ampl_.begin());
+
+    all_periods_write_.pop_front();
+    all_periods_ampl_.pop_front();
+  }
+
+  uint64_t val1 = last_period_write_.load();
+  uint64_t val2 = last_period_ampl_.load();
+
+  all_periods_write_.push_back(val1);
+  all_periods_ampl_.push_back(val2);
+
+  last_period_write_ = 0;
+  last_period_ampl_ = 0;
+
+  total_periods_write_ += val1;
+  total_periods_ampl_ += val2;
+
+  return std::make_pair(true, -1);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+bool BlobDBImpl::shouldGCFile(std::shared_ptr<BlobFile> bfile, std::time_t tt) {
+  if (bfile->HasTTL()) {
+    ttlrange_t ttl_range = bfile->GetTTLRange();
+    if (tt > ttl_range.second) return true;
+
+    if (bdb_options_.ttl_range < bdb_options_.partial_expiration_gc_range)
+      return false;
+
+    if (!bfile->file_size_.load()) {
+      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+          "Invalid file size = 0 %s", bfile->PathName().c_str());
+      return false;
+    }
+
+    return ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
+            bdb_options_.partial_expiration_pct);
+  }
+
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 std::pair<bool, int64_t> BlobDBImpl::runGC(bool aborted) {
   if (aborted) return std::make_pair(false, -1);
 
@@ -1035,8 +1097,8 @@ std::pair<bool, int64_t> BlobDBImpl::runGC(bool aborted) {
   }
 
   // 100.0 / 15.0 = 7
-  uint64_t next_epoch_increment =
-      (uint64_t)std::ceil(100 / (double)bdb_options_.gc_file_pct);
+  uint64_t next_epoch_increment = static_cast<uint64_t>(
+      std::ceil(100 / static_cast<double>(bdb_options_.gc_file_pct)));
   // 15% of files
   uint32_t files_to_collect =
       (bdb_options_.gc_file_pct * blob_files.size()) / 100;
@@ -1114,6 +1176,8 @@ void BlobDBImpl::startGCThreads() {
               std::bind(&BlobDBImpl::evictDeletions, this, _1));
   tqueue_.add(bdb_options_.sanity_check_period,
               std::bind(&BlobDBImpl::sanityCheck, this, _1));
+  tqueue_.add(bdb_options_.wa_stats_period,
+              std::bind(&BlobDBImpl::waStats, this, _1));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1292,8 +1356,8 @@ void BlobFile::closeRandomAccess_locked() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 std::shared_ptr<RandomAccessFileReader> BlobFile::openRandomAccess_locked(
-    Env* env, const EnvOptions& env_options, bool& fresh_open) {
-  fresh_open = false;
+    Env* env, const EnvOptions& env_options, bool* fresh_open) {
+  *fresh_open = false;
   last_access_ = system_clock::to_time_t(system_clock::now());
   if (ra_file_reader_)
     return ra_file_reader_;
@@ -1305,7 +1369,7 @@ std::shared_ptr<RandomAccessFileReader> BlobFile::openRandomAccess_locked(
   }
 
   ra_file_reader_ = std::make_shared<RandomAccessFileReader>(std::move(rfile));
-  fresh_open = true;
+  *fresh_open = true;
   return ra_file_reader_;
 }
 

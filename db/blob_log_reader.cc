@@ -54,9 +54,9 @@ Status Reader::ReadHeader(blob_log::BlobLogHeader& header)
   return status;
 }
 
-Status Reader::ReadRecord(blob_log::BlobLogRecord& record, READ_LEVEL level,
+Status Reader::ReadRecord(blob_log::BlobLogRecord* record, READ_LEVEL level,
                           WALRecoveryMode wal_recovery_mode) {
-  record.clear();
+  record->clear();
   buffer_.clear();
   backing_store_[0] = '\0';
 
@@ -65,33 +65,36 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord& record, READ_LEVEL level,
      return status;
   }
 
-  status = record.DecodeHeaderFrom(&buffer_);
+  status = record->DecodeHeaderFrom(&buffer_);
   if (!status.ok()) {
     return status;
   }
 
   switch (level) {
     case READ_LEVEL_HDR_FOOTER:
-      file_->Skip(record.GetKeySize() + record.GetBlobSize());
+      file_->Skip(record->GetKeySize() + record->GetBlobSize());
       status = file_->Read(8, &buffer_, backing_store_);
-      record.sn_ = DecodeFixed64(buffer_.data());
+      record->sn_ = DecodeFixed64(buffer_.data());
       return status;
 
     case READ_LEVEL_HDR_FOOTER_KEY:
-      record.resizeKeyBuffer((uint64_t)record.GetKeySize());
-      status = file_->Read(record.GetKeySize(), &record.key_, record.key_buffer_);
-      file_->Skip(record.GetBlobSize());
+      record->resizeKeyBuffer((uint64_t)record->GetKeySize());
+      status =
+          file_->Read(record->GetKeySize(), &record->key_, record->key_buffer_);
+      file_->Skip(record->GetBlobSize());
       status = file_->Read(8, &buffer_, backing_store_);
-      record.sn_ = DecodeFixed64(buffer_.data());
+      record->sn_ = DecodeFixed64(buffer_.data());
       return status;
 
     case READ_LEVEL_HDR_FOOTER_KEY_BLOB:
-      record.resizeKeyBuffer((uint64_t)record.GetKeySize());
-      status = file_->Read(record.GetKeySize(), &record.key_, record.key_buffer_);
-      record.resizeBlobBuffer((uint64_t)record.GetBlobSize());
-      status = file_->Read(record.GetBlobSize(), &record.blob_, record.blob_buffer_);
+      record->resizeKeyBuffer((uint64_t)record->GetKeySize());
+      status =
+          file_->Read(record->GetKeySize(), &record->key_, record->key_buffer_);
+      record->resizeBlobBuffer((uint64_t)record->GetBlobSize());
+      status = file_->Read(record->GetBlobSize(), &record->blob_,
+                           record->blob_buffer_);
       status = file_->Read(8, &buffer_, backing_store_);
-      record.sn_ = DecodeFixed64(buffer_.data());
+      record->sn_ = DecodeFixed64(buffer_.data());
       return status;
     default :
        return status;

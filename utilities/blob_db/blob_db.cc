@@ -52,12 +52,16 @@ BlobDBOptions::BlobDBOptions()
       min_blob_size(512),
       bytes_per_sync(0),
       blob_file_size(256 * 1024 * 1024),
-      num_simple_blobs(4),
+      num_concurrent_simple_blobs(4),
       deletion_check_period(2 * 1000),
       gc_file_pct(20),
       gc_check_period(60 * 1000),
       sanity_check_period(20 * 60 * 1000),
-      open_files_trigger(100) {}
+      open_files_trigger(100),
+      wa_num_stats_periods(24),
+      wa_stats_period(3600 * 1000),
+      partial_expiration_gc_range(4 * 3600),
+      partial_expiration_pct(15) {}
 
 }  // namespace rocksdb
 #endif
