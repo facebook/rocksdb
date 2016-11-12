@@ -265,6 +265,8 @@ class BlockBasedTable : public TableReader {
   // Helper functions for DumpTable()
   Status DumpIndexBlock(WritableFile* out_file);
   Status DumpDataBlocks(WritableFile* out_file);
+  void DumpKeyValue(const Slice& key, const Slice& value,
+                    WritableFile* out_file);
 
   // No copying allowed
   explicit BlockBasedTable(const TableReader&) = delete;
