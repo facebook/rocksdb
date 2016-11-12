@@ -5292,6 +5292,24 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
   return false;
 }
 
+bool DBImpl::GetMapProperty(ColumnFamilyHandle* column_family,
+                            const Slice& property,
+                            std::map<std::string, double>* value) {
+  const DBPropertyInfo* property_info = GetPropertyInfo(property);
+  value->clear();
+  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  if (property_info == nullptr) {
+    return false;
+  } else if (property_info->handle_map) {
+    InstrumentedMutexLock l(&mutex_);
+    return cfd->internal_stats()->GetMapProperty(*property_info, property,
+                                                 value);
+  }
+  // If we reach this point it means that handle_map is not provided for the
+  // requested property
+  return false;
+}
+
 bool DBImpl::GetIntProperty(ColumnFamilyHandle* column_family,
                             const Slice& property, uint64_t* value) {
   const DBPropertyInfo* property_info = GetPropertyInfo(property);

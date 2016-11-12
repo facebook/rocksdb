@@ -3,6 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <map>
 #include <string>
 #include "rocksdb/db.h"
 
@@ -133,10 +134,16 @@ class StackableDB : public DB {
     return db_->ReleaseSnapshot(snapshot);
   }
 
+  using DB::GetMapProperty;
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override {
     return db_->GetProperty(column_family, property, value);
+  }
+  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property,
+                              std::map<std::string, double>* value) override {
+    return db_->GetMapProperty(column_family, property, value);
   }
 
   using DB::GetIntProperty;
