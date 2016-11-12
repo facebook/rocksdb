@@ -74,7 +74,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
-      delayed_write_rate(options.delayed_write_rate),
       allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
       enable_write_thread_adaptive_yield(
           options.enable_write_thread_adaptive_yield),
@@ -199,8 +198,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          wal_recovery_mode);
   Header(log, "                 Options.enable_thread_tracking: %d",
          enable_thread_tracking);
-  Header(log, "                    Options.delayed_write_rate : %" PRIu64,
-         delayed_write_rate);
   Header(log, "        Options.allow_concurrent_memtable_write: %d",
          allow_concurrent_memtable_write);
   Header(log, "     Options.enable_write_thread_adaptive_yield: %d",
@@ -226,20 +223,24 @@ void ImmutableDBOptions::Dump(Logger* log) const {
 MutableDBOptions::MutableDBOptions()
     : base_background_compactions(1),
       max_background_compactions(1),
-      avoid_flush_during_shutdown(false) {}
+      avoid_flush_during_shutdown(false),
+      delayed_write_rate(2 * 1024U * 1024U) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
-      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown) {}
+      avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
+      delayed_write_rate(options.delayed_write_rate) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   Header(log, "            Options.base_background_compactions: %d",
          base_background_compactions);
-  Header(log, "             Options.max_background_compactions: %d",
+  Header(log, "            Options.max_background_compactions: %d",
          max_background_compactions);
   Header(log, "            Options.avoid_flush_during_shutdown: %d",
          avoid_flush_during_shutdown);
+  Header(log, "            Options.delayed_write_rate : %" PRIu64,
+         delayed_write_rate);
 }
 
 }  // namespace rocksdb

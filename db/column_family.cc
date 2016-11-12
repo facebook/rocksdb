@@ -489,11 +489,12 @@ const double kSlowdownRatio = 1.2;
 
 namespace {
 std::unique_ptr<WriteControllerToken> SetupDelay(
-    uint64_t max_write_rate, WriteController* write_controller,
+    WriteController* write_controller,
     uint64_t compaction_needed_bytes, uint64_t prev_compaction_neeed_bytes,
     bool auto_comapctions_disabled) {
   const uint64_t kMinWriteRate = 1024u;  // Minimum write rate 1KB/s.
 
+  uint64_t max_write_rate = write_controller->max_delayed_write_rate();
   uint64_t write_rate = write_controller->delayed_write_rate();
 
   if (auto_comapctions_disabled) {
@@ -616,8 +617,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                imm()->NumNotFlushed() >=
                    mutable_cf_options.max_write_buffer_number - 1) {
       write_controller_token_ =
-          SetupDelay(ioptions_.delayed_write_rate, write_controller,
-                     compaction_needed_bytes, prev_compaction_needed_bytes_,
+          SetupDelay(write_controller, compaction_needed_bytes,
+                     prev_compaction_needed_bytes_,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_SLOWDOWN, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
@@ -632,8 +633,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
       write_controller_token_ =
-          SetupDelay(ioptions_.delayed_write_rate, write_controller,
-                     compaction_needed_bytes, prev_compaction_needed_bytes_,
+          SetupDelay(write_controller, compaction_needed_bytes,
+                     prev_compaction_needed_bytes_,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN_TOTAL, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
@@ -650,8 +651,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                vstorage->estimated_compaction_needed_bytes() >=
                    mutable_cf_options.soft_pending_compaction_bytes_limit) {
       write_controller_token_ =
-          SetupDelay(ioptions_.delayed_write_rate, write_controller,
-                     compaction_needed_bytes, prev_compaction_needed_bytes_,
+          SetupDelay(write_controller, compaction_needed_bytes,
+                     prev_compaction_needed_bytes_,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(
           InternalStats::SOFT_PENDING_COMPACTION_BYTES_LIMIT, 1);

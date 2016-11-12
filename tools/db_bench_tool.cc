@@ -3528,11 +3528,11 @@ class Benchmark {
         }
         if (levelMeta.level == 0) {
           for (auto& fileMeta : levelMeta.files) {
-            fprintf(stdout, "Level[%d]: %s(size: %lu bytes)\n", levelMeta.level,
-                    fileMeta.name.c_str(), fileMeta.size);
+            fprintf(stdout, "Level[%d]: %s(size: %" PRIu64 " bytes)\n",
+                    levelMeta.level, fileMeta.name.c_str(), fileMeta.size);
           }
         } else {
-          fprintf(stdout, "Level[%d]: %s - %s(total size: %lu bytes)\n",
+          fprintf(stdout, "Level[%d]: %s - %s(total size: %" PRIi64 " bytes)\n",
                   levelMeta.level, levelMeta.files.front().name.c_str(),
                   levelMeta.files.back().name.c_str(), levelMeta.size);
         }

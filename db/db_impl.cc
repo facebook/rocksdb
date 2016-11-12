@@ -322,7 +322,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
                         ? immutable_db_options_.write_thread_max_yield_usec
                         : 0,
                     immutable_db_options_.write_thread_slow_yield_usec),
-      write_controller_(immutable_db_options_.delayed_write_rate),
+      write_controller_(mutable_db_options_.delayed_write_rate),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
@@ -2488,6 +2488,8 @@ Status DBImpl::SetDBOptions(
             new_options.max_background_compactions, Env::Priority::LOW);
         MaybeScheduleFlushOrCompaction();
       }
+
+      write_controller_.set_max_delayed_write_rate(new_options.delayed_write_rate);
 
       mutable_db_options_ = new_options;
 
