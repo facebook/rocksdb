@@ -146,8 +146,8 @@ Status BuildTable(
       }
     }
     // nullptr for table_{min,max} so all range tombstones will be flushed
-    range_del_agg->AddToBuilder(builder, true /* extend_before_min_key */,
-                                nullptr /* next_table_min_key*/, meta);
+    range_del_agg->AddToBuilder(builder, nullptr /* lower_bound */,
+                                nullptr /* upper_bound */, meta);
 
     // Finish and check for builder errors
     bool empty = builder->NumEntries() == 0;
