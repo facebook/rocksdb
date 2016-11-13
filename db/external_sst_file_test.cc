@@ -1761,6 +1761,25 @@ TEST_F(ExternalSSTFileTest, CompactionDeadlock) {
   bg_block_put.join();
 }
 
+TEST_F(ExternalSSTFileTest, DirtyExit) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+  std::string file_path = sst_files_dir_ + "/dirty_exit";
+  std::unique_ptr<SstFileWriter> sst_file_writer;
+
+  // Destruct SstFileWriter without calling Finish()
+  sst_file_writer.reset(
+      new SstFileWriter(EnvOptions(), options, options.comparator));
+  ASSERT_OK(sst_file_writer->Open(file_path));
+  sst_file_writer.reset();
+
+  // Destruct SstFileWriter with a failing Finish
+  sst_file_writer.reset(
+      new SstFileWriter(EnvOptions(), options, options.comparator));
+  ASSERT_OK(sst_file_writer->Open(file_path));
+  ASSERT_NOK(sst_file_writer->Finish());
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

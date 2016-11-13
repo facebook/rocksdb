@@ -43,7 +43,15 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Comparator* user_comparator)
     : rep_(new Rep(env_options, options, user_comparator)) {}
 
-SstFileWriter::~SstFileWriter() { delete rep_; }
+SstFileWriter::~SstFileWriter() {
+  if (rep_->builder) {
+    // User did not call Finish() or Finish() failed, we need to
+    // abandon the builder.
+    rep_->builder->Abandon();
+  }
+
+  delete rep_;
+}
 
 Status SstFileWriter::Open(const std::string& file_path) {
   Rep* r = rep_;
