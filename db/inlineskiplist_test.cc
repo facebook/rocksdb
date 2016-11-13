@@ -9,6 +9,7 @@
 
 #include "db/inlineskiplist.h"
 #include <set>
+#include <unordered_set>
 #include "rocksdb/env.h"
 #include "util/concurrent_arena.h"
 #include "util/hash.h"
@@ -42,7 +43,49 @@ struct TestComparator {
   }
 };
 
-class InlineSkipTest : public testing::Test {};
+typedef InlineSkipList<TestComparator> TestInlineSkipList;
+
+class InlineSkipTest : public testing::Test {
+ public:
+  void Insert(TestInlineSkipList* list, Key key) {
+    char* buf = list->AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list->Insert(buf);
+    keys_.insert(key);
+  }
+
+  void InsertWithHint(TestInlineSkipList* list, Key key,
+                      TestInlineSkipList::InsertHint** hint) {
+    char* buf = list->AllocateKey(sizeof(Key));
+    memcpy(buf, &key, sizeof(Key));
+    list->InsertWithHint(buf, hint);
+    keys_.insert(key);
+  }
+
+  void Validate(TestInlineSkipList* list) {
+    // Check keys exist.
+    for (Key key : keys_) {
+      ASSERT_TRUE(list->Contains(Encode(&key)));
+    }
+    // Iterate over the list, make sure keys appears in order and no extra
+    // keys exist.
+    TestInlineSkipList::Iterator iter(list);
+    ASSERT_FALSE(iter.Valid());
+    Key zero = 0;
+    iter.Seek(Encode(&zero));
+    for (Key key : keys_) {
+      ASSERT_TRUE(iter.Valid());
+      ASSERT_EQ(key, Decode(iter.key()));
+      iter.Next();
+    }
+    ASSERT_FALSE(iter.Valid());
+    // Validate the list is well-formed.
+    list->TEST_Validate();
+  }
+
+ private:
+  std::set<Key> keys_;
+};
 
 TEST_F(InlineSkipTest, Empty) {
   Arena arena;
@@ -151,6 +194,103 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
       }
     }
   }
+}
+
+TEST_F(InlineSkipTest, InsertWithHint_Sequential) {
+  const int N = 100000;
+  Arena arena;
+  TestComparator cmp;
+  TestInlineSkipList list(cmp, &arena);
+  TestInlineSkipList::InsertHint* hint = nullptr;
+  for (int i = 0; i < N; i++) {
+    Key key = i;
+    InsertWithHint(&list, key, &hint);
+  }
+  Validate(&list);
+}
+
+TEST_F(InlineSkipTest, InsertWithHint_MultipleHints) {
+  const int N = 100000;
+  const int S = 100;
+  Random rnd(534);
+  Arena arena;
+  TestComparator cmp;
+  TestInlineSkipList list(cmp, &arena);
+  TestInlineSkipList::InsertHint* hints[S];
+  Key last_key[S];
+  for (int i = 0; i < S; i++) {
+    hints[i] = nullptr;
+    last_key[i] = 0;
+  }
+  for (int i = 0; i < N; i++) {
+    Key s = rnd.Uniform(S);
+    Key key = (s << 32) + (++last_key[s]);
+    InsertWithHint(&list, key, &hints[s]);
+  }
+  Validate(&list);
+}
+
+TEST_F(InlineSkipTest, InsertWithHint_MultipleHintsRandom) {
+  const int N = 100000;
+  const int S = 100;
+  Random rnd(534);
+  Arena arena;
+  TestComparator cmp;
+  TestInlineSkipList list(cmp, &arena);
+  TestInlineSkipList::InsertHint* hints[S];
+  for (int i = 0; i < S; i++) {
+    hints[i] = nullptr;
+  }
+  for (int i = 0; i < N; i++) {
+    Key s = rnd.Uniform(S);
+    Key key = (s << 32) + rnd.Next();
+    InsertWithHint(&list, key, &hints[s]);
+  }
+  Validate(&list);
+}
+
+TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
+  const int N = 100000;
+  const int S1 = 100;
+  const int S2 = 100;
+  Random rnd(534);
+  Arena arena;
+  TestComparator cmp;
+  TestInlineSkipList list(cmp, &arena);
+  std::unordered_set<Key> used;
+  Key with_hint[S1];
+  Key without_hint[S2];
+  TestInlineSkipList::InsertHint* hints[S1];
+  for (int i = 0; i < S1; i++) {
+    hints[i] = nullptr;
+    while (true) {
+      Key s = rnd.Next();
+      if (used.insert(s).second) {
+        with_hint[i] = s;
+        break;
+      }
+    }
+  }
+  for (int i = 0; i < S2; i++) {
+    while (true) {
+      Key s = rnd.Next();
+      if (used.insert(s).second) {
+        without_hint[i] = s;
+        break;
+      }
+    }
+  }
+  for (int i = 0; i < N; i++) {
+    Key s = rnd.Uniform(S1 + S2);
+    if (s < S1) {
+      Key key = (with_hint[s] << 32) + rnd.Next();
+      InsertWithHint(&list, key, &hints[s]);
+    } else {
+      Key key = (without_hint[s - S1] << 32) + rnd.Next();
+      Insert(&list, key);
+    }
+  }
+  Validate(&list);
 }
 
 // We want to make sure that with a single writer and multiple
