@@ -746,6 +746,30 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   size_t memtable_huge_page_size;
 
+  // If non-nullptr, memtable will use the specified function to extract
+  // prefixes for keys, and for each non-empty prefix maintain a hint to
+  // reduce CPU usage for inserting keys with the prefix. Keys with empty
+  // prefix will be insert without using a hint.
+  //
+  // Currently only the default skiplist based memtable implements the feature.
+  // All other memtable implementation will ignore the option. It incurs ~150
+  // additional bytes of memory overhead to store a hint for each prefix.
+  // If allow_concurrent_memtable_write is true, the option will also be
+  // ignored.
+  //
+  // The option is best suited for sequential inserts, or inserts that's
+  // almost sequential. One scenario could be inserting keys of the form
+  // (prefix + timestamp), and keys of the same prefix always comes in
+  // with time order, or in some cases a key with a smaller timestamp comes
+  // in later due to network latency.
+  //
+  // REQUIRES: If custom comparator is provided, it has to make sure keys
+  // with the same prefix appear in consecutive range.
+  //
+  // Default: nullptr (disable)
+  std::shared_ptr<const SliceTransform>
+      memtable_insert_with_hint_prefix_extractor;
+
   // Control locality of bloom filter probes to improve cache miss rate.
   // This option only applies to memtable prefix bloom and plaintable
   // prefix bloom. It essentially limits every bloom checking to one cache line.

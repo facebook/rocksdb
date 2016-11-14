@@ -87,7 +87,9 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                  : 0),
       prefix_extractor_(ioptions.prefix_extractor),
       flush_state_(FLUSH_NOT_REQUESTED),
-      env_(ioptions.env) {
+      env_(ioptions.env),
+      insert_with_hint_prefix_extractor_(
+          ioptions.memtable_insert_with_hint_prefix_extractor) {
   UpdateFlushState();
   // something went wrong if we need to flush before inserting anything
   assert(!ShouldScheduleFlush());
@@ -423,6 +425,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
 
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
+  Slice key_slice(p, key_size);
   p += key_size;
   uint64_t packed = PackSequenceAndType(s, type);
   EncodeFixed64(p, packed);
@@ -431,7 +434,18 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   if (!allow_concurrent) {
-    table->Insert(handle);
+    // Extract prefix for insert with hint.
+    Slice prefix;
+    if (insert_with_hint_prefix_extractor_ != nullptr) {
+      if (insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
+        prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
+      }
+    }
+    if (prefix.empty()) {
+      table->Insert(handle);
+    } else {
+      table->InsertWithHint(handle, &insert_hints_[prefix]);
+    }
 
     // this is a bit ugly, but is the way to avoid locked instructions
     // when incrementing an atomic

@@ -496,6 +496,7 @@ set(TESTS
         db/db_inplace_update_test.cc
         db/db_iter_test.cc
         db/db_log_iter_test.cc
+        db/db_memtable_test.cc
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_table_properties_test.cc

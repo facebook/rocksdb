@@ -78,6 +78,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       inplace_callback(nullptr),
       memtable_prefix_bloom_size_ratio(0.0),
       memtable_huge_page_size(0),
+      memtable_insert_with_hint_prefix_extractor(nullptr),
       bloom_locality(0),
       max_successive_merges(0),
       min_partial_merge_operands(2),
@@ -145,6 +146,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       memtable_prefix_bloom_size_ratio(
           options.memtable_prefix_bloom_size_ratio),
       memtable_huge_page_size(options.memtable_huge_page_size),
+      memtable_insert_with_hint_prefix_extractor(
+          options.memtable_insert_with_hint_prefix_extractor),
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands),
@@ -463,6 +466,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                : CompressionTypeToString(bottommost_compression).c_str());
     Header(log, "      Options.prefix_extractor: %s",
         prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
+    Header(log, "  Options.memtable_insert_with_hint_prefix_extractor: %s",
+           memtable_insert_with_hint_prefix_extractor == nullptr
+               ? "nullptr"
+               : memtable_insert_with_hint_prefix_extractor->Name());
     Header(log, "            Options.num_levels: %d", num_levels);
     Header(log, "       Options.min_write_buffer_number_to_merge: %d",
         min_write_buffer_number_to_merge);

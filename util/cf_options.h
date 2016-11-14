@@ -115,6 +115,8 @@ struct ImmutableCFOptions {
   std::shared_ptr<Cache> row_cache;
 
   uint32_t max_subcompactions;
+
+  const SliceTransform* memtable_insert_with_hint_prefix_extractor;
 };
 
 struct MutableCFOptions {
