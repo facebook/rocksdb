@@ -308,7 +308,8 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       OptionVerificationType::kNormal, false, 0}},
     {"max_total_wal_size",
      {offsetof(struct DBOptions, max_total_wal_size), OptionType::kUInt64T,
-      OptionVerificationType::kNormal, false, 0}},
+      OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, max_total_wal_size)}},
     {"wal_bytes_per_sync",
      {offsetof(struct DBOptions, wal_bytes_per_sync), OptionType::kUInt64T,
       OptionVerificationType::kNormal, false, 0}},
@@ -710,4 +711,3 @@ extern const std::string kNullptrString;
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
-

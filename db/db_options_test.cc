@@ -289,6 +289,39 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
   ASSERT_EQ(20000, dbfull()->TEST_write_controler().max_delayed_write_rate());
 }
 
+TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
+  Random rnd(1044);
+  std::string data;
+  const size_t data_size = 1024;
+  for (size_t i = 0; i < data_size / 4; ++i) {
+    auto r = rnd.Next();
+    data += static_cast<char>(r & 0xFF);
+    data += static_cast<char>((r >> 8) & 0xFF);
+    data += static_cast<char>((r >> 16) & 0xFF);
+    data += static_cast<char>((r >> 24) & 0xFF);
+  }
+
+  Options options;
+  options.create_if_missing = true;
+  CreateColumnFamilies({"1", "2", "3"}, options);
+  ReopenWithColumnFamilies({"default", "1", "2", "3"}, options);
+
+  WriteOptions write_options;
+
+  const size_t key_count = 100;
+  for (size_t i = 0; i < key_count; ++i) {
+    for (size_t cf = 0; cf < handles_.size(); ++cf) {
+      ASSERT_OK(Put(cf, Key(i), data));
+    }
+  }
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_total_wal_size", "10"}}));
+
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
+    ASSERT_EQ("1", FilesPerLevel(cf));
+  }
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

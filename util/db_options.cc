@@ -33,7 +33,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       info_log_level(options.info_log_level),
       max_open_files(options.max_open_files),
       max_file_opening_threads(options.max_file_opening_threads),
-      max_total_wal_size(options.max_total_wal_size),
       statistics(options.statistics),
       disable_data_sync(options.disableDataSync),
       use_fsync(options.use_fsync),
@@ -105,8 +104,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          max_open_files);
   Header(log, "               Options.max_file_opening_threads: %d",
          max_file_opening_threads);
-  Header(log, "                     Options.max_total_wal_size: %" PRIu64,
-         max_total_wal_size);
   Header(log, "                        Options.disableDataSync: %d",
          disable_data_sync);
   Header(log, "                              Options.use_fsync: %d", use_fsync);
@@ -224,13 +221,15 @@ MutableDBOptions::MutableDBOptions()
     : base_background_compactions(1),
       max_background_compactions(1),
       avoid_flush_during_shutdown(false),
-      delayed_write_rate(2 * 1024U * 1024U) {}
+      delayed_write_rate(2 * 1024U * 1024U),
+      max_total_wal_size(0) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
-      delayed_write_rate(options.delayed_write_rate) {}
+      delayed_write_rate(options.delayed_write_rate),
+      max_total_wal_size(options.max_total_wal_size) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   Header(log, "            Options.base_background_compactions: %d",
@@ -241,6 +240,8 @@ void MutableDBOptions::Dump(Logger* log) const {
          avoid_flush_during_shutdown);
   Header(log, "            Options.delayed_write_rate : %" PRIu64,
          delayed_write_rate);
+  Header(log, "            Options.max_total_wal_size: %" PRIu64,
+         max_total_wal_size);
 }
 
 }  // namespace rocksdb
