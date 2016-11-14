@@ -291,8 +291,9 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
 
 TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   Random rnd(1044);
-  const auto key_size = size_t(1024);
-  const auto key = test::RandomKey(&rnd, key_size);
+  const auto value_size = size_t(1024);
+  std::string value;
+  test::RandomString(&rnd, value_size, &value);
 
   Options options;
   options.create_if_missing = true;
@@ -301,10 +302,10 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
 
   WriteOptions write_options;
 
-  const size_t key_count = 100;
-  for (size_t i = 0; i < key_count; ++i) {
+  const int key_count = 100;
+  for (int i = 0; i < key_count; ++i) {
     for (size_t cf = 0; cf < handles_.size(); ++cf) {
-      ASSERT_OK(Put(static_cast<int>(cf), Key(i), key));
+      ASSERT_OK(Put(static_cast<int>(cf), Key(i), value));
     }
   }
   ASSERT_OK(dbfull()->SetDBOptions({{"max_total_wal_size", "10"}}));
