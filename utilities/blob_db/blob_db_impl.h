@@ -20,6 +20,7 @@
 #include "db/blob_log_reader.h"
 #include "db/blob_log_writer.h"
 #include "rocksdb/db.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/options.h"
 #include "util/cf_options.h"
 #include "util/file_reader_writer.h"
@@ -34,6 +35,22 @@ class BlobFile;
 class DBImpl;
 class ColumnFamilyHandle;
 class OptimisticTransactionDBImpl;
+class FlushJobInfo;
+class BlobDBImpl;
+
+class BlobDBFlushBeginListener : public EventListener {
+ public:
+  explicit BlobDBFlushBeginListener(): impl_(nullptr) {}
+
+  void OnFlushBegin(
+      DB* db, const FlushJobInfo& info) override;
+
+  void setImplPtr(BlobDBImpl *p) { impl_ = p; }
+
+ protected:
+  BlobDBImpl *impl_;
+};
+
 
 struct blobf_compare_ttl {
     bool operator() (const std::shared_ptr<BlobFile>& lhs,
@@ -45,6 +62,7 @@ typedef std::pair<uint64_t, uint64_t> tsrange_t;
 typedef std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber> snrange_t;
 
 class BlobDBImpl : public BlobDB {
+  friend class BlobDBFlushBeginListener;
  public:
   using rocksdb::StackableDB::Put;
   Status Put(const WriteOptions& options,
@@ -68,6 +86,8 @@ class BlobDBImpl : public BlobDB {
   Status PutUntil(const WriteOptions& options,
              ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value, uint32_t expiration) override;
+
+  void OnFlushBeginHandler(DB* db, const FlushJobInfo& info);
 
   Status Open();
 
@@ -112,6 +132,8 @@ class BlobDBImpl : public BlobDB {
   std::pair<bool, int64_t> deleteObsFiles(bool aborted);
 
   std::pair<bool, int64_t> runGC(bool aborted);
+
+  std::pair<bool, int64_t> fsyncFiles(bool aborted);
 
   std::pair<bool, int64_t> reclaimOpenFiles(bool aborted);
 
@@ -238,11 +260,7 @@ private:
 
   std::atomic<std::time_t> last_access_;
 
-  std::shared_ptr<blob_log::Reader> openSequentialReader_locked(
-    Env *env, const DBOptions& db_options,
-    const EnvOptions& env_options, bool rewind = false);
-
-  void canBeDeleted() { can_be_deleted_ = true; }
+  std::atomic<uint64_t> last_fsync_;
 
 public:
 
@@ -251,6 +269,9 @@ public:
   BlobFile(const std::string& bdir, uint64_t fnum);
 
   ~BlobFile();
+
+  // we will assume this is atomic
+  bool NeedsFsync(bool hard, uint64_t bytes_per_sync) const;
 
   bool Obsolete() const { return can_be_deleted_.load(); }
 
@@ -298,6 +319,13 @@ public:
   Status ReadFooter(blob_log::BlobLogFooter& footer, bool close_reader = false);
 
  private:
+
+  std::shared_ptr<blob_log::Reader> openSequentialReader_locked(
+    Env *env, const DBOptions& db_options,
+    const EnvOptions& env_options, bool rewind = false);
+
+  void canBeDeleted() { can_be_deleted_ = true; }
+
   void closeRandomAccess_locked();
 
   std::shared_ptr<RandomAccessFileReader> openRandomAccess_locked(

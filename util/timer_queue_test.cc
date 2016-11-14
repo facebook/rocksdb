@@ -42,6 +42,7 @@ int main() {
     return std::make_pair(!aborted, 2000);
   });
 
+  (void)id;
   // auto ret = q.cancel(id);
   // assert(ret == 1);
   // q.cancelAll();

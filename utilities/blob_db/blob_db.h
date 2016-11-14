@@ -91,6 +91,9 @@ struct BlobDBOptions {
   // if 50% of the space of a blob file has been deleted/expired,
   uint32_t partial_expiration_pct;
 
+  // how often should we schedule a job to fsync open files
+  uint32_t fsync_files_period;
+
   // default constructor
   BlobDBOptions();
 };

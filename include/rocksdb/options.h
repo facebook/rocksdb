@@ -734,6 +734,10 @@ struct DBOptions {
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 
+  // this helps RocksDB be efficient in deciding to call OnFlushBegin
+  // insert the listener to the listeners above, and set this to true
+  bool flush_begin_listeners;
+
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.
   //

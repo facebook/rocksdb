@@ -24,12 +24,19 @@ namespace rocksdb {
 Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
     const std::string& dbname, BlobDB** blob_db) {
 
+  Options myoptions(options);
+  std::shared_ptr<BlobDBFlushBeginListener> fblistener =
+    std::make_shared<BlobDBFlushBeginListener>();
+  myoptions.listeners.emplace_back(fblistener);
+  myoptions.flush_begin_listeners = true;
+
   DB* db;
-  Status s = DB::Open(options, dbname, &db);
+  Status s = DB::Open(myoptions, dbname, &db);
   if (!s.ok()) {
     return s;
   }
   BlobDBImpl* bdb = new BlobDBImpl(db, bdb_options);
+  fblistener->setImplPtr(bdb);
   s = bdb->Open();
   if (!s.ok()) {
     delete bdb;
@@ -61,7 +68,8 @@ BlobDBOptions::BlobDBOptions()
       wa_num_stats_periods(24),
       wa_stats_period(3600 * 1000),
       partial_expiration_gc_range(4 * 3600),
-      partial_expiration_pct(75) {}
+      partial_expiration_pct(75),
+      fsync_files_period(10*1000) {}
 
 }  // namespace rocksdb
 #endif

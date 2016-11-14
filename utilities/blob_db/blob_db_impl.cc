@@ -63,6 +63,12 @@ namespace {
 
 namespace rocksdb {
 
+void BlobDBFlushBeginListener::OnFlushBegin(DB *db,
+  const FlushJobInfo& info) {
+  if (impl_)
+    impl_->OnFlushBeginHandler(db, info);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 //
@@ -953,6 +959,18 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
+void BlobDBImpl::OnFlushBeginHandler(DB *db, const FlushJobInfo& info) {
+
+  if (shutdown_.load())
+    return;
+
+  fsyncFiles(false);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 bool BlobDBImpl::DeleteFileOK_locked(const std::shared_ptr<BlobFile>& bfile) {
   assert(bfile->Obsolete());
 
@@ -1058,6 +1076,35 @@ std::pair<bool, int64_t> BlobDBImpl::evictDeletions(bool aborted) {
       }
     }
   }
+  return std::make_pair(true, -1);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+std::pair<bool, int64_t> BlobDBImpl::fsyncFiles(bool aborted) {
+  if (aborted) return std::make_pair(false, -1);
+
+  std::vector<std::shared_ptr<BlobFile>> process_files;
+  {
+    ReadLock l(&mutex_);
+    for (auto fitr: open_blob_files_) {
+      if (fitr->NeedsFsync(true, bdb_options_.bytes_per_sync))
+        process_files.push_back(fitr);
+    }
+
+    for (auto fitr: open_simple_files_) {
+      if (fitr->NeedsFsync(true, bdb_options_.bytes_per_sync))
+        process_files.push_back(fitr);
+    }
+  }
+
+  for (auto fitr : process_files) {
+    if (fitr->NeedsFsync(true, bdb_options_.bytes_per_sync))
+      fitr->Fsync_member();
+  }
+
   return std::make_pair(true, -1);
 }
 
@@ -1298,6 +1345,8 @@ void BlobDBImpl::startGCThreads() {
               std::bind(&BlobDBImpl::sanityCheck, this, _1));
   tqueue_.add(bdb_options_.wa_stats_period,
               std::bind(&BlobDBImpl::waStats, this, _1));
+  tqueue_.add(bdb_options_.fsync_files_period,
+              std::bind(&BlobDBImpl::fsyncFiles, this, _1));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1318,7 +1367,8 @@ BlobFile::BlobFile()
       ttl_range_(std::make_pair(0, 0)),
       time_range_(std::make_pair(0, 0)),
       sn_range_(std::make_pair(0, 0)),
-      last_access_(-1) {}
+      last_access_(-1),
+      last_fsync_(0) {}
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -1339,7 +1389,8 @@ BlobFile::BlobFile(const std::string& bdir, uint64_t fn)
       ttl_range_(std::make_pair(0, 0)),
       time_range_(std::make_pair(0, 0)),
       sn_range_(std::make_pair(0, 0)),
-      last_access_(-1) {}
+      last_access_(-1),
+      last_fsync_(0) {}
 
 BlobFile::~BlobFile()
 {
@@ -1397,6 +1448,16 @@ std::shared_ptr<blob_log::Reader> BlobFile::openSequentialReader_locked(
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
+bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
+  assert (last_fsync_ >= file_size_);
+  return (hard) ? last_fsync_ > file_size_ :
+    (last_fsync_ - file_size_) >= bytes_per_sync;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 Status BlobFile::WriteFooterAndClose_locked()
 {
   blob_log::BlobLogFooter footer;
@@ -1447,6 +1508,7 @@ void BlobFile::setFromFooter(const blob_log::BlobLogFooter& footer)
 void BlobFile::Fsync_member() {
   if (log_writer_.get()) {
     log_writer_->Sync();
+    last_fsync_.store(file_size_.load());
   }
 }
 
