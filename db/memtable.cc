@@ -17,6 +17,7 @@
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
+#include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -27,7 +28,9 @@
 #include "table/iterator_wrapper.h"
 #include "table/merger.h"
 #include "util/arena.h"
+#include "util/autovector.h"
 #include "util/coding.h"
+#include "util/memory_usage.h"
 #include "util/murmurhash.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
@@ -105,17 +108,21 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
 MemTable::~MemTable() { assert(refs_ == 0); }
 
 size_t MemTable::ApproximateMemoryUsage() {
-  size_t arena_usage = arena_.ApproximateMemoryUsage();
-  size_t table_usage = table_->ApproximateMemoryUsage();
-  table_usage += range_del_table_->ApproximateMemoryUsage();
-  // let MAX_USAGE =  std::numeric_limits<size_t>::max()
-  // then if arena_usage + total_usage >= MAX_USAGE, return MAX_USAGE.
-  // the following variation is to avoid numeric overflow.
-  if (arena_usage >= std::numeric_limits<size_t>::max() - table_usage) {
-    return std::numeric_limits<size_t>::max();
+  autovector<size_t> usages = {arena_.ApproximateMemoryUsage(),
+                               table_->ApproximateMemoryUsage(),
+                               range_del_table_->ApproximateMemoryUsage(),
+                               rocksdb::ApproximateMemoryUsage(insert_hints_)};
+  size_t total_usage = 0;
+  for (size_t usage : usages) {
+    // If usage + total_usage >= kMaxSizet, return kMaxSizet.
+    // the following variation is to avoid numeric overflow.
+    if (usage >= port::kMaxSizet - total_usage) {
+      return port::kMaxSizet;
+    }
+    total_usage += usage;
   }
   // otherwise, return the actual usage
-  return arena_usage + table_usage;
+  return total_usage;
 }
 
 bool MemTable::ShouldFlushNow() const {

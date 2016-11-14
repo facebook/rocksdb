@@ -491,6 +491,7 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
 
     std::string big_value(1000000 * 2, 'x');
     std::string num;
+    uint64_t value;
     SetPerfLevel(kEnableTime);
     ASSERT_TRUE(GetPerfLevel() == kEnableTime);
 
@@ -555,11 +556,11 @@ TEST_F(DBPropertiesTest, NumImmutableMemTable) {
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], DB::Properties::kNumImmutableMemTableFlushed, &num));
     ASSERT_EQ(num, "3");
-    ASSERT_TRUE(dbfull()->GetProperty(
-        handles_[1], "rocksdb.cur-size-active-mem-table", &num));
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.cur-size-active-mem-table", &value));
     // "384" is the size of the metadata of two empty skiplists, this would
     // break if we change the default skiplist implementation
-    ASSERT_EQ(num, "384");
+    ASSERT_GE(value, 384);
 
     uint64_t int_num;
     uint64_t base_total_size;
