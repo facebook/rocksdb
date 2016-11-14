@@ -352,8 +352,6 @@ class DBImpl : public DB {
 
   uint64_t TEST_total_log_size() const { return total_log_size_; }
 
-  uint64_t TEST_max_total_wal_size() const { return GetMaxTotalWalSize(); }
-
   // Returns column family name to ImmutableCFOptions map.
   Status TEST_GetAllImmutableCFOptions(
       std::unordered_map<std::string, const ImmutableCFOptions*>* iopts_map);

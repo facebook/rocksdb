@@ -3773,6 +3773,7 @@ bool DBImpl::MCOverlap(ManualCompaction* m, ManualCompaction* m1) {
 }
 
 size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
+  mutex_.AssertHeld();
   size_t bsize = write_buffer_size / 10 + write_buffer_size;
   // Some users might set very high write_buffer_size and rely on
   // max_total_wal_size or other parameters to control the WAL size.
@@ -5139,6 +5140,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   int num_imm_unflushed = cfd->imm()->NumNotFlushed();
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  const auto preallocate_block_size =
+    GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
   mutex_.Unlock();
   Status s;
   {
@@ -5160,8 +5163,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
-        lfile->SetPreallocationBlockSize(
-            GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size));
+
+        // use preallocate_block_size instead
+        // of calling GetWalPreallocateBlockSize()
+        lfile->SetPreallocationBlockSize(preallocate_block_size);
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
         new_log =

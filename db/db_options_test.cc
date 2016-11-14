@@ -291,15 +291,8 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
 
 TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   Random rnd(1044);
-  std::string data;
-  const size_t data_size = 1024;
-  for (size_t i = 0; i < data_size / 4; ++i) {
-    auto r = rnd.Next();
-    data += static_cast<char>(r & 0xFF);
-    data += static_cast<char>((r >> 8) & 0xFF);
-    data += static_cast<char>((r >> 16) & 0xFF);
-    data += static_cast<char>((r >> 24) & 0xFF);
-  }
+  const auto key_size = size_t(1024);
+  const auto key = test::RandomKey(&rnd, key_size);
 
   Options options;
   options.create_if_missing = true;
@@ -311,14 +304,14 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   const size_t key_count = 100;
   for (size_t i = 0; i < key_count; ++i) {
     for (size_t cf = 0; cf < handles_.size(); ++cf) {
-      ASSERT_OK(Put(cf, Key(i), data));
+      ASSERT_OK(Put(static_cast<int>(cf), Key(i), key));
     }
   }
   ASSERT_OK(dbfull()->SetDBOptions({{"max_total_wal_size", "10"}}));
 
   for (size_t cf = 0; cf < handles_.size(); ++cf) {
     dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
-    ASSERT_EQ("1", FilesPerLevel(cf));
+    ASSERT_EQ("1", FilesPerLevel(static_cast<int>(cf)));
   }
 }
 
