@@ -9,8 +9,8 @@
   <meta property="og:image" content="{{ '/static/og_image.png' | absolute_url }}" />
   <meta property="og:description" content="{% if page.excerpt %}{{ page.excerpt | strip_html | strip_newlines | truncate: 160 }}{% else %}{{ site.description }}{% endif %}" />
 
-  <link rel="stylesheet" href="{{ '/css/main.css' | relative_url }}" media="screen">
-  <link rel="icon" href="{{ '/static/favicon.png' | relative_url }}" type="image/x-icon">
+  <link rel="stylesheet" href="{{ '/css/main.css' }}" media="screen">
+  <link rel="icon" href="{{ '/static/favicon.png' }}" type="image/x-icon">
   {% if site.searchconfig %}
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/docsearch.js/1/docsearch.min.css" />
   {% endif %}
