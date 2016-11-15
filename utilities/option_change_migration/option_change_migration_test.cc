@@ -13,12 +13,12 @@
 #include "port/stack_trace.h"
 namespace rocksdb {
 
-class DBOptionChangeMigrationTest
+class DBOptionChangeMigrationTests
     : public DBTestBase,
       public testing::WithParamInterface<
           std::tuple<int, int, bool, int, int, bool>> {
  public:
-  DBOptionChangeMigrationTest()
+  DBOptionChangeMigrationTests()
       : DBTestBase("/db_option_change_migration_test") {
     level1_ = std::get<0>(GetParam());
     compaction_style1_ = std::get<1>(GetParam());
@@ -43,7 +43,7 @@ class DBOptionChangeMigrationTest
 };
 
 #ifndef ROCKSDB_LITE
-TEST_P(DBOptionChangeMigrationTest, Migrate1) {
+TEST_P(DBOptionChangeMigrationTests, Migrate1) {
   Options old_options = CurrentOptions();
   old_options.compaction_style =
       static_cast<CompactionStyle>(compaction_style1_);
@@ -112,7 +112,7 @@ TEST_P(DBOptionChangeMigrationTest, Migrate1) {
   }
 }
 
-TEST_P(DBOptionChangeMigrationTest, Migrate2) {
+TEST_P(DBOptionChangeMigrationTests, Migrate2) {
   Options old_options = CurrentOptions();
   old_options.compaction_style =
       static_cast<CompactionStyle>(compaction_style2_);
@@ -180,8 +180,157 @@ TEST_P(DBOptionChangeMigrationTest, Migrate2) {
   }
 }
 
+TEST_P(DBOptionChangeMigrationTests, Migrate3) {
+  Options old_options = CurrentOptions();
+  old_options.compaction_style =
+      static_cast<CompactionStyle>(compaction_style1_);
+  if (old_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
+    old_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
+  }
+
+  old_options.level0_file_num_compaction_trigger = 3;
+  old_options.write_buffer_size = 64 * 1024;
+  old_options.target_file_size_base = 128 * 1024;
+  // Make level target of L1, L2 to be 200KB and 600KB
+  old_options.num_levels = level1_;
+  old_options.max_bytes_for_level_multiplier = 3;
+  old_options.max_bytes_for_level_base = 200 * 1024;
+
+  Reopen(old_options);
+  Random rnd(301);
+  for (int num = 0; num < 20; num++) {
+    for (int i = 0; i < 50; i++) {
+      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+    }
+    Flush();
+    dbfull()->TEST_WaitForCompact();
+    if (num == 9) {
+      // Issue a full compaction to generate some zero-out files
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      dbfull()->CompactRange(cro, nullptr, nullptr);
+    }
+  }
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+
+  // Will make sure exactly those keys are in the DB after migration.
+  std::set<std::string> keys;
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->SeekToFirst();
+    for (; it->Valid(); it->Next()) {
+      keys.insert(it->key().ToString());
+    }
+  }
+  Close();
+
+  Options new_options = old_options;
+  new_options.compaction_style =
+      static_cast<CompactionStyle>(compaction_style2_);
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
+    new_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
+  }
+  new_options.target_file_size_base = 256 * 1024;
+  new_options.num_levels = level2_;
+  new_options.max_bytes_for_level_base = 150 * 1024;
+  new_options.max_bytes_for_level_multiplier = 4;
+  ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
+  Reopen(new_options);
+
+  // Wait for compaction to finish and make sure it can reopen
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+  Reopen(new_options);
+
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->SeekToFirst();
+    for (std::string key : keys) {
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ(key, it->key().ToString());
+      it->Next();
+    }
+    ASSERT_TRUE(!it->Valid());
+  }
+}
+
+TEST_P(DBOptionChangeMigrationTests, Migrate4) {
+  Options old_options = CurrentOptions();
+  old_options.compaction_style =
+      static_cast<CompactionStyle>(compaction_style2_);
+  if (old_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
+    old_options.level_compaction_dynamic_level_bytes = is_dynamic2_;
+  }
+  old_options.level0_file_num_compaction_trigger = 3;
+  old_options.write_buffer_size = 64 * 1024;
+  old_options.target_file_size_base = 128 * 1024;
+  // Make level target of L1, L2 to be 200KB and 600KB
+  old_options.num_levels = level2_;
+  old_options.max_bytes_for_level_multiplier = 3;
+  old_options.max_bytes_for_level_base = 200 * 1024;
+
+  Reopen(old_options);
+  Random rnd(301);
+  for (int num = 0; num < 20; num++) {
+    for (int i = 0; i < 50; i++) {
+      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+    }
+    Flush();
+    dbfull()->TEST_WaitForCompact();
+    if (num == 9) {
+      // Issue a full compaction to generate some zero-out files
+      CompactRangeOptions cro;
+      cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+      dbfull()->CompactRange(cro, nullptr, nullptr);
+    }
+  }
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+
+  // Will make sure exactly those keys are in the DB after migration.
+  std::set<std::string> keys;
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->SeekToFirst();
+    for (; it->Valid(); it->Next()) {
+      keys.insert(it->key().ToString());
+    }
+  }
+
+  Close();
+
+  Options new_options = old_options;
+  new_options.compaction_style =
+      static_cast<CompactionStyle>(compaction_style1_);
+  if (new_options.compaction_style == CompactionStyle::kCompactionStyleLevel) {
+    new_options.level_compaction_dynamic_level_bytes = is_dynamic1_;
+  }
+  new_options.target_file_size_base = 256 * 1024;
+  new_options.num_levels = level1_;
+  new_options.max_bytes_for_level_base = 150 * 1024;
+  new_options.max_bytes_for_level_multiplier = 4;
+  ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
+  Reopen(new_options);
+  // Wait for compaction to finish and make sure it can reopen
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+  Reopen(new_options);
+
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->SeekToFirst();
+    for (std::string key : keys) {
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ(key, it->key().ToString());
+      it->Next();
+    }
+    ASSERT_TRUE(!it->Valid());
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(
-    DBOptionChangeMigrationTest, DBOptionChangeMigrationTest,
+    DBOptionChangeMigrationTests, DBOptionChangeMigrationTests,
     ::testing::Values(std::make_tuple(3, 0, false, 4, 0, false),
                       std::make_tuple(3, 0, true, 4, 0, true),
                       std::make_tuple(3, 0, true, 4, 0, false),
@@ -197,6 +346,74 @@ INSTANTIATE_TEST_CASE_P(
                       std::make_tuple(3, 0, true, 2, 2, false),
                       std::make_tuple(3, 1, false, 3, 2, false),
                       std::make_tuple(1, 1, false, 4, 2, false)));
+
+class DBOptionChangeMigrationTest : public DBTestBase {
+ public:
+  DBOptionChangeMigrationTest()
+      : DBTestBase("/db_option_change_migration_test2") {}
+};
+
+TEST_F(DBOptionChangeMigrationTest, CompactedSrcToUniversal) {
+  Options old_options = CurrentOptions();
+  old_options.compaction_style = CompactionStyle::kCompactionStyleLevel;
+  old_options.max_compaction_bytes = 200 * 1024;
+  old_options.level_compaction_dynamic_level_bytes = false;
+  old_options.level0_file_num_compaction_trigger = 3;
+  old_options.write_buffer_size = 64 * 1024;
+  old_options.target_file_size_base = 128 * 1024;
+  // Make level target of L1, L2 to be 200KB and 600KB
+  old_options.num_levels = 4;
+  old_options.max_bytes_for_level_multiplier = 3;
+  old_options.max_bytes_for_level_base = 200 * 1024;
+
+  Reopen(old_options);
+  Random rnd(301);
+  for (int num = 0; num < 20; num++) {
+    for (int i = 0; i < 50; i++) {
+      ASSERT_OK(Put(Key(num * 100 + i), RandomString(&rnd, 900)));
+    }
+  }
+  Flush();
+  CompactRangeOptions cro;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  dbfull()->CompactRange(cro, nullptr, nullptr);
+
+  // Will make sure exactly those keys are in the DB after migration.
+  std::set<std::string> keys;
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->SeekToFirst();
+    for (; it->Valid(); it->Next()) {
+      keys.insert(it->key().ToString());
+    }
+  }
+
+  Close();
+
+  Options new_options = old_options;
+  new_options.compaction_style = CompactionStyle::kCompactionStyleUniversal;
+  new_options.target_file_size_base = 256 * 1024;
+  new_options.num_levels = 1;
+  new_options.max_bytes_for_level_base = 150 * 1024;
+  new_options.max_bytes_for_level_multiplier = 4;
+  ASSERT_OK(OptionChangeMigration(dbname_, old_options, new_options));
+  Reopen(new_options);
+  // Wait for compaction to finish and make sure it can reopen
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+  Reopen(new_options);
+
+  {
+    std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+    it->SeekToFirst();
+    for (std::string key : keys) {
+      ASSERT_TRUE(it->Valid());
+      ASSERT_EQ(key, it->key().ToString());
+      it->Next();
+    }
+    ASSERT_TRUE(!it->Valid());
+  }
+}
 
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
