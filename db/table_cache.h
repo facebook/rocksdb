@@ -46,12 +46,15 @@ class TableCache {
   // the returned iterator.  The returned "*tableptr" object is owned by
   // the cache and should not be deleted, and is valid for as long as the
   // returned iterator is live.
+  // @param range_del_agg If non-nullptr, adds range deletions to the
+  //    aggregator. If an error occurs, returns it in a NewErrorInternalIterator
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   InternalIterator* NewIterator(
       const ReadOptions& options, const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,
-      const FileDescriptor& file_fd, TableReader** table_reader_ptr = nullptr,
+      const FileDescriptor& file_fd, RangeDelAggregator* range_del_agg,
+      TableReader** table_reader_ptr = nullptr,
       HistogramImpl* file_read_hist = nullptr, bool for_compaction = false,
       Arena* arena = nullptr, bool skip_filters = false, int level = -1);
 
@@ -68,6 +71,9 @@ class TableCache {
   // If a seek to internal key "k" in specified file finds an entry,
   // call (*handle_result)(arg, found_key, found_value) repeatedly until
   // it returns false.
+  // @param get_context State for get operation. If its range_del_agg() returns
+  //    non-nullptr, adds range deletions to the aggregator. If an error occurs,
+  //    returns non-ok status.
   // @param skip_filters Disables loading/accessing the filter block
   // @param level The level this table is at, -1 for "not set / don't know"
   Status Get(const ReadOptions& options,
