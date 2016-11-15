@@ -125,6 +125,7 @@ class PosixWritableFile : public WritableFile {
   virtual Status Truncate(uint64_t size) override { return Status::OK(); }
   virtual Status Close() override;
   virtual Status Append(const Slice& data) override;
+  virtual Status PositionedAppend(const Slice& data, uint64_t offset) override;
   virtual Status Flush() override;
   virtual Status Sync() override;
   virtual Status Fsync() override;

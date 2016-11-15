@@ -692,6 +692,26 @@ Status PosixWritableFile::Append(const Slice& data) {
   return Status::OK();
 }
 
+Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
+  assert(offset <= std::numeric_limits<off_t>::max());
+  const char* src = data.data();
+  size_t left = data.size();
+  while (left != 0) {
+    ssize_t done = pwrite(fd_, src, left, static_cast<off_t>(offset));
+    if (done < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return IOError(filename_, errno);
+    }
+    left -= done;
+    offset += done;
+    src += done;
+  }
+  filesize_ = offset + data.size();
+  return Status::OK();
+}
+
 Status PosixWritableFile::Close() {
   Status s;
 
