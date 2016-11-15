@@ -41,7 +41,7 @@ bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed) {
       break;
     }
     if (parsed.sequence < tombstone.seq_ &&
-        icmp_.user_comparator()->Compare(parsed.user_key, tombstone.end_key_) <=
+        icmp_.user_comparator()->Compare(parsed.user_key, tombstone.end_key_) <
             0) {
       return true;
     }

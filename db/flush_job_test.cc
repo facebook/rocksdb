@@ -125,9 +125,9 @@ TEST_F(FlushJobTest, NonEmpty) {
       inserted_keys.insert({internal_key.Encode().ToString(), value});
     }
   }
-  new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999");
+  new_mem->Add(SequenceNumber(10000), kTypeRangeDeletion, "9995", "9999a");
   InternalKey internal_key("9995", SequenceNumber(10000), kTypeRangeDeletion);
-  inserted_keys.insert({internal_key.Encode().ToString(), "9999"});
+  inserted_keys.insert({internal_key.Encode().ToString(), "9999a"});
 
   autovector<MemTable*> to_delete;
   cfd->imm()->Add(new_mem, &to_delete);
@@ -147,7 +147,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   ASSERT_OK(flush_job.Run(&fd));
   mutex_.Unlock();
   ASSERT_EQ(ToString(0), fd.smallest.user_key().ToString());
-  ASSERT_EQ(ToString(9999),
+  ASSERT_EQ("9999a",
             fd.largest.user_key().ToString());  // range tombstone end key
   ASSERT_EQ(1, fd.smallest_seqno);
   ASSERT_EQ(10000, fd.largest_seqno);  // range tombstone seqnum 10000
