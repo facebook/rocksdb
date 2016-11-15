@@ -289,6 +289,33 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
   ASSERT_EQ(20000, dbfull()->TEST_write_controler().max_delayed_write_rate());
 }
 
+TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
+  Random rnd(1044);
+  const auto value_size = size_t(1024);
+  std::string value;
+  test::RandomString(&rnd, value_size, &value);
+
+  Options options;
+  options.create_if_missing = true;
+  CreateColumnFamilies({"1", "2", "3"}, options);
+  ReopenWithColumnFamilies({"default", "1", "2", "3"}, options);
+
+  WriteOptions write_options;
+
+  const int key_count = 100;
+  for (int i = 0; i < key_count; ++i) {
+    for (size_t cf = 0; cf < handles_.size(); ++cf) {
+      ASSERT_OK(Put(static_cast<int>(cf), Key(i), value));
+    }
+  }
+  ASSERT_OK(dbfull()->SetDBOptions({{"max_total_wal_size", "10"}}));
+
+  for (size_t cf = 0; cf < handles_.size(); ++cf) {
+    dbfull()->TEST_WaitForFlushMemTable(handles_[cf]);
+    ASSERT_EQ("1", FilesPerLevel(static_cast<int>(cf)));
+  }
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

@@ -2493,6 +2493,10 @@ Status DBImpl::SetDBOptions(
 
       mutable_db_options_ = new_options;
 
+      if (total_log_size_ > GetMaxTotalWalSize()) {
+        FlushColumnFamilies();
+      }
+
       persist_options_status = PersistOptions();
     }
   }
@@ -3769,11 +3773,12 @@ bool DBImpl::MCOverlap(ManualCompaction* m, ManualCompaction* m1) {
 }
 
 size_t DBImpl::GetWalPreallocateBlockSize(uint64_t write_buffer_size) const {
+  mutex_.AssertHeld();
   size_t bsize = write_buffer_size / 10 + write_buffer_size;
   // Some users might set very high write_buffer_size and rely on
   // max_total_wal_size or other parameters to control the WAL size.
-  if (immutable_db_options_.max_total_wal_size > 0) {
-    bsize = std::min<size_t>(bsize, immutable_db_options_.max_total_wal_size);
+  if (mutable_db_options_.max_total_wal_size > 0) {
+    bsize = std::min<size_t>(bsize, mutable_db_options_.max_total_wal_size);
   }
   if (immutable_db_options_.db_write_buffer_size > 0) {
     bsize = std::min<size_t>(bsize, immutable_db_options_.db_write_buffer_size);
@@ -4676,34 +4681,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   assert(!single_column_family_mode_ ||
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
 
-  uint64_t max_total_wal_size = (immutable_db_options_.max_total_wal_size == 0)
-                                    ? 4 * max_total_in_memory_state_
-                                    : immutable_db_options_.max_total_wal_size;
   if (UNLIKELY(!single_column_family_mode_ &&
-               alive_log_files_.begin()->getting_flushed == false &&
-               total_log_size_ > max_total_wal_size)) {
-    uint64_t flush_column_family_if_log_file = alive_log_files_.begin()->number;
-    alive_log_files_.begin()->getting_flushed = true;
-    Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
-        "Flushing all column families with data in WAL number %" PRIu64
-        ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
-        flush_column_family_if_log_file, total_log_size_, max_total_wal_size);
-    // no need to refcount because drop is happening in write thread, so can't
-    // happen while we're in the write thread
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->IsDropped()) {
-        continue;
-      }
-      if (cfd->GetLogNumber() <= flush_column_family_if_log_file) {
-        status = SwitchMemtable(cfd, &context);
-        if (!status.ok()) {
-          break;
-        }
-        cfd->imm()->FlushRequested();
-        SchedulePendingFlush(cfd);
-      }
-    }
-    MaybeScheduleFlushOrCompaction();
+               !alive_log_files_.begin()->getting_flushed &&
+               total_log_size_ > GetMaxTotalWalSize())) {
+    FlushColumnFamilies();
   } else if (UNLIKELY(write_buffer_manager_->ShouldFlush())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
@@ -5020,6 +5001,46 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   return status;
 }
 
+void DBImpl::FlushColumnFamilies() {
+  mutex_.AssertHeld();
+
+  WriteContext context;
+
+  if (alive_log_files_.begin()->getting_flushed) {
+    return;
+  }
+
+  uint64_t flush_column_family_if_log_file = alive_log_files_.begin()->number;
+  alive_log_files_.begin()->getting_flushed = true;
+  Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
+      "Flushing all column families with data in WAL number %" PRIu64
+      ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
+      flush_column_family_if_log_file, total_log_size_, GetMaxTotalWalSize());
+  // no need to refcount because drop is happening in write thread, so can't
+  // happen while we're in the write thread
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
+    if (cfd->GetLogNumber() <= flush_column_family_if_log_file) {
+      auto status = SwitchMemtable(cfd, &context);
+      if (!status.ok()) {
+        break;
+      }
+      cfd->imm()->FlushRequested();
+      SchedulePendingFlush(cfd);
+    }
+  }
+  MaybeScheduleFlushOrCompaction();
+}
+
+uint64_t DBImpl::GetMaxTotalWalSize() const {
+  mutex_.AssertHeld();
+  return mutable_db_options_.max_total_wal_size == 0
+             ? 4 * max_total_in_memory_state_
+             : mutable_db_options_.max_total_wal_size;
+}
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::DelayWrite(uint64_t num_bytes) {
@@ -5119,6 +5140,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   int num_imm_unflushed = cfd->imm()->NumNotFlushed();
   DBOptions db_options =
       BuildDBOptions(immutable_db_options_, mutable_db_options_);
+  const auto preallocate_block_size =
+    GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size);
   mutex_.Unlock();
   Status s;
   {
@@ -5140,8 +5163,10 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
-        lfile->SetPreallocationBlockSize(
-            GetWalPreallocateBlockSize(mutable_cf_options.write_buffer_size));
+
+        // use preallocate_block_size instead
+        // of calling GetWalPreallocateBlockSize()
+        lfile->SetPreallocationBlockSize(preallocate_block_size);
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
         new_log =

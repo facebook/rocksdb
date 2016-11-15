@@ -728,6 +728,10 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked
   Status PersistOptions();
 
+  void FlushColumnFamilies();
+
+  uint64_t GetMaxTotalWalSize() const;
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 
