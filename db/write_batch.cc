@@ -48,6 +48,7 @@
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
 #include "util/statistics.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -972,6 +973,19 @@ class MemTableInserter : public WriteBatch::Handler {
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
+    }
+    if (db_ != nullptr) {
+      auto cf_handle = cf_mems_->GetColumnFamilyHandle();
+      if (cf_handle == nullptr) {
+        cf_handle = db_->DefaultColumnFamily();
+      }
+      auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cf_handle)->cfd();
+      if (!cfd->is_delete_range_supported()) {
+        return Status::NotSupported(
+            std::string("DeleteRange not supported for table type ") +
+            cfd->ioptions()->table_factory->Name() + " in CF " +
+            cfd->GetName());
+      }
     }
 
     return DeleteImpl(column_family_id, begin_key, end_key, kTypeRangeDeletion);
