@@ -329,8 +329,9 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   cro.target_level = 2;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   db_->CompactRange(cro, nullptr, nullptr);
-  // Only verifying compaction outputs issues one table cache lookup.
-  ASSERT_EQ(num_table_cache_lookup, 1);
+  // Only verifying compaction outputs issues two table cache lookup
+  // (one for data block, one for range deletion block).
+  ASSERT_EQ(num_table_cache_lookup, 2);
   // One for compaction input, one for verifying compaction results.
   ASSERT_EQ(num_new_table_reader, 2);
 
