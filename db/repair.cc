@@ -468,7 +468,7 @@ class Repairer {
     if (status.ok()) {
       InternalIterator* iter = table_cache_->NewIterator(
           ReadOptions(), env_options_, cfd->internal_comparator(), t->meta.fd,
-          nullptr);
+          nullptr /* range_del_agg */);
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;
