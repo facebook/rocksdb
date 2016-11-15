@@ -113,11 +113,10 @@ RangeDelAggregator::TombstoneMap& RangeDelAggregator::GetTombstoneMap(
 // tombstones are known to be available, without the code duplication we have
 // in ShouldAddTombstones(). It'll also allow us to move the table-modifying
 // code into more coherent places: CompactionJob and BuildTable().
-void RangeDelAggregator::AddToBuilder(TableBuilder* builder,
-                                      bool extend_before_min_key,
-                                      const Slice* next_table_min_key,
-                                      FileMetaData* meta,
-                                      bool bottommost_level /* = false */) {
+void RangeDelAggregator::AddToBuilder(
+    TableBuilder* builder, const Slice* lower_bound, const Slice* upper_bound,
+    FileMetaData* meta,
+    bool bottommost_level /* = false */) {
   auto stripe_map_iter = stripe_map_.begin();
   assert(stripe_map_iter != stripe_map_.end());
   if (bottommost_level) {
@@ -132,20 +131,20 @@ void RangeDelAggregator::AddToBuilder(TableBuilder* builder,
   while (stripe_map_iter != stripe_map_.end()) {
     for (const auto& start_key_and_tombstone : stripe_map_iter->second) {
       const auto& tombstone = start_key_and_tombstone.second;
-      if (next_table_min_key != nullptr &&
-          icmp_.user_comparator()->Compare(*next_table_min_key,
-                                           tombstone.start_key_) < 0) {
-        // Tombstones starting after next_table_min_key only need to be included
-        // in the next table.
+      if (upper_bound != nullptr &&
+          icmp_.user_comparator()->Compare(*upper_bound,
+                                           tombstone.start_key_) <= 0) {
+        // Tombstones starting at upper_bound or later only need to be included
+        // in the next table. Break because subsequent tombstones will start
+        // even later.
         break;
       }
-      if (!extend_before_min_key && meta->smallest.size() != 0 &&
+      if (lower_bound != nullptr &&
           icmp_.user_comparator()->Compare(tombstone.end_key_,
-                                           meta->smallest.user_key()) < 0) {
-        // Tombstones ending before this table's smallest key can conditionally
-        // be excluded, e.g., when this table is a non-first compaction output,
-        // we know such tombstones are included in the previous table. In that
-        // case extend_before_min_key would be false.
+                                           *lower_bound) <= 0) {
+        // Tombstones ending before or at lower_bound only need to be included
+        // in the prev table. Continue because subsequent tombstones may still
+        // overlap [lower_bound, upper_bound).
         continue;
       }
 
@@ -153,35 +152,49 @@ void RangeDelAggregator::AddToBuilder(TableBuilder* builder,
       builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
       if (!first_added) {
         first_added = true;
-        if (extend_before_min_key &&
-            (meta->smallest.size() == 0 ||
-             icmp_.Compare(ikey_and_end_key.first, meta->smallest) < 0)) {
-          meta->smallest = ikey_and_end_key.first;
+        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);;
+        if (lower_bound != nullptr &&
+            icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
+                                             *lower_bound) <= 0) {
+          // Pretend the smallest key has the same user key as lower_bound
+          // (the max key in the previous table or subcompaction) in order for
+          // files to appear key-space partitioned.
+          //
+          // Choose lowest seqnum so this file's smallest internal key comes
+          // after the previous file's/subcompaction's largest. The fake seqnum
+          // is OK because the read path's file-picking code only considers user
+          // key.
+          smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
+        }
+        if (meta->smallest.size() == 0 ||
+            icmp_.Compare(smallest_candidate, meta->smallest) < 0) {
+          meta->smallest = std::move(smallest_candidate);
         }
       }
-      auto end_ikey = tombstone.SerializeEndKey();
+      InternalKey largest_candidate = tombstone.SerializeEndKey();
+      if (upper_bound != nullptr &&
+          icmp_.user_comparator()->Compare(*upper_bound,
+                                           largest_candidate.user_key()) <= 0) {
+        // Pretend the largest key has the same user key as upper_bound (the
+        // min key in the following table or subcompaction) in order for files
+        // to appear key-space partitioned.
+        //
+        // Choose highest seqnum so this file's largest internal key comes
+        // before the next file's/subcompaction's smallest. The fake seqnum is
+        // OK because the read path's file-picking code only considers the user
+        // key portion.
+        //
+        // Note Seek() also creates InternalKey with (user_key,
+        // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
+        // kTypeRangeDeletion (0xF), so the range tombstone comes before the
+        // Seek() key in InternalKey's ordering. So Seek() will look in the
+        // next file for the user key.
+        largest_candidate = InternalKey(*upper_bound, kMaxSequenceNumber,
+                                        kTypeRangeDeletion);
+      }
       if (meta->largest.size() == 0 ||
-          icmp_.Compare(meta->largest, end_ikey) < 0) {
-        if (next_table_min_key != nullptr &&
-            icmp_.Compare(*next_table_min_key, end_ikey.Encode()) < 0) {
-          // Pretend the largest key has the same user key as the min key in the
-          // following table in order for files to appear key-space partitioned.
-          // Choose highest seqnum so this file's largest comes before the next
-          // file's smallest. The fake seqnum is OK because the read path's
-          // file-picking code only considers the user key portion.
-          //
-          // Note Seek() also creates InternalKey with (user_key,
-          // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
-          // kTypeRangeDeletion (0xF), so the range tombstone comes before the
-          // Seek() key in InternalKey's ordering. So Seek() will look in the
-          // next file for the user key.
-          ParsedInternalKey parsed;
-          ParseInternalKey(*next_table_min_key, &parsed);
-          meta->largest = InternalKey(parsed.user_key, kMaxSequenceNumber,
-                                      kTypeRangeDeletion);
-        } else {
-          meta->largest = std::move(end_ikey);
-        }
+          icmp_.Compare(meta->largest, largest_candidate) < 0) {
+        meta->largest = std::move(largest_candidate);
       }
       meta->smallest_seqno = std::min(meta->smallest_seqno, tombstone.seq_);
       meta->largest_seqno = std::max(meta->largest_seqno, tombstone.seq_);

@@ -972,14 +972,33 @@ Status CompactionJob::FinishCompactionOutputFile(
   Status s = input_status;
   auto meta = &sub_compact->current_output()->meta;
   if (s.ok()) {
-    // For the first output table, include range tombstones before the min key
-    // boundary. For subsequent output tables, this is unnecessary because we
-    // extend each file's max key boundary up until the next file's min key when
-    // range tombstones fall in the gap.
-    range_del_agg->AddToBuilder(
-        sub_compact->builder.get(),
-        sub_compact->outputs.size() == 1 /* extend_before_min_key */,
-        next_table_min_key, meta, bottommost_level_);
+    Slice lower_bound_guard, upper_bound_guard;
+    const Slice *lower_bound, *upper_bound;
+    if (sub_compact->outputs.size() == 1) {
+      // For the first output table, include range tombstones before the min key
+      // but after the subcompaction boundary.
+      lower_bound = sub_compact->start;
+    } else if (meta->smallest.size() > 0) {
+      // For subsequent output tables, only include range tombstones from min
+      // key onwards since the previous file was extended to contain range
+      // tombstones falling before min key.
+      lower_bound_guard = meta->smallest.user_key();
+      lower_bound = &lower_bound_guard;
+    } else {
+      lower_bound = nullptr;
+    }
+    if (next_table_min_key != nullptr) {
+      // This isn't the last file in the subcompaction, so extend until the next
+      // file starts.
+      upper_bound_guard = ExtractUserKey(*next_table_min_key);
+      upper_bound = &upper_bound_guard;
+    } else {
+      // This is the last file in the subcompaction, so extend until the
+      // subcompaction ends.
+      upper_bound = sub_compact->end;
+    }
+    range_del_agg->AddToBuilder(sub_compact->builder.get(), lower_bound,
+                                upper_bound, meta, bottommost_level_);
   }
   const uint64_t current_entries = sub_compact->builder->NumEntries();
   meta->marked_for_compaction = sub_compact->builder->NeedCompact();
