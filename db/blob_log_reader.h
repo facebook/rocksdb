@@ -94,6 +94,9 @@ class Reader {
   // which log number this is
   uint64_t const log_number_;
 
+  // which byte to read next. For asserting proper usage
+  uint64_t next_byte_;
+
   // No copying allowed
   Reader(const Reader&);
   void operator=(const Reader&);

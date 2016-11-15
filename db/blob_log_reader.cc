@@ -37,7 +37,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       //last_record_offset_(0),
       //end_of_buffer_offset_(0),
       initial_offset_(initial_offset),
-      log_number_(log_num) {}
+      log_number_(log_num),
+      next_byte_(0) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -45,6 +46,8 @@ Reader::~Reader() {
 
 Status Reader::ReadHeader(blob_log::BlobLogHeader& header)
 {
+  assert (file_.get() != nullptr);
+  assert (next_byte_ == 0);
   Status status = file_->Read(blob_log::BlobLogHeader::kHeaderSize, &buffer_, backing_store_);
   if (!status.ok()) {
     return status;
@@ -61,8 +64,9 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord* record, READ_LEVEL level,
   backing_store_[0] = '\0';
 
   Status status = file_->Read(blob_log::BlobLogRecord::kHeaderSize, &buffer_, backing_store_);
+  next_byte_ += blob_log::BlobLogRecord::kHeaderSize;
   if (!status.ok()) {
-     return status;
+    return status;
   }
 
   status = record->DecodeHeaderFrom(&buffer_);
@@ -70,11 +74,13 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord* record, READ_LEVEL level,
     return status;
   }
 
+  uint64_t kb_size = record->GetKeySize() + record->GetBlobSize();
   switch (level) {
     case READ_LEVEL_HDR_FOOTER:
-      file_->Skip(record->GetKeySize() + record->GetBlobSize());
-      status = file_->Read(8, &buffer_, backing_store_);
+      file_->Skip(kb_size);
+      status = file_->Read(blob_log::BlobLogRecord::kFooterSize, &buffer_, backing_store_);
       record->sn_ = DecodeFixed64(buffer_.data());
+      next_byte_ += (kb_size + blob_log::BlobLogRecord::kFooterSize);
       return status;
 
     case READ_LEVEL_HDR_FOOTER_KEY:
@@ -82,8 +88,9 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord* record, READ_LEVEL level,
       status =
           file_->Read(record->GetKeySize(), &record->key_, record->key_buffer_);
       file_->Skip(record->GetBlobSize());
-      status = file_->Read(8, &buffer_, backing_store_);
+      status = file_->Read(blob_log::BlobLogRecord::kFooterSize, &buffer_, backing_store_);
       record->sn_ = DecodeFixed64(buffer_.data());
+      next_byte_ += (kb_size + blob_log::BlobLogRecord::kFooterSize);
       return status;
 
     case READ_LEVEL_HDR_FOOTER_KEY_BLOB:
@@ -93,11 +100,13 @@ Status Reader::ReadRecord(blob_log::BlobLogRecord* record, READ_LEVEL level,
       record->resizeBlobBuffer((uint64_t)record->GetBlobSize());
       status = file_->Read(record->GetBlobSize(), &record->blob_,
                            record->blob_buffer_);
-      status = file_->Read(8, &buffer_, backing_store_);
+      status = file_->Read(blob_log::BlobLogRecord::kFooterSize, &buffer_, backing_store_);
       record->sn_ = DecodeFixed64(buffer_.data());
+      next_byte_ += (kb_size + blob_log::BlobLogRecord::kFooterSize);
       return status;
     default :
-       return status;
+      assert (0);
+      return status;
   }
 }
 

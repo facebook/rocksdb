@@ -26,7 +26,8 @@ namespace blob_log {
 Writer::Writer(unique_ptr<WritableFileWriter>&& dest, uint64_t log_number,
   uint64_t bpsync, bool use_fs, uint64_t boffset)
   : dest_(std::move(dest)), log_number_(log_number), block_offset_(boffset),
-    bytes_per_sync_(bpsync), next_sync_offset_(0), use_fsync_(use_fs) {
+    bytes_per_sync_(bpsync), next_sync_offset_(0), use_fsync_(use_fs),
+    last_elem_type_(ET_NONE) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);
@@ -54,6 +55,8 @@ void Writer::Sync() {
 ////////////////////////////////////////////////////////////////////////////////
 Status Writer::WriteHeader(blob_log::BlobLogHeader& header)
 {
+  assert (block_offset_ == 0);
+  assert (last_elem_type_ == ET_NONE);
   std::string str;
   header.EncodeTo(&str);
 
@@ -62,6 +65,7 @@ Status Writer::WriteHeader(blob_log::BlobLogHeader& header)
     block_offset_ += str.size();
     s = dest_->Flush();
   }
+  last_elem_type_ = ET_FILE_HDR;
   return s;
 }
 
@@ -71,6 +75,9 @@ Status Writer::WriteHeader(blob_log::BlobLogHeader& header)
 ////////////////////////////////////////////////////////////////////////////////
 Status Writer::AppendFooter(blob_log::BlobLogFooter& footer)
 {
+  assert (block_offset_ != 0);
+  assert (last_elem_type_ == ET_FILE_HDR || last_elem_type_ == ET_FOOTER);
+
   std::string str;
   footer.EncodeTo(&str);
 
@@ -82,6 +89,7 @@ Status Writer::AppendFooter(blob_log::BlobLogFooter& footer)
     dest_.reset();
   }
 
+  last_elem_type_ = ET_FILE_FOOTER;
   return s;
 }
 
@@ -92,10 +100,14 @@ Status Writer::AppendFooter(blob_log::BlobLogFooter& footer)
 Status Writer::AddRecord(const Slice& key, const Slice& val,
   uint64_t* key_offset, uint64_t* blob_offset, uint32_t ttl)
 {
+  assert (block_offset_ != 0);
+  assert (last_elem_type_ == ET_FILE_HDR || last_elem_type_ == ET_FOOTER);
+
   char buf[blob_log::BlobLogRecord::kHeaderSize];
   ConstructBlobHeader(buf, key, val, ttl, -1);
 
   Status s = EmitPhysicalRecord(buf, key, val, key_offset, blob_offset);
+  last_elem_type_ = ET_RECORD;
   return s;
 }
 
@@ -105,10 +117,14 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
 ////////////////////////////////////////////////////////////////////////////////
 Status Writer::AddRecord(const Slice& key, const Slice& val,
   uint64_t* key_offset, uint64_t* blob_offset) {
+  assert (block_offset_ != 0);
+  assert (last_elem_type_ == ET_FILE_HDR || last_elem_type_ == ET_FOOTER);
+
   char buf[blob_log::BlobLogRecord::kHeaderSize];
   ConstructBlobHeader(buf, key, val, -1, -1);
 
   Status s = EmitPhysicalRecord(buf, key, val, key_offset, blob_offset);
+  last_elem_type_ = ET_RECORD;
   return s;
 }
 
@@ -179,15 +195,20 @@ Status Writer::EmitPhysicalRecord(const char *headerbuf, const Slice& key,
   *key_offset = block_offset_ + blob_log::BlobLogRecord::kHeaderSize;
   *blob_offset = *key_offset + key.size();
   block_offset_ = *blob_offset + val.size();
-
   return s;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 Status Writer::AddRecordFooter(const SequenceNumber& seq) {
+  assert (last_elem_type_ == ET_RECORD);
+
   char buf[8];
   EncodeFixed64(buf, seq);
   Status s = dest_->Append(Slice(buf, 8));
-  block_offset_ += 8;
+  block_offset_ += blob_log::BlobLogRecord::kFooterSize;
 
   if (s.ok())
    dest_->Flush();

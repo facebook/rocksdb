@@ -109,12 +109,15 @@ class Writer {
   void ResetSyncPointer() { next_sync_offset_ += bytes_per_sync_; }
 
  private:
+  enum ELEM_TYPE { ET_NONE, ET_FILE_HDR, ET_RECORD, ET_FOOTER, ET_FILE_FOOTER};
+
   unique_ptr<WritableFileWriter> dest_;
   uint64_t log_number_;
   uint64_t block_offset_;       // Current offset in block
   uint64_t bytes_per_sync_;
   uint64_t next_sync_offset_;
   bool use_fsync_;
+  ELEM_TYPE last_elem_type_;
 
   // crc32c values for all supported record types.  These are
   // pre-computed to reduce the overhead of computing the crc of the
