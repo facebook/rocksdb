@@ -394,7 +394,9 @@ PARALLEL_TEST = \
 	fault_injection_test \
 	inlineskiplist_test \
 	manual_compaction_test \
-	table_test
+	persistent_cache_test \
+	table_test \
+	transaction_test
 
 SUBSET := $(TESTS)
 ifdef ROCKSDBTESTS_START
