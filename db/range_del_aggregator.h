@@ -56,12 +56,13 @@ class RangeDelAggregator {
   // @param extend_before_min_key If true, the range of tombstones to be added
   //    to the TableBuilder starts from the beginning of the key-range;
   //    otherwise, it starts from meta->smallest.
-  // @param lower_bound If non-nullptr, adds only range deletions ending after
-  //    lower_bound (user key); otherwise, adds range deletions regardless of
-  //    their end key.
-  // @param upper_bound If non-nullptr, adds only range deletions starting
-  //    before upper_bound (user key); otherwise, adds range deletions
-  //    regardless of their start key.
+  // @param lower_bound/upper_bound Any range deletion with [start_key, end_key)
+  //    that overlaps the target range [*lower_bound, *upper_bound) is added to
+  //    the builder. If lower_bound is nullptr, the target range extends
+  //    infinitely to the left. If upper_bound is nullptr, the target range
+  //    extends infinitely to the right. If both are nullptr, the target range
+  //    extends infinitely in both directions, i.e., all range deletions are
+  //    added to the builder.
   // @param meta The file's metadata. We modify the begin and end keys according
   //    to the range tombstones added to this file such that the read path does
   //    not miss range tombstones that cover gaps before/after/between files in

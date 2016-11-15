@@ -152,50 +152,49 @@ void RangeDelAggregator::AddToBuilder(
       builder->Add(ikey_and_end_key.first.Encode(), ikey_and_end_key.second);
       if (!first_added) {
         first_added = true;
+        InternalKey smallest_candidate = std::move(ikey_and_end_key.first);;
+        if (lower_bound != nullptr &&
+            icmp_.user_comparator()->Compare(smallest_candidate.user_key(),
+                                             *lower_bound) <= 0) {
+          // Pretend the smallest key has the same user key as lower_bound
+          // (the max key in the previous table or subcompaction) in order for
+          // files to appear key-space partitioned.
+          //
+          // Choose lowest seqnum so this file's smallest internal key comes
+          // after the previous file's/subcompaction's largest. The fake seqnum
+          // is OK because the read path's file-picking code only considers user
+          // key.
+          smallest_candidate = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
+        }
         if (meta->smallest.size() == 0 ||
-            icmp_.user_comparator()->Compare(tombstone.start_key_,
-                                             meta->smallest.user_key()) < 0) {
-          if (lower_bound != nullptr &&
-              icmp_.user_comparator()->Compare(tombstone.start_key_,
-                                               *lower_bound) <= 0) {
-            // Pretend the smallest key has the same user key as lower_bound
-            // (the max key in the previous table or subcompaction) in order for
-            // files to appear key-space partitioned.
-            //
-            // Choose lowest seqnum so this file's smallest internal key comes
-            // after the previous file's largest. The fake seqnum is OK because
-            // the read path's file-picking code only considers user key.
-            meta->smallest = InternalKey(*lower_bound, 0, kTypeRangeDeletion);
-          } else {
-            meta->smallest = std::move(ikey_and_end_key.first);
-          }
+            icmp_.Compare(smallest_candidate, meta->smallest) < 0) {
+          meta->smallest = std::move(smallest_candidate);
         }
       }
-      auto end_ikey = tombstone.SerializeEndKey();
+      InternalKey largest_candidate = tombstone.SerializeEndKey();
+      if (upper_bound != nullptr &&
+          icmp_.user_comparator()->Compare(*upper_bound,
+                                           largest_candidate.user_key()) <= 0) {
+        // Pretend the largest key has the same user key as upper_bound (the
+        // min key in the following table or subcompaction) in order for files
+        // to appear key-space partitioned.
+        //
+        // Choose highest seqnum so this file's largest internal key comes
+        // before the next file's/subcompaction's smallest. The fake seqnum is
+        // OK because the read path's file-picking code only considers the user
+        // key portion.
+        //
+        // Note Seek() also creates InternalKey with (user_key,
+        // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
+        // kTypeRangeDeletion (0xF), so the range tombstone comes before the
+        // Seek() key in InternalKey's ordering. So Seek() will look in the
+        // next file for the user key.
+        largest_candidate = InternalKey(*upper_bound, kMaxSequenceNumber,
+                                        kTypeRangeDeletion);
+      }
       if (meta->largest.size() == 0 ||
-          icmp_.user_comparator()->Compare(meta->largest.user_key(),
-                                           tombstone.end_key_) < 0) {
-        if (upper_bound != nullptr &&
-            icmp_.user_comparator()->Compare(*upper_bound,
-                                             tombstone.end_key_) <= 0) {
-          // Pretend the largest key has the same user key as upper_bound (the
-          // min key in the following table or subcompaction) in order for files
-          // to appear key-space partitioned.
-          //
-          // Choose highest seqnum so this file's largest internal key comes
-          // before the next file's smallest. The fake seqnum is OK because the
-          // read path's file-picking code only considers the user key portion.
-          //
-          // Note Seek() also creates InternalKey with (user_key,
-          // kMaxSequenceNumber), but with kTypeDeletion (0x7) instead of
-          // kTypeRangeDeletion (0xF), so the range tombstone comes before the
-          // Seek() key in InternalKey's ordering. So Seek() will look in the
-          // next file for the user key.
-          meta->largest = InternalKey(*upper_bound, kMaxSequenceNumber,
-                                      kTypeRangeDeletion);
-        } else {
-          meta->largest = std::move(end_ikey);
-        }
+          icmp_.Compare(meta->largest, largest_candidate) < 0) {
+        meta->largest = std::move(largest_candidate);
       }
       meta->smallest_seqno = std::min(meta->smallest_seqno, tombstone.seq_);
       meta->largest_seqno = std::max(meta->largest_seqno, tombstone.seq_);
