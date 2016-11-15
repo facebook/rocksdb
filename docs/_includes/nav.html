@@ -2,7 +2,7 @@
   <div class="headerWrapper wrapper">
     <header>
       <a href="{{ '/' | absolute_url }}">
-        <img src="{{ '/static/logo.svg' | relative_url }}">
+        <img src="{{ '/static/logo.svg' }}">
         <h2>{{ site.title }}</h2>
       </a>
 
@@ -14,7 +14,12 @@
               {% if item.category == "external" %}
                 <a href="{{ item.href }}">{{ item.title }}</a>
               {% else %}
-                <a href="{{ item.href | relative_url }}">{{ item.title }}</a>
+                {% comment %}
+                I removed `relative_url` from here for now until the problem we are having with
+                GitHub pages is resolved. Yes, I know this is exactly the same as the if above.
+                See: https://github.com/facebook/rocksdb/commit/800e51553ee029f29581f7f338cbc988c7f6da62
+                {% endcomment %}
+                <a href="{{ item.href }}">{{ item.title }}</a>
               {% endif %}
             </li>
             {% endfor %}
