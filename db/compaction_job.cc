@@ -896,7 +896,9 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         "Database shutdown or Column family drop during compaction");
   }
   if (status.ok() && sub_compact->builder == nullptr &&
+      sub_compact->outputs.size() == 0 &&
       range_del_agg->ShouldAddTombstones(bottommost_level_)) {
+    // handle subcompaction containing only range deletions
     status = OpenCompactionOutputFile(sub_compact);
   }
   if (status.ok() && sub_compact->builder != nullptr) {
