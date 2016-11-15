@@ -374,6 +374,23 @@ class DeleteCommand : public LDBCommand {
   std::string key_;
 };
 
+class DeleteRangeCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "deleterange"; }
+
+  DeleteRangeCommand(const std::vector<std::string>& params,
+                     const std::map<std::string, std::string>& options,
+                     const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string begin_key_;
+  std::string end_key_;
+};
+
 class PutCommand : public LDBCommand {
  public:
   static std::string Name() { return "put"; }
