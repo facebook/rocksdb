@@ -5845,6 +5845,14 @@ Status DB::SingleDelete(const WriteOptions& opt,
   return Write(opt, &batch);
 }
 
+Status DB::DeleteRange(const WriteOptions& opt,
+                       ColumnFamilyHandle* column_family,
+                       const Slice& begin_key, const Slice& end_key) {
+  WriteBatch batch;
+  batch.DeleteRange(column_family, begin_key, end_key);
+  return Write(opt, &batch);
+}
+
 Status DB::Merge(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                  const Slice& key, const Slice& value) {
   WriteBatch batch;
