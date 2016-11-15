@@ -244,17 +244,15 @@ class DB {
   // deleting very large ranges of contiguous keys. Invoking it many times or on
   // small ranges may severely degrade read performance; in particular, the
   // resulting performance can be worse than calling Delete() for each key in
-  // the range.
+  // the range. Note also the degraded read performance affects keys outside the
+  // deleted ranges, and affects database operations involving scans, like flush
+  // and compaction.
   //
-  // Note: consider setting ReadOptions::ignore_range_deletions = true to speed
+  // Consider setting ReadOptions::ignore_range_deletions = true to speed
   // up reads for key(s) that are known to be unaffected by range deletions.
   virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
-  virtual Status DeleteRange(const WriteOptions& options,
-                             const Slice& begin_key, const Slice& end_key) {
-    return DeleteRange(options, DefaultColumnFamily(), begin_key, end_key);
-  }
 
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
