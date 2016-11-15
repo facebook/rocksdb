@@ -87,6 +87,7 @@ get_lib_base tbb        4.0_update2 gcc-4.9-glibc-2.20
 get_lib_base kernel-headers LATEST 
 get_lib_base binutils   LATEST centos6-native 
 get_lib_base valgrind   3.10.0 gcc-4.9-glibc-2.20
+get_lib_base lua        5.2.3 gcc-4.9-glibc-2.20
 
 git diff $OUTPUT
 
@@ -125,5 +126,6 @@ get_lib_base tbb        4.0_update2 gcc-4.8.1-glibc-2.17
 get_lib_base kernel-headers LATEST gcc-4.8.1-glibc-2.17 
 get_lib_base binutils   LATEST centos6-native 
 get_lib_base valgrind   3.8.1  gcc-4.8.1-glibc-2.17
+get_lib_base lua        5.2.3 centos6-native
 
 git diff $OUTPUT

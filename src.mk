@@ -157,6 +157,7 @@ LIB_SOURCES =                                                   \
   utilities/flashcache/flashcache.cc                            \
   utilities/geodb/geodb_impl.cc                                 \
   utilities/leveldb_options/leveldb_options.cc                  \
+  utilities/lua/rocks_lua_compaction_filter.cc                  \
   utilities/memory/memory_util.cc                               \
   utilities/merge_operators/put.cc                              \
   utilities/merge_operators/max.cc                              \
@@ -312,6 +313,7 @@ MAIN_SOURCES =                                                    \
   utilities/date_tiered/date_tiered_test.cc                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
   utilities/column_aware_encoding_test.cc                               \
+  utilities/lua/rocks_lua_test.cc                                       \
 	util/iostats_context_test.cc																					\
   util/log_write_bench.cc                                               \
   util/mock_env_test.cc                                                 \

@@ -466,3 +466,4 @@ echo "PROFILING_FLAGS=$PROFILING_FLAGS" >> "$OUTPUT"
 if test -n "$JEMALLOC"; then
   echo "JEMALLOC=1" >> "$OUTPUT"
 fi
+echo "LUA_PATH=$LUA_PATH" >> "$OUTPUT"
