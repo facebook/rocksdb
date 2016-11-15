@@ -170,10 +170,7 @@ InternalIterator* TableCache::NewIterator(
     const ReadOptions& options, const EnvOptions& env_options,
     const InternalKeyComparator& icomparator, const FileDescriptor& fd,
     TableReader** table_reader_ptr, HistogramImpl* file_read_hist,
-    bool for_compaction, Arena* arena, bool skip_filters, int level,
-    RangeDelAggregator* range_del_agg /* = nullptr */,
-    bool is_range_del_only /* = false */) {
-  assert(!is_range_del_only || range_del_agg != nullptr);
+    bool for_compaction, Arena* arena, bool skip_filters, int level) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   if (table_reader_ptr != nullptr) {
@@ -185,18 +182,14 @@ InternalIterator* TableCache::NewIterator(
 
   size_t readahead = 0;
   bool create_new_table_reader = false;
-  // pointless to create a new table reader for range tombstones only since the
-  // reader isn't reused
-  if (!is_range_del_only) {
-    if (for_compaction) {
-      if (ioptions_.new_table_reader_for_compaction_inputs) {
-        readahead = ioptions_.compaction_readahead_size;
-        create_new_table_reader = true;
-      }
-    } else {
-      readahead = options.readahead_size;
-      create_new_table_reader = readahead > 0;
+  if (for_compaction) {
+    if (ioptions_.new_table_reader_for_compaction_inputs) {
+      readahead = ioptions_.compaction_readahead_size;
+      create_new_table_reader = true;
     }
+  } else {
+    readahead = options.readahead_size;
+    create_new_table_reader = readahead > 0;
   }
 
   if (create_new_table_reader) {
@@ -223,40 +216,51 @@ InternalIterator* TableCache::NewIterator(
     }
   }
 
-  if (range_del_agg != nullptr && !options.ignore_range_deletions) {
-    std::unique_ptr<InternalIterator> iter(
-        table_reader->NewRangeTombstoneIterator(options));
-    Status s = range_del_agg->AddTombstones(std::move(iter));
-    if (!s.ok()) {
-      return NewErrorInternalIterator(s, arena);
-    }
+  InternalIterator* result =
+      table_reader->NewIterator(options, arena, skip_filters);
+  if (create_new_table_reader) {
+    assert(handle == nullptr);
+    result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
+  } else if (handle != nullptr) {
+    result->RegisterCleanup(&UnrefEntry, cache_, handle);
   }
 
-  InternalIterator* result = nullptr;
-  if (!is_range_del_only) {
-    result = table_reader->NewIterator(options, arena, skip_filters);
-    if (create_new_table_reader) {
-      assert(handle == nullptr);
-      result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
-    } else if (handle != nullptr) {
-      result->RegisterCleanup(&UnrefEntry, cache_, handle);
-    }
-
-    if (for_compaction) {
-      table_reader->SetupForCompaction();
-    }
-    if (table_reader_ptr != nullptr) {
-      *table_reader_ptr = table_reader;
-    }
-  } else {
-    assert(!create_new_table_reader);
-    // don't need the table reader at all since the iterator over the meta-block
-    // doesn't require it
-    if (handle != nullptr) {
-      UnrefEntry(cache_, handle);
-    }
+  if (for_compaction) {
+    table_reader->SetupForCompaction();
+  }
+  if (table_reader_ptr != nullptr) {
+    *table_reader_ptr = table_reader;
   }
   return result;
+}
+
+InternalIterator* TableCache::NewRangeDeletionIterator(
+    const ReadOptions& options, const InternalKeyComparator& icmp,
+    const FileDescriptor& fd, HistogramImpl* file_read_hist, bool skip_filters,
+    int level) {
+  if (options.ignore_range_deletions) {
+    return NewEmptyInternalIterator();
+  }
+  Status s;
+  TableReader* table_reader = fd.table_reader;
+  Cache::Handle* cache_handle = nullptr;
+  if (table_reader == nullptr) {
+    s = FindTable(env_options_, icmp, fd, &cache_handle,
+                  options.read_tier == kBlockCacheTier /* no_io */,
+                  true /* record_read_stats */, file_read_hist, skip_filters,
+                  level);
+    if (s.ok()) {
+      table_reader = GetTableReaderFromHandle(cache_handle);
+    }
+  }
+  if (s.ok()) {
+    auto* result = table_reader->NewRangeTombstoneIterator(options);
+    if (cache_handle != nullptr) {
+      result->RegisterCleanup(&UnrefEntry, cache_, cache_handle);
+    }
+    return result;
+  }
+  return NewErrorInternalIterator(s);
 }
 
 Status TableCache::Get(const ReadOptions& options,
