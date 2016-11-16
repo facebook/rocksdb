@@ -117,6 +117,53 @@ Status BlobDBImpl::Delete(const WriteOptions& options,
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
+BlobDBImpl::BlobDBImpl(const std::string& dbname,
+  const BlobDBOptions& blob_db_options, const Options& options,
+  const DBOptions &db_options, const EnvOptions& env_options)
+  : BlobDB(nullptr),
+    db_impl_(nullptr),
+    myenv_(options.env),
+    wo_set_(false),
+    bdb_options_(blob_db_options),
+    ioptions_(options),
+    db_options_(db_options),
+    env_options_(env_options),
+    next_file_number_(1),
+    epoch_of_(0),
+    shutdown_(false),
+    current_epoch_(0),
+    open_file_count_(0),
+    last_period_write_(0),
+    last_period_ampl_(0),
+    total_periods_write_(0),
+    total_periods_ampl_(0),
+    total_blob_space_(0),
+    open_p1_done_(false) {
+  blob_dir_ = (bdb_options_.path_relative)  ? dbname +
+    "/" + bdb_options_.blob_dir : bdb_options_.blob_dir;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+void BlobDBImpl::setDBImplPtr(DB *db) {
+  assert(db_ == nullptr);
+  db_ = db;
+  db_impl_ = dynamic_cast<DBImpl*>(db);
+
+  myenv_ = db_->GetEnv();
+  ioptions_ = ImmutableCFOptions(db->GetOptions());
+  db_options_ = db->GetOptions();
+  env_options_ = EnvOptions(db->GetOptions());
+
+  opt_db_ = std::make_shared<OptimisticTransactionDBImpl>(db, false);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
     : BlobDB(db),
       db_impl_(dynamic_cast<DBImpl*>(db)),
@@ -207,23 +254,33 @@ std::shared_ptr<BlobFile> BlobDBImpl::openNewFile_P1()
 // this is opening of the entire BlobDB.
 // go through the directory and do an fstat on all the files.
 ////////////////////////////////////////////////////////////////////////////////
-Status BlobDBImpl::Open() {
-
-  if (blob_dir_.empty()) {
+Status BlobDBImpl::OpenP1() {
+  assert(db_ == nullptr);
+  if (blob_dir_.empty())
     return Status::NotSupported("No blob directory in options");
-  }
 
-  Status s = db_->GetEnv()->CreateDirIfMissing(blob_dir_);
+  std::unique_ptr<Directory> dir_ent;
+  Status s = myenv_->NewDirectory(blob_dir_, &dir_ent);
   if (!s.ok()) {
-    return s;
+    open_p1_done_ = true;
+    return Status::OK();
   }
 
   s = openAllFiles();
-  if (!s.ok()) {
-    return s;
-  }
+  open_p1_done_ = true;
+  return s;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+Status BlobDBImpl::Open() {
+  assert(db_ != nullptr);
+  assert(open_p1_done_);
+
+  Status s = myenv_->CreateDirIfMissing(blob_dir_);
 
   startGCThreads();
+
   return s;
 }
 
@@ -234,7 +291,7 @@ Status BlobDBImpl::Open() {
 Status BlobDBImpl::getAllLogFiles(
     std::set<std::pair<uint64_t, std::string> >* file_nums) {
   std::vector<std::string> all_files;
-  Status status = db_->GetEnv()->GetChildren(blob_dir_, &all_files);
+  Status status = myenv_->GetChildren(blob_dir_, &all_files);
   if (!status.ok()) {
     return status;
   }
@@ -251,6 +308,17 @@ Status BlobDBImpl::getAllLogFiles(
   }
 
   return status;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
+  unsigned long long log_number, const std::string& log_file_name,
+  const WriteBatch& batch, WriteBatch* new_batch, bool* batch_changed)
+{
+  return WalFilter::WalProcessingOption::kContinueProcessing;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -271,7 +339,7 @@ Status BlobDBImpl::openAllFiles() {
   for (auto f_iter: file_nums) {
     std::string bfpath = BlobFileName(blob_dir_, f_iter.first);
     uint64_t size_bytes;
-    Status s1 = db_->GetEnv()->GetFileSize(bfpath, &size_bytes);
+    Status s1 = myenv_->GetFileSize(bfpath, &size_bytes);
     if (!s1.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
         "Not able to get size of file %s", bfpath.c_str());
@@ -285,7 +353,7 @@ Status BlobDBImpl::openAllFiles() {
     bfptr->setFileSize(size_bytes);
     bool f_open = false;
     std::shared_ptr<RandomAccessFileReader> ra_reader =
-        bfptr->openRandomAccess_locked(ioptions_.env, env_options_, &f_open);
+        bfptr->openRandomAccess_locked(myenv_, env_options_, &f_open);
     if (f_open) open_file_count_++;
 
     blob_log::BlobLogFooter bf;
@@ -298,7 +366,7 @@ Status BlobDBImpl::openAllFiles() {
 
       // sequentially iterate over the file and read all the records
       std::shared_ptr<blob_log::Reader> reader;
-      reader = bfptr->openSequentialReader_locked(db_->GetEnv(),
+      reader = bfptr->openSequentialReader_locked(myenv_,
         db_options_, env_options_);
 
       s1 = bfptr->ReadHeader();
@@ -319,6 +387,8 @@ Status BlobDBImpl::openAllFiles() {
       blob_log::BlobLogRecord record;
       blob_log::Reader::READ_LEVEL shallow =
           blob_log::Reader::READ_LEVEL_HDR_FOOTER_KEY;
+
+      // TBD - when we detect corruption, we should truncate
       while (reader->ReadRecord(&record, shallow).ok()) {
         ++blob_count;
         if (bfptr->HasTTL()) {
@@ -347,7 +417,8 @@ Status BlobDBImpl::openAllFiles() {
       }
 
       if (bfptr->HasTTL()) {
-        ttl_range.second  = std::max(ttl_range.second, ttl_range.first + (uint32_t)bdb_options_.ttl_range);
+        ttl_range.second  = std::max(ttl_range.second,
+          ttl_range.first + (uint32_t)bdb_options_.ttl_range);
         bfptr->setTTLRange(ttl_range);
         std::time_t epoch_now = system_clock::to_time_t(system_clock::now());
         if (ttl_range.second < epoch_now) {
@@ -408,8 +479,8 @@ Status BlobDBImpl::createWriter_locked(BlobFile *bfile, bool reopen) {
 
   std::unique_ptr<WritableFile> wfile;
   Status s = (reopen) ?
-   db_->GetEnv()->ReopenWritableFile(fpath, &wfile, env_options_) :
-   db_->GetEnv()->NewWritableFile(fpath, &wfile, env_options_);
+   myenv_->ReopenWritableFile(fpath, &wfile, env_options_) :
+   myenv_->NewWritableFile(fpath, &wfile, env_options_);
 
   if (!s.ok())
     return s;
@@ -420,7 +491,17 @@ Status BlobDBImpl::createWriter_locked(BlobFile *bfile, bool reopen) {
   uint64_t boffset = bfile->GetFileSize();
   bfile->log_writer_ = std::make_shared<blob_log::Writer>(std::move(fwriter),
     bfile->file_number_, bdb_options_.bytes_per_sync,
-    db_->GetOptions().use_fsync, boffset);
+    db_options_.use_fsync, boffset);
+ 
+  if (reopen) {
+    blob_log::Writer::ELEM_TYPE et = blob_log::Writer::ET_NONE;
+    if (bfile->file_size_ == blob_log::BlobLogHeader::kHeaderSize)
+      et = blob_log::Writer::ET_FILE_HDR;
+    else if (bfile->file_size_ >  blob_log::BlobLogHeader::kHeaderSize) {
+      et = blob_log::Writer::ET_FOOTER;
+    }
+    bfile->log_writer_->last_elem_type_ = et;
+  }
 
   return s;
 }
@@ -768,7 +849,7 @@ Status BlobDBImpl::Get(const ReadOptions& options,
     WriteLock lockbfile_w(&bfile->mutex_);
     bool f_open = false;
     reader =
-        bfile->openRandomAccess_locked(ioptions_.env, env_options_, &f_open);
+        bfile->openRandomAccess_locked(myenv_, env_options_, &f_open);
     if (f_open) open_file_count_++;
   }
 
@@ -815,7 +896,7 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
   {
     WriteLock lockbfile_w(&(bfptr->mutex_));
     // sequentially iterate over the file and read all the records
-    reader = bfptr->openSequentialReader_locked(db_->GetEnv(), db_options_,
+    reader = bfptr->openSequentialReader_locked(myenv_, db_options_,
       env_options_, true);
     if (!reader) {
       // report something here.
@@ -876,7 +957,7 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
       // should be a much severe error
     }
 
-    // read the blob because you have to write it back to 
+    // read the blob because you have to write it back to
     // new file
     shallow = blob_log::Reader::READ_LEVEL_HDR_FOOTER_KEY_BLOB;
   }
@@ -917,7 +998,7 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
 
       new_writer->AddRecordFooter(record.GetSN());
       newfile->blob_count_++;
-      newfile->file_size_ += blob_log::BlobLogRecord::kHeaderSize + 
+      newfile->file_size_ += blob_log::BlobLogRecord::kHeaderSize +
         record.Key().size() + record.Blob().size() +
         blob_log::BlobLogRecord::kFooterSize;
 
@@ -962,6 +1043,10 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr)
 void BlobDBImpl::OnFlushBeginHandler(DB *db, const FlushJobInfo& info) {
 
   if (shutdown_.load())
+    return;
+
+  // a callback that happens too soon needs to be ignored
+  if (!db_)
     return;
 
   fsyncFiles(false);
@@ -1214,7 +1299,7 @@ std::pair<bool, int64_t> BlobDBImpl::deleteObsFiles(bool aborted) {
     WriteLock wl(&mutex_);
     blob_files_.erase(bfile->BlobFileNumber());
 
-    Status s = db_->GetEnv()->DeleteFile(bfile->PathName());
+    Status s = myenv_->DeleteFile(bfile->PathName());
     if (!s.ok()) {
       Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
           "File failed to be deleted as obsolete %s",
@@ -1424,6 +1509,7 @@ std::shared_ptr<blob_log::Reader> BlobFile::openSequentialReader_locked(
     if (rewind) {
       assert(log_reader_->file() != nullptr);
       log_reader_->file()->Rewind();
+      log_reader_->ResetNextByte();
     }
     return log_reader_;
   }
@@ -1449,9 +1535,9 @@ std::shared_ptr<blob_log::Reader> BlobFile::openSequentialReader_locked(
 //
 ////////////////////////////////////////////////////////////////////////////////
 bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
-  assert (last_fsync_ >= file_size_);
-  return (hard) ? last_fsync_ > file_size_ :
-    (last_fsync_ - file_size_) >= bytes_per_sync;
+  assert (last_fsync_ <= file_size_);
+  return (hard) ? file_size_ > last_fsync_ :
+    (file_size_ - last_fsync_) >= bytes_per_sync;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1494,6 +1580,8 @@ void BlobFile::setFromFooter(const blob_log::BlobLogFooter& footer)
     header_.setTimestamps(footer.HasTimestamps());
   }
 
+  // assume that file has been fully fsync'd
+  last_fsync_.store(file_size_);
   blob_count_ = footer.GetBlobCount();
   ttl_range_ = footer.GetTTLRange();
   time_range_ = footer.GetTimeRange();
@@ -1538,7 +1626,7 @@ void BlobFile::closeRandomAccess_locked() {
 //
 ////////////////////////////////////////////////////////////////////////////////
 std::shared_ptr<RandomAccessFileReader> BlobFile::openRandomAccess_locked(
-    Env* env, const EnvOptions& env_options, bool* fresh_open) {
+  Env *env, const EnvOptions& env_options, bool* fresh_open) {
   *fresh_open = false;
   last_access_ = system_clock::to_time_t(system_clock::now());
   if (ra_file_reader_)

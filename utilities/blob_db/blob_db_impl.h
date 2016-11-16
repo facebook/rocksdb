@@ -22,6 +22,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
+#include "rocksdb/wal_filter.h"
 #include "util/cf_options.h"
 #include "util/file_reader_writer.h"
 #include "util/mpsc.h"
@@ -51,6 +52,19 @@ class BlobDBFlushBeginListener : public EventListener {
   BlobDBImpl *impl_;
 };
 
+class BlobReconcileWalFilter : public WalFilter {
+public:
+
+  virtual WalFilter::WalProcessingOption LogRecordFound(unsigned long long log_number,
+    const std::string& log_file_name,
+    const WriteBatch& batch,
+    WriteBatch* new_batch,
+    bool* batch_changed) override;
+
+  virtual const char* Name() const override {
+    return "BlobDBWalReconciler";
+  }
+};
 
 struct blobf_compare_ttl {
     bool operator() (const std::shared_ptr<BlobFile>& lhs,
@@ -91,7 +105,15 @@ class BlobDBImpl : public BlobDB {
 
   Status Open();
 
+  Status OpenP1();
+
+  void setDBImplPtr(DB* db);
+
   BlobDBImpl(DB* db, const BlobDBOptions& bdb_options);
+
+  BlobDBImpl(const std::string& dbname, const BlobDBOptions& bdb_options,
+    const Options& options, const DBOptions& db_options,
+    const EnvOptions& env_options);
 
   ~BlobDBImpl();
 
@@ -165,6 +187,7 @@ class BlobDBImpl : public BlobDB {
  private:
 
   DBImpl* db_impl_;
+  Env *myenv_;
   std::shared_ptr<OptimisticTransactionDBImpl> opt_db_;
 
   // a boolean to capture whether write_options has been set
@@ -223,6 +246,7 @@ class BlobDBImpl : public BlobDB {
 
   std::atomic<uint64_t> total_blob_space_;
   std::list<std::shared_ptr<BlobFile>> obsolete_files_;
+  bool open_p1_done_;
 };
 
 class BlobFile {
@@ -329,7 +353,7 @@ public:
   void closeRandomAccess_locked();
 
   std::shared_ptr<RandomAccessFileReader> openRandomAccess_locked(
-      Env* env, const EnvOptions& env_options, bool* fresh_open);
+    Env *env, const EnvOptions& env_options, bool* fresh_open);
 
   // this is used, when you are reading only the footer of a
   // previously closed file

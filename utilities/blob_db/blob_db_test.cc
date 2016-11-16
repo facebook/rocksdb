@@ -11,6 +11,19 @@
 #include <cstdlib>
 
 namespace rocksdb {
+void gen_random(char *s, const int len) {
+    static const char alphanum[] =
+        "0123456789"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz";
+
+    for (int i = 0; i < len; ++i) {
+        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
+    }
+
+    s[len] = 0;
+}
+
 class BlobDBTest : public testing::Test {
  public:
   BlobDBTest() : db_(nullptr) {
@@ -27,58 +40,57 @@ class BlobDBTest : public testing::Test {
      delete db_;
   }
 
+  void insert_blobs() {
+    WriteOptions wo;
+    ReadOptions ro;
+    std::string value;
+
+    ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
+
+    for (size_t i = 0; i < 100000; i++) {
+      int len = rand() % 16384;
+      if (!len)
+        continue;
+
+      char *val = new char[len+1];
+      gen_random(val, len);
+
+      std::string key("key");
+      key += std::to_string(i % 500);
+
+      Slice keyslice(key);
+      Slice valslice(val, len+1);
+
+      int ttl = rand() % 86400;
+
+      ASSERT_OK(db_->PutWithTTL(wo, dcfh, keyslice, valslice, ttl));
+      delete [] val;
+    }
+
+    for (size_t i = 0; i < 10; i++) {
+      std::string key("key");
+      key += std::to_string(i % 500);
+      Slice keyslice(key);
+      db_->Delete(wo, dcfh, keyslice);
+    }
+  }
+
   BlobDB* db_;
   std::string dbname_;
 };  // class BlobDBTest
 
 
-static void gen_random(char *s, const int len) {
-    static const char alphanum[] =
-        "0123456789"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "abcdefghijklmnopqrstuvwxyz";
-
-    for (int i = 0; i < len; ++i) {
-        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
-    }
-
-    s[len] = 0;
-}
-
 TEST_F(BlobDBTest, Basic) {
   ASSERT_TRUE(db_ != nullptr);
 
-  WriteOptions wo;
-  ReadOptions ro;
-  std::string value;
+  std::vector<std::thread> workers;
+  for (size_t ii = 0; ii < 10; ii++)
+    workers.push_back(std::thread(&BlobDBTest::insert_blobs, this));
 
-  ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
-
-  for (size_t i = 0; i < 100000; i++) {
-    int len = rand() % 16384;
-    if (!len)
-      continue;
-
-    char *val = new char[len+1];
-    gen_random(val, len);
-
-    std::string key("key");
-    key += std::to_string(i % 500);
-
-    Slice keyslice(key);
-    Slice valslice(val, len+1);
-
-    int ttl = rand() % 86400;
-
-    ASSERT_OK(db_->PutWithTTL(wo, dcfh, keyslice, valslice, ttl));
-    delete [] val;
-  }
-
-  for (size_t i = 0; i < 10; i++) {
-    std::string key("key");
-    key += std::to_string(i % 500);
-    Slice keyslice(key);
-    db_->Delete(wo, dcfh, keyslice);
+  for (std::thread &t: workers) {
+    if (t.joinable()) {
+      t.join();
+    }
   }
 
   sleep(180);

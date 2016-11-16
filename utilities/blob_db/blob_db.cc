@@ -23,20 +23,34 @@ namespace rocksdb {
 
 Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
     const std::string& dbname, BlobDB** blob_db) {
-
   Options myoptions(options);
   std::shared_ptr<BlobDBFlushBeginListener> fblistener =
     std::make_shared<BlobDBFlushBeginListener>();
   myoptions.listeners.emplace_back(fblistener);
   myoptions.flush_begin_listeners = true;
 
-  DB* db;
-  Status s = DB::Open(myoptions, dbname, &db);
+  DBOptions db_options(myoptions);
+  EnvOptions env_options(db_options);
+
+  // we need to open blob db first so that recovery can happen
+  BlobDBImpl* bdb = new BlobDBImpl(dbname, bdb_options, myoptions,
+    db_options, env_options);
+  fblistener->setImplPtr(bdb);
+
+  Status s = bdb->OpenP1();
   if (!s.ok()) {
     return s;
   }
-  BlobDBImpl* bdb = new BlobDBImpl(db, bdb_options);
-  fblistener->setImplPtr(bdb);
+
+  DB* db;
+  s = DB::Open(myoptions, dbname, &db);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // set the implementation pointer
+  bdb->setDBImplPtr(db);
+
   s = bdb->Open();
   if (!s.ok()) {
     delete bdb;

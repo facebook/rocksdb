@@ -79,6 +79,8 @@ class Reader {
 
   SequentialFileReader* file() { return file_.get(); }
 
+  void ResetNextByte() { next_byte_ = 0; }
+
  private:
   std::shared_ptr<Logger> info_log_;
   const unique_ptr<SequentialFileReader> file_;

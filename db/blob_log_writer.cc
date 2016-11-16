@@ -107,7 +107,6 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
   ConstructBlobHeader(buf, key, val, ttl, -1);
 
   Status s = EmitPhysicalRecord(buf, key, val, key_offset, blob_offset);
-  last_elem_type_ = ET_RECORD;
   return s;
 }
 
@@ -124,7 +123,6 @@ Status Writer::AddRecord(const Slice& key, const Slice& val,
   ConstructBlobHeader(buf, key, val, -1, -1);
 
   Status s = EmitPhysicalRecord(buf, key, val, key_offset, blob_offset);
-  last_elem_type_ = ET_RECORD;
   return s;
 }
 
@@ -195,6 +193,7 @@ Status Writer::EmitPhysicalRecord(const char *headerbuf, const Slice& key,
   *key_offset = block_offset_ + blob_log::BlobLogRecord::kHeaderSize;
   *blob_offset = *key_offset + key.size();
   block_offset_ = *blob_offset + val.size();
+  last_elem_type_ = ET_RECORD;
   return s;
 }
 
