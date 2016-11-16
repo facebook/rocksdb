@@ -3311,8 +3311,9 @@ class Benchmark {
           GenerateKeyFromInt(begin_num + range_tombstone_width_, FLAGS_num,
                              &end_key);
           if (FLAGS_use_blob_db) {
-            s = db_with_cfh->db->DeleteRange(write_options_, begin_key,
-                                             end_key);
+            s = db_with_cfh->db->DeleteRange(
+                write_options_, db_with_cfh->db->DefaultColumnFamily(),
+                begin_key, end_key);
           } else if (FLAGS_num_column_families <= 1) {
             batch.DeleteRange(begin_key, end_key);
           } else {
