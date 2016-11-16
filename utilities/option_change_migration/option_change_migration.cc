@@ -46,6 +46,7 @@ Status CompactToLevel(const Options& options, const std::string& dbname,
     // only one level. In this case, compacting to one file is also
     // optimal.
     no_compact_opts.target_file_size_base = 999999999999999;
+    no_compact_opts.max_compaction_bytes = 999999999999999;
   }
   Status s = OpenDb(no_compact_opts, dbname, &db);
   if (!s.ok()) {
@@ -54,6 +55,9 @@ Status CompactToLevel(const Options& options, const std::string& dbname,
   CompactRangeOptions cro;
   cro.change_level = true;
   cro.target_level = dest_level;
+  if (dest_level == 0) {
+    cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  }
   db->CompactRange(cro, nullptr, nullptr);
 
   if (need_reopen) {
