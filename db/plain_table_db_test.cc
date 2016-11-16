@@ -387,10 +387,6 @@ TEST_P(PlainTableDBTest, Flush) {
       for (int total_order = 0; total_order <= 1; total_order++) {
         for (int store_index_in_file = 0; store_index_in_file <= 1;
              ++store_index_in_file) {
-          if (!bloom_bits && store_index_in_file) {
-            continue;
-          }
-
           Options options = CurrentOptions();
           options.create_if_missing = true;
           // Set only one bucket to force bucket conflict.
