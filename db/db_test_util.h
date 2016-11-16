@@ -193,6 +193,10 @@ class SpecialSkipListFactory : public MemTableRepFactory {
   }
   virtual const char* Name() const override { return "SkipListFactory"; }
 
+  bool IsInsertConcurrentlySupported() const override {
+    return factory_.IsInsertConcurrentlySupported();
+  }
+
  private:
   SkipListFactory factory_;
   int num_entries_flush_;

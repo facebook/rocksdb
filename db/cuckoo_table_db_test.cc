@@ -41,6 +41,7 @@ class CuckooTableDBTest : public testing::Test {
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
     options.allow_mmap_reads = true;
     options.create_if_missing = true;
+    options.allow_concurrent_memtable_write = false;
     return options;
   }
 

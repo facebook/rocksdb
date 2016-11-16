@@ -1298,7 +1298,7 @@ struct DBOptions {
   // It is strongly recommended to set enable_write_thread_adaptive_yield
   // if you are going to use this feature.
   //
-  // Default: false
+  // Default: true
   bool allow_concurrent_memtable_write;
 
   // If true, threads synchronizing with the write batch group leader will
@@ -1306,7 +1306,7 @@ struct DBOptions {
   // This can substantially improve throughput for concurrent workloads,
   // regardless of whether allow_concurrent_memtable_write is enabled.
   //
-  // Default: false
+  // Default: true
   bool enable_write_thread_adaptive_yield;
 
   // The maximum number of microseconds that a write operation will use

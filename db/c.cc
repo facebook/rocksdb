@@ -1703,6 +1703,16 @@ void rocksdb_options_set_bytes_per_sync(
   opt->rep.bytes_per_sync = v;
 }
 
+void rocksdb_options_set_allow_concurrent_memtable_write(rocksdb_options_t* opt,
+                                                         unsigned char v) {
+  opt->rep.allow_concurrent_memtable_write = v;
+}
+
+void rocksdb_options_set_enable_write_thread_adaptive_yield(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.enable_write_thread_adaptive_yield = v;
+}
+
 void rocksdb_options_set_verify_checksums_in_compaction(
     rocksdb_options_t* opt, unsigned char v) {
   opt->rep.verify_checksums_in_compaction = v;

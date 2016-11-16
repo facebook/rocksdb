@@ -34,6 +34,7 @@ TEST_F(DBPropertiesTest, Empty) {
     Options options;
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
+    options.allow_concurrent_memtable_write = false;
     options = CurrentOptions(options);
     CreateAndReopenWithCF({"pikachu"}, options);
 

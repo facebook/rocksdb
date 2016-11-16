@@ -142,6 +142,7 @@ class PlainTableDBTest : public testing::Test,
 
     options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     options.allow_mmap_reads = mmap_mode_;
+    options.allow_concurrent_memtable_write = false;
     return options;
   }
 
