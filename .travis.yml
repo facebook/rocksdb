@@ -5,6 +5,8 @@ os:
   - osx
 compiler:
   - clang
+jdk:
+  - oraclejdk7
 
 addons:
    apt:
