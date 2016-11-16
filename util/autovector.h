@@ -6,15 +6,18 @@
 
 #include <algorithm>
 #include <cassert>
-#include <stdexcept>
+#include <initializer_list>
 #include <iterator>
+#include <stdexcept>
 #include <vector>
 
 namespace rocksdb {
 
 #ifdef ROCKSDB_LITE
 template <class T, size_t kSize = 8>
-class autovector : public std::vector<T> {};
+class autovector : public std::vector<T> {
+  using std::vector<T>::vector;
+};
 #else
 // A vector that leverages pre-allocated stack-based array to achieve better
 // performance for array with small amount of items.
@@ -165,6 +168,13 @@ class autovector {
   typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
 
   autovector() = default;
+
+  autovector(std::initializer_list<T> init_list) {
+    for (const T& item : init_list) {
+      push_back(item);
+    }
+  }
+
   ~autovector() = default;
 
   // -- Immutable operations
