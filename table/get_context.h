@@ -47,6 +47,8 @@ class GetContext {
 
   GetState State() const { return state_; }
 
+  RangeDelAggregator* range_del_agg() { return range_del_agg_; }
+
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
   // If a non-null string is passed, all the SaveValue calls will be

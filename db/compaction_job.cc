@@ -1028,8 +1028,9 @@ Status CompactionJob::FinishCompactionOutputFile(
     // Verify that the table is usable
     InternalIterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), meta->fd,
-        nullptr, cfd->internal_stats()->GetFileReadHist(
-                     compact_->compaction->output_level()),
+        nullptr /* range_del_agg */, nullptr,
+        cfd->internal_stats()->GetFileReadHist(
+            compact_->compaction->output_level()),
         false);
     s = iter->status();
 
