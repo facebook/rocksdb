@@ -77,7 +77,7 @@ int main() {
   db->Merge(wopts, "3", "data3");
   db->CompactRange(rocksdb::CompactRangeOptions(), nullptr, nullptr);
   fprintf(stderr, "filter.count_ = %d\n", filter.count_);
-  assert(filter.count_ == 1);
+  assert(filter.count_ == 0);
   fprintf(stderr, "filter.merge_count_ = %d\n", filter.merge_count_);
-  assert(filter.merge_count_ == 5);
+  assert(filter.merge_count_ == 6);
 }
