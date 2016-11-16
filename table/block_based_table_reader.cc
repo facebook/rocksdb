@@ -1966,7 +1966,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
     return s;
   }
   // Output range deletions block
-  auto range_del_iter = NewRangeTombstoneIterator(ReadOptions());
+  auto* range_del_iter = NewRangeTombstoneIterator(ReadOptions());
   range_del_iter->SeekToFirst();
   if (range_del_iter->Valid()) {
     out_file->Append(
@@ -1978,6 +1978,7 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
     }
     out_file->Append("\n");
   }
+  delete range_del_iter;
   // Output Data blocks
   s = DumpDataBlocks(out_file);
 
