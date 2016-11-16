@@ -403,6 +403,7 @@ set(SOURCES
         utilities/flashcache/flashcache.cc
         utilities/geodb/geodb_impl.cc
         utilities/leveldb_options/leveldb_options.cc
+        utilities/lua/rocks_lua_compaction_filter.cc
         utilities/memory/memory_util.cc
         utilities/merge_operators/string_append/stringappend.cc
         utilities/merge_operators/string_append/stringappend2.cc
@@ -601,6 +602,7 @@ set(TESTS
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
         utilities/column_aware_encoding_test.cc
+        utilities/lua/rocks_lua_test.cc
 )
 if(WITH_LIBRADOS)
   list(APPEND TESTS utilities/env_librados_test.cc)

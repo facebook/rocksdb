@@ -166,6 +166,8 @@ ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	# found
 	CFLAGS += -fno-exceptions
 	CXXFLAGS += -fno-exceptions
+	# LUA is not supported under ROCKSDB_LITE
+	LUA_PATH =
 endif
 
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
@@ -185,6 +187,8 @@ ifdef COMPILE_WITH_TSAN
         # Turn off -pg when enabling TSAN testing, because that induces
         # a link failure.  TODO: find the root cause
 	PROFILING_FLAGS =
+	# LUA is not supported under TSAN
+	LUA_PATH =
 endif
 
 # USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
@@ -219,6 +223,34 @@ WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
 ifndef DISABLE_WARNING_AS_ERROR
 	WARNING_FLAGS += -Werror
 endif
+
+
+ifdef LUA_PATH
+
+ifndef LUA_INCLUDE
+LUA_INCLUDE=$(LUA_PATH)/include
+endif
+
+LUA_INCLUDE_FILE=$(LUA_INCLUDE)/lualib.h
+
+ifeq ("$(wildcard $(LUA_INCLUDE_FILE))", "")
+# LUA_INCLUDE_FILE does not exist
+$(error Cannot find lualib.h under $(LUA_INCLUDE).  Try to specify both LUA_PATH and LUA_INCLUDE manually)
+endif
+LUA_FLAGS = -I$(LUA_INCLUDE) -DLUA -DLUA_COMPAT_ALL
+CFLAGS += $(LUA_FLAGS)
+CXXFLAGS += $(LUA_FLAGS)
+
+ifndef LUA_LIB
+LUA_LIB = $(LUA_PATH)/lib/liblua.a
+endif
+ifeq ("$(wildcard $(LUA_LIB))", "") # LUA_LIB does not exist
+$(error $(LUA_LIB) does not exist.  Try to specify both LUA_PATH and LUA_LIB manually)
+endif
+LDFLAGS += $(LUA_LIB)
+
+endif
+
 
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
@@ -380,6 +412,7 @@ TESTS = \
 	iostats_context_test \
 	persistent_cache_test \
 	statistics_test \
+	lua_test \
 	lru_cache_test \
 
 PARALLEL_TEST = \
@@ -1260,6 +1293,8 @@ statistics_test: util/statistics_test.o $(LIBOBJECTS) $(TESTHARNESS)
 lru_cache_test: util/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
 
 #-------------------------------------------------
 # make install related stuff
