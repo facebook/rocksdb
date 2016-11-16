@@ -89,9 +89,10 @@ class RangeDelAggregator {
   Status AddTombstones(InternalIterator* input, bool arena);
   TombstoneMap& GetTombstoneMap(SequenceNumber seq);
 
-  PinnedIteratorsManager pinned_iters_mgr_;
   StripeMap stripe_map_;
   const InternalKeyComparator icmp_;
-  Arena arena_;
+  Arena arena_;  // must be destroyed after pinned_iters_mgr_ which references
+                 // memory in this arena
+  PinnedIteratorsManager pinned_iters_mgr_;
 };
 }  // namespace rocksdb
