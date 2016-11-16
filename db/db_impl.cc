@@ -4775,7 +4775,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // for previous one. It might create a fairness issue that expiration
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
-    status = DelayWrite(last_batch_group_size_);
+    status = DelayWrite(last_batch_group_size_, write_options);
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
 
@@ -5014,7 +5014,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
-      !w.CallbackFailed() && !status.IsBusy()) {
+      !w.CallbackFailed() && !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
     if (bg_error_.ok()) {
       bg_error_ = status;  // stop compaction & fail any further writes
@@ -5022,7 +5022,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     mutex_.Unlock();
   }
 
-  if (need_log_sync) {
+  if (need_log_sync && status.ok()) {
     mutex_.Lock();
     MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
     mutex_.Unlock();
@@ -5037,13 +5037,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::DelayWrite(uint64_t num_bytes) {
+Status DBImpl::DelayWrite(uint64_t num_bytes,
+                          const WriteOptions& write_options) {
   uint64_t time_delayed = 0;
   bool delayed = false;
   {
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
     auto delay = write_controller_.GetDelay(env_, num_bytes);
     if (delay > 0) {
+      if (write_options.no_sleep) {
+        return Status::Incomplete();
+      }
       mutex_.Unlock();
       delayed = true;
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
@@ -5053,11 +5057,15 @@ Status DBImpl::DelayWrite(uint64_t num_bytes) {
     }
 
     while (bg_error_.ok() && write_controller_.IsStopped()) {
+      if (write_options.no_sleep) {
+        return Status::Incomplete();
+      }
       delayed = true;
       TEST_SYNC_POINT("DBImpl::DelayWrite:Wait");
       bg_cv_.Wait();
     }
   }
+  assert(!delayed || !write_options.no_sleep);
   if (delayed) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_STALL_MICROS,
                                            time_delayed);

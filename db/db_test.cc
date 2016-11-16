@@ -215,6 +215,50 @@ TEST_F(DBTest, WriteEmptyBatch) {
   ASSERT_EQ("bar", Get(1, "foo"));
 }
 
+TEST_F(DBTest, SkipDelay) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.write_buffer_size = 100000;
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  for (bool sync : {true, false}) {
+    for (bool disableWAL : {true, false}) {
+      // Use a small number to ensure a large delay that is still effective
+      // when we do Put
+      // TODO(myabandeh): this is time dependent and could potentially make
+      // the test flaky
+      auto token = dbfull()->TEST_write_controler().GetDelayToken(1);
+      std::atomic<int> sleep_count(0);
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "DBImpl::DelayWrite:Sleep",
+          [&](void* arg) { sleep_count.fetch_add(1); });
+      std::atomic<int> wait_count(0);
+      rocksdb::SyncPoint::GetInstance()->SetCallBack(
+          "DBImpl::DelayWrite:Wait",
+          [&](void* arg) { wait_count.fetch_add(1); });
+      rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+      WriteOptions wo;
+      wo.sync = sync;
+      wo.disableWAL = disableWAL;
+      wo.no_sleep = true;
+      dbfull()->Put(wo, "foo", "bar");
+      // We need the 2nd write to trigger delay. This is because delay is
+      // estimated based on the last write size which is 0 for the first write.
+      ASSERT_NOK(dbfull()->Put(wo, "foo2", "bar2"));
+      ASSERT_GE(sleep_count.load(), 0);
+      ASSERT_GE(wait_count.load(), 0);
+      token.reset();
+
+      token = dbfull()->TEST_write_controler().GetDelayToken(1000000000);
+      wo.no_sleep = false;
+      ASSERT_OK(dbfull()->Put(wo, "foo3", "bar3"));
+      ASSERT_GE(sleep_count.load(), 1);
+      token.reset();
+    }
+  }
+}
+
 #ifndef ROCKSDB_LITE
 TEST_F(DBTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));

@@ -1569,11 +1569,16 @@ struct WriteOptions {
   // Default: false
   bool ignore_missing_column_families;
 
+  // If true and we need to wait or sleep for the write request, fails
+  // immediately with Status::Incomplete().
+  bool no_sleep;
+
   WriteOptions()
       : sync(false),
         disableWAL(false),
         timeout_hint_us(0),
-        ignore_missing_column_families(false) {}
+        ignore_missing_column_families(false),
+        no_sleep(false) {}
 };
 
 // Options that control flush operations

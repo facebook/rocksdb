@@ -268,6 +268,12 @@ size_t WriteThread::EnterAsBatchGroupLeader(
       break;
     }
 
+    if (!w->no_sleep && leader->no_sleep) {
+      // Do not include a write that requests fail on request delays into
+      // a batch that is ok with it
+      break;
+    }
+
     if (!w->disableWAL && leader->disableWAL) {
       // Do not include a write that needs WAL into a batch that has
       // WAL disabled.
