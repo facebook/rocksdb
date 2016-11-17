@@ -80,7 +80,6 @@ PlainTableBuilder::PlainTableBuilder(
     index_builder_.reset(
         new PlainTableIndexBuilder(&arena_, ioptions, index_sparseness,
                                    hash_table_ratio, huge_page_tlb_size_));
-    assert(bloom_bits_per_key_ > 0);
     properties_.user_collected_properties
         [PlainTablePropertyNames::kBloomVersion] = "1";  // For future use
   }
@@ -191,37 +190,40 @@ Status PlainTableBuilder::Finish() {
 
   if (store_index_in_file_ && (properties_.num_entries > 0)) {
     assert(properties_.num_entries <= std::numeric_limits<uint32_t>::max());
-    bloom_block_.SetTotalBits(
-        &arena_,
-        static_cast<uint32_t>(properties_.num_entries) * bloom_bits_per_key_,
-        ioptions_.bloom_locality, huge_page_tlb_size_, ioptions_.info_log);
-
-    PutVarint32(&properties_.user_collected_properties
-                     [PlainTablePropertyNames::kNumBloomBlocks],
-                bloom_block_.GetNumBlocks());
-
-    bloom_block_.AddKeysHashes(keys_or_prefixes_hashes_);
+    Status s;
     BlockHandle bloom_block_handle;
-    auto finish_result = bloom_block_.Finish();
+    if (bloom_bits_per_key_ > 0) {
+      bloom_block_.SetTotalBits(
+          &arena_,
+          static_cast<uint32_t>(properties_.num_entries) * bloom_bits_per_key_,
+          ioptions_.bloom_locality, huge_page_tlb_size_, ioptions_.info_log);
 
-    properties_.filter_size = finish_result.size();
-    auto s = WriteBlock(finish_result, file_, &offset_, &bloom_block_handle);
+      PutVarint32(&properties_.user_collected_properties
+                       [PlainTablePropertyNames::kNumBloomBlocks],
+                  bloom_block_.GetNumBlocks());
 
-    if (!s.ok()) {
-      return s;
+      bloom_block_.AddKeysHashes(keys_or_prefixes_hashes_);
+
+      Slice bloom_finish_result = bloom_block_.Finish();
+
+      properties_.filter_size = bloom_finish_result.size();
+      s = WriteBlock(bloom_finish_result, file_, &offset_, &bloom_block_handle);
+
+      if (!s.ok()) {
+        return s;
+      }
+      meta_index_builer.Add(BloomBlockBuilder::kBloomBlock, bloom_block_handle);
     }
-
     BlockHandle index_block_handle;
-    finish_result = index_builder_->Finish();
+    Slice index_finish_result = index_builder_->Finish();
 
-    properties_.index_size = finish_result.size();
-    s = WriteBlock(finish_result, file_, &offset_, &index_block_handle);
+    properties_.index_size = index_finish_result.size();
+    s = WriteBlock(index_finish_result, file_, &offset_, &index_block_handle);
 
     if (!s.ok()) {
       return s;
     }
 
-    meta_index_builer.Add(BloomBlockBuilder::kBloomBlock, bloom_block_handle);
     meta_index_builer.Add(PlainTableIndexBuilder::kPlainTableIndexBlock,
                           index_block_handle);
   }
