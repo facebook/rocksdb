@@ -64,7 +64,13 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
   // Should only be called on writer thread.
   Status CheckTransactionForConflicts(DB* db);
 
-  void ClearBatch() override { Clear(); }
+  Status ClearTxn() override {
+    if (txn_state_.load() != COMMITED) {
+      return Status::InvalidArgument("Transaction is not committed");
+    }
+    Clear();
+    return Status::OK();
+  }
 
   void Clear() override;
 

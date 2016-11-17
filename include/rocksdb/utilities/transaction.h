@@ -137,8 +137,8 @@ class Transaction {
   // may be returned if this transaction has lived for longer than
   // TransactionOptions.expiration.
   // clear_batch: if true, clear the local batch if commit succeeds. If false,
-  //              the users are responsible for calling Clear(). Before that,
-  //              the iterator created by GetIterator() previously
+  //              the users are responsible for calling ClearTxn(). Before
+  //              that, the iterator created by GetIterator() previously
   //              will stil be valid, and Get() can still be used.
   //
   virtual Status Commit(bool clear_batch = true) = 0;
@@ -407,7 +407,7 @@ class Transaction {
   virtual bool IsDeadlockDetect() const { return false; }
 
   // Clear local batch. Should only be called after transaction commits.
-  virtual void ClearBatch() = 0;
+  virtual Status ClearTxn() = 0;
 
   virtual TransactionID GetWaitingTxn(uint32_t* column_family_id,
                                       const std::string** key) const {

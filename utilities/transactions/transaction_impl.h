@@ -96,7 +96,13 @@ class TransactionImpl : public TransactionBaseImpl {
   int64_t GetDeadlockDetectDepth() const { return deadlock_detect_depth_; }
 
   // Clear local batch. Should only be called after transaction commits.
-  void ClearBatch() override { Clear(); }
+  Status ClearTxn() override {
+    if (txn_state_.load() != COMMITED) {
+      return Status::InvalidArgument("Transaction is not committed");
+    }
+    Clear();
+    return Status::OK();
+  }
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,

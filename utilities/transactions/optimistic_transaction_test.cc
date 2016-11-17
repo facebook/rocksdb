@@ -73,6 +73,38 @@ TEST_F(OptimisticTransactionTest, SuccessTest) {
   delete txn;
 }
 
+TEST_F(OptimisticTransactionTest, CommitNotClearTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+  Status s;
+
+  db->Put(write_options, Slice("foo"), Slice("bar"));
+
+  Transaction* txn = txn_db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  txn->Put(Slice("foo"), Slice("bar2"));
+  ASSERT_OK(s);
+
+  std::unique_ptr<Iterator> itr(txn->GetIterator(read_options));
+  itr->Seek("foo");
+
+  ASSERT_NOK(txn->ClearTxn());
+
+  s = txn->Commit(false);
+  ASSERT_OK(s);
+
+  ASSERT_TRUE(itr->Valid());
+  ASSERT_EQ("foo", itr->key().ToString());
+  ASSERT_EQ("bar2", itr->value().ToString());
+  itr.reset();
+
+  ASSERT_OK(txn->ClearTxn());
+
+  delete txn;
+}
+
 TEST_F(OptimisticTransactionTest, WriteConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options;

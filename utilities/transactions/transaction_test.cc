@@ -187,6 +187,8 @@ TEST_P(TransactionTest, CommitNotClearTest) {
   std::unique_ptr<Iterator> itr(txn->GetIterator(read_options));
   itr->Seek("foo");
 
+  ASSERT_NOK(txn->ClearTxn());
+
   s = txn->Commit(false);
   ASSERT_OK(s);
 
@@ -199,7 +201,7 @@ TEST_P(TransactionTest, CommitNotClearTest) {
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar2");
 
-  txn->ClearBatch();
+  ASSERT_OK(txn->ClearTxn());
 
   s = db->Get(read_options, "foo", &value);
   ASSERT_OK(s);
