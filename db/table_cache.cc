@@ -215,9 +215,9 @@ InternalIterator* TableCache::NewIterator(
       table_reader = fd.table_reader;
       if (table_reader == nullptr) {
         s = FindTable(env_options, icomparator, fd, &handle,
-                             options.read_tier == kBlockCacheTier /* no_io */,
-                             !for_compaction /* record read_stats */,
-                             file_read_hist, skip_filters, level);
+                      options.read_tier == kBlockCacheTier /* no_io */,
+                      !for_compaction /* record read_stats */, file_read_hist,
+                      skip_filters, level);
         if (s.ok()) {
           table_reader = GetTableReaderFromHandle(handle);
         }
@@ -323,7 +323,8 @@ Status TableCache::Get(const ReadOptions& options,
       row_cache_key.TrimAppend(row_cache_key.Size(), user_key.data(),
                                user_key.size());
 
-      if (auto row_handle = ioptions_.row_cache->Lookup(row_cache_key.GetKey())) {
+      if (auto row_handle =
+              ioptions_.row_cache->Lookup(row_cache_key.GetKey())) {
         auto found_row_cache_entry = static_cast<const std::string*>(
             ioptions_.row_cache->Value(row_handle));
         replayGetContextLog(*found_row_cache_entry, user_key, get_context);
