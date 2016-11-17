@@ -202,7 +202,7 @@ class TestEnv : public EnvWrapper {
     std::sort(should_have_written.begin(), should_have_written.end());
     std::sort(written_files_.begin(), written_files_.end());
 
-    ASSERT_TRUE(written_files_ == should_have_written);
+    ASSERT_EQ(should_have_written, written_files_);
   }
 
   void ClearWrittenFiles() {
@@ -754,7 +754,7 @@ INSTANTIATE_TEST_CASE_P(BackupableDBTestWithParam, BackupableDBTestWithParam,
 TEST_F(BackupableDBTest, NoDoubleCopy) {
   OpenDBAndBackupEngine(true, true);
 
-  // should write 5 DB files + LATEST_BACKUP + one meta file
+  // should write 5 DB files + one meta file
   test_backup_env_->SetLimitWrittenFiles(7);
   test_backup_env_->ClearWrittenFiles();
   test_db_env_->SetLimitWrittenFiles(0);
@@ -766,12 +766,11 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   std::vector<std::string> should_have_written = {
       "/shared/00010.sst.tmp",    "/shared/00011.sst.tmp",
       "/private/1.tmp/CURRENT",   "/private/1.tmp/MANIFEST-01",
-      "/private/1.tmp/00011.log", "/meta/1.tmp",
-      "/LATEST_BACKUP.tmp"};
+      "/private/1.tmp/00011.log", "/meta/1.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
-  // should write 4 new DB files + LATEST_BACKUP + one meta file
+  // should write 4 new DB files + one meta file
   // should not write/copy 00010.sst, since it's already there!
   test_backup_env_->SetLimitWrittenFiles(6);
   test_backup_env_->ClearWrittenFiles();
@@ -783,12 +782,9 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
 
-  should_have_written = {"/shared/00015.sst.tmp",
-                         "/private/2.tmp/CURRENT",
+  should_have_written = {"/shared/00015.sst.tmp", "/private/2.tmp/CURRENT",
                          "/private/2.tmp/MANIFEST-01",
-                         "/private/2.tmp/00011.log",
-                         "/meta/2.tmp",
-                         "/LATEST_BACKUP.tmp"};
+                         "/private/2.tmp/00011.log", "/meta/2.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -813,11 +809,10 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
 // test various kind of corruptions that may happen:
 // 1. Not able to write a file for backup - that backup should fail,
 //      everything else should work
-// 2. Corrupted/deleted LATEST_BACKUP - everything should work fine
-// 3. Corrupted backup meta file or missing backuped file - we should
+// 2. Corrupted backup meta file or missing backuped file - we should
 //      not be able to open that backup, but all other backups should be
 //      fine
-// 4. Corrupted checksum value - if the checksum is not a valid uint32_t,
+// 3. Corrupted checksum value - if the checksum is not a valid uint32_t,
 //      db open should fail, otherwise, it aborts during the restore process.
 TEST_F(BackupableDBTest, CorruptionsTest) {
   const int keys_iteration = 5000;
@@ -843,34 +838,8 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   CloseDBAndBackupEngine();
   AssertBackupConsistency(0, 0, keys_iteration * 5, keys_iteration * 6);
 
-  // ---------- case 2. - corrupt/delete latest backup -----------
-  ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/LATEST_BACKUP", 2));
-  AssertBackupConsistency(0, 0, keys_iteration * 5);
-  ASSERT_OK(file_manager_->DeleteFile(backupdir_ + "/LATEST_BACKUP"));
-  AssertBackupConsistency(0, 0, keys_iteration * 5);
-  // create backup 6, point LATEST_BACKUP to 5
-  // behavior change: this used to delete backup 6. however, now we ignore
-  // LATEST_BACKUP contents so BackupEngine sets latest backup to 6.
-  OpenDBAndBackupEngine();
-  FillDB(db_.get(), keys_iteration * 5, keys_iteration * 6);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-  CloseDBAndBackupEngine();
-  ASSERT_OK(file_manager_->WriteToFile(backupdir_ + "/LATEST_BACKUP", "5"));
-  AssertBackupConsistency(0, 0, keys_iteration * 6);
-  // assert that all 6 data is still here
-  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/6"));
-  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/6"));
-  // assert that we wrote 6 to LATEST_BACKUP
-  {
-    std::string latest_backup_contents;
-    ReadFileToString(backup_chroot_env_.get(), backupdir_ + "/LATEST_BACKUP",
-                     &latest_backup_contents);
-    ASSERT_EQ(std::atol(latest_backup_contents.c_str()), 6);
-  }
-
-  // --------- case 3. corrupted backup meta or missing backuped file ----
+  // --------- case 2. corrupted backup meta or missing backuped file ----
   ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/5", 3));
-  ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/6", 3));
   // since 5 meta is now corrupted, latest backup should be 4
   AssertBackupConsistency(0, 0, keys_iteration * 4, keys_iteration * 5);
   OpenBackupEngine();
@@ -885,7 +854,7 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   CloseBackupEngine();
   ASSERT_TRUE(!s.ok());
 
-  // --------- case 4. corrupted checksum value ----
+  // --------- case 3. corrupted checksum value ----
   ASSERT_OK(file_manager_->CorruptChecksum(backupdir_ + "/meta/3", false));
   // checksum of backup 3 is an invalid value, this can be detected at
   // db open time, and it reverts to the previous backup automatically

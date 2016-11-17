@@ -275,17 +275,12 @@ class BackupEngineImpl : public BackupEngine {
     return file_copy.erase(first_underscore,
                            file_copy.find_last_of('.') - first_underscore);
   }
-  inline std::string GetLatestBackupFile(bool tmp = false) const {
-    return GetAbsolutePath(std::string("LATEST_BACKUP") + (tmp ? ".tmp" : ""));
-  }
   inline std::string GetBackupMetaDir() const {
     return GetAbsolutePath("meta");
   }
   inline std::string GetBackupMetaFile(BackupID backup_id) const {
     return GetBackupMetaDir() + "/" + rocksdb::ToString(backup_id);
   }
-
-  Status PutLatestBackupFileContents(uint32_t latest_backup);
 
   // If size_limit == 0, there is no size limit, copy everything.
   //
@@ -635,13 +630,6 @@ Status BackupEngineImpl::Initialize() {
 
   Log(options_.info_log, "Latest backup is %u", latest_backup_id_);
 
-  if (!read_only_) {
-    auto s = PutLatestBackupFileContents(latest_backup_id_);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
   // set up threads perform copies from files_to_copy_or_create_ in the
   // background
   for (int t = 0; t < options_.max_background_operations; t++) {
@@ -854,10 +842,6 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   if (s.ok()) {
     // persist the backup metadata on the disk
     s = new_backup->StoreToFile(options_.sync);
-  }
-  if (s.ok()) {
-    // install the newly created backup meta! (atomic)
-    s = PutLatestBackupFileContents(new_backup_id);
   }
   if (s.ok() && options_.sync) {
     unique_ptr<Directory> backup_private_directory;
@@ -1157,44 +1141,6 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
     }
   }
   return Status::OK();
-}
-
-// this operation HAS to be atomic
-// writing 4 bytes to the file is atomic alright, but we should *never*
-// do something like 1. delete file, 2. write new file
-// We write to a tmp file and then atomically rename
-Status BackupEngineImpl::PutLatestBackupFileContents(uint32_t latest_backup) {
-  assert(!read_only_);
-  Status s;
-  unique_ptr<WritableFile> file;
-  EnvOptions env_options;
-  env_options.use_mmap_writes = false;
-  s = backup_env_->NewWritableFile(GetLatestBackupFile(true),
-                                   &file,
-                                   env_options);
-  if (!s.ok()) {
-    backup_env_->DeleteFile(GetLatestBackupFile(true));
-    return s;
-  }
-
-  unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), env_options));
-  char file_contents[10];
-  int len =
-      snprintf(file_contents, sizeof(file_contents), "%u\n", latest_backup);
-  s = file_writer->Append(Slice(file_contents, len));
-  if (s.ok() && options_.sync) {
-    file_writer->Sync(false);
-  }
-  if (s.ok()) {
-    s = file_writer->Close();
-  }
-  if (s.ok()) {
-    // atomically replace real file with new tmp
-    s = backup_env_->RenameFile(GetLatestBackupFile(true),
-                                GetLatestBackupFile(false));
-  }
-  return s;
 }
 
 Status BackupEngineImpl::CopyOrCreateFile(
