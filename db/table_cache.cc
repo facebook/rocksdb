@@ -297,9 +297,8 @@ Status TableCache::Get(const ReadOptions& options,
   bool done = false;
 #ifndef ROCKSDB_LITE
   IterKey row_cache_key;
+  std::string row_cache_entry_buffer;
   if (s.ok()) {
-    std::string row_cache_entry_buffer;
-
     // Check row cache if enabled. Since row cache does not currently store
     // sequence numbers, we cannot use it if we need to fetch the sequence.
     if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
@@ -328,8 +327,7 @@ Status TableCache::Get(const ReadOptions& options,
         ioptions_.row_cache->Release(row_handle);
         RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
         done = true;
-      }
-      if (!done) {
+      } else {
         // Not found, setting up the replay log.
         RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
         row_cache_entry = &row_cache_entry_buffer;
@@ -369,6 +367,9 @@ Status TableCache::Get(const ReadOptions& options,
   }
 #endif  // ROCKSDB_LITE
 
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
   return s;
 }
 
