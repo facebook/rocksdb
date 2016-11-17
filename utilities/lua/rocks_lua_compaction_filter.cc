@@ -134,7 +134,9 @@ bool RocksLuaCompactionFilter::Filter(int level, const Slice& key,
 }
 
 const char* RocksLuaCompactionFilter::Name() const {
-  std::string name = "";
+  if (name_ != "") {
+    return name_.c_str();
+  }
   auto* lua_state = lua_state_wrapper_.GetLuaState();
   // push the right function into the lua stack
   lua_getglobal(lua_state, kNameFunctionName.c_str());
@@ -146,7 +148,7 @@ const char* RocksLuaCompactionFilter::Name() const {
                 lua_tostring(lua_state, -1));
     // pops out the lua error from stack
     lua_pop(lua_state, 1);
-    return name.c_str();
+    return name_.c_str();
   }
 
   // check the return value
@@ -159,10 +161,10 @@ const char* RocksLuaCompactionFilter::Name() const {
     const size_t name_size = lua_strlen(lua_state, -1);
     assert(name_buf[name_size] == '\0');
     assert(strlen(name_buf) <= name_size);
-    name = name_buf;
+    name_ = name_buf;
   }
   lua_pop(lua_state, 1);
-  return name.c_str();
+  return name_.c_str();
 }
 
 /* Not yet supported

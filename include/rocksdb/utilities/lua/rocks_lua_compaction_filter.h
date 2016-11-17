@@ -161,7 +161,8 @@ class RocksLuaCompactionFilter : public rocksdb::CompactionFilter {
   explicit RocksLuaCompactionFilter(const RocksLuaCompactionFilterOptions& opt)
       : options_(opt),
         lua_state_wrapper_(opt.lua_script, opt.libraries),
-        error_count_(0) {}
+        error_count_(0),
+        name_("") {}
 
   virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
                       std::string* new_value,
@@ -180,6 +181,7 @@ class RocksLuaCompactionFilter : public rocksdb::CompactionFilter {
   RocksLuaCompactionFilterOptions options_;
   LuaStateWrapper lua_state_wrapper_;
   mutable int error_count_;
+  mutable std::string name_;
 };
 
 }  // namespace lua
