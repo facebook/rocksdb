@@ -6,6 +6,7 @@
 * Introduce DB::DeleteRange for optimized deletion of large ranges of contiguous keys.
 * Support dynamically change `delayed_write_rate` option via SetDBOptions().
 * Options::allow_concurrent_memtable_write and Options::enable_write_thread_adaptive_yield are now true by default.
+* Remove Tickers::SEQUENCE_NUMBER to avoid confusion if statistics object is shared among RocksDB instance. Alternatively DB::GetLatestSequenceNumber() can be used to get the same value.
 
 ### New Features
 * Add avoid_flush_during_shutdown option, which speeds up DB shutdown by not flushing unpersisted data (i.e. with disableWAL = true). Unpersisted data will be lost. The options is dynamically changeable via SetDBOptions().
