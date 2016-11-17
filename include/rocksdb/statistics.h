@@ -152,7 +152,6 @@ enum Tickers : uint32_t {
   // written to storage because key does not exist
   NUMBER_FILTERED_DELETES,
   NUMBER_MERGE_FAILURES,
-  SEQUENCE_NUMBER,
 
   // number of times bloom was checked before creating iterator on a
   // file, and the number of times the check was useful in avoiding
@@ -280,7 +279,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_MULTIGET_BYTES_READ, "rocksdb.number.multiget.bytes.read"},
     {NUMBER_FILTERED_DELETES, "rocksdb.number.deletes.filtered"},
     {NUMBER_MERGE_FAILURES, "rocksdb.number.merge.failures"},
-    {SEQUENCE_NUMBER, "rocksdb.sequence.number"},
     {BLOOM_FILTER_PREFIX_CHECKED, "rocksdb.bloom.filter.prefix.checked"},
     {BLOOM_FILTER_PREFIX_USEFUL, "rocksdb.bloom.filter.prefix.useful"},
     {NUMBER_OF_RESEEKS_IN_ITERATION, "rocksdb.number.reseeks.iteration"},
