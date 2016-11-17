@@ -294,21 +294,25 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   assert(props != nullptr);
   table_properties_.reset(props);
 
-  BlockContents bloom_block_contents;
-  auto s = ReadMetaBlock(file_info_.file.get(), file_size_,
-                         kPlainTableMagicNumber, ioptions_,
-                         BloomBlockBuilder::kBloomBlock, &bloom_block_contents);
-  bool index_in_file = s.ok();
-
   BlockContents index_block_contents;
-  s = ReadMetaBlock(
+  Status s = ReadMetaBlock(
       file_info_.file.get(), file_size_, kPlainTableMagicNumber, ioptions_,
       PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_contents);
 
-  index_in_file &= s.ok();
+  bool index_in_file = s.ok();
+
+  BlockContents bloom_block_contents;
+  bool bloom_in_file = false;
+  // We only need to read the bloom block if index block is in file.
+  if (index_in_file) {
+    s = ReadMetaBlock(file_info_.file.get(), file_size_, kPlainTableMagicNumber,
+                      ioptions_, BloomBlockBuilder::kBloomBlock,
+                      &bloom_block_contents);
+    bloom_in_file = s.ok() && bloom_block_contents.data.size() > 0;
+  }
 
   Slice* bloom_block;
-  if (index_in_file) {
+  if (bloom_in_file) {
     // If bloom_block_contents.allocation is not empty (which will be the case
     // for non-mmap mode), it holds the alloated memory for the bloom block.
     // It needs to be kept alive to keep `bloom_block` valid.
@@ -318,8 +322,6 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     bloom_block = nullptr;
   }
 
-  // index_in_file == true only if there are kBloomBlock and
-  // kPlainTableIndexBlock in file
   Slice* index_block;
   if (index_in_file) {
     // If index_block_contents.allocation is not empty (which will be the case
@@ -355,7 +357,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
                             huge_page_tlb_size, ioptions_.info_log);
       }
     }
-  } else {
+  } else if (bloom_in_file) {
     enable_bloom_ = true;
     auto num_blocks_property = props->user_collected_properties.find(
         PlainTablePropertyNames::kNumBloomBlocks);
@@ -372,6 +374,10 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
         const_cast<unsigned char*>(
             reinterpret_cast<const unsigned char*>(bloom_block->data())),
         static_cast<uint32_t>(bloom_block->size()) * 8, num_blocks);
+  } else {
+    // Index in file but no bloom in file. Disable bloom filter in this case.
+    enable_bloom_ = false;
+    bloom_bits_per_key = 0;
   }
 
   PlainTableIndexBuilder index_builder(&arena_, ioptions_, index_sparseness,
