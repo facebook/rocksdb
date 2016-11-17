@@ -134,7 +134,9 @@ bool RocksLuaCompactionFilter::Filter(int level, const Slice& key,
 }
 
 const char* RocksLuaCompactionFilter::Name() const {
-  name_ = "";
+  if (name_ != "") {
+    return name_.c_str();
+  }
   auto* lua_state = lua_state_wrapper_.GetLuaState();
   // push the right function into the lua stack
   lua_getglobal(lua_state, kNameFunctionName.c_str());
