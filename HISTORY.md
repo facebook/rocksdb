@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.0.0 (11/17/2016)
 ### Public API Change
 * Options::max_bytes_for_level_multiplier is now a double along with all getters and setters.
 * Support dynamically change `delayed_write_rate` and `max_total_wal_size` options via SetDBOptions().
