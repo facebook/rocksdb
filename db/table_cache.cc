@@ -242,6 +242,9 @@ InternalIterator* TableCache::NewIterator(
     }
     return result;
   }
+  if (handle != nullptr) {
+    ReleaseHandle(handle);
+  }
   return NewErrorInternalIterator(s);
 }
 
