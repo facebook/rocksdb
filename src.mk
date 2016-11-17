@@ -186,6 +186,7 @@ LIB_SOURCES =                                                   \
   utilities/date_tiered/date_tiered_db_impl.cc                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  utilities/lua/rocks_lua_compaction_filter.cc \
 
 TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
@@ -312,7 +313,7 @@ MAIN_SOURCES =                                                    \
   utilities/date_tiered/date_tiered_test.cc                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
   utilities/column_aware_encoding_test.cc                               \
-	util/iostats_context_test.cc																					\
+  util/iostats_context_test.cc						\
   util/log_write_bench.cc                                               \
   util/mock_env_test.cc                                                 \
   util/options_test.cc                                                  \
@@ -321,7 +322,8 @@ MAIN_SOURCES =                                                    \
   util/slice_transform_test.cc                                          \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc                                             \
-  utilities/column_aware_encoding_exp.cc
+  utilities/column_aware_encoding_exp.cc				\
+  utilities/lua/rocks_lua_test.cc 					\
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \
