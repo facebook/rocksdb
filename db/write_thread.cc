@@ -268,7 +268,7 @@ size_t WriteThread::EnterAsBatchGroupLeader(
       break;
     }
 
-    if (w->no_sleep != leader->no_sleep) {
+    if (w->no_slowdown != leader->no_slowdown) {
       // Do not mix writes that are ok with delays with the ones that
       // request fail on delays.
       break;

@@ -322,7 +322,7 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  env_->no_sleep_ = true;
+  env_->no_slowdown_ = true;
   env_->time_elapse_only_sleep_ = true;
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;

@@ -241,7 +241,7 @@ TEST_F(DBTest, SkipDelay) {
       WriteOptions wo;
       wo.sync = sync;
       wo.disableWAL = disableWAL;
-      wo.no_sleep = true;
+      wo.no_slowdown = true;
       dbfull()->Put(wo, "foo", "bar");
       // We need the 2nd write to trigger delay. This is because delay is
       // estimated based on the last write size which is 0 for the first write.
@@ -251,7 +251,7 @@ TEST_F(DBTest, SkipDelay) {
       token.reset();
 
       token = dbfull()->TEST_write_controler().GetDelayToken(1000000000);
-      wo.no_sleep = false;
+      wo.no_slowdown = false;
       ASSERT_OK(dbfull()->Put(wo, "foo3", "bar3"));
       ASSERT_GE(sleep_count.load(), 1);
       token.reset();
@@ -4930,7 +4930,7 @@ TEST_F(DBTest, MergeTestTime) {
   SetPerfLevel(kEnableTime);
   this->env_->addon_time_.store(0);
   this->env_->time_elapse_only_sleep_ = true;
-  this->env_->no_sleep_ = true;
+  this->env_->no_slowdown_ = true;
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
@@ -5375,7 +5375,7 @@ TEST_F(DBTest, DelayedWriteRate) {
   Options options = CurrentOptions();
   env_->SetBackgroundThreads(1, Env::LOW);
   options.env = env_;
-  env_->no_sleep_ = true;
+  env_->no_slowdown_ = true;
   options.write_buffer_size = 100000000;
   options.max_write_buffer_number = 256;
   options.max_background_compactions = 1;
@@ -5429,7 +5429,7 @@ TEST_F(DBTest, DelayedWriteRate) {
   ASSERT_LT(env_->addon_time_.load(),
             static_cast<int64_t>(estimated_sleep_time * 2));
 
-  env_->no_sleep_ = false;
+  env_->no_slowdown_ = false;
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();

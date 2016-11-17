@@ -5045,7 +5045,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
     auto delay = write_controller_.GetDelay(env_, num_bytes);
     if (delay > 0) {
-      if (write_options.no_sleep) {
+      if (write_options.no_slowdown) {
         return Status::Incomplete();
       }
       mutex_.Unlock();
@@ -5057,7 +5057,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
     }
 
     while (bg_error_.ok() && write_controller_.IsStopped()) {
-      if (write_options.no_sleep) {
+      if (write_options.no_slowdown) {
         return Status::Incomplete();
       }
       delayed = true;
@@ -5065,7 +5065,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       bg_cv_.Wait();
     }
   }
-  assert(!delayed || !write_options.no_sleep);
+  assert(!delayed || !write_options.no_slowdown);
   if (delayed) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_STALL_MICROS,
                                            time_delayed);
