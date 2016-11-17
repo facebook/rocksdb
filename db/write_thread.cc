@@ -268,9 +268,9 @@ size_t WriteThread::EnterAsBatchGroupLeader(
       break;
     }
 
-    if (!w->no_sleep && leader->no_sleep) {
-      // Do not include a write that requests fail on request delays into
-      // a batch that is ok with it
+    if (w->no_sleep != leader->no_sleep) {
+      // Do not mix writes that are ok with delays with the ones that
+      // request fail on delays.
       break;
     }
 
