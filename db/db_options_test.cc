@@ -316,6 +316,40 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   }
 }
 
+TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
+  Options options;
+  options.create_if_missing = true;
+  CreateColumnFamilies({"1", "2", "3"}, options);
+  ReopenWithColumnFamilies({"default", "1", "2", "3"}, options);
+
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(Put("a", "begin"));
+    ASSERT_OK(Put("z", "end"));
+    ASSERT_OK(Flush());
+  }
+
+  Compact("a", "b");
+
+  //Verify that candidate files set is empty when no full scan requested.
+  dbfull()->TEST_LockMutex();
+  JobContext job_context(0);
+  dbfull()->FindObsoleteFiles(&job_context, false /*force*/);
+  ASSERT_TRUE(job_context.full_scan_candidate_files.empty());
+  job_context.Clean();
+  dbfull()->TEST_UnlockMutex();
+
+  ASSERT_OK(dbfull()->SetDBOptions({{"delete_obsolete_files_period_micros", "0"}}));
+
+  // After delete_obsolete_files_period_micros updated to 0, the next call
+  // to FindObsoleteFiles should make a full scan
+  dbfull()->TEST_LockMutex();
+  JobContext job_context2(0);
+  dbfull()->FindObsoleteFiles(&job_context2, false /*force*/);
+  ASSERT_FALSE(job_context2.full_scan_candidate_files.empty());
+  job_context2.Clean();
+  dbfull()->TEST_UnlockMutex();
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

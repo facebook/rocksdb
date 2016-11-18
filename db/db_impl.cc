@@ -334,7 +334,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       disable_delete_obsolete_files_(0),
       delete_obsolete_files_next_run_(
           env_->NowMicros() +
-          immutable_db_options_.delete_obsolete_files_period_micros),
+          mutable_db_options_.delete_obsolete_files_period_micros),
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
       has_unpersisted_data_(false),
@@ -743,7 +743,7 @@ void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
 // Otherwise, gets obsolete files from VersionSet.
 // no_full_scan = true -- never do the full scan using GetChildren()
 // force = false -- don't force the full scan, except every
-//  immutable_db_options_.delete_obsolete_files_period_micros
+//  mutable_db_options_.delete_obsolete_files_period_micros
 // force = true -- force the full scan
 void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
                                bool no_full_scan) {
@@ -760,7 +760,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   if (no_full_scan) {
     doing_the_full_scan = false;
   } else if (force ||
-             immutable_db_options_.delete_obsolete_files_period_micros == 0) {
+             mutable_db_options_.delete_obsolete_files_period_micros == 0) {
     doing_the_full_scan = true;
   } else {
     const uint64_t now_micros = env_->NowMicros();
@@ -768,7 +768,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       doing_the_full_scan = true;
       delete_obsolete_files_next_run_ =
           now_micros +
-          immutable_db_options_.delete_obsolete_files_period_micros;
+          mutable_db_options_.delete_obsolete_files_period_micros;
     }
   }
 
@@ -2486,6 +2486,12 @@ Status DBImpl::SetDBOptions(
         env_->IncBackgroundThreadsIfNeeded(
             new_options.max_background_compactions, Env::Priority::LOW);
         MaybeScheduleFlushOrCompaction();
+      }
+      if (new_options.delete_obsolete_files_period_micros !=
+          mutable_db_options_.delete_obsolete_files_period_micros) {
+        const uint64_t diff = new_options.delete_obsolete_files_period_micros -
+          mutable_db_options_.delete_obsolete_files_period_micros;
+        delete_obsolete_files_next_run_ = delete_obsolete_files_next_run_ + diff;
       }
 
       write_controller_.set_max_delayed_write_rate(new_options.delayed_write_rate);
