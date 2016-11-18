@@ -150,7 +150,9 @@ TEST_F(PersistentCacheTierTest, BlockCacheInsertWithFileCreateError) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack( 
     "BlockCacheTier::NewCacheFile:DeleteDir", OnDeleteDir);
 
-  RunNegativeInsertTest(/*nthreads=*/ 1, /*max_keys*/ 10 * 1024 * kStressFactor);
+  RunNegativeInsertTest(/*nthreads=*/ 1,
+                        /*max_keys*/
+                          static_cast<size_t>(10 * 1024 * kStressFactor));
 
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
