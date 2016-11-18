@@ -156,8 +156,8 @@ Status MemTableListVersion::AddRangeTombstoneIterators(
     RangeDelAggregator* range_del_agg) {
   assert(range_del_agg != nullptr);
   for (auto& m : memlist_) {
-    ScopedArenaIterator range_del_iter(
-        m->NewRangeTombstoneIterator(read_opts, arena));
+    std::unique_ptr<InternalIterator> range_del_iter(
+        m->NewRangeTombstoneIterator(read_opts));
     Status s = range_del_agg->AddTombstones(std::move(range_del_iter));
     if (!s.ok()) {
       return s;

@@ -45,10 +45,16 @@ static std::string PrintContents(WriteBatch* b) {
   int merge_count = 0;
   for (int i = 0; i < 2; ++i) {
     Arena arena;
-    auto iter =
-        i == 0 ? ScopedArenaIterator(mem->NewIterator(ReadOptions(), &arena))
-               : ScopedArenaIterator(
-                     mem->NewRangeTombstoneIterator(ReadOptions(), &arena));
+    ScopedArenaIterator arena_iter_guard;
+    std::unique_ptr<InternalIterator> iter_guard;
+    InternalIterator* iter;
+    if (i == 0) {
+      iter = mem->NewIterator(ReadOptions(), &arena);
+      arena_iter_guard.set(iter);
+    } else {
+      iter = mem->NewRangeTombstoneIterator(ReadOptions());
+      iter_guard.reset(iter);
+    }
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
       memset((void*)&ikey, 0, sizeof(ikey));

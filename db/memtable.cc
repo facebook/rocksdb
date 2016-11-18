@@ -374,14 +374,12 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
 }
 
 InternalIterator* MemTable::NewRangeTombstoneIterator(
-    const ReadOptions& read_options, Arena* arena) {
-  assert(arena != nullptr);
+    const ReadOptions& read_options) {
   if (read_options.ignore_range_deletions) {
-    return NewEmptyInternalIterator(arena);
+    return NewEmptyInternalIterator();
   }
-  auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
-  return new (mem) MemTableIterator(*this, read_options, arena,
-                                    true /* use_range_del_table */);
+  return new MemTableIterator(*this, read_options, nullptr /* arena */,
+                              true /* use_range_del_table */);
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {
@@ -652,8 +650,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     if (prefix_bloom_) {
       PERF_COUNTER_ADD(bloom_memtable_hit_count, 1);
     }
-    ScopedArenaIterator range_del_iter(
-        NewRangeTombstoneIterator(read_opts, range_del_agg->GetArena()));
+    std::unique_ptr<InternalIterator> range_del_iter(
+        NewRangeTombstoneIterator(read_opts));
     Status status = range_del_agg->AddTombstones(std::move(range_del_iter));
     if (!status.ok()) {
       *s = status;
