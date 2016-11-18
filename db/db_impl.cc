@@ -6359,7 +6359,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool* found_record_for_key) {
   Status s;
   MergeContext merge_context;
-  RangeDelAggregator range_del_agg(sv->mem->GetInternalKeyComparator(), kMaxSequenceNumber);
+  RangeDelAggregator range_del_agg(sv->mem->GetInternalKeyComparator(),
+                                   kMaxSequenceNumber);
 
   ReadOptions read_options;
   SequenceNumber current_seq = versions_->LastSequence();
