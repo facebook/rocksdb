@@ -1622,8 +1622,6 @@ public class RocksDB extends RocksObject {
       throws RocksDBException, IllegalArgumentException {
     // throws RocksDBException if something goes wrong
     dropColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_);
-    // After the drop the native handle is not valid anymore
-    columnFamilyHandle.disOwnNativeHandle();
   }
 
   /**
