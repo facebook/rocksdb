@@ -202,22 +202,6 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/g"));
   ASSERT_OK(env_->GetChildren(test_dir_, &children));
   ASSERT_EQ(0U, children.size());
-
- // Check that the write at an offset works
-  ASSERT_OK(
-      env_->NewWritableFile(test_dir_ + "/f3", &writable_file, soptions_));
-  ASSERT_OK(writable_file->Append("0000000"));
-  ASSERT_OK(writable_file->PositionedAppend("11", 3U));
-  ASSERT_OK(writable_file->Append("11"));
-  ASSERT_OK(writable_file->Close());
-  writable_file.reset();
-
-  seq_file.reset();
-  ASSERT_OK(env_->NewSequentialFile(test_dir_ + "/f3", &seq_file, soptions_));
-  char scratch[20];
-  Slice result;
-  ASSERT_OK(seq_file->Read(sizeof(scratch), &result, scratch));
-  ASSERT_EQ(0, result.compare("000110011"));
 }
 
 TEST_P(EnvBasicTestWithParam, ReadWrite) {

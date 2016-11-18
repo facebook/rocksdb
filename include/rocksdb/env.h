@@ -518,10 +518,31 @@ class WritableFile {
     return c_DefaultPageSize;
   }
 
+  // Append data to the end of the file
+  // Note: A WriteabelFile object must support either Append or
+  // PositionedAppend, so the users cannot mix the two.
   virtual Status Append(const Slice& data) = 0;
 
-  // Positioned write for unbuffered access default forward
-  // to simple append as most of the tests are buffered by default
+  // PositionedAppend data to the specified offset. The new EOF after append
+  // must be larger than the previous EOF. This is to be used when writes are
+  // not backed by OS buffers and hence has to always start from the start of
+  // the sector. The implementation thus needs to also rewrite the last
+  // partial sector.
+  // Note: PositionAppend does not guarantee moving the file offset after the
+  // write. A WriteabelFile object must support either Append or
+  // PositionedAppend, so the users cannot mix the two.
+  //
+  // PositionedAppend() can only happen on the page/sector boundaries. For that
+  // reason, if the last write was an incomplete sector we still need to rewind
+  // back to the nearest sector/page and rewrite the portion of it with whatever
+  // we need to add. We need to keep where we stop writing.
+  //
+  // PositionedAppend() can only write whole sectors. For that reason we have to
+  // pad with zeros for the last write and trim the file when closing according
+  // to the position we keep in the previous step.
+  //
+  // PositionedAppend() requires aligned buffer to be passed in. The alignment
+  // required is queried via GetRequiredBufferAlignment()
   virtual Status PositionedAppend(const Slice& /* data */, uint64_t /* offset */) {
     return Status::NotSupported();
   }
