@@ -16,21 +16,20 @@ RangeDelAggregator::RangeDelAggregator(
   InitRep(snapshots);
 }
 
-RangeDelAggregator::RangeDelAggregator(
-    const InternalKeyComparator& icmp,
-    SequenceNumber snapshot)
+RangeDelAggregator::RangeDelAggregator(const InternalKeyComparator& icmp,
+                                       SequenceNumber snapshot)
     : upper_bound_(snapshot), icmp_(icmp) {}
 
 void RangeDelAggregator::InitRep(const std::vector<SequenceNumber>& snapshots) {
   assert(rep_ == nullptr);
   rep_.reset(new Rep());
   for (auto snapshot : snapshots) {
-    rep_->stripe_map_.emplace(snapshot,
-                              TombstoneMap(stl_wrappers::LessOfComparator(&icmp_)));
+    rep_->stripe_map_.emplace(
+        snapshot, TombstoneMap(stl_wrappers::LessOfComparator(&icmp_)));
   }
   // Data newer than any snapshot falls in this catch-all stripe
-  rep_->stripe_map_.emplace(kMaxSequenceNumber,
-                            TombstoneMap(stl_wrappers::LessOfComparator(&icmp_)));
+  rep_->stripe_map_.emplace(
+      kMaxSequenceNumber, TombstoneMap(stl_wrappers::LessOfComparator(&icmp_)));
   rep_->pinned_iters_mgr_.StartPinning();
 }
 

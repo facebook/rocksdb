@@ -45,9 +45,8 @@ class RangeDelAggregator {
   //    snapshot, which allows us to store the snapshot on the stack and defer
   //    initialization of heap-allocating members (in Rep) until the first range
   //    deletion is encountered.
-  RangeDelAggregator(
-      const InternalKeyComparator& icmp,
-      SequenceNumber upper_bound);
+  RangeDelAggregator(const InternalKeyComparator& icmp,
+                     SequenceNumber upper_bound);
 
   // Returns whether the key should be deleted, which is the case when it is
   // covered by a range tombstone residing in the same snapshot stripe.
