@@ -256,12 +256,14 @@ Status FlushJob::WriteLevel0Table() {
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
-      range_del_iters.push_back(m->NewRangeTombstoneIterator(ro));
+      auto* range_del_iter = m->NewRangeTombstoneIterator(ro);
+      if (range_del_iter != nullptr) {
+        range_del_iters.push_back(range_del_iter);
+      }
       total_num_entries += m->num_entries();
       total_num_deletes += m->num_deletes();
       total_memory_usage += m->ApproximateMemoryUsage();
     }
-    assert(memtables.size() == range_del_iters.size());
 
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started"

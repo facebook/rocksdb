@@ -105,7 +105,7 @@ class RangeDelAggregator {
 
   SequenceNumber upper_bound_;
   std::unique_ptr<Rep> rep_;
-  const InternalKeyComparator icmp_;
+  const InternalKeyComparator& icmp_;
 };
 
 }  // namespace rocksdb

@@ -44,7 +44,7 @@ class TableReader {
 
   virtual InternalIterator* NewRangeTombstoneIterator(
       const ReadOptions& read_options) {
-    return NewEmptyInternalIterator();
+    return nullptr;
   }
 
   // Given a key, return an approximate byte offset in the file where

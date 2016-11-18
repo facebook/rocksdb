@@ -55,6 +55,9 @@ static std::string PrintContents(WriteBatch* b) {
       iter = mem->NewRangeTombstoneIterator(ReadOptions());
       iter_guard.reset(iter);
     }
+    if (iter == nullptr) {
+      continue;
+    }
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       ParsedInternalKey ikey;
       memset((void*)&ikey, 0, sizeof(ikey));

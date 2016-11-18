@@ -75,6 +75,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       range_del_table_(SkipListFactory().CreateMemTableRep(
           comparator_, &allocator_, nullptr /* transform */,
           ioptions.info_log)),
+      is_range_del_table_empty_(true),
       data_size_(0),
       num_entries_(0),
       num_deletes_(0),
@@ -375,8 +376,8 @@ InternalIterator* MemTable::NewIterator(const ReadOptions& read_options,
 
 InternalIterator* MemTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options) {
-  if (read_options.ignore_range_deletions) {
-    return NewEmptyInternalIterator();
+  if (read_options.ignore_range_deletions || is_range_del_table_empty_) {
+    return nullptr;
   }
   return new MemTableIterator(*this, read_options, nullptr /* arena */,
                               true /* use_range_del_table */);
@@ -507,6 +508,9 @@ void MemTable::Add(SequenceNumber s, ValueType type,
         (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
         !first_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
     }
+  }
+  if (is_range_del_table_empty_ && type == kTypeRangeDeletion) {
+    is_range_del_table_empty_ = false;
   }
 }
 
