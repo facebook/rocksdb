@@ -272,7 +272,14 @@ class PosixEnv : public Env {
 #ifdef OS_MACOSX
         int flags = O_WRONLY | O_APPEND | O_TRUNC | O_CREAT;
 #else
-        int flags = O_WRONLY | O_APPEND | O_TRUNC | O_CREAT | O_DIRECT;
+        // Note: we should avoid O_APPEND here due to ta the following bug:
+        // POSIX requires that opening a file with the O_APPEND flag should
+        // have no affect on the location at which pwrite() writes data.
+        // However, on Linux, if a file is opened with O_APPEND, pwrite()
+        // appends data to the end of the file, regardless of the value of
+        // offset.
+        // More info here: https://linux.die.net/man/2/pwrite
+        int flags = O_WRONLY | O_TRUNC | O_CREAT | O_DIRECT;
 #endif
         TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
         fd = open(fname.c_str(), flags, 0644);
