@@ -709,7 +709,8 @@ ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	sh tools/rocksdb_dump_test.sh
 endif
 
-check_some: $(SUBSET) ldb_tests
+# TODO add ldb_tests
+check_some: $(SUBSET)
 	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
 
 .PHONY: ldb_tests
