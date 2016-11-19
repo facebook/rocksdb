@@ -245,7 +245,7 @@ InternalIterator* TableCache::NewIterator(
   if (handle != nullptr) {
     ReleaseHandle(handle);
   }
-  return NewErrorInternalIterator(s);
+  return NewErrorInternalIterator(s, arena);
 }
 
 InternalIterator* TableCache::NewRangeDeletionIterator(
