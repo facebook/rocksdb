@@ -102,6 +102,9 @@ class BlobDB : public StackableDB {
  public:
   using rocksdb::StackableDB::Put;
 
+  static Status DestroyBlobDB(const std::string& dbname,
+    const Options& options, const BlobDBOptions& bdb_options);
+
   virtual Status Put(const WriteOptions& options,
     ColumnFamilyHandle* column_family, const Slice& key,
     const Slice& value) override  = 0;

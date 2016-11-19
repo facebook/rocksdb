@@ -28,16 +28,32 @@ class BlobDBTest : public testing::Test {
  public:
   BlobDBTest() : db_(nullptr) {
     dbname_ = test::TmpDir() + "/blob_db_test";
-    Options options;
-    options.create_if_missing = true;
-    BlobDBOptions bdb_options;
-    bdb_options.blob_dir = "blob_dir";
-    EXPECT_TRUE(BlobDB::Open(options, bdb_options, dbname_, &db_).ok());
+    Reopen(BlobDBOptions());
   }
 
   ~BlobDBTest() {
-   if (db_)
-     delete db_;
+    if (db_) {
+      delete db_;
+      db_ = nullptr;
+    }
+  }
+
+  void Reopen(const BlobDBOptions &bdboptions) {
+    if (db_) {
+      delete db_;
+      db_ = nullptr;
+    }
+
+    BlobDBOptions bdb_options = bdboptions;
+    bdb_options.blob_dir = "blob_dir";
+    Options options;
+    BlobDB::DestroyBlobDB(dbname_, options,
+      bdb_options);
+
+    DestroyDB(dbname_, options);
+
+    options.create_if_missing = true;
+    EXPECT_TRUE(BlobDB::Open(options, bdb_options, dbname_, &db_).ok());
   }
 
   void insert_blobs() {
@@ -79,8 +95,44 @@ class BlobDBTest : public testing::Test {
   std::string dbname_;
 };  // class BlobDBTest
 
+TEST_F(BlobDBTest, GCTest) {
 
-TEST_F(BlobDBTest, Basic) {
+  BlobDBOptions bdboptions;
+  bdboptions.ttl_range = 30;
+  bdboptions.gc_file_pct = 100;
+
+  Reopen(bdboptions);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  std::string value;
+
+  ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
+
+  for (size_t i = 0; i < 100; i++) {
+    int len = rand() % 16384;
+    if (!len)
+      continue;
+
+    char *val = new char[len+1];
+    gen_random(val, len);
+
+    std::string key("key");
+    key += std::to_string(i);
+
+    Slice keyslice(key);
+    Slice valslice(val, len+1);
+
+    int ttl = 30;
+
+    ASSERT_OK(db_->PutWithTTL(wo, dcfh, keyslice, valslice, ttl));
+    delete [] val;
+  }
+
+  sleep(240);
+}
+
+TEST_F(BlobDBTest, MultipleWriters) {
   ASSERT_TRUE(db_ != nullptr);
 
   std::vector<std::thread> workers;

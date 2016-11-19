@@ -212,6 +212,7 @@ Status Writer::AddRecordFooter(const SequenceNumber& seq) {
   if (s.ok())
    dest_->Flush();
 
+  last_elem_type_ = ET_FOOTER;
   return s;
 }
 

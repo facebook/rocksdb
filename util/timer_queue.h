@@ -47,21 +47,18 @@
 // http://www.crazygaze.com/blog/2016/03/24/portable-c-timer-queue/
 class TimerQueue {
  public:
-  TimerQueue() {}
+  TimerQueue() {
+    m_th = std::thread([this] { run(); });
+  }
 
   ~TimerQueue() {
     cancelAll();
     // Abusing the timer queue to trigger the shutdown.
     add(0, [this](bool) {
-      std::unique_lock<std::mutex> lk(m_mtx);
       m_finish = true;
       return std::make_pair(false, 0);
     });
     m_th.join();
-  }
-
-  void start() {
-    m_th = std::thread([this] { run(); });
   }
 
   // Adds a new timer
@@ -122,6 +119,7 @@ class TimerQueue {
     // Setting all "end" to 0 (for immediate execution) is ok,
     // since it maintains the heap integrity
     std::unique_lock<std::mutex> lk(m_mtx);
+    m_cancel = true;
     for (auto&& item : m_items.getContainer()) {
       if (item.id && item.handler) {
         item.end = Clock::time_point();
@@ -183,10 +181,11 @@ class TimerQueue {
       WorkItem item(std::move(m_items.top()));
       m_items.pop();
 
-      (*lk).unlock();
       if (item.handler) {
+        (*lk).unlock();
         auto reschedule_pair = item.handler(item.id == 0);
-        if (reschedule_pair.first) {
+        (*lk).lock();
+        if (!m_cancel && reschedule_pair.first) {
           int64_t new_period = (reschedule_pair.second == -1)
                                    ? item.period
                                    : reschedule_pair.second;
@@ -196,13 +195,13 @@ class TimerQueue {
           m_items.push(std::move(item));
         }
       }
-      (*lk).lock();
     }
   }
 
   std::condition_variable m_checkWork;
   std::thread m_th;
   bool m_finish = false;
+  bool m_cancel = false;
   uint64_t m_idcounter = 0;
 
   struct WorkItem {

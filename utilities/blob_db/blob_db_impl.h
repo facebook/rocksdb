@@ -157,6 +157,9 @@ class BlobDBImpl : public BlobDB {
 
   std::pair<bool, int64_t> fsyncFiles(bool aborted);
 
+  // periodically check if seq files and their TTL's has expired
+  std::pair<bool, int64_t> checkSeqFiles(bool aborted);
+
   std::pair<bool, int64_t> reclaimOpenFiles(bool aborted);
 
   std::pair<bool, int64_t> waStats(bool aborted);
@@ -176,7 +179,7 @@ class BlobDBImpl : public BlobDB {
   // this holds BlobFile mutex
   Status createWriter_locked(BlobFile *bfile, bool reopen = false);
 
-  Status writeBatchOfDeleteKeys(BlobFile *bfptr);
+  Status writeBatchOfDeleteKeys(BlobFile *bfptr, std::time_t tt);
 
   bool DeleteFileOK_locked(const std::shared_ptr<BlobFile>& bfile);
 
@@ -266,7 +269,8 @@ private:
 
   blob_log::BlobLogHeader header_;
 
-  bool closed_;
+  std::atomic<bool> seq_open_;
+  std::atomic<bool> closed_;
   bool header_read_;
   std::atomic<bool> can_be_deleted_;
 
@@ -314,7 +318,7 @@ public:
 
   std::shared_ptr<blob_log::Writer> GetWriter() const { return log_writer_; }
 
-  bool Immutable() const { return closed_; }
+  bool Immutable() const { return closed_.load(); }
 
   bool ActiveForAppend() const { return !Immutable(); }
 
