@@ -351,12 +351,12 @@ void TransactionLockMgr::DecrementWaiters(const TransactionImpl* txn,
 void TransactionLockMgr::DecrementWaitersImpl(const TransactionImpl* txn,
                                               TransactionID wait_id) {
   auto id = txn->GetID();
-  assert(wait_txn_map_.count(id) > 0);
-  wait_txn_map_.erase(id);
+  assert(wait_txn_map_.Contains(id));
+  wait_txn_map_.Delete(id);
 
-  rev_wait_txn_map_[wait_id]--;
-  if (rev_wait_txn_map_[wait_id] == 0) {
-    rev_wait_txn_map_.erase(wait_id);
+  rev_wait_txn_map_.Get(wait_id)--;
+  if (rev_wait_txn_map_.Get(wait_id) == 0) {
+    rev_wait_txn_map_.Delete(wait_id);
   }
 }
 
@@ -364,12 +364,17 @@ bool TransactionLockMgr::IncrementWaiters(const TransactionImpl* txn,
                                           TransactionID wait_id) {
   auto id = txn->GetID();
   std::lock_guard<std::mutex> lock(wait_txn_map_mutex_);
-  assert(wait_txn_map_.count(id) == 0);
-  wait_txn_map_[id] = wait_id;
-  rev_wait_txn_map_[wait_id]++;
+  assert(!wait_txn_map_.Contains(id));
+  wait_txn_map_.Insert(id, wait_id);
+
+  if (rev_wait_txn_map_.Contains(wait_id)) {
+    rev_wait_txn_map_.Get(wait_id)++;
+  } else {
+    rev_wait_txn_map_.Insert(wait_id, 1);
+  }
 
   // No deadlock if nobody is waiting on self.
-  if (rev_wait_txn_map_.count(id) == 0) {
+  if (!rev_wait_txn_map_.Contains(id)) {
     return false;
   }
 
@@ -378,10 +383,10 @@ bool TransactionLockMgr::IncrementWaiters(const TransactionImpl* txn,
     if (next == id) {
       DecrementWaitersImpl(txn, wait_id);
       return true;
-    } else if (wait_txn_map_.count(next) == 0) {
+    } else if (!wait_txn_map_.Contains(next)) {
       return false;
     } else {
-      next = wait_txn_map_[next];
+      next = wait_txn_map_.Get(next);
     }
   }
 
