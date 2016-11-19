@@ -37,7 +37,8 @@ class MockEnv : public EnvWrapper {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& env_options) override;
+                                 const EnvOptions& env_options,
+                                 bool enforce_buffered_io = true) override;
 
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override;

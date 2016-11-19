@@ -593,13 +593,15 @@ class TableFileCreationListener : public EventListener {
 
     Status NewWritableFile(const std::string& fname,
                            std::unique_ptr<WritableFile>* result,
-                           const EnvOptions& options) {
+                           const EnvOptions& options,
+                           bool enforce_buffered_io = true) {
       if (fname.size() > 4 && fname.substr(fname.size() - 4) == ".sst") {
         if (!status_.ok()) {
           return status_;
         }
       }
-      return Env::Default()->NewWritableFile(fname, result, options);
+      return Env::Default()->NewWritableFile(fname, result, options,
+                                             enforce_buffered_io);
     }
 
    private:

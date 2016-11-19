@@ -60,9 +60,6 @@ struct EnvOptions {
   // construct from Options
   explicit EnvOptions(const DBOptions& options);
 
-  // If true, then allow caching of data in environment buffers
-  bool use_os_buffer = true;
-
    // If true, then use mmap to read data
   bool use_mmap_reads = false;
 
@@ -161,13 +158,15 @@ class Env {
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) = 0;
+                                 const EnvOptions& options,
+                                 bool enforce_buffered_io = true) = 0;
 
   // Reuse an existing file by renaming it and opening it as writable.
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
                                    unique_ptr<WritableFile>* result,
-                                   const EnvOptions& options);
+                                   const EnvOptions& options,
+                                   bool enforce_buffered_io = true);
 
   // Open `fname` for random read and write, if file dont exist the file
   // will be created.  On success, stores a pointer to the new file in
@@ -503,17 +502,15 @@ class WritableFile {
   }
   virtual ~WritableFile();
 
-  // Indicates if the class makes use of unbuffered I/O
-  // If false you must pass aligned buffer to Write()
-  virtual bool UseOSBuffer() const {
-    return true;
-  }
+  // Indicates if the class makes use of direct IO
+  // If true you must pass aligned buffer to Write()
+  virtual bool UseDirectIO() const { return false; }
 
   const size_t c_DefaultPageSize = 4 * 1024;
 
   // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseOSBuffer()
-  // returns false
+  // aligned buffer for Write() when UseDirectIO()
+  // returns true
   virtual size_t GetRequiredBufferAlignment() const {
     return c_DefaultPageSize;
   }
@@ -529,7 +526,7 @@ class WritableFile {
   // the sector. The implementation thus needs to also rewrite the last
   // partial sector.
   // Note: PositionAppend does not guarantee moving the file offset after the
-  // write. A WriteabelFile object must support either Append or
+  // write. A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   //
   // PositionedAppend() can only happen on the page/sector boundaries. For that
@@ -573,10 +570,6 @@ class WritableFile {
   virtual bool IsSyncThreadSafe() const {
     return false;
   }
-
-  // Indicates the upper layers if the current WritableFile implementation
-  // uses direct IO.
-  virtual bool UseDirectIO() const { return false; }
 
   /*
    * Change the priority in rate limiter if rate limiting is enabled.
@@ -686,17 +679,14 @@ class RandomRWFile {
   RandomRWFile() {}
   virtual ~RandomRWFile() {}
 
-  // Indicates if the class makes use of unbuffered I/O
+  // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
-  virtual bool UseOSBuffer() const {
-    return true;
-  }
+  virtual bool UseDirectIO() const { return false; }
 
   const size_t c_DefaultPageSize = 4 * 1024;
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseOSBuffer()
-  // returns false
+  // Use the returned alignment value to allocate aligned
+  // buffer for Write() when UseDirectIO() returns true
   virtual size_t GetRequiredBufferAlignment() const {
     return c_DefaultPageSize;
   }
@@ -713,7 +703,7 @@ class RandomRWFile {
   virtual void EnableReadAhead() {}
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when UseOSBuffer() returns false.
+  // Pass aligned buffer when UseDirectIO() returns true.
   virtual Status Write(uint64_t offset, const Slice& data) = 0;
 
   // Read up to `n` bytes starting from offset `offset` and store them in
@@ -881,14 +871,17 @@ class EnvWrapper : public Env {
     return target_->NewRandomAccessFile(f, r, options);
   }
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& options) override {
-    return target_->NewWritableFile(f, r, options);
+                         const EnvOptions& options,
+                         bool enforce_buffered_io = true) override {
+    return target_->NewWritableFile(f, r, options, enforce_buffered_io);
   }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
                            unique_ptr<WritableFile>* r,
-                           const EnvOptions& options) override {
-    return target_->ReuseWritableFile(fname, old_fname, r, options);
+                           const EnvOptions& options,
+                           bool enforce_buffered_io = true) override {
+    return target_->ReuseWritableFile(fname, old_fname, r, options,
+                                      enforce_buffered_io);
   }
   Status NewRandomRWFile(const std::string& fname,
                          unique_ptr<RandomRWFile>* result,

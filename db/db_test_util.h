@@ -208,7 +208,8 @@ class SpecialEnv : public EnvWrapper {
   explicit SpecialEnv(Env* base);
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions) override {
+                         const EnvOptions& soptions,
+                         bool enforce_buffered_io = true) override {
     class SSTableFile : public WritableFile {
      private:
       SpecialEnv* env_;
@@ -358,7 +359,7 @@ class SpecialEnv : public EnvWrapper {
       return Status::IOError("simulated write error");
     }
 
-    Status s = target()->NewWritableFile(f, r, soptions);
+    Status s = target()->NewWritableFile(f, r, soptions, enforce_buffered_io);
     if (s.ok()) {
       if (strstr(f.c_str(), ".sst") != nullptr) {
         r->reset(new SSTableFile(this, std::move(*r)));

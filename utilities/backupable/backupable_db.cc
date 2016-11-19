@@ -1153,8 +1153,6 @@ Status BackupEngineImpl::CopyOrCreateFile(
   unique_ptr<WritableFile> dst_file;
   unique_ptr<SequentialFile> src_file;
   EnvOptions env_options;
-  env_options.use_mmap_writes = false;
-  env_options.use_os_buffer = false;
   if (size != nullptr) {
     *size = 0;
   }
@@ -1357,7 +1355,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
 
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
-  env_options.use_os_buffer = false;
+  env_options.use_direct_reads = false;
 
   std::unique_ptr<SequentialFile> src_file;
   Status s = src_env->NewSequentialFile(src, &src_file, env_options);

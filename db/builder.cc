@@ -103,7 +103,8 @@ Status BuildTable(
     unique_ptr<WritableFileWriter> file_writer;
     {
       unique_ptr<WritableFile> file;
-      s = NewWritableFile(env, fname, &file, env_options);
+      s = NewWritableFile(env, fname, &file, env_options,
+                          false /* enforce_buffered_io */);
       if (!s.ok()) {
         EventHelpers::LogAndNotifyTableFileCreationFinished(
             event_logger, ioptions.listeners, dbname, column_family_name, fname,

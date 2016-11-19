@@ -36,9 +36,9 @@ inline Status IOErrorFromLastWindowsError(const std::string& context) {
 }
 
 inline Status IOError(const std::string& context, int err_number) {
-  return (err_number == ENOSPC) ?
-      Status::NoSpace(context, strerror(err_number)) :      
-      Status::IOError(context, strerror(err_number));
+  return (err_number == ENOSPC)
+             ? Status::NoSpace(context, strerror(err_number))
+             : Status::IOError(context, strerror(err_number));
 }
 
 // Note the below two do not set errno because they are used only here in this
@@ -81,15 +81,14 @@ protected:
   // which should not be perf critical.
   // If perf evaluation finds this to be a problem, we can look into
   // implementing this.
-  const bool use_os_buffer_;
+  const bool use_direct_io_;
 
-public:
+ public:
 
   // We want this class be usable both for inheritance (prive
   // or protected) and for containment so __ctor and __dtor public
-  WinFileData(const std::string& filename, HANDLE hFile, bool use_os_buffer) :
-    filename_(filename), hFile_(hFile), use_os_buffer_(use_os_buffer)
-  {}
+  WinFileData(const std::string& filename, HANDLE hFile, bool use_direct_io)
+      : filename_(filename), hFile_(hFile), use_direct_io_(use_direct_io) {}
 
   virtual ~WinFileData() {
     this->CloseFile();
@@ -111,7 +110,7 @@ public:
 
   HANDLE GetFileHandle() const { return hFile_; }
 
-  bool UseOSBuffer() const { return use_os_buffer_; }
+  bool UseDirectIO() const { return use_direct_io_; }
 
   WinFileData(const WinFileData&) = delete;
   WinFileData& operator=(const WinFileData&) = delete;
@@ -313,11 +312,12 @@ public:
 };
 
 // pread() based random-access
-class WinRandomAccessFile : private WinFileData, 
-  protected WinRandomAccessImpl, // Want to be able to override PositionedReadInternal
-  public RandomAccessFile {
-
-public:
+class WinRandomAccessFile
+    : private WinFileData,
+      protected WinRandomAccessImpl,  // Want to be able to override
+                                      // PositionedReadInternal
+      public RandomAccessFile {
+ public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
     const EnvOptions& options);
 
@@ -405,9 +405,9 @@ public:
 
   ~WinWritableFile();
 
-  // Indicates if the class makes use of unbuffered I/O
+  // Indicates if the class makes use of direct I/O
   // Use PositionedAppend
-  virtual bool UseOSBuffer() const override;
+  virtual bool UseDirectIO() const override;
 
   virtual size_t GetRequiredBufferAlignment() const override;
 
@@ -450,13 +450,12 @@ public:
 
   ~WinRandomRWFile() {}
 
-  // Indicates if the class makes use of unbuffered I/O
+  // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
-  virtual bool UseOSBuffer() const override;
+  virtual bool UseDirectIO() const override;
 
-  // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseOSBuffer()
-  // returns false
+  // Use the returned alignment value to allocate aligned
+  // buffer for Write() when UseDirectIO() returns true
   virtual size_t GetRequiredBufferAlignment() const override;
 
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
@@ -469,7 +468,7 @@ public:
   virtual void EnableReadAhead() override;
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when UseOSBuffer() returns false.
+  // Pass aligned buffer when UseDirectIO() returns true.
   virtual Status Write(uint64_t offset, const Slice& data) override;
 
   // Read up to `n` bytes starting from offset `offset` and store them in

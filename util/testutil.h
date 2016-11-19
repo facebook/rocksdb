@@ -62,13 +62,15 @@ class ErrorEnv : public EnvWrapper {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& soptions) override {
+                                 const EnvOptions& soptions,
+                                 bool enforce_buffered_io = true) override {
     result->reset();
     if (writable_file_error_) {
       ++num_writable_file_errors_;
       return Status::IOError(fname, "fake error");
     }
-    return target()->NewWritableFile(fname, result, soptions);
+    return target()->NewWritableFile(fname, result, soptions,
+                                     enforce_buffered_io);
   }
 };
 
@@ -577,7 +579,8 @@ class StringEnv : public EnvWrapper {
     return Status::NotSupported();
   }
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& options) override {
+                         const EnvOptions& options,
+                         bool enforce_buffered_io = true) override {
     auto iter = files_.find(f);
     if (iter != files_.end()) {
       return Status::IOError("The specified file already exists", f);

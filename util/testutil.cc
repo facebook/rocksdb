@@ -240,7 +240,8 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->advise_random_on_open = rnd->Uniform(2);
   db_opt->allow_mmap_reads = rnd->Uniform(2);
   db_opt->allow_mmap_writes = rnd->Uniform(2);
-  db_opt->allow_os_buffer = rnd->Uniform(2);
+  db_opt->use_direct_reads = rnd->Uniform(2);
+  db_opt->use_direct_writes = rnd->Uniform(2);
   db_opt->create_if_missing = rnd->Uniform(2);
   db_opt->create_missing_column_families = rnd->Uniform(2);
   db_opt->disableDataSync = rnd->Uniform(2);

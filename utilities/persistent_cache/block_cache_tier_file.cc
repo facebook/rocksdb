@@ -24,7 +24,7 @@ Status NewWritableCacheFile(Env* const env, const std::string& filepath,
                             const bool use_direct_writes = false) {
   EnvOptions opt;
   opt.use_direct_writes = use_direct_writes;
-  Status s = env->NewWritableFile(filepath, file, opt);
+  Status s = env->NewWritableFile(filepath, file, opt, false);
   return s;
 }
 

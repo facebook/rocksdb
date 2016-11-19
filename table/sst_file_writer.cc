@@ -57,7 +57,8 @@ Status SstFileWriter::Open(const std::string& file_path) {
   Rep* r = rep_;
   Status s;
   std::unique_ptr<WritableFile> sst_file;
-  s = r->ioptions.env->NewWritableFile(file_path, &sst_file, r->env_options);
+  s = r->ioptions.env->NewWritableFile(file_path, &sst_file, r->env_options,
+                                       false /* enforce_buffered_io */);
   if (!s.ok()) {
     return s;
   }

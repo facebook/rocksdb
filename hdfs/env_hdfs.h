@@ -64,7 +64,8 @@ class HdfsEnv : public Env {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options);
+                                 const EnvOptions& options,
+                                 bool enforce_buffered_io);
 
   virtual Status NewDirectory(const std::string& name,
                               std::unique_ptr<Directory>* result);
@@ -262,7 +263,8 @@ class HdfsEnv : public Env {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) override {
+                                 const EnvOptions& options,
+                                 bool enforce_buffered_io) override {
     return notsup;
   }
 

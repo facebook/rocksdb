@@ -88,9 +88,9 @@ TEST_F(WritableFileWriterTest, RangeSync) {
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   class FakeWF : public WritableFile {
    public:
-    explicit FakeWF() : use_os_buffer_(true), io_error_(false) {}
+    explicit FakeWF() : use_direct_io_(false), io_error_(false) {}
 
-    virtual bool UseOSBuffer() const override { return use_os_buffer_; }
+    virtual bool UseDirectIO() const override { return use_direct_io_; }
     Status Append(const Slice& data) override {
       if (io_error_) {
         return Status::IOError("Fake IO error");
@@ -106,15 +106,15 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
     Status Close() override { return Status::OK(); }
     Status Flush() override { return Status::OK(); }
     Status Sync() override { return Status::OK(); }
-    void SetUseOSBuffer(bool val) { use_os_buffer_ = val; }
+    void SetUseDirectIO(bool val) { use_direct_io_ = val; }
     void SetIOError(bool val) { io_error_ = val; }
 
    protected:
-    bool use_os_buffer_;
+    bool use_direct_io_;
     bool io_error_;
   };
   unique_ptr<FakeWF> wf(new FakeWF());
-  wf->SetUseOSBuffer(false);
+  wf->SetUseDirectIO(true);
   unique_ptr<WritableFileWriter> writer(
       new WritableFileWriter(std::move(wf), EnvOptions()));
 

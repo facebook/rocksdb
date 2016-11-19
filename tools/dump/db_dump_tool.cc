@@ -46,7 +46,8 @@ bool DbDumpTool::Run(const DumpOptions& dump_options,
   const std::unique_ptr<rocksdb::DB> db(dbptr);
 
   status = env->NewWritableFile(dump_options.dump_location, &dumpfile,
-                                rocksdb::EnvOptions());
+                                rocksdb::EnvOptions(),
+                                false /* enforce_buffered_io */);
   if (!status.ok()) {
     std::cerr << "Unable to open dump file '" << dump_options.dump_location
               << "' for writing: " << status.ToString() << std::endl;

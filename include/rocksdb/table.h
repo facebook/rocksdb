@@ -157,9 +157,9 @@ struct BlockBasedTableOptions {
   // a SstTable. Instead, buffer in WritableFileWriter will take
   // care of the flushing when it is full.
   //
-  // On Windows, this option helps a lot when unbuffered I/O
-  // (allow_os_buffer = false) is used, since it avoids small
-  // unbuffered disk write.
+  // This option helps a lot when direct I/O writes
+  // (use_direct_writes = true) is used, since it avoids small
+  // direct disk write.
   //
   // User may also adjust writable_file_max_buffer_size to optimize disk I/O
   // size.
