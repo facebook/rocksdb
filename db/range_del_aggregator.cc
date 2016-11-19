@@ -12,17 +12,31 @@ namespace rocksdb {
 RangeDelAggregator::RangeDelAggregator(
     const InternalKeyComparator& icmp,
     const std::vector<SequenceNumber>& snapshots)
-    : icmp_(icmp) {
-  pinned_iters_mgr_.StartPinning();
+    : upper_bound_(kMaxSequenceNumber), icmp_(icmp) {
+  InitRep(snapshots);
+}
+
+RangeDelAggregator::RangeDelAggregator(const InternalKeyComparator& icmp,
+                                       SequenceNumber snapshot)
+    : upper_bound_(snapshot), icmp_(icmp) {}
+
+void RangeDelAggregator::InitRep(const std::vector<SequenceNumber>& snapshots) {
+  assert(rep_ == nullptr);
+  rep_.reset(new Rep());
   for (auto snapshot : snapshots) {
-    stripe_map_.emplace(snapshot,
-                        TombstoneMap(stl_wrappers::LessOfComparator(&icmp_)));
+    rep_->stripe_map_.emplace(
+        snapshot, TombstoneMap(stl_wrappers::LessOfComparator(&icmp_)));
   }
   // Data newer than any snapshot falls in this catch-all stripe
-  stripe_map_.emplace(kMaxSequenceNumber, TombstoneMap());
+  rep_->stripe_map_.emplace(
+      kMaxSequenceNumber, TombstoneMap(stl_wrappers::LessOfComparator(&icmp_)));
+  rep_->pinned_iters_mgr_.StartPinning();
 }
 
 bool RangeDelAggregator::ShouldDelete(const Slice& internal_key) {
+  if (rep_ == nullptr) {
+    return false;
+  }
   ParsedInternalKey parsed;
   if (!ParseInternalKey(internal_key, &parsed)) {
     assert(false);
@@ -32,7 +46,9 @@ bool RangeDelAggregator::ShouldDelete(const Slice& internal_key) {
 
 bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed) {
   assert(IsValueType(parsed.type));
-
+  if (rep_ == nullptr) {
+    return false;
+  }
   const auto& tombstone_map = GetTombstoneMap(parsed.sequence);
   for (const auto& start_key_and_tombstone : tombstone_map) {
     const auto& tombstone = start_key_and_tombstone.second;
@@ -51,14 +67,17 @@ bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed) {
 
 bool RangeDelAggregator::ShouldAddTombstones(
     bool bottommost_level /* = false */) {
-  auto stripe_map_iter = stripe_map_.begin();
-  assert(stripe_map_iter != stripe_map_.end());
+  if (rep_ == nullptr) {
+    return false;
+  }
+  auto stripe_map_iter = rep_->stripe_map_.begin();
+  assert(stripe_map_iter != rep_->stripe_map_.end());
   if (bottommost_level) {
     // For the bottommost level, keys covered by tombstones in the first
     // (oldest) stripe have been compacted away, so the tombstones are obsolete.
     ++stripe_map_iter;
   }
-  while (stripe_map_iter != stripe_map_.end()) {
+  while (stripe_map_iter != rep_->stripe_map_.end()) {
     if (!stripe_map_iter->second.empty()) {
       return true;
     }
@@ -77,9 +96,15 @@ Status RangeDelAggregator::AddTombstones(
 }
 
 Status RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
-  pinned_iters_mgr_.PinIterator(input, arena);
   input->SeekToFirst();
+  bool first_iter = true;
   while (input->Valid()) {
+    if (first_iter) {
+      if (rep_ == nullptr) {
+        InitRep({upper_bound_});
+      }
+      first_iter = false;
+    }
     ParsedInternalKey parsed_key;
     if (!ParseInternalKey(input->key(), &parsed_key)) {
       return Status::Corruption("Unable to parse range tombstone InternalKey");
@@ -89,22 +114,30 @@ Status RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
     tombstone_map.emplace(input->key(), std::move(tombstone));
     input->Next();
   }
+  if (!first_iter) {
+    rep_->pinned_iters_mgr_.PinIterator(input, arena);
+  } else if (arena) {
+    input->~InternalIterator();
+  } else {
+    delete input;
+  }
   return Status::OK();
 }
 
 RangeDelAggregator::TombstoneMap& RangeDelAggregator::GetTombstoneMap(
     SequenceNumber seq) {
+  assert(rep_ != nullptr);
   // The stripe includes seqnum for the snapshot above and excludes seqnum for
   // the snapshot below.
   StripeMap::iterator iter;
   if (seq > 0) {
     // upper_bound() checks strict inequality so need to subtract one
-    iter = stripe_map_.upper_bound(seq - 1);
+    iter = rep_->stripe_map_.upper_bound(seq - 1);
   } else {
-    iter = stripe_map_.begin();
+    iter = rep_->stripe_map_.begin();
   }
   // catch-all stripe justifies this assertion in either of above cases
-  assert(iter != stripe_map_.end());
+  assert(iter != rep_->stripe_map_.end());
   return iter->second;
 }
 
@@ -117,8 +150,11 @@ void RangeDelAggregator::AddToBuilder(
     TableBuilder* builder, const Slice* lower_bound, const Slice* upper_bound,
     FileMetaData* meta,
     bool bottommost_level /* = false */) {
-  auto stripe_map_iter = stripe_map_.begin();
-  assert(stripe_map_iter != stripe_map_.end());
+  if (rep_ == nullptr) {
+    return;
+  }
+  auto stripe_map_iter = rep_->stripe_map_.begin();
+  assert(stripe_map_iter != rep_->stripe_map_.end());
   if (bottommost_level) {
     // For the bottommost level, keys covered by tombstones in the first
     // (oldest) stripe have been compacted away, so the tombstones are obsolete.
@@ -128,7 +164,7 @@ void RangeDelAggregator::AddToBuilder(
   // Note the order in which tombstones are stored is insignificant since we
   // insert them into a std::map on the read path.
   bool first_added = false;
-  while (stripe_map_iter != stripe_map_.end()) {
+  while (stripe_map_iter != rep_->stripe_map_.end()) {
     for (const auto& start_key_and_tombstone : stripe_map_iter->second) {
       const auto& tombstone = start_key_and_tombstone.second;
       if (upper_bound != nullptr &&
@@ -204,8 +240,11 @@ void RangeDelAggregator::AddToBuilder(
 }
 
 bool RangeDelAggregator::IsEmpty() {
-  for (auto stripe_map_iter = stripe_map_.begin();
-       stripe_map_iter != stripe_map_.end(); ++stripe_map_iter) {
+  if (rep_ == nullptr) {
+    return true;
+  }
+  for (auto stripe_map_iter = rep_->stripe_map_.begin();
+       stripe_map_iter != rep_->stripe_map_.end(); ++stripe_map_iter) {
     if (!stripe_map_iter->second.empty()) {
       return false;
     }

@@ -37,8 +37,16 @@ class RangeDelAggregator {
   //    (get/iterator), only the user snapshot is provided such that the seqnum
   //    space is divided into two stripes, where only tombstones in the older
   //    stripe are considered by ShouldDelete().
+  // Note this overload does not lazily initialize Rep.
   RangeDelAggregator(const InternalKeyComparator& icmp,
                      const std::vector<SequenceNumber>& snapshots);
+
+  // @param upper_bound Similar to snapshots above, except with a single
+  //    snapshot, which allows us to store the snapshot on the stack and defer
+  //    initialization of heap-allocating members (in Rep) until the first range
+  //    deletion is encountered.
+  RangeDelAggregator(const InternalKeyComparator& icmp,
+                     SequenceNumber upper_bound);
 
   // Returns whether the key should be deleted, which is the case when it is
   // covered by a range tombstone residing in the same snapshot stripe.
@@ -86,13 +94,22 @@ class RangeDelAggregator {
   // their seqnums are greater than the next smaller snapshot's seqnum.
   typedef std::map<SequenceNumber, TombstoneMap> StripeMap;
 
+  struct Rep {
+    StripeMap stripe_map_;
+    PinnedIteratorsManager pinned_iters_mgr_;
+  };
+  // Initializes rep_ lazily. This aggregator object is constructed for every
+  // read, so expensive members should only be created when necessary, i.e.,
+  // once the first range deletion is encountered.
+  void InitRep(const std::vector<SequenceNumber>& snapshots);
+
   Status AddTombstones(InternalIterator* input, bool arena);
   TombstoneMap& GetTombstoneMap(SequenceNumber seq);
 
-  StripeMap stripe_map_;
-  const InternalKeyComparator icmp_;
+  SequenceNumber upper_bound_;
   Arena arena_;  // must be destroyed after pinned_iters_mgr_ which references
                  // memory in this arena
-  PinnedIteratorsManager pinned_iters_mgr_;
+  std::unique_ptr<Rep> rep_;
+  const InternalKeyComparator icmp_;
 };
 }  // namespace rocksdb

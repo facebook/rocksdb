@@ -3970,7 +3970,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
-  RangeDelAggregator range_del_agg(cfd->internal_comparator(), {snapshot});
+  RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
 
   Status s;
   // First look in the memtable, then in the immutable memtable (if any).
@@ -4079,7 +4079,7 @@ std::vector<Status> DBImpl::MultiGet(
     LookupKey lkey(keys[i], snapshot);
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family[i]);
     RangeDelAggregator range_del_agg(cfh->cfd()->internal_comparator(),
-                                     {snapshot});
+                                     snapshot);
     auto mgd_iter = multiget_cf_data.find(cfh->cfd()->GetID());
     assert(mgd_iter != multiget_cf_data.end());
     auto mgd = mgd_iter->second;
@@ -6359,7 +6359,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
                                        bool* found_record_for_key) {
   Status s;
   MergeContext merge_context;
-  RangeDelAggregator range_del_agg(sv->mem->GetInternalKeyComparator(), {});
+  RangeDelAggregator range_del_agg(sv->mem->GetInternalKeyComparator(),
+                                   kMaxSequenceNumber);
 
   ReadOptions read_options;
   SequenceNumber current_seq = versions_->LastSequence();
