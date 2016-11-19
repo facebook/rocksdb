@@ -647,8 +647,7 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   options.use_direct_writes = true;
   options.use_mmap_writes = false;
   IoctlFriendlyTmpdir ift;
-  ASSERT_OK(
-      env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
+  ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
 
   const size_t kBlockSize = 512;
   const size_t kPageSize = 4096;
