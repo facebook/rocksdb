@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "rocksdb/utilities/transaction.h"
+#include "util/hash_map.h"
 #include "util/instrumented_mutex.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/transaction_impl.h"
@@ -88,9 +89,9 @@ class TransactionLockMgr {
   std::mutex wait_txn_map_mutex_;
 
   // Maps from waitee -> number of waiters.
-  std::unordered_map<TransactionID, int> rev_wait_txn_map_;
+  HashMap<TransactionID, int> rev_wait_txn_map_;
   // Maps from waiter -> waitee.
-  std::unordered_map<TransactionID, TransactionID> wait_txn_map_;
+  HashMap<TransactionID, TransactionID> wait_txn_map_;
 
   // Used to allocate mutexes/condvars to use when locking keys
   std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
