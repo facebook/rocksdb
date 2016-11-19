@@ -105,6 +105,11 @@ Status ReadAligned(int fd, Slice* data, const uint64_t offset,
       break;
     }
     bytes_read += status;
+    if (status % static_cast<ssize_t>(kSectorSize) != 0) {
+      // Bytes reads don't fill sectors. Should only happen at the end
+      // of the file.
+      break;
+    }
   }
 
   *data = Slice(scratch, bytes_read);
