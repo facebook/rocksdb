@@ -2449,11 +2449,16 @@ TEST_F(MemTableTest, Simple) {
 
   for (int i = 0; i < 2; ++i) {
     Arena arena;
-    ScopedArenaIterator iter =
-        i == 0
-            ? ScopedArenaIterator(memtable->NewIterator(ReadOptions(), &arena))
-            : ScopedArenaIterator(
-                  memtable->NewRangeTombstoneIterator(ReadOptions(), &arena));
+    ScopedArenaIterator arena_iter_guard;
+    std::unique_ptr<InternalIterator> iter_guard;
+    InternalIterator* iter;
+    if (i == 0) {
+      iter = memtable->NewIterator(ReadOptions(), &arena);
+      arena_iter_guard.set(iter);
+    } else {
+      iter = memtable->NewRangeTombstoneIterator(ReadOptions());
+      iter_guard.reset(iter);
+    }
     iter->SeekToFirst();
     while (iter->Valid()) {
       fprintf(stderr, "key: '%s' -> '%s'\n", iter->key().ToString().c_str(),

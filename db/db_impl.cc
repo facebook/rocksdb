@@ -1779,7 +1779,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), mutable_cf_options, env_options_,
           cfd->table_cache(), iter.get(),
-          ScopedArenaIterator(mem->NewRangeTombstoneIterator(ro, &arena)),
+          std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           snapshot_seqs, earliest_write_conflict_snapshot,
@@ -3858,11 +3858,11 @@ InternalIterator* DBImpl::NewInternalIterator(
   // Collect iterator for mutable mem
   merge_iter_builder.AddIterator(
       super_version->mem->NewIterator(read_options, arena));
-  ScopedArenaIterator range_del_iter;
+  std::unique_ptr<InternalIterator> range_del_iter;
   Status s;
   if (!read_options.ignore_range_deletions) {
-    range_del_iter.set(
-        super_version->mem->NewRangeTombstoneIterator(read_options, arena));
+    range_del_iter.reset(
+        super_version->mem->NewRangeTombstoneIterator(read_options));
     s = range_del_agg->AddTombstones(std::move(range_del_iter));
   }
   // Collect all needed child iterators for immutable memtables

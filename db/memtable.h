@@ -161,8 +161,7 @@ class MemTable {
   //        those allocated in arena.
   InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
 
-  InternalIterator* NewRangeTombstoneIterator(const ReadOptions& read_options,
-                                              Arena* arena);
+  InternalIterator* NewRangeTombstoneIterator(const ReadOptions& read_options);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.

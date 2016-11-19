@@ -57,7 +57,6 @@ class RangeDelAggregator {
   // Adds tombstones to the tombstone aggregation structure maintained by this
   // object.
   // @return non-OK status if any of the tombstone keys are corrupted.
-  Status AddTombstones(ScopedArenaIterator input);
   Status AddTombstones(std::unique_ptr<InternalIterator> input);
 
   // Writes tombstones covering a range to a table builder.
@@ -83,7 +82,6 @@ class RangeDelAggregator {
   void AddToBuilder(TableBuilder* builder, const Slice* lower_bound,
                     const Slice* upper_bound, FileMetaData* meta,
                     bool bottommost_level = false);
-  Arena* GetArena() { return &arena_; }
   bool IsEmpty();
 
  private:
@@ -103,13 +101,11 @@ class RangeDelAggregator {
   // once the first range deletion is encountered.
   void InitRep(const std::vector<SequenceNumber>& snapshots);
 
-  Status AddTombstones(InternalIterator* input, bool arena);
   TombstoneMap& GetTombstoneMap(SequenceNumber seq);
 
   SequenceNumber upper_bound_;
-  Arena arena_;  // must be destroyed after pinned_iters_mgr_ which references
-                 // memory in this arena
   std::unique_ptr<Rep> rep_;
   const InternalKeyComparator icmp_;
 };
+
 }  // namespace rocksdb

@@ -381,7 +381,7 @@ class Repairer {
       status = BuildTable(
           dbname_, env_, *cfd->ioptions(), *cfd->GetLatestMutableCFOptions(),
           env_options_, table_cache_, iter.get(),
-          ScopedArenaIterator(mem->NewRangeTombstoneIterator(ro, &arena)),
+          std::unique_ptr<InternalIterator>(mem->NewRangeTombstoneIterator(ro)),
           &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           {}, kMaxSequenceNumber, kNoCompression, CompressionOptions(), false,

@@ -65,7 +65,7 @@ extern Status BuildTable(
     const std::string& dbname, Env* env, const ImmutableCFOptions& options,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
     TableCache* table_cache, InternalIterator* iter,
-    ScopedArenaIterator&& range_del_iter, FileMetaData* meta,
+    std::unique_ptr<InternalIterator> range_del_iter, FileMetaData* meta,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,

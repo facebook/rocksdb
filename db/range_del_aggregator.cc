@@ -86,16 +86,11 @@ bool RangeDelAggregator::ShouldAddTombstones(
   return false;
 }
 
-Status RangeDelAggregator::AddTombstones(ScopedArenaIterator input) {
-  return AddTombstones(input.release(), true /* arena */);
-}
-
 Status RangeDelAggregator::AddTombstones(
     std::unique_ptr<InternalIterator> input) {
-  return AddTombstones(input.release(), false /* arena */);
-}
-
-Status RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
+  if (input == nullptr) {
+    return Status::OK();
+  }
   input->SeekToFirst();
   bool first_iter = true;
   while (input->Valid()) {
@@ -115,11 +110,7 @@ Status RangeDelAggregator::AddTombstones(InternalIterator* input, bool arena) {
     input->Next();
   }
   if (!first_iter) {
-    rep_->pinned_iters_mgr_.PinIterator(input, arena);
-  } else if (arena) {
-    input->~InternalIterator();
-  } else {
-    delete input;
+    rep_->pinned_iters_mgr_.PinIterator(input.release(), false /* arena */);
   }
   return Status::OK();
 }

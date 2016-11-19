@@ -256,7 +256,7 @@ Status FlushJob::WriteLevel0Table() {
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
-      range_del_iters.push_back(m->NewRangeTombstoneIterator(ro, &arena));
+      range_del_iters.push_back(m->NewRangeTombstoneIterator(ro));
       total_num_entries += m->num_entries();
       total_num_deletes += m->num_deletes();
       total_memory_usage += m->ApproximateMemoryUsage();
@@ -274,9 +274,9 @@ Status FlushJob::WriteLevel0Table() {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
                              static_cast<int>(memtables.size()), &arena));
-      ScopedArenaIterator range_del_iter(NewMergingIterator(
+      std::unique_ptr<InternalIterator> range_del_iter(NewMergingIterator(
           &cfd_->internal_comparator(), &range_del_iters[0],
-          static_cast<int>(range_del_iters.size()), &arena));
+          static_cast<int>(range_del_iters.size())));
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
           cfd_->GetName().c_str(), job_context_->job_id, meta_.fd.GetNumber());
