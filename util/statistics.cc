@@ -51,9 +51,11 @@ uint64_t StatisticsImpl::getTickerCount(uint32_t tickerType) const {
 
 std::unique_ptr<HistogramImpl>
 StatisticsImpl::HistogramInfo::getMergedHistogram() const {
-  MutexLock lock(&merge_lock);
   std::unique_ptr<HistogramImpl> res_hist(new HistogramImpl());
-  res_hist->Merge(merged_hist);
+  {
+    MutexLock lock(&merge_lock);
+    res_hist->Merge(merged_hist);
+  }
   thread_value->Fold(
       [](void* curr_ptr, void* res) {
         auto tmp_res_hist = static_cast<HistogramImpl*>(res);
