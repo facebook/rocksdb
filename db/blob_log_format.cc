@@ -137,7 +137,7 @@ Status BlobLogHeader::DecodeFrom(Slice* input)
     has_ttl_= true;
   } else if (st == kTimestampType) {
     has_ts_ = true;
-  } else {
+  } else if (st != kRegularType) {
     return Status::Corruption("bad sub type");
   }
   offset += sizeof(uint32_t);

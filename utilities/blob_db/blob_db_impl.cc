@@ -85,6 +85,22 @@ bool blobf_compare_ttl::operator() (const std::shared_ptr<BlobFile>& lhs,
 Status BlobDBImpl::Put(const WriteOptions& options,
   ColumnFamilyHandle* column_family, const Slice& key, const Slice& value)
 {
+  bool putwithttl = false;
+  int32_t ttl_val = -1;
+  if (value.size() > BlobDB::kTTLSuffixLength) {
+    ttl_val = DecodeFixed32(value.data() + value.size() - sizeof(int32_t));
+    std::string ttl_exp(value.data() + value.size() - BlobDB::kTTLSuffixLength, 4);
+    if (ttl_exp == "ttl:")
+      putwithttl = true;
+  }
+
+  if (putwithttl) {
+    Slice newval(value.data(), value.size());
+    newval.remove_suffix(BlobDB::kTTLSuffixLength);
+
+    return PutWithTTL(options, column_family, key, newval, ttl_val);
+  }
+
   updateWriteOptions(options);
 
   std::shared_ptr<BlobFile> bfile = selectBlobFile();
@@ -1060,7 +1076,7 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(BlobFile *bfptr, std::time_t tt)
 
   if (num_deletes != 0) {
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "File: %s Number of delets %d", bfptr->PathName().c_str(), num_deletes);
+        "File: %s Number of deletes %d", bfptr->PathName().c_str(), num_deletes);
   }
 
   // Now write the
@@ -1334,32 +1350,53 @@ std::pair<bool, int64_t> BlobDBImpl::waStats(bool aborted) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 bool BlobDBImpl::shouldGCFile_locked(std::shared_ptr<BlobFile> bfile,
-                                     std::time_t tt, uint64_t last_id) {
+  std::time_t tt, uint64_t last_id, std::string *reason) {
   if (bfile->HasTTL()) {
     ttlrange_t ttl_range = bfile->GetTTLRange();
-    if (tt > ttl_range.second) return true;
+    if (tt > ttl_range.second) {
+      *reason = "entire file ttl expired";
+      return true;
+    }
 
-    if (bdb_options_.ttl_range < bdb_options_.partial_expiration_gc_range)
+    if (bdb_options_.ttl_range < bdb_options_.partial_expiration_gc_range) {
+      *reason = "has ttl but partial expiration not turned on";
       return false;
+    }
 
     if (!bfile->file_size_.load()) {
       Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
           "Invalid file size = 0 %s", bfile->PathName().c_str());
+      *reason = "file is empty";
       return false;
     }
 
-    return ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
+    bool ret = ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
             bdb_options_.partial_expiration_pct);
+    if (ret)
+      *reason = "deleted blobs beyond threshold";
+    else
+      *reason = "deleted blobs below threshold";
+    return ret;
   }
 
   if ((bfile->deleted_size_ * 100.0 / bfile->file_size_.load()) >
-      bdb_options_.partial_expiration_pct)
+      bdb_options_.partial_expiration_pct) {
+    *reason = "deleted simple blobs beyond threshold";
     return true;
+  }
 
   // if we haven't reached limits of disk space, don't DELETE
-  if (total_blob_space_.load() < bdb_options_.blob_dir_size) return false;
+  if (total_blob_space_.load() < bdb_options_.blob_dir_size) {
+    *reason = "disk space not exceeded";
+    return false;
+  }
 
-  return bfile->BlobFileNumber() == last_id;
+  bool ret = bfile->BlobFileNumber() == last_id;
+  if (ret)
+    *reason = "eligible last simple blob file";
+  else
+    *reason = "not eligible since not last simple blob file";
+  return ret;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1488,17 +1525,18 @@ std::pair<bool, int64_t> BlobDBImpl::runGC(bool aborted) {
       // or this file is still active for appends.
       if (bfile->Obsolete() || !bfile->Immutable()) continue;
 
-      bool shouldgc = shouldGCFile_locked(bfile, tt, last_id);
+      std::string reason;
+      bool shouldgc = shouldGCFile_locked(bfile, tt, last_id, &reason);
       if (!shouldgc) {
         Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-            "File has been skipped for GC ttl %s %d %d", pn.c_str(), tt,
-            bfile->GetTTLRange().second);
+          "File has been skipped for GC ttl %s %d %d reason='%s'",
+          pn.c_str(), tt, bfile->GetTTLRange().second, reason.c_str());
         continue;
       }
 
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-          "File has been chosen for GC ttl %s %d %d", pn.c_str(), tt,
-          bfile->GetTTLRange().second);
+        "File has been chosen for GC ttl %s %d %d reason='%s'",
+        pn.c_str(), tt, bfile->GetTTLRange().second, reason.c_str());
     }
 
     Status s = writeBatchOfDeleteKeys(bfile.get(), tt);

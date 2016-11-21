@@ -95,6 +95,138 @@ class BlobDBTest : public testing::Test {
   std::string dbname_;
 };  // class BlobDBTest
 
+TEST_F(BlobDBTest, DeleteComplex) {
+
+  BlobDBOptions bdboptions;
+  bdboptions.partial_expiration_pct = 75;
+  bdboptions.gc_check_period = 20;
+  bdboptions.blob_file_size = 219 * 1024;
+
+  Reopen(bdboptions);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  std::string value;
+
+  ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
+
+  for (size_t i = 0; i < 100; i++) {
+    int len = rand() % 16384;
+    if (!len)
+      continue;
+
+    char *val = new char[len+1];
+    gen_random(val, len);
+
+    std::string key("key");
+    key += std::to_string(i);
+
+    Slice keyslice(key);
+    Slice valslice(val, len+1);
+
+    ASSERT_OK(db_->Put(wo, dcfh, keyslice, valslice));
+    delete [] val;
+  }
+
+  for (size_t i = 0; i < 99; i++) {
+    std::string key("key");
+    key += std::to_string(i);
+
+    Slice keyslice(key);
+    db_->Delete(wo, dcfh, keyslice);
+  }
+
+  sleep(60);
+}
+
+TEST_F(BlobDBTest, DeleteTest) {
+
+  BlobDBOptions bdboptions;
+  bdboptions.ttl_range = 30;
+  bdboptions.gc_file_pct = 100;
+  bdboptions.partial_expiration_pct = 18;
+  bdboptions.gc_check_period = 20;
+  bdboptions.num_concurrent_simple_blobs = 1;
+  bdboptions.blob_file_size = 876 * 1024;
+
+  Reopen(bdboptions);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  std::string value;
+
+  ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
+
+  for (size_t i = 0; i < 100; i++) {
+    int len = rand() % 16384;
+    if (!len)
+      continue;
+
+    char *val = new char[len+1];
+    gen_random(val, len);
+
+    std::string key("key");
+    key += std::to_string(i);
+
+    Slice keyslice(key);
+    Slice valslice(val, len+1);
+
+    ASSERT_OK(db_->Put(wo, dcfh, keyslice, valslice));
+    delete [] val;
+  }
+
+  for (size_t i = 0; i < 100; i+= 5) {
+    std::string key("key");
+    key += std::to_string(i);
+
+    Slice keyslice(key);
+    db_->Delete(wo, dcfh, keyslice);
+  }
+
+  sleep(60);
+}
+
+TEST_F(BlobDBTest, GCTestWithPut) {
+
+  BlobDBOptions bdboptions;
+  bdboptions.ttl_range = 30;
+  bdboptions.gc_file_pct = 100;
+  bdboptions.gc_check_period = 20;
+
+  Reopen(bdboptions);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  std::string value;
+
+  ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
+
+  for (size_t i = 0; i < 100; i++) {
+    int len = rand() % 16384;
+    if (!len)
+      continue;
+
+    int ttl = 30;
+
+    char *val = new char[len + BlobDB::kTTLSuffixLength];
+    gen_random(val, len);
+    strncpy(val+len, "ttl:", 4);
+    EncodeFixed32(val + len + 4, ttl);
+
+    std::string key("key");
+    key += std::to_string(i);
+
+    Slice keyslice(key);
+    Slice valslice(val, len + BlobDB::kTTLSuffixLength);
+
+
+    ASSERT_OK(db_->Put(wo, dcfh, keyslice, valslice));
+    delete [] val;
+  }
+
+  sleep(120);
+}
+
 TEST_F(BlobDBTest, GCTest) {
 
   BlobDBOptions bdboptions;

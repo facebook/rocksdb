@@ -99,6 +99,10 @@ struct BlobDBOptions {
 };
 
 class BlobDB : public StackableDB {
+
+ public:
+  static const uint64_t kTTLSuffixLength = 8;
+
  public:
   using rocksdb::StackableDB::Put;
 

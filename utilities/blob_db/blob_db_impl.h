@@ -129,7 +129,7 @@ class BlobDBImpl : public BlobDB {
   // tt - current time
   // last_id - the id of the non-TTL file to evict
   bool shouldGCFile_locked(std::shared_ptr<BlobFile> bfile, std::time_t tt,
-                           uint64_t last_id);
+    uint64_t last_id, std::string *reason);
 
   Status getAllLogFiles(std::set<std::pair<uint64_t, std::string>>* file_nums);
 
@@ -328,7 +328,7 @@ public:
 
   tsrange_t GetTimeRange() const { assert(HasTimestamps()); return time_range_; }
 
-  ttlrange_t GetTTLRange() const { assert(HasTTL()); return ttl_range_; }
+  ttlrange_t GetTTLRange() const { return ttl_range_; }
 
   snrange_t GetSNRange() const { return sn_range_; }
 
