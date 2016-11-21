@@ -4785,6 +4785,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   bool need_log_sync = !write_options.disableWAL && write_options.sync;
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
 
+  bool logs_getting_synced = false;
   if (status.ok()) {
     if (need_log_sync) {
       while (logs_.front().getting_synced) {
@@ -4794,6 +4795,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         assert(!log.getting_synced);
         log.getting_synced = true;
       }
+      logs_getting_synced = true;
     }
 
     // Add to log and apply to memtable.  We can release the lock
@@ -5022,7 +5024,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     mutex_.Unlock();
   }
 
-  if (need_log_sync && status.ok()) {
+  if (logs_getting_synced) {
     mutex_.Lock();
     MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
     mutex_.Unlock();
