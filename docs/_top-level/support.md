@@ -11,11 +11,11 @@ Do not hesitate to ask questions if you are having trouble with RocksDB.
 
 ### GitHub issues
 
-The [GitHub issues](https://github.com/facebook/rocksdb/issues) page is a good place to report bugs, issues and feature requests for the RocksDB codebase.
+Use [GitHub issues](https://github.com/facebook/rocksdb/issues) to report bugs, issues and feature requests for the RocksDB codebase.
 
 ### Facebook Group
 
-Use the [RocksDB Facebook Group](https://www.facebook.com/groups/rocksdb.dev/) for general questions and discussion about RocksDB.
+Use the [RocksDB Facebook group](https://www.facebook.com/groups/rocksdb.dev/) for general questions and discussion about RocksDB.
 
 ### FAQ
 
