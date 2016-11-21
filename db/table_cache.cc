@@ -178,7 +178,9 @@ InternalIterator* TableCache::NewIterator(
   if (range_del_agg != nullptr && !options.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> range_del_iter(NewRangeDeletionIterator(
         options, icomparator, fd, file_read_hist, skip_filters, level));
-    s = range_del_iter->status();
+    if (range_del_iter != nullptr) {
+      s = range_del_iter->status();
+    }
     if (s.ok()) {
       s = range_del_agg->AddTombstones(std::move(range_del_iter));
     }
@@ -253,7 +255,7 @@ InternalIterator* TableCache::NewRangeDeletionIterator(
     const FileDescriptor& fd, HistogramImpl* file_read_hist, bool skip_filters,
     int level) {
   if (options.ignore_range_deletions) {
-    return NewEmptyInternalIterator();
+    return nullptr;
   }
   Status s;
   TableReader* table_reader = fd.table_reader;
@@ -270,7 +272,11 @@ InternalIterator* TableCache::NewRangeDeletionIterator(
   if (s.ok()) {
     auto* result = table_reader->NewRangeTombstoneIterator(options);
     if (cache_handle != nullptr) {
-      result->RegisterCleanup(&UnrefEntry, cache_, cache_handle);
+      if (result == nullptr) {
+        ReleaseHandle(cache_handle);
+      } else {
+        result->RegisterCleanup(&UnrefEntry, cache_, cache_handle);
+      }
     }
     return result;
   }
@@ -287,7 +293,9 @@ Status TableCache::Get(const ReadOptions& options,
       !options.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> range_del_iter(NewRangeDeletionIterator(
         options, internal_comparator, fd, file_read_hist, skip_filters, level));
-    s = range_del_iter->status();
+    if (range_del_iter != nullptr) {
+      s = range_del_iter->status();
+    }
     if (s.ok()) {
       s = get_context->range_del_agg()->AddTombstones(
           std::move(range_del_iter));

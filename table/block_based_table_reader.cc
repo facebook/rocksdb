@@ -1489,7 +1489,7 @@ InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
 InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options) {
   if (rep_->range_del_handle.IsNull()) {
-    return NewEmptyInternalIterator();
+    return nullptr;
   }
   std::string str;
   rep_->range_del_handle.EncodeTo(&str);
@@ -1967,18 +1967,20 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   }
   // Output range deletions block
   auto* range_del_iter = NewRangeTombstoneIterator(ReadOptions());
-  range_del_iter->SeekToFirst();
-  if (range_del_iter->Valid()) {
-    out_file->Append(
-        "Range deletions:\n"
-        "--------------------------------------\n"
-        "  ");
-    for (; range_del_iter->Valid(); range_del_iter->Next()) {
-      DumpKeyValue(range_del_iter->key(), range_del_iter->value(), out_file);
+  if (range_del_iter != nullptr) {
+    range_del_iter->SeekToFirst();
+    if (range_del_iter->Valid()) {
+      out_file->Append(
+          "Range deletions:\n"
+          "--------------------------------------\n"
+          "  ");
+      for (; range_del_iter->Valid(); range_del_iter->Next()) {
+        DumpKeyValue(range_del_iter->key(), range_del_iter->value(), out_file);
+      }
+      out_file->Append("\n");
     }
-    out_file->Append("\n");
+    delete range_del_iter;
   }
-  delete range_del_iter;
   // Output Data blocks
   s = DumpDataBlocks(out_file);
 

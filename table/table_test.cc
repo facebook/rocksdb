@@ -2459,6 +2459,9 @@ TEST_F(MemTableTest, Simple) {
       iter = memtable->NewRangeTombstoneIterator(ReadOptions());
       iter_guard.reset(iter);
     }
+    if (iter == nullptr) {
+      continue;
+    }
     iter->SeekToFirst();
     while (iter->Valid()) {
       fprintf(stderr, "key: '%s' -> '%s'\n", iter->key().ToString().c_str(),

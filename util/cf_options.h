@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "db/dbformat.h"
 #include "rocksdb/options.h"
 #include "util/compression.h"
 #include "util/db_options.h"
@@ -35,6 +36,7 @@ struct ImmutableCFOptions {
   const SliceTransform* prefix_extractor;
 
   const Comparator* user_comparator;
+  InternalKeyComparator internal_comparator;
 
   MergeOperator* merge_operator;
 

@@ -261,8 +261,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   int total = 0;
   Arena arena;
   {
-    RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
-                                     {} /* snapshots */);
+    InternalKeyComparator icmp(options.comparator);
+    RangeDelAggregator range_del_agg(icmp, {} /* snapshots */);
     ScopedArenaIterator iter(
         dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[1]));
     iter->SeekToFirst();
@@ -351,8 +351,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   // level Lmax because this record is at the tip
   count = 0;
   {
-    RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
-                                     {} /* snapshots */);
+    InternalKeyComparator icmp(options.comparator);
+    RangeDelAggregator range_del_agg(icmp, {} /* snapshots */);
     ScopedArenaIterator iter(
         dbfull()->NewInternalIterator(&arena, &range_del_agg, handles_[1]));
     iter->SeekToFirst();
@@ -570,8 +570,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     int count = 0;
     int total = 0;
     Arena arena;
-    RangeDelAggregator range_del_agg(InternalKeyComparator(options.comparator),
-                                     {} /* snapshots */);
+    InternalKeyComparator icmp(options.comparator);
+    RangeDelAggregator range_del_agg(icmp, {} /* snapshots */);
     ScopedArenaIterator iter(
         dbfull()->NewInternalIterator(&arena, &range_del_agg));
     iter->SeekToFirst();

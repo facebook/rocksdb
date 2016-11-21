@@ -82,7 +82,6 @@ Status BuildTable(
   Status s;
   meta->fd.file_size = 0;
   iter->SeekToFirst();
-  range_del_iter->SeekToFirst();
   std::unique_ptr<RangeDelAggregator> range_del_agg(
       new RangeDelAggregator(internal_comparator, snapshots));
   s = range_del_agg->AddTombstones(std::move(range_del_iter));
