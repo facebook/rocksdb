@@ -553,9 +553,15 @@ inline bool LZ4_Compress(const CompressionOptions& opts,
     LZ4_loadDict(stream, compression_dict.data(),
                  static_cast<int>(compression_dict.size()));
   }
+#if LZ4_VERSION_NUMBER >= 10700  // r129+
+  outlen = LZ4_compress_fast_continue(
+      stream, input, &(*output)[output_header_len], static_cast<int>(length),
+      compress_bound, 1);
+#else  // up to r128
   outlen = LZ4_compress_limitedOutput_continue(
       stream, input, &(*output)[output_header_len], static_cast<int>(length),
       compress_bound);
+#endif
   LZ4_freeStream(stream);
 #else   // up to r123
   outlen = LZ4_compress_limitedOutput(input, &(*output)[output_header_len],
