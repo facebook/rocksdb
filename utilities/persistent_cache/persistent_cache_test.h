@@ -132,7 +132,12 @@ class PersistentCacheTierTest : public testing::Test {
       memset(data, '0' + (i % 10), sizeof(data));
       auto k = prefix + PaddedNumber(i, /*count=*/8);
       Slice key(k);
-      while (!cache_->Insert(key, data, sizeof(data)).ok()) {
+      while (true) {
+        Status status = cache_->Insert(key, data, sizeof(data));
+        if (status.ok()) {
+          break;
+        }
+        ASSERT_TRUE(status.IsTryAgain());
         Env::Default()->SleepForMicroseconds(1 * 1000 * 1000);
       }
     }
@@ -175,6 +180,17 @@ class PersistentCacheTierTest : public testing::Test {
     Verify(nthreads);
     ASSERT_EQ(stats_verify_hits_, max_keys);
     ASSERT_EQ(stats_verify_missed_, 0);
+
+    cache_->Close();
+    cache_.reset();
+  }
+
+  // template for negative insert test
+  void RunNegativeInsertTest(const size_t nthreads, const size_t max_keys) {
+    Insert(nthreads, max_keys);
+    Verify(nthreads, /*eviction_enabled=*/true);
+    ASSERT_LT(stats_verify_hits_, max_keys);
+    ASSERT_GT(stats_verify_missed_, 0);
 
     cache_->Close();
     cache_.reset();

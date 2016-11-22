@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 #include "utilities/persistent_cache/block_cache_tier_file.h"
 
 namespace rocksdb {
@@ -54,8 +55,15 @@ Status BlockCacheTier::Open() {
     }
   }
 
+  // create a new file
   assert(!cache_file_);
-  NewCacheFile();
+  status = NewCacheFile();
+  if (!status.ok()) {
+    Error(opt_.log, "Error creating new file %s. %s", opt_.path.c_str(),
+          status.ToString().c_str());
+    return status;
+  }
+
   assert(cache_file_);
 
   if (opt_.pipeline_writes) {
@@ -231,7 +239,10 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
     }
 
     assert(cache_file_->Eof());
-    NewCacheFile();
+    Status status = NewCacheFile();
+    if (!status.ok()) {
+      return status;
+    }
   }
 
   // Insert into lookup index
@@ -280,7 +291,6 @@ Status BlockCacheTier::Lookup(const Slice& key, unique_ptr<char[]>* val,
 
   status = file->Read(lba, &blk_key, &blk_val, scratch.get());
   --file->refs_;
-  assert(status);
   if (!status) {
     stats_.cache_misses_++;
     stats_.cache_errors_++;
@@ -309,25 +319,36 @@ bool BlockCacheTier::Erase(const Slice& key) {
   return true;
 }
 
-void BlockCacheTier::NewCacheFile() {
+Status BlockCacheTier::NewCacheFile() {
   lock_.AssertHeld();
 
-  Info(opt_.log, "Creating cache file %d", writer_cache_id_);
+  TEST_SYNC_POINT_CALLBACK("BlockCacheTier::NewCacheFile:DeleteDir",
+                           (void*)(GetCachePath().c_str()));
+
+  std::unique_ptr<WriteableCacheFile> f(
+    new WriteableCacheFile(opt_.env, &buffer_allocator_, &writer_,
+                           GetCachePath(), writer_cache_id_,
+                           opt_.cache_file_size, opt_.log));
+
+  bool status = f->Create(opt_.enable_direct_writes, opt_.enable_direct_reads);
+  if (!status) {
+    return Status::IOError("Error creating file");
+  }
+
+  Info(opt_.log, "Created cache file %d", writer_cache_id_);
 
   writer_cache_id_++;
-
-  cache_file_ = new WriteableCacheFile(opt_.env, &buffer_allocator_, &writer_,
-                                       GetCachePath(), writer_cache_id_,
-                                       opt_.cache_file_size, opt_.log);
-  bool status;
-  status =
-      cache_file_->Create(opt_.enable_direct_writes, opt_.enable_direct_reads);
-  assert(status);
+  cache_file_ = f.release();
 
   // insert to cache files tree
   status = metadata_.Insert(cache_file_);
-  (void)status;
   assert(status);
+  if (!status) {
+    Error(opt_.log, "Error inserting to metadata");
+    return Status::IOError("Error inserting to metadata");
+  }
+
+  return Status::OK();
 }
 
 bool BlockCacheTier::Reserve(const size_t size) {
