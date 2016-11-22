@@ -759,7 +759,7 @@ struct ColumnFamilyOptions {
   //
   // The option is best suited for workloads where keys will likely to insert
   // to a location close the the last inserted key with the same prefix.
-  // One example could be inserting keys of the form (prefix + timestamp), 
+  // One example could be inserting keys of the form (prefix + timestamp),
   // and keys of the same prefix always comes in with time order. Another
   // example would be updating the same key over and over again, in which case
   // the prefix can be the key itself.

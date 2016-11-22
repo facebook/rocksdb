@@ -630,8 +630,7 @@ void InlineSkipList<Comparator>::InsertConcurrently(const char* key) {
 }
 
 template <class Comparator>
-void InlineSkipList<Comparator>::InsertWithHint(const char* key,
-                                                void** hint) {
+void InlineSkipList<Comparator>::InsertWithHint(const char* key, void** hint) {
   assert(hint != nullptr);
   Splice* splice = reinterpret_cast<Splice*>(*hint);
   if (splice == nullptr) {
