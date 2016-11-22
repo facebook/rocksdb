@@ -294,8 +294,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
       num_new_table_reader = 0;
       ASSERT_EQ(Key(k), Get(Key(k)));
       // lookup iterator from table cache and no need to create a new one.
-      // a second table cache iterator is created for range tombstones
-      ASSERT_EQ(num_table_cache_lookup, 2);
+      ASSERT_EQ(num_table_cache_lookup, 1);
       ASSERT_EQ(num_new_table_reader, 0);
     }
   }
@@ -306,9 +305,9 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   dbfull()->TEST_WaitForCompact();
   // Preloading iterator issues one table cache lookup and creates
   // a new table reader. One file is created for flush and one for compaction.
-  // Compaction inputs make no table cache look-up for data iterators and one
-  // look-up per compaction input file (three).
-  ASSERT_EQ(num_table_cache_lookup, 5);
+  // Compaction inputs make no table cache look-up for data/range deletion
+  // iterators
+  ASSERT_EQ(num_table_cache_lookup, 2);
   // Create new iterator for:
   // (1) 1 for verifying flush results
   // (2) 3 for compaction input files
@@ -318,8 +317,7 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   num_table_cache_lookup = 0;
   num_new_table_reader = 0;
   ASSERT_EQ(Key(1), Get(Key(1)));
-  // a second table cache iterator is created for range tombstones
-  ASSERT_EQ(num_table_cache_lookup, 2);
+  ASSERT_EQ(num_table_cache_lookup, 1);
   ASSERT_EQ(num_new_table_reader, 0);
 
   num_table_cache_lookup = 0;
@@ -329,17 +327,16 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   cro.target_level = 2;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   db_->CompactRange(cro, nullptr, nullptr);
-  // Only verifying compaction outputs issues two table cache lookup
-  // (one for data block, one for range deletion block).
-  ASSERT_EQ(num_table_cache_lookup, 2);
+  // Only verifying compaction outputs issues one table cache lookup
+  // for both data block and range deletion block).
+  ASSERT_EQ(num_table_cache_lookup, 1);
   // One for compaction input, one for verifying compaction results.
   ASSERT_EQ(num_new_table_reader, 2);
 
   num_table_cache_lookup = 0;
   num_new_table_reader = 0;
   ASSERT_EQ(Key(1), Get(Key(1)));
-  // a second table cache iterator is created for range tombstones
-  ASSERT_EQ(num_table_cache_lookup, 2);
+  ASSERT_EQ(num_table_cache_lookup, 1);
   ASSERT_EQ(num_new_table_reader, 0);
 
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();

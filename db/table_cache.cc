@@ -175,17 +175,6 @@ InternalIterator* TableCache::NewIterator(
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   Status s;
-  if (range_del_agg != nullptr && !options.ignore_range_deletions) {
-    std::unique_ptr<InternalIterator> range_del_iter(NewRangeDeletionIterator(
-        options, icomparator, fd, file_read_hist, skip_filters, level));
-    if (range_del_iter != nullptr) {
-      s = range_del_iter->status();
-    }
-    if (s.ok()) {
-      s = range_del_agg->AddTombstones(std::move(range_del_iter));
-    }
-  }
-
   bool create_new_table_reader = false;
   TableReader* table_reader = nullptr;
   Cache::Handle* handle = nullptr;
@@ -226,14 +215,15 @@ InternalIterator* TableCache::NewIterator(
       }
     }
   }
+  InternalIterator* result = nullptr;
   if (s.ok()) {
-    InternalIterator* result =
-        table_reader->NewIterator(options, arena, skip_filters);
+    result = table_reader->NewIterator(options, arena, skip_filters);
     if (create_new_table_reader) {
       assert(handle == nullptr);
       result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
     } else if (handle != nullptr) {
       result->RegisterCleanup(&UnrefEntry, cache_, handle);
+      handle = nullptr;  // prevent from releasing below
     }
 
     if (for_compaction) {
@@ -242,45 +232,26 @@ InternalIterator* TableCache::NewIterator(
     if (table_reader_ptr != nullptr) {
       *table_reader_ptr = table_reader;
     }
-    return result;
   }
+  if (s.ok() && range_del_agg != nullptr && !options.ignore_range_deletions) {
+    std::unique_ptr<InternalIterator> range_del_iter(
+        table_reader->NewRangeTombstoneIterator(options));
+    if (range_del_iter != nullptr) {
+      s = range_del_iter->status();
+    }
+    if (s.ok()) {
+      s = range_del_agg->AddTombstones(std::move(range_del_iter));
+    }
+  }
+
   if (handle != nullptr) {
     ReleaseHandle(handle);
   }
-  return NewErrorInternalIterator(s, arena);
-}
-
-InternalIterator* TableCache::NewRangeDeletionIterator(
-    const ReadOptions& options, const InternalKeyComparator& icmp,
-    const FileDescriptor& fd, HistogramImpl* file_read_hist, bool skip_filters,
-    int level) {
-  if (options.ignore_range_deletions) {
-    return nullptr;
+  if (!s.ok()) {
+    assert(result == nullptr);
+    result = NewErrorInternalIterator(s, arena);
   }
-  Status s;
-  TableReader* table_reader = fd.table_reader;
-  Cache::Handle* cache_handle = nullptr;
-  if (table_reader == nullptr) {
-    s = FindTable(env_options_, icmp, fd, &cache_handle,
-                  options.read_tier == kBlockCacheTier /* no_io */,
-                  true /* record_read_stats */, file_read_hist, skip_filters,
-                  level);
-    if (s.ok()) {
-      table_reader = GetTableReaderFromHandle(cache_handle);
-    }
-  }
-  if (s.ok()) {
-    auto* result = table_reader->NewRangeTombstoneIterator(options);
-    if (cache_handle != nullptr) {
-      if (result == nullptr) {
-        ReleaseHandle(cache_handle);
-      } else {
-        result->RegisterCleanup(&UnrefEntry, cache_, cache_handle);
-      }
-    }
-    return result;
-  }
-  return NewErrorInternalIterator(s);
+  return result;
 }
 
 Status TableCache::Get(const ReadOptions& options,
@@ -288,67 +259,52 @@ Status TableCache::Get(const ReadOptions& options,
                        const FileDescriptor& fd, const Slice& k,
                        GetContext* get_context, HistogramImpl* file_read_hist,
                        bool skip_filters, int level) {
-  Status s;
-  if (get_context->range_del_agg() != nullptr &&
-      !options.ignore_range_deletions) {
-    std::unique_ptr<InternalIterator> range_del_iter(NewRangeDeletionIterator(
-        options, internal_comparator, fd, file_read_hist, skip_filters, level));
-    if (range_del_iter != nullptr) {
-      s = range_del_iter->status();
-    }
-    if (s.ok()) {
-      s = get_context->range_del_agg()->AddTombstones(
-          std::move(range_del_iter));
-    }
-  }
-
-  TableReader* t = fd.table_reader;
-  Cache::Handle* handle = nullptr;
   std::string* row_cache_entry = nullptr;
   bool done = false;
 #ifndef ROCKSDB_LITE
   IterKey row_cache_key;
   std::string row_cache_entry_buffer;
-  if (s.ok()) {
-    // Check row cache if enabled. Since row cache does not currently store
-    // sequence numbers, we cannot use it if we need to fetch the sequence.
-    if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
-      uint64_t fd_number = fd.GetNumber();
-      auto user_key = ExtractUserKey(k);
-      // We use the user key as cache key instead of the internal key,
-      // otherwise the whole cache would be invalidated every time the
-      // sequence key increases. However, to support caching snapshot
-      // reads, we append the sequence number (incremented by 1 to
-      // distinguish from 0) only in this case.
-      uint64_t seq_no =
-          options.snapshot == nullptr ? 0 : 1 + GetInternalKeySeqno(k);
+  // Check row cache if enabled. Since row cache does not currently store
+  // sequence numbers, we cannot use it if we need to fetch the sequence.
+  if (ioptions_.row_cache && !get_context->NeedToReadSequence()) {
+    uint64_t fd_number = fd.GetNumber();
+    auto user_key = ExtractUserKey(k);
+    // We use the user key as cache key instead of the internal key,
+    // otherwise the whole cache would be invalidated every time the
+    // sequence key increases. However, to support caching snapshot
+    // reads, we append the sequence number (incremented by 1 to
+    // distinguish from 0) only in this case.
+    uint64_t seq_no =
+        options.snapshot == nullptr ? 0 : 1 + GetInternalKeySeqno(k);
 
-      // Compute row cache key.
-      row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
-                               row_cache_id_.size());
-      AppendVarint64(&row_cache_key, fd_number);
-      AppendVarint64(&row_cache_key, seq_no);
-      row_cache_key.TrimAppend(row_cache_key.Size(), user_key.data(),
-                               user_key.size());
+    // Compute row cache key.
+    row_cache_key.TrimAppend(row_cache_key.Size(), row_cache_id_.data(),
+                             row_cache_id_.size());
+    AppendVarint64(&row_cache_key, fd_number);
+    AppendVarint64(&row_cache_key, seq_no);
+    row_cache_key.TrimAppend(row_cache_key.Size(), user_key.data(),
+                             user_key.size());
 
-      if (auto row_handle =
-              ioptions_.row_cache->Lookup(row_cache_key.GetKey())) {
-        auto found_row_cache_entry = static_cast<const std::string*>(
-            ioptions_.row_cache->Value(row_handle));
-        replayGetContextLog(*found_row_cache_entry, user_key, get_context);
-        ioptions_.row_cache->Release(row_handle);
-        RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
-        done = true;
-      } else {
-        // Not found, setting up the replay log.
-        RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
-        row_cache_entry = &row_cache_entry_buffer;
-      }
+    if (auto row_handle =
+            ioptions_.row_cache->Lookup(row_cache_key.GetKey())) {
+      auto found_row_cache_entry = static_cast<const std::string*>(
+          ioptions_.row_cache->Value(row_handle));
+      replayGetContextLog(*found_row_cache_entry, user_key, get_context);
+      ioptions_.row_cache->Release(row_handle);
+      RecordTick(ioptions_.statistics, ROW_CACHE_HIT);
+      done = true;
+    } else {
+      // Not found, setting up the replay log.
+      RecordTick(ioptions_.statistics, ROW_CACHE_MISS);
+      row_cache_entry = &row_cache_entry_buffer;
     }
   }
 #endif  // ROCKSDB_LITE
+  Status s;
+  TableReader* t = fd.table_reader;
+  Cache::Handle* handle = nullptr;
   if (!done && s.ok()) {
-    if (!t) {
+    if (t == nullptr) {
       s = FindTable(env_options_, internal_comparator, fd, &handle,
                     options.read_tier == kBlockCacheTier /* no_io */,
                     true /* record_read_stats */, file_read_hist, skip_filters,
@@ -368,6 +324,19 @@ Status TableCache::Get(const ReadOptions& options,
       done = true;
     }
   }
+  if (!done && s.ok() && get_context->range_del_agg() != nullptr &&
+      !options.ignore_range_deletions) {
+    std::unique_ptr<InternalIterator> range_del_iter(
+        t->NewRangeTombstoneIterator(options));
+    if (range_del_iter != nullptr) {
+      s = range_del_iter->status();
+    }
+    if (s.ok()) {
+      s = get_context->range_del_agg()->AddTombstones(
+          std::move(range_del_iter));
+    }
+  }
+
 #ifndef ROCKSDB_LITE
   // Put the replay log in row cache only if something was found.
   if (!done && s.ok() && row_cache_entry && !row_cache_entry->empty()) {
