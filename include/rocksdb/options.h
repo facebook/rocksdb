@@ -752,10 +752,10 @@ struct ColumnFamilyOptions {
   // domain of the prefix extractor will be insert without using hints.
   //
   // Currently only the default skiplist based memtable implements the feature.
-  // All other memtable implementation will ignore the option. It incurs ~200
+  // All other memtable implementation will ignore the option. It incurs ~250
   // additional bytes of memory overhead to store a hint for each prefix.
-  // If allow_concurrent_memtable_write is true, the option will also be
-  // ignored.
+  // Also concurrent writes (when allow_concurrent_memtable_write is true) will
+  // ignore the option.
   //
   // The option is best suited for workloads where keys will likely to insert
   // to a location close the the last inserted key with the same prefix.
