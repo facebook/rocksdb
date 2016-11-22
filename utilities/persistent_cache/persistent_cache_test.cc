@@ -244,6 +244,8 @@ TEST_F(PersistentCacheTierTest, FactoryTest) {
                                  /*size=*/1 * 1024 * 1024 * 1024, log, nvm_opt,
                                  &cache));
     ASSERT_TRUE(cache);
+    ASSERT_EQ(cache->Stats().size(), 1);
+    ASSERT_TRUE(cache->Stats()[0].size());
     cache.reset();
   }
 }

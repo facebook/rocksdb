@@ -1470,6 +1470,10 @@ class MockPersistentCache : public PersistentCache {
 
   virtual ~MockPersistentCache() {}
 
+  PersistentCache::StatsType Stats() override {
+    return PersistentCache::StatsType();
+  }
+
   Status Insert(const Slice& page_key, const char* data,
                 const size_t size) override {
     MutexLock _(&lock_);

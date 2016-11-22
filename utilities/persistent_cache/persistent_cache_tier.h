@@ -231,7 +231,6 @@ struct PersistentCacheConfig {
 class PersistentCacheTier : public PersistentCache {
  public:
   typedef std::shared_ptr<PersistentCacheTier> Tier;
-  typedef std::map<std::string, double> TierStats;
 
   virtual ~PersistentCacheTier() {}
 
@@ -250,8 +249,7 @@ class PersistentCacheTier : public PersistentCache {
   // Print stats to string recursively
   virtual std::string PrintStats();
 
-  // Expose stats
-  virtual std::vector<TierStats> Stats();
+  virtual PersistentCache::StatsType Stats();
 
   // Insert to page cache
   virtual Status Insert(const Slice& page_key, const char* data,
@@ -296,7 +294,7 @@ class PersistentTieredCache : public PersistentCacheTier {
   Status Close() override;
   bool Erase(const Slice& key) override;
   std::string PrintStats() override;
-  std::vector<TierStats> Stats() override;
+  PersistentCache::StatsType Stats() override;
   Status Insert(const Slice& page_key, const char* data,
                 const size_t size) override;
   Status Lookup(const Slice& page_key, std::unique_ptr<char[]>* data,

@@ -8,6 +8,7 @@
 #include "utilities/persistent_cache/persistent_cache_tier.h"
 
 #include <string>
+#include <sstream>
 
 namespace rocksdb {
 
@@ -40,17 +41,21 @@ bool PersistentCacheTier::Erase(const Slice& key) {
 }
 
 std::string PersistentCacheTier::PrintStats() {
-  if (next_tier_) {
-    return next_tier_->PrintStats();
+  std::ostringstream os;
+  for (auto tier_stats : Stats()) {
+    os << "---- next tier -----" << std::endl;
+    for (auto stat : tier_stats) {
+      os << stat.first << ": " << stat.second << std::endl;
+    }
   }
-  return std::string();
+  return os.str();
 }
 
-std::vector<PersistentCacheTier::TierStats> PersistentCacheTier::Stats() {
+PersistentCache::StatsType PersistentCacheTier::Stats() {
   if (next_tier_) {
     return next_tier_->Stats();
   }
-  return std::vector<TierStats>{};
+  return PersistentCache::StatsType{};
 }
 
 //
@@ -77,7 +82,7 @@ bool PersistentTieredCache::Erase(const Slice& key) {
   return tiers_.front()->Erase(key);
 }
 
-std::vector<PersistentCacheTier::TierStats> PersistentTieredCache::Stats() {
+PersistentCache::StatsType PersistentTieredCache::Stats() {
   assert(!tiers_.empty());
   return tiers_.front()->Stats();
 }

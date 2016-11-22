@@ -24,6 +24,8 @@ namespace rocksdb {
 // cache interface is specifically designed for persistent read cache.
 class PersistentCache {
  public:
+  typedef std::vector<std::map<std::string, double>> StatsType;
+
   virtual ~PersistentCache() {}
 
   // Insert to page cache
@@ -46,6 +48,12 @@ class PersistentCache {
   //
   // True if the cache is configured to store uncompressed data else false
   virtual bool IsCompressed() = 0;
+
+  // Return stats as map of {string, double} per-tier
+  //
+  // Persistent cache can be initialized as a tier of caches. The stats are per
+  // tire top-down
+  virtual StatsType Stats() = 0;
 };
 
 // Factor method to create a new persistent cache

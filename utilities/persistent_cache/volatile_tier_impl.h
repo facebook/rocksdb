@@ -63,10 +63,7 @@ class VolatileCacheTier : public PersistentCacheTier {
   bool Erase(const Slice& key) override;
 
   // Expose stats as map
-  std::vector<TierStats> Stats() override;
-
-  // Print stats to string
-  std::string PrintStats() override;
+  PersistentCache::StatsType Stats() override;
 
  private:
   //
