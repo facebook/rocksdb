@@ -275,11 +275,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
     result.max_compaction_bytes = result.target_file_size_base * 25;
   }
 
-  // Insert into memtable with hint is incompatible with concurrent inserts.
-  if (db_options.allow_concurrent_memtable_write) {
-    result.memtable_insert_with_hint_prefix_extractor = nullptr;
-  }
-
   return result;
 }
 

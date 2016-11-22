@@ -747,24 +747,22 @@ struct ColumnFamilyOptions {
   size_t memtable_huge_page_size;
 
   // If non-nullptr, memtable will use the specified function to extract
-  // prefixes for keys, and for each non-empty prefix maintain a hint to
-  // reduce CPU usage for inserting keys with the prefix. Keys with empty
-  // prefix will be insert without using a hint.
+  // prefixes for keys, and for each prefix maintain a hint of insert location
+  // to reduce CPU usage for inserting keys with the prefix. Keys out of
+  // domain of the prefix extractor will be insert without using hints.
   //
   // Currently only the default skiplist based memtable implements the feature.
-  // All other memtable implementation will ignore the option. It incurs ~150
+  // All other memtable implementation will ignore the option. It incurs ~250
   // additional bytes of memory overhead to store a hint for each prefix.
-  // If allow_concurrent_memtable_write is true, the option will also be
-  // ignored.
+  // Also concurrent writes (when allow_concurrent_memtable_write is true) will
+  // ignore the option.
   //
-  // The option is best suited for sequential inserts, or inserts that's
-  // almost sequential. One scenario could be inserting keys of the form
-  // (prefix + timestamp), and keys of the same prefix always comes in
-  // with time order, or in some cases a key with a smaller timestamp comes
-  // in later due to network latency.
-  //
-  // REQUIRES: If custom comparator is provided, it has to make sure keys
-  // with the same prefix appear in consecutive range.
+  // The option is best suited for workloads where keys will likely to insert
+  // to a location close the the last inserted key with the same prefix.
+  // One example could be inserting keys of the form (prefix + timestamp),
+  // and keys of the same prefix always comes in with time order. Another
+  // example would be updating the same key over and over again, in which case
+  // the prefix can be the key itself.
   //
   // Default: nullptr (disable)
   std::shared_ptr<const SliceTransform>

@@ -441,16 +441,12 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   if (!allow_concurrent) {
     // Extract prefix for insert with hint.
-    Slice prefix;
-    if (insert_with_hint_prefix_extractor_ != nullptr) {
-      if (insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
-        prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      }
-    }
-    if (prefix.empty()) {
-      table->Insert(handle);
-    } else {
+    if (insert_with_hint_prefix_extractor_ != nullptr &&
+        insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
+      Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
       table->InsertWithHint(handle, &insert_hints_[prefix]);
+    } else {
+      table->Insert(handle);
     }
 
     // this is a bit ugly, but is the way to avoid locked instructions

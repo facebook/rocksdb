@@ -54,8 +54,7 @@ class InlineSkipTest : public testing::Test {
     keys_.insert(key);
   }
 
-  void InsertWithHint(TestInlineSkipList* list, Key key,
-                      TestInlineSkipList::InsertHint** hint) {
+  void InsertWithHint(TestInlineSkipList* list, Key key, void** hint) {
     char* buf = list->AllocateKey(sizeof(Key));
     memcpy(buf, &key, sizeof(Key));
     list->InsertWithHint(buf, hint);
@@ -201,7 +200,7 @@ TEST_F(InlineSkipTest, InsertWithHint_Sequential) {
   Arena arena;
   TestComparator cmp;
   TestInlineSkipList list(cmp, &arena);
-  TestInlineSkipList::InsertHint* hint = nullptr;
+  void* hint = nullptr;
   for (int i = 0; i < N; i++) {
     Key key = i;
     InsertWithHint(&list, key, &hint);
@@ -216,7 +215,7 @@ TEST_F(InlineSkipTest, InsertWithHint_MultipleHints) {
   Arena arena;
   TestComparator cmp;
   TestInlineSkipList list(cmp, &arena);
-  TestInlineSkipList::InsertHint* hints[S];
+  void* hints[S];
   Key last_key[S];
   for (int i = 0; i < S; i++) {
     hints[i] = nullptr;
@@ -237,7 +236,7 @@ TEST_F(InlineSkipTest, InsertWithHint_MultipleHintsRandom) {
   Arena arena;
   TestComparator cmp;
   TestInlineSkipList list(cmp, &arena);
-  TestInlineSkipList::InsertHint* hints[S];
+  void* hints[S];
   for (int i = 0; i < S; i++) {
     hints[i] = nullptr;
   }
@@ -260,7 +259,7 @@ TEST_F(InlineSkipTest, InsertWithHint_CompatibleWithInsertWithoutHint) {
   std::unordered_set<Key> used;
   Key with_hint[S1];
   Key without_hint[S2];
-  TestInlineSkipList::InsertHint* hints[S1];
+  void* hints[S1];
   for (int i = 0; i < S1; i++) {
     hints[i] = nullptr;
     while (true) {

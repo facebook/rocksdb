@@ -37,9 +37,7 @@ public:
   }
 
   virtual void InsertWithHint(KeyHandle handle, void** hint) override {
-    skip_list_.InsertWithHint(
-        static_cast<char*>(handle),
-        reinterpret_cast<decltype(skip_list_)::InsertHint**>(hint));
+    skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
   }
 
   virtual void InsertConcurrently(KeyHandle handle) override {

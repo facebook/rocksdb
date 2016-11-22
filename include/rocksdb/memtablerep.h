@@ -83,9 +83,12 @@ class MemTableRep {
   // collection, and no concurrent modifications to the table in progress
   virtual void Insert(KeyHandle handle) = 0;
 
-  // Same as Insert(), but in additional pass a hint to optimize sequential
-  // inserts. A new hint will be return from the hint pointer. Caller can get
-  // an initial hint by passing hint pointing to nullptr.
+  // Same as Insert(), but in additional pass a hint to insert location for
+  // the key. If hint points to nullptr, a new hint will be populated.
+  // otherwise the hint will be updated to reflect the last insert location.
+  //
+  // Currently only skip-list based memtable implement the interface. Other
+  // implementations will fallback to Insert() by default.
   virtual void InsertWithHint(KeyHandle handle, void** hint) {
     // Ignore the hint by default.
     Insert(handle);
