@@ -2556,15 +2556,14 @@ TEST_F(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().IsStopped());
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
-  ASSERT_EQ(kBaseRate / 1.2,
-            dbfull()->TEST_write_controler().delayed_write_rate());
+  ASSERT_EQ(kBaseRate, dbfull()->TEST_write_controler().delayed_write_rate());
   ASSERT_EQ(6, dbfull()->TEST_BGCompactionsAllowed());
 
   vstorage->set_l0_delay_trigger_count(101);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().IsStopped());
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
-  ASSERT_EQ(kBaseRate / 1.2 / 1.2,
+  ASSERT_EQ(kBaseRate / 1.2,
             dbfull()->TEST_write_controler().delayed_write_rate());
 
   vstorage->set_l0_delay_trigger_count(0);
@@ -2572,21 +2571,21 @@ TEST_F(ColumnFamilyTest, WriteStallSingleColumnFamily) {
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().IsStopped());
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
-  ASSERT_EQ(kBaseRate / 1.2 / 1.2 / 1.2,
+  ASSERT_EQ(kBaseRate / 1.2 / 1.2,
             dbfull()->TEST_write_controler().delayed_write_rate());
 
   vstorage->set_l0_delay_trigger_count(101);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().IsStopped());
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
-  ASSERT_EQ(kBaseRate / 1.2 / 1.2 / 1.2 / 1.2,
+  ASSERT_EQ(kBaseRate / 1.2 / 1.2 / 1.2,
             dbfull()->TEST_write_controler().delayed_write_rate());
 
   vstorage->TEST_set_estimated_compaction_needed_bytes(200);
   cfd->RecalculateWriteStallConditions(mutable_cf_options);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().IsStopped());
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
-  ASSERT_EQ(kBaseRate / 1.2 / 1.2 / 1.2,
+  ASSERT_EQ(kBaseRate / 1.2 / 1.2,
             dbfull()->TEST_write_controler().delayed_write_rate());
 
   vstorage->set_l0_delay_trigger_count(0);
