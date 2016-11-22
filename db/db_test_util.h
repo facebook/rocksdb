@@ -432,10 +432,10 @@ class SpecialEnv : public EnvWrapper {
 
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
-    if (no_sleep_ || time_elapse_only_sleep_) {
+    if (no_slowdown_ || time_elapse_only_sleep_) {
       addon_time_.fetch_add(micros);
     }
-    if (!no_sleep_) {
+    if (!no_slowdown_) {
       target()->SleepForMicroseconds(micros);
     }
   }
@@ -524,7 +524,7 @@ class SpecialEnv : public EnvWrapper {
 
   bool time_elapse_only_sleep_;
 
-  bool no_sleep_;
+  bool no_slowdown_;
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 };

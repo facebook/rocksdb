@@ -4739,7 +4739,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // for previous one. It might create a fairness issue that expiration
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
-    status = DelayWrite(last_batch_group_size_);
+    status = DelayWrite(last_batch_group_size_, write_options);
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
 
@@ -4749,6 +4749,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   bool need_log_sync = !write_options.disableWAL && write_options.sync;
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
 
+  bool logs_getting_synced = false;
   if (status.ok()) {
     if (need_log_sync) {
       while (logs_.front().getting_synced) {
@@ -4758,6 +4759,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         assert(!log.getting_synced);
         log.getting_synced = true;
       }
+      logs_getting_synced = true;
     }
 
     // Add to log and apply to memtable.  We can release the lock
@@ -4977,7 +4979,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   PERF_TIMER_START(write_pre_and_post_process_time);
 
   if (immutable_db_options_.paranoid_checks && !status.ok() &&
-      !w.CallbackFailed() && !status.IsBusy()) {
+      !w.CallbackFailed() && !status.IsBusy() && !status.IsIncomplete()) {
     mutex_.Lock();
     if (bg_error_.ok()) {
       bg_error_ = status;  // stop compaction & fail any further writes
@@ -4985,7 +4987,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     mutex_.Unlock();
   }
 
-  if (need_log_sync) {
+  if (logs_getting_synced) {
     mutex_.Lock();
     MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
     mutex_.Unlock();
@@ -5040,13 +5042,17 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::DelayWrite(uint64_t num_bytes) {
+Status DBImpl::DelayWrite(uint64_t num_bytes,
+                          const WriteOptions& write_options) {
   uint64_t time_delayed = 0;
   bool delayed = false;
   {
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
     auto delay = write_controller_.GetDelay(env_, num_bytes);
     if (delay > 0) {
+      if (write_options.no_slowdown) {
+        return Status::Incomplete();
+      }
       mutex_.Unlock();
       delayed = true;
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
@@ -5056,11 +5062,15 @@ Status DBImpl::DelayWrite(uint64_t num_bytes) {
     }
 
     while (bg_error_.ok() && write_controller_.IsStopped()) {
+      if (write_options.no_slowdown) {
+        return Status::Incomplete();
+      }
       delayed = true;
       TEST_SYNC_POINT("DBImpl::DelayWrite:Wait");
       bg_cv_.Wait();
     }
   }
+  assert(!delayed || !write_options.no_slowdown);
   if (delayed) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_STALL_MICROS,
                                            time_delayed);

@@ -79,6 +79,7 @@ class WriteThread {
   struct Writer {
     WriteBatch* batch;
     bool sync;
+    bool no_slowdown;
     bool disableWAL;
     bool disable_memtable;
     uint64_t log_used;  // log number that this batch was inserted into
@@ -99,6 +100,7 @@ class WriteThread {
     Writer()
         : batch(nullptr),
           sync(false),
+          no_slowdown(false),
           disableWAL(false),
           disable_memtable(false),
           log_used(0),

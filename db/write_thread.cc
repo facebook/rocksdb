@@ -268,6 +268,12 @@ size_t WriteThread::EnterAsBatchGroupLeader(
       break;
     }
 
+    if (w->no_slowdown != leader->no_slowdown) {
+      // Do not mix writes that are ok with delays with the ones that
+      // request fail on delays.
+      break;
+    }
+
     if (!w->disableWAL && leader->disableWAL) {
       // Do not include a write that needs WAL into a batch that has
       // WAL disabled.
