@@ -731,8 +731,20 @@ void InlineSkipList<Comparator>::Insert(const char* key, Splice* splice,
     // optimistic if the caller actually went to the work of providing
     // a Splice.
     while (recompute_height < max_height) {
-      if (splice->prev_[recompute_height] != head_ &&
-          !KeyIsAfterNode(key, splice->prev_[recompute_height])) {
+      if (splice->prev_[recompute_height]->Next(recompute_height) !=
+          splice->next_[recompute_height]) {
+        // splice isn't tight at this level, there must have been some inserts
+        // to this
+        // location that didn't update the splice.  We might only be a little
+        // stale, but if
+        // the splice is very stale it would be O(N) to fix it.  We haven't used
+        // up any of
+        // our budget of comparisons, so always move up even if we are
+        // pessimistic about
+        // our chances of success.
+        ++recompute_height;
+      } else if (splice->prev_[recompute_height] != head_ &&
+                 !KeyIsAfterNode(key, splice->prev_[recompute_height])) {
         // key is from before splice
         if (allow_partial_splice_fix) {
           // skip all levels with the same node without more comparisons
