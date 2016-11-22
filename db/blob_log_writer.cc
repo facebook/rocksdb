@@ -185,9 +185,8 @@ Status Writer::EmitPhysicalRecord(const char *headerbuf, const Slice& key,
     blob_log::BlobLogRecord::kHeaderSize));
   if (s.ok()) {
     s = dest_->Append(key);
-    if (s.ok()) {
+    if (s.ok())
       s = dest_->Append(val);
-    }
   }
 
   *key_offset = block_offset_ + blob_log::BlobLogRecord::kHeaderSize;

@@ -21,13 +21,77 @@
 
 namespace rocksdb {
 
+port::Mutex listener_mutex;
+typedef std::shared_ptr<BlobDBFlushBeginListener> FlushBegin_t;
+typedef std::shared_ptr<BlobReconcileWalFilter> ReconcileWal_t;
+
+// to ensure the lifetime of the listeners
+std::vector<FlushBegin_t> all_flush_begins;
+std::vector<ReconcileWal_t> all_wal_filters;
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+Status BlobDB::OpenAndLoad(const Options& options,
+    const BlobDBOptions& bdb_options, const std::string& dbname,
+    BlobDB** blob_db, Options *changed_options)
+{
+  *changed_options = options;
+  *blob_db = nullptr;
+
+  FlushBegin_t fblistener = std::make_shared<BlobDBFlushBeginListener>();
+  ReconcileWal_t rw_filter = std::make_shared<BlobReconcileWalFilter>();
+
+  {
+    MutexLock l(&listener_mutex);
+    all_flush_begins.push_back(fblistener);
+    all_wal_filters.push_back(rw_filter);
+  }
+
+  changed_options->listeners.emplace_back(fblistener);
+  changed_options->flush_begin_listeners = true;
+  changed_options->wal_filter = rw_filter.get();
+
+  DBOptions db_options(*changed_options);
+  EnvOptions env_options(db_options);
+
+  // we need to open blob db first so that recovery can happen
+  BlobDBImpl* bdb = new BlobDBImpl(dbname, bdb_options, *changed_options,
+    db_options, env_options);
+
+  fblistener->setImplPtr(bdb);
+  rw_filter->setImplPtr(bdb);
+
+  Status s = bdb->openPhase1();
+  if (!s.ok())
+    return s;
+
+  *blob_db = bdb;
+  return s;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
     const std::string& dbname, BlobDB** blob_db) {
+
+  *blob_db = nullptr;
   Options myoptions(options);
-  std::shared_ptr<BlobDBFlushBeginListener> fblistener =
-    std::make_shared<BlobDBFlushBeginListener>();
+  FlushBegin_t fblistener = std::make_shared<BlobDBFlushBeginListener>();
+  ReconcileWal_t rw_filter = std::make_shared<BlobReconcileWalFilter>();
+
   myoptions.listeners.emplace_back(fblistener);
   myoptions.flush_begin_listeners = true;
+  myoptions.wal_filter = rw_filter.get();
+
+  {
+    MutexLock l(&listener_mutex);
+    all_flush_begins.push_back(fblistener);
+    all_wal_filters.push_back(rw_filter);
+  }
 
   DBOptions db_options(myoptions);
   EnvOptions env_options(db_options);
@@ -36,22 +100,19 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
   BlobDBImpl* bdb = new BlobDBImpl(dbname, bdb_options, myoptions,
     db_options, env_options);
   fblistener->setImplPtr(bdb);
+  rw_filter->setImplPtr(bdb);
 
-  Status s = bdb->OpenP1();
-  if (!s.ok()) {
+  Status s = bdb->openPhase1();
+  if (!s.ok())
     return s;
-  }
 
-  DB* db;
+  DB* db = nullptr;
   s = DB::Open(myoptions, dbname, &db);
-  if (!s.ok()) {
+  if (!s.ok())
     return s;
-  }
 
   // set the implementation pointer
-  bdb->setDBImplPtr(db);
-
-  s = bdb->Open();
+  s = bdb->LinkToBaseDB(db);
   if (!s.ok()) {
     delete bdb;
     bdb = nullptr;
@@ -60,13 +121,22 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
   return s;
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 BlobDB::BlobDB(DB* db)
     : StackableDB(db)
 {
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 BlobDBOptions::BlobDBOptions()
-    : path_relative(true),
+    : blob_dir("blob_dir"),
+      path_relative(true),
       is_fifo(false),
       blob_dir_size(1000L*1024L*1024L*1024L),
       ttl_range(3600),
@@ -83,7 +153,10 @@ BlobDBOptions::BlobDBOptions()
       wa_stats_period(3600 * 1000),
       partial_expiration_gc_range(4 * 3600),
       partial_expiration_pct(75),
-      fsync_files_period(10*1000) {}
+      fsync_files_period(10*1000),
+      reclaim_of_period(1*1000),
+      delete_obsf_period(10*1000),
+      check_seqf_period(10*1000) {}
 
 }  // namespace rocksdb
 #endif

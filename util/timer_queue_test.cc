@@ -20,7 +20,6 @@ double now() {
 int main() {
   TimerQueue q;
 
-  q.start();
   double tnow = Timing::now();
 
   q.add(10000, [tnow](bool aborted) mutable {

@@ -45,7 +45,6 @@ class BlobDBTest : public testing::Test {
     }
 
     BlobDBOptions bdb_options = bdboptions;
-    bdb_options.blob_dir = "blob_dir";
     Options options;
     BlobDB::DestroyBlobDB(dbname_, options,
       bdb_options);
@@ -186,6 +185,50 @@ TEST_F(BlobDBTest, DeleteTest) {
   sleep(60);
 }
 
+TEST_F(BlobDBTest, GCTestWithWrite) {
+
+  BlobDBOptions bdboptions;
+  bdboptions.ttl_range = 30;
+  bdboptions.gc_file_pct = 100;
+  bdboptions.gc_check_period = 20;
+
+  Reopen(bdboptions);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  std::string value;
+
+  ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
+
+  WriteBatch WB;
+
+  for (size_t i = 0; i < 100; i++) {
+    int len = rand() % 16384;
+    if (!len)
+      continue;
+
+    int ttl = 30;
+
+    char *val = new char[len + BlobDB::kTTLSuffixLength];
+    gen_random(val, len);
+    strncpy(val+len, "ttl:", 4);
+    EncodeFixed32(val + len + 4, ttl);
+
+    std::string key("key");
+    key += std::to_string(i);
+
+    Slice keyslice(key);
+    Slice valslice(val, len + BlobDB::kTTLSuffixLength);
+
+    WB.Put(dcfh, keyslice, valslice);
+    delete [] val;
+  }
+
+  ASSERT_OK(db_->Write(wo, &WB));
+
+  sleep(120);
+}
+
 TEST_F(BlobDBTest, GCTestWithPut) {
 
   BlobDBOptions bdboptions;
@@ -218,7 +261,6 @@ TEST_F(BlobDBTest, GCTestWithPut) {
 
     Slice keyslice(key);
     Slice valslice(val, len + BlobDB::kTTLSuffixLength);
-
 
     ASSERT_OK(db_->Put(wo, dcfh, keyslice, valslice));
     delete [] val;
