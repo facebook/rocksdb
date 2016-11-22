@@ -497,14 +497,18 @@ ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {
   return BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
 }
 
-const double kSlowdownRatio = 1.2;
+const double kIncSlowdownRatio = 0.8;
+const double kDecSlowdownRatio = 1 / kIncSlowdownRatio;
+const double kNearStopSlowdownRatio = 0.6;
+const double kDelayRecoverSlowdownRatio = 1.4;
 
 namespace {
+// If penalize_stop is true, we further reduce slowdown rate.
 std::unique_ptr<WriteControllerToken> SetupDelay(
     WriteController* write_controller, uint64_t compaction_needed_bytes,
-    uint64_t prev_compaction_need_bytes, bool was_stopped, bool near_stop,
+    uint64_t prev_compaction_need_bytes, bool penalize_stop,
     bool auto_comapctions_disabled) {
-  const uint64_t kMinWriteRate = 1024u;  // Minimum write rate 1KB/s.
+  const uint64_t kMinWriteRate = 16 * 1024u;  // Minimum write rate 16KB/s.
 
   uint64_t max_write_rate = write_controller->max_delayed_write_rate();
   uint64_t write_rate = write_controller->delayed_write_rate();
@@ -532,23 +536,20 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
     //
     // If DB just falled into the stop condition, we need to further reduce
     // the write rate to avoid the stop condition.
-    if (near_stop) {
-      // Penalize the near stop condition with trippling the slowdown.
+    if (penalize_stop) {
+      // Penalize the near stop or stop condition by more agressive slowdown.
       // This is to provide the long term slowdown increase signal.
       // The penalty is more than the reward of recovering to the normal
       // condition.
-      write_rate = static_cast<uint64_t>(
-          static_cast<double>(write_rate) /
-          (kSlowdownRatio * kSlowdownRatio * kSlowdownRatio));
+      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
+                                         kNearStopSlowdownRatio);
       if (write_rate < kMinWriteRate) {
         write_rate = kMinWriteRate;
       }
-    }
-    if (was_stopped ||
-        (prev_compaction_need_bytes > 0 &&
-         prev_compaction_need_bytes <= compaction_needed_bytes)) {
-      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) /
-                                         kSlowdownRatio);
+    } else if (prev_compaction_need_bytes > 0 &&
+               prev_compaction_need_bytes <= compaction_needed_bytes) {
+      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
+                                         kIncSlowdownRatio);
       if (write_rate < kMinWriteRate) {
         write_rate = kMinWriteRate;
       }
@@ -557,7 +558,7 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
       // compaction debt. But we'll never speed up to faster than the write rate
       // given by users.
       write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
-                                         kSlowdownRatio);
+                                         kDecSlowdownRatio);
       if (write_rate > max_write_rate) {
         write_rate = max_write_rate;
       }
@@ -649,7 +650,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                    mutable_cf_options.max_write_buffer_number - 1) {
       write_controller_token_ =
           SetupDelay(write_controller, compaction_needed_bytes,
-                     prev_compaction_needed_bytes_, was_stopped, false,
+                     prev_compaction_needed_bytes_, was_stopped,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_SLOWDOWN, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
@@ -668,7 +669,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                        mutable_cf_options.level0_stop_writes_trigger - 2;
       write_controller_token_ =
           SetupDelay(write_controller, compaction_needed_bytes,
-                     prev_compaction_needed_bytes_, was_stopped, near_stop,
+                     prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN_TOTAL, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
@@ -697,7 +698,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
 
       write_controller_token_ =
           SetupDelay(write_controller, compaction_needed_bytes,
-                     prev_compaction_needed_bytes_, was_stopped, near_stop,
+                     prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(
           InternalStats::SOFT_PENDING_COMPACTION_BYTES_LIMIT, 1);
@@ -740,12 +741,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       // increase signal.
       if (needed_delay) {
         uint64_t write_rate = write_controller->delayed_write_rate();
-        write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
-                                           kSlowdownRatio);
-        if (write_rate > write_controller->max_delayed_write_rate()) {
-          write_rate = write_controller->max_delayed_write_rate();
-        }
-        write_controller->set_delayed_write_rate(write_rate);
+        write_controller->set_delayed_write_rate(static_cast<uint64_t>(
+            static_cast<double>(write_rate) * kDelayRecoverSlowdownRatio));
       }
     }
     prev_compaction_needed_bytes_ = compaction_needed_bytes;
