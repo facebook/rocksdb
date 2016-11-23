@@ -5378,7 +5378,7 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
 
 TEST_F(DBTest, DelayedWriteRate) {
   const int kEntriesPerMemTable = 100;
-  const int kTotalFlushes = 20;
+  const int kTotalFlushes = 12;
 
   Options options = CurrentOptions();
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -5428,8 +5428,8 @@ TEST_F(DBTest, DelayedWriteRate) {
     dbfull()->TEST_WaitForFlushMemTable();
     estimated_sleep_time += size_memtable * 1000000u / cur_rate;
     // Slow down twice. One for memtable switch and one for flush finishes.
-    cur_rate = static_cast<uint64_t>(static_cast<double>(cur_rate) /
-                                     kSlowdownRatio / kSlowdownRatio);
+    cur_rate = static_cast<uint64_t>(static_cast<double>(cur_rate) *
+                                     kIncSlowdownRatio * kIncSlowdownRatio);
   }
   // Estimate the total sleep time fall into the rough range.
   ASSERT_GT(env_->addon_time_.load(),

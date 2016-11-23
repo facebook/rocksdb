@@ -57,6 +57,8 @@ class WriteController {
     // avoid divide 0
     if (write_rate == 0) {
       write_rate = 1u;
+    } else if (write_rate > max_delayed_write_rate()) {
+      write_rate = max_delayed_write_rate();
     }
     delayed_write_rate_ = write_rate;
   }
