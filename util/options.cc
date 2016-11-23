@@ -50,7 +50,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       num_levels(7),
       level0_file_num_compaction_trigger(4),
       level0_slowdown_writes_trigger(20),
-      level0_stop_writes_trigger(24),
+      level0_stop_writes_trigger(32),
       target_file_size_base(64 * 1048576),
       target_file_size_multiplier(1),
       max_bytes_for_level_base(256 * 1048576),
@@ -671,6 +671,9 @@ ColumnFamilyOptions* ColumnFamilyOptions::OldDefaults(
     max_bytes_for_level_base = 10 * 1048576;
     soft_pending_compaction_bytes_limit = 0;
     hard_pending_compaction_bytes_limit = 0;
+  }
+  if (rocksdb_major_version < 5) {
+    level0_stop_writes_trigger = 24;
   }
   compaction_pri = CompactionPri::kByCompensatedSize;
 

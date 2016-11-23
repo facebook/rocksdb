@@ -492,14 +492,18 @@ ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {
   return BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
 }
 
-const double kSlowdownRatio = 1.2;
+const double kIncSlowdownRatio = 0.8;
+const double kDecSlowdownRatio = 1 / kIncSlowdownRatio;
+const double kNearStopSlowdownRatio = 0.6;
+const double kDelayRecoverSlowdownRatio = 1.4;
 
 namespace {
+// If penalize_stop is true, we further reduce slowdown rate.
 std::unique_ptr<WriteControllerToken> SetupDelay(
-    WriteController* write_controller,
-    uint64_t compaction_needed_bytes, uint64_t prev_compaction_neeed_bytes,
+    WriteController* write_controller, uint64_t compaction_needed_bytes,
+    uint64_t prev_compaction_need_bytes, bool penalize_stop,
     bool auto_comapctions_disabled) {
-  const uint64_t kMinWriteRate = 1024u;  // Minimum write rate 1KB/s.
+  const uint64_t kMinWriteRate = 16 * 1024u;  // Minimum write rate 16KB/s.
 
   uint64_t max_write_rate = write_controller->max_delayed_write_rate();
   uint64_t write_rate = write_controller->delayed_write_rate();
@@ -524,19 +528,32 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
     // insert to mem tables, so we need to actively slow down before we get
     // feedback signal from compaction and flushes to avoid the full stop
     // because of hitting the max write buffer number.
-    if (prev_compaction_neeed_bytes > 0 &&
-        prev_compaction_neeed_bytes <= compaction_needed_bytes) {
-      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) /
-                                         kSlowdownRatio);
+    //
+    // If DB just falled into the stop condition, we need to further reduce
+    // the write rate to avoid the stop condition.
+    if (penalize_stop) {
+      // Penalize the near stop or stop condition by more agressive slowdown.
+      // This is to provide the long term slowdown increase signal.
+      // The penalty is more than the reward of recovering to the normal
+      // condition.
+      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
+                                         kNearStopSlowdownRatio);
       if (write_rate < kMinWriteRate) {
         write_rate = kMinWriteRate;
       }
-    } else if (prev_compaction_neeed_bytes > compaction_needed_bytes) {
+    } else if (prev_compaction_need_bytes > 0 &&
+               prev_compaction_need_bytes <= compaction_needed_bytes) {
+      write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
+                                         kIncSlowdownRatio);
+      if (write_rate < kMinWriteRate) {
+        write_rate = kMinWriteRate;
+      }
+    } else if (prev_compaction_need_bytes > compaction_needed_bytes) {
       // We are speeding up by ratio of kSlowdownRatio when we have paid
       // compaction debt. But we'll never speed up to faster than the write rate
       // given by users.
       write_rate = static_cast<uint64_t>(static_cast<double>(write_rate) *
-                                         kSlowdownRatio);
+                                         kDecSlowdownRatio);
       if (write_rate > max_write_rate) {
         write_rate = max_write_rate;
       }
@@ -589,6 +606,9 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     uint64_t compaction_needed_bytes =
         vstorage->estimated_compaction_needed_bytes();
 
+    bool was_stopped = write_controller->IsStopped();
+    bool needed_delay = write_controller->NeedsDelay();
+
     if (imm()->NumNotFlushed() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
@@ -625,7 +645,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                    mutable_cf_options.max_write_buffer_number - 1) {
       write_controller_token_ =
           SetupDelay(write_controller, compaction_needed_bytes,
-                     prev_compaction_needed_bytes_,
+                     prev_compaction_needed_bytes_, was_stopped,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_SLOWDOWN, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
@@ -639,9 +659,12 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
+      // L0 is the last two files from stopping.
+      bool near_stop = vstorage->l0_delay_trigger_count() >=
+                       mutable_cf_options.level0_stop_writes_trigger - 2;
       write_controller_token_ =
           SetupDelay(write_controller, compaction_needed_bytes,
-                     prev_compaction_needed_bytes_,
+                     prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN_TOTAL, 1);
       if (compaction_picker_->IsLevel0CompactionInProgress()) {
@@ -657,9 +680,20 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                mutable_cf_options.soft_pending_compaction_bytes_limit > 0 &&
                vstorage->estimated_compaction_needed_bytes() >=
                    mutable_cf_options.soft_pending_compaction_bytes_limit) {
+      // If the distance to hard limit is less than 1/4 of the gap between soft
+      // and
+      // hard bytes limit, we think it is near stop and speed up the slowdown.
+      bool near_stop =
+          mutable_cf_options.hard_pending_compaction_bytes_limit > 0 &&
+          (compaction_needed_bytes -
+           mutable_cf_options.soft_pending_compaction_bytes_limit) >
+              3 * (mutable_cf_options.hard_pending_compaction_bytes_limit -
+                   mutable_cf_options.soft_pending_compaction_bytes_limit) /
+                  4;
+
       write_controller_token_ =
           SetupDelay(write_controller, compaction_needed_bytes,
-                     prev_compaction_needed_bytes_,
+                     prev_compaction_needed_bytes_, was_stopped || near_stop,
                      mutable_cf_options.disable_auto_compactions);
       internal_stats_->AddCFStats(
           InternalStats::SOFT_PENDING_COMPACTION_BYTES_LIMIT, 1);
@@ -668,31 +702,43 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "bytes %" PRIu64 " rate %" PRIu64,
           name_.c_str(), vstorage->estimated_compaction_needed_bytes(),
           write_controller->delayed_write_rate());
-    } else if (vstorage->l0_delay_trigger_count() >=
-               GetL0ThresholdSpeedupCompaction(
-                   mutable_cf_options.level0_file_num_compaction_trigger,
-                   mutable_cf_options.level0_slowdown_writes_trigger)) {
-      write_controller_token_ = write_controller->GetCompactionPressureToken();
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Increasing compaction threads because we have %d level-0 "
-          "files ",
-          name_.c_str(), vstorage->l0_delay_trigger_count());
-    } else if (vstorage->estimated_compaction_needed_bytes() >=
-               mutable_cf_options.soft_pending_compaction_bytes_limit / 4) {
-      // Increase compaction threads if bytes needed for compaction exceeds
-      // 1/4 of threshold for slowing down.
-      // If soft pending compaction byte limit is not set, always speed up
-      // compaction.
-      write_controller_token_ = write_controller->GetCompactionPressureToken();
-      if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0) {
-        Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-            "[%s] Increasing compaction threads because of estimated pending "
-            "compaction "
-            "bytes %" PRIu64,
-            name_.c_str(), vstorage->estimated_compaction_needed_bytes());
-      }
     } else {
-      write_controller_token_.reset();
+      if (vstorage->l0_delay_trigger_count() >=
+          GetL0ThresholdSpeedupCompaction(
+              mutable_cf_options.level0_file_num_compaction_trigger,
+              mutable_cf_options.level0_slowdown_writes_trigger)) {
+        write_controller_token_ =
+            write_controller->GetCompactionPressureToken();
+        Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+            "[%s] Increasing compaction threads because we have %d level-0 "
+            "files ",
+            name_.c_str(), vstorage->l0_delay_trigger_count());
+      } else if (vstorage->estimated_compaction_needed_bytes() >=
+                 mutable_cf_options.soft_pending_compaction_bytes_limit / 4) {
+        // Increase compaction threads if bytes needed for compaction exceeds
+        // 1/4 of threshold for slowing down.
+        // If soft pending compaction byte limit is not set, always speed up
+        // compaction.
+        write_controller_token_ =
+            write_controller->GetCompactionPressureToken();
+        if (mutable_cf_options.soft_pending_compaction_bytes_limit > 0) {
+          Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+              "[%s] Increasing compaction threads because of estimated pending "
+              "compaction "
+              "bytes %" PRIu64,
+              name_.c_str(), vstorage->estimated_compaction_needed_bytes());
+        }
+      } else {
+        write_controller_token_.reset();
+      }
+      // If the DB recovers from delay conditions, we reward with reducing
+      // double the slowdown ratio. This is to balance the long term slowdown
+      // increase signal.
+      if (needed_delay) {
+        uint64_t write_rate = write_controller->delayed_write_rate();
+        write_controller->set_delayed_write_rate(static_cast<uint64_t>(
+            static_cast<double>(write_rate) * kDelayRecoverSlowdownRatio));
+      }
     }
     prev_compaction_needed_bytes_ = compaction_needed_bytes;
   }

@@ -21,7 +21,8 @@ class TimeSetEnv : public EnvWrapper {
 
 TEST_F(WriteControllerTest, ChangeDelayRateTest) {
   TimeSetEnv env;
-  WriteController controller(10000000u);
+  WriteController controller(40000000u);  // also set max delayed rate
+  controller.set_delayed_write_rate(10000000u);
   auto delay_token_0 =
       controller.GetDelayToken(controller.delayed_write_rate());
   ASSERT_EQ(static_cast<uint64_t>(2000000),
@@ -35,8 +36,9 @@ TEST_F(WriteControllerTest, ChangeDelayRateTest) {
   auto delay_token_3 = controller.GetDelayToken(20000000u);
   ASSERT_EQ(static_cast<uint64_t>(1000000),
             controller.GetDelay(&env, 20000000u));
+  // This is more than max rate. Max delayed rate will be used.
   auto delay_token_4 =
-      controller.GetDelayToken(controller.delayed_write_rate() * 2);
+      controller.GetDelayToken(controller.delayed_write_rate() * 3);
   ASSERT_EQ(static_cast<uint64_t>(500000),
             controller.GetDelay(&env, 20000000u));
 }

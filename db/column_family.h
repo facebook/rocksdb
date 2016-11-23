@@ -42,7 +42,7 @@ class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
 
-extern const double kSlowdownRatio;
+extern const double kIncSlowdownRatio;
 
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
