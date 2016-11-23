@@ -440,6 +440,14 @@ int main(int argc, char** argv) {
     int pos = 0;
     rocksdb_writebatch_iterate(wb, &pos, CheckPut, CheckDel);
     CheckCondition(pos == 3);
+    rocksdb_writebatch_clear(wb);
+    rocksdb_writebatch_put(wb, "bar", 3, "b", 1);
+    rocksdb_writebatch_put(wb, "box", 3, "c", 1);
+    rocksdb_writebatch_delete_range(wb, "bar", 3, "box", 3);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "bar", NULL);
+    CheckGet(db, roptions, "box", "c");
     rocksdb_writebatch_destroy(wb);
   }
 
