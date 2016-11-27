@@ -316,19 +316,19 @@ public class ColumnFamilyTest {
         final List<byte[]> keys = Arrays.asList(new byte[][]{
             "key".getBytes(), "newcfkey".getBytes()
         });
-        Map<byte[], byte[]> retValues = db.multiGet(columnFamilyHandleList,
+        List<byte[]> retValues = db.multiGet(columnFamilyHandleList,
             keys);
         assertThat(retValues.size()).isEqualTo(2);
-        assertThat(new String(retValues.get(keys.get(0))))
+        assertThat(new String(retValues.get(0)))
             .isEqualTo("value");
-        assertThat(new String(retValues.get(keys.get(1))))
+        assertThat(new String(retValues.get(1)))
             .isEqualTo("value");
         retValues = db.multiGet(new ReadOptions(), columnFamilyHandleList,
             keys);
         assertThat(retValues.size()).isEqualTo(2);
-        assertThat(new String(retValues.get(keys.get(0))))
+        assertThat(new String(retValues.get(0)))
             .isEqualTo("value");
-        assertThat(new String(retValues.get(keys.get(1))))
+        assertThat(new String(retValues.get(1)))
             .isEqualTo("value");
       } finally {
         for (final ColumnFamilyHandle columnFamilyHandle :

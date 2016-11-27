@@ -851,16 +851,17 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Returns a map of keys for which values were found in DB.
+   * Takes a list of keys, and returns a list of values for the given list of
+   * keys. List will contain null for keys which could not be found.
    *
    * @param keys List of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   * entry is the corresponding value in DB.
+   * @return List of values for the given list of keys. List will contain
+   * null for keys which could not be found.
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public Map<byte[], byte[]> multiGet(final List<byte[]> keys)
+  public List<byte[]> multiGet(final List<byte[]> keys)
       throws RocksDBException {
     assert(keys.size() != 0);
 
@@ -871,20 +872,8 @@ public class RocksDB extends RocksObject {
       keyLengths[i] = keysArray[i].length;
     }
 
-    final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
-        keyLengths);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
+    return Arrays.asList(multiGet(nativeHandle_, keysArray, keyOffsets,
+        keyLengths));
   }
 
   private static int computeCapacityHint(final int estimatedNumberOfItems) {
@@ -894,7 +883,8 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Returns a map of keys for which values were found in DB.
+   * Returns a list of values for the given list of keys. List will contain
+   * null for keys which could not be found.
    * <p>
    * Note: Every key needs to have a related column family name in
    * {@code columnFamilyHandleList}.
@@ -903,15 +893,15 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandleList {@link java.util.List} containing
    *     {@link org.rocksdb.ColumnFamilyHandle} instances.
    * @param keys List of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   * entry is the corresponding value in DB.
+   * @return List of values for the given list of keys. List will contain
+   * null for keys which could not be found.
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
    */
-  public Map<byte[], byte[]> multiGet(
+  public List<byte[]> multiGet(
       final List<ColumnFamilyHandle> columnFamilyHandleList,
       final List<byte[]> keys) throws RocksDBException,
       IllegalArgumentException {
@@ -934,32 +924,23 @@ public class RocksDB extends RocksObject {
       keyLengths[i] = keysArray[i].length;
     }
 
-    final byte[][] values = multiGet(nativeHandle_, keysArray, keyOffsets,
-        keyLengths, cfHandles);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if (values[i] == null) {
-        continue;
-      }
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-    return keyValueMap;
+    return Arrays.asList(multiGet(nativeHandle_, keysArray, keyOffsets,
+        keyLengths, cfHandles));
   }
 
   /**
-   * Returns a map of keys for which values were found in DB.
+   * Returns a list of values for the given list of keys. List will contain
+   * null for keys which could not be found.
    *
    * @param opt Read options.
    * @param keys of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   * entry is the corresponding value in DB.
+   * @return List of values for the given list of keys. List will contain
+   * null for keys which could not be found.
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public Map<byte[], byte[]> multiGet(final ReadOptions opt,
+  public List<byte[]> multiGet(final ReadOptions opt,
       final List<byte[]> keys) throws RocksDBException {
     assert(keys.size() != 0);
 
@@ -970,24 +951,13 @@ public class RocksDB extends RocksObject {
       keyLengths[i] = keysArray[i].length;
     }
 
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
-        keysArray, keyOffsets, keyLengths);
-
-    final Map<byte[], byte[]> keyValueMap =
-        new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
+    return Arrays.asList(multiGet(nativeHandle_, opt.nativeHandle_,
+        keysArray, keyOffsets, keyLengths));
   }
 
   /**
-   * Returns a map of keys for which values were found in DB.
+   * Returns a list of values for the given list of keys. List will contain
+   * null for keys which could not be found.
    * <p>
    * Note: Every key needs to have a related column family name in
    * {@code columnFamilyHandleList}.
@@ -997,15 +967,15 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandleList {@link java.util.List} containing
    *     {@link org.rocksdb.ColumnFamilyHandle} instances.
    * @param keys of keys for which values need to be retrieved.
-   * @return Map where key of map is the key passed by user and value for map
-   * entry is the corresponding value in DB.
+   * @return List of values for the given list of keys. List will contain
+   * null for keys which could not be found.
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    * @throws IllegalArgumentException thrown if the size of passed keys is not
    *    equal to the amount of passed column family handles.
    */
-  public Map<byte[], byte[]> multiGet(final ReadOptions opt,
+  public List<byte[]> multiGet(final ReadOptions opt,
       final List<ColumnFamilyHandle> columnFamilyHandleList,
       final List<byte[]> keys) throws RocksDBException {
     assert(keys.size() != 0);
@@ -1027,19 +997,8 @@ public class RocksDB extends RocksObject {
       keyLengths[i] = keysArray[i].length;
     }
 
-    final byte[][] values = multiGet(nativeHandle_, opt.nativeHandle_,
-        keysArray, keyOffsets, keyLengths, cfHandles);
-
-    final Map<byte[], byte[]> keyValueMap
-        = new HashMap<>(computeCapacityHint(values.length));
-    for(int i = 0; i < values.length; i++) {
-      if(values[i] == null) {
-        continue;
-      }
-      keyValueMap.put(keys.get(i), values[i]);
-    }
-
-    return keyValueMap;
+    return Arrays.asList(multiGet(nativeHandle_, opt.nativeHandle_,
+        keysArray, keyOffsets, keyLengths, cfHandles));
   }
 
   /**
