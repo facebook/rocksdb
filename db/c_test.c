@@ -323,6 +323,7 @@ int main(int argc, char** argv) {
   rocksdb_options_set_write_buffer_size(options, 100000);
   rocksdb_options_set_paranoid_checks(options, 1);
   rocksdb_options_set_max_open_files(options, 10);
+  rocksdb_options_set_base_background_compactions(options, 1);
   table_options = rocksdb_block_based_options_create();
   rocksdb_block_based_options_set_block_cache(table_options, cache);
   rocksdb_options_set_block_based_table_factory(options, table_options);
