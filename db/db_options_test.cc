@@ -316,7 +316,7 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   }
 }
 
-static void assert_candidate_files_empty(DBImpl *dbfull, const bool empty) {
+static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   dbfull->TEST_LockMutex();
   JobContext job_context(0);
   dbfull->FindObsoleteFiles(&job_context, false);
@@ -336,15 +336,15 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
   // Verify that candidate files set is empty when no full scan requested.
   assert_candidate_files_empty(dbfull(), true);
 
-  ASSERT_OK(dbfull()->SetDBOptions(
-    {{"delete_obsolete_files_period_micros", "0"}}));
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"delete_obsolete_files_period_micros", "0"}}));
 
   // After delete_obsolete_files_period_micros updated to 0, the next call
   // to FindObsoleteFiles should make a full scan
   assert_candidate_files_empty(dbfull(), false);
 
-  ASSERT_OK(dbfull()->SetDBOptions(
-    {{"delete_obsolete_files_period_micros", "20"}}));
+  ASSERT_OK(
+      dbfull()->SetDBOptions({{"delete_obsolete_files_period_micros", "20"}}));
 
   assert_candidate_files_empty(dbfull(), true);
 

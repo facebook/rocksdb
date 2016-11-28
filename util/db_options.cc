@@ -227,8 +227,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
       delayed_write_rate(options.delayed_write_rate),
       max_total_wal_size(options.max_total_wal_size),
-      delete_obsolete_files_period_micros(options.delete_obsolete_files_period_micros) {}
-
+      delete_obsolete_files_period_micros(
+          options.delete_obsolete_files_period_micros) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   Header(log, "            Options.base_background_compactions: %d",
@@ -241,7 +241,8 @@ void MutableDBOptions::Dump(Logger* log) const {
          delayed_write_rate);
   Header(log, "            Options.max_total_wal_size: %" PRIu64,
          max_total_wal_size);
-  Header(log, "            Options.delete_obsolete_files_period_micros: %" PRIu64,
+  Header(log,
+         "            Options.delete_obsolete_files_period_micros: %" PRIu64,
          delete_obsolete_files_period_micros);
 }
 
