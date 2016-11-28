@@ -332,9 +332,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       num_running_flushes_(0),
       bg_purge_scheduled_(0),
       disable_delete_obsolete_files_(0),
-      delete_obsolete_files_next_run_(
-          env_->NowMicros() +
-          mutable_db_options_.delete_obsolete_files_period_micros),
+      delete_obsolete_files_last_run_(env_->NowMicros()),
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
       has_unpersisted_data_(false),
@@ -764,11 +762,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     doing_the_full_scan = true;
   } else {
     const uint64_t now_micros = env_->NowMicros();
-    if (delete_obsolete_files_next_run_ < now_micros) {
+    if ((delete_obsolete_files_last_run_ +
+        mutable_db_options_.delete_obsolete_files_period_micros) < now_micros) {
       doing_the_full_scan = true;
-      delete_obsolete_files_next_run_ =
-          now_micros +
-          mutable_db_options_.delete_obsolete_files_period_micros;
+      delete_obsolete_files_last_run_ = now_micros;
     }
   }
 
@@ -2486,12 +2483,6 @@ Status DBImpl::SetDBOptions(
         env_->IncBackgroundThreadsIfNeeded(
             new_options.max_background_compactions, Env::Priority::LOW);
         MaybeScheduleFlushOrCompaction();
-      }
-      if (new_options.delete_obsolete_files_period_micros !=
-          mutable_db_options_.delete_obsolete_files_period_micros) {
-        const uint64_t diff = new_options.delete_obsolete_files_period_micros -
-          mutable_db_options_.delete_obsolete_files_period_micros;
-        delete_obsolete_files_next_run_ = delete_obsolete_files_next_run_ + diff;
       }
 
       write_controller_.set_max_delayed_write_rate(new_options.delayed_write_rate);
