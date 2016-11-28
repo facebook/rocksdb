@@ -13,6 +13,12 @@
 
 namespace rocksdb {
 
+// This function may intentionally do a left shift on a -ve number
+#if defined(__clang__)
+__attribute__((__no_sanitize__("undefined")))
+#elif defined(__GNUC__)
+__attribute__((no_sanitize_undefined))
+#endif
 uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   // Similar to murmur hash
   const uint32_t m = 0xc6a4a793;
