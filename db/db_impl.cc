@@ -763,7 +763,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   } else {
     const uint64_t now_micros = env_->NowMicros();
     if ((delete_obsolete_files_last_run_ +
-        mutable_db_options_.delete_obsolete_files_period_micros) < now_micros) {
+         mutable_db_options_.delete_obsolete_files_period_micros) <
+        now_micros) {
       doing_the_full_scan = true;
       delete_obsolete_files_last_run_ = now_micros;
     }
