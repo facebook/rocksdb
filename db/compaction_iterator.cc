@@ -310,7 +310,6 @@ void CompactionIterator::NextFromInput() {
             // to know that a write happened in this snapshot (Rule 2 above).
             // Clear the value and output the SingleDelete. (The value will be
             // outputted on the next iteration.)
-            ++iter_stats_.num_record_drop_hidden;
 
             // Setting valid_ to true will output the current SingleDelete
             valid_ = true;
