@@ -485,7 +485,7 @@ void CompactionJob::GenSubcompactionBoundaries() {
                 max_output_files});
 
   if (subcompactions > 1) {
-  double mean = sum * 1.0 / subcompactions;
+    double mean = sum * 1.0 / subcompactions;
     // Greedily add ranges to the subcompaction until the sum of the ranges'
     // sizes becomes >= the expected mean size of a subcompaction
     sum = 0;
