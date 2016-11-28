@@ -63,7 +63,8 @@ class TransactionDBImpl : public TransactionDB {
   using StackableDB::DropColumnFamily;
   virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
 
-  Status TryLock(TransactionImpl* txn, uint32_t cfh_id, const std::string& key);
+  Status TryLock(TransactionImpl* txn, uint32_t cfh_id, const std::string& key,
+                 bool exclusive);
 
   void UnLock(TransactionImpl* txn, const TransactionKeyMap* keys);
   void UnLock(TransactionImpl* txn, uint32_t cfh_id, const std::string& key);

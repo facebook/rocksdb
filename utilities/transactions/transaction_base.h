@@ -39,7 +39,8 @@ class TransactionBaseImpl : public Transaction {
   // untracked will be true if called from PutUntracked, DeleteUntracked, or
   // MergeUntracked.
   virtual Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                         bool read_only, bool untracked = false) = 0;
+                         bool read_only, bool exclusive,
+                         bool untracked = false) = 0;
 
   void SetSavePoint() override;
 
@@ -55,11 +56,12 @@ class TransactionBaseImpl : public Transaction {
 
   Status GetForUpdate(const ReadOptions& options,
                       ColumnFamilyHandle* column_family, const Slice& key,
-                      std::string* value) override;
+                      std::string* value, bool exclusive) override;
 
   Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                      std::string* value) override {
-    return GetForUpdate(options, db_->DefaultColumnFamily(), key, value);
+                      std::string* value, bool exclusive) override {
+    return GetForUpdate(options, db_->DefaultColumnFamily(), key, value,
+                        exclusive);
   }
 
   std::vector<Status> MultiGet(
@@ -315,7 +317,7 @@ class TransactionBaseImpl : public Transaction {
   std::shared_ptr<TransactionNotifier> snapshot_notifier_ = nullptr;
 
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
-                 bool read_only, bool untracked = false);
+                 bool read_only, bool exclusive, bool untracked = false);
 
   WriteBatchBase* GetBatchForWrite();
 

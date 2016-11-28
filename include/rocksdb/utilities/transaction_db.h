@@ -104,7 +104,8 @@ struct TransactionOptions {
 
 struct KeyLockInfo {
   std::string key;
-  TransactionID id;
+  std::vector<TransactionID> ids;
+  bool exclusive;
 };
 
 class TransactionDB : public StackableDB {
