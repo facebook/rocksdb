@@ -331,14 +331,7 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
   Options options;
   options.env = &env;
   options.create_if_missing = true;
-  TryReopen(options);
-  CreateColumnFamilies({"1", "2", "3"}, options);
-
-  for (int i = 0; i < 2; ++i) {
-    ASSERT_OK(Put("a", "begin"));
-    ASSERT_OK(Put("z", "end"));
-    ASSERT_OK(Flush());
-  }
+  DestroyAndReopen(options);
 
   // Verify that candidate files set is empty when no full scan requested.
   assert_candidate_files_empty(dbfull(), true);
@@ -360,7 +353,6 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
 
   env.addon_time_.store(21);
   assert_candidate_files_empty(dbfull(), false);
-  Close();
 }
 
 #endif  // ROCKSDB_LITE
