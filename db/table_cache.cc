@@ -313,6 +313,18 @@ Status TableCache::Get(const ReadOptions& options,
         t = GetTableReaderFromHandle(handle);
       }
     }
+    if (s.ok() && get_context->range_del_agg() != nullptr &&
+        !options.ignore_range_deletions) {
+      std::unique_ptr<InternalIterator> range_del_iter(
+          t->NewRangeTombstoneIterator(options));
+      if (range_del_iter != nullptr) {
+        s = range_del_iter->status();
+      }
+      if (s.ok()) {
+        s = get_context->range_del_agg()->AddTombstones(
+            std::move(range_del_iter));
+      }
+    }
     if (s.ok()) {
       get_context->SetReplayLog(row_cache_entry);  // nullptr if no cache.
       s = t->Get(options, k, get_context, skip_filters);
@@ -322,18 +334,6 @@ Status TableCache::Get(const ReadOptions& options,
       get_context->MarkKeyMayExist();
       s = Status::OK();
       done = true;
-    }
-  }
-  if (!done && s.ok() && get_context->range_del_agg() != nullptr &&
-      !options.ignore_range_deletions) {
-    std::unique_ptr<InternalIterator> range_del_iter(
-        t->NewRangeTombstoneIterator(options));
-    if (range_del_iter != nullptr) {
-      s = range_del_iter->status();
-    }
-    if (s.ok()) {
-      s = get_context->range_del_agg()->AddTombstones(
-          std::move(range_del_iter));
     }
   }
 
