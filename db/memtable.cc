@@ -322,11 +322,13 @@ class MemTableIterator : public InternalIterator {
     valid_ = iter_->Valid();
   }
   virtual void Next() override {
+    PERF_COUNTER_ADD(next_on_memtable_count, 1);
     assert(Valid());
     iter_->Next();
     valid_ = iter_->Valid();
   }
   virtual void Prev() override {
+    PERF_COUNTER_ADD(prev_on_memtable_count, 1);
     assert(Valid());
     iter_->Prev();
     valid_ = iter_->Valid();
