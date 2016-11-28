@@ -48,6 +48,11 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
 }
 
+void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
+                             ValueType t) {
+  PutFixed64(result, PackSequenceAndType(s, t));
+}
+
 std::string ParsedInternalKey::DebugString(bool hex) const {
   char buf[50];
   snprintf(buf, sizeof(buf), "' @ %" PRIu64 ": %d", sequence,

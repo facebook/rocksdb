@@ -9,6 +9,7 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_
 #define STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_
 
+#include <cassert>
 #include <memory>
 #include <string>
 #include <vector>
@@ -32,6 +33,18 @@ struct CompactionFilterContext {
 
 class CompactionFilter {
  public:
+  enum ValueType {
+    kValue,
+    kMergeOperand,
+  };
+
+  enum class Decision {
+    kKeep,
+    kRemove,
+    kChangeValue,
+    kRemoveAndSkipUntil,
+  };
+
   // Context information of a compaction run
   struct Context {
     // Does this compaction run include all data files
@@ -84,11 +97,10 @@ class CompactionFilter {
   // The last paragraph is not true if you set max_subcompactions to more than
   // 1. In that case, subcompaction from multiple threads may call a single
   // CompactionFilter concurrently.
-  virtual bool Filter(int level,
-                      const Slice& key,
-                      const Slice& existing_value,
-                      std::string* new_value,
-                      bool* value_changed) const = 0;
+  virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
+                      std::string* new_value, bool* value_changed) const {
+    return false;
+  }
 
   // The compaction process invokes this method on every merge operand. If this
   // method returns true, the merge operand will be ignored and not written out
@@ -102,6 +114,60 @@ class CompactionFilter {
   virtual bool FilterMergeOperand(int level, const Slice& key,
                                   const Slice& operand) const {
     return false;
+  }
+
+  // An extended API. Called for both values and merge operands.
+  // Allows changing value and skipping ranges of keys.
+  // The default implementation uses Filter() and FilterMergeOperand().
+  // If you're overriding this method, no need to override the other two.
+  // `value_type` indicates whether this key-value corresponds to a normal
+  // value (e.g. written with Put())  or a merge operand (written with Merge()).
+  //
+  // Possible return values:
+  //  * kKeep - keep the key-value pair.
+  //  * kRemove - remove the key-value pair or merge operand.
+  //  * kChangeValue - keep the key and change the value/operand to *new_value.
+  //  * kRemoveAndSkipUntil - remove this key-value pair, and also remove
+  //      all key-value pairs with key in [key, *skip_until). This range
+  //      of keys will be skipped without reading, potentially saving some
+  //      IO operations compared to removing the keys one by one.
+  //
+  //      *skip_until <= key is treated the same as Decision::kKeep
+  //      (since the range [key, *skip_until) is empty).
+  //
+  //      The keys are skipped even if there are snapshots containing them,
+  //      as if IgnoreSnapshots() was true; i.e. values removed
+  //      by kRemoveAndSkipUntil can disappear from a snapshot - beware
+  //      if you're using TransactionDB or DB::GetSnapshot().
+  //
+  //      If you use kRemoveAndSkipUntil, consider also reducing
+  //      compaction_readahead_size option.
+  //
+  // Note: If you are using a TransactionDB, it is not recommended to filter
+  // out or modify merge operands (ValueType::kMergeOperand).
+  // If a merge operation is filtered out, TransactionDB may not realize there
+  // is a write conflict and may allow a Transaction to Commit that should have
+  // failed. Instead, it is better to implement any Merge filtering inside the
+  // MergeOperator.
+  virtual Decision FilterV2(int level, const Slice& key, ValueType value_type,
+                            const Slice& existing_value, std::string* new_value,
+                            std::string* skip_until) const {
+    switch (value_type) {
+      case ValueType::kValue: {
+        bool value_changed = false;
+        bool rv = Filter(level, key, existing_value, new_value, &value_changed);
+        if (rv) {
+          return Decision::kRemove;
+        }
+        return value_changed ? Decision::kChangeValue : Decision::kKeep;
+      }
+      case ValueType::kMergeOperand: {
+        bool rv = FilterMergeOperand(level, key, existing_value);
+        return rv ? Decision::kRemove : Decision::kKeep;
+      }
+    }
+    assert(false);
+    return Decision::kKeep;
   }
 
   // By default, compaction will only call Filter() on keys written after the

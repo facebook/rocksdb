@@ -23,6 +23,36 @@ namespace rocksdb {
 
 class CompactionIterator {
  public:
+  // A wrapper around Compaction. Has a much smaller interface, only what
+  // CompactionIterator uses. Tests can override it.
+  class CompactionProxy {
+   public:
+    explicit CompactionProxy(const Compaction* compaction)
+        : compaction_(compaction) {}
+
+    virtual ~CompactionProxy() = default;
+    virtual int level(size_t compaction_input_level = 0) const {
+      return compaction_->level();
+    }
+    virtual bool KeyNotExistsBeyondOutputLevel(
+        const Slice& user_key, std::vector<size_t>* level_ptrs) const {
+      return compaction_->KeyNotExistsBeyondOutputLevel(user_key, level_ptrs);
+    }
+    virtual bool bottommost_level() const {
+      return compaction_->bottommost_level();
+    }
+    virtual int number_levels() const { return compaction_->number_levels(); }
+    virtual Slice GetLargestUserKey() const {
+      return compaction_->GetLargestUserKey();
+    }
+
+   protected:
+    CompactionProxy() = default;
+
+   private:
+    const Compaction* compaction_;
+  };
+
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
                      std::vector<SequenceNumber>* snapshots,
@@ -30,6 +60,17 @@ class CompactionIterator {
                      bool expect_valid_internal_key,
                      RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
+                     const CompactionFilter* compaction_filter = nullptr,
+                     LogBuffer* log_buffer = nullptr);
+
+  // Constructor with custom CompactionProxy, used for tests.
+  CompactionIterator(InternalIterator* input, const Comparator* cmp,
+                     MergeHelper* merge_helper, SequenceNumber last_sequence,
+                     std::vector<SequenceNumber>* snapshots,
+                     SequenceNumber earliest_write_conflict_snapshot, Env* env,
+                     bool expect_valid_internal_key,
+                     RangeDelAggregator* range_del_agg,
+                     std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
                      LogBuffer* log_buffer = nullptr);
 
@@ -82,7 +123,7 @@ class CompactionIterator {
   Env* env_;
   bool expect_valid_internal_key_;
   RangeDelAggregator* range_del_agg_;
-  const Compaction* compaction_;
+  std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
   LogBuffer* log_buffer_;
   bool bottommost_level_;
@@ -130,6 +171,7 @@ class CompactionIterator {
   // merge operands and then releasing them after consuming them.
   PinnedIteratorsManager pinned_iters_mgr_;
   std::string compaction_filter_value_;
+  InternalKey compaction_filter_skip_until_;
   // "level_ptrs" holds indices that remember which file of an associated
   // level we were last checking during the last call to compaction->
   // KeyNotExistsBeyondOutputLevel(). This allows future calls to the function
