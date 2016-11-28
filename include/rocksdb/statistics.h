@@ -95,11 +95,15 @@ enum Tickers : uint32_t {
 
   /**
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
-   * There are 3 reasons currently.
+   * There are 4 reasons currently.
    */
   COMPACTION_KEY_DROP_NEWER_ENTRY,  // key was written with a newer value.
+                                    // Also includes keys dropped for range del.
   COMPACTION_KEY_DROP_OBSOLETE,     // The key is obsolete.
+  COMPACTION_KEY_DROP_RANGE_DEL,    // key was covered by a range tombstone.
   COMPACTION_KEY_DROP_USER,  // user compaction function has dropped the key.
+
+  COMPACTION_RANGE_DEL_DROP_OBSOLETE,  // all keys in range were deleted.
 
   // Number of keys written to the database via the Put and Write call's
   NUMBER_KEYS_WRITTEN,
@@ -251,7 +255,10 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {GET_HIT_L2_AND_UP, "rocksdb.l2andup.hit"},
     {COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"},
     {COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete"},
+    {COMPACTION_KEY_DROP_RANGE_DEL, "rocksdb.compaction.key.drop.range_del"},
     {COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"},
+    {COMPACTION_RANGE_DEL_DROP_OBSOLETE,
+     "rocksdb.compaction.range_del.drop.obsolete"},
     {NUMBER_KEYS_WRITTEN, "rocksdb.number.keys.written"},
     {NUMBER_KEYS_READ, "rocksdb.number.keys.read"},
     {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
