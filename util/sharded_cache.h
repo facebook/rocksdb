@@ -78,6 +78,8 @@ class ShardedCache : public Cache {
   virtual void EraseUnRefEntries() override;
   virtual std::string GetPrintableOptions() const override;
 
+  int GetNumShardBits() const { return num_shard_bits_; }
+
  private:
   static inline uint32_t HashSlice(const Slice& s) {
     return Hash(s.data(), s.size(), 0);
@@ -94,5 +96,7 @@ class ShardedCache : public Cache {
   bool strict_capacity_limit_;
   std::atomic<uint64_t> last_id_;
 };
+
+extern int GetDefaultCacheShardBits(size_t capacity);
 
 }  // namespace rocksdb
