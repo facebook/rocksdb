@@ -562,20 +562,36 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
   return write_controller->GetDelayToken(write_rate);
 }
 
-int64_t GetL0ThresholdSpeedupCompaction(
-    int64_t level0_file_num_compaction_trigger,
-    int level0_slowdown_writes_trigger) {
+
+int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
+                                    int level0_slowdown_writes_trigger) {
   // SanitizeOptions() ensures it.
   assert(level0_file_num_compaction_trigger <= level0_slowdown_writes_trigger);
+
+  if (level0_file_num_compaction_trigger < 0) {
+    return std::numeric_limits<int>::max();
+  }
+
+  const int64_t twice_level0_trigger =
+      static_cast<int64_t>(level0_file_num_compaction_trigger) * 2;
+
+  const int64_t one_fourth_trigger_slowdown =
+      static_cast<int64_t>(level0_file_num_compaction_trigger) +
+      ((level0_slowdown_writes_trigger - level0_file_num_compaction_trigger) /
+       4);
+
+  assert(twice_level0_trigger >= 0);
+  assert(one_fourth_trigger_slowdown >= 0);
 
   // 1/4 of the way between L0 compaction trigger threshold and slowdown
   // condition.
   // Or twice as compaction trigger, if it is smaller.
-  return std::min(level0_file_num_compaction_trigger * 2,
-                  level0_file_num_compaction_trigger +
-                      (level0_slowdown_writes_trigger -
-                       level0_file_num_compaction_trigger) /
-                          4);
+  int64_t res = std::min(twice_level0_trigger, one_fourth_trigger_slowdown);
+  if (res >= port::kMaxInt32) {
+    return port::kMaxInt32;
+  } else {
+    return res;
+  }
 }
 }  // namespace
 
