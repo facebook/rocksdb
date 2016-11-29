@@ -1261,8 +1261,7 @@ void CompactionJob::UpdateCompactionStats() {
   for (int input_level = 0;
        input_level < static_cast<int>(compaction->num_input_levels());
        ++input_level) {
-    if (compaction->start_level() + input_level
-        != compaction->output_level()) {
+    if (compaction->level(input_level) != compaction->output_level()) {
       UpdateCompactionInputStatsHelper(
           &compaction_stats_.num_input_files_in_non_output_levels,
           &compaction_stats_.bytes_read_non_output_levels,
