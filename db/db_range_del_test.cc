@@ -276,7 +276,10 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
       // put extra key to trigger flush
       ASSERT_OK(Put("", ""));
       dbfull()->TEST_WaitForFlushMemTable();
-      ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+      if (j < kNumFiles - 1) {
+        // background compaction may happen early for kNumFiles'th file
+        ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+      }
       if (j == options.level0_file_num_compaction_trigger - 1) {
         // When i == 1, compaction will output some files to L1, at which point
         // L1 is not bottommost so range deletions cannot be compacted away. The
