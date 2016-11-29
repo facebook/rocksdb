@@ -571,7 +571,8 @@ int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
   if (res >= port::kMaxInt32) {
     return port::kMaxInt32;
   } else {
-    return res;
+    // res fits in int
+    return static_cast<int>(res);
   }
 }
 }  // namespace
