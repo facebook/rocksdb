@@ -329,7 +329,10 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       // put extra key to trigger flush
       ASSERT_OK(Put("", ""));
       dbfull()->TEST_WaitForFlushMemTable();
-      ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+      if (j < kFilesPerLevel - 1) {
+        // background compaction may happen early for kFilesPerLevel'th file
+        ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+      }
     }
     dbfull()->TEST_WaitForCompact();
     ASSERT_EQ(NumTableFilesAtLevel(0), 0);
