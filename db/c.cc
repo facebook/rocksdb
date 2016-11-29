@@ -1526,6 +1526,11 @@ void rocksdb_options_set_max_bytes_for_level_base(
   opt->rep.max_bytes_for_level_base = n;
 }
 
+void rocksdb_options_set_level_compaction_dynamic_level_bytes(
+    rocksdb_options_t* opt, unsigned char v) {
+  opt->rep.level_compaction_dynamic_level_bytes = v;
+}
+
 void rocksdb_options_set_max_bytes_for_level_multiplier(rocksdb_options_t* opt,
                                                         double n) {
   opt->rep.max_bytes_for_level_multiplier = n;
