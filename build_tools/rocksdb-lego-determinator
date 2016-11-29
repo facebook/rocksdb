@@ -100,7 +100,7 @@ CONTRUN_NAME="ROCKSDB_CONTRUN_NAME"
 # the value of $ONCALL. If it's a diff then just call `false` to make sure
 # that errors will be properly propagated to the caller.
 if [ ! -z $ONCALL ]; then
-  TASK_CREATION_TOOL="/usr/local/bin/mysql_mtr_filter --rocksdb"
+  TASK_CREATION_TOOL="/usr/local/bin/mysql_mtr_filter --rocksdb --oncall $ONCALL"
 else
   TASK_CREATION_TOOL="false"
 fi
