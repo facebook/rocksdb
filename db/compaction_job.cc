@@ -484,9 +484,8 @@ void CompactionJob::GenSubcompactionBoundaries() {
                 static_cast<uint64_t>(db_options_.max_subcompactions),
                 max_output_files});
 
-  double mean = sum * 1.0 / subcompactions;
-
   if (subcompactions > 1) {
+    double mean = sum * 1.0 / subcompactions;
     // Greedily add ranges to the subcompaction until the sum of the ranges'
     // sizes becomes >= the expected mean size of a subcompaction
     sum = 0;
