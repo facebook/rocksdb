@@ -305,8 +305,8 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
 
   // Units (k)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
-      base_cf_opt, "max_write_buffer_number=-15K", &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.max_write_buffer_number, -15 * kilo);
+      base_cf_opt, "max_write_buffer_number=15K", &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.max_write_buffer_number, 15 * kilo);
   // Units (m)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "max_write_buffer_number=16m;inplace_update_num_locks=17M",
