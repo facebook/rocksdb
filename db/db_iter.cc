@@ -395,7 +395,6 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
-        skipping = false;  // ikey > saved_key_, i.e. saved_key_ is skipped
         num_skipped = 0;
         switch (ikey.type) {
           case kTypeDeletion:
