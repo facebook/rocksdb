@@ -481,7 +481,6 @@ TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {
 
   db_->ReleaseSnapshot(snapshot);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
   db_->Put(WriteOptions(), "key", "val");
@@ -682,6 +681,7 @@ TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
   }
   db_->ReleaseSnapshot(snapshot);
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 
