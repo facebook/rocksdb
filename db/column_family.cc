@@ -562,7 +562,6 @@ std::unique_ptr<WriteControllerToken> SetupDelay(
   return write_controller->GetDelayToken(write_rate);
 }
 
-
 int GetL0ThresholdSpeedupCompaction(int level0_file_num_compaction_trigger,
                                     int level0_slowdown_writes_trigger) {
   // SanitizeOptions() ensures it.
