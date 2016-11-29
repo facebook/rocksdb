@@ -48,8 +48,8 @@ ColBufEncoder *ColBufEncoder::NewColBufEncoder(
 
 #if defined(__clang__)
 __attribute__((__no_sanitize__("undefined")))
-#elif defined(__GNUC__)
-__attribute__((no_sanitize_undefined))
+#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
+__attribute__((__no_sanitize_undefined__))
 #endif
 size_t FixedLengthColBufEncoder::Append(const char *buf) {
   if (nullable_) {
