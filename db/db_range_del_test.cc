@@ -23,6 +23,9 @@ class DBRangeDelTest : public DBTestBase {
   }
 };
 
+// PlainTableFactory and NumTableFilesAtLevel() are not supported in
+// ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
   Options opts = CurrentOptions();
   opts.table_factory.reset(new PlainTableFactory());
@@ -152,6 +155,7 @@ TEST_F(DBRangeDelTest, CompactRangeDelsSameStartKey) {
     ASSERT_TRUE(db_->Get(ReadOptions(), "b1", &value).IsNotFound());
   }
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
   const int kNum = 300, kRangeBegin = 50, kRangeEnd = 250;
@@ -187,6 +191,8 @@ TEST_F(DBRangeDelTest, FlushRemovesCoveredKeys) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+// NumTableFilesAtLevel() is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, CompactionRemovesCoveredKeys) {
   const int kNumPerFile = 100, kNumFiles = 4;
   Options opts = CurrentOptions();
@@ -270,7 +276,10 @@ TEST_F(DBRangeDelTest, ValidLevelSubcompactionBoundaries) {
       // put extra key to trigger flush
       ASSERT_OK(Put("", ""));
       dbfull()->TEST_WaitForFlushMemTable();
-      ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+      if (j < kNumFiles - 1) {
+        // background compaction may happen early for kNumFiles'th file
+        ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+      }
       if (j == options.level0_file_num_compaction_trigger - 1) {
         // When i == 1, compaction will output some files to L1, at which point
         // L1 is not bottommost so range deletions cannot be compacted away. The
@@ -320,7 +329,10 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       // put extra key to trigger flush
       ASSERT_OK(Put("", ""));
       dbfull()->TEST_WaitForFlushMemTable();
-      ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+      if (j < kFilesPerLevel - 1) {
+        // background compaction may happen early for kFilesPerLevel'th file
+        ASSERT_EQ(NumTableFilesAtLevel(0), j + 1);
+      }
     }
     dbfull()->TEST_WaitForCompact();
     ASSERT_EQ(NumTableFilesAtLevel(0), 0);
@@ -338,6 +350,7 @@ TEST_F(DBRangeDelTest, ValidUniversalSubcompactionBoundaries) {
       nullptr /* begin */, nullptr /* end */, true /* exclusive */,
       true /* disallow_trivial_move */));
 }
+#endif  // ROCKSDB_LITE
 
 TEST_F(DBRangeDelTest, CompactionRemovesCoveredMergeOperands) {
   const int kNumPerFile = 3, kNumFiles = 3;
@@ -385,6 +398,8 @@ TEST_F(DBRangeDelTest, CompactionRemovesCoveredMergeOperands) {
   ASSERT_EQ(expected, actual);
 }
 
+// NumTableFilesAtLevel() is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
 TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {
   // During compaction to bottommost level, verify range tombstones older than
   // the oldest snapshot are removed, while others are preserved.
@@ -413,6 +428,7 @@ TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {
 
   db_->ReleaseSnapshot(snapshot);
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 
