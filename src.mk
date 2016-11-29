@@ -235,6 +235,7 @@ MAIN_SOURCES =                                                    \
   db/db_iterator_test.cc						\
   db/db_log_iter_test.cc                                                \
   db/db_options_test.cc                                                 \
+  db/db_range_del_test.cc						\
   db/db_sst_test.cc                                                     \
   db/external_sst_file_test.cc                                          \
   db/db_tailing_iter_test.cc                                            \
