@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include <string>
+#include <atomic>
 #include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
 #include "port/port.h"
@@ -23,10 +24,11 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
+  std::atomic<size_t> offset_;  // read offset
 
  public:
   explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file)
-      : file_(std::move(_file)) {}
+      : file_(std::move(_file)), offset_(0) {}
 
   SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -45,6 +47,8 @@ class SequentialFileReader {
   Status Skip(uint64_t n);
 
   SequentialFile* file() { return file_.get(); }
+
+  bool UseDirectIO() const { return file_->UseDirectIO(); }
 };
 
 class RandomAccessFileReader {
@@ -86,6 +90,8 @@ class RandomAccessFileReader {
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
   RandomAccessFile* file() { return file_.get(); }
+
+  bool UseDirectIO() const { return file_->UseDirectIO(); }
 };
 
 // Use posix write to write data to a file.
@@ -151,6 +157,8 @@ class WritableFileWriter {
   }
 
   WritableFile* writable_file() const { return writable_file_.get(); }
+
+  bool UseDirectIO() { return writable_file_->UseDirectIO(); }
 
  private:
   // Used when os buffering is OFF and we are writing
