@@ -53,7 +53,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.db_log_dir = immutable_db_options.db_log_dir;
   options.wal_dir = immutable_db_options.wal_dir;
   options.delete_obsolete_files_period_micros =
-      immutable_db_options.delete_obsolete_files_period_micros;
+      mutable_db_options.delete_obsolete_files_period_micros;
   options.base_background_compactions =
       mutable_db_options.base_background_compactions;
   options.max_background_compactions =
