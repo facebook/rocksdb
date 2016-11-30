@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * Options.level0_stop_writes_trigger default value changes from 24 to 32.
+* Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().
 
 ## 5.0.0 (11/17/2016)
 ### Public API Change

@@ -39,8 +39,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_paths(options.db_paths),
       db_log_dir(options.db_log_dir),
       wal_dir(options.wal_dir),
-      delete_obsolete_files_period_micros(
-          options.delete_obsolete_files_period_micros),
       max_subcompactions(options.max_subcompactions),
       max_background_flushes(options.max_background_flushes),
       max_log_file_size(options.max_log_file_size),
@@ -139,8 +137,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          wal_dir.c_str());
   Header(log, "               Options.table_cache_numshardbits: %d",
          table_cache_numshardbits);
-  Header(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
-         delete_obsolete_files_period_micros);
   Header(log, "                     Options.max_subcompactions: %" PRIu32,
          max_subcompactions);
   Header(log, "                 Options.max_background_flushes: %d",
@@ -222,14 +218,17 @@ MutableDBOptions::MutableDBOptions()
       max_background_compactions(1),
       avoid_flush_during_shutdown(false),
       delayed_write_rate(2 * 1024U * 1024U),
-      max_total_wal_size(0) {}
+      max_total_wal_size(0),
+      delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
       delayed_write_rate(options.delayed_write_rate),
-      max_total_wal_size(options.max_total_wal_size) {}
+      max_total_wal_size(options.max_total_wal_size),
+      delete_obsolete_files_period_micros(
+          options.delete_obsolete_files_period_micros) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   Header(log, "            Options.base_background_compactions: %d",
@@ -242,6 +241,9 @@ void MutableDBOptions::Dump(Logger* log) const {
          delayed_write_rate);
   Header(log, "            Options.max_total_wal_size: %" PRIu64,
          max_total_wal_size);
+  Header(log,
+         "            Options.delete_obsolete_files_period_micros: %" PRIu64,
+         delete_obsolete_files_period_micros);
 }
 
 }  // namespace rocksdb

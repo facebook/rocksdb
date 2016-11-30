@@ -35,7 +35,6 @@ struct ImmutableDBOptions {
   std::vector<DbPath> db_paths;
   std::string db_log_dir;
   std::string wal_dir;
-  uint64_t delete_obsolete_files_period_micros;
   uint32_t max_subcompactions;
   int max_background_flushes;
   size_t max_log_file_size;
@@ -95,6 +94,7 @@ struct MutableDBOptions {
   bool avoid_flush_during_shutdown;
   uint64_t delayed_write_rate;
   uint64_t max_total_wal_size;
+  uint64_t delete_obsolete_files_period_micros;
 };
 
 }  // namespace rocksdb
