@@ -333,7 +333,7 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
 
   auto* pg = w->parallel_group;
   if (!w->status.ok()) {
-    std::lock_guard<std::mutex> guard(w->StateMutex());
+    std::lock_guard<std::mutex> guard(pg->leader->StateMutex());
     pg->status = w->status;
   }
 
