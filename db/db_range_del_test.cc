@@ -541,7 +541,7 @@ TEST_F(DBRangeDelTest, IteratorOverUserSnapshot) {
   opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
   Reopen(opts);
 
-  const Snapshot* snapshot;
+  const Snapshot* snapshot = nullptr;
   // Put a snapshot before the range tombstone, verify an iterator using that
   // snapshot sees all inserted keys.
   for (int i = 0; i < kNum; ++i) {
