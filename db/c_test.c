@@ -430,11 +430,11 @@ int main(int argc, char** argv) {
   CheckGet(db, roptions, "foo", "hello");
 
   StartPhase("compactallopt");
-  rocksdb_compact_range(db, opt, NULL, 0, NULL, 0);
+  rocksdb_compact_range_opt(db, coptions, NULL, 0, NULL, 0);
   CheckGet(db, roptions, "foo", "hello");
 
   StartPhase("compactrangeopt");
-  rocksdb_compact_range(db, opt, "a", 1, "z", 1);
+  rocksdb_compact_range_opt(db, coptions, "a", 1, "z", 1);
   CheckGet(db, roptions, "foo", "hello");
 
   StartPhase("writebatch");
