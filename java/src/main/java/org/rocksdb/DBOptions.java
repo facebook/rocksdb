@@ -139,7 +139,15 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
       final RateLimiterConfig config) {
     assert(isOwningHandle());
     rateLimiterConfig_ = config;
-    setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
+    setOldRateLimiter(nativeHandle_, config.newRateLimiterHandle());
+    return this;
+  }
+
+  @Override
+  public DBOptions setRateLimiter(final RateLimiter rateLimiter) {
+    assert(isOwningHandle());
+    rateLimiter_ = rateLimiter;
+    setRateLimiter(nativeHandle_, rateLimiter.nativeHandle_);
     return this;
   }
 
@@ -284,6 +292,19 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
+  public void setBaseBackgroundCompactions(
+      final int baseBackgroundCompactions) {
+    assert(isOwningHandle());
+    setBaseBackgroundCompactions(nativeHandle_, baseBackgroundCompactions);
+  }
+
+  @Override
+  public int baseBackgroundCompactions() {
+    assert(isOwningHandle());
+    return baseBackgroundCompactions(nativeHandle_);
+  }
+
+  @Override
   public DBOptions setMaxBackgroundCompactions(
       final int maxBackgroundCompactions) {
     assert(isOwningHandle());
@@ -295,6 +316,18 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   public int maxBackgroundCompactions() {
     assert(isOwningHandle());
     return maxBackgroundCompactions(nativeHandle_);
+  }
+
+  @Override
+  public void setMaxSubcompactions(final int maxSubcompactions) {
+    assert(isOwningHandle());
+    setMaxSubcompactions(nativeHandle_, maxSubcompactions);
+  }
+
+  @Override
+  public int maxSubcompactions() {
+    assert(isOwningHandle());
+    return maxSubcompactions(nativeHandle_);
   }
 
   @Override
@@ -533,7 +566,62 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
     return bytesPerSync(nativeHandle_);
   }
 
+  @Override
+  public void setAllowConcurrentMemtableWrite(
+      final boolean allowConcurrentMemtableWrite) {
+    setAllowConcurrentMemtableWrite(nativeHandle_,
+        allowConcurrentMemtableWrite);
+  }
+
+  @Override
+  public boolean allowConcurrentMemtableWrite() {
+    return allowConcurrentMemtableWrite(nativeHandle_);
+  }
+
+  @Override
+  public void setEnableWriteThreadAdaptiveYield(
+      final boolean enableWriteThreadAdaptiveYield) {
+    setEnableWriteThreadAdaptiveYield(nativeHandle_,
+        enableWriteThreadAdaptiveYield);
+  }
+
+  @Override
+  public boolean enableWriteThreadAdaptiveYield() {
+    return enableWriteThreadAdaptiveYield(nativeHandle_);
+  }
+
+  @Override
+  public void setWriteThreadMaxYieldUsec(final long writeThreadMaxYieldUsec) {
+    setWriteThreadMaxYieldUsec(nativeHandle_, writeThreadMaxYieldUsec);
+  }
+
+  @Override
+  public long writeThreadMaxYieldUsec() {
+    return writeThreadMaxYieldUsec(nativeHandle_);
+  }
+
+  @Override
+  public void setWriteThreadSlowYieldUsec(final long writeThreadSlowYieldUsec) {
+    setWriteThreadSlowYieldUsec(nativeHandle_, writeThreadSlowYieldUsec);
+  }
+
+  @Override
+  public long writeThreadSlowYieldUsec() {
+    return writeThreadSlowYieldUsec(nativeHandle_);
+  }
+
   static final int DEFAULT_NUM_SHARD_BITS = -1;
+
+ public DBOptions setDelayedWriteRate(final long delayedWriteRate){
+   assert(isOwningHandle());
+   setDelayedWriteRate(nativeHandle_, delayedWriteRate);
+   return this;
+}
+
+public long delayedWriteRate(){
+  return delayedWriteRate(nativeHandle_);
+}
+
 
   /**
    * <p>Private constructor to be used by
@@ -562,6 +650,9 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setParanoidChecks(
       long handle, boolean paranoidChecks);
   private native boolean paranoidChecks(long handle);
+  @Deprecated
+  private native void setOldRateLimiter(long handle,
+      long rateLimiterHandle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
   private native void setLogger(long handle,
@@ -586,9 +677,14 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setDeleteObsoleteFilesPeriodMicros(
       long handle, long micros);
   private native long deleteObsoleteFilesPeriodMicros(long handle);
+  private native void setBaseBackgroundCompactions(long handle,
+      int baseBackgroundCompactions);
+  private native int baseBackgroundCompactions(long handle);
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
+  private native void setMaxSubcompactions(long handle, int maxSubcompactions);
+  private native int maxSubcompactions(long handle);
   private native void setMaxBackgroundFlushes(
       long handle, int maxBackgroundFlushes);
   private native int maxBackgroundFlushes(long handle);
@@ -638,7 +734,23 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setBytesPerSync(
       long handle, long bytesPerSync);
   private native long bytesPerSync(long handle);
+  private native void setAllowConcurrentMemtableWrite(long handle,
+      boolean allowConcurrentMemtableWrite);
+  private native boolean allowConcurrentMemtableWrite(long handle);
+  private native void setEnableWriteThreadAdaptiveYield(long handle,
+      boolean enableWriteThreadAdaptiveYield);
+  private native boolean enableWriteThreadAdaptiveYield(long handle);
+  private native void setWriteThreadMaxYieldUsec(long handle,
+      long writeThreadMaxYieldUsec);
+  private native long writeThreadMaxYieldUsec(long handle);
+  private native void setWriteThreadSlowYieldUsec(long handle,
+      long writeThreadSlowYieldUsec);
+  private native long writeThreadSlowYieldUsec(long handle);
+
+  private native void setDelayedWriteRate(long handle, long delayedWriteRate);
+  private native long delayedWriteRate(long handle);
 
   int numShardBits_;
   RateLimiterConfig rateLimiterConfig_;
+  RateLimiter rateLimiter_;
 }

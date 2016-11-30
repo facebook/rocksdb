@@ -29,10 +29,10 @@ jlong Java_org_rocksdb_Statistics_getTickerCount0(
 
 /*
  * Class:     org_rocksdb_Statistics
- * Method:    geHistogramData0
+ * Method:    getHistogramData0
  * Signature: (IJ)Lorg/rocksdb/HistogramData;
  */
-jobject Java_org_rocksdb_Statistics_geHistogramData0(
+jobject Java_org_rocksdb_Statistics_getHistogramData0(
     JNIEnv* env, jobject jobj, jint histogramType, jlong handle) {
   auto st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);

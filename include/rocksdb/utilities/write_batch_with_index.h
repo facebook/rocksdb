@@ -34,6 +34,7 @@ enum WriteType {
   kMergeRecord,
   kDeleteRecord,
   kSingleDeleteRecord,
+  kDeleteRangeRecord,
   kLogDataRecord,
   kXIDRecord,
 };
@@ -58,6 +59,8 @@ class WBWIIterator {
   virtual void SeekToLast() = 0;
 
   virtual void Seek(const Slice& key) = 0;
+
+  virtual void SeekForPrev(const Slice& key) = 0;
 
   virtual void Next() = 0;
 
@@ -112,6 +115,11 @@ class WriteBatchWithIndex : public WriteBatchBase {
   void SingleDelete(ColumnFamilyHandle* column_family,
                     const Slice& key) override;
   void SingleDelete(const Slice& key) override;
+
+  using WriteBatchBase::DeleteRange;
+  void DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                   const Slice& end_key) override;
+  void DeleteRange(const Slice& begin_key, const Slice& end_key) override;
 
   using WriteBatchBase::PutLogData;
   void PutLogData(const Slice& blob) override;

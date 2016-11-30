@@ -15,7 +15,6 @@ public class ReadOptions extends RocksObject {
   public ReadOptions() {
     super(newReadOptions());
   }
-  private native static long newReadOptions();
 
   /**
    * If true, all data read from underlying storage will be
@@ -28,7 +27,6 @@ public class ReadOptions extends RocksObject {
     assert(isOwningHandle());
     return verifyChecksums(nativeHandle_);
   }
-  private native boolean verifyChecksums(long handle);
 
   /**
    * If true, all data read from underlying storage will be
@@ -45,8 +43,6 @@ public class ReadOptions extends RocksObject {
     setVerifyChecksums(nativeHandle_, verifyChecksums);
     return this;
   }
-  private native void setVerifyChecksums(
-      long handle, boolean verifyChecksums);
 
   // TODO(yhchiang): this option seems to be block-based table only.
   //                 move this to a better place?
@@ -61,7 +57,6 @@ public class ReadOptions extends RocksObject {
     assert(isOwningHandle());
     return fillCache(nativeHandle_);
   }
-  private native boolean fillCache(long handle);
 
   /**
    * Fill the cache when loading the block-based sst formatted db.
@@ -77,8 +72,21 @@ public class ReadOptions extends RocksObject {
     setFillCache(nativeHandle_, fillCache);
     return this;
   }
-  private native void setFillCache(
-      long handle, boolean fillCache);
+
+  /**
+   * Returns the currently assigned Snapshot instance.
+   *
+   * @return the Snapshot assigned to this instance. If no Snapshot
+   *     is assigned null.
+   */
+  public Snapshot snapshot() {
+    assert(isOwningHandle());
+    long snapshotHandle = snapshot(nativeHandle_);
+    if (snapshotHandle != 0) {
+      return new Snapshot(snapshotHandle);
+    }
+    return null;
+  }
 
   /**
    * <p>If "snapshot" is non-nullptr, read as of the supplied snapshot
@@ -99,23 +107,30 @@ public class ReadOptions extends RocksObject {
     }
     return this;
   }
-  private native void setSnapshot(long handle, long snapshotHandle);
 
   /**
-   * Returns the currently assigned Snapshot instance.
+   * Returns the current read tier.
    *
-   * @return the Snapshot assigned to this instance. If no Snapshot
-   *     is assigned null.
+   * @return the read tier in use, by default {@link ReadTier#READ_ALL_TIER}
    */
-  public Snapshot snapshot() {
+  public ReadTier readTier() {
     assert(isOwningHandle());
-    long snapshotHandle = snapshot(nativeHandle_);
-    if (snapshotHandle != 0) {
-      return new Snapshot(snapshotHandle);
-    }
-    return null;
+    return ReadTier.getReadTier(readTier(nativeHandle_));
   }
-  private native long snapshot(long handle);
+
+  /**
+   * Specify if this read request should process data that ALREADY
+   * resides on a particular cache. If the required data is not
+   * found at the specified cache, then {@link RocksDBException} is thrown.
+   *
+   * @param readTier {@link ReadTier} instance
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setReadTier(final ReadTier readTier) {
+    assert(isOwningHandle());
+    setReadTier(nativeHandle_, readTier.getValue());
+    return this;
+  }
 
   /**
    * Specify to create a tailing iterator -- a special iterator that has a
@@ -132,7 +147,6 @@ public class ReadOptions extends RocksObject {
     assert(isOwningHandle());
     return tailing(nativeHandle_);
   }
-  private native boolean tailing(long handle);
 
   /**
    * Specify to create a tailing iterator -- a special iterator that has a
@@ -150,8 +164,130 @@ public class ReadOptions extends RocksObject {
     setTailing(nativeHandle_, tailing);
     return this;
   }
-  private native void setTailing(
-      long handle, boolean tailing);
+
+  /**
+   * Returns whether managed iterators will be used.
+   *
+   * @return the setting of whether managed iterators will be used, by default false
+   */
+  public boolean managed() {
+    assert(isOwningHandle());
+    return managed(nativeHandle_);
+  }
+
+  /**
+   * Specify to create a managed iterator -- a special iterator that
+   * uses less resources by having the ability to free its underlying
+   * resources on request.
+   *
+   * @param managed if true, then managed iterators will be enabled.
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setManaged(final boolean managed) {
+    assert(isOwningHandle());
+    setManaged(nativeHandle_, managed);
+    return this;
+  }
+
+  /**
+   * Returns whether a total seek order will be used
+   *
+   * @return the setting of whether a total seek order will be used
+   */
+  public boolean totalOrderSeek() {
+    assert(isOwningHandle());
+    return totalOrderSeek(nativeHandle_);
+  }
+
+  /**
+   * Enable a total order seek regardless of index format (e.g. hash index)
+   * used in the table. Some table format (e.g. plain table) may not support
+   * this option.
+   *
+   * @param totalOrderSeek if true, then total order seek will be enabled.
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setTotalOrderSeek(final boolean totalOrderSeek) {
+    assert(isOwningHandle());
+    setTotalOrderSeek(nativeHandle_, totalOrderSeek);
+    return this;
+  }
+
+  /**
+   * Returns whether the iterator only iterates over the same prefix as the seek
+   *
+   * @return the setting of whether the iterator only iterates over the same
+   *   prefix as the seek, default is false
+   */
+  public boolean prefixSameAsStart() {
+    assert(isOwningHandle());
+    return prefixSameAsStart(nativeHandle_);
+  }
+
+
+  /**
+   * Enforce that the iterator only iterates over the same prefix as the seek.
+   * This option is effective only for prefix seeks, i.e. prefix_extractor is
+   * non-null for the column family and {@link #totalOrderSeek()} is false.
+   * Unlike iterate_upper_bound, {@link #setPrefixSameAsStart(boolean)} only
+   * works within a prefix but in both directions.
+   *
+   * @param prefixSameAsStart if true, then the iterator only iterates over the
+   *   same prefix as the seek
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setPrefixSameAsStart(final boolean prefixSameAsStart) {
+    assert(isOwningHandle());
+    setPrefixSameAsStart(nativeHandle_, prefixSameAsStart);
+    return this;
+  }
+
+  /**
+   * Returns whether the blocks loaded by the iterator will be pinned in memory
+   *
+   * @return the setting of whether the blocks loaded by the iterator will be
+   *   pinned in memory
+   */
+  public boolean pinData() {
+    assert(isOwningHandle());
+    return pinData(nativeHandle_);
+  }
+
+  /**
+   * Keep the blocks loaded by the iterator pinned in memory as long as the
+   * iterator is not deleted, If used when reading from tables created with
+   * BlockBasedTableOptions::use_delta_encoding = false,
+   * Iterator's property "rocksdb.iterator.is-key-pinned" is guaranteed to
+   * return 1.
+   *
+   * @param pinData if true, the blocks loaded by the iterator will be pinned
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setPinData(final boolean pinData) {
+    assert(isOwningHandle());
+    setPinData(nativeHandle_, pinData);
+    return this;
+  }
+
+  private native static long newReadOptions();
+  private native boolean verifyChecksums(long handle);
+  private native void setVerifyChecksums(long handle, boolean verifyChecksums);
+  private native boolean fillCache(long handle);
+  private native void setFillCache(long handle, boolean fillCache);
+  private native long snapshot(long handle);
+  private native void setSnapshot(long handle, long snapshotHandle);
+  private native byte readTier(long handle);
+  private native void setReadTier(long handle, byte readTierValue);
+  private native boolean tailing(long handle);
+  private native void setTailing(long handle, boolean tailing);
+  private native boolean managed(long handle);
+  private native void setManaged(long handle, boolean managed);
+  private native boolean totalOrderSeek(long handle);
+  private native void setTotalOrderSeek(long handle, boolean totalOrderSeek);
+  private native boolean prefixSameAsStart(long handle);
+  private native void setPrefixSameAsStart(long handle, boolean prefixSameAsStart);
+  private native boolean pinData(long handle);
+  private native void setPinData(long handle, boolean pinData);
 
   @Override protected final native void disposeInternal(final long handle);
 

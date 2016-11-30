@@ -58,7 +58,7 @@ TEST_F(FilterBlockTest, EmptyBuilder) {
   BlockContents block(builder.Finish(), false, kNoCompression);
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block.data));
   BlockBasedFilterBlockReader reader(nullptr, table_options_, true,
-                                     std::move(block));
+                                     std::move(block), nullptr);
   ASSERT_TRUE(reader.KeyMayMatch("foo", 0));
   ASSERT_TRUE(reader.KeyMayMatch("foo", 100000));
 }
@@ -75,7 +75,7 @@ TEST_F(FilterBlockTest, SingleChunk) {
   builder.Add("hello");
   BlockContents block(builder.Finish(), false, kNoCompression);
   BlockBasedFilterBlockReader reader(nullptr, table_options_, true,
-                                     std::move(block));
+                                     std::move(block), nullptr);
   ASSERT_TRUE(reader.KeyMayMatch("foo", 100));
   ASSERT_TRUE(reader.KeyMayMatch("bar", 100));
   ASSERT_TRUE(reader.KeyMayMatch("box", 100));
@@ -107,7 +107,7 @@ TEST_F(FilterBlockTest, MultiChunk) {
 
   BlockContents block(builder.Finish(), false, kNoCompression);
   BlockBasedFilterBlockReader reader(nullptr, table_options_, true,
-                                     std::move(block));
+                                     std::move(block), nullptr);
 
   // Check first filter
   ASSERT_TRUE(reader.KeyMayMatch("foo", 0));
@@ -153,7 +153,7 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
   BlockContents block(builder->Finish(), false, kNoCompression);
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block.data));
   FilterBlockReader* reader = new BlockBasedFilterBlockReader(
-      nullptr, table_options_, true, std::move(block));
+      nullptr, table_options_, true, std::move(block), nullptr);
   ASSERT_TRUE(reader->KeyMayMatch("foo", 0));
   ASSERT_TRUE(reader->KeyMayMatch("foo", 100000));
 
@@ -174,7 +174,7 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedSingleChunk) {
   builder->Add("hello");
   BlockContents block(builder->Finish(), false, kNoCompression);
   FilterBlockReader* reader = new BlockBasedFilterBlockReader(
-      nullptr, table_options_, true, std::move(block));
+      nullptr, table_options_, true, std::move(block), nullptr);
   ASSERT_TRUE(reader->KeyMayMatch("foo", 100));
   ASSERT_TRUE(reader->KeyMayMatch("bar", 100));
   ASSERT_TRUE(reader->KeyMayMatch("box", 100));
@@ -210,7 +210,7 @@ TEST_F(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
 
   BlockContents block(builder->Finish(), false, kNoCompression);
   FilterBlockReader* reader = new BlockBasedFilterBlockReader(
-      nullptr, table_options_, true, std::move(block));
+      nullptr, table_options_, true, std::move(block), nullptr);
 
   // Check first filter
   ASSERT_TRUE(reader->KeyMayMatch("foo", 0));

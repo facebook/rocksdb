@@ -16,8 +16,8 @@
 #include <inttypes.h>
 #include <vector>
 
-#include "rocksdb/compaction_filter.h"
 #include "db/column_family.h"
+#include "rocksdb/compaction_filter.h"
 #include "util/logging.h"
 #include "util/sync_point.h"
 
@@ -140,11 +140,12 @@ bool Compaction::IsFullCompaction(
 }
 
 Compaction::Compaction(VersionStorageInfo* vstorage,
+                       const ImmutableCFOptions& _immutable_cf_options,
                        const MutableCFOptions& _mutable_cf_options,
                        std::vector<CompactionInputFiles> _inputs,
                        int _output_level, uint64_t _target_file_size,
-                       uint64_t _max_grandparent_overlap_bytes,
-                       uint32_t _output_path_id, CompressionType _compression,
+                       uint64_t _max_compaction_bytes, uint32_t _output_path_id,
+                       CompressionType _compression,
                        std::vector<FileMetaData*> _grandparents,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
@@ -152,7 +153,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
     : start_level_(_inputs[0].level),
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
-      max_grandparent_overlap_bytes_(_max_grandparent_overlap_bytes),
+      max_compaction_bytes_(_max_compaction_bytes),
+      immutable_cf_options_(_immutable_cf_options),
       mutable_cf_options_(_mutable_cf_options),
       input_version_(nullptr),
       number_levels_(vstorage->num_levels()),
@@ -187,8 +189,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
     }
   }
 
-  Slice smallest_user_key;
-  GetBoundaryKeys(vstorage, inputs_, &smallest_user_key, &largest_user_key_);
+  GetBoundaryKeys(vstorage, inputs_, &smallest_user_key_, &largest_user_key_);
 }
 
 Compaction::~Compaction() {
@@ -205,8 +206,9 @@ Compaction::~Compaction() {
 bool Compaction::InputCompressionMatchesOutput() const {
   VersionStorageInfo* vstorage = input_version_->storage_info();
   int base_level = vstorage->base_level();
-  bool matches = (GetCompressionType(*cfd_->ioptions(), vstorage, start_level_,
-                                     base_level) == output_compression_);
+  bool matches =
+      (GetCompressionType(*cfd_->ioptions(), vstorage, mutable_cf_options_,
+                          start_level_, base_level) == output_compression_);
   if (matches) {
     TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:Matches");
     return true;
@@ -247,7 +249,7 @@ bool Compaction::IsTrivialMove() const {
   return (start_level_ != output_level_ && num_input_levels() == 1 &&
           input(0, 0)->fd.GetPathId() == output_path_id() &&
           InputCompressionMatchesOutput() &&
-          TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
+          TotalFileSize(grandparents_) <= max_compaction_bytes_);
 }
 
 void Compaction::AddInputDeletions(VersionEdit* out_edit) {
@@ -292,8 +294,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
   for (size_t i = 0; i < num_input_levels(); i++) {
     for (size_t j = 0; j < inputs_[i].size(); j++) {
-      assert(mark_as_compacted ? !inputs_[i][j]->being_compacted :
-                                  inputs_[i][j]->being_compacted);
+      assert(mark_as_compacted ? !inputs_[i][j]->being_compacted
+                               : inputs_[i][j]->being_compacted);
       inputs_[i][j]->being_compacted = mark_as_compacted;
     }
   }
@@ -368,10 +370,8 @@ int InputSummary(const std::vector<FileMetaData*>& files, char* output,
 
 void Compaction::Summary(char* output, int len) {
   int write =
-      snprintf(output, len, "Base version %" PRIu64
-                            " Base level %d, inputs: [",
-               input_version_->GetVersionNumber(),
-               start_level_);
+      snprintf(output, len, "Base version %" PRIu64 " Base level %d, inputs: [",
+               input_version_->GetVersionNumber(), start_level_);
   if (write < 0 || write >= len) {
     return;
   }
@@ -429,7 +429,7 @@ bool Compaction::IsOutputLevelEmpty() const {
 }
 
 bool Compaction::ShouldFormSubcompactions() const {
-  if (mutable_cf_options_.max_subcompactions <= 1 || cfd_ == nullptr) {
+  if (immutable_cf_options_.max_subcompactions <= 1 || cfd_ == nullptr) {
     return false;
   }
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {

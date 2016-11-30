@@ -8,6 +8,7 @@
 #include "util/env_chroot.h"
 
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -78,6 +79,17 @@ class ChrootEnv : public EnvWrapper {
     return EnvWrapper::ReuseWritableFile(status_and_old_enc_path.second,
                                          status_and_old_enc_path.second, result,
                                          options);
+  }
+
+  virtual Status NewRandomRWFile(const std::string& fname,
+                                 unique_ptr<RandomRWFile>* result,
+                                 const EnvOptions& options) override {
+    auto status_and_enc_path = EncodePathWithNewBasename(fname);
+    if (!status_and_enc_path.first.ok()) {
+      return status_and_enc_path.first;
+    }
+    return EnvWrapper::NewRandomRWFile(status_and_enc_path.second, result,
+                                       options);
   }
 
   virtual Status NewDirectory(const std::string& dir,

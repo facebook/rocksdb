@@ -30,7 +30,17 @@ const unsigned int kMaxVarint64Length = 10;
 extern void PutFixed32(std::string* dst, uint32_t value);
 extern void PutFixed64(std::string* dst, uint64_t value);
 extern void PutVarint32(std::string* dst, uint32_t value);
+extern void PutVarint32Varint32(std::string* dst, uint32_t value1,
+                                uint32_t value2);
+extern void PutVarint32Varint32Varint32(std::string* dst, uint32_t value1,
+                                        uint32_t value2, uint32_t value3);
 extern void PutVarint64(std::string* dst, uint64_t value);
+extern void PutVarint64Varint64(std::string* dst, uint64_t value1,
+                                uint64_t value2);
+extern void PutVarint32Varint64(std::string* dst, uint32_t value1,
+                                uint64_t value2);
+extern void PutVarint32Varint32Varint64(std::string* dst, uint32_t value1,
+                                        uint32_t value2, uint64_t value3);
 extern void PutLengthPrefixedSlice(std::string* dst, const Slice& value);
 extern void PutLengthPrefixedSliceParts(std::string* dst,
                                         const SliceParts& slice_parts);
@@ -141,21 +151,48 @@ inline void EncodeFixed64(char* buf, uint64_t value) {
 #endif
 }
 
+// Pull the last 8 bits and cast it to a character
 inline void PutFixed32(std::string* dst, uint32_t value) {
+#if __BYTE_ORDER__ == __LITTLE_ENDIAN__
+  dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
+    sizeof(value));
+#else
   char buf[sizeof(value)];
   EncodeFixed32(buf, value);
   dst->append(buf, sizeof(buf));
+#endif
 }
 
 inline void PutFixed64(std::string* dst, uint64_t value) {
+#if __BYTE_ORDER__ == __LITTLE_ENDIAN__
+  dst->append(const_cast<const char*>(reinterpret_cast<char*>(&value)),
+    sizeof(value));
+#else
   char buf[sizeof(value)];
   EncodeFixed64(buf, value);
   dst->append(buf, sizeof(buf));
+#endif
 }
 
 inline void PutVarint32(std::string* dst, uint32_t v) {
   char buf[5];
   char* ptr = EncodeVarint32(buf, v);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
+}
+
+inline void PutVarint32Varint32(std::string* dst, uint32_t v1, uint32_t v2) {
+  char buf[10];
+  char* ptr = EncodeVarint32(buf, v1);
+  ptr = EncodeVarint32(ptr, v2);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
+}
+
+inline void PutVarint32Varint32Varint32(std::string* dst, uint32_t v1,
+                                        uint32_t v2, uint32_t v3) {
+  char buf[15];
+  char* ptr = EncodeVarint32(buf, v1);
+  ptr = EncodeVarint32(ptr, v2);
+  ptr = EncodeVarint32(ptr, v3);
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 
@@ -173,6 +210,29 @@ inline char* EncodeVarint64(char* dst, uint64_t v) {
 inline void PutVarint64(std::string* dst, uint64_t v) {
   char buf[10];
   char* ptr = EncodeVarint64(buf, v);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
+}
+
+inline void PutVarint64Varint64(std::string* dst, uint64_t v1, uint64_t v2) {
+  char buf[20];
+  char* ptr = EncodeVarint64(buf, v1);
+  ptr = EncodeVarint64(ptr, v2);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
+}
+
+inline void PutVarint32Varint64(std::string* dst, uint32_t v1, uint64_t v2) {
+  char buf[15];
+  char* ptr = EncodeVarint32(buf, v1);
+  ptr = EncodeVarint64(ptr, v2);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
+}
+
+inline void PutVarint32Varint32Varint64(std::string* dst, uint32_t v1,
+                                        uint32_t v2, uint64_t v3) {
+  char buf[20];
+  char* ptr = EncodeVarint32(buf, v1);
+  ptr = EncodeVarint32(ptr, v2);
+  ptr = EncodeVarint64(ptr, v3);
   dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 
@@ -235,6 +295,17 @@ inline bool GetVarint64(Slice* input, uint64_t* value) {
   }
 }
 
+// Provide an interface for platform independent endianness transformation
+inline uint64_t EndianTransform(uint64_t input, size_t size) {
+  char* pos = reinterpret_cast<char*>(&input);
+  uint64_t ret_val = 0;
+  for (size_t i = 0; i < size; ++i) {
+    ret_val |= (static_cast<uint64_t>(static_cast<unsigned char>(pos[i]))
+                << ((size - i - 1) << 3));
+  }
+  return ret_val;
+}
+
 inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
   uint32_t len = 0;
   if (GetVarint32(input, &len) && input->size() >= len) {
@@ -249,6 +320,7 @@ inline bool GetLengthPrefixedSlice(Slice* input, Slice* result) {
 inline Slice GetLengthPrefixedSlice(const char* data) {
   uint32_t len = 0;
   // +5: we assume "data" is not corrupted
+  // unsigned char is 7 bits, uint32_t is 32 bits, need 5 unsigned char
   auto p = GetVarint32Ptr(data, data + 5 /* limit */, &len);
   return Slice(p, len);
 }

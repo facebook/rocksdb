@@ -25,7 +25,13 @@ class TransactionDBImpl : public TransactionDB {
   explicit TransactionDBImpl(DB* db,
                              const TransactionDBOptions& txn_db_options);
 
-  ~TransactionDBImpl() {}
+  explicit TransactionDBImpl(StackableDB* db,
+                             const TransactionDBOptions& txn_db_options);
+
+  ~TransactionDBImpl();
+
+  Status Initialize(const std::vector<size_t>& compaction_enabled_cf_indices,
+                    const std::vector<ColumnFamilyHandle*>& handles);
 
   Transaction* BeginTransaction(const WriteOptions& write_options,
                                 const TransactionOptions& txn_options,
@@ -87,6 +93,8 @@ class TransactionDBImpl : public TransactionDB {
 
   // not thread safe. current use case is during recovery (single thread)
   void GetAllPreparedTransactions(std::vector<Transaction*>* trans) override;
+
+  TransactionLockMgr::LockStatusData GetLockStatusData() override;
 
  private:
   void ReinitializeTransaction(

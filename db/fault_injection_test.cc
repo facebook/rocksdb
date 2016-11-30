@@ -228,6 +228,11 @@ class FaultInjectionTest : public testing::Test,
     return Status::OK();
   }
 
+#if defined(__clang__)
+__attribute__((__no_sanitize__("undefined")))
+#elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
+__attribute__((__no_sanitize_undefined__))
+#endif
   // Return the ith key
   Slice Key(int i, std::string* storage) const {
     int num = i;
@@ -405,6 +410,7 @@ TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
   sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 
   ASSERT_OK(OpenDB());
   std::string val;
@@ -489,6 +495,7 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
   sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 
   ASSERT_OK(OpenDB());
   std::string val;
@@ -499,6 +506,30 @@ TEST_P(FaultInjectionTest, ManualLogSyncTest) {
   Value(1, &value_space);
   ASSERT_OK(ReadValue(1, &val));
   ASSERT_EQ(value_space, val);
+}
+
+TEST_P(FaultInjectionTest, WriteBatchWalTerminationTest) {
+  ReadOptions ro;
+  Options options = CurrentOptions();
+  options.env = env_;
+
+  WriteOptions wo;
+  wo.sync = true;
+  wo.disableWAL = false;
+  WriteBatch batch;
+  batch.Put("cats", "dogs");
+  batch.MarkWalTerminationPoint();
+  batch.Put("boys", "girls");
+  ASSERT_OK(db_->Write(wo, &batch));
+
+  env_->SetFilesystemActive(false);
+  NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
+  ASSERT_OK(OpenDB());
+
+  std::string val;
+  ASSERT_OK(db_->Get(ro, "cats", &val));
+  ASSERT_EQ("dogs", val);
+  ASSERT_EQ(db_->Get(ro, "boys", &val), Status::NotFound());
 }
 
 INSTANTIATE_TEST_CASE_P(FaultTest, FaultInjectionTest, ::testing::Bool());

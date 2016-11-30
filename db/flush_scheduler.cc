@@ -20,6 +20,8 @@ void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
   }
 #endif  // NDEBUG
   cfd->Ref();
+// Suppress false positive clang analyzer warnings.
+#ifndef __clang_analyzer__
   Node* node = new Node{cfd, head_.load(std::memory_order_relaxed)};
   while (!head_.compare_exchange_strong(
       node->next, node, std::memory_order_relaxed, std::memory_order_relaxed)) {
@@ -28,6 +30,7 @@ void FlushScheduler::ScheduleFlush(ColumnFamilyData* cfd) {
     // inter-thread synchronization, so we don't even need release
     // semantics for this CAS
   }
+#endif  // __clang_analyzer__
 }
 
 ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {

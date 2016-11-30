@@ -87,7 +87,6 @@ public enum TickerType {
   // written to storage because key does not exist
   NUMBER_FILTERED_DELETES(36),
   NUMBER_MERGE_FAILURES(37),
-  SEQUENCE_NUMBER(38),
 
   // number of times bloom was checked before creating iterator on a
   // file, and the number of times the check was useful in avoiding

@@ -75,11 +75,13 @@ class FullFilterBlockReader : public FilterBlockReader {
   explicit FullFilterBlockReader(const SliceTransform* prefix_extractor,
                                  bool whole_key_filtering,
                                  const Slice& contents,
-                                 FilterBitsReader* filter_bits_reader);
+                                 FilterBitsReader* filter_bits_reader,
+                                 Statistics* statistics);
   explicit FullFilterBlockReader(const SliceTransform* prefix_extractor,
                                  bool whole_key_filtering,
                                  BlockContents&& contents,
-                                 FilterBitsReader* filter_bits_reader);
+                                 FilterBitsReader* filter_bits_reader,
+                                 Statistics* statistics);
 
   // bits_reader is created in filter_policy, it should be passed in here
   // directly. and be deleted here
@@ -94,7 +96,6 @@ class FullFilterBlockReader : public FilterBlockReader {
 
  private:
   const SliceTransform* prefix_extractor_;
-  bool whole_key_filtering_;
 
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   Slice contents_;

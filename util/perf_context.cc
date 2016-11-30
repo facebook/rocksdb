@@ -28,6 +28,8 @@ void PerfContext::Reset() {
   block_decompress_time = 0;
   internal_key_skipped_count = 0;
   internal_delete_skipped_count = 0;
+  internal_recent_skipped_count = 0;
+  internal_merge_count = 0;
   write_wal_time = 0;
 
   get_snapshot_time = 0;
@@ -37,6 +39,8 @@ void PerfContext::Reset() {
   get_from_output_files_time = 0;
   seek_on_memtable_time = 0;
   seek_on_memtable_count = 0;
+  next_on_memtable_count = 0;
+  prev_on_memtable_count = 0;
   seek_child_seek_time = 0;
   seek_child_seek_count = 0;
   seek_min_heap_time = 0;
@@ -80,6 +84,8 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(block_decompress_time);
   PERF_CONTEXT_OUTPUT(internal_key_skipped_count);
   PERF_CONTEXT_OUTPUT(internal_delete_skipped_count);
+  PERF_CONTEXT_OUTPUT(internal_recent_skipped_count);
+  PERF_CONTEXT_OUTPUT(internal_merge_count);
   PERF_CONTEXT_OUTPUT(write_wal_time);
   PERF_CONTEXT_OUTPUT(get_snapshot_time);
   PERF_CONTEXT_OUTPUT(get_from_memtable_time);
@@ -88,6 +94,8 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(get_from_output_files_time);
   PERF_CONTEXT_OUTPUT(seek_on_memtable_time);
   PERF_CONTEXT_OUTPUT(seek_on_memtable_count);
+  PERF_CONTEXT_OUTPUT(next_on_memtable_count);
+  PERF_CONTEXT_OUTPUT(prev_on_memtable_count);
   PERF_CONTEXT_OUTPUT(seek_child_seek_time);
   PERF_CONTEXT_OUTPUT(seek_child_seek_count);
   PERF_CONTEXT_OUTPUT(seek_min_heap_time);

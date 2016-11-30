@@ -9,6 +9,7 @@
 
 #pragma once
 #include <memory>
+#include "table/internal_iterator.h"
 
 namespace rocksdb {
 
@@ -40,6 +41,11 @@ class TableReader {
   virtual InternalIterator* NewIterator(const ReadOptions&,
                                         Arena* arena = nullptr,
                                         bool skip_filters = false) = 0;
+
+  virtual InternalIterator* NewRangeTombstoneIterator(
+      const ReadOptions& read_options) {
+    return nullptr;
+  }
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were

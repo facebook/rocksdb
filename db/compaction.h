@@ -8,10 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include "db/version_set.h"
 #include "util/arena.h"
 #include "util/autovector.h"
-#include "util/mutable_cf_options.h"
-#include "db/version_set.h"
+#include "util/cf_options.h"
 
 namespace rocksdb {
 
@@ -35,9 +35,10 @@ class CompactionFilter;
 class Compaction {
  public:
   Compaction(VersionStorageInfo* input_version,
+             const ImmutableCFOptions& immutable_cf_options,
              const MutableCFOptions& mutable_cf_options,
              std::vector<CompactionInputFiles> inputs, int output_level,
-             uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
+             uint64_t target_file_size, uint64_t max_compaction_bytes,
              uint32_t output_path_id, CompressionType compression,
              std::vector<FileMetaData*> grandparents,
              bool manual_compaction = false, double score = -1,
@@ -102,6 +103,8 @@ class Compaction {
     assert(compaction_input_level < inputs_.size());
     return &inputs_[compaction_input_level].files;
   }
+
+  const std::vector<CompactionInputFiles>* inputs() { return &inputs_; }
 
   // Returns the LevelFilesBrief of the specified compaction input level.
   const LevelFilesBrief* input_levels(size_t compaction_input_level) const {
@@ -171,6 +174,12 @@ class Compaction {
   // How many total levels are there?
   int number_levels() const { return number_levels_; }
 
+  // Return the ImmutableCFOptions that should be used throughout the compaction
+  // procedure
+  const ImmutableCFOptions* immutable_cf_options() const {
+    return &immutable_cf_options_;
+  }
+
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
   const MutableCFOptions* mutable_cf_options() const {
@@ -219,6 +228,8 @@ class Compaction {
     output_table_properties_ = std::move(tp);
   }
 
+  Slice GetSmallestUserKey() const { return smallest_user_key_; }
+
   Slice GetLargestUserKey() const { return largest_user_key_; }
 
   CompactionReason compaction_reason() { return compaction_reason_; }
@@ -227,9 +238,7 @@ class Compaction {
     return grandparents_;
   }
 
-  uint64_t max_grandparent_overlap_bytes() const {
-    return max_grandparent_overlap_bytes_;
-  }
+  uint64_t max_compaction_bytes() const { return max_compaction_bytes_; }
 
  private:
   // mark (or clear) all files that are being compacted
@@ -252,8 +261,9 @@ class Compaction {
   const int start_level_;    // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
-  uint64_t max_grandparent_overlap_bytes_;
-  MutableCFOptions mutable_cf_options_;
+  uint64_t max_compaction_bytes_;
+  const ImmutableCFOptions immutable_cf_options_;
+  const MutableCFOptions mutable_cf_options_;
   Version* input_version_;
   VersionEdit edit_;
   const int number_levels_;
@@ -293,6 +303,9 @@ class Compaction {
 
   // table properties of output files
   TablePropertiesCollection output_table_properties_;
+
+  // smallest user keys in compaction
+  Slice smallest_user_key_;
 
   // largest user keys in compaction
   Slice largest_user_key_;

@@ -253,6 +253,8 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->use_adaptive_mutex = rnd->Uniform(2);
   db_opt->use_fsync = rnd->Uniform(2);
   db_opt->recycle_log_file_num = rnd->Uniform(2);
+  db_opt->avoid_flush_during_recovery = rnd->Uniform(2);
+  db_opt->avoid_flush_during_shutdown = rnd->Uniform(2);
 
   // int options
   db_opt->max_background_compactions = rnd->Uniform(100);
@@ -296,44 +298,47 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   // boolean options
   cf_opt->report_bg_io_stats = rnd->Uniform(2);
   cf_opt->disable_auto_compactions = rnd->Uniform(2);
-  cf_opt->filter_deletes = rnd->Uniform(2);
   cf_opt->inplace_update_support = rnd->Uniform(2);
   cf_opt->level_compaction_dynamic_level_bytes = rnd->Uniform(2);
   cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
   cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
   cf_opt->verify_checksums_in_compaction = rnd->Uniform(2);
+  cf_opt->force_consistency_checks = rnd->Uniform(2);
 
   // double options
   cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
   cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
+  cf_opt->memtable_prefix_bloom_size_ratio =
+      static_cast<double>(rnd->Uniform(10000)) / 20000.0;
 
   // int options
-  cf_opt->expanded_compaction_factor = rnd->Uniform(100);
   cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
   cf_opt->level0_slowdown_writes_trigger = rnd->Uniform(100);
   cf_opt->level0_stop_writes_trigger = rnd->Uniform(100);
   cf_opt->max_bytes_for_level_multiplier = rnd->Uniform(100);
-  cf_opt->max_grandparent_overlap_factor = rnd->Uniform(100);
   cf_opt->max_mem_compaction_level = rnd->Uniform(100);
   cf_opt->max_write_buffer_number = rnd->Uniform(100);
   cf_opt->max_write_buffer_number_to_maintain = rnd->Uniform(100);
   cf_opt->min_write_buffer_number_to_merge = rnd->Uniform(100);
   cf_opt->num_levels = rnd->Uniform(100);
-  cf_opt->source_compaction_factor = rnd->Uniform(100);
   cf_opt->target_file_size_multiplier = rnd->Uniform(100);
+
+  // vector int options
+  cf_opt->max_bytes_for_level_multiplier_additional.resize(cf_opt->num_levels);
+  for (int i = 0; i < cf_opt->num_levels; i++) {
+    cf_opt->max_bytes_for_level_multiplier_additional[i] = rnd->Uniform(100);
+  }
 
   // size_t options
   cf_opt->arena_block_size = rnd->Uniform(10000);
   cf_opt->inplace_update_num_locks = rnd->Uniform(10000);
   cf_opt->max_successive_merges = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_huge_page_tlb_size = rnd->Uniform(10000);
+  cf_opt->memtable_huge_page_size = rnd->Uniform(10000);
   cf_opt->write_buffer_size = rnd->Uniform(10000);
 
   // uint32_t options
   cf_opt->bloom_locality = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_bits = rnd->Uniform(10000);
-  cf_opt->memtable_prefix_bloom_probes = rnd->Uniform(10000);
   cf_opt->min_partial_merge_operands = rnd->Uniform(10000);
   cf_opt->max_bytes_for_level_base = rnd->Uniform(10000);
 
@@ -341,6 +346,8 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
   cf_opt->max_sequential_skip_in_iterations = uint_max + rnd->Uniform(10000);
   cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
+  cf_opt->max_compaction_bytes =
+      cf_opt->target_file_size_base * rnd->Uniform(100);
 
   // unsigned int options
   cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
@@ -359,6 +366,31 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->compression = RandomCompressionType(rnd);
   RandomCompressionTypeVector(cf_opt->num_levels,
                               &cf_opt->compression_per_level, rnd);
+}
+
+Status DestroyDir(Env* env, const std::string& dir) {
+  Status s;
+  if (env->FileExists(dir).IsNotFound()) {
+    return s;
+  }
+  std::vector<std::string> files_in_dir;
+  s = env->GetChildren(dir, &files_in_dir);
+  if (s.ok()) {
+    for (auto& file_in_dir : files_in_dir) {
+      if (file_in_dir == "." || file_in_dir == "..") {
+        continue;
+      }
+      s = env->DeleteFile(dir + "/" + file_in_dir);
+      if (!s.ok()) {
+        break;
+      }
+    }
+  }
+
+  if (s.ok()) {
+    s = env->DeleteDir(dir);
+  }
+  return s;
 }
 
 }  // namespace test

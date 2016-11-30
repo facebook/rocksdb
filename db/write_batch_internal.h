@@ -86,6 +86,13 @@ class WriteBatchInternal {
   static void SingleDelete(WriteBatch* batch, uint32_t column_family_id,
                            const Slice& key);
 
+  static void DeleteRange(WriteBatch* b, uint32_t column_family_id,
+                          const Slice& begin_key, const Slice& end_key);
+
+  static void DeleteRange(WriteBatch* b, uint32_t column_family_id,
+                          const SliceParts& begin_key,
+                          const SliceParts& end_key);
+
   static void Merge(WriteBatch* batch, uint32_t column_family_id,
                     const Slice& key, const Slice& value);
 
@@ -129,9 +136,6 @@ class WriteBatchInternal {
 
   // Inserts batches[i] into memtable, for i in 0..num_batches-1 inclusive.
   //
-  // If dont_filter_deletes is false AND options.filter_deletes is true
-  // AND db->KeyMayExist is false, then a Delete won't modify the memtable.
-  //
   // If ignore_missing_column_families == true. WriteBatch
   // referencing non-existing column family will be ignored.
   // If ignore_missing_column_families == false, processing of the
@@ -153,7 +157,6 @@ class WriteBatchInternal {
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           const bool dont_filter_deletes = true,
                            bool concurrent_memtable_writes = false);
 
   // Convenience form of InsertInto when you have only one batch
@@ -163,19 +166,19 @@ class WriteBatchInternal {
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           const bool dont_filter_deletes = true,
                            bool concurrent_memtable_writes = false,
-                           SequenceNumber* last_seq_used = nullptr);
+                           SequenceNumber* last_seq_used = nullptr,
+                           bool* has_valid_writes = nullptr);
 
   static Status InsertInto(WriteThread::Writer* writer,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           const bool dont_filter_deletes = true,
                            bool concurrent_memtable_writes = false);
 
-  static void Append(WriteBatch* dst, const WriteBatch* src);
+  static void Append(WriteBatch* dst, const WriteBatch* src,
+                     const bool WAL_only = false);
 
   // Returns the byte size of appending a WriteBatch with ByteSize
   // leftByteSize and a WriteBatch with ByteSize rightByteSize

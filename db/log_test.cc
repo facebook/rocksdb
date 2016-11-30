@@ -174,6 +174,8 @@ class LogTest : public ::testing::TestWithParam<int> {
                                              3 * header_size;
   }
 
+  Slice* get_reader_contents() { return &reader_contents_; }
+
   void Write(const std::string& msg) {
     writer_.AddRecord(Slice(msg));
   }
@@ -445,9 +447,13 @@ TEST_P(LogTest, BadLength) {
   Write("foo");
   // Least significant size byte is stored in header[4].
   IncrementByte(4, 1);
-  ASSERT_EQ("foo", Read());
-  ASSERT_EQ(kBlockSize, DroppedBytes());
-  ASSERT_EQ("OK", MatchError("bad record length"));
+  if (!GetParam()) {
+    ASSERT_EQ("foo", Read());
+    ASSERT_EQ(kBlockSize, DroppedBytes());
+    ASSERT_EQ("OK", MatchError("bad record length"));
+  } else {
+    ASSERT_EQ("EOF", Read());
+  }
 }
 
 TEST_P(LogTest, BadLengthAtEndIsIgnored) {
@@ -470,8 +476,13 @@ TEST_P(LogTest, ChecksumMismatch) {
   Write("foooooo");
   IncrementByte(0, 14);
   ASSERT_EQ("EOF", Read());
-  ASSERT_EQ(14U + 4 * !!GetParam(), DroppedBytes());
-  ASSERT_EQ("OK", MatchError("checksum mismatch"));
+  if (!GetParam()) {
+    ASSERT_EQ(14U, DroppedBytes());
+    ASSERT_EQ("OK", MatchError("checksum mismatch"));
+  } else {
+    ASSERT_EQ(0U, DroppedBytes());
+    ASSERT_EQ("", ReportMessage());
+  }
 }
 
 TEST_P(LogTest, UnexpectedMiddleType) {
@@ -568,11 +579,15 @@ TEST_P(LogTest, ErrorJoinsRecords) {
     SetByte(offset, 'x');
   }
 
-  ASSERT_EQ("correct", Read());
-  ASSERT_EQ("EOF", Read());
-  size_t dropped = DroppedBytes();
-  ASSERT_LE(dropped, 2 * kBlockSize + 100);
-  ASSERT_GE(dropped, 2 * kBlockSize);
+  if (!GetParam()) {
+    ASSERT_EQ("correct", Read());
+    ASSERT_EQ("EOF", Read());
+    size_t dropped = DroppedBytes();
+    ASSERT_LE(dropped, 2 * kBlockSize + 100);
+    ASSERT_GE(dropped, 2 * kBlockSize);
+  } else {
+    ASSERT_EQ("EOF", Read());
+  }
 }
 
 TEST_P(LogTest, ReadStart) { CheckInitialOffsetRecord(0, 0); }
@@ -688,6 +703,29 @@ TEST_P(LogTest, ClearEofError2) {
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(3U, DroppedBytes());
   ASSERT_EQ("OK", MatchError("read error"));
+}
+
+TEST_P(LogTest, Recycle) {
+  if (!GetParam()) {
+    return;  // test is only valid for recycled logs
+  }
+  Write("foo");
+  Write("bar");
+  Write("baz");
+  Write("bif");
+  Write("blitz");
+  while (get_reader_contents()->size() < log::kBlockSize * 2) {
+    Write("xxxxxxxxxxxxxxxx");
+  }
+  unique_ptr<WritableFileWriter> dest_holder(test::GetWritableFileWriter(
+      new test::OverwritingStringSink(get_reader_contents())));
+  Writer recycle_writer(std::move(dest_holder), 123, true);
+  recycle_writer.AddRecord(Slice("foooo"));
+  recycle_writer.AddRecord(Slice("bar"));
+  ASSERT_GE(get_reader_contents()->size(), log::kBlockSize * 2);
+  ASSERT_EQ("foooo", Read());
+  ASSERT_EQ("bar", Read());
+  ASSERT_EQ("EOF", Read());
 }
 
 INSTANTIATE_TEST_CASE_P(bool, LogTest, ::testing::Values(0, 2));

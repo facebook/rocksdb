@@ -31,7 +31,7 @@ namespace rocksdb {
 
 class CheckpointImpl : public Checkpoint {
  public:
-  // Creates a Checkpoint object to be used for creating openable sbapshots
+  // Creates a Checkpoint object to be used for creating openable snapshots
   explicit CheckpointImpl(DB* db) : db_(db) {}
 
   // Builds an openable snapshot of RocksDB on the same disk, which
@@ -110,9 +110,9 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
       s = Status::Corruption("Can't parse file name. This is very bad");
       break;
     }
-    // we should only get sst, manifest and current files here
+    // we should only get sst, options, manifest and current files here
     assert(type == kTableFile || type == kDescriptorFile ||
-           type == kCurrentFile);
+           type == kCurrentFile || type == kOptionsFile);
     assert(live_files[i].size() > 0 && live_files[i][0] == '/');
     if (type == kCurrentFile) {
       // We will craft the current file manually to ensure it's consistent with
@@ -211,15 +211,14 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
     std::vector<std::string> subchildren;
     db_->GetEnv()->GetChildren(full_private_path, &subchildren);
     for (auto& subchild : subchildren) {
-      Status s1 = db_->GetEnv()->DeleteFile(full_private_path + subchild);
-      if (s1.ok()) {
-        Log(db_->GetOptions().info_log, "Deleted %s",
-            (full_private_path + subchild).c_str());
-      }
+      std::string subchild_path = full_private_path + "/" + subchild;
+      Status s1 = db_->GetEnv()->DeleteFile(subchild_path);
+      Log(db_->GetOptions().info_log, "Delete file %s -- %s",
+          subchild_path.c_str(), s1.ToString().c_str());
     }
     // finally delete the private dir
     Status s1 = db_->GetEnv()->DeleteDir(full_private_path);
-    Log(db_->GetOptions().info_log, "Deleted dir %s -- %s",
+    Log(db_->GetOptions().info_log, "Delete dir %s -- %s",
         full_private_path.c_str(), s1.ToString().c_str());
     return s;
   }

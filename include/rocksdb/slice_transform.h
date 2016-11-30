@@ -21,6 +21,12 @@ namespace rocksdb {
 
 class Slice;
 
+/*
+ * A SliceTranform is a generic pluggable way of transforming one string
+ * to another. Its primary use-case is in configuring rocksdb
+ * to store prefix blooms by setting prefix_extractor in
+ * ColumnFamilyOptions.
+ */
 class SliceTransform {
  public:
   virtual ~SliceTransform() {};
@@ -28,13 +34,30 @@ class SliceTransform {
   // Return the name of this transformation.
   virtual const char* Name() const = 0;
 
-  // transform a src in domain to a dst in the range
-  virtual Slice Transform(const Slice& src) const = 0;
+  // Extract a prefix from a specified key. This method is called when
+  // a key is inserted into the db, and the returned slice is used to
+  // create a bloom filter.
+  virtual Slice Transform(const Slice& key) const = 0;
 
-  // determine whether this is a valid src upon the function applies
-  virtual bool InDomain(const Slice& src) const = 0;
+  // Determine whether the specified key is compatible with the logic
+  // specified in the Transform method. This method is invoked for every
+  // key that is inserted into the db. If this method returns true,
+  // then Transform is called to translate the key to its prefix and
+  // that returned prefix is inserted into the bloom filter. If this
+  // method returns false, then the call to Transform is skipped and
+  // no prefix is inserted into the bloom filters.
+  //
+  // For example, if the Transform method operates on a fixed length
+  // prefix of size 4, then an invocation to InDomain("abc") returns
+  // false because the specified key length(3) is shorter than the
+  // prefix size of 4.
+  //
+  // Wiki documentation here:
+  // https://github.com/facebook/rocksdb/wiki/Prefix-Seek-API-Changes
+  //
+  virtual bool InDomain(const Slice& key) const = 0;
 
-  // determine whether dst=Transform(src) for some src
+  // This is currently not used and remains here for backward compatibility.
   virtual bool InRange(const Slice& dst) const = 0;
 
   // Transform(s)=Transform(`prefix`) for any s with `prefix` as a prefix.

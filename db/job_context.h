@@ -12,7 +12,6 @@
 #include <string>
 #include <vector>
 
-#include "db/column_family.h"
 #include "db/log_writer.h"
 
 namespace rocksdb {
@@ -56,6 +55,10 @@ struct JobContext {
   // a list of log files that we need to delete
   std::vector<uint64_t> log_delete_files;
 
+  // a list of log files that we need to preserve during full purge since they
+  // will be reused later
+  std::vector<uint64_t> log_recycle_files;
+
   // a list of manifest files that we need to delete
   std::vector<std::string> manifest_delete_files;
 
@@ -76,6 +79,9 @@ struct JobContext {
   uint64_t prev_log_number;
 
   uint64_t min_pending_output = 0;
+  uint64_t prev_total_log_size = 0;
+  size_t num_alive_log_files = 0;
+  uint64_t size_log_to_delete = 0;
 
   explicit JobContext(int _job_id, bool create_superversion = false) {
     job_id = _job_id;

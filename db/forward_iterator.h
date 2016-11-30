@@ -55,6 +55,10 @@ class ForwardIterator : public InternalIterator {
                   ColumnFamilyData* cfd, SuperVersion* current_sv = nullptr);
   virtual ~ForwardIterator();
 
+  void SeekForPrev(const Slice& target) override {
+    status_ = Status::NotSupported("ForwardIterator::SeekForPrev()");
+    valid_ = false;
+  }
   void SeekToLast() override {
     status_ = Status::NotSupported("ForwardIterator::SeekToLast()");
     valid_ = false;
@@ -72,6 +76,10 @@ class ForwardIterator : public InternalIterator {
   virtual Slice value() const override;
   virtual Status status() const override;
   virtual Status GetProperty(std::string prop_name, std::string* prop) override;
+  virtual void SetPinnedItersMgr(
+      PinnedIteratorsManager* pinned_iters_mgr) override;
+  virtual bool IsKeyPinned() const override;
+  virtual bool IsValuePinned() const override;
 
   bool TEST_CheckDeletedIters(int* deleted_iters, int* num_iters);
 
@@ -91,6 +99,14 @@ class ForwardIterator : public InternalIterator {
     uint32_t left, uint32_t right);
 
   bool IsOverUpperBound(const Slice& internal_key) const;
+
+  // Set PinnedIteratorsManager for all children Iterators, this function should
+  // be called whenever we update children Iterators or pinned_iters_mgr_.
+  void UpdateChildrenPinnedItersMgr();
+
+  // A helper function that will release iter in the proper manner, or pass it
+  // to pinned_iters_mgr_ to release it later if pinning is enabled.
+  void DeleteIterator(InternalIterator* iter, bool is_arena = false);
 
   DBImpl* const db_;
   const ReadOptions read_options_;
@@ -129,6 +145,7 @@ class ForwardIterator : public InternalIterator {
   bool is_prev_set_;
   bool is_prev_inclusive_;
 
+  PinnedIteratorsManager* pinned_iters_mgr_;
   Arena arena_;
 };
 

@@ -374,6 +374,23 @@ class DeleteCommand : public LDBCommand {
   std::string key_;
 };
 
+class DeleteRangeCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "deleterange"; }
+
+  DeleteRangeCommand(const std::vector<std::string>& params,
+                     const std::map<std::string, std::string>& options,
+                     const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string begin_key_;
+  std::string end_key_;
+};
+
 class PutCommand : public LDBCommand {
  public:
   static std::string Name() { return "put"; }
@@ -446,4 +463,48 @@ class RepairCommand : public LDBCommand {
   static void Help(std::string& ret);
 };
 
+class BackupCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "backup"; }
+
+  BackupCommand(const std::vector<std::string>& params,
+                const std::map<std::string, std::string>& options,
+                const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string test_cluster_;
+  std::string test_path_;
+  int thread_num_;
+
+  static const std::string ARG_BACKUP_DIR;
+  static const std::string ARG_BACKUP_ENV;
+  static const std::string ARG_THREAD;
+};
+
+class RestoreCommand : public LDBCommand {
+ public:
+  static std::string Name() { return "restore"; }
+
+  RestoreCommand(const std::vector<std::string>& params,
+                 const std::map<std::string, std::string>& options,
+                 const std::vector<std::string>& flags);
+
+  virtual void DoCommand() override;
+  virtual bool NoDBOpen() override { return true; }
+
+  static void Help(std::string& ret);
+
+ private:
+  std::string backup_env_uri_;
+  std::string backup_dir_;
+  int num_threads_;
+
+  static const std::string ARG_BACKUP_DIR;
+  static const std::string ARG_BACKUP_ENV_URI;
+  static const std::string ARG_NUM_THREADS;
+};
 }  // namespace rocksdb

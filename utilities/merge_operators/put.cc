@@ -57,12 +57,33 @@ class PutOperator : public MergeOperator {
   }
 };
 
+class PutOperatorV2 : public PutOperator {
+  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
+                         const std::deque<std::string>& operand_sequence,
+                         std::string* new_value,
+                         Logger* logger) const override {
+    assert(false);
+    return false;
+  }
+
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override {
+    // Put basically only looks at the current/latest value
+    assert(!merge_in.operand_list.empty());
+    merge_out->existing_operand = merge_in.operand_list.back();
+    return true;
+  }
+};
+
 } // end of anonymous namespace
 
 namespace rocksdb {
 
-std::shared_ptr<MergeOperator> MergeOperators::CreatePutOperator() {
+std::shared_ptr<MergeOperator> MergeOperators::CreateDeprecatedPutOperator() {
   return std::make_shared<PutOperator>();
 }
 
+std::shared_ptr<MergeOperator> MergeOperators::CreatePutOperator() {
+  return std::make_shared<PutOperatorV2>();
+}
 }

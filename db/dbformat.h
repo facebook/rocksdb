@@ -10,6 +10,7 @@
 #pragma once
 #include <stdio.h>
 #include <string>
+#include <utility>
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -44,27 +45,33 @@ enum ValueType : unsigned char {
   kTypeCommitXID = 0xB,                   // WAL only.
   kTypeRollbackXID = 0xC,                 // WAL only.
   kTypeNoop = 0xD,                        // WAL only.
+  kTypeColumnFamilyRangeDeletion = 0xE,   // WAL only.
+  kTypeRangeDeletion = 0xF,               // meta block
   kMaxValue = 0x7F                        // Not used for storing records.
 };
 
-// kValueTypeForSeek defines the ValueType that should be passed when
-// constructing a ParsedInternalKey object for seeking to a particular
-// sequence number (since we sort sequence numbers in decreasing order
-// and the value type is embedded as the low 8 bits in the sequence
-// number in internal keys, we need to use the highest-numbered
-// ValueType, not the lowest).
-static const ValueType kValueTypeForSeek = kTypeSingleDeletion;
+// Defined in dbformat.cc
+extern const ValueType kValueTypeForSeek;
+extern const ValueType kValueTypeForSeekForPrev;
 
-// Checks whether a type is a value type (i.e. a type used in memtables and sst
-// files).
+// Checks whether a type is an inline value type
+// (i.e. a type used in memtable skiplist and sst file datablock).
 inline bool IsValueType(ValueType t) {
   return t <= kTypeMerge || t == kTypeSingleDeletion;
+}
+
+// Checks whether a type is from user operation
+// kTypeRangeDeletion is in meta block so this API is separated from above
+inline bool IsExtendedValueType(ValueType t) {
+  return IsValueType(t) || t == kTypeRangeDeletion;
 }
 
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
 static const SequenceNumber kMaxSequenceNumber =
     ((0x1ull << 56) - 1);
+
+static const SequenceNumber kDisableGlobalSequenceNumber = port::kMaxUint64;
 
 struct ParsedInternalKey {
   Slice user_key;
@@ -179,6 +186,10 @@ class InternalKey {
   Slice user_key() const { return ExtractUserKey(rep_); }
   size_t size() { return rep_.size(); }
 
+  void Set(const Slice& _user_key, SequenceNumber s, ValueType t) {
+    SetFrom(ParsedInternalKey(_user_key, s, t));
+  }
+
   void SetFrom(const ParsedInternalKey& p) {
     rep_.clear();
     AppendInternalKey(&rep_, p);
@@ -204,7 +215,7 @@ inline bool ParseInternalKey(const Slice& internal_key,
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - 8);
-  return IsValueType(result->type);
+  return IsExtendedValueType(result->type);
 }
 
 // Update the sequence number in the internal key.
@@ -348,6 +359,15 @@ class IterKey {
     return Slice(key_, key_n);
   }
 
+  // Copy the key into IterKey own buf_
+  void OwnKey() {
+    assert(IsKeyPinned() == true);
+
+    Reserve(key_size_);
+    memcpy(buf_, key_, key_size_);
+    key_ = buf_;
+  }
+
   // Update the sequence number in the internal key.  Guarantees not to
   // invalidate slices to the key (and the user key).
   void UpdateInternalKey(uint64_t seq, ValueType t) {
@@ -484,4 +504,40 @@ extern bool ReadKeyFromWriteBatchEntry(Slice* input, Slice* key,
 extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
                                        uint32_t* column_family, Slice* key,
                                        Slice* value, Slice* blob, Slice* xid);
+
+// When user call DeleteRange() to delete a range of keys,
+// we will store a serialized RangeTombstone in MemTable and SST.
+// the struct here is a easy-understood form
+// start/end_key_ is the start/end user key of the range to be deleted
+struct RangeTombstone {
+  Slice start_key_;
+  Slice end_key_;
+  SequenceNumber seq_;
+  explicit RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
+      : start_key_(sk), end_key_(ek), seq_(sn) {}
+
+  explicit RangeTombstone(ParsedInternalKey parsed_key, Slice value) {
+    start_key_ = parsed_key.user_key;
+    seq_ = parsed_key.sequence;
+    end_key_ = value;
+  }
+
+  // be careful to use Serialize(), allocates new memory
+  std::pair<InternalKey, Slice> Serialize() const {
+    auto key = InternalKey(start_key_, seq_, kTypeRangeDeletion);
+    Slice value = end_key_;
+    return std::make_pair(std::move(key), std::move(value));
+  }
+
+  // be careful to use SerializeKey(), allocates new memory
+  InternalKey SerializeKey() const {
+    return InternalKey(start_key_, seq_, kTypeRangeDeletion);
+  }
+
+  // be careful to use SerializeEndKey(), allocates new memory
+  InternalKey SerializeEndKey() const {
+    return InternalKey(end_key_, seq_, kTypeRangeDeletion);
+  }
+};
+
 }  // namespace rocksdb

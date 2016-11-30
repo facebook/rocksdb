@@ -92,6 +92,9 @@ class SkipList {
     // Advance to the first entry with a key >= target
     void Seek(const Key& target);
 
+    // Retreat to the last entry with a key <= target
+    void SeekForPrev(const Key& target);
+
     // Position at the first entry in list.
     // Final state of iterator is Valid() iff list is not empty.
     void SeekToFirst();
@@ -135,6 +138,9 @@ class SkipList {
   Node* NewNode(const Key& key, int height);
   int RandomHeight();
   bool Equal(const Key& a, const Key& b) const { return (compare_(a, b) == 0); }
+  bool LessThan(const Key& a, const Key& b) const {
+    return (compare_(a, b) < 0);
+  }
 
   // Return true if key is greater than the data stored in "n"
   bool KeyIsAfterNode(const Key& key, Node* n) const;
@@ -247,7 +253,19 @@ inline void SkipList<Key, Comparator>::Iterator::Seek(const Key& target) {
   node_ = list_->FindGreaterOrEqual(target);
 }
 
-template<typename Key, class Comparator>
+template <typename Key, class Comparator>
+inline void SkipList<Key, Comparator>::Iterator::SeekForPrev(
+    const Key& target) {
+  Seek(target);
+  if (!Valid()) {
+    SeekToLast();
+  }
+  while (Valid() && list_->LessThan(target, key())) {
+    Prev();
+  }
+}
+
+template <typename Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::SeekToFirst() {
   node_ = list_->head_->Next(0);
 }

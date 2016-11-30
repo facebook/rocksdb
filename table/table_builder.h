@@ -16,8 +16,8 @@
 #include "db/table_properties_collector.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
+#include "util/cf_options.h"
 #include "util/file_reader_writer.h"
-#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
@@ -54,7 +54,7 @@ struct TableBuilderOptions {
       CompressionType _compression_type,
       const CompressionOptions& _compression_opts,
       const std::string* _compression_dict, bool _skip_filters,
-      const std::string& _column_family_name)
+      const std::string& _column_family_name, int _level)
       : ioptions(_ioptions),
         internal_comparator(_internal_comparator),
         int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
@@ -62,7 +62,8 @@ struct TableBuilderOptions {
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
         skip_filters(_skip_filters),
-        column_family_name(_column_family_name) {}
+        column_family_name(_column_family_name),
+        level(_level) {}
   const ImmutableCFOptions& ioptions;
   const InternalKeyComparator& internal_comparator;
   const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
@@ -73,6 +74,7 @@ struct TableBuilderOptions {
   const std::string* compression_dict;
   bool skip_filters;  // only used by BlockBasedTableBuilder
   const std::string& column_family_name;
+  int level; // what level this table/file is on, -1 for "not set, don't know"
 };
 
 // TableBuilder provides the interface used to build a Table

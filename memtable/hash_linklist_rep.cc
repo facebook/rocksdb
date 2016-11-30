@@ -247,8 +247,18 @@ class HashLinkListRep : public MemTableRep {
     return (n != nullptr) && (compare_(n->key, key) < 0);
   }
 
+  bool KeyIsAfterOrAtNode(const Slice& internal_key, const Node* n) const {
+    // nullptr n is considered infinite
+    return (n != nullptr) && (compare_(n->key, internal_key) <= 0);
+  }
+
+  bool KeyIsAfterOrAtNode(const Key& key, const Node* n) const {
+    // nullptr n is considered infinite
+    return (n != nullptr) && (compare_(n->key, key) <= 0);
+  }
 
   Node* FindGreaterOrEqualInBucket(Node* head, const Slice& key) const;
+  Node* FindLessOrEqualInBucket(Node* head, const Slice& key) const;
 
   class FullListIterator : public MemTableRep::Iterator {
    public:
@@ -289,6 +299,15 @@ class HashLinkListRep : public MemTableRep {
           (memtable_key != nullptr) ?
               memtable_key : EncodeKey(&tmp_, internal_key);
       iter_.Seek(encoded_key);
+    }
+
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {
+      const char* encoded_key = (memtable_key != nullptr)
+                                    ? memtable_key
+                                    : EncodeKey(&tmp_, internal_key);
+      iter_.SeekForPrev(encoded_key);
     }
 
     // Position at the first entry in collection.
@@ -346,6 +365,14 @@ class HashLinkListRep : public MemTableRep {
                       const char* memtable_key) override {
       node_ = hash_link_list_rep_->FindGreaterOrEqualInBucket(head_,
                                                               internal_key);
+    }
+
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {
+      // Since we do not support Prev()
+      // We simply do not support SeekForPrev
+      Reset(nullptr);
     }
 
     // Position at the first entry in collection.
@@ -458,6 +485,8 @@ class HashLinkListRep : public MemTableRep {
     virtual void Prev() override {}
     virtual void Seek(const Slice& user_key,
                       const char* memtable_key) override {}
+    virtual void SeekForPrev(const Slice& user_key,
+                             const char* memtable_key) override {}
     virtual void SeekToFirst() override {}
     virtual void SeekToLast() override {}
 

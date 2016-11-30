@@ -81,5 +81,11 @@ struct CompactionJobStats {
 
   std::string smallest_output_key_prefix;
   std::string largest_output_key_prefix;
+
+  // number of single-deletes which do not meet a put
+  uint64_t num_single_del_fallthru;
+
+  // number of single-deletes which meet something other than a put
+  uint64_t num_single_del_mismatch;
 };
 }  // namespace rocksdb

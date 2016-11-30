@@ -19,8 +19,6 @@
 #include <sys/stat.h>
 #include <errno.h>
 
-using namespace std;
-
 namespace rocksdb {
 
 class AutoRollLoggerTest : public testing::Test {
@@ -40,23 +38,22 @@ class AutoRollLoggerTest : public testing::Test {
     Env::Default()->CreateDir(kTestDir);
   }
 
-  void RollLogFileBySizeTest(AutoRollLogger* logger,
-                             size_t log_max_size,
-                             const string& log_message);
-  uint64_t RollLogFileByTimeTest(AutoRollLogger* logger,
-                                 size_t time,
-                                 const string& log_message);
+  void RollLogFileBySizeTest(AutoRollLogger* logger, size_t log_max_size,
+                             const std::string& log_message);
+  uint64_t RollLogFileByTimeTest(AutoRollLogger* logger, size_t time,
+                                 const std::string& log_message);
 
-  static const string kSampleMessage;
-  static const string kTestDir;
-  static const string kLogFile;
+  static const std::string kSampleMessage;
+  static const std::string kTestDir;
+  static const std::string kLogFile;
   static Env* env;
 };
 
-const string AutoRollLoggerTest::kSampleMessage(
+const std::string AutoRollLoggerTest::kSampleMessage(
     "this is the message to be written to the log file!!");
-const string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
-const string AutoRollLoggerTest::kLogFile(test::TmpDir() + "/db_log_test/LOG");
+const std::string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
+const std::string AutoRollLoggerTest::kLogFile(test::TmpDir() +
+                                               "/db_log_test/LOG");
 Env* AutoRollLoggerTest::env = Env::Default();
 
 // In this test we only want to Log some simple log message with
@@ -86,7 +83,7 @@ void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
 
 void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
                                                size_t log_max_size,
-                                               const string& log_message) {
+                                               const std::string& log_message) {
   logger->SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
   // measure the size of each message, which is supposed
   // to be equal or greater than log_message.size()
@@ -111,7 +108,7 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
 }
 
 uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
-    AutoRollLogger* logger, size_t time, const string& log_message) {
+    AutoRollLogger* logger, size_t time, const std::string& log_message) {
   uint64_t expected_create_time;
   uint64_t actual_create_time;
   uint64_t total_log_size;
@@ -276,35 +273,24 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   ASSERT_TRUE(auto_roll_logger);
   std::thread flush_thread;
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      // Need to pin the old logger before beginning the roll, as rolling grabs
-      // the mutex, which would prevent us from accessing the old logger.
-      {"AutoRollLogger::Flush:PinnedLogger",
-       "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
-      // Need to finish the flush thread init before this callback because the
-      // callback accesses flush_thread.get_id() in order to apply certain sync
-      // points only to the flush thread.
-      {"AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit",
-       "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallbackBegin"},
-      // Need to reset logger at this point in Flush() to exercise a race
-      // condition case, which is executing the flush with the pinned (old)
-      // logger after the roll has cut over to a new logger.
-      {"AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback1",
-       "AutoRollLogger::ResetLogger:BeforeNewLogger"},
-      {"AutoRollLogger::ResetLogger:AfterNewLogger",
-       "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback2"},
-  });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "PosixLogger::Flush:BeginCallback", [&](void* arg) {
-        TEST_SYNC_POINT(
-            "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallbackBegin");
-        if (std::this_thread::get_id() == flush_thread.get_id()) {
-          TEST_SYNC_POINT(
-              "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback1");
-          TEST_SYNC_POINT(
-              "AutoRollLoggerTest::LogFlushWhileRolling:FlushCallback2");
-        }
-      });
+  // Notes:
+  // (1) Need to pin the old logger before beginning the roll, as rolling grabs
+  //     the mutex, which would prevent us from accessing the old logger. This
+  //     also marks flush_thread with AutoRollLogger::Flush:PinnedLogger.
+  // (2) Need to reset logger during PosixLogger::Flush() to exercise a race
+  //     condition case, which is executing the flush with the pinned (old)
+  //     logger after auto-roll logger has cut over to a new logger.
+  // (3) PosixLogger::Flush() happens in both threads but its SyncPoints only
+  //     are enabled in flush_thread (the one pinning the old logger).
+  rocksdb::SyncPoint::GetInstance()->LoadDependencyAndMarkers(
+      {{"AutoRollLogger::Flush:PinnedLogger",
+        "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit"},
+       {"PosixLogger::Flush:Begin1",
+        "AutoRollLogger::ResetLogger:BeforeNewLogger"},
+       {"AutoRollLogger::ResetLogger:AfterNewLogger",
+        "PosixLogger::Flush:Begin2"}},
+      {{"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin1"},
+       {"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin2"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
@@ -361,13 +347,13 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
 
 // Test the logger Header function for roll over logs
 // We expect the new logs creates as roll over to carry the headers specified
-static std::vector<string> GetOldFileNames(const string& path) {
-  std::vector<string> ret;
+static std::vector<std::string> GetOldFileNames(const std::string& path) {
+  std::vector<std::string> ret;
 
-  const string dirname = path.substr(/*start=*/ 0, path.find_last_of("/"));
-  const string fname = path.substr(path.find_last_of("/") + 1);
+  const std::string dirname = path.substr(/*start=*/0, path.find_last_of("/"));
+  const std::string fname = path.substr(path.find_last_of("/") + 1);
 
-  std::vector<string> children;
+  std::vector<std::string> children;
   Env::Default()->GetChildren(dirname, &children);
 
   // We know that the old log files are named [path]<something>
@@ -382,12 +368,13 @@ static std::vector<string> GetOldFileNames(const string& path) {
 }
 
 // Return the number of lines where a given pattern was found in the file
-static size_t GetLinesCount(const string& fname, const string& pattern) {
-  stringstream ssbuf;
-  string line;
+static size_t GetLinesCount(const std::string& fname,
+                            const std::string& pattern) {
+  std::stringstream ssbuf;
+  std::string line;
   size_t count = 0;
 
-  ifstream inFile(fname.c_str());
+  std::ifstream inFile(fname.c_str());
   ssbuf << inFile.rdbuf();
 
   while (getline(ssbuf, line)) {
@@ -426,7 +413,7 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
       }
     }
 
-    const string newfname = logger.TEST_log_fname();
+    const std::string newfname = logger.TEST_log_fname();
 
     // Log enough data to cause a roll over
     int i = 0;
@@ -466,7 +453,7 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
     [](char ch) { return ch == '/'; }, '\\');
   std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
 #else
-  string deleteCmd = "rm -rf " + kTestDir;
+  std::string deleteCmd = "rm -rf " + kTestDir;
 #endif
   ASSERT_EQ(system(deleteCmd.c_str()), 0);
   options.max_log_file_size = 100 * 1024 * 1024;

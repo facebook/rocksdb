@@ -2,14 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <string.h>
+
+#include <algorithm>
+#include <map>
+#include <string>
+#include <vector>
+
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "port/port.h"
 #include "util/mutexlock.h"
-#include <map>
-#include <string.h>
-#include <string>
-#include <vector>
 
 namespace rocksdb {
 
@@ -70,10 +73,7 @@ class FileState {
   uint64_t Size() const { return size_; }
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
-    if (offset > size_) {
-      return Status::IOError("Offset greater than file size.");
-    }
-    const uint64_t available = size_ - offset;
+    const uint64_t available = size_ - std::min(size_, offset);
     if (n > available) {
       n = available;
     }

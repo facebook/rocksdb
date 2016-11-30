@@ -117,8 +117,11 @@ class TsanErrorParser(MatchErrorParser):
 _TEST_NAME_TO_PARSERS = {
     'punit': [CompilerErrorParser, GTestErrorParser],
     'unit': [CompilerErrorParser, GTestErrorParser],
+    'release': [CompilerErrorParser, GTestErrorParser],
     'unit_481': [CompilerErrorParser, GTestErrorParser],
+    'release_481': [CompilerErrorParser, GTestErrorParser],
     'clang_unit': [CompilerErrorParser, GTestErrorParser],
+    'clang_release': [CompilerErrorParser, GTestErrorParser],
     'clang_analyze': [CompilerErrorParser, ScanBuildErrorParser],
     'code_cov': [CompilerErrorParser, GTestErrorParser],
     'unity': [CompilerErrorParser, GTestErrorParser],

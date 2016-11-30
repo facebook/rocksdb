@@ -1,10 +1,16 @@
 This document lists users of RocksDB and their use cases. If you are using RocksDB, please open a pull request and add yourself to the list.
 
 ## Facebook
-At Facebook, we use RocksDB as a backend for many different stateful services. We're also experimenting with running RocksDB as a storage engine for two databases:
+At Facebook, we use RocksDB as storage engines in multiple data management services and a backend for many different stateful services, including:
 
 1. MyRocks -- https://github.com/MySQLOnRocksDB/mysql-5.6
 2. MongoRocks -- https://github.com/mongodb-partners/mongo-rocks
+3. ZippyDB --  Facebook's distributed key-value store with Paxos-style replication, built on top of RocksDB.[*] https://www.youtube.com/watch?v=DfiN7pG0D0khtt
+4. Laser -- Laser is a high query throughput, low (millisecond) latency, key-value storage service built on top of RocksDB.[*]
+4. Dragan -- a distributed graph query engine. https://code.facebook.com/posts/1737605303120405/dragon-a-distributed-graph-query-engine/
+5. Stylus -- a low-level stream processing framework writtenin C++.[*]
+
+[*] https://research.facebook.com/publications/realtime-data-processing-at-facebook/
 
 ## LinkedIn
 Two different use cases at Linkedin are using RocksDB as a storage engine:
@@ -56,3 +62,15 @@ Pinterest's Object Retrieval System uses RocksDB for storage: https://www.youtub
 ## quasardb
 [quasardb](https://www.quasardb.net) is a high-performance, distributed, transactional key-value database that integrates well with in-memory analytics engines such as Apache Spark. 
 quasardb uses a heavily tuned RocksDB as its persistence layer.
+
+## Netflix
+[Netflix](http://techblog.netflix.com/2016/05/application-data-caching-using-ssds.html) uses RocksDB on spinning disks to cache application data.
+
+## TiKV
+[TiKV](https://github.com/pingcap/tikv) is a GEO-replicated, high-performance, distributed, transactional key-value database. TiKV is powered by Rust and Raft. TiKV uses RocksDB as its persistence layer.
+
+## Apache Flink
+[Apache Flink](https://flink.apache.org/news/2016/03/08/release-1.0.0.html) uses RocksDB to store state locally on a machine.
+
+## Dgraph
+[Dgraph](https://github.com/dgraph-io/dgraph) is an open-source, scalable, distributed, low latency, high throughput Graph database .They use RocksDB to store state locally on a machine.

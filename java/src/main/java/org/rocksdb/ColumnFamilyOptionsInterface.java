@@ -16,7 +16,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param blockCacheSizeMb Block cache size in MB
    * @return the instance of the current Object.
    */
-  Object optimizeForPointLookup(long blockCacheSizeMb);
+  ColumnFamilyOptionsInterface optimizeForPointLookup(long blockCacheSizeMb);
 
   /**
    * <p>Default values for some parameters in ColumnFamilyOptions are not
@@ -31,7 +31,7 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @return the instance of the current Object.
    */
-  Object optimizeLevelStyleCompaction();
+  ColumnFamilyOptionsInterface optimizeLevelStyleCompaction();
 
   /**
    * <p>Default values for some parameters in ColumnFamilyOptions are not
@@ -138,54 +138,6 @@ public interface ColumnFamilyOptionsInterface {
    * @return the instance of the current Object.
    */
   Object setMergeOperator(MergeOperator mergeOperator);
-
-  /**
-   * Amount of data to build up in memory (backed by an unsorted log
-   * on disk) before converting to a sorted on-disk file.
-   *
-   * Larger values increase performance, especially during bulk loads.
-   * Up to {@code max_write_buffer_number} write buffers may be held in memory
-   * at the same time, so you may wish to adjust this parameter
-   * to control memory usage.
-   *
-   * Also, a larger write buffer will result in a longer recovery time
-   * the next time the database is opened.
-   *
-   * Default: 4MB
-   * @param writeBufferSize the size of write buffer.
-   * @return the instance of the current Object.
-   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
-   *   while overflowing the underlying platform specific value.
-   */
-  Object setWriteBufferSize(long writeBufferSize);
-
-  /**
-   * Return size of write buffer size.
-   *
-   * @return size of write buffer.
-   * @see #setWriteBufferSize(long)
-   */
-  long writeBufferSize();
-
-  /**
-   * The maximum number of write buffers that are built up in memory.
-   * The default is 2, so that when 1 write buffer is being flushed to
-   * storage, new writes can continue to the other write buffer.
-   * Default: 2
-   *
-   * @param maxWriteBufferNumber maximum number of write buffers.
-   * @return the instance of the current Object.
-   */
-  Object setMaxWriteBufferNumber(
-      int maxWriteBufferNumber);
-
-  /**
-   * Returns maximum number of write buffers.
-   *
-   * @return maximum number of write buffers.
-   * @see #setMaxWriteBufferNumber(int)
-   */
-  int maxWriteBufferNumber();
 
   /**
    * The minimum number of write buffers that will be merged together
@@ -410,97 +362,6 @@ public interface ColumnFamilyOptionsInterface {
   int maxMemCompactionLevel();
 
   /**
-   * The target file size for compaction.
-   * This targetFileSizeBase determines a level-1 file size.
-   * Target file size for level L can be calculated by
-   * targetFileSizeBase * (targetFileSizeMultiplier ^ (L-1))
-   * For example, if targetFileSizeBase is 2MB and
-   * target_file_size_multiplier is 10, then each file on level-1 will
-   * be 2MB, and each file on level 2 will be 20MB,
-   * and each file on level-3 will be 200MB.
-   * by default targetFileSizeBase is 2MB.
-   *
-   * @param targetFileSizeBase the target size of a level-0 file.
-   * @return the reference to the current option.
-   *
-   * @see #setTargetFileSizeMultiplier(int)
-   */
-  Object setTargetFileSizeBase(long targetFileSizeBase);
-
-  /**
-   * The target file size for compaction.
-   * This targetFileSizeBase determines a level-1 file size.
-   * Target file size for level L can be calculated by
-   * targetFileSizeBase * (targetFileSizeMultiplier ^ (L-1))
-   * For example, if targetFileSizeBase is 2MB and
-   * target_file_size_multiplier is 10, then each file on level-1 will
-   * be 2MB, and each file on level 2 will be 20MB,
-   * and each file on level-3 will be 200MB.
-   * by default targetFileSizeBase is 2MB.
-   *
-   * @return the target size of a level-0 file.
-   *
-   * @see #targetFileSizeMultiplier()
-   */
-  long targetFileSizeBase();
-
-  /**
-   * targetFileSizeMultiplier defines the size ratio between a
-   * level-L file and level-(L+1) file.
-   * By default target_file_size_multiplier is 1, meaning
-   * files in different levels have the same target.
-   *
-   * @param multiplier the size ratio between a level-(L+1) file
-   *     and level-L file.
-   * @return the reference to the current option.
-   */
-  Object setTargetFileSizeMultiplier(int multiplier);
-
-  /**
-   * targetFileSizeMultiplier defines the size ratio between a
-   * level-(L+1) file and level-L file.
-   * By default targetFileSizeMultiplier is 1, meaning
-   * files in different levels have the same target.
-   *
-   * @return the size ratio between a level-(L+1) file and level-L file.
-   */
-  int targetFileSizeMultiplier();
-
-  /**
-   * The upper-bound of the total size of level-1 files in bytes.
-   * Maximum number of bytes for level L can be calculated as
-   * (maxBytesForLevelBase) * (maxBytesForLevelMultiplier ^ (L-1))
-   * For example, if maxBytesForLevelBase is 20MB, and if
-   * max_bytes_for_level_multiplier is 10, total data size for level-1
-   * will be 20MB, total file size for level-2 will be 200MB,
-   * and total file size for level-3 will be 2GB.
-   * by default 'maxBytesForLevelBase' is 10MB.
-   *
-   * @param maxBytesForLevelBase maximum bytes for level base.
-   *
-   * @return the reference to the current option.
-   * @see #setMaxBytesForLevelMultiplier(int)
-   */
-  Object setMaxBytesForLevelBase(
-      long maxBytesForLevelBase);
-
-  /**
-   * The upper-bound of the total size of level-1 files in bytes.
-   * Maximum number of bytes for level L can be calculated as
-   * (maxBytesForLevelBase) * (maxBytesForLevelMultiplier ^ (L-1))
-   * For example, if maxBytesForLevelBase is 20MB, and if
-   * max_bytes_for_level_multiplier is 10, total data size for level-1
-   * will be 20MB, total file size for level-2 will be 200MB,
-   * and total file size for level-3 will be 2GB.
-   * by default 'maxBytesForLevelBase' is 10MB.
-   *
-   * @return the upper-bound of the total size of level-1 files
-   *     in bytes.
-   * @see #maxBytesForLevelMultiplier()
-   */
-  long maxBytesForLevelBase();
-
-  /**
    * <p>If {@code true}, RocksDB will pick target size of each level
    * dynamically. We will pick a base level b &gt;= 1. L0 will be
    * directly merged into level b, instead of always into level 1.
@@ -594,9 +455,8 @@ public interface ColumnFamilyOptionsInterface {
    * @param multiplier the ratio between the total size of level-(L+1)
    *     files and the total size of level-L files for all L.
    * @return the reference to the current option.
-   * @see #setMaxBytesForLevelBase(long)
    */
-  Object setMaxBytesForLevelMultiplier(int multiplier);
+  Object setMaxBytesForLevelMultiplier(double multiplier);
 
   /**
    * The ratio between the total size of level-(L+1) files and the total
@@ -605,82 +465,23 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @return the ratio between the total size of level-(L+1) files and
    *     the total size of level-L files for all L.
-   * @see #maxBytesForLevelBase()
    */
-  int maxBytesForLevelMultiplier();
+  double maxBytesForLevelMultiplier();
 
   /**
-   * Maximum number of bytes in all compacted files.  We avoid expanding
-   * the lower level file set of a compaction if it would make the
-   * total compaction cover more than
-   * (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
+   * Maximum size of each compaction (not guarantee)
    *
-   * @param expandedCompactionFactor the maximum number of bytes in all
-   *     compacted files.
-   * @return the reference to the current option.
-   * @see #setSourceCompactionFactor(int)
-   */
-  Object setExpandedCompactionFactor(int expandedCompactionFactor);
-
-  /**
-   * Maximum number of bytes in all compacted files.  We avoid expanding
-   * the lower level file set of a compaction if it would make the
-   * total compaction cover more than
-   * (expanded_compaction_factor * targetFileSizeLevel()) many bytes.
-   *
-   * @return the maximum number of bytes in all compacted files.
-   * @see #sourceCompactionFactor()
-   */
-  int expandedCompactionFactor();
-
-  /**
-   * Maximum number of bytes in all source files to be compacted in a
-   * single compaction run. We avoid picking too many files in the
-   * source level so that we do not exceed the total source bytes
-   * for compaction to exceed
-   * (source_compaction_factor * targetFileSizeLevel()) many bytes.
-   * Default:1, i.e. pick maxfilesize amount of data as the source of
-   * a compaction.
-   *
-   * @param sourceCompactionFactor the maximum number of bytes in all
-   *     source files to be compacted in a single compaction run.
-   * @return the reference to the current option.
-   * @see #setExpandedCompactionFactor(int)
-   */
-  Object setSourceCompactionFactor(int sourceCompactionFactor);
-
-  /**
-   * Maximum number of bytes in all source files to be compacted in a
-   * single compaction run. We avoid picking too many files in the
-   * source level so that we do not exceed the total source bytes
-   * for compaction to exceed
-   * (source_compaction_factor * targetFileSizeLevel()) many bytes.
-   * Default:1, i.e. pick maxfilesize amount of data as the source of
-   * a compaction.
-   *
-   * @return the maximum number of bytes in all source files to be compactedo.
-   * @see #expandedCompactionFactor()
-   */
-  int sourceCompactionFactor();
-
-  /**
-   * Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
-   * stop building a single file in a level-&gt;level+1 compaction.
-   *
-   * @param maxGrandparentOverlapFactor maximum bytes of overlaps in
-   *     "grandparent" level.
+   * @param maxCompactionBytes the compaction size limit
    * @return the reference to the current option.
    */
-  Object setMaxGrandparentOverlapFactor(
-      int maxGrandparentOverlapFactor);
+  Object setMaxCompactionBytes(long maxCompactionBytes);
 
   /**
-   * Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
-   * stop building a single file in a level-&gt;level+1 compaction.
+   * Control maximum size of each compaction (not guaranteed)
    *
-   * @return maximum bytes of overlaps in "grandparent" level.
+   * @return compaction size threshold
    */
-  int maxGrandparentOverlapFactor();
+  long maxCompactionBytes();
 
   /**
    * Puts are delayed 0-1 ms when any level has a compaction score that exceeds
@@ -749,62 +550,6 @@ public interface ColumnFamilyOptionsInterface {
   int rateLimitDelayMaxMilliseconds();
 
   /**
-   * The size of one block in arena memory allocation.
-   * If &le; 0, a proper value is automatically calculated (usually 1/10 of
-   * writer_buffer_size).
-   *
-   * There are two additional restriction of the The specified size:
-   * (1) size should be in the range of [4096, 2 &lt;&lt; 30] and
-   * (2) be the multiple of the CPU word (which helps with the memory
-   * alignment).
-   *
-   * We'll automatically check and adjust the size number to make sure it
-   * conforms to the restrictions.
-   * Default: 0
-   *
-   * @param arenaBlockSize the size of an arena block
-   * @return the reference to the current option.
-   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
-   *   while overflowing the underlying platform specific value.
-   */
-  Object setArenaBlockSize(long arenaBlockSize);
-
-  /**
-   * The size of one block in arena memory allocation.
-   * If &le; 0, a proper value is automatically calculated (usually 1/10 of
-   * writer_buffer_size).
-   *
-   * There are two additional restriction of the The specified size:
-   * (1) size should be in the range of [4096, 2 &lt;&lt; 30] and
-   * (2) be the multiple of the CPU word (which helps with the memory
-   * alignment).
-   *
-   * We'll automatically check and adjust the size number to make sure it
-   * conforms to the restrictions.
-   * Default: 0
-   *
-   * @return the size of an arena block
-   */
-  long arenaBlockSize();
-
-  /**
-   * Disable automatic compactions. Manual compactions can still
-   * be issued on this column family
-   *
-   * @param disableAutoCompactions true if auto-compactions are disabled.
-   * @return the reference to the current option.
-   */
-  Object setDisableAutoCompactions(boolean disableAutoCompactions);
-
-  /**
-   * Disable automatic compactions. Manual compactions can still
-   * be issued on this column family
-   *
-   * @return true if auto-compactions are disabled.
-   */
-  boolean disableAutoCompactions();
-
-  /**
    * Purge duplicate/deleted keys when a memtable is flushed to storage.
    * Default: true
    *
@@ -859,74 +604,6 @@ public interface ColumnFamilyOptionsInterface {
    * @return the size limit of the total sum of table files.
    */
   long maxTableFilesSizeFIFO();
-
-  /**
-   * If true, compaction will verify checksum on every read that happens
-   * as part of compaction
-   * Default: true
-   *
-   * @param verifyChecksumsInCompaction true if compaction verifies
-   *     checksum on every read.
-   * @return the reference to the current option.
-   */
-  Object setVerifyChecksumsInCompaction(
-      boolean verifyChecksumsInCompaction);
-
-  /**
-   * If true, compaction will verify checksum on every read that happens
-   * as part of compaction
-   * Default: true
-   *
-   * @return true if compaction verifies checksum on every read.
-   */
-  boolean verifyChecksumsInCompaction();
-
-  /**
-   * Use KeyMayExist API to filter deletes when this is true.
-   * If KeyMayExist returns false, i.e. the key definitely does not exist, then
-   * the delete is a noop. KeyMayExist only incurs in-memory look up.
-   * This optimization avoids writing the delete to storage when appropriate.
-   * Default: false
-   *
-   * @param filterDeletes true if filter-deletes behavior is on.
-   * @return the reference to the current option.
-   */
-  Object setFilterDeletes(boolean filterDeletes);
-
-  /**
-   * Use KeyMayExist API to filter deletes when this is true.
-   * If KeyMayExist returns false, i.e. the key definitely does not exist, then
-   * the delete is a noop. KeyMayExist only incurs in-memory look up.
-   * This optimization avoids writing the delete to storage when appropriate.
-   * Default: false
-   *
-   * @return true if filter-deletes behavior is on.
-   */
-  boolean filterDeletes();
-
-  /**
-   * An iteration-&gt;Next() sequentially skips over keys with the same
-   * user-key unless this option is set. This number specifies the number
-   * of keys (with the same userkey) that will be sequentially
-   * skipped before a reseek is issued.
-   * Default: 8
-   *
-   * @param maxSequentialSkipInIterations the number of keys could
-   *     be skipped in a iteration.
-   * @return the reference to the current option.
-   */
-  Object setMaxSequentialSkipInIterations(long maxSequentialSkipInIterations);
-
-  /**
-   * An iteration-&gt;Next() sequentially skips over keys with the same
-   * user-key unless this option is set. This number specifies the number
-   * of keys (with the same userkey) that will be sequentially
-   * skipped before a reseek is issued.
-   * Default: 8
-   *
-   * @return the number of keys could be skipped in a iteration.
-   */
-  long maxSequentialSkipInIterations();
 
   /**
    * Set the config for mem-table.
@@ -991,62 +668,6 @@ public interface ColumnFamilyOptionsInterface {
   boolean inplaceUpdateSupport();
 
   /**
-   * Number of locks used for inplace update
-   * Default: 10000, if inplace_update_support = true, else 0.
-   *
-   * @param inplaceUpdateNumLocks the number of locks used for
-   *     inplace updates.
-   * @return the reference to the current option.
-   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
-   *   while overflowing the underlying platform specific value.
-   */
-  Object setInplaceUpdateNumLocks(long inplaceUpdateNumLocks);
-
-  /**
-   * Number of locks used for inplace update
-   * Default: 10000, if inplace_update_support = true, else 0.
-   *
-   * @return the number of locks used for inplace update.
-   */
-  long inplaceUpdateNumLocks();
-
-  /**
-   * Sets the number of bits used in the prefix bloom filter.
-   *
-   * This value will be used only when a prefix-extractor is specified.
-   *
-   * @param memtablePrefixBloomBits the number of bits used in the
-   *     prefix bloom filter.
-   * @return the reference to the current option.
-   */
-  Object setMemtablePrefixBloomBits(int memtablePrefixBloomBits);
-
-  /**
-   * Returns the number of bits used in the prefix bloom filter.
-   *
-   * This value will be used only when a prefix-extractor is specified.
-   *
-   * @return the number of bloom-bits.
-   * @see #useFixedLengthPrefixExtractor(int)
-   */
-  int memtablePrefixBloomBits();
-
-  /**
-   * The number of hash probes per key used in the mem-table.
-   *
-   * @param memtablePrefixBloomProbes the number of hash probes per key.
-   * @return the reference to the current option.
-   */
-  Object setMemtablePrefixBloomProbes(int memtablePrefixBloomProbes);
-
-  /**
-   * The number of hash probes per key used in the mem-table.
-   *
-   * @return the number of hash probes per key.
-   */
-  int memtablePrefixBloomProbes();
-
-  /**
    * Control locality of bloom filter probes to improve cache miss rate.
    * This option only applies to memtable prefix bloom and plaintable
    * prefix bloom. It essentially limits the max number of cache lines each
@@ -1074,42 +695,9 @@ public interface ColumnFamilyOptionsInterface {
    * Default: 0
    *
    * @return the level of locality of bloom-filter probes.
-   * @see #setMemtablePrefixBloomProbes(int)
+   * @see #setBloomLocality(int)
    */
   int bloomLocality();
-
-  /**
-   * Maximum number of successive merge operations on a key in the memtable.
-   *
-   * When a merge operation is added to the memtable and the maximum number of
-   * successive merges is reached, the value of the key will be calculated and
-   * inserted into the memtable instead of the merge operation. This will
-   * ensure that there are never more than max_successive_merges merge
-   * operations in the memtable.
-   *
-   * Default: 0 (disabled)
-   *
-   * @param maxSuccessiveMerges the maximum number of successive merges.
-   * @return the reference to the current option.
-   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
-   *   while overflowing the underlying platform specific value.
-   */
-  Object setMaxSuccessiveMerges(long maxSuccessiveMerges);
-
-  /**
-   * Maximum number of successive merge operations on a key in the memtable.
-   *
-   * When a merge operation is added to the memtable and the maximum number of
-   * successive merges is reached, the value of the key will be calculated and
-   * inserted into the memtable instead of the merge operation. This will
-   * ensure that there are never more than max_successive_merges merge
-   * operations in the memtable.
-   *
-   * Default: 0 (disabled)
-   *
-   * @return the maximum number of successive merges.
-   */
-  long maxSuccessiveMerges();
 
   /**
    * The number of partial merge operands to accumulate before partial

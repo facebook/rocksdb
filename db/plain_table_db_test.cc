@@ -142,6 +142,7 @@ class PlainTableDBTest : public testing::Test,
 
     options.prefix_extractor.reset(NewFixedPrefixTransform(8));
     options.allow_mmap_reads = mmap_mode_;
+    options.allow_concurrent_memtable_write = false;
     return options;
   }
 
@@ -324,27 +325,27 @@ class TestPlainTableFactory : public PlainTableFactory {
         column_family_id_(column_family_id),
         column_family_name_(std::move(column_family_name)) {}
 
-  Status NewTableReader(const TableReaderOptions& table_reader_options,
-                        unique_ptr<RandomAccessFileReader>&& file,
-                        uint64_t file_size,
-                        unique_ptr<TableReader>* table) const override {
+  Status NewTableReader(
+      const TableReaderOptions& table_reader_options,
+      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+      unique_ptr<TableReader>* table,
+      bool prefetch_index_and_filter_in_cache) const override {
     TableProperties* props = nullptr;
     auto s =
         ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                            table_reader_options.ioptions.env,
-                            table_reader_options.ioptions.info_log, &props);
+                            table_reader_options.ioptions, &props);
     EXPECT_TRUE(s.ok());
 
     if (store_index_in_file_) {
       BlockHandle bloom_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
-                        table_reader_options.ioptions.env,
+                        table_reader_options.ioptions,
                         BloomBlockBuilder::kBloomBlock, &bloom_block_handle);
       EXPECT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
-                        table_reader_options.ioptions.env,
+                        table_reader_options.ioptions,
                         PlainTableIndexBuilder::kPlainTableIndexBlock,
                         &index_block_handle);
       EXPECT_TRUE(s.ok());
@@ -386,10 +387,6 @@ TEST_P(PlainTableDBTest, Flush) {
       for (int total_order = 0; total_order <= 1; total_order++) {
         for (int store_index_in_file = 0; store_index_in_file <= 1;
              ++store_index_in_file) {
-          if (!bloom_bits && store_index_in_file) {
-            continue;
-          }
-
           Options options = CurrentOptions();
           options.create_if_missing = true;
           // Set only one bucket to force bucket conflict.

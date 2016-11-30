@@ -58,6 +58,10 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
     case kTypeSingleDeletion:
       *type = kSingleDeleteRecord;
       break;
+    case kTypeColumnFamilyRangeDeletion:
+    case kTypeRangeDeletion:
+      *type = kDeleteRangeRecord;
+      break;
     case kTypeColumnFamilyMerge:
     case kTypeMerge:
       *type = kMergeRecord;
@@ -129,7 +133,7 @@ int WriteBatchEntryComparator::CompareKey(uint32_t column_family,
 }
 
 WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
-    const DBOptions& options, WriteBatchWithIndex* batch,
+    const ImmutableDBOptions& immuable_db_options, WriteBatchWithIndex* batch,
     ColumnFamilyHandle* column_family, const Slice& key,
     MergeContext* merge_context, WriteBatchEntryComparator* cmp,
     std::string* value, bool overwrite_key, Status* s) {
@@ -233,13 +237,17 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
           result = WriteBatchWithIndexInternal::Result::kError;
           return result;
         }
-        Statistics* statistics = options.statistics.get();
-        Env* env = options.env;
-        Logger* logger = options.info_log.get();
+        Statistics* statistics = immuable_db_options.statistics.get();
+        Env* env = immuable_db_options.env;
+        Logger* logger = immuable_db_options.info_log.get();
 
-        *s = MergeHelper::TimedFullMerge(
-            key, entry_value, merge_context->GetOperands(), merge_operator,
-            statistics, env, logger, value);
+        if (merge_operator) {
+          *s = MergeHelper::TimedFullMerge(merge_operator, key, entry_value,
+                                           merge_context->GetOperands(), value,
+                                           logger, statistics, env);
+        } else {
+          *s = Status::InvalidArgument("Options::merge_operator must be set");
+        }
         if ((*s).ok()) {
           result = WriteBatchWithIndexInternal::Result::kFound;
         } else {

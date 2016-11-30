@@ -16,6 +16,7 @@ namespace rocksdb {
 
 struct InternalKeyTablePropertiesNames {
   static const std::string kDeletedKeys;
+  static const std::string kMergeOperands;
 };
 
 // Base class for internal table properties collector.
@@ -65,6 +66,7 @@ class InternalKeyPropertiesCollector : public IntTblPropCollector {
 
  private:
   uint64_t deleted_keys_ = 0;
+  uint64_t merge_operands_ = 0;
 };
 
 class InternalKeyPropertiesCollectorFactory

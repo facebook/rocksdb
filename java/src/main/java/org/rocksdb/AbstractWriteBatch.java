@@ -70,6 +70,18 @@ public abstract class AbstractWriteBatch extends RocksObject
     clear0(nativeHandle_);
   }
 
+  @Override
+  public void setSavePoint() {
+    assert (isOwningHandle());
+    setSavePoint0(nativeHandle_);
+  }
+
+  @Override
+  public void rollbackToSavePoint() throws RocksDBException {
+    assert (isOwningHandle());
+    rollbackToSavePoint0(nativeHandle_);
+  }
+
   abstract int count0(final long handle);
 
   abstract void put(final long handle, final byte[] key, final int keyLen,
@@ -94,4 +106,8 @@ public abstract class AbstractWriteBatch extends RocksObject
       final int blobLen);
 
   abstract void clear0(final long handle);
+
+  abstract void setSavePoint0(final long handle);
+
+  abstract void rollbackToSavePoint0(final long handle);
 }

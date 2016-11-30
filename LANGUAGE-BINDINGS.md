@@ -9,3 +9,4 @@ This is the list of all known third-party language bindings for RocksDB. If some
 * Haskell - https://hackage.haskell.org/package/rocksdb-haskell
 * PHP - https://github.com/Photonios/rocksdb-php
 * C# - https://github.com/warrenfalk/rocksdb-sharp
+* Rust - https://github.com/spacejam/rust-rocksdb

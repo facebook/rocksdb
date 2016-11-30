@@ -55,7 +55,8 @@ class PosixLogger : public Logger {
     fclose(file_);
   }
   virtual void Flush() override {
-    TEST_SYNC_POINT_CALLBACK("PosixLogger::Flush:BeginCallback", nullptr);
+    TEST_SYNC_POINT("PosixLogger::Flush:Begin1");
+    TEST_SYNC_POINT("PosixLogger::Flush:Begin2");
     if (flush_pending_) {
       flush_pending_ = false;
       fflush(file_);
@@ -79,7 +80,7 @@ class PosixLogger : public Logger {
         bufsize = sizeof(buffer);
         base = buffer;
       } else {
-        bufsize = 30000;
+        bufsize = 65536;
         base = new char[bufsize];
       }
       char* p = base;

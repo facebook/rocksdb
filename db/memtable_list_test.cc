@@ -3,19 +3,20 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include "db/memtable_list.h"
 #include <algorithm>
 #include <string>
 #include <vector>
-#include "db/memtable_list.h"
 #include "db/merge_context.h"
+#include "db/range_del_aggregator.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
-#include "db/writebuffer.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
-#include "util/testutil.h"
+#include "rocksdb/write_buffer_manager.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -57,14 +58,16 @@ class MemTableListTest : public testing::Test {
 
     // Create a mock VersionSet
     DBOptions db_options;
+    ImmutableDBOptions immutable_db_options(db_options);
     EnvOptions env_options;
     shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
-    WriteBuffer write_buffer(db_options.db_write_buffer_size);
+    WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
     WriteController write_controller(10000000u);
 
     CreateDB();
-    VersionSet versions(dbname, &db_options, env_options, table_cache.get(),
-                        &write_buffer, &write_controller);
+    VersionSet versions(dbname, &immutable_db_options, env_options,
+                        table_cache.get(), &write_buffer_manager,
+                        &write_controller);
 
     // Create mock default ColumnFamilyData
     ColumnFamilyOptions cf_options;
@@ -114,10 +117,13 @@ TEST_F(MemTableListTest, GetTest) {
   std::string value;
   Status s;
   MergeContext merge_context;
+  InternalKeyComparator ikey_cmp(options.comparator);
+  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */);
   autovector<MemTable*> to_delete;
 
   LookupKey lkey("key1", seq);
-  bool found = list.current()->Get(lkey, &value, &s, &merge_context);
+  bool found = list.current()->Get(lkey, &value, &s, &merge_context,
+                                   &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   // Create a MemTable
@@ -126,10 +132,9 @@ TEST_F(MemTableListTest, GetTest) {
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
 
-  WriteBuffer wb(options.db_write_buffer_size);
-  MemTable* mem =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
-                   kMaxSequenceNumber);
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -140,17 +145,20 @@ TEST_F(MemTableListTest, GetTest) {
 
   // Fetch the newly written keys
   merge_context.Clear();
-  found = mem->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  found = mem->Get(LookupKey("key1", seq), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value1");
 
   merge_context.Clear();
-  found = mem->Get(LookupKey("key1", 2), &value, &s, &merge_context);
+  found = mem->Get(LookupKey("key1", 2), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
   // MemTable found out that this key is *not* found (at this sequence#)
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
-  found = mem->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  found = mem->Get(LookupKey("key2", seq), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value2.2");
 
@@ -163,10 +171,9 @@ TEST_F(MemTableListTest, GetTest) {
   SequenceNumber saved_seq = seq;
 
   // Create another memtable and write some keys to it
-  WriteBuffer wb2(options.db_write_buffer_size);
-  MemTable* mem2 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2,
-                   kMaxSequenceNumber);
+  WriteBufferManager wb2(options.db_write_buffer_size);
+  MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
+                                kMaxSequenceNumber);
   mem2->Ref();
 
   mem2->Add(++seq, kTypeDeletion, "key1", "");
@@ -177,24 +184,25 @@ TEST_F(MemTableListTest, GetTest) {
 
   // Fetch keys via MemTableList
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key1", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
   found = list.current()->Get(LookupKey("key1", saved_seq), &value, &s,
-                              &merge_context);
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ("value1", value);
 
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key2", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value2.3");
 
   merge_context.Clear();
-  found = list.current()->Get(LookupKey("key2", 1), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key2", 1), &value, &s, &merge_context,
+                              &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   ASSERT_EQ(2, list.NumNotFlushed());
@@ -216,10 +224,13 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   std::string value;
   Status s;
   MergeContext merge_context;
+  InternalKeyComparator ikey_cmp(options.comparator);
+  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */);
   autovector<MemTable*> to_delete;
 
   LookupKey lkey("key1", seq);
-  bool found = list.current()->Get(lkey, &value, &s, &merge_context);
+  bool found = list.current()->Get(lkey, &value, &s, &merge_context,
+                                   &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   // Create a MemTable
@@ -228,10 +239,9 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
 
-  WriteBuffer wb(options.db_write_buffer_size);
-  MemTable* mem =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
-                   kMaxSequenceNumber);
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -241,12 +251,14 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Fetch the newly written keys
   merge_context.Clear();
-  found = mem->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  found = mem->Get(LookupKey("key1", seq), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
   // MemTable found out that this key is *not* found (at this sequence#)
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
-  found = mem->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  found = mem->Get(LookupKey("key2", seq), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ(value, "value2.2");
 
@@ -256,13 +268,13 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Fetch keys via MemTableList
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key1", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key2", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_TRUE(s.ok() && found);
   ASSERT_EQ("value2.2", value);
 
@@ -272,8 +284,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   list.PickMemtablesToFlush(&to_flush);
   ASSERT_EQ(1, to_flush.size());
 
-  s = Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush, &to_delete);
+  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
+                                       to_flush, &to_delete);
   ASSERT_OK(s);
   ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_EQ(1, list.NumFlushed());
@@ -281,32 +293,33 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Verify keys are no longer in MemTableList
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key1", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key2", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   // Verify keys are present in history
   merge_context.Clear();
   found = list.current()->GetFromHistory(LookupKey("key1", seq), &value, &s,
-                                         &merge_context);
+                                         &merge_context, &range_del_agg,
+                                         ReadOptions());
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
   found = list.current()->GetFromHistory(LookupKey("key2", seq), &value, &s,
-                                         &merge_context);
+                                         &merge_context, &range_del_agg,
+                                         ReadOptions());
   ASSERT_TRUE(found);
   ASSERT_EQ("value2.2", value);
 
   // Create another memtable and write some keys to it
-  WriteBuffer wb2(options.db_write_buffer_size);
-  MemTable* mem2 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2,
-                   kMaxSequenceNumber);
+  WriteBufferManager wb2(options.db_write_buffer_size);
+  MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
+                                kMaxSequenceNumber);
   mem2->Ref();
 
   mem2->Add(++seq, kTypeDeletion, "key1", "");
@@ -321,18 +334,17 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   ASSERT_EQ(1, to_flush.size());
 
   // Flush second memtable
-  s = Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush, &to_delete);
+  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
+                                       to_flush, &to_delete);
   ASSERT_OK(s);
   ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_EQ(2, list.NumFlushed());
   ASSERT_EQ(0, to_delete.size());
 
   // Add a third memtable to push the first memtable out of the history
-  WriteBuffer wb3(options.db_write_buffer_size);
-  MemTable* mem3 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb3,
-                   kMaxSequenceNumber);
+  WriteBufferManager wb3(options.db_write_buffer_size);
+  MemTable* mem3 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb3,
+                                kMaxSequenceNumber);
   mem3->Ref();
   list.Add(mem3, &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
@@ -341,36 +353,38 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   // Verify keys are no longer in MemTableList
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key1", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key2", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key3", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key3", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   // Verify that the second memtable's keys are in the history
   merge_context.Clear();
   found = list.current()->GetFromHistory(LookupKey("key1", seq), &value, &s,
-                                         &merge_context);
+                                         &merge_context, &range_del_agg,
+                                         ReadOptions());
   ASSERT_TRUE(found && s.IsNotFound());
 
   merge_context.Clear();
   found = list.current()->GetFromHistory(LookupKey("key3", seq), &value, &s,
-                                         &merge_context);
+                                         &merge_context, &range_del_agg,
+                                         ReadOptions());
   ASSERT_TRUE(found);
   ASSERT_EQ("value3", value);
 
   // Verify that key2 from the first memtable is no longer in the history
   merge_context.Clear();
-  found =
-      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  found = list.current()->Get(LookupKey("key2", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
   ASSERT_FALSE(found);
 
   // Cleanup
@@ -390,7 +404,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
   InternalKeyComparator cmp(BytewiseComparator());
-  WriteBuffer wb(options.db_write_buffer_size);
+  WriteBufferManager wb(options.db_write_buffer_size);
   autovector<MemTable*> to_delete;
 
   // Create MemTableList
@@ -401,7 +415,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Create some MemTables
   std::vector<MemTable*> tables;
-  MutableCFOptions mutable_cf_options(options, ioptions);
+  MutableCFOptions mutable_cf_options(options);
   for (int i = 0; i < num_tables; i++) {
     MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
                                  kMaxSequenceNumber);
@@ -539,8 +553,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Flush the 4 memtables that were picked in to_flush
-  s = Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush, &to_delete);
+  s = Mock_InstallMemtableFlushResults(&list, MutableCFOptions(options),
+                                       to_flush, &to_delete);
   ASSERT_OK(s);
 
   // Note:  now to_flush contains tables[0,1,2,4].  to_flush2 contains
@@ -560,7 +574,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Flush the 1 memtable that was picked in to_flush2
   s = MemTableListTest::Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush2, &to_delete);
+      &list, MutableCFOptions(options), to_flush2, &to_delete);
   ASSERT_OK(s);
 
   // This will actually install 2 tables.  The 1 we told it to flush, and also

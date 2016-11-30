@@ -9,9 +9,11 @@
 #include <chrono>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/utilities/transaction.h"
+#include "util/hash_map.h"
 #include "util/instrumented_mutex.h"
 #include "util/thread_local.h"
 #include "utilities/transactions/transaction_impl.h"
@@ -44,7 +46,7 @@ class TransactionLockMgr {
 
   // Attempt to lock key.  If OK status is returned, the caller is responsible
   // for calling UnLock() on this key.
-  Status TryLock(const TransactionImpl* txn, uint32_t column_family_id,
+  Status TryLock(TransactionImpl* txn, uint32_t column_family_id,
                  const std::string& key, Env* env);
 
   // Unlock a key locked by TryLock().  txn must be the same Transaction that
@@ -53,6 +55,9 @@ class TransactionLockMgr {
               Env* env);
   void UnLock(TransactionImpl* txn, uint32_t column_family_id,
               const std::string& key, Env* env);
+
+  using LockStatusData = std::unordered_multimap<uint32_t, KeyLockInfo>;
+  LockStatusData GetLockStatusData();
 
  private:
   TransactionDBImpl* txn_db_impl_;
@@ -63,10 +68,13 @@ class TransactionLockMgr {
   // Limit on number of keys locked per column family
   const int64_t max_num_locks_;
 
-  // Used to allocate mutexes/condvars to use when locking keys
-  std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
-
-  // Must be held when accessing/modifying lock_maps_
+  // The following lock order must be satisfied in order to avoid deadlocking
+  // ourselves.
+  //   - lock_map_mutex_
+  //   - stripe mutexes in ascending cf id, ascending stripe order
+  //   - wait_txn_map_mutex_
+  //
+  // Must be held when accessing/modifying lock_maps_.
   InstrumentedMutex lock_map_mutex_;
 
   // Map of ColumnFamilyId to locked key info
@@ -77,17 +85,34 @@ class TransactionLockMgr {
   // to avoid acquiring a mutex in order to look up a LockMap
   std::unique_ptr<ThreadLocalPtr> lock_maps_cache_;
 
+  // Must be held when modifying wait_txn_map_ and rev_wait_txn_map_.
+  std::mutex wait_txn_map_mutex_;
+
+  // Maps from waitee -> number of waiters.
+  HashMap<TransactionID, int> rev_wait_txn_map_;
+  // Maps from waiter -> waitee.
+  HashMap<TransactionID, TransactionID> wait_txn_map_;
+
+  // Used to allocate mutexes/condvars to use when locking keys
+  std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
+
   bool IsLockExpired(const LockInfo& lock_info, Env* env, uint64_t* wait_time);
 
   std::shared_ptr<LockMap> GetLockMap(uint32_t column_family_id);
 
-  Status AcquireWithTimeout(LockMap* lock_map, LockMapStripe* stripe,
+  Status AcquireWithTimeout(TransactionImpl* txn, LockMap* lock_map,
+                            LockMapStripe* stripe, uint32_t column_family_id,
                             const std::string& key, Env* env, int64_t timeout,
                             const LockInfo& lock_info);
 
   Status AcquireLocked(LockMap* lock_map, LockMapStripe* stripe,
                        const std::string& key, Env* env,
-                       const LockInfo& lock_info, uint64_t* wait_time);
+                       const LockInfo& lock_info, uint64_t* wait_time,
+                       TransactionID* txn_id);
+
+  bool IncrementWaiters(const TransactionImpl* txn, TransactionID wait_id);
+  void DecrementWaiters(const TransactionImpl* txn, TransactionID wait_id);
+  void DecrementWaitersImpl(const TransactionImpl* txn, TransactionID wait_id);
 
   // No copying allowed
   TransactionLockMgr(const TransactionLockMgr&);

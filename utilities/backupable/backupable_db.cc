@@ -29,17 +29,17 @@
 #include <inttypes.h>
 #include <stdlib.h>
 #include <algorithm>
-#include <vector>
+#include <atomic>
+#include <future>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <sstream>
 #include <string>
-#include <limits>
-#include <atomic>
-#include <future>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace rocksdb {
 
@@ -99,6 +99,8 @@ class BackupEngineImpl : public BackupEngine {
   }
   Status GarbageCollect() override;
 
+  // The returned BackupInfos are in chronological order, which means the
+  // latest backup comes last.
   void GetBackupInfo(std::vector<BackupInfo>* backup_info) override;
   void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override;
   Status RestoreDBFromBackup(
@@ -273,17 +275,12 @@ class BackupEngineImpl : public BackupEngine {
     return file_copy.erase(first_underscore,
                            file_copy.find_last_of('.') - first_underscore);
   }
-  inline std::string GetLatestBackupFile(bool tmp = false) const {
-    return GetAbsolutePath(std::string("LATEST_BACKUP") + (tmp ? ".tmp" : ""));
-  }
   inline std::string GetBackupMetaDir() const {
     return GetAbsolutePath("meta");
   }
   inline std::string GetBackupMetaFile(BackupID backup_id) const {
     return GetBackupMetaDir() + "/" + rocksdb::ToString(backup_id);
   }
-
-  Status PutLatestBackupFileContents(uint32_t latest_backup);
 
   // If size_limit == 0, there is no size limit, copy everything.
   //
@@ -497,7 +494,18 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
       db_env_(db_env),
       backup_env_(options.backup_env != nullptr ? options.backup_env : db_env_),
       copy_file_buffer_size_(kDefaultCopyFileBufferSize),
-      read_only_(read_only) {}
+      read_only_(read_only) {
+  if (options_.backup_rate_limiter == nullptr &&
+      options_.backup_rate_limit > 0) {
+    options_.backup_rate_limiter.reset(
+        NewGenericRateLimiter(options_.backup_rate_limit));
+  }
+  if (options_.restore_rate_limiter == nullptr &&
+      options_.restore_rate_limit > 0) {
+    options_.restore_rate_limiter.reset(
+        NewGenericRateLimiter(options_.restore_rate_limit));
+  }
+}
 
 BackupEngineImpl::~BackupEngineImpl() {
   files_to_copy_or_create_.sendEof();
@@ -549,7 +557,7 @@ Status BackupEngineImpl::Initialize() {
   {
     auto s = backup_env_->GetChildren(GetBackupMetaDir(), &backup_meta_files);
     if (!s.ok()) {
-      return s;
+      return Status::NotFound(GetBackupMetaDir() + " is missing");
     }
   }
   // create backups_ structure
@@ -622,17 +630,10 @@ Status BackupEngineImpl::Initialize() {
 
   Log(options_.info_log, "Latest backup is %u", latest_backup_id_);
 
-  if (!read_only_) {
-    auto s = PutLatestBackupFileContents(latest_backup_id_);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
   // set up threads perform copies from files_to_copy_or_create_ in the
   // background
   for (int t = 0; t < options_.max_background_operations; t++) {
-    threads_.emplace_back([&]() {
+    threads_.emplace_back([this]() {
       CopyOrCreateWorkItem work_item;
       while (files_to_copy_or_create_.read(work_item)) {
         CopyOrCreateResult result;
@@ -683,6 +684,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   TEST_SYNC_POINT("BackupEngineImpl::CreateNewBackup:SavedLiveFiles2");
 
   BackupID new_backup_id = latest_backup_id_ + 1;
+
   assert(backups_.find(new_backup_id) == backups_.end());
   auto ret = backups_.insert(
       std::make_pair(new_backup_id, unique_ptr<BackupMeta>(new BackupMeta(
@@ -703,9 +705,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   s = backup_env_->CreateDir(
       GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)));
 
-  unique_ptr<RateLimiter> rate_limiter;
-  if (options_.backup_rate_limit > 0) {
-    rate_limiter.reset(NewGenericRateLimiter(options_.backup_rate_limit));
+  RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
+  if (rate_limiter) {
     copy_file_buffer_size_ = rate_limiter->GetSingleBurstBytes();
   }
 
@@ -735,7 +736,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     }
     // we should only get sst, manifest and current files here
     assert(type == kTableFile || type == kDescriptorFile ||
-           type == kCurrentFile);
+           type == kCurrentFile || type == kOptionsFile);
+
     if (type == kCurrentFile) {
       // We will craft the current file manually to ensure it's consistent with
       // the manifest number. This is necessary because current's file contents
@@ -758,7 +760,7 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     s = AddBackupFileWorkItem(
         live_dst_paths, backup_items_to_finish, new_backup_id,
         options_.share_table_files && type == kTableFile, db->GetName(),
-        live_files[i], rate_limiter.get(), size_bytes,
+        live_files[i], rate_limiter, size_bytes,
         (type == kDescriptorFile) ? manifest_file_size : 0,
         options_.share_files_with_checksum && type == kTableFile,
         progress_callback);
@@ -767,10 +769,9 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
     // Write the current file with the manifest filename as its contents.
     s = AddBackupFileWorkItem(
         live_dst_paths, backup_items_to_finish, new_backup_id,
-        false /* shared */, "" /* src_dir */, CurrentFileName(""),
-        rate_limiter.get(), manifest_fname.size(), 0 /* size_limit */,
-        false /* shared_checksum */, progress_callback,
-        manifest_fname.substr(1) + "\n");
+        false /* shared */, "" /* src_dir */, CurrentFileName(""), rate_limiter,
+        manifest_fname.size(), 0 /* size_limit */, false /* shared_checksum */,
+        progress_callback, manifest_fname.substr(1) + "\n");
   }
 
   // Pre-fetch sizes for WAL files
@@ -797,8 +798,8 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
       s = AddBackupFileWorkItem(live_dst_paths, backup_items_to_finish,
                                 new_backup_id, false, /* not shared */
                                 db->GetOptions().wal_dir,
-                                live_wal_files[i]->PathName(),
-                                rate_limiter.get(), size_bytes);
+                                live_wal_files[i]->PathName(), rate_limiter,
+                                size_bytes);
     }
   }
 
@@ -841,10 +842,6 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   if (s.ok()) {
     // persist the backup metadata on the disk
     s = new_backup->StoreToFile(options_.sync);
-  }
-  if (s.ok()) {
-    // install the newly created backup meta! (atomic)
-    s = PutLatestBackupFileContents(new_backup_id);
   }
   if (s.ok() && options_.sync) {
     unique_ptr<Directory> backup_private_directory;
@@ -1043,9 +1040,8 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     DeleteChildren(db_dir);
   }
 
-  unique_ptr<RateLimiter> rate_limiter;
-  if (options_.restore_rate_limit > 0) {
-    rate_limiter.reset(NewGenericRateLimiter(options_.restore_rate_limit));
+  RateLimiter* rate_limiter = options_.restore_rate_limiter.get();
+  if (rate_limiter) {
     copy_file_buffer_size_ = rate_limiter->GetSingleBurstBytes();
   }
   Status s;
@@ -1081,7 +1077,7 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     Log(options_.info_log, "Restoring %s to %s\n", file.c_str(), dst.c_str());
     CopyOrCreateWorkItem copy_or_create_work_item(
         GetAbsolutePath(file), dst, "" /* contents */, backup_env_, db_env_,
-        false, rate_limiter.get(), 0 /* size_limit */);
+        false, rate_limiter, 0 /* size_limit */);
     RestoreAfterCopyOrCreateWorkItem after_copy_or_create_work_item(
         copy_or_create_work_item.result.get_future(),
         file_info->checksum_value);
@@ -1145,44 +1141,6 @@ Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
     }
   }
   return Status::OK();
-}
-
-// this operation HAS to be atomic
-// writing 4 bytes to the file is atomic alright, but we should *never*
-// do something like 1. delete file, 2. write new file
-// We write to a tmp file and then atomically rename
-Status BackupEngineImpl::PutLatestBackupFileContents(uint32_t latest_backup) {
-  assert(!read_only_);
-  Status s;
-  unique_ptr<WritableFile> file;
-  EnvOptions env_options;
-  env_options.use_mmap_writes = false;
-  s = backup_env_->NewWritableFile(GetLatestBackupFile(true),
-                                   &file,
-                                   env_options);
-  if (!s.ok()) {
-    backup_env_->DeleteFile(GetLatestBackupFile(true));
-    return s;
-  }
-
-  unique_ptr<WritableFileWriter> file_writer(
-      new WritableFileWriter(std::move(file), env_options));
-  char file_contents[10];
-  int len =
-      snprintf(file_contents, sizeof(file_contents), "%u\n", latest_backup);
-  s = file_writer->Append(Slice(file_contents, len));
-  if (s.ok() && options_.sync) {
-    file_writer->Sync(false);
-  }
-  if (s.ok()) {
-    s = file_writer->Close();
-  }
-  if (s.ok()) {
-    // atomically replace real file with new tmp
-    s = backup_env_->RenameFile(GetLatestBackupFile(true),
-                                GetLatestBackupFile(false));
-  }
-  return s;
 }
 
 Status BackupEngineImpl::CopyOrCreateFile(
@@ -1267,6 +1225,9 @@ Status BackupEngineImpl::CopyOrCreateFile(
 
   if (s.ok() && sync) {
     s = dest_writer->Sync(false);
+  }
+  if (s.ok()) {
+    s = dest_writer->Close();
   }
   return s;
 }
@@ -1756,6 +1717,8 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
 
   virtual ~BackupEngineReadOnlyImpl() {}
 
+  // The returned BackupInfos are in chronological order, which means the
+  // latest backup comes last.
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) override {
     backup_engine_->GetBackupInfo(backup_info);
   }

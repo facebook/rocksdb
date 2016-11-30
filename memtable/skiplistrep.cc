@@ -36,6 +36,10 @@ public:
     skip_list_.Insert(static_cast<char*>(handle));
   }
 
+  virtual void InsertWithHint(KeyHandle handle, void** hint) override {
+    skip_list_.InsertWithHint(static_cast<char*>(handle), hint);
+  }
+
   virtual void InsertConcurrently(KeyHandle handle) override {
     skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
@@ -115,6 +119,16 @@ public:
         iter_.Seek(memtable_key);
       } else {
         iter_.Seek(EncodeKey(&tmp_, user_key));
+      }
+    }
+
+    // Retreat to the last entry with a key <= target
+    virtual void SeekForPrev(const Slice& user_key,
+                             const char* memtable_key) override {
+      if (memtable_key != nullptr) {
+        iter_.SeekForPrev(memtable_key);
+      } else {
+        iter_.SeekForPrev(EncodeKey(&tmp_, user_key));
       }
     }
 
@@ -205,6 +219,15 @@ public:
       }
 
       iter_.Seek(encoded_key);
+      prev_ = iter_;
+    }
+
+    virtual void SeekForPrev(const Slice& internal_key,
+                             const char* memtable_key) override {
+      const char* encoded_key = (memtable_key != nullptr)
+                                    ? memtable_key
+                                    : EncodeKey(&tmp_, internal_key);
+      iter_.SeekForPrev(encoded_key);
       prev_ = iter_;
     }
 

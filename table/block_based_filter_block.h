@@ -78,7 +78,7 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
   BlockBasedFilterBlockReader(const SliceTransform* prefix_extractor,
                               const BlockBasedTableOptions& table_opt,
                               bool whole_key_filtering,
-                              BlockContents&& contents);
+                              BlockContents&& contents, Statistics* statistics);
   virtual bool IsBlockBased() override { return true; }
   virtual bool KeyMayMatch(const Slice& key,
                            uint64_t block_offset = kNotValid) override;
@@ -92,7 +92,6 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
  private:
   const FilterPolicy* policy_;
   const SliceTransform* prefix_extractor_;
-  bool whole_key_filtering_;
   const char* data_;    // Pointer to filter data (at block-start)
   const char* offset_;  // Pointer to beginning of offset array (at block-end)
   size_t num_;          // Number of entries in offset array

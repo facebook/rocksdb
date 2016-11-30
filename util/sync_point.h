@@ -8,8 +8,9 @@
 #include <condition_variable>
 #include <mutex>
 #include <string>
-#include <unordered_set>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // This is only set from db_stress.cc and for testing only.
@@ -62,13 +63,21 @@ class SyncPoint {
  public:
   static SyncPoint* GetInstance();
 
-  struct Dependency {
+  struct SyncPointPair {
     std::string predecessor;
     std::string successor;
   };
+
   // call once at the beginning of a test to setup the dependency between
   // sync points
-  void LoadDependency(const std::vector<Dependency>& dependencies);
+  void LoadDependency(const std::vector<SyncPointPair>& dependencies);
+
+  // call once at the beginning of a test to setup the dependency between
+  // sync points and setup markers indicating the successor is only enabled
+  // when it is processed on the same thread as the predecessor.
+  // When adding a marker, it implicitly adds a dependency for the marker pair.
+  void LoadDependencyAndMarkers(const std::vector<SyncPointPair>& dependencies,
+                                const std::vector<SyncPointPair>& markers);
 
   // Set up a call back function in sync point.
   void SetCallBack(const std::string point,
@@ -95,11 +104,14 @@ class SyncPoint {
 
  private:
   bool PredecessorsAllCleared(const std::string& point);
+  bool DisabledByMarker(const std::string& point, std::thread::id thread_id);
 
   // successor/predecessor map loaded from LoadDependency
   std::unordered_map<std::string, std::vector<std::string>> successors_;
   std::unordered_map<std::string, std::vector<std::string>> predecessors_;
   std::unordered_map<std::string, std::function<void(void*)> > callbacks_;
+  std::unordered_map<std::string, std::vector<std::string> > markers_;
+  std::unordered_map<std::string, std::thread::id> marked_thread_id_;
 
   std::mutex mutex_;
   std::condition_variable cv_;

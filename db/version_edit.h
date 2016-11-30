@@ -193,7 +193,7 @@ class VersionEdit {
     f.smallest_seqno = smallest_seqno;
     f.largest_seqno = largest_seqno;
     f.marked_for_compaction = marked_for_compaction;
-    new_files_.emplace_back(level, f);
+    new_files_.emplace_back(level, std::move(f));
   }
 
   void AddFile(int level, const FileMetaData& f) {

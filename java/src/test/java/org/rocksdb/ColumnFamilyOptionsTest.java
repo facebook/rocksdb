@@ -172,36 +172,29 @@ public class ColumnFamilyOptionsTest {
   @Test
   public void maxBytesForLevelMultiplier() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setMaxBytesForLevelMultiplier(intValue);
-      assertThat(opt.maxBytesForLevelMultiplier()).isEqualTo(intValue);
+      final double doubleValue = rand.nextDouble();
+      opt.setMaxBytesForLevelMultiplier(doubleValue);
+      assertThat(opt.maxBytesForLevelMultiplier()).isEqualTo(doubleValue);
     }
   }
 
   @Test
-  public void expandedCompactionFactor() {
+  public void maxBytesForLevelMultiplierAdditional() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setExpandedCompactionFactor(intValue);
-      assertThat(opt.expandedCompactionFactor()).isEqualTo(intValue);
+      final int intValue1 = rand.nextInt();
+      final int intValue2 = rand.nextInt();
+      final int[] ints = new int[]{intValue1, intValue2};
+      opt.setMaxBytesForLevelMultiplierAdditional(ints);
+      assertThat(opt.maxBytesForLevelMultiplierAdditional()).isEqualTo(ints);
     }
   }
 
   @Test
-  public void sourceCompactionFactor() {
+  public void maxCompactionBytes() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setSourceCompactionFactor(intValue);
-      assertThat(opt.sourceCompactionFactor()).isEqualTo(intValue);
-    }
-  }
-
-  @Test
-  public void maxGrandparentOverlapFactor() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setMaxGrandparentOverlapFactor(intValue);
-      assertThat(opt.maxGrandparentOverlapFactor()).isEqualTo(intValue);
+      final long longValue = rand.nextLong();
+      opt.setMaxCompactionBytes(longValue);
+      assertThat(opt.maxCompactionBytes()).isEqualTo(longValue);
     }
   }
 
@@ -215,11 +208,56 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
+  public void softPendingCompactionBytesLimit() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setSoftPendingCompactionBytesLimit(longValue);
+      assertThat(opt.softPendingCompactionBytesLimit()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void hardRateLimit() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final double doubleValue = rand.nextDouble();
       opt.setHardRateLimit(doubleValue);
       assertThat(opt.hardRateLimit()).isEqualTo(doubleValue);
+    }
+  }
+
+  @Test
+  public void hardPendingCompactionBytesLimit() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setHardPendingCompactionBytesLimit(longValue);
+      assertThat(opt.hardPendingCompactionBytesLimit()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void level0FileNumCompactionTrigger() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0FileNumCompactionTrigger(intValue);
+      assertThat(opt.level0FileNumCompactionTrigger()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void level0SlowdownWritesTrigger() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0SlowdownWritesTrigger(intValue);
+      assertThat(opt.level0SlowdownWritesTrigger()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void level0StopWritesTrigger() {
+    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setLevel0StopWritesTrigger(intValue);
+      assertThat(opt.level0StopWritesTrigger()).isEqualTo(intValue);
     }
   }
 
@@ -269,15 +307,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void filterDeletes() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setFilterDeletes(boolValue);
-      assertThat(opt.filterDeletes()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void maxSequentialSkipInIterations() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final long longValue = rand.nextLong();
@@ -305,20 +334,20 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void memtablePrefixBloomBits() {
+  public void memtablePrefixBloomSizeRatio() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setMemtablePrefixBloomBits(intValue);
-      assertThat(opt.memtablePrefixBloomBits()).isEqualTo(intValue);
+      final double doubleValue = rand.nextDouble();
+      opt.setMemtablePrefixBloomSizeRatio(doubleValue);
+      assertThat(opt.memtablePrefixBloomSizeRatio()).isEqualTo(doubleValue);
     }
   }
 
   @Test
-  public void memtablePrefixBloomProbes() {
+  public void memtableHugePageSize() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setMemtablePrefixBloomProbes(intValue);
-      assertThat(opt.memtablePrefixBloomProbes()).isEqualTo(intValue);
+      final long longValue = rand.nextLong();
+      opt.setMemtableHugePageSize(longValue);
+      assertThat(opt.memtableHugePageSize()).isEqualTo(longValue);
     }
   }
 

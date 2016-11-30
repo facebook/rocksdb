@@ -2,6 +2,7 @@
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
+//
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
@@ -19,43 +20,57 @@
 // they want something more sophisticated (like scan-resistance, a
 // custom eviction policy, variable cache sizing, etc.)
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_CACHE_H_
-#define STORAGE_ROCKSDB_INCLUDE_CACHE_H_
+#pragma once
 
-#include <memory>
 #include <stdint.h>
+#include <memory>
 #include "rocksdb/slice.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
-
-using std::shared_ptr;
 
 class Cache;
 
 // Create a new cache with a fixed size capacity. The cache is sharded
 // to 2^num_shard_bits shards, by hash of the key. The total capacity
-// is divided and evenly assigned to each shard.
+// is divided and evenly assigned to each shard. If strict_capacity_limit
+// is set, insert to the cache will fail when cache is full. User can also
+// set percentage of the cache reserves for high priority entries via
+// high_pri_pool_pct.
+extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
+                                          int num_shard_bits = 6,
+                                          bool strict_capacity_limit = false,
+                                          double high_pri_pool_ratio = 0.0);
+
+// Similar to NewLRUCache, but create a cache based on CLOCK algorithm with
+// better concurrent performance in some cases. See util/clock_cache.cc for
+// more detail.
 //
-// The parameter num_shard_bits defaults to 4, and strict_capacity_limit
-// defaults to false.
-extern shared_ptr<Cache> NewLRUCache(size_t capacity);
-extern shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits);
-extern shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
-                                     bool strict_capacity_limit);
+// Return nullptr if it is not supported.
+extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
+                                            int num_shard_bits = 6,
+                                            bool strict_capacity_limit = false);
 
 class Cache {
  public:
-  Cache() { }
+  // Depending on implementation, cache entries with high priority could be less
+  // likely to get evicted than low priority entries.
+  enum class Priority { HIGH, LOW };
+
+  Cache() {}
 
   // Destroys all existing entries by calling the "deleter"
   // function that was passed via the Insert() function.
   //
   // @See Insert
-  virtual ~Cache();
+  virtual ~Cache() {}
 
   // Opaque handle to an entry stored in the cache.
-  struct Handle { };
+  struct Handle {};
+
+  // The type of the Cache
+  virtual const char* Name() const = 0;
 
   // Insert a mapping from key->value into the cache and assign it
   // the specified charge against the total cache capacity.
@@ -74,14 +89,17 @@ class Cache {
   // value will be passed to "deleter".
   virtual Status Insert(const Slice& key, void* value, size_t charge,
                         void (*deleter)(const Slice& key, void* value),
-                        Handle** handle = nullptr) = 0;
+                        Handle** handle = nullptr,
+                        Priority priority = Priority::LOW) = 0;
 
   // If the cache has no mapping for "key", returns nullptr.
   //
   // Else return a handle that corresponds to the mapping.  The caller
   // must call this->Release(handle) when the returned mapping is no
   // longer needed.
-  virtual Handle* Lookup(const Slice& key) = 0;
+  // If stats is not nullptr, relative tickers could be used inside the
+  // function.
+  virtual Handle* Lookup(const Slice& key, Statistics* stats = nullptr) = 0;
 
   // Release a mapping returned by a previous Lookup().
   // REQUIRES: handle must not have been released yet.
@@ -98,9 +116,8 @@ class Cache {
   // underlying entry will be kept around until all existing handles
   // to it have been released.
   virtual void Erase(const Slice& key) = 0;
-
   // Return a new numeric id.  May be used by multiple clients who are
-  // sharing the same cache to partition the key space.  Typically the
+  // sharding the same cache to partition the key space.  Typically the
   // client will allocate a new id at startup and prepend the id to
   // its cache keys.
   virtual uint64_t NewId() = 0;
@@ -115,8 +132,8 @@ class Cache {
   // capacity.
   virtual void SetStrictCapacityLimit(bool strict_capacity_limit) = 0;
 
-  // Set whether to return error on insertion when cache reaches its full
-  // capacity.
+  // Get the flag whether to return error on insertion when cache reaches its
+  // full capacity.
   virtual bool HasStrictCapacityLimit() const = 0;
 
   // returns the maximum configured capacity of the cache
@@ -136,8 +153,8 @@ class Cache {
   // memory - call this only if you're shutting down the process.
   // Any attempts of using cache after this call will fail terribly.
   // Always delete the DB object before calling this method!
-  virtual void DisownData() {
-    // default implementation is noop
+  virtual void DisownData(){
+      // default implementation is noop
   };
 
   // Apply callback to all entries in the cache
@@ -151,15 +168,9 @@ class Cache {
   virtual void EraseUnRefEntries() = 0;
 
  private:
-  void LRU_Remove(Handle* e);
-  void LRU_Append(Handle* e);
-  void Unref(Handle* e);
-
   // No copying allowed
   Cache(const Cache&);
-  void operator=(const Cache&);
+  Cache& operator=(const Cache&);
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_UTIL_CACHE_H_

@@ -9,6 +9,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.util.Environment;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 
@@ -27,5 +28,14 @@ public class NativeLibraryLoaderTest {
         Environment.getJniLibraryFileName("rocksdb"));
     assertThat(Files.exists(path)).isTrue();
     assertThat(Files.isReadable(path)).isTrue();
+  }
+
+  @Test
+  public void overridesExistingLibrary() throws IOException {
+    File first = NativeLibraryLoader.getInstance().loadLibraryFromJarToTemp(
+        temporaryFolder.getRoot().getAbsolutePath());
+    NativeLibraryLoader.getInstance().loadLibraryFromJarToTemp(
+        temporaryFolder.getRoot().getAbsolutePath());
+    assertThat(first.exists()).isTrue();
   }
 }

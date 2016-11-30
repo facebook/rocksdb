@@ -11,12 +11,14 @@
 #include <memory>
 
 #include "db/column_family.h"
+#include "db/db_impl.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/skiplist.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
+#include "util/db_options.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -63,6 +65,13 @@ class BaseDeltaIterator : public Iterator {
     forward_ = true;
     base_iterator_->Seek(k);
     delta_iterator_->Seek(k);
+    UpdateCurrent();
+  }
+
+  void SeekForPrev(const Slice& k) override {
+    forward_ = false;
+    base_iterator_->SeekForPrev(k);
+    delta_iterator_->SeekForPrev(k);
     UpdateCurrent();
   }
 
@@ -226,6 +235,8 @@ class BaseDeltaIterator : public Iterator {
   bool BaseValid() const { return base_iterator_->Valid(); }
   bool DeltaValid() const { return delta_iterator_->Valid(); }
   void UpdateCurrent() {
+// Suppress false positive clang analyzer warnings.
+#ifndef __clang_analyzer__
     while (true) {
       WriteEntry delta_entry;
       if (DeltaValid()) {
@@ -275,6 +286,7 @@ class BaseDeltaIterator : public Iterator {
     }
 
     AssertInvariants();
+#endif  // __clang_analyzer__
   }
 
   bool forward_;
@@ -331,6 +343,11 @@ class WBWIIteratorImpl : public WBWIIterator {
     skip_list_iter_.Seek(&search_entry);
   }
 
+  virtual void SeekForPrev(const Slice& key) override {
+    WriteBatchIndexEntry search_entry(&key, column_family_id_);
+    skip_list_iter_.SeekForPrev(&search_entry);
+  }
+
   virtual void Next() override { skip_list_iter_.Next(); }
 
   virtual void Prev() override { skip_list_iter_.Prev(); }
@@ -346,7 +363,8 @@ class WBWIIteratorImpl : public WBWIIterator {
         iter_entry->offset, &ret.type, &ret.key, &ret.value, &blob, &xid);
     assert(s.ok());
     assert(ret.type == kPutRecord || ret.type == kDeleteRecord ||
-           ret.type == kSingleDeleteRecord || ret.type == kMergeRecord);
+           ret.type == kSingleDeleteRecord || ret.type == kDeleteRangeRecord ||
+           ret.type == kMergeRecord);
     return ret;
   }
 
@@ -625,6 +643,21 @@ void WriteBatchWithIndex::SingleDelete(const Slice& key) {
   rep->AddOrUpdateIndex(key);
 }
 
+void WriteBatchWithIndex::DeleteRange(ColumnFamilyHandle* column_family,
+                                      const Slice& begin_key,
+                                      const Slice& end_key) {
+  rep->SetLastEntryOffset();
+  rep->write_batch.DeleteRange(column_family, begin_key, end_key);
+  rep->AddOrUpdateIndex(column_family, begin_key);
+}
+
+void WriteBatchWithIndex::DeleteRange(const Slice& begin_key,
+                                      const Slice& end_key) {
+  rep->SetLastEntryOffset();
+  rep->write_batch.DeleteRange(begin_key, end_key);
+  rep->AddOrUpdateIndex(begin_key);
+}
+
 void WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value) {
   rep->SetLastEntryOffset();
@@ -649,11 +682,12 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
                                          const Slice& key, std::string* value) {
   Status s;
   MergeContext merge_context;
+  const ImmutableDBOptions immuable_db_options(options);
 
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
-          options, this, column_family, key, &merge_context, &rep->comparator,
-          value, rep->overwrite_key, &s);
+          immuable_db_options, this, column_family, key, &merge_context,
+          &rep->comparator, value, rep->overwrite_key, &s);
 
   switch (result) {
     case WriteBatchWithIndexInternal::Result::kFound:
@@ -689,13 +723,14 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
                                               std::string* value) {
   Status s;
   MergeContext merge_context;
-  const DBOptions& options = db->GetDBOptions();
+  const ImmutableDBOptions& immuable_db_options =
+      reinterpret_cast<DBImpl*>(db)->immutable_db_options();
 
   std::string batch_value;
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
-          options, this, column_family, key, &merge_context, &rep->comparator,
-          &batch_value, rep->overwrite_key, &s);
+          immuable_db_options, this, column_family, key, &merge_context,
+          &rep->comparator, &batch_value, rep->overwrite_key, &s);
 
   if (result == WriteBatchWithIndexInternal::Result::kFound) {
     value->assign(batch_value.data(), batch_value.size());
@@ -727,9 +762,9 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
       auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
       const MergeOperator* merge_operator =
           cfh->cfd()->ioptions()->merge_operator;
-      Statistics* statistics = options.statistics.get();
-      Env* env = options.env;
-      Logger* logger = options.info_log.get();
+      Statistics* statistics = immuable_db_options.statistics.get();
+      Env* env = immuable_db_options.env;
+      Logger* logger = immuable_db_options.info_log.get();
 
       Slice db_slice(*value);
       Slice* merge_data;
@@ -739,9 +774,13 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
         merge_data = nullptr;
       }
 
-      s = MergeHelper::TimedFullMerge(
-          key, merge_data, merge_context.GetOperands(), merge_operator,
-          statistics, env, logger, value);
+      if (merge_operator) {
+        s = MergeHelper::TimedFullMerge(merge_operator, key, merge_data,
+                                        merge_context.GetOperands(), value,
+                                        logger, statistics, env);
+      } else {
+        s = Status::InvalidArgument("Options::merge_operator must be set");
+      }
     }
   }
 

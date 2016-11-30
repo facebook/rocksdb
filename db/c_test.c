@@ -2,17 +2,18 @@
    Use of this source code is governed by a BSD-style license that can be
    found in the LICENSE file. See the AUTHORS file for names of contributors. */
 
+#include <stdio.h>
+
 #ifndef ROCKSDB_LITE  // Lite does not support C API
 
 #include "rocksdb/c.h"
 
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #ifndef OS_WIN
-#  include <unistd.h>
+#include <unistd.h>
 #endif
 #include <inttypes.h>
 
@@ -21,11 +22,10 @@
 
 #include <Windows.h>
 
-# define snprintf _snprintf
+#define snprintf _snprintf
 
 // Ok for uniqueness
 int geteuid() {
-
   int result = 0;
 
   result = ((int)GetCurrentProcessId() << 16);
@@ -38,13 +38,13 @@ int geteuid() {
 
 const char* phase = "";
 static char dbname[200];
+static char sstfilename[200];
 static char dbbackupname[200];
 
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
   phase = name;
 }
-
 static const char* GetTempDir(void) {
     const char* ret = getenv("TEST_TMPDIR");
     if (ret == NULL || ret[0] == '\0')
@@ -291,6 +291,7 @@ int main(int argc, char** argv) {
   rocksdb_block_based_table_options_t* table_options;
   rocksdb_readoptions_t* roptions;
   rocksdb_writeoptions_t* woptions;
+  rocksdb_ratelimiter_t* rate_limiter;
   char* err = NULL;
   int run = -1;
 
@@ -303,6 +304,11 @@ int main(int argc, char** argv) {
            "%s/rocksdb_c_test-%d-backup",
            GetTempDir(),
            ((int) geteuid()));
+
+  snprintf(sstfilename, sizeof(sstfilename),
+           "%s/rocksdb_c_test-%d-sst",
+           GetTempDir(),
+           ((int)geteuid()));
 
   StartPhase("create_objects");
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
@@ -326,6 +332,9 @@ int main(int argc, char** argv) {
   int compression_levels[] = {rocksdb_no_compression, rocksdb_no_compression,
                               rocksdb_no_compression, rocksdb_no_compression};
   rocksdb_options_set_compression_per_level(options, compression_levels, 4);
+  rate_limiter = rocksdb_ratelimiter_create(1000 * 1024 * 1024, 100 * 1000, 10);
+  rocksdb_options_set_ratelimiter(options, rate_limiter);
+  rocksdb_ratelimiter_destroy(rate_limiter);
 
   roptions = rocksdb_readoptions_create();
   rocksdb_readoptions_set_verify_checksums(roptions, 1);
@@ -487,6 +496,10 @@ int main(int argc, char** argv) {
     CheckIter(iter, "foo", "hello");
     rocksdb_iter_seek(iter, "b", 1);
     CheckIter(iter, "box", "c");
+    rocksdb_iter_seek_for_prev(iter, "g", 1);
+    CheckIter(iter, "foo", "hello");
+    rocksdb_iter_seek_for_prev(iter, "box", 3);
+    CheckIter(iter, "box", "c");
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
@@ -565,6 +578,59 @@ int main(int argc, char** argv) {
     rocksdb_release_snapshot(db, snap);
   }
 
+  StartPhase("addfile");
+  {
+    rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
+    rocksdb_options_t* io_options = rocksdb_options_create();
+    rocksdb_sstfilewriter_t* writer =
+        rocksdb_sstfilewriter_create(env_opt, io_options);
+
+    unlink(sstfilename);
+    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk1", 5, "v1", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk2", 5, "v2", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk3", 5, "v3", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+
+    rocksdb_ingestexternalfileoptions_t* ing_opt =
+        rocksdb_ingestexternalfileoptions_create();
+    const char* file_list[1] = {sstfilename};
+    rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "sstk1", "v1");
+    CheckGet(db, roptions, "sstk2", "v2");
+    CheckGet(db, roptions, "sstk3", "v3");
+
+    unlink(sstfilename);
+    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk2", 5, "v4", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk22", 6, "v5", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk3", 5, "v6", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+
+    rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "sstk1", "v1");
+    CheckGet(db, roptions, "sstk2", "v4");
+    CheckGet(db, roptions, "sstk22", "v5");
+    CheckGet(db, roptions, "sstk3", "v6");
+
+    rocksdb_ingestexternalfileoptions_destroy(ing_opt);
+    rocksdb_sstfilewriter_destroy(writer);
+    rocksdb_options_destroy(io_options);
+    rocksdb_envoptions_destroy(env_opt);
+  }
+
   StartPhase("repair");
   {
     // If we do not compact here, then the lazy deletion of
@@ -575,6 +641,7 @@ int main(int argc, char** argv) {
     rocksdb_close(db);
     rocksdb_options_set_create_if_missing(options, 0);
     rocksdb_options_set_error_if_exists(options, 0);
+    rocksdb_options_set_wal_recovery_mode(options, 2);
     rocksdb_repair_db(options, dbname, &err);
     CheckNoError(err);
     db = rocksdb_open(options, dbname, &err);
@@ -699,7 +766,7 @@ int main(int argc, char** argv) {
     rocksdb_destroy_db(options, dbname, &err);
     CheckNoError(err)
 
-    rocksdb_options_t* db_options = rocksdb_options_create();
+        rocksdb_options_t* db_options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(db_options, 1);
     db = rocksdb_open(db_options, dbname, &err);
     CheckNoError(err)
@@ -828,6 +895,7 @@ int main(int argc, char** argv) {
     rocksdb_options_set_prefix_extractor(options, rocksdb_slicetransform_create_fixed_prefix(3));
     rocksdb_options_set_hash_skip_list_rep(options, 5000, 4, 4);
     rocksdb_options_set_plain_table_factory(options, 4, 10, 0.75, 16);
+    rocksdb_options_set_allow_concurrent_memtable_write(options, 0);
 
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
@@ -943,6 +1011,28 @@ int main(int argc, char** argv) {
     }
   }
 
+  // Simple sanity check that setting memtable rep works.
+  StartPhase("memtable_reps");
+  {
+    // Create database with vector memtable.
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_memtable_vector_rep(options);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    // Create database with hash skiplist memtable.
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_hash_skip_list_rep(options, 5000, 4, 4);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+  }
+
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
@@ -958,7 +1048,6 @@ int main(int argc, char** argv) {
 }
 
 #else
-#include <stdio.h>
 
 int main() {
   fprintf(stderr, "SKIPPED\n");

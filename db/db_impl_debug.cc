@@ -168,5 +168,20 @@ uint64_t DBImpl::TEST_FindMinLogContainingOutstandingPrep() {
 uint64_t DBImpl::TEST_FindMinPrepLogReferencedByMemTable() {
   return FindMinPrepLogReferencedByMemTable();
 }
+
+Status DBImpl::TEST_GetLatestMutableCFOptions(
+    ColumnFamilyHandle* column_family, MutableCFOptions* mutable_cf_options) {
+  InstrumentedMutexLock l(&mutex_);
+
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  *mutable_cf_options = *cfh->cfd()->GetLatestMutableCFOptions();
+  return Status::OK();
+}
+
+int DBImpl::TEST_BGCompactionsAllowed() const {
+  InstrumentedMutexLock l(&mutex_);
+  return BGCompactionsAllowed();
+}
+
 }  // namespace rocksdb
 #endif  // NDEBUG

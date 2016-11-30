@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string>
 #include <vector>
+#include <memory>
 
 #include "include/org_rocksdb_TtlDB.h"
 #include "rocksdb/utilities/db_ttl.h"
@@ -95,14 +96,15 @@ jlongArray
   // check if open operation was successful
   if (s.ok()) {
     jsize resultsLen = 1 + len_cols; //db handle + column family handles
-    jlong results[resultsLen];
+    std::unique_ptr<jlong[]> results =
+        std::unique_ptr<jlong[]>(new jlong[resultsLen]);
     results[0] = reinterpret_cast<jlong>(db);
     for(int i = 1; i <= len_cols; i++) {
       results[i] = reinterpret_cast<jlong>(handles[i - 1]);
     }
 
     jlongArray jresults = env->NewLongArray(resultsLen);
-    env->SetLongArrayRegion(jresults, 0, resultsLen, results);
+    env->SetLongArrayRegion(jresults, 0, resultsLen, results.get());
     return jresults;
   } else {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);

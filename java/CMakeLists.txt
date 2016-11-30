@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 2.6)
+
 set(JNI_NATIVE_SOURCES
         rocksjni/backupenginejni.cc
         rocksjni/backupablejni.cc
@@ -7,6 +9,8 @@ set(JNI_NATIVE_SOURCES
         rocksjni/comparator.cc
         rocksjni/comparatorjnicallback.cc
         rocksjni/env.cc
+        rocksjni/env_options.cc
+        rocksjni/external_sst_file_info.cc
         rocksjni/filter.cc
         rocksjni/iterator.cc
         rocksjni/loggerjnicallback.cc
@@ -19,6 +23,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/rocksjni.cc
         rocksjni/slice.cc
         rocksjni/snapshot.cc
+        rocksjni/sst_file_writerjni.cc
         rocksjni/statistics.cc
         rocksjni/table.cc
         rocksjni/transaction_log.cc
@@ -47,6 +52,8 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.DirectComparator
         org.rocksdb.DirectSlice
         org.rocksdb.Env
+        org.rocksdb.EnvOptions
+        org.rocksdb.ExternalSstFileInfo
         org.rocksdb.FlushOptions
         org.rocksdb.Filter
         org.rocksdb.GenericRateLimiterConfig
@@ -56,6 +63,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.MergeOperator
         org.rocksdb.Options
         org.rocksdb.PlainTableConfig
+        org.rocksdb.RateLimiter
         org.rocksdb.ReadOptions
         org.rocksdb.RemoveEmptyValueCompactionFilter
         org.rocksdb.RestoreBackupableDB
@@ -66,6 +74,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.RocksMemEnv
         org.rocksdb.SkipListMemTableConfig
         org.rocksdb.Slice
+        org.rocksdb.SstFileWriter
         org.rocksdb.Statistics
         org.rocksdb.TransactionLogIterator
         org.rocksdb.TtlDB
@@ -95,11 +104,11 @@ set(JAVA_ASSERTJ_JAR ${JAVA_TEST_LIBDIR}/assertj-core-1.7.1.jar)
 set(JAVA_TESTCLASSPATH "${JAVA_JUNIT_JAR}\;${JAVA_HAMCR_JAR}\;${JAVA_MOCKITO_JAR}\;${JAVA_CGLIB_JAR}\;${JAVA_ASSERTJ_JAR}")
 
 if(NOT EXISTS ${PROJECT_SOURCE_DIR}/java/classes)
-  execute_process(COMMAND mkdir ${PROJECT_SOURCE_DIR}/java/classes)
+  file(MAKE_DIRECTORY ${PROJECT_SOURCE_DIR}/java/classes)
 endif()
 
 if(NOT EXISTS ${JAVA_TEST_LIBDIR})
-  execute_process(COMMAND mkdir ${JAVA_TEST_LIBDIR})
+  file(MAKE_DIRECTORY mkdir ${JAVA_TEST_LIBDIR})
 endif()
 
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
@@ -148,8 +157,16 @@ if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   file(RENAME ${JAVA_TMP_JAR} ${JAVA_ASSERTJ_JAR})
 endif()
 
-execute_process(COMMAND javac -cp ${JAVA_TESTCLASSPATH} -d ${PROJECT_SOURCE_DIR}/java/classes ${PROJECT_SOURCE_DIR}/java/src/main/java/org/rocksdb/util/*.java ${PROJECT_SOURCE_DIR}/java/src/main/java/org/rocksdb/*.java ${PROJECT_SOURCE_DIR}/java/src/test/java/org/rocksdb/*.java)
-execute_process(COMMAND javah -cp ${PROJECT_SOURCE_DIR}/java/classes -d ${PROJECT_SOURCE_DIR}/java/include -jni ${NATIVE_JAVA_CLASSES})
+if(WIN32)
+  set(JAVAC cmd /c javac)
+  set(JAVAH cmd /c javah)
+else()
+  set(JAVAC javac)
+  set(JAVAH javah)
+endif()
+
+execute_process(COMMAND ${JAVAC} -cp ${JAVA_TESTCLASSPATH} -d ${PROJECT_SOURCE_DIR}/java/classes ${PROJECT_SOURCE_DIR}/java/src/main/java/org/rocksdb/util/*.java ${PROJECT_SOURCE_DIR}/java/src/main/java/org/rocksdb/*.java ${PROJECT_SOURCE_DIR}/java/src/test/java/org/rocksdb/*.java)
+execute_process(COMMAND ${JAVAH} -cp ${PROJECT_SOURCE_DIR}/java/classes -d ${PROJECT_SOURCE_DIR}/java/include -jni ${NATIVE_JAVA_CLASSES})
 add_library(rocksdbjni${ARTIFACT_SUFFIX} SHARED ${JNI_NATIVE_SOURCES})
 set_target_properties(rocksdbjni${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdbjni${ARTIFACT_SUFFIX}.pdb")
 target_link_libraries(rocksdbjni${ARTIFACT_SUFFIX} rocksdblib${ARTIFACT_SUFFIX} ${LIBS})

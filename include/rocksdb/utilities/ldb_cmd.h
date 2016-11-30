@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <sstream>
 #include <string>
@@ -53,10 +54,21 @@ class LDBCommand {
   static const std::string ARG_CREATE_IF_MISSING;
   static const std::string ARG_NO_VALUE;
 
+  struct ParsedParams {
+    std::string cmd;
+    std::vector<std::string> cmd_params;
+    std::map<std::string, std::string> option_map;
+    std::vector<std::string> flags;
+  };
+
+  static LDBCommand* SelectCommand(const ParsedParams& parsed_parms);
+
   static LDBCommand* InitFromCmdLineArgs(
       const std::vector<std::string>& args, const Options& options,
       const LDBOptions& ldb_options,
-      const std::vector<ColumnFamilyDescriptor>* column_families);
+      const std::vector<ColumnFamilyDescriptor>* column_families,
+      const std::function<LDBCommand*(const ParsedParams&)>& selector =
+          SelectCommand);
 
   static LDBCommand* InitFromCmdLineArgs(
       int argc, char** argv, const Options& options,
@@ -223,11 +235,6 @@ class LDBCommand {
    * Otherwise an exception is thrown.
    */
   bool StringToBool(std::string val);
-
-  static LDBCommand* SelectCommand(
-      const std::string& cmd, const std::vector<std::string>& cmdParams,
-      const std::map<std::string, std::string>& option_map,
-      const std::vector<std::string>& flags);
 };
 
 class LDBCommandRunner {

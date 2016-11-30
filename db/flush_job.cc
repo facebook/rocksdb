@@ -56,7 +56,7 @@
 namespace rocksdb {
 
 FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
-                   const DBOptions& db_options,
+                   const ImmutableDBOptions& db_options,
                    const MutableCFOptions& mutable_cf_options,
                    const EnvOptions& env_options, VersionSet* versions,
                    InstrumentedMutex* db_mutex,
@@ -84,7 +84,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       output_compression_(output_compression),
       stats_(stats),
       event_logger_(event_logger),
-      measure_io_stats_(measure_io_stats) {
+      measure_io_stats_(measure_io_stats),
+      pick_memtable_called(false) {
   // Update the thread status to indicate flush.
   ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
@@ -96,7 +97,7 @@ FlushJob::~FlushJob() {
 
 void FlushJob::ReportStartedFlush() {
   ThreadStatusUtil::SetColumnFamily(cfd_, cfd_->ioptions()->env,
-                                    cfd_->options()->enable_thread_tracking);
+                                    db_options_.enable_thread_tracking);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_JOB_ID,
@@ -121,9 +122,47 @@ void FlushJob::RecordFlushIOStats() {
   IOSTATS_RESET(bytes_written);
 }
 
+void FlushJob::PickMemTable() {
+  db_mutex_->AssertHeld();
+  assert(!pick_memtable_called);
+  pick_memtable_called = true;
+  // Save the contents of the earliest memtable as a new Table
+  cfd_->imm()->PickMemtablesToFlush(&mems_);
+  if (mems_.empty()) {
+    return;
+  }
+
+  ReportFlushInputSize(mems_);
+
+  // entries mems are (implicitly) sorted in ascending order by their created
+  // time. We will use the first memtable's `edit` to keep the meta info for
+  // this flush.
+  MemTable* m = mems_[0];
+  edit_ = m->GetEdits();
+  edit_->SetPrevLogNumber(0);
+  // SetLogNumber(log_num) indicates logs with number smaller than log_num
+  // will no longer be picked up for recovery.
+  edit_->SetLogNumber(mems_.back()->GetNextLogNumber());
+  edit_->SetColumnFamily(cfd_->GetID());
+
+  // path 0 for level 0 file.
+  meta_.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
+
+  base_ = cfd_->current();
+  base_->Ref();  // it is likely that we do not need this reference
+}
+
 Status FlushJob::Run(FileMetaData* file_meta) {
+  db_mutex_->AssertHeld();
+  assert(pick_memtable_called);
   AutoThreadOperationStageUpdater stage_run(
       ThreadStatus::STAGE_FLUSH_RUN);
+  if (mems_.empty()) {
+    LogToBuffer(log_buffer_, "[%s] Nothing in memtable to flush",
+                cfd_->GetName().c_str());
+    return Status::OK();
+  }
+
   // I/O measurement variables
   PerfLevel prev_perf_level = PerfLevel::kEnableTime;
   uint64_t prev_write_nanos = 0;
@@ -139,31 +178,8 @@ Status FlushJob::Run(FileMetaData* file_meta) {
     prev_prepare_write_nanos = IOSTATS(prepare_write_nanos);
   }
 
-  // Save the contents of the earliest memtable as a new Table
-  FileMetaData meta;
-  autovector<MemTable*> mems;
-  cfd_->imm()->PickMemtablesToFlush(&mems);
-  if (mems.empty()) {
-    LogToBuffer(log_buffer_, "[%s] Nothing in memtable to flush",
-                cfd_->GetName().c_str());
-    return Status::OK();
-  }
-
-  ReportFlushInputSize(mems);
-
-  // entries mems are (implicitly) sorted in ascending order by their created
-  // time. We will use the first memtable's `edit` to keep the meta info for
-  // this flush.
-  MemTable* m = mems[0];
-  VersionEdit* edit = m->GetEdits();
-  edit->SetPrevLogNumber(0);
-  // SetLogNumber(log_num) indicates logs with number smaller than log_num
-  // will no longer be picked up for recovery.
-  edit->SetLogNumber(mems.back()->GetNextLogNumber());
-  edit->SetColumnFamily(cfd_->GetID());
-
   // This will release and re-acquire the mutex.
-  Status s = WriteLevel0Table(mems, edit, &meta);
+  Status s = WriteLevel0Table();
 
   if (s.ok() &&
       (shutting_down_->load(std::memory_order_acquire) || cfd_->IsDropped())) {
@@ -172,18 +188,18 @@ Status FlushJob::Run(FileMetaData* file_meta) {
   }
 
   if (!s.ok()) {
-    cfd_->imm()->RollbackMemtableFlush(mems, meta.fd.GetNumber());
+    cfd_->imm()->RollbackMemtableFlush(mems_, meta_.fd.GetNumber());
   } else {
     TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
     s = cfd_->imm()->InstallMemtableFlushResults(
-        cfd_, mutable_cf_options_, mems, versions_, db_mutex_,
-        meta.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
+        cfd_, mutable_cf_options_, mems_, versions_, db_mutex_,
+        meta_.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
         log_buffer_);
   }
 
   if (s.ok() && file_meta != nullptr) {
-    *file_meta = meta;
+    *file_meta = meta_;
   }
   RecordFlushIOStats();
 
@@ -197,6 +213,7 @@ Status FlushJob::Run(FileMetaData* file_meta) {
     stream << vstorage->NumLevelFiles(level);
   }
   stream.EndArray();
+  stream << "immutable_memtables" << cfd_->imm()->NumNotFlushed();
 
   if (measure_io_stats_) {
     if (prev_perf_level != PerfLevel::kEnableTime) {
@@ -213,34 +230,36 @@ Status FlushJob::Run(FileMetaData* file_meta) {
   return s;
 }
 
-Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
-                                  VersionEdit* edit, FileMetaData* meta) {
+Status FlushJob::WriteLevel0Table() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
-  // path 0 for level 0 file.
-  meta->fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
-
-  Version* base = cfd_->current();
-  base->Ref();  // it is likely that we do not need this reference
   Status s;
   {
     db_mutex_->Unlock();
     if (log_buffer_) {
       log_buffer_->FlushBufferToLog();
     }
+    // memtables and range_del_iters store internal iterators over each data
+    // memtable and its associated range deletion memtable, respectively, at
+    // corresponding indexes.
     std::vector<InternalIterator*> memtables;
+    std::vector<InternalIterator*> range_del_iters;
     ReadOptions ro;
     ro.total_order_seek = true;
     Arena arena;
     uint64_t total_num_entries = 0, total_num_deletes = 0;
     size_t total_memory_usage = 0;
-    for (MemTable* m : mems) {
+    for (MemTable* m : mems_) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
+      auto* range_del_iter = m->NewRangeTombstoneIterator(ro);
+      if (range_del_iter != nullptr) {
+        range_del_iters.push_back(range_del_iter);
+      }
       total_num_entries += m->num_entries();
       total_num_deletes += m->num_deletes();
       total_memory_usage += m->ApproximateMemoryUsage();
@@ -248,7 +267,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
 
     event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "flush_started"
-                         << "num_memtables" << mems.size() << "num_entries"
+                         << "num_memtables" << mems_.size() << "num_entries"
                          << total_num_entries << "num_deletes"
                          << total_num_deletes << "memory_usage"
                          << total_memory_usage;
@@ -257,15 +276,19 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
                              static_cast<int>(memtables.size()), &arena));
+      std::unique_ptr<InternalIterator> range_del_iter(NewMergingIterator(
+          &cfd_->internal_comparator(), &range_del_iters[0],
+          static_cast<int>(range_del_iters.size())));
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
-          cfd_->GetName().c_str(), job_context_->job_id, meta->fd.GetNumber());
+          cfd_->GetName().c_str(), job_context_->job_id, meta_.fd.GetNumber());
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
       s = BuildTable(
-          dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
-          cfd_->table_cache(), iter.get(), meta, cfd_->internal_comparator(),
+          dbname_, db_options_.env, *cfd_->ioptions(), mutable_cf_options_,
+          env_options_, cfd_->table_cache(), iter.get(),
+          std::move(range_del_iter), &meta_, cfd_->internal_comparator(),
           cfd_->int_tbl_prop_collector_factories(), cfd_->GetID(),
           cfd_->GetName(), existing_snapshots_,
           earliest_write_conflict_snapshot_, output_compression_,
@@ -279,42 +302,39 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
         "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
         " bytes %s"
         "%s",
-        cfd_->GetName().c_str(), job_context_->job_id, meta->fd.GetNumber(),
-        meta->fd.GetFileSize(), s.ToString().c_str(),
-        meta->marked_for_compaction ? " (needs compaction)" : "");
+        cfd_->GetName().c_str(), job_context_->job_id, meta_.fd.GetNumber(),
+        meta_.fd.GetFileSize(), s.ToString().c_str(),
+        meta_.marked_for_compaction ? " (needs compaction)" : "");
 
-    if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
+    if (!db_options_.disable_data_sync && output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }
     TEST_SYNC_POINT("FlushJob::WriteLevel0Table");
     db_mutex_->Lock();
   }
-  base->Unref();
-
-  // re-acquire the most current version
-  base = cfd_->current();
+  base_->Unref();
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
-  if (s.ok() && meta->fd.GetFileSize() > 0) {
+  if (s.ok() && meta_.fd.GetFileSize() > 0) {
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
     // that key range.
     // Add file to L0
-    edit->AddFile(0 /* level */, meta->fd.GetNumber(), meta->fd.GetPathId(),
-                  meta->fd.GetFileSize(), meta->smallest, meta->largest,
-                  meta->smallest_seqno, meta->largest_seqno,
-                  meta->marked_for_compaction);
+    edit_->AddFile(0 /* level */, meta_.fd.GetNumber(), meta_.fd.GetPathId(),
+                   meta_.fd.GetFileSize(), meta_.smallest, meta_.largest,
+                   meta_.smallest_seqno, meta_.largest_seqno,
+                   meta_.marked_for_compaction);
   }
 
   // Note that here we treat flush as level 0 compaction in internal stats
   InternalStats::CompactionStats stats(1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
-  stats.bytes_written = meta->fd.GetFileSize();
+  stats.bytes_written = meta_.fd.GetFileSize();
   cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
-                                     meta->fd.GetFileSize());
+                                     meta_.fd.GetFileSize());
   RecordFlushIOStats();
   return s;
 }

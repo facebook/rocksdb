@@ -23,6 +23,8 @@ namespace rocksdb {
 
 class Env;
 
+namespace port {
+
 class WinLogger : public rocksdb::Logger {
  public:
   WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,
@@ -54,5 +56,7 @@ class WinLogger : public rocksdb::Logger {
 
   const static uint64_t flush_every_seconds_ = 5;
 };
+
+}
 
 }  // namespace rocksdb

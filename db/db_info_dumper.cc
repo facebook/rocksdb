@@ -16,12 +16,12 @@
 #include <vector>
 
 #include "db/filename.h"
-#include "rocksdb/options.h"
 #include "rocksdb/env.h"
 
 namespace rocksdb {
 
-void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
+void DumpDBFileSummary(const ImmutableDBOptions& options,
+                       const std::string& dbname) {
   if (options.info_log == nullptr) {
     return;
   }

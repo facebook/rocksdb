@@ -11,26 +11,33 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include "util/rate_limiter.h"
 #include <inttypes.h>
 #include <limits>
-#include "util/testharness.h"
-#include "util/rate_limiter.h"
-#include "util/random.h"
 #include "rocksdb/env.h"
+#include "util/random.h"
+#include "util/sync_point.h"
+#include "util/testharness.h"
 
 namespace rocksdb {
 
+// TODO(yhchiang): the rate will not be accurate when we run test in parallel.
 class RateLimiterTest : public testing::Test {};
 
+TEST_F(RateLimiterTest, OverflowRate) {
+  GenericRateLimiter limiter(port::kMaxInt64, 1000, 10);
+  ASSERT_GT(limiter.GetSingleBurstBytes(), 1000000000ll);
+}
+
 TEST_F(RateLimiterTest, StartStop) {
-  std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(100, 100, 10));
+  std::unique_ptr<RateLimiter> limiter(NewGenericRateLimiter(100, 100, 10));
 }
 
 TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
-        : limiter(new GenericRateLimiter(_target_rate, 100 * 1000, 10)),
+        : limiter(NewGenericRateLimiter(_target_rate, 100 * 1000, 10)),
           request_size(_target_rate / 10),
           burst(_burst) {}
     std::unique_ptr<RateLimiter> limiter;
@@ -81,8 +88,57 @@ TEST_F(RateLimiterTest, Rate) {
               arg.request_size - 1, target / 1024, rate / 1024,
               elapsed / 1000000.0);
 
-      ASSERT_GE(rate / target, 0.9);
-      ASSERT_LE(rate / target, 1.1);
+      ASSERT_GE(rate / target, 0.80);
+      ASSERT_LE(rate / target, 1.25);
+    }
+  }
+}
+
+TEST_F(RateLimiterTest, LimitChangeTest) {
+  // starvation test when limit changes to a smaller value
+  int64_t refill_period = 1000 * 1000;
+  auto* env = Env::Default();
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  struct Arg {
+    Arg(int32_t _request_size, Env::IOPriority _pri,
+        std::shared_ptr<RateLimiter> _limiter)
+        : request_size(_request_size), pri(_pri), limiter(_limiter) {}
+    int32_t request_size;
+    Env::IOPriority pri;
+    std::shared_ptr<RateLimiter> limiter;
+  };
+
+  auto writer = [](void* p) {
+    auto* arg = static_cast<Arg*>(p);
+    arg->limiter->Request(arg->request_size, arg->pri);
+  };
+
+  for (uint32_t i = 1; i <= 16; i <<= 1) {
+    int32_t target = i * 1024 * 10;
+    // refill per second
+    for (int iter = 0; iter < 2; iter++) {
+      std::shared_ptr<RateLimiter> limiter =
+          std::make_shared<GenericRateLimiter>(target, refill_period, 10);
+      rocksdb::SyncPoint::GetInstance()->LoadDependency(
+          {{"GenericRateLimiter::Request",
+            "RateLimiterTest::LimitChangeTest:changeLimitStart"},
+           {"RateLimiterTest::LimitChangeTest:changeLimitEnd",
+            "GenericRateLimiter::Refill"}});
+      Arg arg(target, Env::IO_HIGH, limiter);
+      // The idea behind is to start a request first, then before it refills,
+      // update limit to a different value (2X/0.5X). No starvation should
+      // be guaranteed under any situation
+      // TODO(lightmark): more test cases are welcome.
+      env->StartThread(writer, &arg);
+      int32_t new_limit = (target << 1) >> (iter << 1);
+      TEST_SYNC_POINT("RateLimiterTest::LimitChangeTest:changeLimitStart");
+      arg.limiter->SetBytesPerSecond(new_limit);
+      TEST_SYNC_POINT("RateLimiterTest::LimitChangeTest:changeLimitEnd");
+      env->WaitForJoin();
+      fprintf(stderr,
+              "[COMPLETE] request size %" PRIi32 " KB, new limit %" PRIi32
+              "KB/sec, refill period %" PRIi64 " ms\n",
+              target / 1024, new_limit / 1024, refill_period / 1000);
     }
   }
 }

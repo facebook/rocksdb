@@ -957,7 +957,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
   uint64_t key_base = 100000000l;
   // Note: key_base must be multiple of num_keys_per_L0_file
   int num_keys_per_table = 100;
-  const uint32_t kTestScale = 8;
+  const uint32_t kTestScale = 6;
   const int kKeySize = 10;
   const int kValueSize = 900;
   double compression_ratio = 1.0;
@@ -1008,8 +1008,9 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
             num_input_units,
             num_keys_per_table * num_input_units,
             1.0, 0, false));
+    dbfull()->TEST_WaitForCompact();
   }
-  ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 4U);
+  ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 3U);
 
   for (uint64_t start_key = key_base;
                 start_key <= key_base * kTestScale;

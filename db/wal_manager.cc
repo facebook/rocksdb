@@ -128,8 +128,8 @@ Status WalManager::GetUpdatesSince(
 //    b. get sorted non-empty archived logs
 //    c. delete what should be deleted
 void WalManager::PurgeObsoleteWALFiles() {
-  bool const ttl_enabled = db_options_.WAL_ttl_seconds > 0;
-  bool const size_limit_enabled = db_options_.WAL_size_limit_MB > 0;
+  bool const ttl_enabled = db_options_.wal_ttl_seconds > 0;
+  bool const size_limit_enabled = db_options_.wal_size_limit_mb > 0;
   if (!ttl_enabled && !size_limit_enabled) {
     return;
   }
@@ -144,7 +144,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   }
   uint64_t const now_seconds = static_cast<uint64_t>(current_time);
   uint64_t const time_to_check = (ttl_enabled && !size_limit_enabled)
-                                     ? db_options_.WAL_ttl_seconds / 2
+                                     ? db_options_.wal_ttl_seconds / 2
                                      : kDefaultIntervalToDeleteObsoleteWAL;
 
   if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
@@ -180,7 +180,7 @@ void WalManager::PurgeObsoleteWALFiles() {
               file_path.c_str(), s.ToString().c_str());
           continue;
         }
-        if (now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
+        if (now_seconds - file_m_time > db_options_.wal_ttl_seconds) {
           s = env_->DeleteFile(file_path);
           if (!s.ok()) {
             Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
@@ -229,7 +229,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   }
 
   size_t const files_keep_num =
-      db_options_.WAL_size_limit_MB * 1024 * 1024 / log_file_size;
+      db_options_.wal_size_limit_mb * 1024 * 1024 / log_file_size;
   if (log_files_num <= files_keep_num) {
     return;
   }
@@ -383,7 +383,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   Status s;
   if (type == kAliveLogFile) {
     std::string fname = LogFileName(db_options_.wal_dir, number);
-    s = ReadFirstLine(fname, sequence);
+    s = ReadFirstLine(fname, number, sequence);
     if (env_->FileExists(fname).ok() && !s.ok()) {
       // return any error that is not caused by non-existing file
       return s;
@@ -394,7 +394,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
     //  check if the file got moved to archive.
     std::string archived_file =
         ArchivedLogFileName(db_options_.wal_dir, number);
-    s = ReadFirstLine(archived_file, sequence);
+    s = ReadFirstLine(archived_file, number, sequence);
     // maybe the file was deleted from archive dir. If that's the case, return
     // Status::OK(). The caller with identify this as empty file because
     // *sequence == 0
@@ -413,6 +413,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
 // the function returns status.ok() and sequence == 0 if the file exists, but is
 // empty
 Status WalManager::ReadFirstLine(const std::string& fname,
+                                 const uint64_t number,
                                  SequenceNumber* sequence) {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
@@ -449,7 +450,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   reporter.status = &status;
   reporter.ignore_error = !db_options_.paranoid_checks;
   log::Reader reader(db_options_.info_log, std::move(file_reader), &reporter,
-                     true /*checksum*/, 0 /*initial_offset*/, *sequence);
+                     true /*checksum*/, 0 /*initial_offset*/, number);
   std::string scratch;
   Slice record;
 

@@ -117,6 +117,11 @@ class TestIterator : public InternalIterator {
     }
   }
 
+  virtual void SeekForPrev(const Slice& target) override {
+    assert(initialized_);
+    SeekForPrevImpl(target, &cmp);
+  }
+
   virtual void Next() override {
     assert(initialized_);
     if (data_.empty() || (iter_ == data_.size() - 1)) {
@@ -149,6 +154,9 @@ class TestIterator : public InternalIterator {
     assert(initialized_);
     return Status::OK();
   }
+
+  virtual bool IsKeyPinned() const override { return true; }
+  virtual bool IsValuePinned() const override { return true; }
 
  private:
   bool initialized_;
@@ -349,7 +357,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(perf_context.internal_key_skipped_count), 1);
+    ASSERT_EQ(static_cast<int>(perf_context.internal_key_skipped_count), 7);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -472,7 +480,7 @@ TEST_F(DBIteratorTest, DBIteratorPrevNext) {
     db_iter->SeekToLast();
 
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 0);
+    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 1);
     ASSERT_EQ(db_iter->key().ToString(), "b");
 
     SetPerfLevel(kDisable);
@@ -1121,6 +1129,26 @@ TEST_F(DBIteratorTest, DBIterator5) {
     db_iter->Prev();
     ASSERT_TRUE(!db_iter->Valid());
   }
+
+  {
+    // put, singledelete, merge
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddSingleDeletion("a");
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddPut("b", "val_b");
+    internal_iter->Finish();
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0));
+    db_iter->Seek("b");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+  }
 }
 
 TEST_F(DBIteratorTest, DBIterator6) {
@@ -1723,6 +1751,15 @@ TEST_F(DBIteratorTest, DBIterator9) {
     ASSERT_EQ(db_iter->key().ToString(), "a");
     ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
 
+    db_iter->SeekForPrev("b");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_5,merge_6");
+
     db_iter->Seek("c");
     ASSERT_TRUE(db_iter->Valid());
     ASSERT_EQ(db_iter->key().ToString(), "d");
@@ -1731,6 +1768,15 @@ TEST_F(DBIteratorTest, DBIterator9) {
     ASSERT_TRUE(db_iter->Valid());
     ASSERT_EQ(db_iter->key().ToString(), "b");
     ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+
+    db_iter->SeekForPrev("c");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_5,merge_6");
   }
 }
 
@@ -1758,6 +1804,18 @@ TEST_F(DBIteratorTest, DBIterator10) {
   ASSERT_EQ(db_iter->value().ToString(), "2");
 
   db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "c");
+  ASSERT_EQ(db_iter->value().ToString(), "3");
+
+  db_iter->SeekForPrev("c");
+  ASSERT_TRUE(db_iter->Valid());
+  db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "d");
+  ASSERT_EQ(db_iter->value().ToString(), "4");
+
+  db_iter->Prev();
   ASSERT_TRUE(db_iter->Valid());
   ASSERT_EQ(db_iter->key().ToString(), "c");
   ASSERT_EQ(db_iter->value().ToString(), "3");
@@ -1911,7 +1969,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIterator1) {
 
 TEST_F(DBIterWithMergeIterTest, InnerMergeIterator2) {
   // Test Prev() when one child iterator is at its end.
-  db_iter_->Seek("g");
+  db_iter_->SeekForPrev("g");
   ASSERT_TRUE(db_iter_->Valid());
   ASSERT_EQ(db_iter_->key().ToString(), "g");
   ASSERT_EQ(db_iter_->value().ToString(), "3");

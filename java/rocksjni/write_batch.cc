@@ -7,19 +7,18 @@
 // calling c++ rocksdb::WriteBatch methods from Java side.
 #include <memory>
 
+#include "db/memtable.h"
+#include "db/write_batch_internal.h"
 #include "include/org_rocksdb_WriteBatch.h"
 #include "include/org_rocksdb_WriteBatch_Handler.h"
-#include "rocksjni/portal.h"
-#include "rocksjni/writebatchhandlerjnicallback.h"
 #include "rocksdb/db.h"
-#include "rocksdb/immutable_options.h"
-#include "db/memtable.h"
-#include "rocksdb/write_batch.h"
-#include "rocksdb/status.h"
-#include "db/write_batch_internal.h"
-#include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/status.h"
+#include "rocksdb/write_batch.h"
+#include "rocksdb/write_buffer_manager.h"
+#include "rocksjni/portal.h"
+#include "rocksjni/writebatchhandlerjnicallback.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/logging.h"
 #include "util/testharness.h"
@@ -60,6 +59,37 @@ void Java_org_rocksdb_WriteBatch_clear0(JNIEnv* env, jobject jobj,
   assert(wb != nullptr);
 
   wb->Clear();
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    setSavePoint0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatch_setSavePoint0(
+    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+
+  wb->SetSavePoint();
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    rollbackToSavePoint0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatch_rollbackToSavePoint0(
+    JNIEnv* env, jobject jobj, jlong jwb_handle) {
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
+  assert(wb != nullptr);
+
+  auto s = wb->RollbackToSavePoint();
+
+  if (s.ok()) {
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 }
 
 /*

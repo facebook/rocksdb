@@ -3,6 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <map>
 #include <string>
 #include "rocksdb/db.h"
 
@@ -40,6 +41,11 @@ class StackableDB : public DB {
     return db_->DropColumnFamily(column_family);
   }
 
+  virtual Status DestroyColumnFamilyHandle(
+      ColumnFamilyHandle* column_family) override {
+    return db_->DestroyColumnFamilyHandle(column_family);
+  }
+
   using DB::Put;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -63,16 +69,12 @@ class StackableDB : public DB {
     return db_->MultiGet(options, column_family, keys, values);
   }
 
-  using DB::AddFile;
-  virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const ExternalSstFileInfo* file_info,
-                         bool move_file) override {
-    return db_->AddFile(column_family, file_info, move_file);
-  }
-  virtual Status AddFile(ColumnFamilyHandle* column_family,
-                         const std::string& file_path,
-                         bool move_file) override {
-    return db_->AddFile(column_family, file_path, move_file);
+  using DB::IngestExternalFile;
+  virtual Status IngestExternalFile(
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& external_files,
+      const IngestExternalFileOptions& options) override {
+    return db_->IngestExternalFile(column_family, external_files, options);
   }
 
   using DB::KeyMayExist;
@@ -132,10 +134,16 @@ class StackableDB : public DB {
     return db_->ReleaseSnapshot(snapshot);
   }
 
+  using DB::GetMapProperty;
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) override {
     return db_->GetProperty(column_family, property, value);
+  }
+  virtual bool GetMapProperty(ColumnFamilyHandle* column_family,
+                              const Slice& property,
+                              std::map<std::string, double>* value) override {
+    return db_->GetMapProperty(column_family, property, value);
   }
 
   using DB::GetIntProperty;
@@ -214,13 +222,12 @@ class StackableDB : public DB {
   }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const
-      override {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return db_->GetOptions(column_family);
   }
 
   using DB::GetDBOptions;
-  virtual const DBOptions& GetDBOptions() const override {
+  virtual DBOptions GetDBOptions() const override {
     return db_->GetDBOptions();
   }
 
@@ -283,6 +290,12 @@ class StackableDB : public DB {
                             const std::unordered_map<std::string, std::string>&
                                 new_options) override {
     return db_->SetOptions(column_family_handle, new_options);
+  }
+
+  virtual Status SetDBOptions(
+      const std::unordered_map<std::string, std::string>& new_options)
+      override {
+    return db_->SetDBOptions(new_options);
   }
 
   using DB::GetPropertiesOfAllTables;

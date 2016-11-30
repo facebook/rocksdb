@@ -95,4 +95,19 @@ public interface WriteBatchInterface {
      * Clear all updates buffered in this batch
      */
     void clear();
+
+    /**
+     * Records the state of the batch for future calls to RollbackToSavePoint().
+     * May be called multiple times to set multiple save points.
+     */
+    void setSavePoint();
+
+    /**
+     * Remove all entries in this batch (Put, Merge, Delete, PutLogData) since
+     * the most recent call to SetSavePoint() and removes the most recent save
+     * point.
+     *
+     * @throws RocksDBException if there is no previous call to SetSavePoint()
+     */
+    void rollbackToSavePoint() throws RocksDBException;
 }

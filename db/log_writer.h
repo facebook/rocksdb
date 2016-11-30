@@ -81,6 +81,8 @@ class Writer {
   WritableFileWriter* file() { return dest_.get(); }
   const WritableFileWriter* file() const { return dest_.get(); }
 
+  uint64_t get_log_number() const { return log_number_; }
+
  private:
   unique_ptr<WritableFileWriter> dest_;
   size_t block_offset_;       // Current offset in block

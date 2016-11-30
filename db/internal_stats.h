@@ -9,10 +9,11 @@
 //
 
 #pragma once
-#include "db/version_set.h"
-
-#include <vector>
+#include <map>
 #include <string>
+#include <vector>
+
+#include "db/version_set.h"
 
 class ColumnFamilyData;
 
@@ -41,13 +42,47 @@ struct DBPropertyInfo {
   //      holding db mutex, which is only supported for int properties.
   bool (InternalStats::*handle_int)(uint64_t* value, DBImpl* db,
                                     Version* version);
+  bool (InternalStats::*handle_map)(
+      std::map<std::string, double>* compaction_stats);
 };
 
 extern const DBPropertyInfo* GetPropertyInfo(const Slice& property);
 
 #ifndef ROCKSDB_LITE
+enum class LevelStatType {
+  INVALID = 0,
+  NUM_FILES,
+  COMPACTED_FILES,
+  SIZE_MB,
+  SCORE,
+  READ_GB,
+  RN_GB,
+  RNP1_GB,
+  WRITE_GB,
+  W_NEW_GB,
+  MOVED_GB,
+  WRITE_AMP,
+  READ_MBPS,
+  WRITE_MBPS,
+  COMP_SEC,
+  COMP_COUNT,
+  AVG_SEC,
+  KEY_IN,
+  KEY_DROP,
+  TOTAL  // total number of types
+};
+
+struct LevelStat {
+  // This what will be L?.property_name in the flat map returned to the user
+  std::string property_name;
+  // This will be what we will print in the header in the cli
+  std::string header_name;
+};
+
 class InternalStats {
  public:
+  static const std::map<LevelStatType, LevelStat> compaction_level_stats;
+
   enum InternalCFStatsType {
     LEVEL0_SLOWDOWN_TOTAL,
     LEVEL0_SLOWDOWN_WITH_COMPACTION,
@@ -59,6 +94,10 @@ class InternalStats {
     HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
+    BYTES_INGESTED_ADD_FILE,
+    INGESTED_NUM_FILES_TOTAL,
+    INGESTED_LEVEL0_NUM_FILES_TOTAL,
+    INGESTED_NUM_KEYS_TOTAL,
     INTERNAL_CF_STATS_ENUM_MAX,
   };
 
@@ -217,6 +256,10 @@ class InternalStats {
   bool GetStringProperty(const DBPropertyInfo& property_info,
                          const Slice& property, std::string* value);
 
+  bool GetMapProperty(const DBPropertyInfo& property_info,
+                      const Slice& property,
+                      std::map<std::string, double>* value);
+
   bool GetIntProperty(const DBPropertyInfo& property_info, uint64_t* value,
                       DBImpl* db);
 
@@ -229,6 +272,10 @@ class InternalStats {
 
  private:
   void DumpDBStats(std::string* value);
+  void DumpCFMapStats(std::map<std::string, double>* cf_stats);
+  int DumpCFMapStats(
+      std::map<int, std::map<LevelStatType, double>>* level_stats,
+      CompactionStats* compaction_stats_sum);
   void DumpCFStats(std::string* value);
 
   // Per-DB stats
@@ -244,7 +291,7 @@ class InternalStats {
   struct CFStatsSnapshot {
     // ColumnFamily-level stats
     CompactionStats comp_stats;
-    uint64_t ingest_bytes;            // Bytes written to L0
+    uint64_t ingest_bytes_flush;      // Bytes written to L0 (Flush)
     uint64_t stall_count;             // Stall count
     // Stats from compaction jobs - bytes written, bytes read, duration.
     uint64_t compact_bytes_write;
@@ -252,14 +299,24 @@ class InternalStats {
     uint64_t compact_micros;
     double seconds_up;
 
+    // AddFile specific stats
+    uint64_t ingest_bytes_addfile;     // Total Bytes ingested
+    uint64_t ingest_files_addfile;     // Total number of files ingested
+    uint64_t ingest_l0_files_addfile;  // Total number of files ingested to L0
+    uint64_t ingest_keys_addfile;      // Total number of keys ingested
+
     CFStatsSnapshot()
         : comp_stats(0),
-          ingest_bytes(0),
+          ingest_bytes_flush(0),
           stall_count(0),
           compact_bytes_write(0),
           compact_bytes_read(0),
           compact_micros(0),
-          seconds_up(0) {}
+          seconds_up(0),
+          ingest_bytes_addfile(0),
+          ingest_files_addfile(0),
+          ingest_l0_files_addfile(0),
+          ingest_keys_addfile(0) {}
   } cf_stats_snapshot_;
 
   struct DBStatsSnapshot {
@@ -299,6 +356,7 @@ class InternalStats {
   bool HandleCompressionRatioAtLevelPrefix(std::string* value, Slice suffix);
   bool HandleLevelStats(std::string* value, Slice suffix);
   bool HandleStats(std::string* value, Slice suffix);
+  bool HandleCFMapStats(std::map<std::string, double>* compaction_stats);
   bool HandleCFStats(std::string* value, Slice suffix);
   bool HandleDBStats(std::string* value, Slice suffix);
   bool HandleSsTables(std::string* value, Slice suffix);
@@ -372,6 +430,10 @@ class InternalStats {
     HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
+    BYTES_INGESTED_ADD_FILE,
+    INGESTED_NUM_FILES_TOTAL,
+    INGESTED_LEVEL0_NUM_FILES_TOTAL,
+    INGESTED_NUM_KEYS_TOTAL,
     INTERNAL_CF_STATS_ENUM_MAX,
   };
 
@@ -427,6 +489,12 @@ class InternalStats {
 
   bool GetStringProperty(const DBPropertyInfo& property_info,
                          const Slice& property, std::string* value) {
+    return false;
+  }
+
+  bool GetMapProperty(const DBPropertyInfo& property_info,
+                      const Slice& property,
+                      std::map<std::string, double>* value) {
     return false;
   }
 

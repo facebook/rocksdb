@@ -12,12 +12,12 @@
 #include "db/db_impl.h"
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
-#include "rocksdb/immutable_options.h"
 #include "rocksdb/table.h"
 #include "table/block_based_table_factory.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
+#include "util/cf_options.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/testharness.h"
@@ -46,11 +46,12 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                  std::unique_ptr<TableBuilder>* builder) {
   unique_ptr<WritableFile> wf(new test::StringSink);
   writable->reset(new WritableFileWriter(std::move(wf), EnvOptions()));
-
+  int unknown_level = -1;
   builder->reset(NewTableBuilder(
       ioptions, internal_comparator, int_tbl_prop_collector_factories,
       kTestColumnFamilyId, kTestColumnFamilyName,
-      writable->get(), options.compression, options.compression_opts));
+      writable->get(), options.compression, options.compression_opts,
+      unknown_level));
 }
 }  // namespace
 
@@ -255,7 +256,7 @@ void TestCustomizedTablePropertiesCollector(
     int_tbl_prop_collector_factories.emplace_back(
         new RegularKeysStartWithAFactory(backward_mode));
   } else {
-    GetIntTblPropCollectorFactory(options, &int_tbl_prop_collector_factories);
+    GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
   }
   MakeBuilder(options, ioptions, internal_comparator,
               &int_tbl_prop_collector_factories, &writer, &builder);
@@ -276,7 +277,7 @@ void TestCustomizedTablePropertiesCollector(
           new test::StringSource(fwf->contents())));
   TableProperties* props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
-                                 magic_number, Env::Default(), nullptr, &props);
+                                 magic_number, ioptions, &props);
   std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
@@ -368,6 +369,8 @@ void TestInternalKeyPropertiesCollector(
       InternalKey("Y       ", 5, ValueType::kTypeDeletion),
       InternalKey("Z       ", 6, ValueType::kTypeDeletion),
       InternalKey("a       ", 7, ValueType::kTypeSingleDeletion),
+      InternalKey("b       ", 8, ValueType::kTypeMerge),
+      InternalKey("c       ", 9, ValueType::kTypeMerge),
   };
 
   std::unique_ptr<TableBuilder> builder;
@@ -388,9 +391,9 @@ void TestInternalKeyPropertiesCollector(
     // SanitizeOptions().
     options.info_log = std::make_shared<test::NullLogger>();
     options = SanitizeOptions("db",            // just a place holder
-                              &pikc,
                               options);
-    GetIntTblPropCollectorFactory(options, &int_tbl_prop_collector_factories);
+    ImmutableCFOptions ioptions(options);
+    GetIntTblPropCollectorFactory(ioptions, &int_tbl_prop_collector_factories);
     options.comparator = comparator;
   } else {
     int_tbl_prop_collector_factories.emplace_back(
@@ -415,13 +418,18 @@ void TestInternalKeyPropertiesCollector(
     TableProperties* props;
     Status s =
         ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
-                            Env::Default(), nullptr, &props);
+                            ioptions, &props);
     ASSERT_OK(s);
 
     std::unique_ptr<TableProperties> props_guard(props);
     auto user_collected = props->user_collected_properties;
     uint64_t deleted = GetDeletedKeys(user_collected);
     ASSERT_EQ(5u, deleted);  // deletes + single-deletes
+
+    bool property_present;
+    uint64_t merges = GetMergeOperands(user_collected, &property_present);
+    ASSERT_TRUE(property_present);
+    ASSERT_EQ(2u, merges);
 
     if (sanitized) {
       uint32_t starts_with_A = 0;

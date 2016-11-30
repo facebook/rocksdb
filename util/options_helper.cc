@@ -26,6 +26,163 @@
 
 namespace rocksdb {
 
+const std::string kNullptrString = "nullptr";
+
+DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
+                         const MutableDBOptions& mutable_db_options) {
+  DBOptions options;
+
+  options.create_if_missing = immutable_db_options.create_if_missing;
+  options.create_missing_column_families =
+      immutable_db_options.create_missing_column_families;
+  options.error_if_exists = immutable_db_options.error_if_exists;
+  options.paranoid_checks = immutable_db_options.paranoid_checks;
+  options.env = immutable_db_options.env;
+  options.rate_limiter = immutable_db_options.rate_limiter;
+  options.sst_file_manager = immutable_db_options.sst_file_manager;
+  options.info_log = immutable_db_options.info_log;
+  options.info_log_level = immutable_db_options.info_log_level;
+  options.max_open_files = immutable_db_options.max_open_files;
+  options.max_file_opening_threads =
+      immutable_db_options.max_file_opening_threads;
+  options.max_total_wal_size = mutable_db_options.max_total_wal_size;
+  options.statistics = immutable_db_options.statistics;
+  options.disableDataSync = immutable_db_options.disable_data_sync;
+  options.use_fsync = immutable_db_options.use_fsync;
+  options.db_paths = immutable_db_options.db_paths;
+  options.db_log_dir = immutable_db_options.db_log_dir;
+  options.wal_dir = immutable_db_options.wal_dir;
+  options.delete_obsolete_files_period_micros =
+      immutable_db_options.delete_obsolete_files_period_micros;
+  options.base_background_compactions =
+      mutable_db_options.base_background_compactions;
+  options.max_background_compactions =
+      mutable_db_options.max_background_compactions;
+  options.max_subcompactions = immutable_db_options.max_subcompactions;
+  options.max_background_flushes = immutable_db_options.max_background_flushes;
+  options.max_log_file_size = immutable_db_options.max_log_file_size;
+  options.log_file_time_to_roll = immutable_db_options.log_file_time_to_roll;
+  options.keep_log_file_num = immutable_db_options.keep_log_file_num;
+  options.recycle_log_file_num = immutable_db_options.recycle_log_file_num;
+  options.max_manifest_file_size = immutable_db_options.max_manifest_file_size;
+  options.table_cache_numshardbits =
+      immutable_db_options.table_cache_numshardbits;
+  options.WAL_ttl_seconds = immutable_db_options.wal_ttl_seconds;
+  options.WAL_size_limit_MB = immutable_db_options.wal_size_limit_mb;
+  options.manifest_preallocation_size =
+      immutable_db_options.manifest_preallocation_size;
+  options.allow_os_buffer = immutable_db_options.allow_os_buffer;
+  options.allow_mmap_reads = immutable_db_options.allow_mmap_reads;
+  options.allow_mmap_writes = immutable_db_options.allow_mmap_writes;
+  options.use_direct_reads = immutable_db_options.use_direct_reads;
+  options.allow_fallocate = immutable_db_options.allow_fallocate;
+  options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
+  options.stats_dump_period_sec = immutable_db_options.stats_dump_period_sec;
+  options.advise_random_on_open = immutable_db_options.advise_random_on_open;
+  options.db_write_buffer_size = immutable_db_options.db_write_buffer_size;
+  options.write_buffer_manager = immutable_db_options.write_buffer_manager;
+  options.access_hint_on_compaction_start =
+      immutable_db_options.access_hint_on_compaction_start;
+  options.new_table_reader_for_compaction_inputs =
+      immutable_db_options.new_table_reader_for_compaction_inputs;
+  options.compaction_readahead_size =
+      immutable_db_options.compaction_readahead_size;
+  options.random_access_max_buffer_size =
+      immutable_db_options.random_access_max_buffer_size;
+  options.writable_file_max_buffer_size =
+      immutable_db_options.writable_file_max_buffer_size;
+  options.use_adaptive_mutex = immutable_db_options.use_adaptive_mutex;
+  options.bytes_per_sync = immutable_db_options.bytes_per_sync;
+  options.wal_bytes_per_sync = immutable_db_options.wal_bytes_per_sync;
+  options.listeners = immutable_db_options.listeners;
+  options.enable_thread_tracking = immutable_db_options.enable_thread_tracking;
+  options.delayed_write_rate = mutable_db_options.delayed_write_rate;
+  options.allow_concurrent_memtable_write =
+      immutable_db_options.allow_concurrent_memtable_write;
+  options.enable_write_thread_adaptive_yield =
+      immutable_db_options.enable_write_thread_adaptive_yield;
+  options.write_thread_max_yield_usec =
+      immutable_db_options.write_thread_max_yield_usec;
+  options.write_thread_slow_yield_usec =
+      immutable_db_options.write_thread_slow_yield_usec;
+  options.skip_stats_update_on_db_open =
+      immutable_db_options.skip_stats_update_on_db_open;
+  options.wal_recovery_mode = immutable_db_options.wal_recovery_mode;
+  options.allow_2pc = immutable_db_options.allow_2pc;
+  options.row_cache = immutable_db_options.row_cache;
+#ifndef ROCKSDB_LITE
+  options.wal_filter = immutable_db_options.wal_filter;
+#endif  // ROCKSDB_LITE
+  options.fail_if_options_file_error =
+      immutable_db_options.fail_if_options_file_error;
+  options.dump_malloc_stats = immutable_db_options.dump_malloc_stats;
+  options.avoid_flush_during_recovery =
+      immutable_db_options.avoid_flush_during_recovery;
+  options.avoid_flush_during_shutdown =
+      mutable_db_options.avoid_flush_during_shutdown;
+
+  return options;
+}
+
+ColumnFamilyOptions BuildColumnFamilyOptions(
+    const ColumnFamilyOptions& options,
+    const MutableCFOptions& mutable_cf_options) {
+  ColumnFamilyOptions cf_opts(options);
+
+  // Memtable related options
+  cf_opts.write_buffer_size = mutable_cf_options.write_buffer_size;
+  cf_opts.max_write_buffer_number = mutable_cf_options.max_write_buffer_number;
+  cf_opts.arena_block_size = mutable_cf_options.arena_block_size;
+  cf_opts.memtable_prefix_bloom_size_ratio =
+      mutable_cf_options.memtable_prefix_bloom_size_ratio;
+  cf_opts.memtable_huge_page_size = mutable_cf_options.memtable_huge_page_size;
+  cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
+  cf_opts.inplace_update_num_locks =
+      mutable_cf_options.inplace_update_num_locks;
+
+  // Compaction related options
+  cf_opts.disable_auto_compactions =
+      mutable_cf_options.disable_auto_compactions;
+  cf_opts.level0_file_num_compaction_trigger =
+      mutable_cf_options.level0_file_num_compaction_trigger;
+  cf_opts.level0_slowdown_writes_trigger =
+      mutable_cf_options.level0_slowdown_writes_trigger;
+  cf_opts.level0_stop_writes_trigger =
+      mutable_cf_options.level0_stop_writes_trigger;
+  cf_opts.max_compaction_bytes = mutable_cf_options.max_compaction_bytes;
+  cf_opts.target_file_size_base = mutable_cf_options.target_file_size_base;
+  cf_opts.target_file_size_multiplier =
+      mutable_cf_options.target_file_size_multiplier;
+  cf_opts.max_bytes_for_level_base =
+      mutable_cf_options.max_bytes_for_level_base;
+  cf_opts.max_bytes_for_level_multiplier =
+      mutable_cf_options.max_bytes_for_level_multiplier;
+
+  cf_opts.max_bytes_for_level_multiplier_additional.clear();
+  for (auto value :
+       mutable_cf_options.max_bytes_for_level_multiplier_additional) {
+    cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
+  }
+
+  cf_opts.verify_checksums_in_compaction =
+      mutable_cf_options.verify_checksums_in_compaction;
+
+  // Misc options
+  cf_opts.max_sequential_skip_in_iterations =
+      mutable_cf_options.max_sequential_skip_in_iterations;
+  cf_opts.paranoid_file_checks = mutable_cf_options.paranoid_file_checks;
+  cf_opts.report_bg_io_stats = mutable_cf_options.report_bg_io_stats;
+  cf_opts.compression = mutable_cf_options.compression;
+  cf_opts.min_partial_merge_operands =
+      mutable_cf_options.min_partial_merge_operands;
+
+  cf_opts.table_factory = options.table_factory;
+  // TODO(yhchiang): find some way to handle the following derived options
+  // * max_file_size
+
+  return cf_opts;
+}
+
 #ifndef ROCKSDB_LITE
 bool isSpecialChar(const char c) {
   if (c == '\\' || c == '#' || c == ':' || c == '\r' || c == '\n') {
@@ -34,23 +191,34 @@ bool isSpecialChar(const char c) {
   return false;
 }
 
-char UnescapeChar(const char c) {
-  static const std::unordered_map<char, char> convert_map = {{'r', '\r'},
-                                                             {'n', '\n'}};
+namespace {
+  using
+  CharMap = std::pair<char, char>;
+}
 
-  auto iter = convert_map.find(c);
-  if (iter == convert_map.end()) {
+char UnescapeChar(const char c) {
+  static const CharMap convert_map[]  = {{'r', '\r'},
+                                        {'n', '\n'}};
+
+  auto iter = std::find_if(std::begin(convert_map),
+    std::end(convert_map),
+    [c](const CharMap& p) { return p.first == c; });
+
+  if (iter == std::end(convert_map)) {
     return c;
   }
   return iter->second;
 }
 
 char EscapeChar(const char c) {
-  static const std::unordered_map<char, char> convert_map = {{'\n', 'n'},
-                                                             {'\r', 'r'}};
+  static const CharMap convert_map[] = {{'\n', 'n'},
+                                       {'\r', 'r'}};
 
-  auto iter = convert_map.find(c);
-  if (iter == convert_map.end()) {
+  auto iter = std::find_if(std::begin(convert_map),
+    std::end(convert_map),
+    [c](const CharMap& p) { return p.first == c; });
+
+  if (iter == std::end(convert_map)) {
     return c;
   }
   return iter->second;
@@ -89,6 +257,31 @@ std::string UnescapeOptionString(const std::string& escaped_string) {
   return output;
 }
 
+uint64_t ParseUint64(const std::string& value) {
+  size_t endchar;
+#ifndef CYGWIN
+  uint64_t num = std::stoull(value.c_str(), &endchar);
+#else
+  char* endptr;
+  uint64_t num = std::strtoul(value.c_str(), &endptr, 0);
+  endchar = endptr - value.c_str();
+#endif
+
+  if (endchar < value.length()) {
+    char c = value[endchar];
+    if (c == 'k' || c == 'K')
+      num <<= 10LL;
+    else if (c == 'm' || c == 'M')
+      num <<= 20LL;
+    else if (c == 'g' || c == 'G')
+      num <<= 30LL;
+    else if (c == 't' || c == 'T')
+      num <<= 40LL;
+  }
+
+  return num;
+}
+
 namespace {
 std::string trim(const std::string& str) {
   if (str.empty()) return std::string();
@@ -104,6 +297,17 @@ std::string trim(const std::string& str) {
     return str.substr(start, end - start + 1);
   }
   return std::string();
+}
+
+bool SerializeIntVector(const std::vector<int>& vec, std::string* value) {
+  *value = "";
+  for (size_t i = 0; i < vec.size(); ++i) {
+    if (i > 0) {
+      *value += ":";
+    }
+    *value += ToString(vec[i]);
+  }
+  return true;
 }
 
 template <typename T>
@@ -158,31 +362,6 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
   throw std::invalid_argument(type);
 }
 
-uint64_t ParseUint64(const std::string& value) {
-  size_t endchar;
-#ifndef CYGWIN
-  uint64_t num = std::stoull(value.c_str(), &endchar);
-#else
-  char* endptr;
-  uint64_t num = std::strtoul(value.c_str(), &endptr, 0);
-  endchar = endptr - value.c_str();
-#endif
-
-  if (endchar < value.length()) {
-    char c = value[endchar];
-    if (c == 'k' || c == 'K')
-      num <<= 10LL;
-    else if (c == 'm' || c == 'M')
-      num <<= 20LL;
-    else if (c == 'g' || c == 'G')
-      num <<= 30LL;
-    else if (c == 't' || c == 'T')
-      num <<= 40LL;
-  }
-
-  return num;
-}
-
 size_t ParseSizeT(const std::string& value) {
   return static_cast<size_t>(ParseUint64(value));
 }
@@ -217,6 +396,22 @@ int ParseInt(const std::string& value) {
   }
 
   return num;
+}
+
+std::vector<int> ParseVectorInt(const std::string& value) {
+  std::vector<int> result;
+  size_t start = 0;
+  while (start < value.size()) {
+    size_t end = value.find(':', start);
+    if (end == std::string::npos) {
+      result.push_back(ParseInt(value.substr(start)));
+      break;
+    } else {
+      result.push_back(ParseInt(value.substr(start, end - start)));
+      start = end + 1;
+    }
+  }
+  return result;
 }
 
 double ParseDouble(const std::string& value) {
@@ -261,7 +456,7 @@ bool ParseSliceTransformHelper(
     const std::string& kFixedPrefixName, const std::string& kCappedPrefixName,
     const std::string& value,
     std::shared_ptr<const SliceTransform>* slice_transform) {
-  static const std::string kNullptrString = "nullptr";
+
   auto& pe_value = value;
   if (pe_value.size() > kFixedPrefixName.size() &&
       pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) == 0) {
@@ -315,6 +510,9 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       break;
     case OptionType::kInt:
       *reinterpret_cast<int*>(opt_address) = ParseInt(value);
+      break;
+    case OptionType::kVectorInt:
+      *reinterpret_cast<std::vector<int>*>(opt_address) = ParseVectorInt(value);
       break;
     case OptionType::kUInt:
       *reinterpret_cast<unsigned int*>(opt_address) = ParseUint32(value);
@@ -384,7 +582,7 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
 bool SerializeSingleOptionHelper(const char* opt_address,
                                  const OptionType opt_type,
                                  std::string* value) {
-  static const std::string kNullptrString = "nullptr";
+
   assert(value);
   switch (opt_type) {
     case OptionType::kBoolean:
@@ -393,6 +591,9 @@ bool SerializeSingleOptionHelper(const char* opt_address,
     case OptionType::kInt:
       *value = ToString(*(reinterpret_cast<const int*>(opt_address)));
       break;
+    case OptionType::kVectorInt:
+      return SerializeIntVector(
+          *reinterpret_cast<const std::vector<int>*>(opt_address), value);
     case OptionType::kUInt:
       *value = ToString(*(reinterpret_cast<const unsigned int*>(opt_address)));
       break;
@@ -528,106 +729,6 @@ bool SerializeSingleOptionHelper(const char* opt_address,
   return true;
 }
 
-
-template<typename OptionsType>
-bool ParseMemtableOptions(const std::string& name, const std::string& value,
-                          OptionsType* new_options) {
-  if (name == "write_buffer_size") {
-    new_options->write_buffer_size = ParseSizeT(value);
-  } else if (name == "arena_block_size") {
-    new_options->arena_block_size = ParseSizeT(value);
-  } else if (name == "memtable_prefix_bloom_bits") {
-    new_options->memtable_prefix_bloom_bits = ParseUint32(value);
-  } else if (name == "memtable_prefix_bloom_probes") {
-    new_options->memtable_prefix_bloom_probes = ParseUint32(value);
-  } else if (name == "memtable_prefix_bloom_huge_page_tlb_size") {
-    new_options->memtable_prefix_bloom_huge_page_tlb_size =
-      ParseSizeT(value);
-  } else if (name == "max_successive_merges") {
-    new_options->max_successive_merges = ParseSizeT(value);
-  } else if (name == "filter_deletes") {
-    new_options->filter_deletes = ParseBoolean(name, value);
-  } else if (name == "max_write_buffer_number") {
-    new_options->max_write_buffer_number = ParseInt(value);
-  } else if (name == "inplace_update_num_locks") {
-    new_options->inplace_update_num_locks = ParseSizeT(value);
-  } else {
-    return false;
-  }
-  return true;
-}
-
-template<typename OptionsType>
-bool ParseCompactionOptions(const std::string& name, const std::string& value,
-                            OptionsType* new_options) {
-  if (name == "disable_auto_compactions") {
-    new_options->disable_auto_compactions = ParseBoolean(name, value);
-  } else if (name == "soft_rate_limit") {
-    // Deprecated options but still leave it here to avoid older options
-    // strings can be consumed.
-  } else if (name == "soft_pending_compaction_bytes_limit") {
-    new_options->soft_pending_compaction_bytes_limit = ParseUint64(value);
-  } else if (name == "hard_pending_compaction_bytes_limit") {
-    new_options->hard_pending_compaction_bytes_limit = ParseUint64(value);
-  } else if (name == "hard_rate_limit") {
-    // Deprecated options but still leave it here to avoid older options
-    // strings can be consumed.
-  } else if (name == "level0_file_num_compaction_trigger") {
-    new_options->level0_file_num_compaction_trigger = ParseInt(value);
-  } else if (name == "level0_slowdown_writes_trigger") {
-    new_options->level0_slowdown_writes_trigger = ParseInt(value);
-  } else if (name == "level0_stop_writes_trigger") {
-    new_options->level0_stop_writes_trigger = ParseInt(value);
-  } else if (name == "max_grandparent_overlap_factor") {
-    new_options->max_grandparent_overlap_factor = ParseInt(value);
-  } else if (name == "expanded_compaction_factor") {
-    new_options->expanded_compaction_factor = ParseInt(value);
-  } else if (name == "source_compaction_factor") {
-    new_options->source_compaction_factor = ParseInt(value);
-  } else if (name == "target_file_size_base") {
-    new_options->target_file_size_base = ParseInt(value);
-  } else if (name == "target_file_size_multiplier") {
-    new_options->target_file_size_multiplier = ParseInt(value);
-  } else if (name == "max_bytes_for_level_base") {
-    new_options->max_bytes_for_level_base = ParseUint64(value);
-  } else if (name == "max_bytes_for_level_multiplier") {
-    new_options->max_bytes_for_level_multiplier = ParseInt(value);
-  } else if (name == "max_bytes_for_level_multiplier_additional") {
-    new_options->max_bytes_for_level_multiplier_additional.clear();
-    size_t start = 0;
-    while (true) {
-      size_t end = value.find(':', start);
-      if (end == std::string::npos) {
-        new_options->max_bytes_for_level_multiplier_additional.push_back(
-            ParseInt(value.substr(start)));
-        break;
-      } else {
-        new_options->max_bytes_for_level_multiplier_additional.push_back(
-            ParseInt(value.substr(start, end - start)));
-        start = end + 1;
-      }
-    }
-  } else if (name == "verify_checksums_in_compaction") {
-    new_options->verify_checksums_in_compaction = ParseBoolean(name, value);
-  } else {
-    return false;
-  }
-  return true;
-}
-
-template<typename OptionsType>
-bool ParseMiscOptions(const std::string& name, const std::string& value,
-                      OptionsType* new_options) {
-  if (name == "max_sequential_skip_in_iterations") {
-    new_options->max_sequential_skip_in_iterations = ParseUint64(value);
-  } else if (name == "paranoid_file_checks") {
-    new_options->paranoid_file_checks = ParseBoolean(name, value);
-  } else {
-    return false;
-  }
-  return true;
-}
-
 Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -636,15 +737,52 @@ Status GetMutableOptionsFromStrings(
   *new_options = base_options;
   for (const auto& o : options_map) {
     try {
-      if (ParseMemtableOptions(o.first, o.second, new_options)) {
-      } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
-      } else if (ParseMiscOptions(o.first, o.second, new_options)) {
-      } else {
-        return Status::InvalidArgument(
-            "unsupported dynamic option: " + o.first);
+      auto iter = cf_options_type_info.find(o.first);
+      if (iter == cf_options_type_info.end()) {
+        return Status::InvalidArgument("Unrecognized option: " + o.first);
+      }
+      const auto& opt_info = iter->second;
+      if (!opt_info.is_mutable) {
+        return Status::InvalidArgument("Option not changeable: " + o.first);
+      }
+      bool is_ok = ParseOptionHelper(
+          reinterpret_cast<char*>(new_options) + opt_info.mutable_offset,
+          opt_info.type, o.second);
+      if (!is_ok) {
+        return Status::InvalidArgument("Error parsing " + o.first);
       }
     } catch (std::exception& e) {
-      return Status::InvalidArgument("error parsing " + o.first + ":" +
+      return Status::InvalidArgument("Error parsing " + o.first + ":" +
+                                     std::string(e.what()));
+    }
+  }
+  return Status::OK();
+}
+
+Status GetMutableDBOptionsFromStrings(
+    const MutableDBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableDBOptions* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+  for (const auto& o : options_map) {
+    try {
+      auto iter = db_options_type_info.find(o.first);
+      if (iter == db_options_type_info.end()) {
+        return Status::InvalidArgument("Unrecognized option: " + o.first);
+      }
+      const auto& opt_info = iter->second;
+      if (!opt_info.is_mutable) {
+        return Status::InvalidArgument("Option not changeable: " + o.first);
+      }
+      bool is_ok = ParseOptionHelper(
+          reinterpret_cast<char*>(new_options) + opt_info.mutable_offset,
+          opt_info.type, o.second);
+      if (!is_ok) {
+        return Status::InvalidArgument("Error parsing " + o.first);
+      }
+    } catch (std::exception& e) {
+      return Status::InvalidArgument("Error parsing " + o.first + ":" +
                                      std::string(e.what()));
     }
   }
@@ -734,22 +872,7 @@ Status ParseColumnFamilyOption(const std::string& name,
   const std::string& value =
       input_strings_escaped ? UnescapeOptionString(org_value) : org_value;
   try {
-    if (name == "max_bytes_for_level_multiplier_additional") {
-      new_options->max_bytes_for_level_multiplier_additional.clear();
-      size_t start = 0;
-      while (true) {
-        size_t end = value.find(':', start);
-        if (end == std::string::npos) {
-          new_options->max_bytes_for_level_multiplier_additional.push_back(
-              ParseInt(value.substr(start)));
-          break;
-        } else {
-          new_options->max_bytes_for_level_multiplier_additional.push_back(
-              ParseInt(value.substr(start, end - start)));
-          start = end + 1;
-        }
-      }
-    } else if (name == "block_based_table_factory") {
+    if (name == "block_based_table_factory") {
       // Nested options
       BlockBasedTableOptions table_opt, base_table_options;
       auto block_based_table_factory = dynamic_cast<BlockBasedTableFactory*>(
@@ -833,7 +956,8 @@ Status ParseColumnFamilyOption(const std::string& name,
             "Unable to parse the specified CF option " + name);
       }
       const auto& opt_info = iter->second;
-      if (ParseOptionHelper(
+      if (opt_info.verification != OptionVerificationType::kDeprecated &&
+          ParseOptionHelper(
               reinterpret_cast<char*>(new_options) + opt_info.offset,
               opt_info.type, value)) {
         return Status::OK();
@@ -945,6 +1069,17 @@ Status GetStringFromColumnFamilyOptions(std::string* opt_string,
   return Status::OK();
 }
 
+Status GetStringFromCompressionType(std::string* compression_str,
+                                    CompressionType compression_type) {
+  bool ok = SerializeEnum<CompressionType>(compression_type_string_map,
+                                           compression_type, compression_str);
+  if (ok) {
+    return Status::OK();
+  } else {
+    return Status::InvalidArgument("Invalid compression types");
+  }
+}
+
 bool SerializeSingleBlockBasedTableOption(
     std::string* opt_string, const BlockBasedTableOptions& bbt_options,
     const std::string& name, const std::string& delimiter) {
@@ -1014,7 +1149,8 @@ Status ParseDBOption(const std::string& name,
         return Status::InvalidArgument("Unrecognized option DBOptions:", name);
       }
       const auto& opt_info = iter->second;
-      if (ParseOptionHelper(
+      if (opt_info.verification != OptionVerificationType::kDeprecated &&
+          ParseOptionHelper(
               reinterpret_cast<char*>(new_options) + opt_info.offset,
               opt_info.type, value)) {
         return Status::OK();
@@ -1122,6 +1258,8 @@ Status GetBlockBasedTableOptionsFromMap(
            iter->second.verification !=
                OptionVerificationType::kByNameAllowNull &&
            iter->second.verification != OptionVerificationType::kDeprecated)) {
+        // Restore "new_options" to the default "base_options".
+        *new_table_options = table_options;
         return Status::InvalidArgument("Can't parse BlockBasedTableOptions:",
                                        o.first + " " + error_message);
       }
@@ -1162,6 +1300,8 @@ Status GetPlainTableOptionsFromMap(
            iter->second.verification !=
                OptionVerificationType::kByNameAllowNull &&
            iter->second.verification != OptionVerificationType::kDeprecated)) {
+        // Restore "new_options" to the default "base_options".
+        *new_table_options = table_options;
         return Status::InvalidArgument("Can't parse PlainTableOptions:",
                                         o.first + " " + error_message);
       }
@@ -1286,6 +1426,8 @@ Status GetColumnFamilyOptionsFromMapInternal(
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
       } else {
+        // Restore "new_options" to the default "base_options".
+        *new_options = base_options;
         return s;
       }
     }
@@ -1300,6 +1442,7 @@ Status GetColumnFamilyOptionsFromString(
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
+    *new_options = base_options;
     return s;
   }
   return GetColumnFamilyOptionsFromMap(base_options, opts_map, new_options);
@@ -1338,6 +1481,8 @@ Status GetDBOptionsFromMapInternal(
         // the backward compatibility in the old public API defined in
         // rocksdb/convenience.h
       } else {
+        // Restore "new_options" to the default "base_options".
+        *new_options = base_options;
         return s;
       }
     }
@@ -1352,6 +1497,7 @@ Status GetDBOptionsFromString(
   std::unordered_map<std::string, std::string> opts_map;
   Status s = StringToMap(opts_str, &opts_map);
   if (!s.ok()) {
+    *new_options = base_options;
     return s;
   }
   return GetDBOptionsFromMap(base_options, opts_map, new_options);
@@ -1408,69 +1554,6 @@ Status GetTableFactoryFromMap(
   return Status::OK();
 }
 
-ColumnFamilyOptions BuildColumnFamilyOptions(
-    const Options& options, const MutableCFOptions& mutable_cf_options) {
-  ColumnFamilyOptions cf_opts(options);
-
-  // Memtable related options
-  cf_opts.write_buffer_size = mutable_cf_options.write_buffer_size;
-  cf_opts.max_write_buffer_number = mutable_cf_options.max_write_buffer_number;
-  cf_opts.arena_block_size = mutable_cf_options.arena_block_size;
-  cf_opts.memtable_prefix_bloom_bits =
-      mutable_cf_options.memtable_prefix_bloom_bits;
-  cf_opts.memtable_prefix_bloom_probes =
-      mutable_cf_options.memtable_prefix_bloom_probes;
-  cf_opts.memtable_prefix_bloom_huge_page_tlb_size =
-      mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size;
-  cf_opts.max_successive_merges = mutable_cf_options.max_successive_merges;
-  cf_opts.filter_deletes = mutable_cf_options.filter_deletes;
-  cf_opts.inplace_update_num_locks =
-      mutable_cf_options.inplace_update_num_locks;
-
-  // Compaction related options
-  cf_opts.disable_auto_compactions =
-      mutable_cf_options.disable_auto_compactions;
-  cf_opts.level0_file_num_compaction_trigger =
-      mutable_cf_options.level0_file_num_compaction_trigger;
-  cf_opts.level0_slowdown_writes_trigger =
-      mutable_cf_options.level0_slowdown_writes_trigger;
-  cf_opts.level0_stop_writes_trigger =
-      mutable_cf_options.level0_stop_writes_trigger;
-  cf_opts.max_grandparent_overlap_factor =
-      mutable_cf_options.max_grandparent_overlap_factor;
-  cf_opts.expanded_compaction_factor =
-      mutable_cf_options.expanded_compaction_factor;
-  cf_opts.source_compaction_factor =
-      mutable_cf_options.source_compaction_factor;
-  cf_opts.target_file_size_base = mutable_cf_options.target_file_size_base;
-  cf_opts.target_file_size_multiplier =
-      mutable_cf_options.target_file_size_multiplier;
-  cf_opts.max_bytes_for_level_base =
-      mutable_cf_options.max_bytes_for_level_base;
-  cf_opts.max_bytes_for_level_multiplier =
-      mutable_cf_options.max_bytes_for_level_multiplier;
-
-  cf_opts.max_bytes_for_level_multiplier_additional.clear();
-  for (auto value :
-       mutable_cf_options.max_bytes_for_level_multiplier_additional) {
-    cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
-  }
-
-  cf_opts.verify_checksums_in_compaction =
-      mutable_cf_options.verify_checksums_in_compaction;
-
-  // Misc options
-  cf_opts.max_sequential_skip_in_iterations =
-      mutable_cf_options.max_sequential_skip_in_iterations;
-  cf_opts.paranoid_file_checks = mutable_cf_options.paranoid_file_checks;
-  cf_opts.report_bg_io_stats = mutable_cf_options.report_bg_io_stats;
-
-  cf_opts.table_factory = options.table_factory;
-  // TODO(yhchiang): find some way to handle the following derived options
-  // * max_file_size
-
-  return cf_opts;
-}
-
 #endif  // !ROCKSDB_LITE
+
 }  // namespace rocksdb

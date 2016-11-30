@@ -228,6 +228,9 @@ DEFINE_int32(set_in_place_one_in, 0,
 DEFINE_int64(cache_size, 2LL * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
+DEFINE_bool(use_clock_cache, false,
+            "Replace default LRU block cache with clock cache.");
+
 DEFINE_uint64(subcompactions, 1,
               "Maximum number of subcompactions to divide L0-L1 compactions "
               "into.");
@@ -300,8 +303,8 @@ DEFINE_int32(target_file_size_multiplier, 1,
 
 DEFINE_uint64(max_bytes_for_level_base, 256 * KB, "Max bytes for level-1");
 
-DEFINE_int32(max_bytes_for_level_multiplier, 2,
-             "A multiplier to compute max bytes for level-N (N >= 2)");
+DEFINE_double(max_bytes_for_level_multiplier, 2,
+              "A multiplier to compute max bytes for level-N (N >= 2)");
 
 // Temporarily disable this to allows it to detect new bugs
 DEFINE_int32(compact_files_one_in, 0,
@@ -372,7 +375,7 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   else if (!strcasecmp(ctype, "xpress"))
     return rocksdb::kXpressCompression;
   else if (!strcasecmp(ctype, "zstd"))
-    return rocksdb::kZSTDNotFinalCompression;
+    return rocksdb::kZSTD;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
@@ -410,9 +413,6 @@ static const bool FLAGS_ops_per_thread_dummy __attribute__((unused)) =
 DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
 static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
-
-DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
-            " the delete if key not present");
 
 DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 
@@ -456,6 +456,9 @@ static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
 DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
             "that behaves like a Put");
 
+DEFINE_bool(use_full_merge_v1, false,
+            "On true, use a merge operator that implement the deprecated "
+            "version of FullMerge");
 
 namespace rocksdb {
 
@@ -920,11 +923,13 @@ class DbStressListener : public EventListener {
     assert(info.db_name == db_name_);
     assert(IsValidColumnFamilyName(info.cf_name));
     VerifyFilePath(info.file_path);
-    assert(info.file_size > 0);
     assert(info.job_id > 0 || FLAGS_compact_files_one_in > 0);
-    assert(info.table_properties.data_size > 0);
-    assert(info.table_properties.raw_key_size > 0);
-    assert(info.table_properties.num_entries > 0);
+    if (info.status.ok()) {
+      assert(info.file_size > 0);
+      assert(info.table_properties.data_size > 0);
+      assert(info.table_properties.raw_key_size > 0);
+      assert(info.table_properties.num_entries > 0);
+    }
   }
 
  protected:
@@ -991,15 +996,13 @@ class DbStressListener : public EventListener {
 class StressTest {
  public:
   StressTest()
-      : cache_(NewLRUCache(FLAGS_cache_size)),
-        compressed_cache_(FLAGS_compressed_cache_size >= 0
-                              ? NewLRUCache(FLAGS_compressed_cache_size)
-                              : nullptr),
+      : cache_(NewCache(FLAGS_cache_size)),
+        compressed_cache_(NewLRUCache(FLAGS_compressed_cache_size)),
         filter_policy_(FLAGS_bloom_bits >= 0
-                   ? FLAGS_use_block_based_filter
-                     ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
-                     : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
-                   : nullptr),
+                           ? FLAGS_use_block_based_filter
+                                 ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
+                                 : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
+                           : nullptr),
         db_(nullptr),
         new_column_family_name_(1),
         num_times_reopened_(0) {
@@ -1021,6 +1024,22 @@ class StressTest {
     }
     column_families_.clear();
     delete db_;
+  }
+
+  std::shared_ptr<Cache> NewCache(size_t capacity) {
+    if (capacity <= 0) {
+      return nullptr;
+    }
+    if (FLAGS_use_clock_cache) {
+      auto cache = NewClockCache((size_t)capacity);
+      if (!cache) {
+        fprintf(stderr, "Clock cache not supported.");
+        exit(1);
+      }
+      return cache;
+    } else {
+      return NewLRUCache((size_t)capacity);
+    }
   }
 
   bool BuildOptionsTable() {
@@ -1045,10 +1064,8 @@ class StressTest {
          }},
         {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
         {"memtable_prefix_bloom_probes", {"4", "5", "6"}},
-        {"memtable_prefix_bloom_huge_page_tlb_size",
-         {"0", ToString(2 * 1024 * 1024)}},
+        {"memtable_huge_page_size", {"0", ToString(2 * 1024 * 1024)}},
         {"max_successive_merges", {"0", "2", "4"}},
-        {"filter_deletes", {"0", "1"}},
         {"inplace_update_num_locks", {"100", "200", "300"}},
         // TODO(ljin): enable test for this option
         // {"disable_auto_compactions", {"100", "200", "300"}},
@@ -1072,23 +1089,11 @@ class StressTest {
              ToString(FLAGS_level0_stop_writes_trigger + 2),
              ToString(FLAGS_level0_stop_writes_trigger + 4),
          }},
-        {"max_grandparent_overlap_factor",
+        {"max_compaction_bytes",
          {
-             ToString(Options().max_grandparent_overlap_factor - 5),
-             ToString(Options().max_grandparent_overlap_factor),
-             ToString(Options().max_grandparent_overlap_factor + 5),
-         }},
-        {"expanded_compaction_factor",
-         {
-             ToString(Options().expanded_compaction_factor - 5),
-             ToString(Options().expanded_compaction_factor),
-             ToString(Options().expanded_compaction_factor + 5),
-         }},
-        {"source_compaction_factor",
-         {
-             ToString(Options().source_compaction_factor),
-             ToString(Options().source_compaction_factor * 2),
-             ToString(Options().source_compaction_factor * 4),
+             ToString(FLAGS_target_file_size_base * 5),
+             ToString(FLAGS_target_file_size_base * 15),
+             ToString(FLAGS_target_file_size_base * 100),
          }},
         {"target_file_size_base",
          {
@@ -1998,7 +2003,6 @@ class StressTest {
     fprintf(stdout, "Num times DB reopens      : %d\n", FLAGS_reopen);
     fprintf(stdout, "Batches/snapshots         : %d\n",
             FLAGS_test_batches_snapshots);
-    fprintf(stdout, "Deletes use filter        : %d\n", FLAGS_filter_deletes);
     fprintf(stdout, "Do update in place        : %d\n", FLAGS_in_place_update);
     fprintf(stdout, "Num keys per lock         : %d\n",
             1 << FLAGS_log2_keys_per_lock);
@@ -2074,7 +2078,6 @@ class StressTest {
     options_.compression = FLAGS_compression_type_e;
     options_.create_if_missing = true;
     options_.max_manifest_file_size = 10 * 1024;
-    options_.filter_deletes = FLAGS_filter_deletes;
     options_.inplace_update_support = FLAGS_in_place_update;
     options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options_.allow_concurrent_memtable_write =
@@ -2111,7 +2114,9 @@ class StressTest {
 #endif  // ROCKSDB_LITE
     }
 
-    if (FLAGS_use_merge) {
+    if (FLAGS_use_full_merge_v1) {
+      options_.merge_operator = MergeOperators::CreateDeprecatedPutOperator();
+    } else {
       options_.merge_operator = MergeOperators::CreatePutOperator();
     }
 
@@ -2152,8 +2157,9 @@ class StressTest {
         // this is a reopen. just assert that existing column_family_names are
         // equivalent to what we remember
         auto sorted_cfn = column_family_names_;
-        sort(sorted_cfn.begin(), sorted_cfn.end());
-        sort(existing_column_families.begin(), existing_column_families.end());
+        std::sort(sorted_cfn.begin(), sorted_cfn.end());
+        std::sort(existing_column_families.begin(),
+                  existing_column_families.end());
         if (sorted_cfn != existing_column_families) {
           fprintf(stderr,
                   "Expected column families differ from the existing:\n");

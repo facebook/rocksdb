@@ -201,6 +201,7 @@ TEST_F(DynamicBloomTest, perf) {
     }
     ASSERT_EQ(count, num_keys);
     elapsed = timer.ElapsedNanos();
+    assert(count > 0);
     fprintf(stderr, "standard bloom, avg query latency %" PRIu64 "\n",
             elapsed / count);
 
@@ -227,6 +228,7 @@ TEST_F(DynamicBloomTest, perf) {
     }
 
     elapsed = timer.ElapsedNanos();
+    assert(count > 0);
     fprintf(stderr,
             "blocked bloom(enable locality), avg query latency %" PRIu64 "\n",
             elapsed / count);

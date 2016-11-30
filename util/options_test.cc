@@ -38,53 +38,7 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 namespace rocksdb {
 
-Options PrintAndGetOptions(size_t total_write_buffer_limit,
-                           int read_amplification_threshold,
-                           int write_amplification_threshold,
-                           uint64_t target_db_size = 68719476736) {
-  StderrLogger logger;
-
-  if (FLAGS_enable_print) {
-    printf("---- total_write_buffer_limit: %" ROCKSDB_PRIszt
-           " "
-           "read_amplification_threshold: %d write_amplification_threshold: %d "
-           "target_db_size %" PRIu64 " ----\n",
-           total_write_buffer_limit, read_amplification_threshold,
-           write_amplification_threshold, target_db_size);
-  }
-
-  Options options =
-      GetOptions(total_write_buffer_limit, read_amplification_threshold,
-                 write_amplification_threshold, target_db_size);
-  if (FLAGS_enable_print) {
-    options.Dump(&logger);
-    printf("-------------------------------------\n\n\n");
-  }
-  return options;
-}
-
 class OptionsTest : public testing::Test {};
-
-TEST_F(OptionsTest, LooseCondition) {
-  Options options;
-  PrintAndGetOptions(static_cast<size_t>(10) * 1024 * 1024 * 1024, 100, 100);
-
-  // Less mem table memory budget
-  PrintAndGetOptions(32 * 1024 * 1024, 100, 100);
-
-  // Tight read amplification
-  options = PrintAndGetOptions(128 * 1024 * 1024, 8, 100);
-  ASSERT_EQ(options.compaction_style, kCompactionStyleLevel);
-
-#ifndef ROCKSDB_LITE  // Universal compaction is not supported in ROCKSDB_LITE
-  // Tight write amplification
-  options = PrintAndGetOptions(128 * 1024 * 1024, 64, 10);
-  ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
-#endif  // !ROCKSDB_LITE
-
-  // Both tight amplifications
-  PrintAndGetOptions(128 * 1024 * 1024, 4, 8);
-}
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST_F(OptionsTest, GetOptionsFromMapTest) {
@@ -102,6 +56,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
        "kLZ4Compression:"
        "kLZ4HCCompression:"
        "kXpressCompression:"
+       "kZSTD:"
        "kZSTDNotFinalCompression"},
       {"bottommost_compression", "kLZ4Compression"},
       {"compression_opts", "4:5:6:7"},
@@ -113,11 +68,9 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"target_file_size_multiplier", "13"},
       {"max_bytes_for_level_base", "14"},
       {"level_compaction_dynamic_level_bytes", "true"},
-      {"max_bytes_for_level_multiplier", "15"},
+      {"max_bytes_for_level_multiplier", "15.0"},
       {"max_bytes_for_level_multiplier_additional", "16:17:18"},
-      {"expanded_compaction_factor", "19"},
-      {"source_compaction_factor", "20"},
-      {"max_grandparent_overlap_factor", "21"},
+      {"max_compaction_bytes", "21"},
       {"soft_rate_limit", "1.1"},
       {"hard_rate_limit", "2.1"},
       {"hard_pending_compaction_bytes_limit", "211"},
@@ -126,15 +79,13 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"compaction_style", "kCompactionStyleLevel"},
       {"verify_checksums_in_compaction", "false"},
       {"compaction_options_fifo", "23"},
-      {"filter_deletes", "0"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
       {"report_bg_io_stats", "true"},
       {"compaction_measure_io_stats", "false"},
       {"inplace_update_num_locks", "25"},
-      {"memtable_prefix_bloom_bits", "26"},
-      {"memtable_prefix_bloom_probes", "27"},
-      {"memtable_prefix_bloom_huge_page_tlb_size", "28"},
+      {"memtable_prefix_bloom_size_ratio", "0.26"},
+      {"memtable_huge_page_size", "28"},
       {"bloom_locality", "29"},
       {"max_successive_merges", "30"},
       {"min_partial_merge_operands", "31"},
@@ -190,7 +141,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number_to_maintain, 99);
   ASSERT_EQ(new_cf_opt.compression, kSnappyCompression);
-  ASSERT_EQ(new_cf_opt.compression_per_level.size(), 8U);
+  ASSERT_EQ(new_cf_opt.compression_per_level.size(), 9U);
   ASSERT_EQ(new_cf_opt.compression_per_level[0], kNoCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[1], kSnappyCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[2], kZlibCompression);
@@ -198,7 +149,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.compression_per_level[4], kLZ4Compression);
   ASSERT_EQ(new_cf_opt.compression_per_level[5], kLZ4HCCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[6], kXpressCompression);
-  ASSERT_EQ(new_cf_opt.compression_per_level[7], kZSTDNotFinalCompression);
+  ASSERT_EQ(new_cf_opt.compression_per_level[7], kZSTD);
+  ASSERT_EQ(new_cf_opt.compression_per_level[8], kZSTDNotFinalCompression);
   ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
   ASSERT_EQ(new_cf_opt.compression_opts.level, 5);
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);
@@ -212,15 +164,12 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
   ASSERT_EQ(new_cf_opt.level_compaction_dynamic_level_bytes, true);
-  ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15);
+  ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15.0);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional.size(), 3U);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[0], 16);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[1], 17);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[2], 18);
-  ASSERT_EQ(new_cf_opt.expanded_compaction_factor, 19);
-  ASSERT_EQ(new_cf_opt.source_compaction_factor, 20);
-  ASSERT_EQ(new_cf_opt.max_grandparent_overlap_factor, 21);
-  ASSERT_EQ(new_cf_opt.soft_rate_limit, 1.1);
+  ASSERT_EQ(new_cf_opt.max_compaction_bytes, 21);
   ASSERT_EQ(new_cf_opt.hard_pending_compaction_bytes_limit, 211);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);
@@ -228,14 +177,12 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.verify_checksums_in_compaction, false);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
             static_cast<uint64_t>(23));
-  ASSERT_EQ(new_cf_opt.filter_deletes, false);
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
             static_cast<uint64_t>(24));
   ASSERT_EQ(new_cf_opt.inplace_update_support, true);
   ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 25U);
-  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_bits, 26U);
-  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_probes, 27U);
-  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_huge_page_tlb_size, 28U);
+  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_size_ratio, 0.26);
+  ASSERT_EQ(new_cf_opt.memtable_huge_page_size, 28U);
   ASSERT_EQ(new_cf_opt.bloom_locality, 29U);
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
   ASSERT_EQ(new_cf_opt.min_partial_merge_operands, 31U);
@@ -247,12 +194,16 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
              base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   cf_options_map["write_buffer_size"] = "1";
   ASSERT_OK(GetColumnFamilyOptionsFromMap(
             base_cf_opt, cf_options_map, &new_cf_opt));
   cf_options_map["unknown_option"] = "1";
+
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(
              base_cf_opt, cf_options_map, &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
 
   DBOptions base_db_opt;
   DBOptions new_db_opt;
@@ -330,15 +281,22 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13;max_write_buffer_number_=14;",
               &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Wrong key/value pair
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13;max_write_buffer_number;", &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Error Paring value
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13;max_write_buffer_number=;", &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Missing option name
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13; =100;", &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
 
   const int64_t kilo = 1024UL;
   const int64_t mega = 1024 * kilo;
@@ -346,11 +304,9 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   const int64_t tera = 1024 * giga;
 
   // Units (k)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "memtable_prefix_bloom_bits=14k;max_write_buffer_number=-15K",
-            &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_bits, 14UL * kilo);
-  ASSERT_EQ(new_cf_opt.max_write_buffer_number, -15 * kilo);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt, "max_write_buffer_number=15K", &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.max_write_buffer_number, 15 * kilo);
   // Units (m)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "max_write_buffer_number=16m;inplace_update_num_locks=17M",
@@ -402,35 +358,47 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
              "block_based_table_factory={{{block_size=4;};"
              "arena_block_size=1024",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Unexpected chars after closing curly brace
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={block_size=4;}};"
              "arena_block_size=1024",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={block_size=4;}xdfa;"
              "arena_block_size=1024",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={block_size=4;}xdfa",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   // Invalid block based table option
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={xx_block_size=4;}",
              &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
+
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
            "optimize_filters_for_hits=true",
            &new_cf_opt));
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "optimize_filters_for_hits=false",
             &new_cf_opt));
+
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
               "optimize_filters_for_hits=junk",
               &new_cf_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_cf_opt, new_cf_opt));
 
   // Nested plain table options
   // Emtpy
@@ -492,27 +460,43 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
              "cache_index_and_filter_blocks=1;index_type=kBinarySearch;"
              "bad_option=1",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized index type
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
              "cache_index_and_filter_blocks=1;index_type=kBinarySearchXX",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized checksum type
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
              "cache_index_and_filter_blocks=1;checksum=kxxHashXX",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.index_type, new_opt.index_type);
 
   // unrecognized filter policy name
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
              "cache_index_and_filter_blocks=1;"
              "filter_policy=bloomfilterxx:4:true",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
+
   // unrecognized filter policy config
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,
              "cache_index_and_filter_blocks=1;"
              "filter_policy=bloomfilter:4",
              &new_opt));
+  ASSERT_EQ(table_opt.cache_index_and_filter_blocks,
+            new_opt.cache_index_and_filter_blocks);
+  ASSERT_EQ(table_opt.filter_policy, new_opt.filter_policy);
 }
 #endif  // !ROCKSDB_LITE
 
@@ -835,6 +819,28 @@ TEST_F(OptionsTest, StringToMapRandomTest) {
     ASSERT_TRUE(s.ok() || s.IsInvalidArgument());
     opts_map.clear();
   }
+}
+
+TEST_F(OptionsTest, GetStringFromCompressionType) {
+  std::string res;
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kNoCompression));
+  ASSERT_EQ(res, "kNoCompression");
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kSnappyCompression));
+  ASSERT_EQ(res, "kSnappyCompression");
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kDisableCompressionOption));
+  ASSERT_EQ(res, "kDisableCompressionOption");
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kLZ4Compression));
+  ASSERT_EQ(res, "kLZ4Compression");
+
+  ASSERT_OK(GetStringFromCompressionType(&res, kZlibCompression));
+  ASSERT_EQ(res, "kZlibCompression");
+
+  ASSERT_NOK(
+      GetStringFromCompressionType(&res, static_cast<CompressionType>(-10)));
 }
 #endif  // !ROCKSDB_LITE
 

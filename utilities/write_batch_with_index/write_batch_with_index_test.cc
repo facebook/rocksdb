@@ -29,7 +29,7 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
         id_(id),
         comparator_(comparator) {}
   uint32_t GetID() const override { return id_; }
-  const Comparator* user_comparator() const override { return comparator_; }
+  const Comparator* GetComparator() const override { return comparator_; }
 
  private:
   uint32_t id_;
@@ -515,6 +515,10 @@ class KVIter : public Iterator {
     }
   }
   virtual void Seek(const Slice& k) { iter_ = map_->lower_bound(k.ToString()); }
+  virtual void SeekForPrev(const Slice& k) {
+    iter_ = map_->upper_bound(k.ToString());
+    Prev();
+  }
   virtual void Next() { ++iter_; }
   virtual void Prev() {
     if (iter_ == map_->begin()) {

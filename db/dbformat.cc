@@ -20,9 +20,18 @@
 
 namespace rocksdb {
 
+// kValueTypeForSeek defines the ValueType that should be passed when
+// constructing a ParsedInternalKey object for seeking to a particular
+// sequence number (since we sort sequence numbers in decreasing order
+// and the value type is embedded as the low 8 bits in the sequence
+// number in internal keys, we need to use the highest-numbered
+// ValueType, not the lowest).
+const ValueType kValueTypeForSeek = kTypeSingleDeletion;
+const ValueType kValueTypeForSeekForPrev = kTypeDeletion;
+
 uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   assert(seq <= kMaxSequenceNumber);
-  assert(IsValueType(t));
+  assert(IsExtendedValueType(t));
   return (seq << 8) | t;
 }
 
@@ -31,7 +40,7 @@ void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
   *t = static_cast<ValueType>(packed & 0xff);
 
   assert(*seq <= kMaxSequenceNumber);
-  assert(IsValueType(*t));
+  assert(IsExtendedValueType(*t));
 }
 
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {

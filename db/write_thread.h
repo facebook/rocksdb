@@ -79,6 +79,7 @@ class WriteThread {
   struct Writer {
     WriteBatch* batch;
     bool sync;
+    bool no_slowdown;
     bool disableWAL;
     bool disable_memtable;
     uint64_t log_used;  // log number that this batch was inserted into
@@ -99,6 +100,7 @@ class WriteThread {
     Writer()
         : batch(nullptr),
           sync(false),
+          no_slowdown(false),
           disableWAL(false),
           disable_memtable(false),
           log_used(0),
@@ -193,7 +195,7 @@ class WriteThread {
   // writer.  If w has become the leader of a write batch group, returns
   // STATE_GROUP_LEADER.  If w has been made part of a sequential batch
   // group and the leader has performed the write, returns STATE_DONE.
-  // If w has been made part of a parallel batch group and is reponsible
+  // If w has been made part of a parallel batch group and is responsible
   // for updating the memtable, returns STATE_PARALLEL_FOLLOWER.
   //
   // The db mutex SHOULD NOT be held when calling this function, because

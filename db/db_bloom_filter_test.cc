@@ -20,15 +20,29 @@ class DBBloomFilterTest : public DBTestBase {
   DBBloomFilterTest() : DBTestBase("/db_bloom_filter_test") {}
 };
 
+class DBBloomFilterTestWithParam : public DBTestBase,
+                                   public testing::WithParamInterface<bool> {
+ protected:
+  bool use_block_based_filter_;
+
+ public:
+  DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
+
+  ~DBBloomFilterTestWithParam() {}
+
+  void SetUp() override { use_block_based_filter_ = GetParam(); }
+};
+
 // KeyMayExist can lead to a few false positives, but not false negatives.
 // To make test deterministic, use a much larger number of bits per key-20 than
 // bits in the key, so that false positives are eliminated
-TEST_F(DBBloomFilterTest, KeyMayExist) {
+TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
   do {
     ReadOptions ropts;
     std::string value;
     anon::OptionsOverride options_override;
-    options_override.filter_policy.reset(NewBloomFilterPolicy(20));
+    options_override.filter_policy.reset(
+        NewBloomFilterPolicy(20, use_block_based_filter_));
     Options options = CurrentOptions(options_override);
     options.statistics = rocksdb::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -85,45 +99,6 @@ TEST_F(DBBloomFilterTest, KeyMayExist) {
     // by plain table format.
   } while (
       ChangeOptions(kSkipPlainTable | kSkipHashIndex | kSkipFIFOCompaction));
-}
-
-// A delete is skipped for key if KeyMayExist(key) returns False
-// Tests Writebatch consistency and proper delete behaviour
-TEST_F(DBBloomFilterTest, FilterDeletes) {
-  do {
-    anon::OptionsOverride options_override;
-    options_override.filter_policy.reset(NewBloomFilterPolicy(20));
-    Options options = CurrentOptions(options_override);
-    options.filter_deletes = true;
-    CreateAndReopenWithCF({"pikachu"}, options);
-    WriteBatch batch;
-
-    batch.Delete(handles_[1], "a");
-    dbfull()->Write(WriteOptions(), &batch);
-    ASSERT_EQ(AllEntriesFor("a", 1), "[ ]");  // Delete skipped
-    batch.Clear();
-
-    batch.Put(handles_[1], "a", "b");
-    batch.Delete(handles_[1], "a");
-    dbfull()->Write(WriteOptions(), &batch);
-    ASSERT_EQ(Get(1, "a"), "NOT_FOUND");
-    ASSERT_EQ(AllEntriesFor("a", 1), "[ DEL, b ]");  // Delete issued
-    batch.Clear();
-
-    batch.Delete(handles_[1], "c");
-    batch.Put(handles_[1], "c", "d");
-    dbfull()->Write(WriteOptions(), &batch);
-    ASSERT_EQ(Get(1, "c"), "d");
-    ASSERT_EQ(AllEntriesFor("c", 1), "[ d ]");  // Delete skipped
-    batch.Clear();
-
-    ASSERT_OK(Flush(1));  // A stray Flush
-
-    batch.Delete(handles_[1], "c");
-    dbfull()->Write(WriteOptions(), &batch);
-    ASSERT_EQ(AllEntriesFor("c", 1), "[ DEL, d ]");  // Delete issued
-    batch.Clear();
-  } while (ChangeCompactOptions());
 }
 
 TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
@@ -315,7 +290,7 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
 }
 
-TEST_F(DBBloomFilterTest, BloomFilter) {
+TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
   do {
     Options options = CurrentOptions();
     env_->count_random_reads_ = true;
@@ -324,7 +299,8 @@ TEST_F(DBBloomFilterTest, BloomFilter) {
     // trigger reset of table_factory
     BlockBasedTableOptions table_options;
     table_options.no_block_cache = true;
-    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+    table_options.filter_policy.reset(
+        NewBloomFilterPolicy(10, use_block_based_filter_));
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -366,6 +342,9 @@ TEST_F(DBBloomFilterTest, BloomFilter) {
     Close();
   } while (ChangeCompactOptions());
 }
+
+INSTANTIATE_TEST_CASE_P(DBBloomFilterTestWithParam, DBBloomFilterTestWithParam,
+                        ::testing::Bool());
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
@@ -615,7 +594,8 @@ class BloomStatsTestWithParam
 
     options_.create_if_missing = true;
     options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
-    options_.memtable_prefix_bloom_bits = 8 * 1024;
+    options_.memtable_prefix_bloom_size_ratio =
+        8.0 * 1024.0 / static_cast<double>(options_.write_buffer_size);
     if (use_block_table_) {
       BlockBasedTableOptions table_options;
       table_options.hash_index_allow_collision = false;
@@ -684,13 +664,10 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTest) {
   ASSERT_EQ(0, perf_context.bloom_sst_miss_count);
 
   // check SST bloom stats
-  // NOTE: hits per get differs because of code paths differences
-  // in BlockBasedTable::Get()
-  int hits_per_get = use_block_table_ && !use_block_based_builder_ ? 2 : 1;
   ASSERT_EQ(value1, Get(key1));
-  ASSERT_EQ(hits_per_get, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
   ASSERT_EQ(value3, Get(key3));
-  ASSERT_EQ(2 * hits_per_get, perf_context.bloom_sst_hit_count);
+  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
 
   ASSERT_EQ("NOT_FOUND", Get(key2));
   ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
@@ -833,6 +810,7 @@ TEST_F(DBBloomFilterTest, PrefixScan) {
     options.max_background_compactions = 2;
     options.create_if_missing = true;
     options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+    options.allow_concurrent_memtable_write = false;
 
     BlockBasedTableOptions table_options;
     table_options.no_block_cache = true;

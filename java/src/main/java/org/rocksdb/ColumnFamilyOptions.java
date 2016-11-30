@@ -17,7 +17,8 @@ import java.util.Properties;
  * automatically and native resources will be released as part of the process.
  */
 public class ColumnFamilyOptions extends RocksObject
-    implements ColumnFamilyOptionsInterface {
+    implements ColumnFamilyOptionsInterface,
+    MutableColumnFamilyOptionsInterface {
   static {
     RocksDB.loadLibrary();
   }
@@ -351,51 +352,25 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMaxBytesForLevelMultiplier(
-      final int multiplier) {
+  public ColumnFamilyOptions setMaxBytesForLevelMultiplier(final double multiplier) {
     setMaxBytesForLevelMultiplier(nativeHandle_, multiplier);
     return this;
   }
 
   @Override
-  public int maxBytesForLevelMultiplier() {
+  public double maxBytesForLevelMultiplier() {
     return maxBytesForLevelMultiplier(nativeHandle_);
   }
 
   @Override
-  public ColumnFamilyOptions setExpandedCompactionFactor(
-      final int expandedCompactionFactor) {
-    setExpandedCompactionFactor(nativeHandle_, expandedCompactionFactor);
+  public ColumnFamilyOptions setMaxCompactionBytes(final long maxCompactionBytes) {
+    setMaxCompactionBytes(nativeHandle_, maxCompactionBytes);
     return this;
   }
 
   @Override
-  public int expandedCompactionFactor() {
-    return expandedCompactionFactor(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setSourceCompactionFactor(
-      final int sourceCompactionFactor) {
-    setSourceCompactionFactor(nativeHandle_, sourceCompactionFactor);
-    return this;
-  }
-
-  @Override
-  public int sourceCompactionFactor() {
-    return sourceCompactionFactor(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setMaxGrandparentOverlapFactor(
-      final int maxGrandparentOverlapFactor) {
-    setMaxGrandparentOverlapFactor(nativeHandle_, maxGrandparentOverlapFactor);
-    return this;
-  }
-
-  @Override
-  public int maxGrandparentOverlapFactor() {
-    return maxGrandparentOverlapFactor(nativeHandle_);
+  public long maxCompactionBytes() {
+    return maxCompactionBytes(nativeHandle_);
   }
 
   @Override
@@ -512,18 +487,6 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setFilterDeletes(
-      final boolean filterDeletes) {
-    setFilterDeletes(nativeHandle_, filterDeletes);
-    return this;
-  }
-
-  @Override
-  public boolean filterDeletes() {
-    return filterDeletes(nativeHandle_);
-  }
-
-  @Override
   public ColumnFamilyOptions setMaxSequentialSkipInIterations(
       final long maxSequentialSkipInIterations) {
     setMaxSequentialSkipInIterations(nativeHandle_,
@@ -589,27 +552,15 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMemtablePrefixBloomBits(
-      final int memtablePrefixBloomBits) {
-    setMemtablePrefixBloomBits(nativeHandle_, memtablePrefixBloomBits);
+  public ColumnFamilyOptions setMemtablePrefixBloomSizeRatio(
+      final double memtablePrefixBloomSizeRatio) {
+    setMemtablePrefixBloomSizeRatio(nativeHandle_, memtablePrefixBloomSizeRatio);
     return this;
   }
 
   @Override
-  public int memtablePrefixBloomBits() {
-    return memtablePrefixBloomBits(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setMemtablePrefixBloomProbes(
-      final int memtablePrefixBloomProbes) {
-    setMemtablePrefixBloomProbes(nativeHandle_, memtablePrefixBloomProbes);
-    return this;
-  }
-
-  @Override
-  public int memtablePrefixBloomProbes() {
-    return memtablePrefixBloomProbes(nativeHandle_);
+  public double memtablePrefixBloomSizeRatio() {
+    return memtablePrefixBloomSizeRatio(nativeHandle_);
   }
 
   @Override
@@ -657,6 +608,98 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public boolean optimizeFiltersForHits() {
     return optimizeFiltersForHits(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions
+  setMemtableHugePageSize(
+      long memtableHugePageSize) {
+    setMemtableHugePageSize(nativeHandle_,
+        memtableHugePageSize);
+    return this;
+  }
+
+  @Override
+  public long memtableHugePageSize() {
+    return memtableHugePageSize(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setSoftPendingCompactionBytesLimit(long softPendingCompactionBytesLimit) {
+    setSoftPendingCompactionBytesLimit(nativeHandle_,
+        softPendingCompactionBytesLimit);
+    return this;
+  }
+
+  @Override
+  public long softPendingCompactionBytesLimit() {
+    return softPendingCompactionBytesLimit(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setHardPendingCompactionBytesLimit(long hardPendingCompactionBytesLimit) {
+    setHardPendingCompactionBytesLimit(nativeHandle_, hardPendingCompactionBytesLimit);
+    return this;
+  }
+
+  @Override
+  public long hardPendingCompactionBytesLimit() {
+    return hardPendingCompactionBytesLimit(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setLevel0FileNumCompactionTrigger(int level0FileNumCompactionTrigger) {
+    setLevel0FileNumCompactionTrigger(nativeHandle_, level0FileNumCompactionTrigger);
+    return this;
+  }
+
+  @Override
+  public int level0FileNumCompactionTrigger() {
+    return level0FileNumCompactionTrigger(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setLevel0SlowdownWritesTrigger(int level0SlowdownWritesTrigger) {
+    setLevel0SlowdownWritesTrigger(nativeHandle_, level0SlowdownWritesTrigger);
+    return this;
+  }
+
+  @Override
+  public int level0SlowdownWritesTrigger() {
+    return level0SlowdownWritesTrigger(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setLevel0StopWritesTrigger(int level0StopWritesTrigger) {
+    setLevel0StopWritesTrigger(nativeHandle_, level0StopWritesTrigger);
+    return this;
+  }
+
+  @Override
+  public int level0StopWritesTrigger() {
+    return level0StopWritesTrigger(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setMaxBytesForLevelMultiplierAdditional(int[] maxBytesForLevelMultiplierAdditional) {
+    setMaxBytesForLevelMultiplierAdditional(nativeHandle_, maxBytesForLevelMultiplierAdditional);
+    return this;
+  }
+
+  @Override
+  public int[] maxBytesForLevelMultiplierAdditional() {
+    return maxBytesForLevelMultiplierAdditional(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setParanoidFileChecks(boolean paranoidFileChecks) {
+    setParanoidFileChecks(nativeHandle_, paranoidFileChecks);
+    return this;
+  }
+
+  @Override
+  public boolean paranoidFileChecks() {
+    return paranoidFileChecks(nativeHandle_);
   }
 
   /**
@@ -731,18 +774,10 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, boolean enableLevelCompactionDynamicLevelBytes);
   private native boolean levelCompactionDynamicLevelBytes(
       long handle);
-  private native void setMaxBytesForLevelMultiplier(
-      long handle, int multiplier);
-  private native int maxBytesForLevelMultiplier(long handle);
-  private native void setExpandedCompactionFactor(
-      long handle, int expandedCompactionFactor);
-  private native int expandedCompactionFactor(long handle);
-  private native void setSourceCompactionFactor(
-      long handle, int sourceCompactionFactor);
-  private native int sourceCompactionFactor(long handle);
-  private native void setMaxGrandparentOverlapFactor(
-      long handle, int maxGrandparentOverlapFactor);
-  private native int maxGrandparentOverlapFactor(long handle);
+  private native void setMaxBytesForLevelMultiplier(long handle, double multiplier);
+  private native double maxBytesForLevelMultiplier(long handle);
+  private native void setMaxCompactionBytes(long handle, long maxCompactionBytes);
+  private native long maxCompactionBytes(long handle);
   private native void setSoftRateLimit(
       long handle, double softRateLimit);
   private native double softRateLimit(long handle);
@@ -770,9 +805,6 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setVerifyChecksumsInCompaction(
       long handle, boolean verifyChecksumsInCompaction);
   private native boolean verifyChecksumsInCompaction(long handle);
-  private native void setFilterDeletes(
-      long handle, boolean filterDeletes);
-  private native boolean filterDeletes(long handle);
   private native void setMaxSequentialSkipInIterations(
       long handle, long maxSequentialSkipInIterations);
   private native long maxSequentialSkipInIterations(long handle);
@@ -787,12 +819,9 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, long inplaceUpdateNumLocks)
       throws IllegalArgumentException;
   private native long inplaceUpdateNumLocks(long handle);
-  private native void setMemtablePrefixBloomBits(
-      long handle, int memtablePrefixBloomBits);
-  private native int memtablePrefixBloomBits(long handle);
-  private native void setMemtablePrefixBloomProbes(
-      long handle, int memtablePrefixBloomProbes);
-  private native int memtablePrefixBloomProbes(long handle);
+  private native void setMemtablePrefixBloomSizeRatio(
+      long handle, double memtablePrefixBloomSizeRatio);
+  private native double memtablePrefixBloomSizeRatio(long handle);
   private native void setBloomLocality(
       long handle, int bloomLocality);
   private native int bloomLocality(long handle);
@@ -806,6 +835,30 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setOptimizeFiltersForHits(long handle,
       boolean optimizeFiltersForHits);
   private native boolean optimizeFiltersForHits(long handle);
+  private native void setMemtableHugePageSize(long handle,
+      long memtableHugePageSize);
+  private native long memtableHugePageSize(long handle);
+  private native void setSoftPendingCompactionBytesLimit(long handle,
+      long softPendingCompactionBytesLimit);
+  private native long softPendingCompactionBytesLimit(long handle);
+  private native void setHardPendingCompactionBytesLimit(long handle,
+      long hardPendingCompactionBytesLimit);
+  private native long hardPendingCompactionBytesLimit(long handle);
+  private native void setLevel0FileNumCompactionTrigger(long handle,
+      int level0FileNumCompactionTrigger);
+  private native int level0FileNumCompactionTrigger(long handle);
+  private native void setLevel0SlowdownWritesTrigger(long handle,
+      int level0SlowdownWritesTrigger);
+  private native int level0SlowdownWritesTrigger(long handle);
+  private native void setLevel0StopWritesTrigger(long handle,
+      int level0StopWritesTrigger);
+  private native int level0StopWritesTrigger(long handle);
+  private native void setMaxBytesForLevelMultiplierAdditional(long handle,
+      int[] maxBytesForLevelMultiplierAdditional);
+  private native int[] maxBytesForLevelMultiplierAdditional(long handle);
+  private native void setParanoidFileChecks(long handle,
+      boolean paranoidFileChecks);
+  private native boolean paranoidFileChecks(long handle);
 
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;

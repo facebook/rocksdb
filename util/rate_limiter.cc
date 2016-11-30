@@ -8,7 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/rate_limiter.h"
+#include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -16,7 +18,8 @@ namespace rocksdb {
 // Pending request
 struct GenericRateLimiter::Req {
   explicit Req(int64_t _bytes, port::Mutex* _mu)
-      : bytes(_bytes), cv(_mu), granted(false) {}
+      : request_bytes(_bytes), bytes(_bytes), cv(_mu), granted(false) {}
+  int64_t request_bytes;
   int64_t bytes;
   port::CondVar cv;
   bool granted;
@@ -69,7 +72,7 @@ void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
-
+  TEST_SYNC_POINT("GenericRateLimiter::Request");
   MutexLock g(&request_mutex_);
   if (stop_) {
     return;
@@ -174,6 +177,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
 }
 
 void GenericRateLimiter::Refill() {
+  TEST_SYNC_POINT("GenericRateLimiter::Refill");
   next_refill_us_ = env_->NowMicros() + refill_period_us_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
@@ -188,10 +192,14 @@ void GenericRateLimiter::Refill() {
     auto* queue = &queue_[use_pri];
     while (!queue->empty()) {
       auto* next_req = queue->front();
-      if (available_bytes_ < next_req->bytes) {
+      if (available_bytes_ < next_req->request_bytes) {
+        // avoid starvation
+        next_req->request_bytes -= available_bytes_;
+        available_bytes_ = 0;
         break;
       }
-      available_bytes_ -= next_req->bytes;
+      available_bytes_ -= next_req->request_bytes;
+      next_req->request_bytes = 0;
       total_bytes_through_[use_pri] += next_req->bytes;
       queue->pop_front();
 
@@ -201,6 +209,18 @@ void GenericRateLimiter::Refill() {
         next_req->cv.Signal();
       }
     }
+  }
+}
+
+int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
+    int64_t rate_bytes_per_sec) {
+  if (port::kMaxInt64 / rate_bytes_per_sec < refill_period_us_) {
+    // Avoid unexpected result in the overflow case. The result now is still
+    // inaccurate but is a number that is large enough.
+    return port::kMaxInt64 / 1000000;
+  } else {
+    return std::max(kMinRefillBytesPerPeriod,
+                    rate_bytes_per_sec * refill_period_us_ / 1000000);
   }
 }
 

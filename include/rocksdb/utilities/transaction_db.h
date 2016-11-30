@@ -7,6 +7,7 @@
 #ifndef ROCKSDB_LITE
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/comparator.h"
@@ -72,6 +73,10 @@ struct TransactionOptions {
   // Transaction::SetSnapshot().
   bool set_snapshot = false;
 
+  // Setting to true means that before acquiring locks, this transaction will
+  // check if doing so will cause a deadlock. If so, it will return with
+  // Status::Busy.  The user should retry their transaction.
+  bool deadlock_detect = false;
 
   // TODO(agiardullo): TransactionDB does not yet support comparators that allow
   // two non-equal keys to be equivalent.  Ie, cmp->Compare(a,b) should only
@@ -90,14 +95,22 @@ struct TransactionOptions {
   // last longer than this many milliseconds will fail to commit.  If not set,
   // a forgotten transaction that is never committed, rolled back, or deleted
   // will never relinquish any locks it holds.  This could prevent keys from
-  // being
-  // written by other writers.
+  // being written by other writers.
   int64_t expiration = -1;
+
+  // The number of traversals to make during deadlock detection.
+  int64_t deadlock_detect_depth = 50;
+};
+
+struct KeyLockInfo {
+  std::string key;
+  TransactionID id;
 };
 
 class TransactionDB : public StackableDB {
  public:
   // Open a TransactionDB similar to DB::Open().
+  // Internally call PrepareWrap() and WrapDB()
   static Status Open(const Options& options,
                      const TransactionDBOptions& txn_db_options,
                      const std::string& dbname, TransactionDB** dbptr);
@@ -108,7 +121,27 @@ class TransactionDB : public StackableDB {
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      TransactionDB** dbptr);
-
+  // The following functions are used to open a TransactionDB internally using
+  // an opened DB or StackableDB.
+  // 1. Call prepareWrap(), passing an empty std::vector<size_t> to
+  // compaction_enabled_cf_indices.
+  // 2. Open DB or Stackable DB with db_options and column_families passed to
+  // prepareWrap()
+  // Note: PrepareWrap() may change parameters, make copies before the
+  // invocation if needed.
+  // 3. Call Wrap*DB() with compaction_enabled_cf_indices in step 1 and handles
+  // of the opened DB/StackableDB in step 2
+  static void PrepareWrap(DBOptions* db_options,
+                          std::vector<ColumnFamilyDescriptor>* column_families,
+                          std::vector<size_t>* compaction_enabled_cf_indices);
+  static Status WrapDB(DB* db, const TransactionDBOptions& txn_db_options,
+                       const std::vector<size_t>& compaction_enabled_cf_indices,
+                       const std::vector<ColumnFamilyHandle*>& handles,
+                       TransactionDB** dbptr);
+  static Status WrapStackableDB(
+      StackableDB* db, const TransactionDBOptions& txn_db_options,
+      const std::vector<size_t>& compaction_enabled_cf_indices,
+      const std::vector<ColumnFamilyHandle*>& handles, TransactionDB** dbptr);
   virtual ~TransactionDB() {}
 
   // Starts a new Transaction.
@@ -126,6 +159,12 @@ class TransactionDB : public StackableDB {
 
   virtual Transaction* GetTransactionByName(const TransactionName& name) = 0;
   virtual void GetAllPreparedTransactions(std::vector<Transaction*>* trans) = 0;
+
+  // Returns set of all locks held.
+  //
+  // The mapping is column family id -> KeyLockInfo
+  virtual std::unordered_multimap<uint32_t, KeyLockInfo>
+  GetLockStatusData() = 0;
 
  protected:
   // To Create an TransactionDB, call Open()

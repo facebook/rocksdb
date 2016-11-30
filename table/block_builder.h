@@ -26,7 +26,7 @@ class BlockBuilder {
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
 
-  // REQUIRES: Finish() has not been callled since the last call to Reset().
+  // REQUIRES: Finish() has not been called since the last call to Reset().
   // REQUIRES: key is larger than any previously added key
   void Add(const Slice& key, const Slice& value);
 
@@ -37,7 +37,7 @@ class BlockBuilder {
 
   // Returns an estimate of the current (uncompressed) size of the block
   // we are building.
-  size_t CurrentSizeEstimate() const;
+  inline size_t CurrentSizeEstimate() const { return estimate_; }
 
   // Returns an estimated block size after appending key and value.
   size_t EstimateSizeAfterKV(const Slice& key, const Slice& value) const;
@@ -53,6 +53,7 @@ class BlockBuilder {
 
   std::string           buffer_;    // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
+  size_t                estimate_;
   int                   counter_;   // Number of entries emitted since restart
   bool                  finished_;  // Has Finish() been called?
   std::string           last_key_;

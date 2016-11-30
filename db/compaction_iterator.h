@@ -12,28 +12,14 @@
 #include <vector>
 
 #include "db/compaction.h"
+#include "db/compaction_iteration_stats.h"
 #include "db/merge_helper.h"
+#include "db/pinned_iterators_manager.h"
+#include "db/range_del_aggregator.h"
 #include "rocksdb/compaction_filter.h"
 #include "util/log_buffer.h"
 
 namespace rocksdb {
-
-struct CompactionIteratorStats {
-  // Compaction statistics
-  int64_t num_record_drop_user = 0;
-  int64_t num_record_drop_hidden = 0;
-  int64_t num_record_drop_obsolete = 0;
-  uint64_t total_filter_time = 0;
-
-  // Input statistics
-  // TODO(noetzli): The stats are incomplete. They are lacking everything
-  // consumed by MergeHelper.
-  uint64_t num_input_records = 0;
-  uint64_t num_input_deletion_records = 0;
-  uint64_t num_input_corrupt_records = 0;
-  uint64_t total_input_raw_key_bytes = 0;
-  uint64_t total_input_raw_value_bytes = 0;
-};
 
 class CompactionIterator {
  public:
@@ -42,9 +28,12 @@ class CompactionIterator {
                      std::vector<SequenceNumber>* snapshots,
                      SequenceNumber earliest_write_conflict_snapshot, Env* env,
                      bool expect_valid_internal_key,
+                     RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
                      LogBuffer* log_buffer = nullptr);
+
+  ~CompactionIterator();
 
   void ResetRecordCounts();
 
@@ -65,7 +54,7 @@ class CompactionIterator {
   const ParsedInternalKey& ikey() const { return ikey_; }
   bool Valid() const { return valid_; }
   const Slice& user_key() const { return current_user_key_; }
-  const CompactionIteratorStats& iter_stats() const { return iter_stats_; }
+  const CompactionIterationStats& iter_stats() const { return iter_stats_; }
 
  private:
   // Processes the input stream to find the next output
@@ -92,12 +81,13 @@ class CompactionIterator {
   const SequenceNumber earliest_write_conflict_snapshot_;
   Env* env_;
   bool expect_valid_internal_key_;
+  RangeDelAggregator* range_del_agg_;
   const Compaction* compaction_;
   const CompactionFilter* compaction_filter_;
   LogBuffer* log_buffer_;
   bool bottommost_level_;
   bool valid_ = false;
-  SequenceNumber visible_at_tip_;
+  bool visible_at_tip_;
   SequenceNumber earliest_snapshot_;
   SequenceNumber latest_snapshot_;
   bool ignore_snapshots_;
@@ -136,6 +126,9 @@ class CompactionIterator {
   bool clear_and_output_next_key_ = false;
 
   MergeOutputIterator merge_out_iter_;
+  // PinnedIteratorsManager used to pin input_ Iterator blocks while reading
+  // merge operands and then releasing them after consuming them.
+  PinnedIteratorsManager pinned_iters_mgr_;
   std::string compaction_filter_value_;
   // "level_ptrs" holds indices that remember which file of an associated
   // level we were last checking during the last call to compaction->
@@ -144,6 +137,6 @@ class CompactionIterator {
   // increasing so a later call to the function must be looking for a key that
   // is in or beyond the last file checked during the previous call
   std::vector<size_t> level_ptrs_;
-  CompactionIteratorStats iter_stats_;
+  CompactionIterationStats iter_stats_;
 };
 }  // namespace rocksdb

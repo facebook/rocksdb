@@ -86,13 +86,14 @@ class BlockBasedTableBuilder : public TableBuilder {
  private:
   bool ok() const { return status().ok(); }
 
-  // Call block's Finish() method and then write the finalize block contents to
-  // file.
+  // Call block's Finish() method
+  // and then write the compressed block contents to file.
   void WriteBlock(BlockBuilder* block, BlockHandle* handle, bool is_data_block);
 
-  // Directly write block content to the file.
+  // Compress and write block content to the file.
   void WriteBlock(const Slice& block_contents, BlockHandle* handle,
                   bool is_data_block);
+  // Directly write data to the file.
   void WriteRawBlock(const Slice& data, CompressionType, BlockHandle* handle);
   Status InsertBlockInCache(const Slice& block_contents,
                             const CompressionType type,
@@ -116,5 +117,11 @@ class BlockBasedTableBuilder : public TableBuilder {
   BlockBasedTableBuilder(const BlockBasedTableBuilder&) = delete;
   void operator=(const BlockBasedTableBuilder&) = delete;
 };
+
+Slice CompressBlock(const Slice& raw,
+                    const CompressionOptions& compression_options,
+                    CompressionType* type, uint32_t format_version,
+                    const Slice& compression_dict,
+                    std::string* compressed_output);
 
 }  // namespace rocksdb

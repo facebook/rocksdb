@@ -40,6 +40,7 @@ class RandomAccessFile;
 class SequentialFile;
 class Slice;
 class WritableFile;
+class RandomRWFile;
 class Directory;
 struct DBOptions;
 class RateLimiter;
@@ -67,6 +68,12 @@ struct EnvOptions {
 
    // If true, then use mmap to write data
   bool use_mmap_writes = true;
+
+  // If true, then use O_DIRECT for reading data
+  bool use_direct_reads = false;
+
+  // If true, then use O_DIRECT for writing data
+  bool use_direct_writes = false;
 
   // If false, fallocate() calls are bypassed
   bool allow_fallocate = true;
@@ -161,6 +168,17 @@ class Env {
                                    const std::string& old_fname,
                                    unique_ptr<WritableFile>* result,
                                    const EnvOptions& options);
+
+  // Open `fname` for random read and write, if file dont exist the file
+  // will be created.  On success, stores a pointer to the new file in
+  // *result and returns OK.  On failure returns non-OK.
+  //
+  // The returned file will only be accessed by one thread at a time.
+  virtual Status NewRandomRWFile(const std::string& fname,
+                                 unique_ptr<RandomRWFile>* result,
+                                 const EnvOptions& options) {
+    return Status::NotSupported("RandomRWFile is not implemented in this Env");
+  }
 
   // Create an object that represents a directory. Will fail if directory
   // doesn't exist. If the directory exists, it will open the directory
@@ -486,23 +504,45 @@ class WritableFile {
   virtual ~WritableFile();
 
   // Indicates if the class makes use of unbuffered I/O
+  // If false you must pass aligned buffer to Write()
   virtual bool UseOSBuffer() const {
     return true;
   }
 
   const size_t c_DefaultPageSize = 4 * 1024;
 
-  // This is needed when you want to allocate
-  // AlignedBuffer for use with file I/O classes
-  // Used for unbuffered file I/O when UseOSBuffer() returns false
+  // Use the returned alignment value to allocate
+  // aligned buffer for Write() when UseOSBuffer()
+  // returns false
   virtual size_t GetRequiredBufferAlignment() const {
     return c_DefaultPageSize;
   }
 
+  // Append data to the end of the file
+  // Note: A WriteabelFile object must support either Append or
+  // PositionedAppend, so the users cannot mix the two.
   virtual Status Append(const Slice& data) = 0;
 
-  // Positioned write for unbuffered access default forward
-  // to simple append as most of the tests are buffered by default
+  // PositionedAppend data to the specified offset. The new EOF after append
+  // must be larger than the previous EOF. This is to be used when writes are
+  // not backed by OS buffers and hence has to always start from the start of
+  // the sector. The implementation thus needs to also rewrite the last
+  // partial sector.
+  // Note: PositionAppend does not guarantee moving the file offset after the
+  // write. A WriteabelFile object must support either Append or
+  // PositionedAppend, so the users cannot mix the two.
+  //
+  // PositionedAppend() can only happen on the page/sector boundaries. For that
+  // reason, if the last write was an incomplete sector we still need to rewind
+  // back to the nearest sector/page and rewrite the portion of it with whatever
+  // we need to add. We need to keep where we stop writing.
+  //
+  // PositionedAppend() can only write whole sectors. For that reason we have to
+  // pad with zeros for the last write and trim the file when closing according
+  // to the position we keep in the previous step.
+  //
+  // PositionedAppend() requires aligned buffer to be passed in. The alignment
+  // required is queried via GetRequiredBufferAlignment()
   virtual Status PositionedAppend(const Slice& /* data */, uint64_t /* offset */) {
     return Status::NotSupported();
   }
@@ -640,6 +680,61 @@ class WritableFile {
   Env::IOPriority io_priority_;
 };
 
+// A file abstraction for random reading and writing.
+class RandomRWFile {
+ public:
+  RandomRWFile() {}
+  virtual ~RandomRWFile() {}
+
+  // Indicates if the class makes use of unbuffered I/O
+  // If false you must pass aligned buffer to Write()
+  virtual bool UseOSBuffer() const {
+    return true;
+  }
+
+  const size_t c_DefaultPageSize = 4 * 1024;
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Write() when UseOSBuffer()
+  // returns false
+  virtual size_t GetRequiredBufferAlignment() const {
+    return c_DefaultPageSize;
+  }
+
+  // Used by the file_reader_writer to decide if the ReadAhead wrapper
+  // should simply forward the call and do not enact read_ahead buffering or locking.
+  // The implementation below takes care of reading ahead
+  virtual bool ShouldForwardRawRequest() const {
+    return false;
+  }
+
+  // For cases when read-ahead is implemented in the platform dependent
+  // layer. This is when ShouldForwardRawRequest() returns true.
+  virtual void EnableReadAhead() {}
+
+  // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
+  // Pass aligned buffer when UseOSBuffer() returns false.
+  virtual Status Write(uint64_t offset, const Slice& data) = 0;
+
+  // Read up to `n` bytes starting from offset `offset` and store them in
+  // result, provided `scratch` size should be at least `n`.
+  // Returns Status::OK() on success.
+  virtual Status Read(uint64_t offset, size_t n, Slice* result,
+                      char* scratch) const = 0;
+
+  virtual Status Flush() = 0;
+
+  virtual Status Sync() = 0;
+
+  virtual Status Fsync() { return Sync(); }
+
+  virtual Status Close() = 0;
+
+  // No copying allowed
+  RandomRWFile(const RandomRWFile&) = delete;
+  RandomRWFile& operator=(const RandomRWFile&) = delete;
+};
+
 // Directory object represents collection of files and implements
 // filesystem operations that can be executed on directories.
 class Directory {
@@ -727,7 +822,7 @@ extern void Error(const shared_ptr<Logger>& info_log, const char* format, ...);
 extern void Fatal(const shared_ptr<Logger>& info_log, const char* format, ...);
 
 // Log the specified data to *info_log if info_log is non-nullptr.
-// The default info log level is InfoLogLevel::ERROR.
+// The default info log level is InfoLogLevel::INFO_LEVEL.
 extern void Log(const shared_ptr<Logger>& info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
@@ -739,7 +834,7 @@ extern void LogFlush(Logger *info_log);
 extern void Log(const InfoLogLevel log_level, Logger* info_log,
                 const char* format, ...);
 
-// The default info log level is InfoLogLevel::ERROR.
+// The default info log level is InfoLogLevel::INFO_LEVEL.
 extern void Log(Logger* info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 2, 3)))
@@ -794,6 +889,11 @@ class EnvWrapper : public Env {
                            unique_ptr<WritableFile>* r,
                            const EnvOptions& options) override {
     return target_->ReuseWritableFile(fname, old_fname, r, options);
+  }
+  Status NewRandomRWFile(const std::string& fname,
+                         unique_ptr<RandomRWFile>* result,
+                         const EnvOptions& options) override {
+    return target_->NewRandomRWFile(fname, result, options);
   }
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {

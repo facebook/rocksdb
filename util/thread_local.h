@@ -63,6 +63,13 @@ class ThreadLocalPtr {
   // data for all existing threads
   void Scrape(autovector<void*>* ptrs, void* const replacement);
 
+  typedef std::function<void(void*, void*)> FoldFunc;
+  // Update res by applying func on each thread-local value. Holds a lock that
+  // prevents unref handler from running during this call, but clients must
+  // still provide external synchronization since the owning thread can
+  // access the values without internal locking, e.g., via Get() and Reset().
+  void Fold(FoldFunc func, void* res);
+
   // Initialize the static singletons of the ThreadLocalPtr.
   //
   // If this function is not called, then the singletons will be
@@ -119,7 +126,6 @@ class ThreadLocalPtr {
     // Return the pointer value for the given id for the current thread.
     void* Get(uint32_t id) const;
     // Reset the pointer value for the given id for the current thread.
-    // It triggers UnrefHanlder if the id has existing pointer value.
     void Reset(uint32_t id, void* ptr);
     // Atomically swap the supplied ptr and return the previous value
     void* Swap(uint32_t id, void* ptr);
@@ -129,18 +135,14 @@ class ThreadLocalPtr {
     // Reset all thread local data to replacement, and return non-nullptr
     // data for all existing threads
     void Scrape(uint32_t id, autovector<void*>* ptrs, void* const replacement);
+    // Update res by applying func on each thread-local value. Holds a lock that
+    // prevents unref handler from running during this call, but clients must
+    // still provide external synchronization since the owning thread can
+    // access the values without internal locking, e.g., via Get() and Reset().
+    void Fold(uint32_t id, FoldFunc func, void* res);
 
     // Register the UnrefHandler for id
     void SetHandler(uint32_t id, UnrefHandler handler);
-
-    // Initialize all the singletons associated with StaticMeta.
-    //
-    // If this function is not called, then the singletons will be
-    // automatically initialized when they are used.
-    //
-    // Calling this function twice or after the singletons have been
-    // initialized will be no-op.
-    static void InitSingletons();
 
     // protect inst, next_instance_id_, free_instance_ids_, head_,
     // ThreadData.entries

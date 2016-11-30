@@ -36,7 +36,9 @@ namespace {
 
 // Log error message
 static Status IOError(const std::string& context, int err_number) {
-  return Status::IOError(context, strerror(err_number));
+  return (err_number == ENOSPC) ?
+      Status::NoSpace(context, strerror(err_number)) :
+      Status::IOError(context, strerror(err_number));
 }
 
 // assume that there is one global logger for now. It is not thread-safe,
@@ -471,7 +473,7 @@ Status HdfsEnv::GetChildren(const std::string& path,
     if (numEntries >= 0) {
       for(int i = 0; i < numEntries; i++) {
         char* pathname = pHdfsFileInfo[i].mName;
-        char* filename = rindex(pathname, '/');
+        char* filename = std::rindex(pathname, '/');
         if (filename != nullptr) {
           result->push_back(filename+1);
         }

@@ -46,7 +46,7 @@ Status CompactedDBImpl::Get(const ReadOptions& options,
      ColumnFamilyHandle*, const Slice& key, std::string* value) {
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, key, value, nullptr, nullptr,
-                         nullptr);
+                         nullptr, nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
   files_.files[FindFile(key)].fd.table_reader->Get(
       options, lkey.internal_key(), &get_context);
@@ -77,7 +77,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     if (r != nullptr) {
       GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, keys[idx], &(*values)[idx],
-                             nullptr, nullptr, nullptr);
+                             nullptr, nullptr, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
       r->Get(options, lkey.internal_key(), &get_context);
       if (get_context.State() == GetContext::kFound) {
@@ -151,9 +151,9 @@ Status CompactedDBImpl::Open(const Options& options,
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
   Status s = db->Init(options);
   if (s.ok()) {
-    Log(INFO_LEVEL, db->db_options_.info_log,
+    Log(INFO_LEVEL, db->immutable_db_options_.info_log,
         "Opened the db as fully compacted mode");
-    LogFlush(db->db_options_.info_log);
+    LogFlush(db->immutable_db_options_.info_log);
     *dbptr = db.release();
   }
   return s;

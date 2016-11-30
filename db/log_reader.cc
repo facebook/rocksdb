@@ -22,9 +22,8 @@ Reader::Reporter::~Reporter() {
 }
 
 Reader::Reader(std::shared_ptr<Logger> info_log,
-	       unique_ptr<SequentialFileReader>&& _file,
-               Reporter* reporter, bool checksum, uint64_t initial_offset,
-               uint64_t log_num)
+               unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
+               bool checksum, uint64_t initial_offset, uint64_t log_num)
     : info_log_(info_log),
       file_(std::move(_file)),
       reporter_(reporter),
@@ -37,7 +36,8 @@ Reader::Reader(std::shared_ptr<Logger> info_log,
       last_record_offset_(0),
       end_of_buffer_offset_(0),
       initial_offset_(initial_offset),
-      log_number_(log_num) {}
+      log_number_(log_num),
+      recycled_(false) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
@@ -91,7 +91,7 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
   Slice fragment;
   while (true) {
     uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
-    size_t drop_size;
+    size_t drop_size = 0;
     const unsigned int record_type = ReadPhysicalRecord(&fragment, &drop_size);
     switch (record_type) {
       case kFullType:
@@ -184,6 +184,26 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch,
       // fall-thru
 
       case kBadRecord:
+        if (in_fragmented_record) {
+          ReportCorruption(scratch->size(), "error in middle of record");
+          in_fragmented_record = false;
+          scratch->clear();
+        }
+        break;
+
+      case kBadRecordLen:
+      case kBadRecordChecksum:
+        if (recycled_ &&
+            wal_recovery_mode ==
+                WALRecoveryMode::kTolerateCorruptedTailRecords) {
+          scratch->clear();
+          return false;
+        }
+        if (record_type == kBadRecordLen) {
+          ReportCorruption(drop_size, "bad record length");
+        } else {
+          ReportCorruption(drop_size, "checksum mismatch");
+        }
         if (in_fragmented_record) {
           ReportCorruption(scratch->size(), "error in middle of record");
           in_fragmented_record = false;
@@ -324,7 +344,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     if (buffer_.size() < (size_t)kHeaderSize) {
       int r;
       if (!ReadMore(drop_size, &r)) {
-	return r;
+        return r;
       }
       continue;
     }
@@ -337,14 +357,17 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
     const uint32_t length = a | (b << 8);
     int header_size = kHeaderSize;
     if (type >= kRecyclableFullType && type <= kRecyclableLastType) {
+      if (end_of_buffer_offset_ - buffer_.size() == 0) {
+        recycled_ = true;
+      }
       header_size = kRecyclableHeaderSize;
       // We need enough for the larger header
       if (buffer_.size() < (size_t)kRecyclableHeaderSize) {
-	int r;
-	if (!ReadMore(drop_size, &r)) {
+        int r;
+        if (!ReadMore(drop_size, &r)) {
           return r;
         }
-	continue;
+        continue;
       }
       const uint32_t log_num = DecodeFixed32(header + 7);
       if (log_num != log_number_) {
@@ -355,8 +378,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
       *drop_size = buffer_.size();
       buffer_.clear();
       if (!eof_) {
-        ReportCorruption(*drop_size, "bad record length");
-        return kBadRecord;
+        return kBadRecordLen;
       }
       // If the end of the file has been reached without reading |length| bytes
       // of payload, assume the writer died in the middle of writing the record.
@@ -388,8 +410,7 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result, size_t* drop_size) {
         // like a valid log record.
         *drop_size = buffer_.size();
         buffer_.clear();
-        ReportCorruption(*drop_size, "checksum mismatch");
-        return kBadRecord;
+        return kBadRecordChecksum;
       }
     }
 

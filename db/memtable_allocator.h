@@ -8,21 +8,23 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
 // This is used by the MemTable to allocate write buffer memory. It connects
-// to WriteBuffer so we can track and enforce overall write buffer limits.
+// to WriteBufferManager so we can track and enforce overall write buffer
+// limits.
 
 #pragma once
 
 #include <atomic>
+#include "rocksdb/write_buffer_manager.h"
 #include "util/allocator.h"
 
 namespace rocksdb {
 
 class Logger;
-class WriteBuffer;
 
 class MemTableAllocator : public Allocator {
  public:
-  explicit MemTableAllocator(Allocator* allocator, WriteBuffer* write_buffer);
+  explicit MemTableAllocator(Allocator* allocator,
+                             WriteBufferManager* write_buffer_manager);
   ~MemTableAllocator();
 
   // Allocator interface
@@ -37,7 +39,7 @@ class MemTableAllocator : public Allocator {
 
  private:
   Allocator* allocator_;
-  WriteBuffer* write_buffer_;
+  WriteBufferManager* write_buffer_manager_;
   std::atomic<size_t> bytes_allocated_;
 
   // No copying allowed

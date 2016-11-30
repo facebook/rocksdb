@@ -10,11 +10,13 @@
 #pragma once
 #include <stdint.h>
 #include <string>
+#include "db/dbformat.h"
+#include "db/range_del_aggregator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
-#include "db/dbformat.h"
 #include "util/arena.h"
 #include "util/autovector.h"
+#include "util/cf_options.h"
 
 namespace rocksdb {
 
@@ -30,7 +32,8 @@ extern Iterator* NewDBIterator(
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, const Slice* iterate_upper_bound = nullptr,
-    bool prefix_same_as_start = false, bool pin_data = false);
+    bool prefix_same_as_start = false, bool pin_data = false,
+    bool total_order_seek = false);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -44,6 +47,7 @@ class ArenaWrappedDBIter : public Iterator {
   // Get the arena to be used to allocate memory for DBIter to be wrapped,
   // as well as child iterators in it.
   virtual Arena* GetArena() { return &arena_; }
+  virtual RangeDelAggregator* GetRangeDelAggregator();
 
   // Set the DB Iterator to be wrapped
 
@@ -56,6 +60,7 @@ class ArenaWrappedDBIter : public Iterator {
   virtual void SeekToFirst() override;
   virtual void SeekToLast() override;
   virtual void Seek(const Slice& target) override;
+  virtual void SeekForPrev(const Slice& target) override;
   virtual void Next() override;
   virtual void Prev() override;
   virtual Slice key() const override;
@@ -76,6 +81,7 @@ extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const Comparator* user_key_comparator, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     const Slice* iterate_upper_bound = nullptr,
-    bool prefix_same_as_start = false, bool pin_data = false);
+    bool prefix_same_as_start = false, bool pin_data = false,
+    bool total_order_seek = false);
 
 }  // namespace rocksdb

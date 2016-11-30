@@ -18,6 +18,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "table/table_reader.h"
+#include "util/cf_options.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {

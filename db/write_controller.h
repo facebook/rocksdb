@@ -26,7 +26,7 @@ class WriteController {
         total_compaction_pressure_(0),
         bytes_left_(0),
         last_refill_time_(0) {
-    set_delayed_write_rate(_delayed_write_rate);
+    set_max_delayed_write_rate(_delayed_write_rate);
   }
   ~WriteController() = default;
 
@@ -57,10 +57,25 @@ class WriteController {
     // avoid divide 0
     if (write_rate == 0) {
       write_rate = 1u;
+    } else if (write_rate > max_delayed_write_rate()) {
+      write_rate = max_delayed_write_rate();
     }
     delayed_write_rate_ = write_rate;
   }
+
+  void set_max_delayed_write_rate(uint64_t write_rate) {
+    // avoid divide 0
+    if (write_rate == 0) {
+      write_rate = 1u;
+    }
+    max_delayed_write_rate_ = write_rate;
+    // update delayed_write_rate_ as well
+    delayed_write_rate_ = write_rate;
+  }
+
   uint64_t delayed_write_rate() const { return delayed_write_rate_; }
+
+  uint64_t max_delayed_write_rate() const { return max_delayed_write_rate_; }
 
  private:
   friend class WriteControllerToken;
@@ -73,6 +88,9 @@ class WriteController {
   int total_compaction_pressure_;
   uint64_t bytes_left_;
   uint64_t last_refill_time_;
+  // write rate set when initialization or by `DBImpl::SetDBOptions`
+  uint64_t max_delayed_write_rate_;
+  // current write rate
   uint64_t delayed_write_rate_;
 };
 

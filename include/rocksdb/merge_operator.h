@@ -9,6 +9,7 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "rocksdb/slice.h"
 
@@ -32,7 +33,7 @@ class Logger;
 //    into rocksdb); numeric addition and string concatenation are examples;
 //
 //  b) MergeOperator - the generic class for all the more abstract / complex
-//    operations; one method (FullMerge) to merge a Put/Delete value with a
+//    operations; one method (FullMergeV2) to merge a Put/Delete value with a
 //    merge operand; and another method (PartialMerge) that merges multiple
 //    operands together. this is especially useful if your key values have
 //    complex structures but you would still like to support client-specific
@@ -69,7 +70,49 @@ class MergeOperator {
                          const Slice* existing_value,
                          const std::deque<std::string>& operand_list,
                          std::string* new_value,
-                         Logger* logger) const = 0;
+                         Logger* logger) const {
+    // deprecated, please use FullMergeV2()
+    assert(false);
+    return false;
+  }
+
+  struct MergeOperationInput {
+    explicit MergeOperationInput(const Slice& _key,
+                                 const Slice* _existing_value,
+                                 const std::vector<Slice>& _operand_list,
+                                 Logger* _logger)
+        : key(_key),
+          existing_value(_existing_value),
+          operand_list(_operand_list),
+          logger(_logger) {}
+
+    // The key associated with the merge operation.
+    const Slice& key;
+    // The existing value of the current key, nullptr means that the
+    // value dont exist.
+    const Slice* existing_value;
+    // A list of operands to apply.
+    const std::vector<Slice>& operand_list;
+    // Logger could be used by client to log any errors that happen during
+    // the merge operation.
+    Logger* logger;
+  };
+
+  struct MergeOperationOutput {
+    explicit MergeOperationOutput(std::string& _new_value,
+                                  Slice& _existing_operand)
+        : new_value(_new_value), existing_operand(_existing_operand) {}
+
+    // Client is responsible for filling the merge result here.
+    std::string& new_value;
+    // If the merge result is one of the existing operands (or existing_value),
+    // client can set this field to the operand (or existing_value) instead of
+    // using new_value.
+    Slice& existing_operand;
+  };
+
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const;
 
   // This function performs merge(left_op, right_op)
   // when both the operands are themselves merge operation types
@@ -99,7 +142,7 @@ class MergeOperator {
   // TODO: Presently there is no way to differentiate between error/corruption
   // and simply "return false". For now, the client should simply return
   // false in any case it cannot perform partial-merge, regardless of reason.
-  // If there is corruption in the data, handle it in the FullMerge() function,
+  // If there is corruption in the data, handle it in the FullMergeV2() function
   // and return false there.  The default implementation of PartialMerge will
   // always return false.
   virtual bool PartialMerge(const Slice& key, const Slice& left_operand,
@@ -171,11 +214,8 @@ class AssociativeMergeOperator : public MergeOperator {
 
  private:
   // Default implementations of the MergeOperator functions
-  virtual bool FullMerge(const Slice& key,
-                         const Slice* existing_value,
-                         const std::deque<std::string>& operand_list,
-                         std::string* new_value,
-                         Logger* logger) const override;
+  virtual bool FullMergeV2(const MergeOperationInput& merge_in,
+                           MergeOperationOutput* merge_out) const override;
 
   virtual bool PartialMerge(const Slice& key,
                             const Slice& left_operand,

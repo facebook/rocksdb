@@ -20,9 +20,6 @@ AdaptiveTableFactory::AdaptiveTableFactory(
       block_based_table_factory_(block_based_table_factory),
       plain_table_factory_(plain_table_factory),
       cuckoo_table_factory_(cuckoo_table_factory) {
-  if (!table_factory_to_write_) {
-    table_factory_to_write_ = block_based_table_factory_;
-  }
   if (!plain_table_factory_) {
     plain_table_factory_.reset(NewPlainTableFactory());
   }
@@ -31,6 +28,9 @@ AdaptiveTableFactory::AdaptiveTableFactory(
   }
   if (!cuckoo_table_factory_) {
     cuckoo_table_factory_.reset(NewCuckooTableFactory());
+  }
+  if (!table_factory_to_write_) {
+    table_factory_to_write_ = block_based_table_factory_;
   }
 }
 
@@ -43,7 +43,8 @@ extern const uint64_t kCuckooTableMagicNumber;
 Status AdaptiveTableFactory::NewTableReader(
     const TableReaderOptions& table_reader_options,
     unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
-    unique_ptr<TableReader>* table) const {
+    unique_ptr<TableReader>* table,
+    bool prefetch_index_and_filter_in_cache) const {
   Footer footer;
   auto s = ReadFooterFromFile(file.get(), file_size, &footer);
   if (!s.ok()) {

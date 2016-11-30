@@ -45,8 +45,7 @@ struct PerfContext {
   //    tombstones are not included in this counter, while previous updates
   //    hidden by the tombstones will be included here.
   // 4. symmetric cases for Prev() and SeekToLast()
-  // We sometimes also skip entries of more recent updates than the snapshot
-  // we read from, but they are not included in this counter.
+  // internal_recent_skipped_count is not included in this counter.
   //
   uint64_t internal_key_skipped_count;
   // Total number of deletes and single deletes skipped over during iteration
@@ -57,6 +56,13 @@ struct PerfContext {
   // still older updates invalidated by the tombstones.
   //
   uint64_t internal_delete_skipped_count;
+  // How many times iterators skipped over internal keys that are more recent
+  // than the snapshot that iterator is using.
+  //
+  uint64_t internal_recent_skipped_count;
+  // How many values were fed into merge operator by iterators.
+  //
+  uint64_t internal_merge_count;
 
   uint64_t get_snapshot_time;       // total nanos spent on getting snapshot
   uint64_t get_from_memtable_time;  // total nanos spent on querying memtables
@@ -67,12 +73,18 @@ struct PerfContext {
   // total nanos spent on seeking memtable
   uint64_t seek_on_memtable_time;
   // number of seeks issued on memtable
+  // (including SeekForPrev but not SeekToFirst and SeekToLast)
   uint64_t seek_on_memtable_count;
+  // number of Next()s issued on memtable
+  uint64_t next_on_memtable_count;
+  // number of Prev()s issued on memtable
+  uint64_t prev_on_memtable_count;
   // total nanos spent on seeking child iters
   uint64_t seek_child_seek_time;
   // number of seek issued in child iterators
   uint64_t seek_child_seek_count;
-  uint64_t seek_min_heap_time;  // total nanos spent on the merge heap
+  uint64_t seek_min_heap_time;  // total nanos spent on the merge min heap
+  uint64_t seek_max_heap_time;  // total nanos spent on the merge max heap
   // total nanos spent on seeking the internal entries
   uint64_t seek_internal_seek_time;
   // total nanos spent on iterating internal entries to find the next user entry

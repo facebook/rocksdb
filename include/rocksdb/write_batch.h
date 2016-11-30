@@ -39,6 +39,25 @@ class ColumnFamilyHandle;
 struct SavePoints;
 struct SliceParts;
 
+struct SavePoint {
+  size_t size;  // size of rep_
+  int count;    // count of elements in rep_
+  uint32_t content_flags;
+
+  SavePoint() : size(0), count(0), content_flags(0) {}
+
+  SavePoint(size_t _size, int _count, uint32_t _flags)
+      : size(_size), count(_count), content_flags(_flags) {}
+
+  void clear() {
+    size = 0;
+    count = 0;
+    content_flags = 0;
+  }
+
+  bool is_cleared() const { return (size | count | content_flags) == 0; }
+};
+
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0);
@@ -84,6 +103,23 @@ class WriteBatch : public WriteBatchBase {
     SingleDelete(nullptr, key);
   }
 
+  using WriteBatchBase::DeleteRange;
+  // WriteBatch implementation of DB::DeleteRange().  See db.h.
+  void DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                   const Slice& end_key) override;
+  void DeleteRange(const Slice& begin_key, const Slice& end_key) override {
+    DeleteRange(nullptr, begin_key, end_key);
+  }
+
+  // variant that takes SliceParts
+  void DeleteRange(ColumnFamilyHandle* column_family,
+                   const SliceParts& begin_key,
+                   const SliceParts& end_key) override;
+  void DeleteRange(const SliceParts& begin_key,
+                   const SliceParts& end_key) override {
+    DeleteRange(nullptr, begin_key, end_key);
+  }
+
   using WriteBatchBase::Merge;
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"
@@ -125,13 +161,17 @@ class WriteBatch : public WriteBatchBase {
   // most recent call to SetSavePoint() and removes the most recent save point.
   // If there is no previous call to SetSavePoint(), Status::NotFound()
   // will be returned.
-  // Oterwise returns Status::OK().
+  // Otherwise returns Status::OK().
   Status RollbackToSavePoint() override;
 
   // Support for iterating over the contents of a batch.
   class Handler {
    public:
     virtual ~Handler();
+    // All handler functions in this class provide default implementations so
+    // we won't break existing clients of Handler on a source code level when
+    // adding a new member function.
+
     // default implementation will just call Put without column family for
     // backwards compatibility. If the column family is not default,
     // the function is noop
@@ -169,9 +209,11 @@ class WriteBatch : public WriteBatchBase {
     }
     virtual void SingleDelete(const Slice& /*key*/) {}
 
-    // Merge and LogData are not pure virtual. Otherwise, we would break
-    // existing clients of Handler on a source code level. The default
-    // implementation of Merge does nothing.
+    virtual Status DeleteRangeCF(uint32_t column_family_id,
+                                 const Slice& begin_key, const Slice& end_key) {
+      return Status::InvalidArgument("DeleteRangeCF not implemented");
+    }
+
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) {
       if (column_family_id == 0) {
@@ -228,7 +270,10 @@ class WriteBatch : public WriteBatchBase {
   // Returns true if SingleDeleteCF will be called during Iterate
   bool HasSingleDelete() const;
 
-  // Returns trie if MergeCF will be called during Iterate
+  // Returns true if DeleteRangeCF will be called during Iterate
+  bool HasDeleteRange() const;
+
+  // Returns true if MergeCF will be called during Iterate
   bool HasMerge() const;
 
   // Returns true if MarkBeginPrepare will be called during Iterate
@@ -254,9 +299,19 @@ class WriteBatch : public WriteBatchBase {
   WriteBatch& operator=(const WriteBatch& src);
   WriteBatch& operator=(WriteBatch&& src);
 
+  // marks this point in the WriteBatch as the last record to
+  // be inserted into the WAL, provided the WAL is enabled
+  void MarkWalTerminationPoint();
+  const SavePoint& GetWalTerminationPoint() const { return wal_term_point_; }
+
  private:
   friend class WriteBatchInternal;
   SavePoints* save_points_;
+
+  // When sending a WriteBatch through WriteImpl we might want to
+  // specify that only the first x records of the batch be written to
+  // the WAL.
+  SavePoint wal_term_point_;
 
   // For HasXYZ.  Mutable to allow lazy computation of results
   mutable std::atomic<uint32_t> content_flags_;

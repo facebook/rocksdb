@@ -15,15 +15,15 @@
 #include <atomic>
 
 #include "db/memtable_list.h"
-#include "db/write_batch_internal.h"
-#include "db/write_controller.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
+#include "db/write_batch_internal.h"
+#include "db/write_controller.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/mutable_cf_options.h"
+#include "util/cf_options.h"
 #include "util/thread_local.h"
 
 namespace rocksdb {
@@ -42,7 +42,7 @@ class LogBuffer;
 class InstrumentedMutex;
 class InstrumentedMutexLock;
 
-extern const double kSlowdownRatio;
+extern const double kIncSlowdownRatio;
 
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
@@ -55,11 +55,11 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
-  virtual const Comparator* user_comparator() const;
 
   virtual uint32_t GetID() const override;
   virtual const std::string& GetName() const override;
   virtual Status GetDescriptor(ColumnFamilyDescriptor* desc) override;
+  virtual const Comparator* GetComparator() const override;
 
  private:
   ColumnFamilyData* cfd_;
@@ -136,14 +136,13 @@ extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 extern Status CheckConcurrentWritesSupported(
     const ColumnFamilyOptions& cf_options);
 
-extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
-                                           const InternalKeyComparator* icmp,
+extern ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
                                            const ColumnFamilyOptions& src);
 // Wrap user defined table proproties collector factories `from cf_options`
 // into internal ones in int_tbl_prop_collector_factories. Add a system internal
 // one too.
 extern void GetIntTblPropCollectorFactory(
-    const ColumnFamilyOptions& cf_options,
+    const ImmutableCFOptions& ioptions,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories);
 
@@ -201,9 +200,6 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
-  // !!! To be deprecated! Please don't not use this function anymore!
-  const Options* options() const { return &options_; }
-
   // thread-safe
   const EnvOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
@@ -218,6 +214,14 @@ class ColumnFamilyData {
   const MutableCFOptions* GetLatestMutableCFOptions() const {
     return &mutable_cf_options_;
   }
+
+  // REQUIRES: DB mutex held
+  // Build ColumnFamiliesOptions with immutable options and latest mutable
+  // options.
+  ColumnFamilyOptions GetLatestCFOptions() const;
+
+  bool is_delete_range_supported() { return is_delete_range_supported_; }
+
 #ifndef ROCKSDB_LITE
   // REQUIRES: DB mutex held
   Status SetOptions(
@@ -249,6 +253,13 @@ class ColumnFamilyData {
   // REQUIRES: DB mutex held
   Compaction* PickCompaction(const MutableCFOptions& mutable_options,
                              LogBuffer* log_buffer);
+
+  // Check if the passed range overlap with any running compactions.
+  // REQUIRES: DB mutex held
+  bool RangeOverlapWithCompaction(const Slice& smallest_user_key,
+                                  const Slice& largest_user_key,
+                                  int level) const;
+
   // A flag to tell a manual compaction is to compact all levels together
   // instad of for specific level.
   static const int kCompactAllLevels;
@@ -323,9 +334,10 @@ class ColumnFamilyData {
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
-                   WriteBuffer* write_buffer,
+                   WriteBufferManager* write_buffer_manager,
                    const ColumnFamilyOptions& options,
-                   const DBOptions* db_options, const EnvOptions& env_options,
+                   const ImmutableDBOptions& db_options,
+                   const EnvOptions& env_options,
                    ColumnFamilySet* column_family_set);
 
   uint32_t id_;
@@ -340,15 +352,17 @@ class ColumnFamilyData {
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories_;
 
-  const Options options_;
+  const ColumnFamilyOptions initial_cf_options_;
   const ImmutableCFOptions ioptions_;
   MutableCFOptions mutable_cf_options_;
+
+  const bool is_delete_range_supported_;
 
   std::unique_ptr<TableCache> table_cache_;
 
   std::unique_ptr<InternalStats> internal_stats_;
 
-  WriteBuffer* write_buffer_;
+  WriteBufferManager* write_buffer_manager_;
 
   MemTable* mem_;
   MemTableList imm_;
@@ -436,9 +450,11 @@ class ColumnFamilySet {
     ColumnFamilyData* current_;
   };
 
-  ColumnFamilySet(const std::string& dbname, const DBOptions* db_options,
+  ColumnFamilySet(const std::string& dbname,
+                  const ImmutableDBOptions* db_options,
                   const EnvOptions& env_options, Cache* table_cache,
-                  WriteBuffer* write_buffer, WriteController* write_controller);
+                  WriteBufferManager* write_buffer_manager,
+                  WriteController* write_controller);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -492,10 +508,10 @@ class ColumnFamilySet {
   ColumnFamilyData* default_cfd_cache_;
 
   const std::string db_name_;
-  const DBOptions* const db_options_;
+  const ImmutableDBOptions* const db_options_;
   const EnvOptions env_options_;
   Cache* table_cache_;
-  WriteBuffer* write_buffer_;
+  WriteBufferManager* write_buffer_manager_;
   WriteController* write_controller_;
 };
 

@@ -16,13 +16,16 @@
 #include "db/filename.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/options_util.h"
 #include "util/env_chroot.h"
 #include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
+#include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -54,8 +57,7 @@ class DummyDB : public StackableDB {
   }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const
-      override {
+  virtual Options GetOptions(ColumnFamilyHandle* column_family) const override {
     return options_;
   }
 
@@ -197,9 +199,10 @@ class TestEnv : public EnvWrapper {
 
   void AssertWrittenFiles(std::vector<std::string>& should_have_written) {
     MutexLock l(&mutex_);
-    sort(should_have_written.begin(), should_have_written.end());
-    sort(written_files_.begin(), written_files_.end());
-    ASSERT_TRUE(written_files_ == should_have_written);
+    std::sort(should_have_written.begin(), should_have_written.end());
+    std::sort(written_files_.begin(), written_files_.end());
+
+    ASSERT_EQ(should_have_written, written_files_);
   }
 
   void ClearWrittenFiles() {
@@ -751,41 +754,37 @@ INSTANTIATE_TEST_CASE_P(BackupableDBTestWithParam, BackupableDBTestWithParam,
 TEST_F(BackupableDBTest, NoDoubleCopy) {
   OpenDBAndBackupEngine(true, true);
 
-  // should write 5 DB files + LATEST_BACKUP + one meta file
+  // should write 5 DB files + one meta file
   test_backup_env_->SetLimitWrittenFiles(7);
   test_backup_env_->ClearWrittenFiles();
   test_db_env_->SetLimitWrittenFiles(0);
-  dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
-                             "/CURRENT",   "/MANIFEST-01" };
+  dummy_db_->live_files_ = {"/00010.sst", "/00011.sst", "/CURRENT",
+                            "/MANIFEST-01"};
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   std::vector<std::string> should_have_written = {
       "/shared/00010.sst.tmp",    "/shared/00011.sst.tmp",
       "/private/1.tmp/CURRENT",   "/private/1.tmp/MANIFEST-01",
-      "/private/1.tmp/00011.log", "/meta/1.tmp",
-      "/LATEST_BACKUP.tmp"};
+      "/private/1.tmp/00011.log", "/meta/1.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
-  // should write 4 new DB files + LATEST_BACKUP + one meta file
+  // should write 4 new DB files + one meta file
   // should not write/copy 00010.sst, since it's already there!
   test_backup_env_->SetLimitWrittenFiles(6);
   test_backup_env_->ClearWrittenFiles();
-  dummy_db_->live_files_ = { "/00010.sst", "/00015.sst",
-                             "/CURRENT",   "/MANIFEST-01" };
+
+  dummy_db_->live_files_ = {"/00010.sst", "/00015.sst", "/CURRENT",
+                            "/MANIFEST-01"};
   dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
   test_db_env_->SetFilenamesForMockedAttrs(dummy_db_->live_files_);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   // should not open 00010.sst - it's already there
-  should_have_written = {
-    "/shared/00015.sst.tmp",
-    "/private/2.tmp/CURRENT",
-    "/private/2.tmp/MANIFEST-01",
-    "/private/2.tmp/00011.log",
-    "/meta/2.tmp",
-    "/LATEST_BACKUP.tmp"
-  };
+
+  should_have_written = {"/shared/00015.sst.tmp", "/private/2.tmp/CURRENT",
+                         "/private/2.tmp/MANIFEST-01",
+                         "/private/2.tmp/00011.log", "/meta/2.tmp"};
   AppendPath(backupdir_, should_have_written);
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
@@ -810,11 +809,10 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
 // test various kind of corruptions that may happen:
 // 1. Not able to write a file for backup - that backup should fail,
 //      everything else should work
-// 2. Corrupted/deleted LATEST_BACKUP - everything should work fine
-// 3. Corrupted backup meta file or missing backuped file - we should
+// 2. Corrupted backup meta file or missing backuped file - we should
 //      not be able to open that backup, but all other backups should be
 //      fine
-// 4. Corrupted checksum value - if the checksum is not a valid uint32_t,
+// 3. Corrupted checksum value - if the checksum is not a valid uint32_t,
 //      db open should fail, otherwise, it aborts during the restore process.
 TEST_F(BackupableDBTest, CorruptionsTest) {
   const int keys_iteration = 5000;
@@ -840,34 +838,8 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   CloseDBAndBackupEngine();
   AssertBackupConsistency(0, 0, keys_iteration * 5, keys_iteration * 6);
 
-  // ---------- case 2. - corrupt/delete latest backup -----------
-  ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/LATEST_BACKUP", 2));
-  AssertBackupConsistency(0, 0, keys_iteration * 5);
-  ASSERT_OK(file_manager_->DeleteFile(backupdir_ + "/LATEST_BACKUP"));
-  AssertBackupConsistency(0, 0, keys_iteration * 5);
-  // create backup 6, point LATEST_BACKUP to 5
-  // behavior change: this used to delete backup 6. however, now we ignore
-  // LATEST_BACKUP contents so BackupEngine sets latest backup to 6.
-  OpenDBAndBackupEngine();
-  FillDB(db_.get(), keys_iteration * 5, keys_iteration * 6);
-  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-  CloseDBAndBackupEngine();
-  ASSERT_OK(file_manager_->WriteToFile(backupdir_ + "/LATEST_BACKUP", "5"));
-  AssertBackupConsistency(0, 0, keys_iteration * 6);
-  // assert that all 6 data is still here
-  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/6"));
-  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/6"));
-  // assert that we wrote 6 to LATEST_BACKUP
-  {
-    std::string latest_backup_contents;
-    ReadFileToString(backup_chroot_env_.get(), backupdir_ + "/LATEST_BACKUP",
-                     &latest_backup_contents);
-    ASSERT_EQ(std::atol(latest_backup_contents.c_str()), 6);
-  }
-
-  // --------- case 3. corrupted backup meta or missing backuped file ----
+  // --------- case 2. corrupted backup meta or missing backuped file ----
   ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/5", 3));
-  ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/6", 3));
   // since 5 meta is now corrupted, latest backup should be 4
   AssertBackupConsistency(0, 0, keys_iteration * 4, keys_iteration * 5);
   OpenBackupEngine();
@@ -882,7 +854,7 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   CloseBackupEngine();
   ASSERT_TRUE(!s.ok());
 
-  // --------- case 4. corrupted checksum value ----
+  // --------- case 3. corrupted checksum value ----
   ASSERT_OK(file_manager_->CorruptChecksum(backupdir_ + "/meta/3", false));
   // checksum of backup 3 is an invalid value, this can be detected at
   // db open time, and it reverts to the previous backup automatically
@@ -940,6 +912,39 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   CloseDBAndBackupEngine();
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
+}
+
+inline std::string OptionsPath(std::string ret, int backupID) {
+  ret += "/private/";
+  ret += std::to_string(backupID);
+  ret += "/";
+  return ret;
+}
+
+// Backup the LATEST options file to
+// "<backup_dir>/private/<backup_id>/OPTIONS<number>"
+
+TEST_F(BackupableDBTest, BackupOptions) {
+  OpenDBAndBackupEngine(true);
+  for (int i = 1; i < 5; i++) {
+    std::string name;
+    std::vector<std::string> filenames;
+    // Must reset() before reset(OpenDB()) again.
+    // Calling OpenDB() while *db_ is existing will cause LOCK issue
+    db_.reset();
+    db_.reset(OpenDB());
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+    rocksdb::GetLatestOptionsFileName(db_->GetName(), options_.env, &name);
+    ASSERT_OK(file_manager_->FileExists(OptionsPath(backupdir_, i) + name));
+    backup_chroot_env_->GetChildren(OptionsPath(backupdir_, i), &filenames);
+    for (auto fn : filenames) {
+      if (fn.compare(0, 7, "OPTIONS") == 0) {
+        ASSERT_EQ(name, fn);
+      }
+    }
+  }
+
+  CloseDBAndBackupEngine();
 }
 
 // This test verifies we don't delete the latest backup when read-only option is
@@ -1117,45 +1122,58 @@ TEST_F(BackupableDBTest, KeepLogFiles) {
 }
 
 TEST_F(BackupableDBTest, RateLimiting) {
-  // iter 0 -- single threaded
-  // iter 1 -- multi threaded
-  for (int iter = 0; iter < 2; ++iter) {
-    uint64_t const KB = 1024 * 1024;
-    size_t const kMicrosPerSec = 1000 * 1000LL;
+  size_t const kMicrosPerSec = 1000 * 1000LL;
+  uint64_t const MB = 1024 * 1024;
 
-    std::vector<std::pair<uint64_t, uint64_t>> limits(
-        {{KB, 5 * KB}, {2 * KB, 3 * KB}});
+  const std::vector<std::pair<uint64_t, uint64_t>> limits(
+      {{1 * MB, 5 * MB}, {2 * MB, 3 * MB}});
 
-    for (const auto& limit : limits) {
-      // destroy old data
-      DestroyDB(dbname_, options_);
+  std::shared_ptr<RateLimiter> backupThrottler(NewGenericRateLimiter(1));
+  std::shared_ptr<RateLimiter> restoreThrottler(NewGenericRateLimiter(1));
 
-      backupable_options_->backup_rate_limit = limit.first;
-      backupable_options_->restore_rate_limit = limit.second;
-      backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
-      options_.compression = kNoCompression;
-      OpenDBAndBackupEngine(true);
-      size_t bytes_written = FillDB(db_.get(), 0, 100000);
+  for (bool makeThrottler : {false, true}) {
+    if (makeThrottler) {
+      backupable_options_->backup_rate_limiter = backupThrottler;
+      backupable_options_->restore_rate_limiter = restoreThrottler;
+    }
+    // iter 0 -- single threaded
+    // iter 1 -- multi threaded
+    for (int iter = 0; iter < 2; ++iter) {
+      for (const auto& limit : limits) {
+        // destroy old data
+        DestroyDB(dbname_, Options());
+        if (makeThrottler) {
+          backupThrottler->SetBytesPerSecond(limit.first);
+          restoreThrottler->SetBytesPerSecond(limit.second);
+        } else {
+          backupable_options_->backup_rate_limit = limit.first;
+          backupable_options_->restore_rate_limit = limit.second;
+        }
+        backupable_options_->max_background_operations = (iter == 0) ? 1 : 10;
+        options_.compression = kNoCompression;
+        OpenDBAndBackupEngine(true);
+        size_t bytes_written = FillDB(db_.get(), 0, 100000);
 
-      auto start_backup = db_chroot_env_->NowMicros();
-      ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
-      auto backup_time = db_chroot_env_->NowMicros() - start_backup;
-      auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) /
-                                      backupable_options_->backup_rate_limit;
-      ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
+        auto start_backup = db_chroot_env_->NowMicros();
+        ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
+        auto backup_time = db_chroot_env_->NowMicros() - start_backup;
+        auto rate_limited_backup_time =
+            (bytes_written * kMicrosPerSec) / limit.first;
+        ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
 
-      CloseDBAndBackupEngine();
+        CloseDBAndBackupEngine();
 
-      OpenBackupEngine();
-      auto start_restore = db_chroot_env_->NowMicros();
-      ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
-      auto restore_time = db_chroot_env_->NowMicros() - start_restore;
-      CloseBackupEngine();
-      auto rate_limited_restore_time = (bytes_written * kMicrosPerSec) /
-                                       backupable_options_->restore_rate_limit;
-      ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
+        OpenBackupEngine();
+        auto start_restore = db_chroot_env_->NowMicros();
+        ASSERT_OK(backup_engine_->RestoreDBFromLatestBackup(dbname_, dbname_));
+        auto restore_time = db_chroot_env_->NowMicros() - start_restore;
+        CloseBackupEngine();
+        auto rate_limited_restore_time =
+            (bytes_written * kMicrosPerSec) / limit.second;
+        ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
 
-      AssertBackupConsistency(0, 0, 100000, 100010);
+        AssertBackupConsistency(0, 0, 100000, 100010);
+      }
     }
   }
 }

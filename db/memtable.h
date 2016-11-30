@@ -13,26 +13,27 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "db/dbformat.h"
+#include "db/memtable_allocator.h"
+#include "db/range_del_aggregator.h"
 #include "db/skiplist.h"
 #include "db/version_edit.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
-#include "rocksdb/immutable_options.h"
-#include "db/memtable_allocator.h"
+#include "util/cf_options.h"
 #include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
+#include "util/hash.h"
 #include "util/instrumented_mutex.h"
-#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
 class Mutex;
 class MemTableIterator;
 class MergeContext;
-class WriteBuffer;
 class InternalIterator;
 
 struct MemTableOptions {
@@ -42,8 +43,7 @@ struct MemTableOptions {
   size_t write_buffer_size;
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
-  uint32_t memtable_prefix_bloom_probes;
-  size_t memtable_prefix_bloom_huge_page_tlb_size;
+  size_t memtable_huge_page_size;
   bool inplace_update_support;
   size_t inplace_update_num_locks;
   UpdateStatus (*inplace_callback)(char* existing_value,
@@ -51,10 +51,18 @@ struct MemTableOptions {
                                    Slice delta_value,
                                    std::string* merged_value);
   size_t max_successive_merges;
-  bool filter_deletes;
   Statistics* statistics;
   MergeOperator* merge_operator;
   Logger* info_log;
+};
+
+// Batched counters to updated when inserting keys in one write batch.
+// In post process of the write batch, these can be updated together.
+// Only used in concurrent memtable insert case.
+struct MemTablePostProcessInfo {
+  uint64_t data_size = 0;
+  uint64_t num_entries = 0;
+  uint64_t num_deletes = 0;
 };
 
 // Note:  Many of the methods in this class have comments indicating that
@@ -93,7 +101,8 @@ class MemTable {
   explicit MemTable(const InternalKeyComparator& comparator,
                     const ImmutableCFOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
-                    WriteBuffer* write_buffer, SequenceNumber earliest_seq);
+                    WriteBufferManager* write_buffer_manager,
+                    SequenceNumber earliest_seq);
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
@@ -152,6 +161,8 @@ class MemTable {
   //        those allocated in arena.
   InternalIterator* NewIterator(const ReadOptions& read_options, Arena* arena);
 
+  InternalIterator* NewRangeTombstoneIterator(const ReadOptions& read_options);
+
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
   // Typically value will be empty if type==kTypeDeletion.
@@ -159,7 +170,8 @@ class MemTable {
   // REQUIRES: if allow_concurrent = false, external synchronization to prevent
   // simultaneous operations on the same MemTable.
   void Add(SequenceNumber seq, ValueType type, const Slice& key,
-           const Slice& value, bool allow_concurrent = false);
+           const Slice& value, bool allow_concurrent = false,
+           MemTablePostProcessInfo* post_process_info = nullptr);
 
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
@@ -175,12 +187,14 @@ class MemTable {
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context, SequenceNumber* seq);
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           SequenceNumber* seq, const ReadOptions& read_opts);
 
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context) {
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           const ReadOptions& read_opts) {
     SequenceNumber seq;
-    return Get(key, value, s, merge_context, &seq);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
   }
 
   // Attempts to update the new_value inplace, else does normal Add
@@ -217,6 +231,19 @@ class MemTable {
   // entry for the key up to the last non-merge entry or last entry for the
   // key in the memtable.
   size_t CountSuccessiveMergeEntries(const LookupKey& key);
+
+  // Update counters and flush status after inserting a whole write batch
+  // Used in concurrent memtable inserts.
+  void BatchPostProcess(const MemTablePostProcessInfo& update_counters) {
+    num_entries_.fetch_add(update_counters.num_entries,
+                           std::memory_order_relaxed);
+    data_size_.fetch_add(update_counters.data_size, std::memory_order_relaxed);
+    if (update_counters.num_deletes != 0) {
+      num_deletes_.fetch_add(update_counters.num_deletes,
+                             std::memory_order_relaxed);
+    }
+    UpdateFlushState();
+  }
 
   // Get total number of entries in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
@@ -324,6 +351,8 @@ class MemTable {
   ConcurrentArena arena_;
   MemTableAllocator allocator_;
   unique_ptr<MemTableRep> table_;
+  unique_ptr<MemTableRep> range_del_table_;
+  bool is_range_del_table_empty_;
 
   // Total data size of all data inserted
   std::atomic<uint64_t> data_size_;
@@ -362,6 +391,12 @@ class MemTable {
   std::atomic<FlushStateEnum> flush_state_;
 
   Env* env_;
+
+  // Extract sequential insert prefixes.
+  const SliceTransform* insert_with_hint_prefix_extractor_;
+
+  // Insert hints for each prefix.
+  std::unordered_map<Slice, void*, SliceHasher> insert_hints_;
 
   // Returns a heuristic flush decision
   bool ShouldFlushNow() const;

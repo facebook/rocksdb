@@ -39,6 +39,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
@@ -192,6 +193,10 @@ class SpecialSkipListFactory : public MemTableRepFactory {
   }
   virtual const char* Name() const override { return "SkipListFactory"; }
 
+  bool IsInsertConcurrentlySupported() const override {
+    return factory_.IsInsertConcurrentlySupported();
+  }
+
  private:
   SkipListFactory factory_;
   int num_entries_flush_;
@@ -220,7 +225,7 @@ class SpecialEnv : public EnvWrapper {
           // Drop writes on the floor
           return Status::OK();
         } else if (env_->no_space_.load(std::memory_order_acquire)) {
-          return Status::IOError("No space left on device");
+          return Status::NoSpace("No space left on device");
         } else {
           env_->bytes_written_ += data.size();
           return base_->Append(data);
@@ -284,7 +289,10 @@ class SpecialEnv : public EnvWrapper {
     class WalFile : public WritableFile {
      public:
       WalFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
-          : env_(env), base_(std::move(b)) {}
+          : env_(env), base_(std::move(b)) {
+        env_->num_open_wal_file_.fetch_add(1);
+      }
+      virtual ~WalFile() { env_->num_open_wal_file_.fetch_add(-1); }
       Status Append(const Slice& data) override {
 #if !(defined NDEBUG) || !defined(OS_WIN)
         TEST_SYNC_POINT("SpecialEnv::WalFile::Append:1");
@@ -306,7 +314,18 @@ class SpecialEnv : public EnvWrapper {
         return s;
       }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
-      Status Close() override { return base_->Close(); }
+      Status Close() override {
+// SyncPoint is not supported in Released Windows Mode.
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        // Check preallocation size
+        // preallocation size is never passed to base file.
+        size_t preallocation_size = preallocation_block_size();
+        TEST_SYNC_POINT_CALLBACK("DBTestWalFile.GetPreallocationStatus",
+                                 &preallocation_size);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
+
+        return base_->Close();
+      }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
@@ -413,10 +432,10 @@ class SpecialEnv : public EnvWrapper {
 
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
-    if (no_sleep_ || time_elapse_only_sleep_) {
+    if (no_slowdown_ || time_elapse_only_sleep_) {
       addon_time_.fetch_add(micros);
     }
-    if (!no_sleep_) {
+    if (!no_slowdown_) {
       target()->SleepForMicroseconds(micros);
     }
   }
@@ -440,6 +459,11 @@ class SpecialEnv : public EnvWrapper {
   virtual uint64_t NowMicros() override {
     return (time_elapse_only_sleep_ ? 0 : target()->NowMicros()) +
            addon_time_.load();
+  }
+
+  virtual Status DeleteFile(const std::string& fname) override {
+    delete_count_.fetch_add(1);
+    return target()->DeleteFile(fname);
   }
 
   Random rnd_;
@@ -469,6 +493,9 @@ class SpecialEnv : public EnvWrapper {
   // Slow down every log write, in micro-seconds.
   std::atomic<int> log_write_slowdown_;
 
+  // Number of WAL files that are still open for write.
+  std::atomic<int> num_open_wal_file_;
+
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
   std::atomic<size_t> random_read_bytes_counter_;
@@ -493,9 +520,11 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int64_t> addon_time_;
 
+  std::atomic<int> delete_count_;
+
   bool time_elapse_only_sleep_;
 
-  bool no_sleep_;
+  bool no_slowdown_;
 
   std::atomic<bool> is_wal_sync_thread_safe_{true};
 };
@@ -550,19 +579,18 @@ class DBTestBase : public testing::Test {
     kWalDirAndMmapReads = 16,
     kManifestFileSize = 17,
     kPerfOptions = 18,
-    kDeletesFilterFirst = 19,
-    kHashSkipList = 20,
-    kUniversalCompaction = 21,
-    kUniversalCompactionMultiLevel = 22,
-    kCompressedBlockCache = 23,
-    kInfiniteMaxOpenFiles = 24,
-    kxxHashChecksum = 25,
-    kFIFOCompaction = 26,
-    kOptimizeFiltersForHits = 27,
-    kRowCache = 28,
-    kRecycleLogFiles = 29,
-    kConcurrentSkipList = 30,
-    kEnd = 31,
+    kHashSkipList = 19,
+    kUniversalCompaction = 20,
+    kUniversalCompactionMultiLevel = 21,
+    kCompressedBlockCache = 22,
+    kInfiniteMaxOpenFiles = 23,
+    kxxHashChecksum = 24,
+    kFIFOCompaction = 25,
+    kOptimizeFiltersForHits = 26,
+    kRowCache = 27,
+    kRecycleLogFiles = 28,
+    kConcurrentSkipList = 29,
+    kEnd = 30,
     kLevelSubcompactions = 31,
     kUniversalSubcompactions = 32,
     kBlockBasedTableWithIndexRestartInterval = 33,
@@ -796,6 +824,10 @@ class DBTestBase : public testing::Test {
       uint64_t* total_size = nullptr);
 
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
+
+  void VerifyDBFromMap(std::map<std::string, std::string> true_data,
+                       size_t* total_reads_res = nullptr,
+                       bool tailing_iter = false);
 
 #ifndef ROCKSDB_LITE
   uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,

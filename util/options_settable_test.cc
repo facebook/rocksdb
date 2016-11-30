@@ -102,6 +102,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<FlushBlockPolicyFactory>)},
       {offsetof(struct BlockBasedTableOptions, block_cache),
        sizeof(std::shared_ptr<Cache>)},
+      {offsetof(struct BlockBasedTableOptions, persistent_cache),
+       sizeof(std::shared_ptr<PersistentCache>)},
       {offsetof(struct BlockBasedTableOptions, block_cache_compressed),
        sizeof(std::shared_ptr<Cache>)},
       {offsetof(struct BlockBasedTableOptions, filter_policy),
@@ -147,6 +149,7 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
   ASSERT_OK(GetBlockBasedTableOptionsFromString(
       *bbto,
       "cache_index_and_filter_blocks=1;"
+      "cache_index_and_filter_blocks_with_high_priority=true;"
       "pin_l0_filter_and_index_blocks_in_cache=1;"
       "index_type=kHashSearch;"
       "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
@@ -155,7 +158,8 @@ TEST_F(OptionsSettableTest, BlockBasedTableOptionsAllFieldsSettable) {
       "index_block_restart_interval=4;"
       "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
       "skip_table_builder_flush=1;format_version=1;"
-      "hash_index_allow_collision=false;",
+      "hash_index_allow_collision=false;"
+      "verify_compression=true;read_amp_bytes_per_bit=0",
       new_bbto));
 
   ASSERT_EQ(unset_bytes_base,
@@ -194,6 +198,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
       {offsetof(struct DBOptions, db_paths), sizeof(std::vector<DbPath>)},
       {offsetof(struct DBOptions, db_log_dir), sizeof(std::string)},
       {offsetof(struct DBOptions, wal_dir), sizeof(std::string)},
+      {offsetof(struct DBOptions, write_buffer_manager),
+       sizeof(std::shared_ptr<WriteBufferManager>)},
       {offsetof(struct DBOptions, listeners),
        sizeof(std::vector<std::shared_ptr<EventListener>>)},
       {offsetof(struct DBOptions, row_cache), sizeof(std::shared_ptr<Cache>)},
@@ -268,6 +274,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "stats_dump_period_sec=70127;"
                              "allow_fallocate=true;"
                              "allow_mmap_reads=false;"
+                             "use_direct_reads=false;"
                              "max_log_file_size=4607;"
                              "random_access_max_buffer_size=1048576;"
                              "advise_random_on_open=true;"
@@ -280,7 +287,9 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "access_hint_on_compaction_start=NONE;"
                              "info_log_level=DEBUG_LEVEL;"
                              "dump_malloc_stats=false;"
-                             "allow_2pc=false;",
+                             "allow_2pc=false;"
+                             "avoid_flush_during_recovery=false;"
+                             "avoid_flush_during_shutdown=false;",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
@@ -303,6 +312,8 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
 // kColumnFamilyOptionsBlacklist, and maybe add customized verification
 // for it.
 TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
+  // options in the blacklist need to appear in the same order as in
+  // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsBlacklist = {
       {offsetof(struct ColumnFamilyOptions, comparator), sizeof(Comparator*)},
       {offsetof(struct ColumnFamilyOptions, merge_operator),
@@ -327,6 +338,9 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
       {offsetof(struct ColumnFamilyOptions, inplace_callback),
        sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
+      {offsetof(struct ColumnFamilyOptions,
+                memtable_insert_with_hint_prefix_extractor),
+       sizeof(std::shared_ptr<const SliceTransform>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
@@ -385,16 +399,15 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "max_bytes_for_level_base=986;"
       "bloom_locality=8016;"
       "target_file_size_base=4294976376;"
-      "memtable_prefix_bloom_huge_page_tlb_size=2557;"
+      "memtable_huge_page_size=2557;"
       "max_successive_merges=5497;"
       "max_sequential_skip_in_iterations=4294971408;"
       "arena_block_size=1893;"
       "target_file_size_multiplier=35;"
-      "source_compaction_factor=54;"
       "min_write_buffer_number_to_merge=9;"
       "max_write_buffer_number=84;"
       "write_buffer_size=1653;"
-      "max_grandparent_overlap_factor=64;"
+      "max_compaction_bytes=64;"
       "max_bytes_for_level_multiplier=60;"
       "memtable_factory=SkipListFactory;"
       "compression=kNoCompression;"
@@ -404,23 +417,22 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "num_levels=99;"
       "level0_slowdown_writes_trigger=22;"
       "level0_file_num_compaction_trigger=14;"
-      "expanded_compaction_factor=34;"
       "compaction_filter=urxcqstuwnCompactionFilter;"
       "soft_rate_limit=530.615385;"
       "soft_pending_compaction_bytes_limit=0;"
       "max_write_buffer_number_to_maintain=84;"
       "verify_checksums_in_compaction=false;"
       "merge_operator=aabcxehazrMergeOperator;"
-      "memtable_prefix_bloom_bits=4642;"
+      "memtable_prefix_bloom_size_ratio=0.4642;"
+      "memtable_insert_with_hint_prefix_extractor=rocksdb.CappedPrefix.13;"
       "paranoid_file_checks=true;"
+      "force_consistency_checks=true;"
       "inplace_update_num_locks=7429;"
       "optimize_filters_for_hits=false;"
       "level_compaction_dynamic_level_bytes=false;"
       "inplace_update_support=false;"
       "compaction_style=kCompactionStyleFIFO;"
-      "memtable_prefix_bloom_probes=2511;"
       "purge_redundant_kvs_while_flush=true;"
-      "filter_deletes=false;"
       "hard_pending_compaction_bytes_limit=0;"
       "disable_auto_compactions=false;"
       "report_bg_io_stats=true;",

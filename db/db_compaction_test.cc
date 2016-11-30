@@ -212,8 +212,8 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
 }
 
 TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
-  // This test verify UpdateAccumulatedStats is not on by observing
-  // the compaction behavior when there are many of deletion entries.
+  // This test verify UpdateAccumulatedStats is not on
+  // if options.skip_stats_update_on_db_open = true
   // The test will need to be updated if the internal behavior changes.
 
   Options options = DeletionTriggerOptions(CurrentOptions());
@@ -229,10 +229,6 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   }
   dbfull()->TEST_WaitForFlushMemTable();
   dbfull()->TEST_WaitForCompact();
-
-  for (int k = 0; k < kTestSize; ++k) {
-    ASSERT_OK(Delete(Key(k)));
-  }
 
   // Reopen the DB with stats-update disabled
   options.skip_stats_update_on_db_open = true;
@@ -309,7 +305,8 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   dbfull()->TEST_WaitForCompact();
   // Preloading iterator issues one table cache lookup and creates
   // a new table reader. One file is created for flush and one for compaction.
-  // Compaction inputs make no table cache look-up.
+  // Compaction inputs make no table cache look-up for data/range deletion
+  // iterators
   ASSERT_EQ(num_table_cache_lookup, 2);
   // Create new iterator for:
   // (1) 1 for verifying flush results
@@ -330,7 +327,8 @@ TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
   cro.target_level = 2;
   cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
   db_->CompactRange(cro, nullptr, nullptr);
-  // Only verifying compaction outputs issues one table cache lookup.
+  // Only verifying compaction outputs issues one table cache lookup
+  // for both data block and range deletion block).
   ASSERT_EQ(num_table_cache_lookup, 1);
   // One for compaction input, one for verifying compaction results.
   ASSERT_EQ(num_new_table_reader, 2);
@@ -653,6 +651,72 @@ TEST_F(DBCompactionTest, MinorCompactionsHappen) {
   } while (ChangeCompactOptions());
 }
 
+TEST_F(DBCompactionTest, UserKeyCrossFile1) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("4", "A");
+  Put("3", "A");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  Put("2", "A");
+  Delete("3");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+
+  // move both files down to l1
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+
+  for (int i = 0; i < 3; i++) {
+    Put("2", "B");
+    Flush();
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+}
+
+TEST_F(DBCompactionTest, UserKeyCrossFile2) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 3;
+
+  DestroyAndReopen(options);
+
+  // create first file and flush to l0
+  Put("4", "A");
+  Put("3", "A");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+
+  Put("2", "A");
+  SingleDelete("3");
+  Flush();
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+
+  // move both files down to l1
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+
+  for (int i = 0; i < 3; i++) {
+    Put("2", "B");
+    Flush();
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ("NOT_FOUND", Get("3"));
+}
+
 TEST_F(DBCompactionTest, ZeroSeqIdCompaction) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
@@ -953,19 +1017,21 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
       "DBImpl::BackgroundCompaction:NonTrivial",
       [&](void* arg) { non_trivial_move++; });
   bool first = true;
-  bool second = true;
+  // Purpose of dependencies:
+  // 4 -> 1: ensure the order of two non-trivial compactions
+  // 5 -> 2 and 5 -> 3: ensure we do a check before two non-trivial compactions
+  // are installed
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"DBCompaction::ManualPartial:4", "DBCompaction::ManualPartial:1"},
-       {"DBCompaction::ManualPartial:2", "DBCompaction::ManualPartial:3"},
-       {"DBCompaction::ManualPartial:5",
-        "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"}});
+       {"DBCompaction::ManualPartial:5", "DBCompaction::ManualPartial:2"},
+       {"DBCompaction::ManualPartial:5", "DBCompaction::ManualPartial:3"}});
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun", [&](void* arg) {
         if (first) {
-          TEST_SYNC_POINT("DBCompaction::ManualPartial:4");
           first = false;
+          TEST_SYNC_POINT("DBCompaction::ManualPartial:4");
           TEST_SYNC_POINT("DBCompaction::ManualPartial:3");
-        } else if (second) {
+        } else {  // second non-trivial compaction
           TEST_SYNC_POINT("DBCompaction::ManualPartial:2");
         }
       });
@@ -1042,6 +1108,7 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
     std::string end_string = Key(199);
     Slice begin(begin_string);
     Slice end(end_string);
+    // First non-trivial compaction is triggered
     ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
   });
 
@@ -1065,15 +1132,17 @@ TEST_P(DBCompactionTestWithParam, ManualCompactionPartial) {
     values[i] = RandomString(&rnd, value_size);
     ASSERT_OK(Put(Key(i), values[i]));
   }
+  // Second non-trivial compaction is triggered
   ASSERT_OK(Flush());
 
-  // 3 files in L0
+  // Before two non-trivial compactions are installed, there are 3 files in L0
   ASSERT_EQ("3,0,0,0,0,1,2", FilesPerLevel(0));
   TEST_SYNC_POINT("DBCompaction::ManualPartial:5");
 
-  // 1 file in L6, 1 file in L1
   dbfull()->TEST_WaitForFlushMemTable();
   dbfull()->TEST_WaitForCompact();
+  // After two non-trivial compactions are installed, there is 1 file in L6, and
+  // 1 file in L1
   ASSERT_EQ("0,1,0,0,0,0,1", FilesPerLevel(0));
   threads.join();
 
@@ -1191,7 +1260,8 @@ TEST_F(DBCompactionTest, ManualPartialFill) {
   uint64_t target_size = 4 * options.max_bytes_for_level_base;
   for (int32_t i = 1; i < options.num_levels; i++) {
     ASSERT_LE(SizeAtLevel(i), target_size);
-    target_size *= options.max_bytes_for_level_multiplier;
+    target_size = static_cast<uint64_t>(target_size *
+                                        options.max_bytes_for_level_multiplier);
   }
 
   TEST_SYNC_POINT("DBCompaction::PartialFill:2");
@@ -1268,7 +1338,8 @@ TEST_F(DBCompactionTest, DeleteFileRange) {
   uint64_t target_size = 4 * options.max_bytes_for_level_base;
   for (int32_t i = 1; i < options.num_levels; i++) {
     ASSERT_LE(SizeAtLevel(i), target_size);
-    target_size *= options.max_bytes_for_level_multiplier;
+    target_size = static_cast<uint64_t>(target_size *
+                                        options.max_bytes_for_level_multiplier);
   }
 
   size_t old_num_files = CountFiles();

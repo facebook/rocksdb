@@ -9,20 +9,21 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/db.h"
+#include <stdlib.h>
+#include <map>
+#include <string>
+#include <vector>
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
-#include "util/string_util.h"
-#include "util/testharness.h"
-#include "util/testutil.h"
+#include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
-#include <vector>
-#include <stdlib.h>
-#include <map>
-#include <string>
+#include "util/string_util.h"
+#include "util/sync_point.h"
+#include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 
@@ -152,6 +153,15 @@ class DeleteFileTest : public testing::Test {
     ASSERT_EQ(required_manifest, manifest_cnt);
   }
 
+  static void DoSleep(void* arg) {
+    auto test = reinterpret_cast<DeleteFileTest*>(arg);
+    test->env_->SleepForMicroseconds(2 * 1000 * 1000);
+  }
+
+  // An empty job to guard all jobs are processed
+  static void GuardFinish(void* arg) {
+    TEST_SYNC_POINT("DeleteFileTest::GuardFinish");
+  }
 };
 
 TEST_F(DeleteFileTest, AddKeysAndQueryLevels) {
@@ -229,6 +239,118 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 
   CloseDB();
+}
+
+TEST_F(DeleteFileTest, BackgroundPurgeTest) {
+  std::string first("0"), last("999999");
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 2;
+  Slice first_slice(first), last_slice(last);
+
+  // We keep an iterator alive
+  Iterator* itr = 0;
+  CreateTwoLevels();
+  ReadOptions options;
+  options.background_purge_on_iterator_cleanup = true;
+  itr = db_->NewIterator(options);
+  db_->CompactRange(compact_options, &first_slice, &last_slice);
+  // 3 sst after compaction with live iterator
+  CheckFileTypeCounts(dbname_, 0, 3, 1);
+  test::SleepingBackgroundTask sleeping_task_before;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_before, Env::Priority::HIGH);
+  delete itr;
+  test::SleepingBackgroundTask sleeping_task_after;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_after, Env::Priority::HIGH);
+
+  // Make sure no purges are executed foreground
+  CheckFileTypeCounts(dbname_, 0, 3, 1);
+  sleeping_task_before.WakeUp();
+  sleeping_task_before.WaitUntilDone();
+
+  // Make sure all background purges are executed
+  sleeping_task_after.WakeUp();
+  sleeping_task_after.WaitUntilDone();
+  // 1 sst after iterator deletion
+  CheckFileTypeCounts(dbname_, 0, 1, 1);
+
+  CloseDB();
+}
+
+// This test is to reproduce a bug that read invalid ReadOption in iterator
+// cleanup function
+TEST_F(DeleteFileTest, BackgroundPurgeCopyOptions) {
+  std::string first("0"), last("999999");
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 2;
+  Slice first_slice(first), last_slice(last);
+
+  // We keep an iterator alive
+  Iterator* itr = 0;
+  CreateTwoLevels();
+  ReadOptions* options = new ReadOptions();
+  options->background_purge_on_iterator_cleanup = true;
+  itr = db_->NewIterator(*options);
+  // ReadOptions is deleted, but iterator cleanup function should not be
+  // affected
+  delete options;
+
+  db_->CompactRange(compact_options, &first_slice, &last_slice);
+  // 3 sst after compaction with live iterator
+  CheckFileTypeCounts(dbname_, 0, 3, 1);
+  delete itr;
+
+  test::SleepingBackgroundTask sleeping_task_after;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_after, Env::Priority::HIGH);
+
+  // Make sure all background purges are executed
+  sleeping_task_after.WakeUp();
+  sleeping_task_after.WaitUntilDone();
+  // 1 sst after iterator deletion
+  CheckFileTypeCounts(dbname_, 0, 1, 1);
+
+  CloseDB();
+}
+
+TEST_F(DeleteFileTest, BackgroundPurgeTestMultipleJobs) {
+  std::string first("0"), last("999999");
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 2;
+  Slice first_slice(first), last_slice(last);
+
+  // We keep an iterator alive
+  CreateTwoLevels();
+  ReadOptions options;
+  options.background_purge_on_iterator_cleanup = true;
+  Iterator* itr1 = db_->NewIterator(options);
+  CreateTwoLevels();
+  Iterator* itr2 = db_->NewIterator(options);
+  db_->CompactRange(compact_options, &first_slice, &last_slice);
+  // 5 sst files after 2 compactions with 2 live iterators
+  CheckFileTypeCounts(dbname_, 0, 5, 1);
+
+  // ~DBImpl should wait until all BGWorkPurge are finished
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::~DBImpl:WaitJob", "DBImpl::BGWorkPurge"},
+       {"DeleteFileTest::GuardFinish",
+        "DeleteFileTest::BackgroundPurgeTestMultipleJobs:DBClose"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  delete itr1;
+  env_->Schedule(&DeleteFileTest::DoSleep, this, Env::Priority::HIGH);
+  delete itr2;
+  env_->Schedule(&DeleteFileTest::GuardFinish, nullptr, Env::Priority::HIGH);
+  CloseDB();
+
+  TEST_SYNC_POINT("DeleteFileTest::BackgroundPurgeTestMultipleJobs:DBClose");
+  // 1 sst after iterator deletion
+  CheckFileTypeCounts(dbname_, 0, 1, 1);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DeleteFileTest, DeleteFileWithIterator) {

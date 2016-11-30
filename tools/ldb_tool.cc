@@ -46,7 +46,7 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +
              "=<no|snappy|zlib|bzip2|lz4|lz4hc|xpress|zstd>\n");
   ret.append("  --" + LDBCommand::ARG_COMPRESSION_MAX_DICT_BYTES +
-             "=<int,e.g.:14>\n");
+             "=<int,e.g.:16384>\n");
   ret.append("  --" + LDBCommand::ARG_BLOCK_SIZE + "=<block_size_in_bytes>\n");
   ret.append("  --" + LDBCommand::ARG_AUTO_COMPACTION + "=<true|false>\n");
   ret.append("  --" + LDBCommand::ARG_DB_WRITE_BUFFER_SIZE +
@@ -62,6 +62,7 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
   BatchPutCommand::Help(ret);
   ScanCommand::Help(ret);
   DeleteCommand::Help(ret);
+  DeleteRangeCommand::Help(ret);
   DBQuerierCommand::Help(ret);
   ApproxSizeCommand::Help(ret);
   CheckConsistencyCommand::Help(ret);
@@ -79,6 +80,8 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
   DBFileDumperCommand::Help(ret);
   InternalDumpCommand::Help(ret);
   RepairCommand::Help(ret);
+  BackupCommand::Help(ret);
+  RestoreCommand::Help(ret);
 
   fprintf(stderr, "%s\n", ret.c_str());
 }

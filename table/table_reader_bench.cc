@@ -94,13 +94,14 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
         int_tbl_prop_collector_factories;
 
     file_writer.reset(new WritableFileWriter(std::move(file), env_options));
-
+    int unknown_level = -1;
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                             CompressionType::kNoCompression,
                             CompressionOptions(),
                             nullptr /* compression_dict */,
-                            false /* skip_filters */, kDefaultColumnFamilyName),
+                            false /* skip_filters */, kDefaultColumnFamilyName,
+                            unknown_level),
         0 /* column_family_id */, file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
@@ -167,10 +168,12 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           if (!through_db) {
             std::string value;
             MergeContext merge_context;
-            GetContext get_context(ioptions.comparator, ioptions.merge_operator,
-                                   ioptions.info_log, ioptions.statistics,
-                                   GetContext::kNotFound, Slice(key), &value,
-                                   nullptr, &merge_context, env);
+            RangeDelAggregator range_del_agg(ikc, {} /* snapshots */);
+            GetContext get_context(ioptions.user_comparator,
+                                   ioptions.merge_operator, ioptions.info_log,
+                                   ioptions.statistics, GetContext::kNotFound,
+                                   Slice(key), &value, nullptr, &merge_context,
+                                   &range_del_agg, env);
             s = table_reader->Get(read_options, key, &get_context);
           } else {
             s = db->Get(read_options, key, &result);

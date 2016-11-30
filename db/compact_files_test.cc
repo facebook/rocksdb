@@ -10,6 +10,7 @@
 #include <thread>
 #include <vector>
 
+#include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/string_util.h"
@@ -48,6 +49,10 @@ class FlushedFileCollector : public EventListener {
       result.push_back(fname);
     }
     return result;
+  }
+  void ClearFlushedFiles() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    flushed_files_.clear();
   }
 
  private:
@@ -115,13 +120,12 @@ TEST_F(CompactFilesTest, L0ConflictsFiles) {
 TEST_F(CompactFilesTest, ObsoleteFiles) {
   Options options;
   // to trigger compaction more easily
-  const int kWriteBufferSize = 10000;
+  const int kWriteBufferSize = 65536;
   options.create_if_missing = true;
   // Disable RocksDB background compaction.
   options.compaction_style = kCompactionStyleNone;
-  // Small slowdown and stop trigger for experimental purpose.
-  options.level0_slowdown_writes_trigger = 20;
-  options.level0_stop_writes_trigger = 20;
+  options.level0_slowdown_writes_trigger = (1 << 30);
+  options.level0_stop_writes_trigger = (1 << 30);
   options.write_buffer_size = kWriteBufferSize;
   options.max_write_buffer_number = 2;
   options.compression = kNoCompression;
@@ -144,11 +148,52 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   auto l0_files = collector->GetFlushedFiles();
   ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1));
+  reinterpret_cast<DBImpl*>(db)->TEST_WaitForCompact();
 
   // verify all compaction input files are deleted
   for (auto fname : l0_files) {
     ASSERT_EQ(Status::NotFound(), env_->FileExists(fname));
   }
+  delete db;
+}
+
+TEST_F(CompactFilesTest, NotCutOutputOnLevel0) {
+  Options options;
+  options.create_if_missing = true;
+  // Disable RocksDB background compaction.
+  options.compaction_style = kCompactionStyleNone;
+  options.level0_slowdown_writes_trigger = 1000;
+  options.level0_stop_writes_trigger = 1000;
+  options.write_buffer_size = 65536;
+  options.max_write_buffer_number = 2;
+  options.compression = kNoCompression;
+  options.max_compaction_bytes = 5000;
+
+  // Add listener
+  FlushedFileCollector* collector = new FlushedFileCollector();
+  options.listeners.emplace_back(collector);
+
+  DB* db = nullptr;
+  DestroyDB(db_name_, options);
+  Status s = DB::Open(options, db_name_, &db);
+  assert(s.ok());
+  assert(db);
+
+  // create couple files
+  for (int i = 0; i < 500; ++i) {
+    db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
+  }
+  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  auto l0_files_1 = collector->GetFlushedFiles();
+  collector->ClearFlushedFiles();
+  for (int i = 0; i < 500; ++i) {
+    db->Put(WriteOptions(), ToString(i), std::string(1000, 'a' + (i % 26)));
+  }
+  reinterpret_cast<DBImpl*>(db)->TEST_WaitForFlushMemTable();
+  auto l0_files_2 = collector->GetFlushedFiles();
+  ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_1, 0));
+  ASSERT_OK(db->CompactFiles(CompactionOptions(), l0_files_2, 0));
+  // no assertion failure
   delete db;
 }
 
