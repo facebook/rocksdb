@@ -331,7 +331,7 @@ TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
   Options options;
   options.env = &env;
   options.create_if_missing = true;
-  DestroyAndReopen(options);
+  TryReopen(options);
 
   // Verify that candidate files set is empty when no full scan requested.
   assert_candidate_files_empty(dbfull(), true);
