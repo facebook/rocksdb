@@ -90,6 +90,7 @@ typedef struct rocksdb_iterator_t        rocksdb_iterator_t;
 typedef struct rocksdb_logger_t          rocksdb_logger_t;
 typedef struct rocksdb_mergeoperator_t   rocksdb_mergeoperator_t;
 typedef struct rocksdb_options_t         rocksdb_options_t;
+typedef struct rocksdb_compactoptions_t rocksdb_compactoptions_t;
 typedef struct rocksdb_block_based_table_options_t
     rocksdb_block_based_table_options_t;
 typedef struct rocksdb_cuckoo_table_options_t
@@ -314,6 +315,15 @@ extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf(
     rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
     const char* start_key, size_t start_key_len, const char* limit_key,
     size_t limit_key_len);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_opt(
+    rocksdb_t* db, rocksdb_compactoptions_t* opt, const char* start_key,
+    size_t start_key_len, const char* limit_key, size_t limit_key_len);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_compact_range_cf_opt(
+    rocksdb_t* db, rocksdb_column_family_handle_t* column_family,
+    rocksdb_compactoptions_t* opt, const char* start_key, size_t start_key_len,
+    const char* limit_key, size_t limit_key_len);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_delete_file(rocksdb_t* db,
                                                     const char* name);
@@ -860,6 +870,20 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_set_sync(
     rocksdb_writeoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_writeoptions_disable_WAL(
     rocksdb_writeoptions_t* opt, int disable);
+
+/* Compact range options */
+
+extern ROCKSDB_LIBRARY_API rocksdb_compactoptions_t*
+rocksdb_compactoptions_create();
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_destroy(
+    rocksdb_compactoptions_t*);
+extern ROCKSDB_LIBRARY_API void
+rocksdb_compactoptions_set_exclusive_manual_compaction(
+    rocksdb_compactoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_change_level(
+    rocksdb_compactoptions_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_compactoptions_set_target_level(
+    rocksdb_compactoptions_t*, int);
 
 /* Flush options */
 

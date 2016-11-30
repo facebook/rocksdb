@@ -104,6 +104,9 @@ struct rocksdb_readoptions_t {
 };
 struct rocksdb_writeoptions_t    { WriteOptions      rep; };
 struct rocksdb_options_t         { Options           rep; };
+struct rocksdb_compactoptions_t {
+  CompactRangeOptions rep;
+};
 struct rocksdb_block_based_table_options_t  { BlockBasedTableOptions rep; };
 struct rocksdb_cuckoo_table_options_t  { CuckooTableOptions rep; };
 struct rocksdb_seqfile_t         { SequentialFile*   rep; };
@@ -971,6 +974,30 @@ void rocksdb_compact_range_cf(
   Slice a, b;
   db->rep->CompactRange(
       CompactRangeOptions(), column_family->rep,
+      // Pass nullptr Slice if corresponding "const char*" is nullptr
+      (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
+}
+
+void rocksdb_compact_range_opt(rocksdb_t* db, rocksdb_compactoptions_t* opt,
+                               const char* start_key, size_t start_key_len,
+                               const char* limit_key, size_t limit_key_len) {
+  Slice a, b;
+  db->rep->CompactRange(
+      opt->rep,
+      // Pass nullptr Slice if corresponding "const char*" is nullptr
+      (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
+      (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
+}
+
+void rocksdb_compact_range_cf_opt(rocksdb_t* db,
+                                  rocksdb_column_family_handle_t* column_family,
+                                  rocksdb_compactoptions_t* opt,
+                                  const char* start_key, size_t start_key_len,
+                                  const char* limit_key, size_t limit_key_len) {
+  Slice a, b;
+  db->rep->CompactRange(
+      opt->rep, column_family->rep,
       // Pass nullptr Slice if corresponding "const char*" is nullptr
       (start_key ? (a = Slice(start_key, start_key_len), &a) : nullptr),
       (limit_key ? (b = Slice(limit_key, limit_key_len), &b) : nullptr));
@@ -2185,6 +2212,28 @@ void rocksdb_writeoptions_disable_WAL(rocksdb_writeoptions_t* opt, int disable) 
   opt->rep.disableWAL = disable;
 }
 
+rocksdb_compactoptions_t* rocksdb_compactoptions_create() {
+  return new rocksdb_compactoptions_t;
+}
+
+void rocksdb_compactoptions_destroy(rocksdb_compactoptions_t* opt) {
+  delete opt;
+}
+
+void rocksdb_compactoptions_set_exclusive_manual_compaction(
+    rocksdb_compactoptions_t* opt, unsigned char v) {
+  opt->rep.exclusive_manual_compaction = v;
+}
+
+void rocksdb_compactoptions_set_change_level(rocksdb_compactoptions_t* opt,
+                                             unsigned char v) {
+  opt->rep.change_level = v;
+}
+
+void rocksdb_compactoptions_set_target_level(rocksdb_compactoptions_t* opt,
+                                             int n) {
+  opt->rep.target_level = n;
+}
 
 rocksdb_flushoptions_t* rocksdb_flushoptions_create() {
   return new rocksdb_flushoptions_t;
