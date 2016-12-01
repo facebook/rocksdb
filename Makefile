@@ -417,6 +417,7 @@ TESTS = \
 	persistent_cache_test \
 	statistics_test \
 	lua_test \
+	range_del_aggregator_test \
 	lru_cache_test \
 
 PARALLEL_TEST = \
@@ -1302,6 +1303,9 @@ lru_cache_test: util/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------
