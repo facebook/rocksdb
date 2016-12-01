@@ -3589,6 +3589,9 @@ class Benchmark {
     }
     delete iter;
     thread->stats.AddBytes(bytes);
+    if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
+      thread->stats.AddMessage(perf_context.ToString());
+    }
   }
 
   void ReadReverse(ThreadState* thread) {
