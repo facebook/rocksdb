@@ -99,6 +99,11 @@ extern void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t);
 // Append the serialization of "key" to *result.
 extern void AppendInternalKey(std::string* result,
                               const ParsedInternalKey& key);
+// Serialized internal key consists of user key followed by footer.
+// This function appends the footer to *result, assuming that *result already
+// contains the user key at the end.
+extern void AppendInternalKeyFooter(std::string* result, SequenceNumber s,
+                                    ValueType t);
 
 // Attempt to parse an internal key from "internal_key".  On success,
 // stores the parsed data in "*result", and returns true.
@@ -196,6 +201,16 @@ class InternalKey {
   }
 
   void Clear() { rep_.clear(); }
+
+  // The underlying representation.
+  // Intended only to be used together with ConvertFromUserKey().
+  std::string* rep() { return &rep_; }
+
+  // Assuming that *rep() contains a user key, this method makes internal key
+  // out of it in-place. This saves a memcpy compared to Set()/SetFrom().
+  void ConvertFromUserKey(SequenceNumber s, ValueType t) {
+    AppendInternalKeyFooter(&rep_, s, t);
+  }
 
   std::string DebugString(bool hex = false) const;
 };

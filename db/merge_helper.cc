@@ -83,6 +83,7 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   assert(HasOperator());
   keys_.clear();
   merge_context_.Clear();
+  has_compaction_filter_skip_until_ = false;
   assert(user_merge_operator_);
   bool first_key = true;
 
@@ -145,7 +146,8 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
 
       // TODO(noetzli) If the merge operator returns false, we are currently
       // (almost) silently dropping the put/delete. That's probably not what we
-      // want.
+      // want. Also if we're in compaction and it's a put, it would be nice to
+      // run compaction filter on it.
       const Slice val = iter->value();
       const Slice* val_ptr = (kTypeValue == ikey.type) ? &val : nullptr;
       std::string merge_result;
@@ -185,10 +187,17 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
       // 1) it's included in one of the snapshots. in that case we *must* write
       // it out, no matter what compaction filter says
       // 2) it's not filtered by a compaction filter
-      if ((ikey.sequence <= latest_snapshot_ ||
-           !FilterMerge(orig_ikey.user_key, value_slice)) &&
-          (range_del_agg == nullptr ||
-           !range_del_agg->ShouldDelete(iter->key()))) {
+      CompactionFilter::Decision filter =
+          ikey.sequence <= latest_snapshot_
+              ? CompactionFilter::Decision::kKeep
+              : FilterMerge(orig_ikey.user_key, value_slice);
+      if (range_del_agg != nullptr &&
+          range_del_agg->ShouldDelete(iter->key()) &&
+          filter != CompactionFilter::Decision::kRemoveAndSkipUntil) {
+        filter = CompactionFilter::Decision::kRemove;
+      }
+      if (filter == CompactionFilter::Decision::kKeep ||
+          filter == CompactionFilter::Decision::kChangeValue) {
         if (original_key_is_iter) {
           // this is just an optimization that saves us one memcpy
           keys_.push_front(std::move(original_key));
@@ -200,8 +209,21 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
           // original_key before
           ParseInternalKey(keys_.back(), &orig_ikey);
         }
-        merge_context_.PushOperand(value_slice,
-                                   iter->IsValuePinned() /* operand_pinned */);
+        if (filter == CompactionFilter::Decision::kKeep) {
+          merge_context_.PushOperand(
+              value_slice, iter->IsValuePinned() /* operand_pinned */);
+        } else {  // kChangeValue
+          // Compaction filter asked us to change the operand from value_slice
+          // to compaction_filter_value_.
+          merge_context_.PushOperand(compaction_filter_value_, false);
+        }
+      } else if (filter == CompactionFilter::Decision::kRemoveAndSkipUntil) {
+        // Compaction filter asked us to remove this key altogether
+        // (not just this operand), along with some keys following it.
+        keys_.clear();
+        merge_context_.Clear();
+        has_compaction_filter_skip_until_ = true;
+        return Status::OK();
       }
     }
   }
@@ -305,17 +327,32 @@ void MergeOutputIterator::Next() {
   ++it_values_;
 }
 
-bool MergeHelper::FilterMerge(const Slice& user_key, const Slice& value_slice) {
+CompactionFilter::Decision MergeHelper::FilterMerge(const Slice& user_key,
+                                                    const Slice& value_slice) {
   if (compaction_filter_ == nullptr) {
-    return false;
+    return CompactionFilter::Decision::kKeep;
   }
   if (stats_ != nullptr) {
     filter_timer_.Start();
   }
-  bool to_delete =
-      compaction_filter_->FilterMergeOperand(level_, user_key, value_slice);
+  compaction_filter_value_.clear();
+  compaction_filter_skip_until_.Clear();
+  auto ret = compaction_filter_->FilterV2(
+      level_, user_key, CompactionFilter::ValueType::kMergeOperand, value_slice,
+      &compaction_filter_value_, compaction_filter_skip_until_.rep());
+  if (ret == CompactionFilter::Decision::kRemoveAndSkipUntil) {
+    if (user_comparator_->Compare(*compaction_filter_skip_until_.rep(),
+                                  user_key) <= 0) {
+      // Invalid skip_until returned from compaction filter.
+      // Keep the key as per FilterV2 documentation.
+      ret = CompactionFilter::Decision::kKeep;
+    } else {
+      compaction_filter_skip_until_.ConvertFromUserKey(kMaxSequenceNumber,
+                                                       kValueTypeForSeek);
+    }
+  }
   total_filter_time_ += filter_timer_.ElapsedNanosSafe();
-  return to_delete;
+  return ret;
 }
 
 } // namespace rocksdb

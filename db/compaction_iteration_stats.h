@@ -7,7 +7,11 @@
 
 struct CompactionIterationStats {
   // Compaction statistics
+
+  // Doesn't include records skipped because of
+  // CompactionFilter::Decision::kRemoveAndSkipUntil.
   int64_t num_record_drop_user = 0;
+
   int64_t num_record_drop_hidden = 0;
   int64_t num_record_drop_obsolete = 0;
   int64_t num_record_drop_range_del = 0;
