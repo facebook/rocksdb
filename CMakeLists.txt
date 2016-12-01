@@ -45,7 +45,9 @@ else()
   endif()
   if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
     # FreeBSD has jemaloc as default malloc
-    add_definitions(-DROCKSDB_JEMALLOC)
+    # but don't add "add_definitions(-DROCKSDB_JEMALLOC)"
+    # because it'll include explicit jmalloc files
+    # WITH_JEMALLOC allows the use of certain jemalloc functions
     set(WITH_JEMALLOC ON)
   endif()  
   option(WITH_SNAPPY "build with SNAPPY" OFF)
