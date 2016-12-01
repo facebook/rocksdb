@@ -3,6 +3,7 @@
 ### Public API Change
 * Options.level0_stop_writes_trigger default value changes from 24 to 32.
 * New compaction filter API: CompactionFilter::FilterV2(). Allows to drop ranges of keys.
+* Removed flashcache support.
 
 ## 5.0.0 (11/17/2016)
 ### Public API Change

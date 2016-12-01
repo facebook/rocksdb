@@ -48,7 +48,6 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/utilities/env_registry.h"
-#include "rocksdb/utilities/flashcache.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/sim_cache.h"
@@ -583,8 +582,6 @@ DEFINE_string(
     "\t--row_cache_size\n"
     "\t--row_cache_numshardbits\n"
     "\t--enable_io_prio\n"
-    "\t--disable_flashcache_for_background_threads\n"
-    "\t--flashcache_dev\n"
     "\t--dump_malloc_stats\n"
     "\t--num_multi_db\n");
 #endif  // ROCKSDB_LITE
@@ -781,11 +778,6 @@ DEFINE_string(compaction_fadvice, "NORMAL",
               "Access pattern advice when a file is compacted");
 static auto FLAGS_compaction_fadvice_e =
   rocksdb::Options().access_hint_on_compaction_start;
-
-DEFINE_bool(disable_flashcache_for_background_threads, false,
-            "Disable flashcache for background threads");
-
-DEFINE_string(flashcache_dev, "", "Path to flashcache device");
 
 DEFINE_bool(use_tailing_iterator, false,
             "Use tailing iterator to access a series of keys instead of get");
@@ -1755,7 +1747,6 @@ class Benchmark {
   int64_t readwrites_;
   int64_t merge_keys_;
   bool report_file_operations_;
-  int cachedev_fd_;
 
   bool SanityCheck() {
     if (FLAGS_compression_ratio > 1) {
@@ -2011,8 +2002,7 @@ class Benchmark {
                 ? FLAGS_num
                 : ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)),
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
-        report_file_operations_(FLAGS_report_file_operations),
-        cachedev_fd_(-1) {
+        report_file_operations_(FLAGS_report_file_operations) {
     // use simcache instead of cache
     if (FLAGS_simcache_size >= 0) {
       if (FLAGS_cache_numshardbits >= 1) {
@@ -2070,11 +2060,6 @@ class Benchmark {
     if (cache_.get() != nullptr) {
       // this will leak, but we're shutting down so nobody cares
       cache_->DisownData();
-    }
-    if (FLAGS_disable_flashcache_for_background_threads && cachedev_fd_ != -1) {
-      // Dtor for thiis env should run before cachedev_fd_ is closed
-      flashcache_aware_env_ = nullptr;
-      close(cachedev_fd_);
     }
   }
 
@@ -2434,7 +2419,6 @@ class Benchmark {
   }
 
  private:
-  std::unique_ptr<Env> flashcache_aware_env_;
   std::shared_ptr<TimestampEmulator> timestamp_emulator_;
 
   struct ThreadArg {
@@ -3017,23 +3001,7 @@ class Benchmark {
       FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
       FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
     }
-    if (FLAGS_disable_flashcache_for_background_threads && cachedev_fd_ == -1) {
-      // Avoid creating the env twice when an use_existing_db is true
-      cachedev_fd_ = open(FLAGS_flashcache_dev.c_str(), O_RDONLY);
-      if (cachedev_fd_ < 0) {
-        fprintf(stderr, "Open flash device failed\n");
-        exit(1);
-      }
-      flashcache_aware_env_ = NewFlashcacheAwareEnv(FLAGS_env, cachedev_fd_);
-      if (flashcache_aware_env_.get() == nullptr) {
-        fprintf(stderr, "Failed to open flashcache device at %s\n",
-                FLAGS_flashcache_dev.c_str());
-        std::abort();
-      }
-      options.env = flashcache_aware_env_.get();
-    } else {
-      options.env = FLAGS_env;
-    }
+    options.env = FLAGS_env;
 
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
