@@ -1,4 +1,8 @@
 # Rocksdb Change Log
+## 4.13.4
+### Public API Change
+* Removed flashcache support.
+
 ## 4.13.0 (10/18/2016)
 ### Public API Change
 * DB::GetOptions() reflect dynamic changed options (i.e. through DB::SetOptions()) and return copy of options instead of reference.
