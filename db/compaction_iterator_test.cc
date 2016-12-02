@@ -233,7 +233,7 @@ TEST_F(CompactionIteratorTest, CompactionFilterSkipUntil) {
     virtual Decision FilterV2(int level, const Slice& key, ValueType t,
                               const Slice& existing_value,
                               std::string* new_value,
-                              std::string* skip_until) const {
+                              std::string* skip_until) const override {
       std::string k = key.ToString();
       std::string v = existing_value.ToString();
       // See InitIterators() call below for the sequence of keys and their
