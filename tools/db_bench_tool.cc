@@ -836,6 +836,9 @@ DEFINE_int32(prefix_size, 0, "control the prefix size for HashSkipList and "
 DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
              "per prefix, 0 means no special handling of the prefix, "
              "i.e. use the prefix comes with the generated random number.");
+DEFINE_int32(memtable_insert_with_hint_prefix_size, 0,
+             "If non-zero, enable "
+             "memtable insert with hint with the given prefix size.");
 DEFINE_bool(enable_io_prio, false, "Lower the background flush/compaction "
             "threads' IO priority");
 DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
@@ -2741,6 +2744,11 @@ class Benchmark {
     }
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
+    if (FLAGS_memtable_insert_with_hint_prefix_size > 0) {
+      options.memtable_insert_with_hint_prefix_extractor.reset(
+          NewCappedPrefixTransform(
+              FLAGS_memtable_insert_with_hint_prefix_size));
+    }
     options.bloom_locality = FLAGS_bloom_locality;
     options.max_file_opening_threads = FLAGS_file_opening_threads;
     options.new_table_reader_for_compaction_inputs =
