@@ -277,7 +277,8 @@ Status FlushJob::WriteLevel0Table() {
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
                              static_cast<int>(memtables.size()), &arena));
       std::unique_ptr<InternalIterator> range_del_iter(NewMergingIterator(
-          &cfd_->internal_comparator(), &range_del_iters[0],
+          &cfd_->internal_comparator(),
+          range_del_iters.empty() ? nullptr : &range_del_iters[0],
           static_cast<int>(range_del_iters.size())));
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
