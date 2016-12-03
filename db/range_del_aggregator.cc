@@ -60,18 +60,17 @@ bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed) {
     }
     --iter;
     return parsed.sequence < iter->second.seq_;
-  } else {
-    for (const auto& start_key_and_tombstone : tombstone_map) {
-      const auto& tombstone = start_key_and_tombstone.second;
-      if (icmp_.user_comparator()->Compare(parsed.user_key,
-                                           tombstone.start_key_) < 0) {
-        break;
-      }
-      if (parsed.sequence < tombstone.seq_ &&
-          icmp_.user_comparator()->Compare(parsed.user_key,
-                                           tombstone.end_key_) < 0) {
-        return true;
-      }
+  }
+  for (const auto& start_key_and_tombstone : tombstone_map) {
+    const auto& tombstone = start_key_and_tombstone.second;
+    if (icmp_.user_comparator()->Compare(parsed.user_key,
+                                         tombstone.start_key_) < 0) {
+      break;
+    }
+    if (parsed.sequence < tombstone.seq_ &&
+        icmp_.user_comparator()->Compare(parsed.user_key,
+                                         tombstone.end_key_) < 0) {
+      return true;
     }
   }
   return false;
@@ -204,7 +203,7 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
         prev_seen_seq = tombstone_map_iter->second.seq_;
         ++tombstone_map_iter;
       }
-      if (prev_covered_seq != 0 && new_range_dels_iter_end != nullptr &&
+      if (new_range_dels_iter_end != nullptr &&
           (tombstone_map_iter == tombstone_map.end() ||
            icmp_.user_comparator()->Compare(*new_range_dels_iter_end,
                                             tombstone_map_iter->first) < 0)) {
@@ -270,8 +269,22 @@ void RangeDelAggregator::AddToBuilder(
   // insert them into a std::map on the read path.
   bool first_added = false;
   while (stripe_map_iter != rep_->stripe_map_.end()) {
-    for (const auto& start_key_and_tombstone : stripe_map_iter->second) {
-      const auto& tombstone = start_key_and_tombstone.second;
+    for (auto tombstone_map_iter = stripe_map_iter->second.begin();
+         tombstone_map_iter != stripe_map_iter->second.end();
+         ++tombstone_map_iter) {
+      RangeTombstone tombstone;
+      if (for_write_) {
+        auto next_tombstone_map_iter = std::next(tombstone_map_iter);
+        if (next_tombstone_map_iter == stripe_map_iter->second.end()) {
+          // it's the sentinel tombstone
+          break;
+        }
+        tombstone.start_key_ = tombstone_map_iter->first;
+        tombstone.end_key_ = next_tombstone_map_iter->first;
+        tombstone.seq_ = tombstone_map_iter->second.seq_;
+      } else {
+        tombstone = tombstone_map_iter->second;
+      }
       if (upper_bound != nullptr &&
           icmp_.user_comparator()->Compare(*upper_bound,
                                            tombstone.start_key_) <= 0) {
