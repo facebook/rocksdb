@@ -111,7 +111,8 @@ class RangeDelAggregator {
   SequenceNumber upper_bound_;
   std::unique_ptr<Rep> rep_;
   const InternalKeyComparator& icmp_;
-  const bool for_write_;  // collapse range deletions if going to write them
+  // collapse range deletions so they're binary searchable
+  const bool collapse_deletions_;
 };
 
 }  // namespace rocksdb

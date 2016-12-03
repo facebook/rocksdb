@@ -11,15 +11,20 @@ namespace rocksdb {
 
 RangeDelAggregator::RangeDelAggregator(
     const InternalKeyComparator& icmp,
-    const std::vector<SequenceNumber>& snapshots, bool for_write /* = true */)
-    : upper_bound_(kMaxSequenceNumber), icmp_(icmp), for_write_(for_write) {
+    const std::vector<SequenceNumber>& snapshots,
+    bool collapse_deletions /* = true */)
+    : upper_bound_(kMaxSequenceNumber),
+      icmp_(icmp),
+      collapse_deletions_(collapse_deletions) {
   InitRep(snapshots);
 }
 
 RangeDelAggregator::RangeDelAggregator(const InternalKeyComparator& icmp,
                                        SequenceNumber snapshot,
-                                       bool for_write /* = false */)
-    : upper_bound_(snapshot), icmp_(icmp), for_write_(for_write) {}
+                                       bool collapse_deletions /* = false */)
+    : upper_bound_(snapshot),
+      icmp_(icmp),
+      collapse_deletions_(collapse_deletions) {}
 
 void RangeDelAggregator::InitRep(const std::vector<SequenceNumber>& snapshots) {
   assert(rep_ == nullptr);
@@ -53,7 +58,7 @@ bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed) {
     return false;
   }
   const auto& tombstone_map = GetTombstoneMap(parsed.sequence);
-  if (for_write_) {
+  if (collapse_deletions_) {
     auto iter = tombstone_map.upper_bound(parsed.user_key.ToString());
     if (iter == tombstone_map.begin()) {
       return false;
@@ -130,7 +135,7 @@ Status RangeDelAggregator::AddTombstones(
 
 Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
   auto& tombstone_map = GetTombstoneMap(tombstone.seq_);
-  if (for_write_) {
+  if (collapse_deletions_) {
     std::vector<RangeTombstone> new_range_dels{
         tombstone, RangeTombstone(tombstone.end_key_, Slice(), 0)};
     auto new_range_dels_iter = new_range_dels.begin();
@@ -207,8 +212,8 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
           (tombstone_map_iter == tombstone_map.end() ||
            icmp_.user_comparator()->Compare(*new_range_dels_iter_end,
                                             tombstone_map_iter->first) < 0)) {
-        // something was covered that extends past the new deletion, need to
-        // move it rightwards by re-adding it
+        // the new deletion ended, add back whatever it was covering at the
+        // right endpoint
         tombstone_map.emplace(
             *new_range_dels_iter_end,
             RangeTombstone(Slice(), Slice(), prev_covered_seq));
@@ -259,10 +264,10 @@ void RangeDelAggregator::AddToBuilder(
     if (!stripe_map_iter->second.empty()) {
       range_del_out_stats->num_range_del_drop_obsolete +=
           static_cast<int64_t>(stripe_map_iter->second.size()) -
-          (for_write_ ? 1 : 0);
+          (collapse_deletions_ ? 1 : 0);
       range_del_out_stats->num_record_drop_obsolete +=
           static_cast<int64_t>(stripe_map_iter->second.size()) -
-          (for_write_ ? 1 : 0);
+          (collapse_deletions_ ? 1 : 0);
     }
     // For the bottommost level, keys covered by tombstones in the first
     // (oldest) stripe have been compacted away, so the tombstones are obsolete.
@@ -277,7 +282,7 @@ void RangeDelAggregator::AddToBuilder(
          tombstone_map_iter != stripe_map_iter->second.end();
          ++tombstone_map_iter) {
       RangeTombstone tombstone;
-      if (for_write_) {
+      if (collapse_deletions_) {
         auto next_tombstone_map_iter = std::next(tombstone_map_iter);
         if (next_tombstone_map_iter == stripe_map_iter->second.end()) {
           // it's the sentinel tombstone
