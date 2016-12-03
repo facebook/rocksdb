@@ -68,8 +68,8 @@ bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed) {
       break;
     }
     if (parsed.sequence < tombstone.seq_ &&
-        icmp_.user_comparator()->Compare(parsed.user_key,
-                                         tombstone.end_key_) < 0) {
+        icmp_.user_comparator()->Compare(parsed.user_key, tombstone.end_key_) <
+            0) {
       return true;
     }
   }
@@ -256,10 +256,14 @@ void RangeDelAggregator::AddToBuilder(
   if (bottommost_level) {
     // TODO(andrewkr): these are counted for each compaction output file, so
     // lots of double-counting.
-    range_del_out_stats->num_range_del_drop_obsolete +=
-        static_cast<int64_t>(stripe_map_iter->second.size());
-    range_del_out_stats->num_record_drop_obsolete +=
-        static_cast<int64_t>(stripe_map_iter->second.size());
+    if (!stripe_map_iter->second.empty()) {
+      range_del_out_stats->num_range_del_drop_obsolete +=
+          static_cast<int64_t>(stripe_map_iter->second.size()) -
+          (for_write_ ? 1 : 0);
+      range_del_out_stats->num_record_drop_obsolete +=
+          static_cast<int64_t>(stripe_map_iter->second.size()) -
+          (for_write_ ? 1 : 0);
+    }
     // For the bottommost level, keys covered by tombstones in the first
     // (oldest) stripe have been compacted away, so the tombstones are obsolete.
     ++stripe_map_iter;
