@@ -92,6 +92,7 @@ typedef std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber> snrange_t;
 class BlobDBImpl : public BlobDB {
   friend class BlobDBFlushBeginListener;
   friend class BlobDB;
+  friend class BlobFile;
  public:
   using rocksdb::StackableDB::Put;
   Status Put(const WriteOptions& options,
@@ -224,7 +225,7 @@ class BlobDBImpl : public BlobDB {
   void startBackgroundTasks();
 
   // add a new Blob File
-  std::shared_ptr<BlobFile> newBlobFile();
+  std::shared_ptr<BlobFile> newBlobFile(const std::string& reason);
 
   Status openAllFiles();
 
@@ -305,7 +306,7 @@ class BlobDBImpl : public BlobDB {
 
   // all the blob files which are currently being appended to based
   // on variety of incoming TTL's
-  std::set<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_blob_files_;
+  std::multiset<std::shared_ptr<BlobFile>, blobf_compare_ttl> open_blob_files_;
 
   // packet of information to put in lockess delete(s) queue
   struct delete_packet_t {
@@ -359,6 +360,9 @@ class BlobFile {
   friend struct blobf_compare_ttl;
 
 private:
+  // access to parent
+  const BlobDBImpl *parent_;
+
   // path to blob directory
   std::string path_to_dir_;
 
@@ -422,7 +426,7 @@ public:
 
   BlobFile();
 
-  BlobFile(const std::string& bdir, uint64_t fnum);
+  BlobFile(const BlobDBImpl *parent, const std::string& bdir, uint64_t fnum);
 
   ~BlobFile();
 

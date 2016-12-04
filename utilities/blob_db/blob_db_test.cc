@@ -235,6 +235,7 @@ TEST_F(BlobDBTest, GCTestWithPut) {
   bdboptions.ttl_range = 30;
   bdboptions.gc_file_pct = 100;
   bdboptions.gc_check_period = 20;
+  bdboptions.default_ttl_extractor = true;
 
   Reopen(bdboptions);
 

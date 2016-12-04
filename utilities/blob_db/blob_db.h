@@ -8,6 +8,7 @@
 #pragma once
 
 #include <string>
+#include <functional>
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/stackable_db.h"
@@ -103,6 +104,19 @@ struct BlobDBOptions {
 
   // how often to schedule check seq files period
   uint32_t check_seqf_period;
+
+  // this function is to be provided by client if they intend to 
+  // use Put API to provide TTL.
+  // the first argument is the value in the Put API 
+  // in case you want to do some modifications to the value,
+  // return a new Slice in the second.
+  // otherwise just copy the input value into output.
+  // the ttl should be extracted and returned in last pointer.
+  // otherwise assign it to -1
+  std::function<bool(const Slice&, Slice*, int32_t*)> extract_ttl_fn;
+
+  // default ttl extactor
+  bool default_ttl_extractor;
 
   // default constructor
   BlobDBOptions();

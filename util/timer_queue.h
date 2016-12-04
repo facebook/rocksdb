@@ -47,8 +47,7 @@
 // http://www.crazygaze.com/blog/2016/03/24/portable-c-timer-queue/
 class TimerQueue {
  public:
-  TimerQueue() {
-    m_th = std::thread([this] { run(); });
+  TimerQueue() : m_th(&TimerQueue::run, this) {
   }
 
   ~TimerQueue() {
@@ -68,7 +67,8 @@ class TimerQueue {
   uint64_t add(int64_t milliseconds,
                std::function<std::pair<bool, int64_t>(bool)> handler) {
     WorkItem item;
-    item.end = Clock::now() + std::chrono::milliseconds(milliseconds);
+    Clock::time_point tp = Clock::now();
+    item.end = tp + std::chrono::milliseconds(milliseconds);
     item.period = milliseconds;
     item.handler = std::move(handler);
 
@@ -191,18 +191,18 @@ class TimerQueue {
                                    : reschedule_pair.second;
 
           item.period = new_period;
-          item.end += std::chrono::milliseconds(new_period);
+          item.end = Clock::now() + std::chrono::milliseconds(new_period);
           m_items.push(std::move(item));
         }
       }
     }
   }
 
-  std::condition_variable m_checkWork;
-  std::thread m_th;
   bool m_finish = false;
   bool m_cancel = false;
   uint64_t m_idcounter = 0;
+  std::condition_variable m_checkWork;
+  std::thread m_th;
 
   struct WorkItem {
     Clock::time_point end;

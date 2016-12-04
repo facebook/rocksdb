@@ -133,6 +133,7 @@ BlobDB::BlobDB(DB* db)
 ////////////////////////////////////////////////////////////////////////////////
 //
 //
+// std::function<int(double)> fnCaller = std::bind(&A::fn, &anInstance, std::placeholders::_1);
 ////////////////////////////////////////////////////////////////////////////////
 BlobDBOptions::BlobDBOptions()
     : blob_dir("blob_dir"),
@@ -156,7 +157,8 @@ BlobDBOptions::BlobDBOptions()
       fsync_files_period(10*1000),
       reclaim_of_period(1*1000),
       delete_obsf_period(10*1000),
-      check_seqf_period(10*1000) {}
+      check_seqf_period(10*1000),
+      default_ttl_extractor(false) {}
 
 }  // namespace rocksdb
 #endif

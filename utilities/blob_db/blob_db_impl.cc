@@ -84,7 +84,13 @@ WalFilter::WalProcessingOption BlobReconcileWalFilter::LogRecordFound(
 ////////////////////////////////////////////////////////////////////////////////
 bool blobf_compare_ttl::operator() (const std::shared_ptr<BlobFile>& lhs,
   const std::shared_ptr<BlobFile>& rhs) const {
-  return lhs->ttl_range_.first < rhs->ttl_range_.first;
+  if (lhs->ttl_range_.first < rhs->ttl_range_.first)
+    return true;
+
+  if (lhs->ttl_range_.first > rhs->ttl_range_.first)
+    return false;
+
+  return lhs->BlobFileNumber() > rhs->BlobFileNumber();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -147,6 +153,10 @@ BlobDBImpl::BlobDBImpl(const std::string& dbname,
     open_p1_done_(false) {
   blob_dir_ = (bdb_options_.path_relative)  ? dbname +
     "/" + bdb_options_.blob_dir : bdb_options_.blob_dir;
+
+  if (bdb_options_.default_ttl_extractor) {
+    bdb_options_.extract_ttl_fn = &BlobDBImpl::extractTTLFromBlob;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -200,6 +210,10 @@ BlobDBImpl::BlobDBImpl(DB* db, const BlobDBOptions& blob_db_options)
   if (!bdb_options_.blob_dir.empty())
     blob_dir_ = (bdb_options_.path_relative)  ? db_->GetName() +
       "/" + bdb_options_.blob_dir : bdb_options_.blob_dir;
+
+  if (bdb_options_.default_ttl_extractor) {
+    bdb_options_.extract_ttl_fn = &BlobDBImpl::extractTTLFromBlob;
+  }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -336,7 +350,7 @@ Status BlobDBImpl::openAllFiles() {
     }
 
     std::shared_ptr<BlobFile> bfptr
-      = std::make_shared<BlobFile>(blob_dir_, f_iter.first);
+      = std::make_shared<BlobFile>(this, blob_dir_, f_iter.first);
 
     bfptr->setFileSize(size_bytes);
 
@@ -484,10 +498,15 @@ std::shared_ptr<RandomAccessFileReader> BlobDBImpl::openRandomAccess_locked(
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
-std::shared_ptr<BlobFile> BlobDBImpl::newBlobFile()
+std::shared_ptr<BlobFile> BlobDBImpl::newBlobFile(const std::string& reason)
 {
   uint64_t file_num = next_file_number_++;
-  return std::make_shared<BlobFile>(blob_dir_, file_num);
+  auto bfile = std::make_shared<BlobFile>(this, blob_dir_, file_num);
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    "New blob file created: %s reason='%s'", bfile->PathName().c_str(),
+    reason.c_str());
+  LogFlush(db_options_.info_log);
+  return bfile;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -603,7 +622,7 @@ std::shared_ptr<BlobFile> BlobDBImpl::selectBlobFile() {
       return open_simple_files_[val % bdb_options_.num_concurrent_simple_blobs];
   }
 
-  std::shared_ptr<BlobFile> bfile = newBlobFile();
+  std::shared_ptr<BlobFile> bfile = newBlobFile("selectBlobFile");
   assert(bfile);
 
   // file not visible, hence no lock
@@ -643,16 +662,23 @@ std::shared_ptr<BlobFile> BlobDBImpl::selectBlobFileTTL(uint32_t expiration)
     epoch_read = epoch_of_.load();
   }
 
-  if (bfile)
+  if (bfile) {
+    assert(!bfile->Immutable());
     return bfile;
+  }
 
   uint32_t exp_low =
       (expiration / bdb_options_.ttl_range) * bdb_options_.ttl_range;
-  ttlrange_t ttl_guess =
-      std::make_pair(exp_low, exp_low + bdb_options_.ttl_range);
+  uint32_t exp_high = exp_low + bdb_options_.ttl_range;
+  ttlrange_t ttl_guess = std::make_pair(exp_low, exp_high);
 
-  bfile = newBlobFile();
+  bfile = newBlobFile("selectBlobFileTTL");
   assert(bfile);
+
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    "New blob file TTL range: %s %d %d", bfile->PathName().c_str(),
+    exp_low, exp_high);
+  LogFlush(db_options_.info_log);
 
   // we don't need to take lock as no other thread is seeing bfile yet
   std::shared_ptr<blob_log::Writer> writer = checkOrCreateWriter_locked(bfile);
@@ -717,9 +743,13 @@ Status BlobDBImpl::Put(const WriteOptions& options,
 {
   Slice newval;
   int32_t ttl_val;
-  extractTTLFromBlob(value, &newval, &ttl_val);
+  if (bdb_options_.extract_ttl_fn)
+  {
+    bdb_options_.extract_ttl_fn(value, &newval, &ttl_val);
+    return PutWithTTL(options, column_family, key, newval, ttl_val);
+  }
 
-  return PutWithTTL(options, column_family, key, newval, ttl_val);
+  return PutWithTTL(options, column_family, key, value, -1);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -770,8 +800,11 @@ Status BlobDBImpl::Write(const WriteOptions& opts, WriteBatch* updates)
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
       Slice newval;
-      int32_t ttl_val;
-      extractTTLFromBlob(value, &newval, &ttl_val);
+      int32_t ttl_val = -1;
+      if (impl->bdb_options_.extract_ttl_fn)
+        impl->bdb_options_.extract_ttl_fn(value, &newval, &ttl_val);
+      else
+        newval = value;
 
       int32_t expiration = -1;
       if (ttl_val != -1)
@@ -916,6 +949,12 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
   char headerbuf[blob_log::BlobLogRecord::kHeaderSize];
   blob_log::Writer::ConstructBlobHeader(headerbuf, key, value, expiration, -1);
 
+  // this is another more safer way to do it, where you keep the writeLock
+  // for the entire write path. this will increase latency and reduce
+  // throughput
+  //WriteLock lockbfile_w(&bfile->mutex_);
+  //std::shared_ptr<blob_log::Writer> writer = checkOrCreateWriter_locked(bfile);
+
   std::string index_entry;
   Status s = appendBlob(bfile, headerbuf, key, value, &index_entry);
 
@@ -958,8 +997,11 @@ Status BlobDBImpl::appendBlob(std::shared_ptr<BlobFile>& bfile,
       &key_offset, &blob_offset);
   }
 
-  if (!s.ok())
+  if (!s.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+      "Invalid status in appendBlob ", bfile->PathName().c_str());
     return s;
+  }
 
   // increment blob count
   bfile->blob_count_++;
@@ -1158,7 +1200,6 @@ std::pair<bool, int64_t> BlobDBImpl::closeSeqWrite(
 
     // this prevents others from picking up this file
     open_blob_files_.erase(bfile);
-    epoch_of_++;
 
     auto findit = std::find(open_simple_files_.begin(),
       open_simple_files_.end(), bfile);
@@ -1182,6 +1223,16 @@ void BlobDBImpl::closeIf(const std::shared_ptr<BlobFile>& bfile) {
   // atomic read
   bool close = bfile->GetFileSize() > bdb_options_.blob_file_size;
   if (!close) return;
+
+  {
+    WriteLock wl(&mutex_);
+
+    open_blob_files_.erase(bfile);
+    auto findit = std::find(open_simple_files_.begin(),
+      open_simple_files_.end(), bfile);
+    if (findit != open_simple_files_.end())
+      open_simple_files_.erase(findit);
+  }
 
   using std::placeholders::_1;
   tqueue_.add(0, std::bind(&BlobDBImpl::closeSeqWrite, this, bfile, _1));
@@ -1487,7 +1538,10 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(std::shared_ptr<BlobFile>& bfptr,
   std::shared_ptr<blob_log::Writer> new_writer;
 
   if (!no_relocation) {
-    newfile = newBlobFile();
+    std::string reason("GC of ");
+    reason += bfptr->PathName();
+    newfile = newBlobFile(reason);
+
     new_writer = checkOrCreateWriter_locked(newfile);
     newfile->setHeader_locked(header);
     newfile->file_size_ = blob_log::BlobLogHeader::kHeaderSize;
@@ -1810,7 +1864,8 @@ std::pair<bool, int64_t> BlobDBImpl::runGC(bool aborted) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 BlobFile::BlobFile()
-    : file_number_(0),
+    : parent_(nullptr),
+      file_number_(0),
       blob_count_(0),
       gc_epoch_(-1),
       file_size_(0),
@@ -1829,8 +1884,9 @@ BlobFile::BlobFile()
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
-BlobFile::BlobFile(const std::string& bdir, uint64_t fn)
-    : path_to_dir_(bdir),
+BlobFile::BlobFile(const BlobDBImpl *p, const std::string& bdir, uint64_t fn)
+    : parent_(p),
+      path_to_dir_(bdir),
       file_number_(fn),
       blob_count_(0),
       gc_epoch_(-1),
@@ -1909,6 +1965,9 @@ bool BlobFile::NeedsFsync(bool hard, uint64_t bytes_per_sync) const {
 ////////////////////////////////////////////////////////////////////////////////
 Status BlobFile::writeFooterAndClose_locked()
 {
+  Log(InfoLogLevel::INFO_LEVEL, parent_->db_options_.info_log,
+    "File is being closed after footer %s", PathName().c_str());
+
   blob_log::BlobLogFooter footer;
   footer.blob_count_ = blob_count_;
   footer.ttl_range_ = ttl_range_;
@@ -1923,8 +1982,10 @@ Status BlobFile::writeFooterAndClose_locked()
   if (s.ok()) {
     closed_ = true;
     file_size_ += blob_log::BlobLogFooter::kFooterSize;
+  } else {
+    Log(InfoLogLevel::ERROR_LEVEL, parent_->db_options_.info_log,
+      "Failure to read Header for blob-file %s", PathName().c_str());
   }
-
   // delete the sequential writer
   log_writer_.reset();
   return s;
