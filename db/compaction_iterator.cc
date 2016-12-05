@@ -437,9 +437,7 @@ void CompactionIterator::NextFromInput() {
                                 bottommost_level_);
       merge_out_iter_.SeekToFirst();
 
-      if (merge_helper_->FilteredUntil(&skip_until)) {
-        need_skip = true;
-      } else if (merge_out_iter_.Valid()) {
+      if (merge_out_iter_.Valid()) {
         // NOTE: key, value, and ikey_ refer to old entries.
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
@@ -460,6 +458,10 @@ void CompactionIterator::NextFromInput() {
         // coming after the merges
         has_current_user_key_ = false;
         pinned_iters_mgr_.ReleasePinnedData();
+
+        if (merge_helper_->FilteredUntil(&skip_until)) {
+          need_skip = true;
+        }
       }
     } else {
       // 1. new user key -OR-
