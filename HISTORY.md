@@ -14,6 +14,7 @@
 * Options.level0_stop_writes_trigger default value changes from 24 to 32.
 * New compaction filter API: CompactionFilter::FilterV2(). Allows to drop ranges of keys.
 * Removed flashcache support.
+* DB::AddFile() is deprecated and is replaced with DB::IngestExternalFile(). DB::IngestExternalFile() remove all the restrictions that existed for DB::AddFile.
 
 ### New Features
 * Add avoid_flush_during_shutdown option, which speeds up DB shutdown by not flushing unpersisted data (i.e. with disableWAL = true). Unpersisted data will be lost. The options is dynamically changeable via SetDBOptions().
