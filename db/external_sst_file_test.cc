@@ -1780,6 +1780,61 @@ TEST_F(ExternalSSTFileTest, DirtyExit) {
   ASSERT_NOK(sst_file_writer->Finish());
 }
 
+TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"koko", "toto"}, options);
+
+  SstFileWriter sfw_default(EnvOptions(), options, options.comparator,
+                            handles_[0]);
+  SstFileWriter sfw_cf1(EnvOptions(), options, options.comparator, handles_[1]);
+  SstFileWriter sfw_cf2(EnvOptions(), options, options.comparator, handles_[2]);
+  SstFileWriter sfw_unknown(EnvOptions(), options, options.comparator);
+
+  // default_cf.sst
+  const std::string cf_default_sst = sst_files_dir_ + "/default_cf.sst";
+  ASSERT_OK(sfw_default.Open(cf_default_sst));
+  ASSERT_OK(sfw_default.Add("K1", "V1"));
+  ASSERT_OK(sfw_default.Add("K2", "V2"));
+  ASSERT_OK(sfw_default.Finish());
+
+  // cf1.sst
+  const std::string cf1_sst = sst_files_dir_ + "/cf1.sst";
+  ASSERT_OK(sfw_cf1.Open(cf1_sst));
+  ASSERT_OK(sfw_cf1.Add("K3", "V1"));
+  ASSERT_OK(sfw_cf1.Add("K4", "V2"));
+  ASSERT_OK(sfw_cf1.Finish());
+
+  // cf_unknown.sst
+  const std::string unknown_sst = sst_files_dir_ + "/cf_unknown.sst";
+  ASSERT_OK(sfw_unknown.Open(unknown_sst));
+  ASSERT_OK(sfw_unknown.Add("K5", "V1"));
+  ASSERT_OK(sfw_unknown.Add("K6", "V2"));
+  ASSERT_OK(sfw_unknown.Finish());
+
+  IngestExternalFileOptions ifo;
+
+  // SST CF dont match
+  ASSERT_NOK(db_->IngestExternalFile(handles_[0], {cf1_sst}, ifo));
+  // SST CF dont match
+  ASSERT_NOK(db_->IngestExternalFile(handles_[2], {cf1_sst}, ifo));
+  // SST CF match
+  ASSERT_OK(db_->IngestExternalFile(handles_[1], {cf1_sst}, ifo));
+
+  // SST CF dont match
+  ASSERT_NOK(db_->IngestExternalFile(handles_[1], {cf_default_sst}, ifo));
+  // SST CF dont match
+  ASSERT_NOK(db_->IngestExternalFile(handles_[2], {cf_default_sst}, ifo));
+  // SST CF match
+  ASSERT_OK(db_->IngestExternalFile(handles_[0], {cf_default_sst}, ifo));
+
+  // SST CF unknown
+  ASSERT_OK(db_->IngestExternalFile(handles_[1], {unknown_sst}, ifo));
+  // SST CF unknown
+  ASSERT_OK(db_->IngestExternalFile(handles_[2], {unknown_sst}, ifo));
+  // SST CF unknown
+  ASSERT_OK(db_->IngestExternalFile(handles_[0], {unknown_sst}, ifo));
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

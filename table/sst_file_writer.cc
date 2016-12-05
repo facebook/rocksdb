@@ -21,11 +21,12 @@ const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
 
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
-      const Comparator* _user_comparator)
+      const Comparator* _user_comparator, ColumnFamilyHandle* _cfh)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
-        internal_comparator(_user_comparator) {}
+        internal_comparator(_user_comparator),
+        cfh(_cfh) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
@@ -34,14 +35,16 @@ struct SstFileWriter::Rep {
   MutableCFOptions mutable_cf_options;
   InternalKeyComparator internal_comparator;
   ExternalSstFileInfo file_info;
-  std::string column_family_name;
   InternalKey ikey;
+  std::string column_family_name;
+  ColumnFamilyHandle* cfh;
 };
 
 SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Options& options,
-                             const Comparator* user_comparator)
-    : rep_(new Rep(env_options, options, user_comparator)) {}
+                             const Comparator* user_comparator,
+                             ColumnFamilyHandle* column_family)
+    : rep_(new Rep(env_options, options, user_comparator, column_family)) {}
 
 SstFileWriter::~SstFileWriter() {
   if (rep_->builder) {
@@ -89,6 +92,18 @@ Status SstFileWriter::Open(const std::string& file_path) {
             user_collector_factories[i]));
   }
   int unknown_level = -1;
+  uint32_t cf_id;
+
+  if (r->cfh != nullptr) {
+    // user explicitly specified that this file will be ingested into cfh,
+    // we can persist this information in the file.
+    cf_id = r->cfh->GetID();
+    r->column_family_name = r->cfh->GetName();
+  } else {
+    r->column_family_name = "";
+    cf_id = TablePropertiesCollectorFactory::Context::kUnknownColumnFamily;
+  }
+
   TableBuilderOptions table_builder_options(
       r->ioptions, r->internal_comparator, &int_tbl_prop_collector_factories,
       compression_type, r->ioptions.compression_opts,
@@ -100,9 +115,7 @@ Status SstFileWriter::Open(const std::string& file_path) {
   // TODO(tec) : If table_factory is using compressed block cache, we will
   // be adding the external sst file blocks into it, which is wasteful.
   r->builder.reset(r->ioptions.table_factory->NewTableBuilder(
-      table_builder_options,
-      TablePropertiesCollectorFactory::Context::kUnknownColumnFamily,
-      r->file_writer.get()));
+      table_builder_options, cf_id, r->file_writer.get()));
 
   r->file_info.file_path = file_path;
   r->file_info.file_size = 0;
