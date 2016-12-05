@@ -972,8 +972,9 @@ class DBImpl : public DB {
   // without any synchronization
   int disable_delete_obsolete_files_;
 
-  // next time when we should run DeleteObsoleteFiles with full scan
-  uint64_t delete_obsolete_files_next_run_;
+  // last time when DeleteObsoleteFiles with full scan was executed. Originaly
+  // initialized with startup time.
+  uint64_t delete_obsolete_files_last_run_;
 
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
