@@ -1785,11 +1785,9 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
   CreateAndReopenWithCF({"koko", "toto"}, options);
 
   SstFileWriter sfw_default(EnvOptions(), options, options.comparator,
-                            handles_[0]->GetID());
-  SstFileWriter sfw_cf1(EnvOptions(), options, options.comparator,
-                        handles_[1]->GetID());
-  SstFileWriter sfw_cf2(EnvOptions(), options, options.comparator,
-                        handles_[2]->GetID());
+                            handles_[0]);
+  SstFileWriter sfw_cf1(EnvOptions(), options, options.comparator, handles_[1]);
+  SstFileWriter sfw_cf2(EnvOptions(), options, options.comparator, handles_[2]);
   SstFileWriter sfw_unknown(EnvOptions(), options, options.comparator);
 
   // default_cf.sst
