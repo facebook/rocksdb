@@ -36,6 +36,8 @@ struct IngestedFileInfo {
   uint64_t file_size;
   // total number of keys in external file
   uint64_t num_entries;
+  // Id of column family this file shoule be ingested into
+  uint32_t cf_id;
   // Version of external file
   int version;
 

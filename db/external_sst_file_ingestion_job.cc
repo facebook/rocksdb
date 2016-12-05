@@ -38,6 +38,15 @@ Status ExternalSstFileIngestionJob::Prepare(
     files_to_ingest_.push_back(file_to_ingest);
   }
 
+  for (const IngestedFileInfo& f : files_to_ingest_) {
+    if (f.cf_id !=
+            TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
+        f.cf_id != cfd_->GetID()) {
+      return Status::InvalidArgument(
+          "External file column family id dont match");
+    }
+  }
+
   const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
   auto num_files = files_to_ingest_.size();
   if (num_files == 0) {
@@ -324,6 +333,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     return Status::Corruption("external file have non zero sequence number");
   }
   file_to_ingest->largest_user_key = key.user_key.ToString();
+
+  file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);
 
   return status;
 }
