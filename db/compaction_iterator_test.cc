@@ -272,8 +272,8 @@ TEST_F(CompactionIteratorTest, CompactionFilterSkipUntil) {
         return Decision::kKeep;
       }
       if (k == "i") {
-        EXPECT_EQ(ValueType::kValue, t);
-        EXPECT_EQ("iv95", v);
+        EXPECT_EQ(ValueType::kMergeOperand, t);
+        EXPECT_EQ("im95", v);
         *skip_until = "z";
         return Decision::kRemoveAndSkipUntil;
       }
@@ -299,10 +299,10 @@ TEST_F(CompactionIteratorTest, CompactionFilterSkipUntil) {
        test::KeyStr("f", 30, kTypeMerge),  // skip to "g+"
        test::KeyStr("f", 25, kTypeValue), test::KeyStr("g", 90, kTypeValue),
        test::KeyStr("h", 91, kTypeValue),  // keep
-       test::KeyStr("i", 95, kTypeValue),  // skip to "z"
+       test::KeyStr("i", 95, kTypeMerge),  // skip to "z"
        test::KeyStr("j", 99, kTypeValue)},
       {"av50", "am45", "bv60", "bv40", "cv35", "dm70", "em71", "fm65", "fm30",
-       "fv25", "gv90", "hv91", "iv95", "jv99"},
+       "fv25", "gv90", "hv91", "im95", "jv99"},
       {}, {}, kMaxSequenceNumber, &merge_op, &filter);
 
   // Compaction should output just "a", "e" and "h" keys.
