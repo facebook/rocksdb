@@ -166,18 +166,20 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
     }
     // above loop advances one too far
     new_range_dels_iter = last_range_dels_iter;
+    auto tombstone_map_iter =
+        tombstone_map.upper_bound(new_range_dels_iter->start_key_);
+    // if nothing overlapped we would've already inserted all the new points
+    // and returned early
+    assert(tombstone_map_iter != tombstone_map.begin());
+    tombstone_map_iter--;
 
-    auto tombstone_map_iter = tombstone_map.upper_bound(new_range_dels_iter->start_key_);
-    if (tombstone_map_iter != tombstone_map.begin()) {
-      tombstone_map_iter--;
-    }
-
-    SequenceNumber untermed_seq = 0;
+    // untermed_seq is non-kMaxSequenceNumber when we covered an existing point
+    // but haven't seen its corresponding endpoint. It's used for (1) deciding
+    // whether to forcibly insert the new interval's endpoint; and (2) possibly
+    // raising the seqnum for the to-be-inserted element (we insert the max
+    // seqnum between the next new interval and the unterminated interval).
+    SequenceNumber untermed_seq = kMaxSequenceNumber;
     SequenceNumber prev_seen_seq = 0;
-    // whether the current element to which tombstone_map_iter refers was just
-    // raised/inserted, which we use to decide whether to forcibly lower seqnum
-    // upon encountering the next new element.
-    bool was_tombstone_map_iter_raised = false;
     while (tombstone_map_iter != tombstone_map.end() &&
            new_range_dels_iter != new_range_dels.end()) {
       const Slice *tombstone_map_iter_end = nullptr,
@@ -233,11 +235,9 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
           } else {
             tombstone_map_iter->second.seq_ = new_range_dels_iter->seq_;
           }
-        } else {
-          untermed_seq = 0;
         }
       } else if (new_to_old_start_cmp > 0) {
-        if (was_tombstone_map_iter_raised ||
+        if (untermed_seq != kMaxSequenceNumber ||
             tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
           auto seq = tombstone_map_iter->second.seq_;
           // need to adjust this element if not intended to span beyond the new
@@ -247,34 +247,31 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
               new_range_dels_iter->start_key_,
               RangeTombstone(
                   Slice(), Slice(),
-                  std::max(untermed_seq, new_range_dels_iter->seq_)));
+                  std::max(
+                      untermed_seq == kMaxSequenceNumber ? 0 : untermed_seq,
+                      new_range_dels_iter->seq_)));
           untermed_seq = seq;
-        } else {
-          untermed_seq = 0;
         }
       } else {
         // their left endpoints coincide, so raise the existing one if needed
         if (tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
           untermed_seq = tombstone_map_iter->second.seq_;
           tombstone_map_iter->second.seq_ = new_range_dels_iter->seq_;
-        } else {
-          untermed_seq = 0;
         }
       }
 
       // advance whichever one ends earlier, or both if their right endpoints
       // coincide
       prev_seen_seq = tombstone_map_iter->second.seq_;
-      was_tombstone_map_iter_raised = false;
       if (new_to_old_end_cmp < 0) {
-        was_tombstone_map_iter_raised =
-            tombstone_map_iter->second.seq_ == new_range_dels_iter->seq_;
         ++new_range_dels_iter;
       } else if (new_to_old_end_cmp > 0) {
         ++tombstone_map_iter;
+        untermed_seq = kMaxSequenceNumber;
       } else {
         ++new_range_dels_iter;
         ++tombstone_map_iter;
+        untermed_seq = kMaxSequenceNumber;
       }
     }
     while (new_range_dels_iter != new_range_dels.end()) {
