@@ -1861,28 +1861,39 @@ TEST_F(ExternalSSTFileTest, IngestionListener) {
       new TestIngestExternalFileListener();
   options.listeners.emplace_back(listener);
   CreateAndReopenWithCF({"koko", "toto"}, options);
-  std::map<std::string, std::string> true_data;
 
   // Ingest into default cf
-  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2}, -1, true, true,
-                                       &true_data, handles_[0]));
+  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2}, -1, true, true, nullptr,
+                                       handles_[0]));
   ASSERT_EQ(listener->ingested_files.size(), 1);
   ASSERT_EQ(listener->ingested_files.back().cf_name, "default");
+  ASSERT_EQ(listener->ingested_files.back().global_seqno, 0);
+  ASSERT_EQ(listener->ingested_files.back().table_properties.column_family_id,
+            0);
+  ASSERT_EQ(listener->ingested_files.back().table_properties.column_family_name,
+            "default");
 
   // Ingest into cf1
-  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2}, -1, true, true,
-                                       &true_data, handles_[1]));
+  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2}, -1, true, true, nullptr,
+                                       handles_[1]));
   ASSERT_EQ(listener->ingested_files.size(), 2);
   ASSERT_EQ(listener->ingested_files.back().cf_name, "koko");
+  ASSERT_EQ(listener->ingested_files.back().global_seqno, 0);
+  ASSERT_EQ(listener->ingested_files.back().table_properties.column_family_id,
+            1);
+  ASSERT_EQ(listener->ingested_files.back().table_properties.column_family_name,
+            "koko");
 
   // Ingest into cf2
-  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2}, -1, true, true,
-                                       &true_data, handles_[2]));
+  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2}, -1, true, true, nullptr,
+                                       handles_[2]));
   ASSERT_EQ(listener->ingested_files.size(), 3);
   ASSERT_EQ(listener->ingested_files.back().cf_name, "toto");
-
-  size_t kcnt = 0;
-  VerifyDBFromMap(true_data, &kcnt, false);
+  ASSERT_EQ(listener->ingested_files.back().global_seqno, 0);
+  ASSERT_EQ(listener->ingested_files.back().table_properties.column_family_id,
+            2);
+  ASSERT_EQ(listener->ingested_files.back().table_properties.column_family_name,
+            "toto");
 }
 #endif  // ROCKSDB_LITE
 

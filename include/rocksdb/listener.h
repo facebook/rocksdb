@@ -305,6 +305,12 @@ class EventListener {
   virtual void OnColumnFamilyHandleDeletionStarted(ColumnFamilyHandle* handle) {
   }
 
+  // A call-back function for RocksDB which will be called after an external
+  // file is ingested using IngestExternalFile.
+  //
+  // Note that the this function will run on the same thread as
+  // IngestExternalFile(), if this function is blocked, IngestExternalFile()
+  // will be blocked from finishing.
   virtual void OnExternalFileIngested(
       DB* /*db*/, const ExternalFileIngestionInfo& /*info*/) {}
 
