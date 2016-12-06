@@ -1178,20 +1178,20 @@ TEST_F(CompactionPickerTest, MaxCompactionBytesNotHit) {
 }
 
 TEST_F(CompactionPickerTest, IsTrivialMoveOn) {
-  mutable_cf_options_.max_bytes_for_level_base = 1000000u;
-  mutable_cf_options_.max_compaction_bytes = 10000u;
+  mutable_cf_options_.max_bytes_for_level_base = 10000u;
+  mutable_cf_options_.max_compaction_bytes = 10001u;
   ioptions_.level_compaction_dynamic_level_bytes = false;
   NewVersionStorage(6, kCompactionStyleLevel);
   // A compaction should be triggered and pick file 2
-  Add(1, 1U, "100", "150", 300000U);
-  Add(1, 2U, "151", "200", 300001U);
-  Add(1, 3U, "201", "250", 300000U);
-  Add(1, 4U, "251", "300", 300000U);
+  Add(1, 1U, "100", "150", 3000U);
+  Add(1, 2U, "151", "200", 3001U);
+  Add(1, 3U, "201", "250", 3000U);
+  Add(1, 4U, "251", "300", 3000U);
 
-  Add(3, 5U, "120", "130", 9000U);
-  Add(3, 6U, "170", "180", 9000U);
-  Add(3, 5U, "220", "230", 9000U);
-  Add(3, 5U, "270", "280", 9000U);
+  Add(3, 5U, "120", "130", 7000U);
+  Add(3, 6U, "170", "180", 7000U);
+  Add(3, 5U, "220", "230", 7000U);
+  Add(3, 5U, "270", "280", 7000U);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
