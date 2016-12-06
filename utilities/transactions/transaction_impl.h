@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <stack>
@@ -23,6 +24,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/autovector.h"
 #include "utilities/transactions/transaction_base.h"
 #include "utilities/transactions/transaction_util.h"
 
@@ -57,20 +59,29 @@ class TransactionImpl : public TransactionBaseImpl {
 
   TransactionID GetID() const override { return txn_id_; }
 
-  TransactionID GetWaitingTxn(uint32_t* column_family_id,
-                              const std::string** key) const override {
+  std::vector<TransactionID> GetWaitingTxns(uint32_t* column_family_id,
+                                            std::string* key) const override {
     std::lock_guard<std::mutex> lock(wait_mutex_);
-    if (key) *key = waiting_key_;
+    std::vector<TransactionID> ids(waiting_txn_ids_.size());
+    if (key) *key = waiting_key_ ? *waiting_key_ : "";
     if (column_family_id) *column_family_id = waiting_cf_id_;
-    return waiting_txn_id_;
+    std::copy(waiting_txn_ids_.begin(), waiting_txn_ids_.end(), ids.begin());
+    return ids;
   }
 
-  void SetWaitingTxn(TransactionID id, uint32_t column_family_id,
+  void SetWaitingTxn(autovector<TransactionID> ids, uint32_t column_family_id,
                      const std::string* key) {
     std::lock_guard<std::mutex> lock(wait_mutex_);
-    waiting_txn_id_ = id;
+    waiting_txn_ids_ = ids;
     waiting_cf_id_ = column_family_id;
     waiting_key_ = key;
+  }
+
+  void ClearWaitingTxn() {
+    std::lock_guard<std::mutex> lock(wait_mutex_);
+    waiting_txn_ids_.clear();
+    waiting_cf_id_ = 0;
+    waiting_key_ = nullptr;
   }
 
   // Returns the time (in microseconds according to Env->GetMicros())
@@ -97,7 +108,8 @@ class TransactionImpl : public TransactionBaseImpl {
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool read_only, bool untracked = false) override;
+                 bool read_only, bool exclusive,
+                 bool untracked = false) override;
 
  private:
   TransactionDBImpl* txn_db_impl_;
@@ -109,10 +121,10 @@ class TransactionImpl : public TransactionBaseImpl {
   // Unique ID for this transaction
   TransactionID txn_id_;
 
-  // ID for the transaction that is blocking the current transaction.
+  // IDs for the transactions that are blocking the current transaction.
   //
-  // 0 if current transaction is not waiting.
-  TransactionID waiting_txn_id_;
+  // empty if current transaction is not waiting.
+  autovector<TransactionID> waiting_txn_ids_;
 
   // The following two represents the (cf, key) that a transaction is waiting
   // on.
@@ -125,7 +137,7 @@ class TransactionImpl : public TransactionBaseImpl {
   uint32_t waiting_cf_id_;
   const std::string* waiting_key_;
 
-  // Mutex protecting waiting_txn_id_, waiting_cf_id_ and waiting_key_.
+  // Mutex protecting waiting_txn_ids_, waiting_cf_id_ and waiting_key_.
   mutable std::mutex wait_mutex_;
 
   // If non-zero, this transaction should not be committed after this time (in

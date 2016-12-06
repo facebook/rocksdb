@@ -40,7 +40,6 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
     : TransactionBaseImpl(txn_db->GetRootDB(), write_options),
       txn_db_impl_(nullptr),
       txn_id_(0),
-      waiting_txn_id_(0),
       waiting_cf_id_(0),
       waiting_key_(nullptr),
       expiration_time_(0),
@@ -395,7 +394,7 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
     for (const auto& key_iter : cfh_keys) {
       const std::string& key = key_iter;
 
-      s = txn_db_impl_->TryLock(this, cfh_id, key);
+      s = txn_db_impl_->TryLock(this, cfh_id, key, true /* exclusive */);
       if (!s.ok()) {
         break;
       }
@@ -422,7 +421,7 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
 // the snapshot time.
 Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
                                 const Slice& key, bool read_only,
-                                bool untracked) {
+                                bool exclusive, bool untracked) {
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
@@ -448,7 +447,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   // lock this key if this transactions hasn't already locked it
   if (!previously_locked) {
-    s = txn_db_impl_->TryLock(this, cfh_id, key_str);
+    s = txn_db_impl_->TryLock(this, cfh_id, key_str, exclusive);
   }
 
   SetSnapshotIfNeeded();

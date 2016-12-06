@@ -283,11 +283,6 @@ class autovector {
 
   autovector& operator=(const autovector& other) { return assign(other); }
 
-  // move operation are disallowed since it is very hard to make sure both
-  // autovectors are allocated from the same function stack.
-  autovector& operator=(autovector&& other) = delete;
-  autovector(autovector&& other) = delete;
-
   // -- Iterator Operations
   iterator begin() { return iterator(this, 0); }
 

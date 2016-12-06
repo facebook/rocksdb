@@ -86,9 +86,11 @@ Status OptimisticTransactionImpl::Rollback() {
 }
 
 // Record this key so that we can check it for conflicts at commit time.
+//
+// 'exclusive' is unused for OptimisticTransaction.
 Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
                                           const Slice& key, bool read_only,
-                                          bool untracked) {
+                                          bool exclusive, bool untracked) {
   if (untracked) {
     return Status::OK();
   }

@@ -266,8 +266,8 @@ Status TransactionDBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
 }
 
 Status TransactionDBImpl::TryLock(TransactionImpl* txn, uint32_t cfh_id,
-                                  const std::string& key) {
-  return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv());
+                                  const std::string& key, bool exclusive) {
+  return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv(), exclusive);
 }
 
 void TransactionDBImpl::UnLock(TransactionImpl* txn,
