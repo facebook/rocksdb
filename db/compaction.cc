@@ -206,9 +206,9 @@ Compaction::~Compaction() {
 
 bool Compaction::InputCompressionMatchesOutput() const {
   int base_level = input_vstorage_->base_level();
-  bool matches =
-      (GetCompressionType(immutable_cf_options_, input_vstorage_, mutable_cf_options_,
-                          start_level_, base_level) == output_compression_);
+  bool matches = (GetCompressionType(immutable_cf_options_, input_vstorage_,
+                                     mutable_cf_options_, start_level_,
+                                     base_level) == output_compression_);
   if (matches) {
     TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:Matches");
     return true;
@@ -225,8 +225,7 @@ bool Compaction::IsTrivialMove() const {
   // filter to be applied to that level, and thus cannot be a trivial move.
 
   // Check if start level have files with overlapping ranges
-  if (start_level_ == 0 &&
-      input_vstorage_->level0_non_overlapping() == false) {
+  if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false) {
     // We cannot move files from L0 to L1 if the files are overlapping
     return false;
   }
@@ -255,13 +254,14 @@ bool Compaction::IsTrivialMove() const {
   // assert inputs_.size() == 1
 
   for (const auto& file : inputs_.front().files) {
-    std::vector<FileMetaData *> file_grand_parents;
+    std::vector<FileMetaData*> file_grand_parents;
     if (output_level_ + 1 >= number_levels_) {
       continue;
     }
     input_vstorage_->GetOverlappingInputs(output_level_ + 1, &file->smallest,
-                                    &file->largest, &file_grand_parents);
-    const auto compaction_size = file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
+                                          &file->largest, &file_grand_parents);
+    const auto compaction_size =
+        file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
     if (compaction_size > max_compaction_bytes_) {
       return false;
     }
@@ -290,8 +290,7 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = cfd_->user_comparator();
   for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
-    const std::vector<FileMetaData*>& files =
-        input_vstorage_->LevelFiles(lvl);
+    const std::vector<FileMetaData*>& files = input_vstorage_->LevelFiles(lvl);
     for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
       auto* f = files[level_ptrs->at(lvl)];
       if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
