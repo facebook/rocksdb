@@ -136,7 +136,12 @@ class Transaction {
   // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
   // TransactionOptions.expiration.
-  virtual Status Commit() = 0;
+  // clear_batch: if true, clear the local batch if commit succeeds. If false,
+  //              the users are responsible for calling ClearTxn(). Before
+  //              that, the iterator created by GetIterator() previously
+  //              will stil be valid, and Get() can still be used.
+  //
+  virtual Status Commit(bool clear_batch = true) = 0;
 
   // Discard all batched writes in this transaction.
   virtual Status Rollback() = 0;
@@ -400,6 +405,9 @@ class Transaction {
   virtual TransactionID GetID() const { return 0; }
 
   virtual bool IsDeadlockDetect() const { return false; }
+
+  // Clear local batch. Should only be called after transaction commits.
+  virtual Status ClearTxn() = 0;
 
   virtual TransactionID GetWaitingTxn(uint32_t* column_family_id,
                                       const std::string** key) const {

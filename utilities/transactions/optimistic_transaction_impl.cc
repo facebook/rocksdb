@@ -57,7 +57,7 @@ Status OptimisticTransactionImpl::Prepare() {
       "Two phase commit not supported for optimistic transactions.");
 }
 
-Status OptimisticTransactionImpl::Commit() {
+Status OptimisticTransactionImpl::Commit(bool clear_batch) {
   // Set up callback which will call CheckTransactionForConflicts() to
   // check whether this transaction is safe to be committed.
   OptimisticTransactionCallback callback(this);
@@ -73,7 +73,7 @@ Status OptimisticTransactionImpl::Commit() {
   Status s = db_impl->WriteWithCallback(
       write_options_, GetWriteBatch()->GetWriteBatch(), &callback);
 
-  if (s.ok()) {
+  if (s.ok() && clear_batch) {
     Clear();
   }
 
