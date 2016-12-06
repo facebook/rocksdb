@@ -336,6 +336,8 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
 
   file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);
 
+  file_to_ingest->table_properties = *props;
+
   return status;
 }
 

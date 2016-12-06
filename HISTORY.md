@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().
+* Added EventListener::OnExternalFileIngested which will be called when IngestExternalFile() add a file successfully.
 
 ## 5.0.0 (11/17/2016)
 ### Public API Change
