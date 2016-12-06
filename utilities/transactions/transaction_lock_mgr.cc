@@ -397,9 +397,10 @@ bool TransactionLockMgr::IncrementWaiters(
 
   const auto* next_ids = &wait_ids;
   for (int tail = 0, head = 0; head < txn->GetDeadlockDetectDepth(); head++) {
-    uint i = 0;
+    int i = 0;
     if (next_ids) {
-      for (; i < next_ids->size() && tail + i < txn->GetDeadlockDetectDepth();
+      for (; i < static_cast<int>(next_ids->size()) &&
+             tail + i < txn->GetDeadlockDetectDepth();
            i++) {
         queue[tail + i] = (*next_ids)[i];
       }
