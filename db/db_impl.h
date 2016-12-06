@@ -22,6 +22,7 @@
 #include "db/column_family.h"
 #include "db/compaction_job.h"
 #include "db/dbformat.h"
+#include "db/external_sst_file_ingestion_job.h"
 #include "db/flush_job.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
@@ -548,6 +549,9 @@ class DBImpl : public DB {
                                    int job_id);
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
+
+  void NotifyOnExternalFileIngested(
+      ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 

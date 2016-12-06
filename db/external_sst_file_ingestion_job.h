@@ -38,6 +38,8 @@ struct IngestedFileInfo {
   uint64_t num_entries;
   // Id of column family this file shoule be ingested into
   uint32_t cf_id;
+  // TableProperties read from external file
+  TableProperties table_properties;
   // Version of external file
   int version;
 
@@ -97,6 +99,10 @@ class ExternalSstFileIngestionJob {
   void Cleanup(const Status& status);
 
   VersionEdit* edit() { return &edit_; }
+
+  const autovector<IngestedFileInfo>& files_to_ingest() const {
+    return files_to_ingest_;
+  }
 
  private:
   // Open the external file and populate `file_to_ingest` with all the
