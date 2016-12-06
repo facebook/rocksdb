@@ -362,6 +362,8 @@ DEFINE_int32(cache_numshardbits, 6,
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
 
+DEFINE_double(cache_high_pri_pool_ratio, 0.0, "");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -374,6 +376,8 @@ DEFINE_bool(cache_index_and_filter_blocks, false,
 
 DEFINE_bool(pin_l0_filter_and_index_blocks_in_cache, false,
             "Pin index/filter blocks of L0 files in block cache.");
+
+DEFINE_bool(cache_index_and_filter_blocks_with_high_priority, false, "");
 
 DEFINE_int32(block_size,
              static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
@@ -1993,7 +1997,9 @@ class Benchmark {
       }
       return cache;
     } else {
-      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits);
+      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits,
+                         false /*strict_capacity_limit*/,
+                         FLAGS_cache_high_pri_pool_ratio);
     }
   }
 
@@ -2883,6 +2889,8 @@ class Benchmark {
           FLAGS_cache_index_and_filter_blocks;
       block_based_options.pin_l0_filter_and_index_blocks_in_cache =
           FLAGS_pin_l0_filter_and_index_blocks_in_cache;
+      block_based_options.cache_index_and_filter_blocks_with_high_priority =
+          FLAGS_cache_index_and_filter_blocks_with_high_priority;
       block_based_options.block_cache = cache_;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
