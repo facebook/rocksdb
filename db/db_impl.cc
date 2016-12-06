@@ -6539,7 +6539,33 @@ Status DBImpl::IngestExternalFile(
   // Cleanup
   ingestion_job.Cleanup(status);
 
+  if (status.ok()) {
+    NotifyOnExternalFileIngested(cfd, ingestion_job);
+  }
+
   return status;
+}
+
+void DBImpl::NotifyOnExternalFileIngested(
+    ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job) {
+#ifndef ROCKSDB_LITE
+  if (immutable_db_options_.listeners.empty()) {
+    return;
+  }
+
+  for (const IngestedFileInfo& f : ingestion_job.files_to_ingest()) {
+    ExternalFileIngestionInfo info;
+    info.cf_name = cfd->GetName();
+    info.external_file_path = f.external_file_path;
+    info.internal_file_path = f.internal_file_path;
+    info.global_seqno = f.assigned_seqno;
+    info.table_properties = f.table_properties;
+    for (auto listener : immutable_db_options_.listeners) {
+      listener->OnExternalFileIngested(this, info);
+    }
+  }
+
+#endif
 }
 
 void DBImpl::WaitForIngestFile() {
