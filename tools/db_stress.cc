@@ -1857,17 +1857,18 @@ class StressTest {
         // OPERATION delete range
         if (!FLAGS_test_batches_snapshots) {
           std::vector<std::unique_ptr<MutexLock>> range_locks;
-          range_locks.emplace_back(std::move(l));
           // delete range does not respect disallowed overwrites. the keys for
           // which overwrites are disallowed are randomly distributed so it
           // could be expensive to find a range where each key allows
           // overwrites.
-          while (rand_key > max_key - FLAGS_range_deletion_width) {
-            range_locks[0].reset();
-            rand_key = thread->rand.Next() % max_key;
-            rand_column_family = thread->rand.Next() % FLAGS_column_families;
-            range_locks[0].reset(new MutexLock(
+          if (rand_key > max_key - FLAGS_range_deletion_width) {
+            l.reset();
+            rand_key = thread->rand.Next() %
+                       (max_key - FLAGS_range_deletion_width + 1);
+            range_locks.emplace_back(new MutexLock(
                 shared->GetMutexForKey(rand_column_family, rand_key)));
+          } else {
+            range_locks.emplace_back(std::move(l));
           }
           for (int j = 1; j < FLAGS_range_deletion_width; ++j) {
             if (((rand_key + j) & ((1 << FLAGS_log2_keys_per_lock) - 1)) == 0) {
