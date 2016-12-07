@@ -150,7 +150,8 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
                        bool _manual_compaction, double _score,
                        bool _deletion_compaction,
                        CompactionReason _compaction_reason)
-    : start_level_(_inputs[0].level),
+    : input_vstorage_(vstorage),
+      start_level_(_inputs[0].level),
       output_level_(_output_level),
       max_output_file_size_(_target_file_size),
       max_compaction_bytes_(_max_compaction_bytes),
@@ -204,11 +205,10 @@ Compaction::~Compaction() {
 }
 
 bool Compaction::InputCompressionMatchesOutput() const {
-  VersionStorageInfo* vstorage = input_version_->storage_info();
-  int base_level = vstorage->base_level();
-  bool matches =
-      (GetCompressionType(*cfd_->ioptions(), vstorage, mutable_cf_options_,
-                          start_level_, base_level) == output_compression_);
+  int base_level = input_vstorage_->base_level();
+  bool matches = (GetCompressionType(immutable_cf_options_, input_vstorage_,
+                                     mutable_cf_options_, start_level_,
+                                     base_level) == output_compression_);
   if (matches) {
     TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:Matches");
     return true;
@@ -225,15 +225,14 @@ bool Compaction::IsTrivialMove() const {
   // filter to be applied to that level, and thus cannot be a trivial move.
 
   // Check if start level have files with overlapping ranges
-  if (start_level_ == 0 &&
-      input_version_->storage_info()->level0_non_overlapping() == false) {
+  if (start_level_ == 0 && input_vstorage_->level0_non_overlapping() == false) {
     // We cannot move files from L0 to L1 if the files are overlapping
     return false;
   }
 
   if (is_manual_compaction_ &&
-      (cfd_->ioptions()->compaction_filter != nullptr ||
-       cfd_->ioptions()->compaction_filter_factory != nullptr)) {
+      (immutable_cf_options_.compaction_filter != nullptr ||
+       immutable_cf_options_.compaction_filter_factory != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
     return false;
@@ -241,15 +240,34 @@ bool Compaction::IsTrivialMove() const {
 
   // Used in universal compaction, where trivial move can be done if the
   // input files are non overlapping
-  if ((cfd_->ioptions()->compaction_options_universal.allow_trivial_move) &&
+  if ((immutable_cf_options_.compaction_options_universal.allow_trivial_move) &&
       (output_level_ != 0)) {
     return is_trivial_move_;
   }
 
-  return (start_level_ != output_level_ && num_input_levels() == 1 &&
+  if (!(start_level_ != output_level_ && num_input_levels() == 1 &&
           input(0, 0)->fd.GetPathId() == output_path_id() &&
-          InputCompressionMatchesOutput() &&
-          TotalFileSize(grandparents_) <= max_compaction_bytes_);
+          InputCompressionMatchesOutput())) {
+    return false;
+  }
+
+  // assert inputs_.size() == 1
+
+  for (const auto& file : inputs_.front().files) {
+    std::vector<FileMetaData*> file_grand_parents;
+    if (output_level_ + 1 >= number_levels_) {
+      continue;
+    }
+    input_vstorage_->GetOverlappingInputs(output_level_ + 1, &file->smallest,
+                                          &file->largest, &file_grand_parents);
+    const auto compaction_size =
+        file->fd.GetFileSize() + TotalFileSize(file_grand_parents);
+    if (compaction_size > max_compaction_bytes_) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 void Compaction::AddInputDeletions(VersionEdit* out_edit) {
@@ -272,8 +290,7 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = cfd_->user_comparator();
   for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
-    const std::vector<FileMetaData*>& files =
-        input_version_->storage_info()->LevelFiles(lvl);
+    const std::vector<FileMetaData*>& files = input_vstorage_->LevelFiles(lvl);
     for (; level_ptrs->at(lvl) < files.size(); level_ptrs->at(lvl)++) {
       auto* f = files[level_ptrs->at(lvl)];
       if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
@@ -345,7 +362,7 @@ void Compaction::ReleaseCompactionFiles(Status status) {
 
 void Compaction::ResetNextCompactionIndex() {
   assert(input_version_ != nullptr);
-  input_version_->storage_info()->ResetNextCompactionIndex(start_level_);
+  input_vstorage_->ResetNextCompactionIndex(start_level_);
 }
 
 namespace {

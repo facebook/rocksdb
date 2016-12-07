@@ -119,9 +119,6 @@ class CompactionPicker {
                                   const Slice& largest_user_key,
                                   int level) const;
 
- protected:
-  int NumberLevels() const { return ioptions_.num_levels; }
-
   // Stores the minimal range that covers all entries in inputs in
   // *smallest, *largest.
   // REQUIRES: inputs is not empty
@@ -140,6 +137,9 @@ class CompactionPicker {
   // REQUIRES: inputs is not empty (at least on entry have one file)
   void GetRange(const std::vector<CompactionInputFiles>& inputs,
                 InternalKey* smallest, InternalKey* largest) const;
+
+ protected:
+  int NumberLevels() const { return ioptions_.num_levels; }
 
   // Add more files to the inputs on "level" to make sure that
   // no newer version of a key is compacted to "level+1" while leaving an older
