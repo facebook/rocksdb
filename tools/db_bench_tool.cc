@@ -545,6 +545,9 @@ DEFINE_int64(max_num_range_tombstones, 0,
              "Maximum number of range tombstones "
              "to insert.");
 
+DEFINE_bool(expand_range_tombstones, false,
+            "Expand range tombstone into sequential regular tombstones.");
+
 #ifndef ROCKSDB_LITE
 DEFINE_bool(optimistic_transaction_db, false,
             "Open a OptimisticTransactionDB instance. "
@@ -3232,6 +3235,14 @@ class Benchmark {
     Slice begin_key = AllocateKey(&begin_key_guard);
     std::unique_ptr<const char[]> end_key_guard;
     Slice end_key = AllocateKey(&end_key_guard);
+    std::vector<std::unique_ptr<const char[]>> expanded_key_guards;
+    std::vector<Slice> expanded_keys;
+    if (FLAGS_expand_range_tombstones) {
+      expanded_key_guards.resize(range_tombstone_width_);
+      for (auto& expanded_key_guard : expanded_key_guards) {
+        expanded_keys.emplace_back(AllocateKey(&expanded_key_guard));
+      }
+    }
 
     int64_t stage = 0;
     int64_t num_written = 0;
@@ -3283,18 +3294,35 @@ class Benchmark {
                 max_num_range_tombstones_ &&
             num_written % writes_per_range_tombstone_ == 0) {
           int64_t begin_num = key_gens[id]->Next();
-          GenerateKeyFromInt(begin_num, FLAGS_num, &begin_key);
-          GenerateKeyFromInt(begin_num + range_tombstone_width_, FLAGS_num,
-                             &end_key);
-          if (FLAGS_use_blob_db) {
-            s = db_with_cfh->db->DeleteRange(
-                write_options_, db_with_cfh->db->DefaultColumnFamily(),
-                begin_key, end_key);
-          } else if (FLAGS_num_column_families <= 1) {
-            batch.DeleteRange(begin_key, end_key);
+          if (FLAGS_expand_range_tombstones) {
+            for (int64_t offset = 0; offset < range_tombstone_width_;
+                 ++offset) {
+              GenerateKeyFromInt(begin_num + offset, FLAGS_num,
+                                 &expanded_keys[offset]);
+              if (FLAGS_use_blob_db) {
+                s = db_with_cfh->db->Delete(write_options_,
+                                            expanded_keys[offset]);
+              } else if (FLAGS_num_column_families <= 1) {
+                batch.Delete(expanded_keys[offset]);
+              } else {
+                batch.Delete(db_with_cfh->GetCfh(rand_num),
+                             expanded_keys[offset]);
+              }
+            }
           } else {
-            batch.DeleteRange(db_with_cfh->GetCfh(rand_num), begin_key,
-                              end_key);
+            GenerateKeyFromInt(begin_num, FLAGS_num, &begin_key);
+            GenerateKeyFromInt(begin_num + range_tombstone_width_, FLAGS_num,
+                               &end_key);
+            if (FLAGS_use_blob_db) {
+              s = db_with_cfh->db->DeleteRange(
+                  write_options_, db_with_cfh->db->DefaultColumnFamily(),
+                  begin_key, end_key);
+            } else if (FLAGS_num_column_families <= 1) {
+              batch.DeleteRange(begin_key, end_key);
+            } else {
+              batch.DeleteRange(db_with_cfh->GetCfh(rand_num), begin_key,
+                                end_key);
+            }
           }
         }
       }
