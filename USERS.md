@@ -74,3 +74,6 @@ quasardb uses a heavily tuned RocksDB as its persistence layer.
 
 ## Dgraph
 [Dgraph](https://github.com/dgraph-io/dgraph) is an open-source, scalable, distributed, low latency, high throughput Graph database .They use RocksDB to store state locally on a machine.
+
+## Uber
+[Uber](http://eng.uber.com/cherami/) uses RocksDB as a durable and and scalable task queue.
