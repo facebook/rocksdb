@@ -444,13 +444,16 @@ TEST_F(DBRangeDelTest, GetCoveredKeyFromImmutableMemtable) {
   Options opts = CurrentOptions();
   opts.max_write_buffer_number = 3;
   opts.min_write_buffer_number_to_merge = 2;
+  // SpecialSkipListFactory lets us specify maximum number of elements the
+  // memtable can hold. It switches the active memtable to immutable (flush is
+  // prevented by the above options) upon inserting an element that would
+  // overflow the memtable.
   opts.memtable_factory.reset(new SpecialSkipListFactory(1));
   Reopen(opts);
 
   db_->Put(WriteOptions(), "key", "val");
   ASSERT_OK(
       db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
-  // Put again to trigger memtable switch
   db_->Put(WriteOptions(), "blah", "val");
 
   ReadOptions read_opts;
