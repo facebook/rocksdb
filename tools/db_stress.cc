@@ -533,6 +533,8 @@ class Stats {
     iterator_size_sums_ = 0;
     founds_ = 0;
     iterations_ = 0;
+    range_deletions_ = 0;
+    covered_by_range_deletions_ = 0;
     errors_ = 0;
     bytes_ = 0;
     seconds_ = 0;
@@ -554,6 +556,8 @@ class Stats {
     iterator_size_sums_ += other.iterator_size_sums_;
     founds_ += other.founds_;
     iterations_ += other.iterations_;
+    range_deletions_ += other.range_deletions_;
+    covered_by_range_deletions_ = other.covered_by_range_deletions_;
     errors_ += other.errors_;
     bytes_ += other.bytes_;
     seconds_ += other.seconds_;
