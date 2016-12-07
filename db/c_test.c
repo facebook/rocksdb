@@ -536,8 +536,8 @@ int main(int argc, char** argv) {
 
   StartPhase("statistics");
   {
-    uint64_t block_cache_miss;
-    uint64_t block_cache_hit;
+    uint64_t block_cache_miss __attribute__((unused));
+    uint64_t block_cache_hit __attribute__((unused));
     char* db_get_histogram;
     block_cache_miss = rocksdb_options_statistics_get_ticker_count(
         options, 0 /* Tickers::BLOCK_CACHE_MISS */);
