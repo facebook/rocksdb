@@ -1895,6 +1895,32 @@ TEST_F(ExternalSSTFileTest, IngestionListener) {
   ASSERT_EQ(listener->ingested_files.back().table_properties.column_family_name,
             "toto");
 }
+
+TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
+  Options options = CurrentOptions();
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("K1", "V1"));
+  const Snapshot* snap = db_->GetSnapshot();
+  ASSERT_EQ(Get("K1", snap), "V1");
+
+  std::string sst_file_path = sst_files_dir_ + "file1.sst";
+  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
+  ASSERT_OK(sst_file_writer.Open(sst_file_path));
+  ASSERT_OK(sst_file_writer.Add("K1", "V2"));
+  ASSERT_OK(sst_file_writer.Finish());
+
+
+  IngestExternalFileOptions ifo;
+  ifo.move_files = true;
+  ASSERT_OK(db_->IngestExternalFile({sst_file_path}, ifo));
+
+  ASSERT_EQ(Get("K1", snap), "V1");
+  ASSERT_EQ(Get("K1"), "V2");
+
+  db_->ReleaseSnapshot(snap);
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

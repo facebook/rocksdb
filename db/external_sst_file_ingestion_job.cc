@@ -311,8 +311,9 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->num_entries = props->num_entries;
 
   ParsedInternalKey key;
-  std::unique_ptr<InternalIterator> iter(
-      table_reader->NewIterator(ReadOptions()));
+  ReadOptions ro;
+  ro.fill_cache = false;
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(ro));
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
