@@ -16,14 +16,14 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_write_conflict_snapshot, Env* env,
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     const Compaction* compaction, const CompactionFilter* compaction_filter,
-    LogBuffer* log_buffer)
+    const std::atomic<bool>* shutting_down)
     : CompactionIterator(
           input, cmp, merge_helper, last_sequence, snapshots,
           earliest_write_conflict_snapshot, env, expect_valid_internal_key,
           range_del_agg,
           std::unique_ptr<CompactionProxy>(
               compaction ? new CompactionProxy(compaction) : nullptr),
-          compaction_filter, log_buffer) {}
+          compaction_filter, shutting_down) {}
 
 CompactionIterator::CompactionIterator(
     InternalIterator* input, const Comparator* cmp, MergeHelper* merge_helper,
@@ -31,7 +31,8 @@ CompactionIterator::CompactionIterator(
     SequenceNumber earliest_write_conflict_snapshot, Env* env,
     bool expect_valid_internal_key, RangeDelAggregator* range_del_agg,
     std::unique_ptr<CompactionProxy> compaction,
-    const CompactionFilter* compaction_filter, LogBuffer* log_buffer)
+    const CompactionFilter* compaction_filter,
+    const std::atomic<bool>* shutting_down)
     : input_(input),
       cmp_(cmp),
       merge_helper_(merge_helper),
@@ -42,7 +43,7 @@ CompactionIterator::CompactionIterator(
       range_del_agg_(range_del_agg),
       compaction_(std::move(compaction)),
       compaction_filter_(compaction_filter),
-      log_buffer_(log_buffer),
+      shutting_down_(shutting_down),
       merge_out_iter_(merge_helper_) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   bottommost_level_ =
@@ -136,7 +137,7 @@ void CompactionIterator::NextFromInput() {
   at_next_ = false;
   valid_ = false;
 
-  while (!valid_ && input_->Valid()) {
+  while (!valid_ && input_->Valid() && !IsShuttingDown()) {
     key_ = input_->key();
     value_ = input_->value();
     iter_stats_.num_input_records++;
@@ -217,7 +218,8 @@ void CompactionIterator::NextFromInput() {
         }
 
         if (filter == CompactionFilter::Decision::kRemove) {
-          // convert the current key to a delete
+          // convert the current key to a delete; key_ is pointing into
+          // current_key_ at this point, so updating current_key_ updates key()
           ikey_.type = kTypeDeletion;
           current_key_.UpdateInternalKey(ikey_.sequence, kTypeDeletion);
           // no value associated with delete
@@ -422,7 +424,6 @@ void CompactionIterator::NextFromInput() {
       input_->Next();
     } else if (ikey_.type == kTypeMerge) {
       if (!merge_helper_->HasOperator()) {
-        LogToBuffer(log_buffer_, "Options::merge_operator is null.");
         status_ = Status::InvalidArgument(
             "merge_operator is not properly initialized.");
         return;
@@ -433,11 +434,14 @@ void CompactionIterator::NextFromInput() {
       // have hit (A)
       // We encapsulate the merge related state machine in a different
       // object to minimize change to the existing flow.
-      merge_helper_->MergeUntil(input_, range_del_agg_, prev_snapshot,
-                                bottommost_level_);
+      Status s = merge_helper_->MergeUntil(input_, range_del_agg_,
+                                           prev_snapshot, bottommost_level_);
       merge_out_iter_.SeekToFirst();
 
-      if (merge_out_iter_.Valid()) {
+      if (!s.ok() && !s.IsMergeInProgress()) {
+        status_ = s;
+        return;
+      } else if (merge_out_iter_.Valid()) {
         // NOTE: key, value, and ikey_ refer to old entries.
         //       These will be correctly set below.
         key_ = merge_out_iter_.key();
@@ -480,6 +484,10 @@ void CompactionIterator::NextFromInput() {
     if (need_skip) {
       input_->Seek(skip_until);
     }
+  }
+
+  if (!valid_ && IsShuttingDown()) {
+    status_ = Status::ShutdownInProgress();
   }
 }
 

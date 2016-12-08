@@ -13,6 +13,64 @@
 
 namespace rocksdb {
 
+// Expects no merging attempts.
+class NoMergingMergeOp : public MergeOperator {
+ public:
+  bool FullMergeV2(const MergeOperationInput& merge_in,
+                   MergeOperationOutput* merge_out) const override {
+    ADD_FAILURE();
+    return false;
+  }
+  bool PartialMergeMulti(const Slice& key,
+                         const std::deque<Slice>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const override {
+    ADD_FAILURE();
+    return false;
+  }
+  const char* Name() const override {
+    return "CompactionIteratorTest NoMergingMergeOp";
+  }
+};
+
+// Compaction filter that gets stuck when it sees a particular key,
+// then gets unstuck when told to.
+// Always returns Decition::kRemove.
+class StallingFilter : public CompactionFilter {
+ public:
+  virtual Decision FilterV2(int level, const Slice& key, ValueType t,
+                            const Slice& existing_value, std::string* new_value,
+                            std::string* skip_until) const override {
+    int k = std::atoi(key.ToString().c_str());
+    last_seen.store(k);
+    while (k >= stall_at.load()) {
+      std::this_thread::yield();
+    }
+    return Decision::kRemove;
+  }
+
+  const char* Name() const override {
+    return "CompactionIteratorTest StallingFilter";
+  }
+
+  // Wait until the filter sees a key >= k and stalls at that key.
+  // If `exact`, asserts that the seen key is equal to k.
+  void WaitForStall(int k, bool exact = true) {
+    stall_at.store(k);
+    while (last_seen.load() < k) {
+      std::this_thread::yield();
+    }
+    if (exact) {
+      EXPECT_EQ(k, last_seen.load());
+    }
+  }
+
+  // Filter will stall on key >= stall_at. Advance stall_at to unstall.
+  mutable std::atomic<int> stall_at{0};
+  // Last key the filter was called with.
+  mutable std::atomic<int> last_seen{0};
+};
+
 class LoggingForwardVectorIterator : public InternalIterator {
  public:
   struct Action {
@@ -88,13 +146,15 @@ class FakeCompaction : public CompactionIterator::CompactionProxy {
   virtual int level(size_t compaction_input_level) const { return 0; }
   virtual bool KeyNotExistsBeyondOutputLevel(
       const Slice& user_key, std::vector<size_t>* level_ptrs) const {
-    return false;
+    return key_not_exists_beyond_output_level;
   }
   virtual bool bottommost_level() const { return false; }
   virtual int number_levels() const { return 1; }
   virtual Slice GetLargestUserKey() const {
     return "\xff\xff\xff\xff\xff\xff\xff\xff\xff";
   }
+
+  bool key_not_exists_beyond_output_level = false;
 };
 
 class CompactionIteratorTest : public testing::Test {
@@ -116,17 +176,19 @@ class CompactionIteratorTest : public testing::Test {
 
     std::unique_ptr<CompactionIterator::CompactionProxy> compaction;
     if (filter) {
-      compaction.reset(new FakeCompaction());
+      compaction_proxy_ = new FakeCompaction();
+      compaction.reset(compaction_proxy_);
     }
 
     merge_helper_.reset(new MergeHelper(Env::Default(), cmp_, merge_op, filter,
-                                        nullptr, 0U, false, 0));
+                                        nullptr, 0U, false, 0, 0, nullptr,
+                                        &shutting_down_));
     iter_.reset(new LoggingForwardVectorIterator(ks, vs));
     iter_->SeekToFirst();
     c_iter_.reset(new CompactionIterator(
         iter_.get(), cmp_, merge_helper_.get(), last_sequence, &snapshots_,
         kMaxSequenceNumber, Env::Default(), false, range_del_agg_.get(),
-        std::move(compaction), filter));
+        std::move(compaction), filter, &shutting_down_));
   }
 
   void AddSnapshot(SequenceNumber snapshot) { snapshots_.push_back(snapshot); }
@@ -138,6 +200,8 @@ class CompactionIteratorTest : public testing::Test {
   std::unique_ptr<LoggingForwardVectorIterator> iter_;
   std::unique_ptr<CompactionIterator> c_iter_;
   std::unique_ptr<RangeDelAggregator> range_del_agg_;
+  std::atomic<bool> shutting_down_{false};
+  FakeCompaction* compaction_proxy_;
 };
 
 // It is possible that the output of the compaction iterator is empty even if
@@ -209,26 +273,6 @@ TEST_F(CompactionIteratorTest, RangeDeletionWithSnapshots) {
 }
 
 TEST_F(CompactionIteratorTest, CompactionFilterSkipUntil) {
-  // Expect no merging attempts.
-  class MergeOp : public MergeOperator {
-   public:
-    bool FullMergeV2(const MergeOperationInput& merge_in,
-                     MergeOperationOutput* merge_out) const override {
-      ADD_FAILURE();
-      return false;
-    }
-    bool PartialMergeMulti(const Slice& key,
-                           const std::deque<Slice>& operand_list,
-                           std::string* new_value,
-                           Logger* logger) const override {
-      ADD_FAILURE();
-      return false;
-    }
-    const char* Name() const override {
-      return "CompactionIteratorTest.CompactionFilterSkipUntil::MergeOp";
-    }
-  };
-
   class Filter : public CompactionFilter {
     virtual Decision FilterV2(int level, const Slice& key, ValueType t,
                               const Slice& existing_value,
@@ -286,7 +330,7 @@ TEST_F(CompactionIteratorTest, CompactionFilterSkipUntil) {
     }
   };
 
-  MergeOp merge_op;
+  NoMergingMergeOp merge_op;
   Filter filter;
   InitIterators(
       {test::KeyStr("a", 50, kTypeValue),  // keep
@@ -336,6 +380,77 @@ TEST_F(CompactionIteratorTest, CompactionFilterSkipUntil) {
       A(T::NEXT),
       A(T::SEEK, test::KeyStr("z", kMaxSequenceNumber, kValueTypeForSeek))};
   ASSERT_EQ(expected_actions, iter_->log);
+}
+
+TEST_F(CompactionIteratorTest, ShuttingDownInFilter) {
+  NoMergingMergeOp merge_op;
+  StallingFilter filter;
+  InitIterators(
+      {test::KeyStr("1", 1, kTypeValue), test::KeyStr("2", 2, kTypeValue),
+       test::KeyStr("3", 3, kTypeValue), test::KeyStr("4", 4, kTypeValue)},
+      {"v1", "v2", "v3", "v4"}, {}, {}, kMaxSequenceNumber, &merge_op, &filter);
+  // Don't leave tombstones (kTypeDeletion) for filtered keys.
+  compaction_proxy_->key_not_exists_beyond_output_level = true;
+
+  std::atomic<bool> seek_done{false};
+  std::thread compaction_thread([&] {
+    c_iter_->SeekToFirst();
+    EXPECT_FALSE(c_iter_->Valid());
+    EXPECT_TRUE(c_iter_->status().IsShutdownInProgress());
+    seek_done.store(true);
+  });
+
+  // Let key 1 through.
+  filter.WaitForStall(1);
+
+  // Shutdown during compaction filter call for key 2.
+  filter.WaitForStall(2);
+  shutting_down_.store(true);
+  EXPECT_FALSE(seek_done.load());
+
+  // Unstall filter and wait for SeekToFirst() to return.
+  filter.stall_at.store(3);
+  compaction_thread.join();
+  assert(seek_done.load());
+
+  // Check that filter was never called again.
+  EXPECT_EQ(2, filter.last_seen.load());
+}
+
+// Same as ShuttingDownInFilter, but shutdown happens during filter call for
+// a merge operand, not for a value.
+TEST_F(CompactionIteratorTest, ShuttingDownInMerge) {
+  NoMergingMergeOp merge_op;
+  StallingFilter filter;
+  InitIterators(
+      {test::KeyStr("1", 1, kTypeValue), test::KeyStr("2", 2, kTypeMerge),
+       test::KeyStr("3", 3, kTypeMerge), test::KeyStr("4", 4, kTypeValue)},
+      {"v1", "v2", "v3", "v4"}, {}, {}, kMaxSequenceNumber, &merge_op, &filter);
+  compaction_proxy_->key_not_exists_beyond_output_level = true;
+
+  std::atomic<bool> seek_done{false};
+  std::thread compaction_thread([&] {
+    c_iter_->SeekToFirst();
+    ASSERT_FALSE(c_iter_->Valid());
+    ASSERT_TRUE(c_iter_->status().IsShutdownInProgress());
+    seek_done.store(true);
+  });
+
+  // Let key 1 through.
+  filter.WaitForStall(1);
+
+  // Shutdown during compaction filter call for key 2.
+  filter.WaitForStall(2);
+  shutting_down_.store(true);
+  EXPECT_FALSE(seek_done.load());
+
+  // Unstall filter and wait for SeekToFirst() to return.
+  filter.stall_at.store(3);
+  compaction_thread.join();
+  assert(seek_done.load());
+
+  // Check that filter was never called again.
+  EXPECT_EQ(2, filter.last_seen.load());
 }
 
 }  // namespace rocksdb

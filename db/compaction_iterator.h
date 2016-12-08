@@ -17,7 +17,6 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
 #include "rocksdb/compaction_filter.h"
-#include "util/log_buffer.h"
 
 namespace rocksdb {
 
@@ -61,7 +60,7 @@ class CompactionIterator {
                      RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
-                     LogBuffer* log_buffer = nullptr);
+                     const std::atomic<bool>* shutting_down = nullptr);
 
   // Constructor with custom CompactionProxy, used for tests.
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
@@ -72,7 +71,7 @@ class CompactionIterator {
                      RangeDelAggregator* range_del_agg,
                      std::unique_ptr<CompactionProxy> compaction,
                      const CompactionFilter* compaction_filter = nullptr,
-                     LogBuffer* log_buffer = nullptr);
+                     const std::atomic<bool>* shutting_down = nullptr);
 
   ~CompactionIterator();
 
@@ -125,7 +124,7 @@ class CompactionIterator {
   RangeDelAggregator* range_del_agg_;
   std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
-  LogBuffer* log_buffer_;
+  const std::atomic<bool>* shutting_down_;
   bool bottommost_level_;
   bool valid_ = false;
   bool visible_at_tip_;
@@ -180,5 +179,10 @@ class CompactionIterator {
   // is in or beyond the last file checked during the previous call
   std::vector<size_t> level_ptrs_;
   CompactionIterationStats iter_stats_;
+
+  bool IsShuttingDown() {
+    // This is a best-effort facility, so memory_order_relaxed is sufficient.
+    return shutting_down_ && shutting_down_->load(std::memory_order_relaxed);
+  }
 };
 }  // namespace rocksdb
