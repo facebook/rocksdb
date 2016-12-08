@@ -418,8 +418,8 @@ DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
 DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024,
              "Maximum write buffer for Writable File");
 
-DEFINE_int32(skip_table_builder_flush, false, "Skip flushing block in "
-             "table builder ");
+DEFINE_bool(skip_table_builder_flush, false, "Skip flushing block in "
+            "table builder ");
 
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
