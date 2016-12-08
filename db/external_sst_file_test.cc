@@ -15,7 +15,7 @@ namespace rocksdb {
 class ExternalSSTFileTest : public DBTestBase {
  public:
   ExternalSSTFileTest() : DBTestBase("/external_sst_file_test") {
-    sst_files_dir_ = test::TmpDir(env_) + "/sst_files/";
+    sst_files_dir_ = dbname_ + "/sst_files/";
     DestroyAndRecreateExternalSSTFilesDir();
   }
 
@@ -1899,24 +1899,31 @@ TEST_F(ExternalSSTFileTest, IngestionListener) {
 TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
+  const int kNumKeys = 10000;
 
-  ASSERT_OK(Put("K1", "V1"));
+  // Insert keys using normal path and take a snapshot
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(Put(Key(i), Key(i) + "_V1"));
+  }
   const Snapshot* snap = db_->GetSnapshot();
-  ASSERT_EQ(Get("K1", snap), "V1");
 
+  // Overwrite all keys using IngestExternalFile
   std::string sst_file_path = sst_files_dir_ + "file1.sst";
   SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
   ASSERT_OK(sst_file_writer.Open(sst_file_path));
-  ASSERT_OK(sst_file_writer.Add("K1", "V2"));
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(sst_file_writer.Add(Key(i), Key(i) + "_V2"));
+  }
   ASSERT_OK(sst_file_writer.Finish());
-
 
   IngestExternalFileOptions ifo;
   ifo.move_files = true;
   ASSERT_OK(db_->IngestExternalFile({sst_file_path}, ifo));
 
-  ASSERT_EQ(Get("K1", snap), "V1");
-  ASSERT_EQ(Get("K1"), "V2");
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_EQ(Get(Key(i), snap), Key(i) + "_V1");
+    ASSERT_EQ(Get(Key(i)), Key(i) + "_V2");
+  }
 
   db_->ReleaseSnapshot(snap);
 }
