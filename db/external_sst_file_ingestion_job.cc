@@ -311,8 +311,14 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   file_to_ingest->num_entries = props->num_entries;
 
   ParsedInternalKey key;
-  std::unique_ptr<InternalIterator> iter(
-      table_reader->NewIterator(ReadOptions()));
+  ReadOptions ro;
+  // During reading the external file we can cache blocks that we read into
+  // the block cache, if we later change the global seqno of this file, we will
+  // have block in cache that will include keys with wrong seqno.
+  // We need to disable fill_cache so that we read from the file without
+  // updating the block cache.
+  ro.fill_cache = false;
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(ro));
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
