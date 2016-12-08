@@ -27,7 +27,6 @@
 #include "util/file_util.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 
