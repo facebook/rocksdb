@@ -18,7 +18,7 @@ class SequentialFileMirror : public SequentialFile {
  public:
   unique_ptr<SequentialFile> a_, b_;
   std::string fname;
-  SequentialFileMirror(std::string f) : fname(f) {}
+  explicit SequentialFileMirror(std::string f) : fname(f) {}
 
   Status Read(size_t n, Slice* result, char* scratch) {
     Slice aslice;
@@ -62,7 +62,7 @@ class RandomAccessFileMirror : public RandomAccessFile {
  public:
   unique_ptr<RandomAccessFile> a_, b_;
   std::string fname;
-  RandomAccessFileMirror(std::string f) : fname(f) {}
+  explicit RandomAccessFileMirror(std::string f) : fname(f) {}
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const {
     Status as = a_->Read(offset, n, result, scratch);
@@ -101,7 +101,7 @@ class WritableFileMirror : public WritableFile {
  public:
   unique_ptr<WritableFile> a_, b_;
   std::string fname;
-  WritableFileMirror(std::string f) : fname(f) {}
+  explicit WritableFileMirror(std::string f) : fname(f) {}
 
   Status Append(const Slice& data) override {
     Status as = a_->Append(data);

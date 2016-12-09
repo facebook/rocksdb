@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "port/win/env_win.h"
 #include <algorithm>
 #include <thread>
 #include <ctime>
@@ -25,7 +26,6 @@
 #include "port/dirent.h"
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
-#include "port/win/env_win.h"
 
 #include "util/iostats_context_imp.h"
 
@@ -741,7 +741,7 @@ EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
   EnvOptions optimized = env_options;
   optimized.use_mmap_writes = false;
   optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
-  optimized.use_direct_io =
+  optimized.use_direct_writes =
       false;  // This is because we flush only whole pages on unbuffered io and
   // the last records are not guaranteed to be flushed.
   // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
@@ -755,7 +755,7 @@ EnvOptions WinEnvIO::OptimizeForManifestWrite(
   const EnvOptions& env_options) const {
   EnvOptions optimized = env_options;
   optimized.use_mmap_writes = false;
-  optimized.use_direct_io = false;
+  optimized.use_direct_writes = false;
   optimized.fallocate_with_keep_size = true;
   return optimized;
 }
