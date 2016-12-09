@@ -918,7 +918,7 @@ int InternalStats::DumpCFMapStats(
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
-  char buf[1000];
+  char buf[2000];
   // Per-ColumnFamily stats
   PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName());
   value->append(buf);
