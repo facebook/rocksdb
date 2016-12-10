@@ -60,6 +60,7 @@
 #include "util/mutexlock.h"
 #include "util/random.h"
 #include "util/statistics.h"
+#include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "util/testutil.h"
 #include "util/transaction_test_util.h"
@@ -591,6 +592,9 @@ DEFINE_string(
 
 DEFINE_bool(report_bg_io_stats, false,
             "Measure times spents on I/Os while in compactions. ");
+
+DEFINE_bool(use_stderr_info_logger, false,
+            "Write info logs to stderr instead of to LOG file. ");
 
 DEFINE_bool(use_blob_db, false, "Whether to use BlobDB. ");
 
@@ -2744,6 +2748,9 @@ class Benchmark {
         fprintf(stderr, "Using Uint64 comparator but key size is not 8.\n");
         exit(1);
       }
+    }
+    if (FLAGS_use_stderr_info_logger) {
+      options.info_log.reset(new StderrLogger());
     }
     options.memtable_huge_page_size = FLAGS_memtable_use_huge_page ? 2048 : 0;
     options.memtable_prefix_bloom_size_ratio = FLAGS_memtable_bloom_size_ratio;
