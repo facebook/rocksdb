@@ -370,7 +370,14 @@ Status WinEnvIO::GetChildren(const std::string& dir,
     CloseDir);
 
   if (!dirp) {
-    status = IOError(dir, errno);
+    switch (errno) {
+      case EACCES:
+      case ENOENT:
+      case ENOTDIR:
+        return Status::NotFound();
+      default:
+        return IOError(dir, errno);
+    }
   } else {
     if (result->capacity() > 0) {
       output.reserve(result->capacity());
