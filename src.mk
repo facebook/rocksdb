@@ -102,7 +102,10 @@ LIB_SOURCES =                                                   \
   util/env.cc                                                   \
   util/env_chroot.cc                                            \
   util/env_hdfs.cc                                              \
-  util/env_posix.cc                                             \
+  cloud/aws_env.cc                                                  \
+  cloud/aws_s3.cc                                               \
+  cloud/aws_kinesis.cc                                          \
+  util/env_posix.cc                                            \
   util/event_logger.cc                                          \
   util/file_util.cc                                             \
   util/file_reader_writer.cc                                    \

@@ -32,6 +32,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "aws/aws_env.h"
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
@@ -676,6 +677,8 @@ DEFINE_int32(table_cache_numshardbits, 4, "");
 #ifndef ROCKSDB_LITE
 DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
               " with --hdfs.");
+DEFINE_string(aws_access_id, "", "Access id for AWS");
+DEFINE_string(aws_secret_key, "", "Secret key for AWS");
 #endif  // ROCKSDB_LITE
 DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
               " --env_uri.");
@@ -865,6 +868,24 @@ enum RepFactory {
   kHashLinkedList,
   kCuckoo
 };
+
+// create Factory for creating S3 Envs
+#ifdef USE_AWS
+rocksdb::AwsEnv* CreateAwsEnv(const std::string& dbpath,
+                            std::unique_ptr<rocksdb::Env>* result) {
+  std::shared_ptr<rocksdb::Logger> info_log;
+  info_log.reset(new rocksdb::StderrLogger(
+		     rocksdb::InfoLogLevel::DEBUG_LEVEL));
+  rocksdb::AwsEnv* s = rocksdb::AwsEnv::NewAwsEnv("dbbench",
+		                        FLAGS_aws_access_id,
+                                        FLAGS_aws_secret_key,
+					std::move(info_log));
+
+  result->reset(s);
+  return s;
+}
+static rocksdb::EnvRegistrar s3_reg("s3://", &CreateAwsEnv);
+#endif
 
 enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
@@ -4892,6 +4913,12 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
+    if (FLAGS_env_uri.substr(0,5).compare("s3://") == 0) {
+      if (FLAGS_aws_access_id.size() == 0 || FLAGS_aws_secret_key.size() == 0) {
+        fprintf(stderr, "AWS S3 needs --aws_access_id and --aws_secret_key\n");
+        exit(1);
+      }
+    }
     FLAGS_env = NewEnvFromUri(FLAGS_env_uri, &custom_env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());

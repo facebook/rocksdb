@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "db/forward_iterator.h"
+#include "util/stderr_logger.h"
 
 namespace rocksdb {
 
@@ -44,8 +45,31 @@ SpecialEnv::SpecialEnv(Env* base)
 
 DBTestBase::DBTestBase(const std::string path)
     : option_config_(kDefault),
+      option_env_(kDefaultEnv),
       mem_env_(!getenv("MEM_ENV") ? nullptr : new MockEnv(Env::Default())),
-      env_(new SpecialEnv(mem_env_ ? mem_env_ : Env::Default())) {
+      env_(new SpecialEnv(mem_env_ ? mem_env_ : Env::Default())),
+      s3_env_(nullptr) {
+
+#ifdef USE_AWS
+  std::shared_ptr<Logger> info_log;
+  env_->NewLogger(test::TmpDir(env_) + "/rocksdb-cloud.log", &info_log);
+  info_log->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
+
+  // get AWS credentials
+  std::string aws_access_key_id;
+  std::string aws_secret_access_key;
+  Status st = AwsEnv::GetTestCredentials(
+                &aws_access_key_id, &aws_secret_access_key);
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
+    assert(st.ok());
+  } else {
+    s3_env_ = AwsEnv::NewAwsEnv("dbtest",
+			      aws_access_key_id,
+			      aws_secret_access_key,
+			      info_log);
+  }
+#endif
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
   dbname_ = test::TmpDir(env_) + path;
@@ -74,6 +98,7 @@ DBTestBase::~DBTestBase() {
   options.db_paths.emplace_back(dbname_ + "_4", 0);
   EXPECT_OK(DestroyDB(dbname_, options));
   delete env_;
+  delete s3_env_;
 }
 
 bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
@@ -133,22 +158,29 @@ bool DBTestBase::ShouldSkipOptions(int option_config, int skip_mask) {
 // Switch to a fresh database with the next option configuration to
 // test.  Return false if there are no more configurations to test.
 bool DBTestBase::ChangeOptions(int skip_mask) {
-  for (option_config_++; option_config_ < kEnd; option_config_++) {
-    if (ShouldSkipOptions(option_config_, skip_mask)) {
-      continue;
-    }
-    break;
-  }
-
-  if (option_config_ >= kEnd) {
-    Destroy(last_options_);
-    return false;
-  } else {
-    auto options = CurrentOptions();
-    options.create_if_missing = true;
-    DestroyAndReopen(options);
-    return true;
-  }
+  while (true) {
+   for (option_config_++; option_config_ < kEnd; option_config_++) {
+     if (ShouldSkipOptions(option_config_, skip_mask)) {
+       continue;
+     }
+     break;
+   }
+   if (option_config_ >= kEnd) {
+     if (option_env_ + 1 >= kEndEnv) {
+       Destroy(last_options_);
+       return false;
+     } else {
+       option_env_++;
+       option_config_ = kDefault;
+       continue;
+     }
+   } else {
+     auto options = CurrentOptions();
+     options.create_if_missing = true;
+     DestroyAndReopen(options);
+     return true;
+   }
+ }
 }
 
 // Switch between different compaction styles.
@@ -385,13 +417,29 @@ Options DBTestBase::CurrentOptions(
       break;
   }
 
+  switch (option_env_) {
+    case kDefaultEnv: {
+      options.env = env_;
+      break;
+    }
+#ifdef USE_AWS
+    case kAwsEnv: {
+      options.env = s3_env_;
+      options.allow_mmap_reads = false; // mmap is incompatible with S3
+      break;
+    }
+#endif /* USE_AWS */
+
+    default:
+      break;
+  }
+
   if (options_override.filter_policy) {
     table_options.filter_policy = options_override.filter_policy;
   }
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
-  options.env = env_;
   options.create_if_missing = true;
   options.fail_if_options_file_error = true;
   return options;

@@ -61,6 +61,8 @@
 #include "util/xfunc.h"
 #include "utilities/merge_operators.h"
 
+#include "aws/aws_env.h"
+
 namespace rocksdb {
 
 namespace anon {
@@ -597,12 +599,21 @@ class DBTestBase : public testing::Test {
   };
   int option_config_;
 
+  // The types of envs that we want to test with
+  enum OptionConfigEnv {
+    kDefaultEnv = 0, // posix env
+    kAwsEnv = 1,     // aws env
+    kEndEnv = 2,
+  };
+  int option_env_;
+
  public:
   std::string dbname_;
   std::string alternative_wal_dir_;
   std::string alternative_db_log_dir_;
   MockEnv* mem_env_;
   SpecialEnv* env_;
+  Env* s3_env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
 

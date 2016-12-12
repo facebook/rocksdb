@@ -412,6 +412,18 @@ if test "$USE_HDFS"; then
   JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
 fi
 
+#
+# shall we support S3?
+#
+if test "$USE_AWS"; then
+  AWS_SDK=/usr/local
+  AWI=${AWS_SDK}/include/
+  S3_CCFLAGS="$S3_CCFLAGS -I$AWI -DUSE_AWS"
+  S3_LDFLAGS="$S3_LDFLAGS -laws-cpp-sdk-s3 -laws-cpp-sdk-kinesis -laws-cpp-sdk-core"
+  COMMON_FLAGS="$COMMON_FLAGS $S3_CCFLAGS"
+  PLATFORM_LDFLAGS="$S3_LDFLAGS $PLATFORM_LDFLAGS"
+fi
+
 if [ "$TARGET_OS" = FreeBSD -a "$TARGET_ARCHITECTURE" = i386 ]; then
   # Intel SSE instructions breaks compilation on FreeBSD i386
   unset USE_SSE

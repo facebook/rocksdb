@@ -1,8 +1,16 @@
-## RocksDB: A Persistent Key-Value Store for Flash and RAM Storage
+## RocksDB-Cloud: A Key-Value Store for Cloud Applications
 
 [![Build Status](https://travis-ci.org/facebook/rocksdb.svg?branch=master)](https://travis-ci.org/facebook/rocksdb)
 [![Build status](https://ci.appveyor.com/api/projects/status/fbgfu0so3afcno78/branch/master?svg=true)](https://ci.appveyor.com/project/Facebook/rocksdb/branch/master)
 
+RocksDB-Cloud brings the power of RocksDB to AWS, Google Cloud and Microsoft Azure.
+It leverages the power of RocksDB to provide fast key-value access to data stored
+in Flash and RAM systems. It provides for data durability even in the face of
+machine failures by integrations with cloud services like AWS-S3 and Google Cloud
+Services. It allows a cost-effective way to utilize the rich variety of
+storage services (based on RAM, NvMe, SSD, Disk Cold Storage, etc) that are offered by
+most cloud providers. RocksDB-Cloud is developed and maintained by the engineering
+team at Rockset Inc. Start with https://github.com/rockset/rocksdb-cloud/tree/master/aws.
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
 It is built on earlier work on LevelDB by Sanjay Ghemawat (sanjay@google.com)
