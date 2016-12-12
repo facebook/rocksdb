@@ -38,6 +38,7 @@
 #endif
 #include <deque>
 #include <set>
+#include <vector>
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"

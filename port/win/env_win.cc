@@ -9,8 +9,8 @@
 
 #include "port/win/env_win.h"
 #include <algorithm>
-#include <thread>
 #include <ctime>
+#include <thread>
 
 #include <errno.h>
 #include <process.h> // _getpid
