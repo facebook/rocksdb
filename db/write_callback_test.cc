@@ -5,6 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>

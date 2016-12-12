@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "util/sync_point.h"
+#include <functional>
 #include <thread>
 #include "port/port.h"
 #include "util/random.h"

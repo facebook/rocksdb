@@ -34,12 +34,13 @@
 
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <fstream>
 
 namespace rocksdb {
 

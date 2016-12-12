@@ -12,6 +12,7 @@
 // file data (or entire files) not protected by a "sync".
 
 #include "util/fault_injection_test_env.h"
+#include <functional>
 #include <utility>
 
 namespace rocksdb {
