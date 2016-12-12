@@ -556,8 +556,10 @@ Status BackupEngineImpl::Initialize() {
   std::vector<std::string> backup_meta_files;
   {
     auto s = backup_env_->GetChildren(GetBackupMetaDir(), &backup_meta_files);
-    if (!s.ok()) {
+    if (s.IsNotFound()) {
       return Status::NotFound(GetBackupMetaDir() + " is missing");
+    } else if (!s.ok()) {
+      return s;
     }
   }
   // create backups_ structure
