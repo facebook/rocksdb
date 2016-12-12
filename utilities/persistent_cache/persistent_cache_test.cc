@@ -143,7 +143,7 @@ PersistentCacheTierTest::PersistentCacheTierTest()
 }
 
 // Block cache tests
-TEST_F(PersistentCacheTierTest, BlockCacheInsertWithFileCreateError) {
+TEST_F(PersistentCacheTierTest, DISABLED_BlockCacheInsertWithFileCreateError) {
   cache_ = NewBlockCache(Env::Default(), path_,
                          /*size=*/std::numeric_limits<uint64_t>::max(),
                          /*direct_writes=*/ false);
