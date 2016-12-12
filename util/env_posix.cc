@@ -418,7 +418,14 @@ class PosixEnv : public Env {
     result->clear();
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
-      return IOError(dir, errno);
+      switch (errno) {
+        case EACCES:
+        case ENOENT:
+        case ENOTDIR:
+          return Status::NotFound();
+        default:
+          return IOError(dir, errno);
+      }
     }
     struct dirent* entry;
     while ((entry = readdir(d)) != nullptr) {
