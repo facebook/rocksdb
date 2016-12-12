@@ -47,7 +47,7 @@ class ColumnFamilyHandle;
 
 // The structure that keeps constant information about a column family.
 struct ConstantColumnFamilyInfo {
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
  public:
   ConstantColumnFamilyInfo(
       const void* _db_key,
@@ -63,7 +63,7 @@ struct ConstantColumnFamilyInfo {
 // the internal data-structure that is used to reflect the current
 // status of a thread using a set of atomic pointers.
 struct ThreadStatusData {
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
   explicit ThreadStatusData() : enable_tracking(false) {
     thread_id.store(0);
     thread_type.store(ThreadStatus::USER);
@@ -194,7 +194,7 @@ class ThreadStatusUpdater {
       bool check_exist);
 
  protected:
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
   // The thread-local variable for storing thread status.
   static __thread ThreadStatusData* thread_status_data_;
 

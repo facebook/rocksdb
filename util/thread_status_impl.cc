@@ -13,7 +13,7 @@
 
 namespace rocksdb {
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 const std::string& ThreadStatus::GetThreadTypeName(
     ThreadStatus::ThreadType thread_type) {
   static std::string thread_type_names[NUM_THREAD_TYPES + 1] = {

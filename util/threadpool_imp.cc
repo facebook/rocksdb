@@ -242,7 +242,7 @@ static void* BGThreadWrapper(void* arg) {
   BGThreadMetadata* meta = reinterpret_cast<BGThreadMetadata*>(arg);
   size_t thread_id = meta->thread_id_;
   ThreadPoolImpl* tp = meta->thread_pool_;
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
   // for thread-status
   ThreadStatusUtil::RegisterThread(
       tp->GetHostEnv(), (tp->GetThreadPriority() == Env::Priority::HIGH
@@ -251,7 +251,7 @@ static void* BGThreadWrapper(void* arg) {
 #endif
   delete meta;
   tp->BGThread(thread_id);
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
   ThreadStatusUtil::UnregisterThread();
 #endif
   return nullptr;
