@@ -2937,6 +2937,12 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
+    if (cfd->IsDropped()) {
+      // FlushJob cannot flush a dropped CF, if we did not break here
+      // we will loop forever since cfd->imm()->NumNotFlushed() will never
+      // drop to zero
+      return Status::InvalidArgument("Cannot flush a dropped CF");
+    }
     bg_cv_.Wait();
   }
   if (!bg_error_.ok()) {
