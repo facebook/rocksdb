@@ -287,7 +287,6 @@ JSONDocument::Type JSONDocument::type() const {
       return JSONDocument::kArray;
 
     case fbson::FbsonType::T_Binary:
-      assert(false);
     default:
       assert(false);
   }
