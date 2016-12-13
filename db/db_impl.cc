@@ -6491,13 +6491,22 @@ Status DBImpl::IngestExternalFile(
 
     num_running_ingest_file_++;
 
+    // We cannot ingest a file into a dropped CF
+    if (cfd->IsDropped()) {
+      status = Status::InvalidArgument(
+          "Cannot ingest an external file into a dropped CF");
+    }
+
     // Figure out if we need to flush the memtable first
-    bool need_flush = false;
-    status = ingestion_job.NeedsFlush(&need_flush);
-    if (status.ok() && need_flush) {
-      mutex_.Unlock();
-      status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);
-      mutex_.Lock();
+    if (status.ok()) {
+      bool need_flush = false;
+      status = ingestion_job.NeedsFlush(&need_flush);
+
+      if (status.ok() && need_flush) {
+        mutex_.Unlock();
+        status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);
+        mutex_.Lock();
+      }
     }
 
     // Run the ingestion job
