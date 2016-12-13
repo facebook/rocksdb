@@ -1843,6 +1843,13 @@ TEST_F(ExternalSSTFileTest, FileWithCFInfo) {
   ASSERT_OK(db_->IngestExternalFile(handles_[2], {unknown_sst}, ifo));
   // SST CF unknown
   ASSERT_OK(db_->IngestExternalFile(handles_[0], {unknown_sst}, ifo));
+
+  // Cannot ingest a file into a dropped CF
+  ASSERT_OK(db_->DropColumnFamily(handles_[1]));
+  ASSERT_NOK(db_->IngestExternalFile(handles_[1], {unknown_sst}, ifo));
+
+  // CF was not dropped, ok to Ingest
+  ASSERT_OK(db_->IngestExternalFile(handles_[2], {unknown_sst}, ifo));
 }
 
 class TestIngestExternalFileListener : public EventListener {
