@@ -4852,6 +4852,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       WriteBatchInternal::SetSequence(merged_batch, current_sequence);
 
       Slice log_entry = WriteBatchInternal::Contents(merged_batch);
+      assert(!logs_.empty());
       status = logs_.back().writer->AddRecord(log_entry);
       total_log_size_ += log_entry.size();
       alive_log_files_.back().AddSize(log_entry.size());
