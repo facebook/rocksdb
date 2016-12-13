@@ -41,18 +41,27 @@ class PosixSequentialFile : public SequentialFile {
   std::string filename_;
   FILE* file_;
   int fd_;
+<<<<<<< 6ce8c34b1cc069f7e526f99bff6b15b985eb23b2
   bool use_direct_io_;
+=======
+  bool direct_io_;
+>>>>>>> fix bugs
 
  public:
-  PosixSequentialFile(const std::string& fname, FILE* file,
-                      int fd, const EnvOptions& options);
+  PosixSequentialFile(const std::string& fname, FILE* file, int fd,
+                      const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override;
-  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result, char* scratch) override;
+  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                                char* scratch) override;
   virtual Status Skip(uint64_t n) override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
+<<<<<<< 6ce8c34b1cc069f7e526f99bff6b15b985eb23b2
   virtual bool UseDirectIO() const { return use_direct_io_; }
+=======
+  virtual bool UseDirectIO() const override { return direct_io_; }
+>>>>>>> fix bugs
 };
 
 class PosixRandomAccessFile : public RandomAccessFile {
@@ -73,7 +82,11 @@ class PosixRandomAccessFile : public RandomAccessFile {
 #endif
   virtual void Hint(AccessPattern pattern) override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
+<<<<<<< 6ce8c34b1cc069f7e526f99bff6b15b985eb23b2
   virtual bool UseDirectIO() const { return use_direct_io_; }
+=======
+  virtual bool UseDirectIO() const override { return direct_io_; }
+>>>>>>> fix bugs
 };
 
 class PosixWritableFile : public WritableFile {

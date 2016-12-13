@@ -411,7 +411,6 @@ class SequentialFile {
   SequentialFile() { }
   virtual ~SequentialFile();
 
-
   // Read up to "n" bytes from the file.  "scratch[0..n-1]" may be
   // written by this routine.  Sets "*result" to the data that was
   // read (including if fewer than "n" bytes were successfully read).
@@ -437,9 +436,7 @@ class SequentialFile {
 
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
-  virtual size_t GetRequiredBufferAlignment() const {
-    return kDefaultPageSize;
-  }
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
@@ -448,12 +445,11 @@ class SequentialFile {
     return Status::NotSupported("InvalidateCache not supported.");
   }
 
-  // Positioned Read for Direct I/O
-  // If Direct I/O enabled, offset, n and scratch should be aligned properly
-  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result, char* scratch) {
+  // Positioned Read for direct I/O
+  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                                char* scratch) {
     return Status::NotSupported();
   }
-
 };
 
 // A file abstraction for randomly reading the contents of a file.
@@ -515,9 +511,7 @@ class RandomAccessFile {
 
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
-  virtual size_t GetRequiredBufferAlignment() const {
-    return kDefaultPageSize;
-  }
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
@@ -601,9 +595,7 @@ class WritableFile {
 
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
-  virtual size_t GetRequiredBufferAlignment() const {
-    return kDefaultPageSize;
-  }
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
   /*
    * Change the priority in rate limiter if rate limiting is enabled.
    * If rate limiting is not enabled, this call has no effect.

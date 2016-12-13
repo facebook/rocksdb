@@ -114,8 +114,8 @@ Status PosixSequentialFile::Read(size_t n, Slice* result, char* scratch) {
   return s;
 }
 
-Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
-                                 char* scratch) {
+Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
+                                           Slice* result, char* scratch) {
   Status s;
   ssize_t r = -1;
   size_t left = n;
@@ -252,7 +252,8 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     ptr += r;
     offset += r;
     left -= r;
-    if (UseDirectIO() && r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
+    if (UseDirectIO() &&
+        r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
       // Bytes reads don't fill sectors. Should only happen at the end
       // of the file.
       break;

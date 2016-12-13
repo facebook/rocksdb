@@ -78,9 +78,11 @@ public:
     return cursize_;
   }
 
-  char* BufferStart() const {
+  const char* BufferStart() const {
     return bufstart_;
   }
+
+  char* BufferStart() { return bufstart_; }
 
   void Clear() {
     cursize_ = 0;

@@ -9,7 +9,6 @@
 
 #include "util/file_reader_writer.h"
 
-#include <iostream>
 #include <algorithm>
 #include <mutex>
 
@@ -42,11 +41,34 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
                    std::min(tmp.size() - offset_advance, n));
     }
     *result = Slice(scratch, r);
-
   } else {
     s = file_->Read(n, result, scratch);
   }
   IOSTATS_ADD(bytes_read, result->size());
+  return s;
+}
+
+Status SequentialFileReader::DirectRead(size_t n, Slice* result,
+                                        char* scratch) {
+  size_t offset = offset_.fetch_add(n);
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
+  size_t offset_advance = offset - aligned_offset;
+  size_t size = Roundup(offset + n, alignment) - aligned_offset;
+  AlignedBuffer buf;
+  buf.Alignment(alignment);
+  buf.AllocateNewBuffer(size);
+  Slice tmp;
+  Status s =
+      file_->PositionedRead(aligned_offset, size, &tmp, buf.BufferStart());
+  if (s.ok()) {
+    buf.Size(tmp.size());
+    size_t r = buf.Read(scratch, offset_advance,
+                        tmp.size() <= offset_advance
+                            ? 0
+                            : std::min(tmp.size() - offset_advance, n));
+    *result = Slice(scratch, r);
+  }
   return s;
 }
 
@@ -91,6 +113,28 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);
+  }
+  return s;
+}
+
+Status RandomAccessFileReader::DirectRead(uint64_t offset, size_t n,
+                                          Slice* result, char* scratch) const {
+  size_t alignment = file_->GetRequiredBufferAlignment();
+  size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
+  size_t offset_advance = offset - aligned_offset;
+  size_t size = Roundup(offset + n, alignment) - aligned_offset;
+  AlignedBuffer buf;
+  buf.Alignment(alignment);
+  buf.AllocateNewBuffer(size);
+  Slice tmp;
+  Status s = file_->Read(aligned_offset, size, &tmp, buf.BufferStart());
+  if (s.ok()) {
+    buf.Size(tmp.size());
+    size_t r = buf.Read(scratch, offset_advance,
+                        tmp.size() <= offset_advance
+                            ? 0
+                            : std::min(tmp.size() - offset_advance, n));
+    *result = Slice(scratch, r);
   }
   return s;
 }

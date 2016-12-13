@@ -7,11 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
-#include <string>
 #include <atomic>
+#include <string>
+#include "port/port.h"
 #include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
-#include "port/port.h"
 
 namespace rocksdb {
 
@@ -49,6 +49,9 @@ class SequentialFileReader {
   SequentialFile* file() { return file_.get(); }
 
   bool UseDirectIO() const { return file_->UseDirectIO(); }
+
+ protected:
+  Status DirectRead(size_t n, Slice* result, char* scratch);
 };
 
 class RandomAccessFileReader {
@@ -92,6 +95,10 @@ class RandomAccessFileReader {
   RandomAccessFile* file() { return file_.get(); }
 
   bool UseDirectIO() const { return file_->UseDirectIO(); }
+
+ protected:
+  Status DirectRead(uint64_t offset, size_t n, Slice* result,
+                    char* scratch) const;
 };
 
 // Use posix write to write data to a file.
