@@ -406,7 +406,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBaseInc) {
   env_->SetBackgroundThreads(1, Env::HIGH);
 }
 
-TEST_F(DBTestDynamicLevel, MigrateToDynamicLevelMaxBytesBase) {
+TEST_F(DBTestDynamicLevel, DISABLED_MigrateToDynamicLevelMaxBytesBase) {
   Random rnd(301);
   const int kMaxKey = 2000;
 
