@@ -752,7 +752,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       case kNoChecksum:
         // we don't support no checksum yet
         assert(false);
-        // intentional fallthrough in release binary
+        // intentional fallthrough
       case kCRC32c: {
         auto crc = crc32c::Value(block_contents.data(), block_contents.size());
         crc = crc32c::Extend(crc, trailer, 1);  // Extend to cover block type
