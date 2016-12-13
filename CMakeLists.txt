@@ -44,7 +44,7 @@ else()
     include_directories(${JEMALLOC_INCLUDE_DIR})
   endif()
   if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
-    # FreeBSD has jemaloc as default malloc
+    # FreeBSD has jemaloc as default malloc!
     # but don't add "add_definitions(-DROCKSDB_JEMALLOC)"
     # because it'll include explicit jmalloc files
     # WITH_JEMALLOC allows the use of certain jemalloc functions
