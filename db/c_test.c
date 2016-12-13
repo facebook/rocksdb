@@ -1092,6 +1092,27 @@ int main(int argc, char** argv) {
     CheckNoError(err);
   }
 
+  StartPhase("open_with_ttl");
+  {
+    // Create database with TTL-based storage format.
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+    db = rocksdb_with_ttl_open(options, dbname, 1, 0, &err);
+    CheckNoError(err);
+
+    // Ensure basic put and get function.
+    rocksdb_put(db, woptions, "foo", 3, "hello", 5, &err);
+    CheckGet(db, roptions, "foo", "hello");
+
+    // Restore the standard storage format.
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+  }
+
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
