@@ -35,8 +35,7 @@ std::vector<ReconcileWal_t> all_wal_filters;
 ////////////////////////////////////////////////////////////////////////////////
 Status BlobDB::OpenAndLoad(const Options& options,
     const BlobDBOptions& bdb_options, const std::string& dbname,
-    BlobDB** blob_db, Options *changed_options)
-{
+    BlobDB** blob_db, Options *changed_options) {
   *changed_options = options;
   *blob_db = nullptr;
 
@@ -126,14 +125,14 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
 //
 ////////////////////////////////////////////////////////////////////////////////
 BlobDB::BlobDB(DB* db)
-    : StackableDB(db)
-{
+    : StackableDB(db) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 //
 //
-// std::function<int(double)> fnCaller = std::bind(&A::fn, &anInstance, std::placeholders::_1);
+// std::function<int(double)> fnCaller =
+//     std::bind(&A::fn, &anInstance, std::placeholders::_1);
 ////////////////////////////////////////////////////////////////////////////////
 BlobDBOptions::BlobDBOptions()
     : blob_dir("blob_dir"),

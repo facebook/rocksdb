@@ -21,8 +21,6 @@ namespace rocksdb {
 
 class WritableFileWriter;
 
-using std::unique_ptr;
-
 namespace blob_log {
 
 /**
@@ -73,7 +71,7 @@ class Writer {
   // Create a writer that will append data to "*dest".
   // "*dest" must be initially empty.
   // "*dest" must remain live while this Writer is in use.
-  explicit Writer(unique_ptr<WritableFileWriter>&& dest,
+  explicit Writer(std::unique_ptr<WritableFileWriter>&& dest,
                   uint64_t log_number, uint64_t bpsync,
                   bool use_fsync, uint64_t boffset = 0);
   ~Writer();
@@ -92,9 +90,9 @@ class Writer {
 
   Status AddRecordFooter(const SequenceNumber& sn);
 
-  Status AppendFooter(blob_log::BlobLogFooter& footer);
+  Status AppendFooter(const blob_log::BlobLogFooter& footer);
 
-  Status WriteHeader(blob_log::BlobLogHeader& header);
+  Status WriteHeader(const blob_log::BlobLogHeader& header);
 
   WritableFileWriter* file() { return dest_.get(); }
 
@@ -109,8 +107,7 @@ class Writer {
   void ResetSyncPointer() { next_sync_offset_ += bytes_per_sync_; }
 
  private:
-
-  unique_ptr<WritableFileWriter> dest_;
+  std::unique_ptr<WritableFileWriter> dest_;
   uint64_t log_number_;
   uint64_t block_offset_;       // Current offset in block
   uint64_t bytes_per_sync_;
@@ -123,8 +120,8 @@ class Writer {
   uint32_t type_crc_[kMaxRecordType + 1];
 
   // No copying allowed
-  Writer(const Writer&);
-  void operator=(const Writer&);
+  Writer(const Writer&) = delete;
+  Writer& operator=(const Writer&) = delete;
 
  public:
   enum ELEM_TYPE { ET_NONE, ET_FILE_HDR, ET_RECORD, ET_FOOTER, ET_FILE_FOOTER};

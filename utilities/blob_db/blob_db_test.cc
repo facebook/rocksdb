@@ -4,13 +4,15 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "utilities/blob_db/blob_db.h"
+#include <cstdlib>
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include <cstdlib>
+#include "utilities/blob_db/blob_db.h"
 
 namespace rocksdb {
+Random s_rnd(301);
+
 void gen_random(char *s, const int len) {
     static const char alphanum[] =
         "0123456789"
@@ -18,7 +20,7 @@ void gen_random(char *s, const int len) {
         "abcdefghijklmnopqrstuvwxyz";
 
     for (int i = 0; i < len; ++i) {
-        s[i] = alphanum[rand() % (sizeof(alphanum) - 1)];
+        s[i] = alphanum[s_rnd.Next() % (sizeof(alphanum) - 1)];
     }
 
     s[len] = 0;
@@ -62,8 +64,9 @@ class BlobDBTest : public testing::Test {
 
     ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
 
+    Random rnd(301);
     for (size_t i = 0; i < 100000; i++) {
-      int len = rand() % 16384;
+      int len = rnd.Next() % 16384;
       if (!len)
         continue;
 
@@ -76,7 +79,7 @@ class BlobDBTest : public testing::Test {
       Slice keyslice(key);
       Slice valslice(val, len+1);
 
-      int ttl = rand() % 86400;
+      int ttl = rnd.Next() % 86400;
 
       ASSERT_OK(db_->PutWithTTL(wo, dcfh, keyslice, valslice, ttl));
       delete [] val;
@@ -95,7 +98,6 @@ class BlobDBTest : public testing::Test {
 };  // class BlobDBTest
 
 TEST_F(BlobDBTest, DeleteComplex) {
-
   BlobDBOptions bdboptions;
   bdboptions.partial_expiration_pct = 75;
   bdboptions.gc_check_period = 20;
@@ -109,8 +111,9 @@ TEST_F(BlobDBTest, DeleteComplex) {
 
   ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
 
+  Random rnd(301);
   for (size_t i = 0; i < 100; i++) {
-    int len = rand() % 16384;
+    int len = rnd.Next() % 16384;
     if (!len)
       continue;
 
@@ -139,7 +142,6 @@ TEST_F(BlobDBTest, DeleteComplex) {
 }
 
 TEST_F(BlobDBTest, DeleteTest) {
-
   BlobDBOptions bdboptions;
   bdboptions.ttl_range = 30;
   bdboptions.gc_file_pct = 100;
@@ -154,10 +156,11 @@ TEST_F(BlobDBTest, DeleteTest) {
   ReadOptions ro;
   std::string value;
 
+  Random rnd(301);
   ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rand() % 16384;
+    int len = rnd.Next() % 16384;
     if (!len)
       continue;
 
@@ -186,7 +189,6 @@ TEST_F(BlobDBTest, DeleteTest) {
 }
 
 TEST_F(BlobDBTest, GCTestWithWrite) {
-
   BlobDBOptions bdboptions;
   bdboptions.ttl_range = 30;
   bdboptions.gc_file_pct = 100;
@@ -202,8 +204,9 @@ TEST_F(BlobDBTest, GCTestWithWrite) {
 
   WriteBatch WB;
 
+  Random rnd(301);
   for (size_t i = 0; i < 100; i++) {
-    int len = rand() % 16384;
+    int len = rnd.Next() % 16384;
     if (!len)
       continue;
 
@@ -230,7 +233,6 @@ TEST_F(BlobDBTest, GCTestWithWrite) {
 }
 
 TEST_F(BlobDBTest, GCTestWithPut) {
-
   BlobDBOptions bdboptions;
   bdboptions.ttl_range = 30;
   bdboptions.gc_file_pct = 100;
@@ -242,11 +244,12 @@ TEST_F(BlobDBTest, GCTestWithPut) {
   WriteOptions wo;
   ReadOptions ro;
   std::string value;
+  Random rnd(301);
 
   ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rand() % 16384;
+    int len = rnd.Next() % 16384;
     if (!len)
       continue;
 
@@ -271,7 +274,6 @@ TEST_F(BlobDBTest, GCTestWithPut) {
 }
 
 TEST_F(BlobDBTest, GCTest) {
-
   BlobDBOptions bdboptions;
   bdboptions.ttl_range = 30;
   bdboptions.gc_file_pct = 100;
@@ -281,11 +283,12 @@ TEST_F(BlobDBTest, GCTest) {
   WriteOptions wo;
   ReadOptions ro;
   std::string value;
+  Random rnd(301);
 
   ColumnFamilyHandle* dcfh = db_->DefaultColumnFamily();
 
   for (size_t i = 0; i < 100; i++) {
-    int len = rand() % 16384;
+    int len = rnd.Next() % 16384;
     if (!len)
       continue;
 
@@ -314,18 +317,18 @@ TEST_F(BlobDBTest, MultipleWriters) {
   for (size_t ii = 0; ii < 10; ii++)
     workers.push_back(std::thread(&BlobDBTest::insert_blobs, this));
 
-  for (std::thread &t: workers) {
+  for (std::thread &t : workers) {
     if (t.joinable()) {
       t.join();
     }
   }
 
   sleep(180);
-  //ASSERT_OK(db_->PutWithTTL(wo, dcfh, "bar", "v2", 60));
-  //ASSERT_OK(db_->Get(ro, dcfh, "foo", &value));
-  //ASSERT_EQ("v1", value);
-  //ASSERT_OK(db_->Get(ro, dcfh, "bar", &value));
-  //ASSERT_EQ("v2", value);
+  // ASSERT_OK(db_->PutWithTTL(wo, dcfh, "bar", "v2", 60));
+  // ASSERT_OK(db_->Get(ro, dcfh, "foo", &value));
+  // ASSERT_EQ("v1", value);
+  // ASSERT_OK(db_->Get(ro, dcfh, "bar", &value));
+  // ASSERT_EQ("v2", value);
 }
 
 #if 0

@@ -8,19 +8,18 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <cstdint>
 #include <memory>
-#include <stdint.h>
 
 #include "db/blob_log_format.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
-#include "rocksdb/options.h"
 
 namespace rocksdb {
 
 class SequentialFileReader;
 class Logger;
-using std::unique_ptr;
 
 namespace blob_log {
 
@@ -60,12 +59,12 @@ class Reader {
   // The Reader will start reading at the first record located at physical
   // position >= initial_offset within the file.
   Reader(std::shared_ptr<Logger> info_log,
-         unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
+         std::unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
          bool checksum, uint64_t initial_offset, uint64_t log_num);
 
   ~Reader();
 
-  Status ReadHeader(blob_log::BlobLogHeader& header);
+  Status ReadHeader(blob_log::BlobLogHeader *header);
 
   // Read the next record into *record.  Returns true if read
   // successfully, false if we hit end of the input.  May use
@@ -83,7 +82,7 @@ class Reader {
 
  private:
   std::shared_ptr<Logger> info_log_;
-  const unique_ptr<SequentialFileReader> file_;
+  const std::unique_ptr<SequentialFileReader> file_;
   Reporter* const reporter_;
 
   char* backing_store_;
@@ -100,8 +99,8 @@ class Reader {
   uint64_t next_byte_;
 
   // No copying allowed
-  Reader(const Reader&);
-  void operator=(const Reader&);
+  Reader(const Reader&) = delete;
+  Reader& operator=(const Reader&) = delete;
 };
 
 }  // namespace blob_log

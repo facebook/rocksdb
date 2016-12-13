@@ -57,11 +57,11 @@ class BlobDBFlushBeginListener : public EventListener {
 // happening on every write, there is the probability that keys in the
 // blob log can lag the keys in blobs
 class BlobReconcileWalFilter : public WalFilter {
-public:
-
-  virtual WalFilter::WalProcessingOption LogRecordFound(unsigned long long log_number,
-    const std::string& log_file_name, const WriteBatch& batch,
-    WriteBatch* new_batch, bool* batch_changed) override;
+ public:
+  virtual WalFilter::WalProcessingOption LogRecordFound(
+    unsigned long long log_number, const std::string& log_file_name,
+    const WriteBatch& batch, WriteBatch* new_batch,
+    bool* batch_changed) override;
 
   virtual const char* Name() const override {
     return "BlobDBWalReconciler";
@@ -145,7 +145,6 @@ class BlobDBImpl : public BlobDB {
   ~BlobDBImpl();
 
  private:
-
   static bool extractTTLFromBlob(const Slice& value, Slice *newval,
     int32_t *ttl_val);
 
@@ -173,11 +172,12 @@ class BlobDBImpl : public BlobDB {
   // appends a task into timer queue to close the file
   void closeIf(const std::shared_ptr<BlobFile>& bfile);
 
-  Status appendBlob(std::shared_ptr<BlobFile>& bfile,
+  Status appendBlob(const std::shared_ptr<BlobFile>& bfile,
     const char *headerbuf, const Slice& key, const Slice& value,
     std::string *index_entry);
 
-  Status appendSN(std::shared_ptr<BlobFile>& bfile, const SequenceNumber& sn);
+  Status appendSN(const std::shared_ptr<BlobFile>& bfile,
+      const SequenceNumber& sn);
 
   // find an existing blob log file based on the expiration unix epoch
   // if such a file does not exist, return nullptr
@@ -232,35 +232,35 @@ class BlobDBImpl : public BlobDB {
   // hold write mutex on file and call
   // creates a Random Access reader for GET call
   std::shared_ptr<RandomAccessFileReader> openRandomAccess_locked(
-    std::shared_ptr<BlobFile>& bfile, Env *env,
+    const std::shared_ptr<BlobFile>& bfile, Env *env,
     const EnvOptions& env_options);
 
   // hold write mutex on file and call.
   // Close the above Random Access reader
-  void closeRandomAccess_locked(std::shared_ptr<BlobFile>& bfile);
+  void closeRandomAccess_locked(const std::shared_ptr<BlobFile>& bfile);
 
   // hold write mutex on file and call
   // creates a sequential (append) writer for this blobfile
-  Status createWriter_locked(std::shared_ptr<BlobFile> &bfile,
+  Status createWriter_locked(const std::shared_ptr<BlobFile> &bfile,
     bool reopen = false);
 
   // returns a Writer object for the file. If writer is not
   // already present, creates one. Needs Write Mutex to be held
   std::shared_ptr<blob_log::Writer>
-    checkOrCreateWriter_locked(std::shared_ptr<BlobFile>& bfile);
+    checkOrCreateWriter_locked(const std::shared_ptr<BlobFile>& bfile);
 
   // Iterate through keys and values on Blob and write into
   // separate file the remaining blobd and delete the keys
   // atomically
-  Status writeBatchOfDeleteKeys(std::shared_ptr<BlobFile>& bfptr,
+  Status writeBatchOfDeleteKeys(const std::shared_ptr<BlobFile>& bfptr,
     std::time_t tt);
 
   // checks if there is no snapshot which is referencing the
   // blobs
-  bool FileDeleteOk_SnapshotCheck_locked(const std::shared_ptr<BlobFile>& bfile);
+  bool FileDeleteOk_SnapshotCheck_locked(
+      const std::shared_ptr<BlobFile>& bfile);
 
  private:
-
   // the base DB
   DBImpl* db_impl_;
 
@@ -355,11 +355,10 @@ class BlobDBImpl : public BlobDB {
 };
 
 class BlobFile {
-
   friend class BlobDBImpl;
   friend struct blobf_compare_ttl;
 
-private:
+ private:
   // access to parent
   const BlobDBImpl *parent_;
 
@@ -422,8 +421,8 @@ private:
   std::atomic<uint64_t> last_fsync_;
 
   bool header_valid_;
-public:
 
+ public:
   BlobFile();
 
   BlobFile(const BlobDBImpl *parent, const std::string& bdir, uint64_t fnum);
@@ -442,7 +441,9 @@ public:
 
   // the following functions are atomic, and don't need
   // read lock
-  uint64_t BlobCount() const { return blob_count_.load(std::memory_order_acquire); }
+  uint64_t BlobCount() const {
+    return blob_count_.load(std::memory_order_acquire);
+  }
 
   // if the file has gone through GC and blobs have been relocated
   bool Obsolete() const { return can_be_deleted_.load(); }
@@ -453,10 +454,15 @@ public:
   // we will assume this is atomic
   bool NeedsFsync(bool hard, uint64_t bytes_per_sync) const;
 
-  uint64_t GetFileSize() const { return file_size_.load(std::memory_order_acquire); }
+  uint64_t GetFileSize() const {
+    return file_size_.load(std::memory_order_acquire);
+  }
 
   // All Get functions which are not atomic, will need ReadLock on the mutex
-  tsrange_t GetTimeRange() const { assert(HasTimestamps()); return time_range_; }
+  tsrange_t GetTimeRange() const {
+    assert(HasTimestamps());
+    return time_range_;
+  }
 
   ttlrange_t GetTTLRange() const { return ttl_range_; }
 
@@ -464,19 +470,23 @@ public:
 
   bool HasTTL() const { assert(header_valid_); return header_.HasTTL(); }
 
-  bool HasTimestamps() const { assert(header_valid_); return header_.HasTimestamps(); }
+  bool HasTimestamps() const {
+    assert(header_valid_);
+    return header_.HasTimestamps();
+  }
 
-  std::shared_ptr<blob_log::Writer> GetWriter() const { return log_writer_; }
+  std::shared_ptr<blob_log::Writer> GetWriter() const {
+    return log_writer_;
+  }
 
   void Fsync();
 
  private:
-
   std::shared_ptr<blob_log::Reader> openSequentialReader(
     Env *env, const DBOptions& db_options,
     const EnvOptions& env_options) const;
 
-  Status readFooter_locked(blob_log::BlobLogFooter& footer);
+  Status readFooter_locked(blob_log::BlobLogFooter *footer);
 
   Status writeFooterAndClose_locked();
 
@@ -510,4 +520,4 @@ public:
   void setCanBeDeleted() { can_be_deleted_ = true; }
 };
 
-}
+}  // namespace rocksdb

@@ -1,3 +1,12 @@
+//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
+//
+// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file. See the AUTHORS file for names of contributors.
+
 #include "db/blob_log_format.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -6,30 +15,25 @@
 namespace rocksdb {
 namespace blob_log {
 
-
 BlobLogHeader::BlobLogHeader()
 : magic_number_(kMagicNumber),
   has_ttl_(false),
-  has_ts_(false)
-{
+  has_ts_(false) {
 }
 
 BlobLogFooter::BlobLogFooter()
 : magic_number_(kMagicNumber),
   blob_count_(0),
-  has_ttl_(false), has_ts_(false)
-{
+  has_ttl_(false), has_ts_(false) {
 }
 
-Status BlobLogFooter::DecodeFrom(Slice* input)
-{
+Status BlobLogFooter::DecodeFrom(Slice* input) {
   Status s;
   uint32_t offset = 0;
 
   const char *ptr = input->data();
   uint32_t mn = DecodeFixed32(ptr);
-  if (mn != kMagicNumber)
-  {
+  if (mn != kMagicNumber) {
     return Status::Corruption("bad magic number");
   }
 
@@ -69,7 +73,6 @@ Status BlobLogFooter::DecodeFrom(Slice* input)
 }
 
 void BlobLogFooter::EncodeTo(std::string* dst) const {
-
   dst->reserve(kFooterSize);
   PutFixed32(dst, magic_number_);
 
@@ -94,7 +97,6 @@ void BlobLogFooter::EncodeTo(std::string* dst) const {
 }
 
 void BlobLogHeader::EncodeTo(std::string *dst) const {
-
   dst->reserve(kHeaderSize);
   PutFixed32(dst, magic_number_);
 
@@ -115,15 +117,13 @@ void BlobLogHeader::EncodeTo(std::string *dst) const {
   PutFixed64(dst, ts_guess_.second);
 }
 
-Status BlobLogHeader::DecodeFrom(Slice* input)
-{
+Status BlobLogHeader::DecodeFrom(Slice* input) {
   Status s;
   uint32_t offset = 0;
 
   const char *ptr = input->data();
   uint32_t mn = DecodeFixed32(ptr);
-  if (mn != kMagicNumber)
-  {
+  if (mn != kMagicNumber) {
     return Status::Corruption("bad magic number");
   }
 
@@ -158,12 +158,10 @@ BlobLogRecord::BlobLogRecord()
 : checksum_(0), header_cksum_(0), key_size_(0), blob_size_(0),
   time_val_(0), ttl_val_(0), sn_(0), type_(0), subtype_(0),
   key_buffer_(nullptr), kbs_(0), blob_buffer_(nullptr),
-  bbs_(0)
-{
+  bbs_(0) {
 }
 
-BlobLogRecord::~BlobLogRecord()
-{
+BlobLogRecord::~BlobLogRecord() {
   if (key_buffer_) {
     delete [] key_buffer_;
     key_buffer_ = nullptr;
@@ -191,8 +189,7 @@ void BlobLogRecord::resizeBlobBuffer(uint64_t bbs) {
   }
 }
 
-void BlobLogRecord::clear()
-{
+void BlobLogRecord::clear() {
   checksum_ = 0;
   header_cksum_ = 0;
   key_size_ = 0;
@@ -205,8 +202,7 @@ void BlobLogRecord::clear()
   blob_.clear();
 }
 
-Status BlobLogRecord::DecodeHeaderFrom(Slice* input)
-{
+Status BlobLogRecord::DecodeHeaderFrom(Slice* input) {
   if (input->size() < kHeaderSize) {
     return Status::Corruption("bad header");
   }
@@ -230,16 +226,18 @@ Status BlobLogRecord::DecodeHeaderFrom(Slice* input)
   type_ = static_cast<char>(*(ptr + offset));
   offset++;
   subtype_ = static_cast<char>(*(ptr + offset));
-  //offset++;
+  // offset++;
   {
     uint32_t hcksum = 0;
-    hcksum = crc32c::Extend(hcksum, ptr + 2*sizeof(uint32_t), (size_t)(kHeaderSize - 2*sizeof(uint32_t)));
+    hcksum = crc32c::Extend(hcksum, ptr + 2*sizeof(uint32_t),
+        (size_t)(kHeaderSize - 2*sizeof(uint32_t)));
     hcksum = crc32c::Mask(hcksum);
-    if (hcksum != header_cksum_ ) {
-       return Status::Corruption("bad header");
+    if (hcksum != header_cksum_) {
+      return Status::Corruption("bad header");
     }
   }
   return s;
 }
 
-}}
+}  // namespace blob_log
+}  // namespace rocksdb
