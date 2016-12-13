@@ -502,6 +502,7 @@ set(TESTS
         db/db_iter_test.cc
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
+        db/db_merge_operator_test.cc
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_table_properties_test.cc
@@ -512,8 +513,6 @@ set(TESTS
         db/db_bloom_filter_test.cc
         db/db_flush_test.cc
         db/db_iterator_test.cc
-        db/db_memtable_test.cc
-        db/db_merge_operator_test.cc
         db/db_range_del_test.cc
         db/db_sst_test.cc
         db/external_sst_file_test.cc
