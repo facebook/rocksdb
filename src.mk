@@ -223,18 +223,20 @@ MAIN_SOURCES =                                                    \
   db/dbformat_test.cc                                                   \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
-  db/db_block_cache_test.cc						\
+  db/db_block_cache_test.cc						                                  \
   db/db_io_failure_test.cc                                              \
   db/db_bloom_filter_test.cc                                            \
   db/db_compaction_filter_test.cc                                       \
   db/db_compaction_test.cc                                              \
   db/db_dynamic_level_test.cc                                           \
-  db/db_flush_test.cc							\
+  db/db_flush_test.cc							                                      \
   db/db_inplace_update_test.cc                                          \
-  db/db_iterator_test.cc						\
+  db/db_iterator_test.cc						                                    \
   db/db_log_iter_test.cc                                                \
+	db/db_memtable_test.cc																								\
+	db/db_merge_operator_test.cc																					\
   db/db_options_test.cc                                                 \
-  db/db_range_del_test.cc						\
+  db/db_range_del_test.cc						                                    \
   db/db_sst_test.cc                                                     \
   db/external_sst_file_test.cc                                          \
   db/db_tailing_iter_test.cc                                            \

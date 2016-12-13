@@ -501,6 +501,15 @@ Status DBTestBase::Put(int cf, const Slice& k, const Slice& v,
   }
 }
 
+Status DBTestBase::Merge(const Slice& k, const Slice& v, WriteOptions wo) {
+  return db_->Merge(wo, k, v);
+}
+
+Status DBTestBase::Merge(int cf, const Slice& k, const Slice& v,
+                         WriteOptions wo) {
+  return db_->Merge(wo, handles_[cf], k, v);
+}
+
 Status DBTestBase::Delete(const std::string& k) {
   return db_->Delete(WriteOptions(), k);
 }

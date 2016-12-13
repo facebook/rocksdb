@@ -699,6 +699,12 @@ class DBTestBase : public testing::Test {
   Status Put(int cf, const Slice& k, const Slice& v,
              WriteOptions wo = WriteOptions());
 
+  Status Merge(const Slice& k, const Slice& v,
+               WriteOptions wo = WriteOptions());
+
+  Status Merge(int cf, const Slice& k, const Slice& v,
+               WriteOptions wo = WriteOptions());
+
   Status Delete(const std::string& k);
 
   Status Delete(int cf, const std::string& k);
