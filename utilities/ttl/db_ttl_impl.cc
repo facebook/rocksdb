@@ -124,21 +124,26 @@ Status DBWithTTLImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
   return CreateColumnFamilyWithTtl(options, column_family_name, handle, 0);
 }
 
-// Appends the current timestamp to the string.
-// Returns false if could not get the current_time, true if append succeeds
-Status DBWithTTLImpl::AppendTS(const Slice& val, std::string* val_with_ts,
-                               Env* env) {
-  val_with_ts->reserve(kTSLength + val.size());
-  char ts_string[kTSLength];
-  int64_t curtime;
-  Status st = env->GetCurrentTime(&curtime);
-  if (!st.ok()) {
-    return st;
+// Appends the expiration to the string.
+// Returns false if no expiration is specified and it could not get the
+// current_time, true if append succeeds
+Status DBWithTTLImpl::AppendExpiration(const Slice& val,
+                                       std::string* val_with_exp,
+                                       Env* env, int32_t exptime) {
+  val_with_exp->reserve(kTSLength + val.size());
+  char exp_string[kTSLength];
+  if (0 == exptime) {
+    int64_t curtime;
+    Status st = env->GetCurrentTime(&curtime);
+    if (!st.ok()) {
+      return st;
+    }
+    exptime = (int32_t)curtime;
   }
-  EncodeFixed32(ts_string, (int32_t)curtime);
-  val_with_ts->append(val.data(), val.size());
-  val_with_ts->append(ts_string, kTSLength);
-  return st;
+  EncodeFixed32(exp_string, exptime);
+  val_with_exp->append(val.data(), val.size());
+  val_with_exp->append(exp_string, kTSLength);
+  return Status::OK();
 }
 
 // Returns corruption if the length of the string is lesser than timestamp, or
@@ -181,12 +186,18 @@ Status DBWithTTLImpl::StripTS(std::string* str) {
   return st;
 }
 
+Status DBWithTTLImpl::PutWithExpiration(const WriteOptions& options,
+                          ColumnFamilyHandle* column_family, const Slice& key,
+                          const Slice& val, int32_t expiration_time) {
+  WriteBatch batch;
+  batch.Put(column_family, key, val);
+  return WriteWithExpiration(options, &batch, expiration_time);
+}
+
 Status DBWithTTLImpl::Put(const WriteOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
                           const Slice& val) {
-  WriteBatch batch;
-  batch.Put(column_family, key, val);
-  return Write(options, &batch);
+  return DBWithTTLImpl::PutWithExpiration(options, column_family, key, val, 0);
 }
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
@@ -234,24 +245,32 @@ bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,
   return ret;
 }
 
+Status DBWithTTLImpl::MergeWithExpiration(const WriteOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            const Slice& value, int32_t expiration_time) {
+  WriteBatch batch;
+  batch.Merge(column_family, key, value);
+  return WriteWithExpiration(options, &batch, expiration_time);
+}
+
 Status DBWithTTLImpl::Merge(const WriteOptions& options,
                             ColumnFamilyHandle* column_family, const Slice& key,
                             const Slice& value) {
-  WriteBatch batch;
-  batch.Merge(column_family, key, value);
-  return Write(options, &batch);
+  return DBWithTTLImpl::MergeWithExpiration(options, column_family, key, value, 0);
 }
 
-Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
+Status DBWithTTLImpl::WriteWithExpiration(const WriteOptions& opts,
+                                          WriteBatch* updates,
+                                          int32_t expiration_time) {
   class Handler : public WriteBatch::Handler {
    public:
-    explicit Handler(Env* env) : env_(env) {}
+    explicit Handler(Env* env, int32_t exptime) : env_(env), exptime_(exptime) {}
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                          const Slice& value) override {
       std::string value_with_ts;
-      Status st = AppendTS(value, &value_with_ts, env_);
+      Status st = AppendExpiration(value, &value_with_ts, env_, exptime_);
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
@@ -263,7 +282,7 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) override {
       std::string value_with_ts;
-      Status st = AppendTS(value, &value_with_ts, env_);
+      Status st = AppendExpiration(value, &value_with_ts, env_, exptime_);
       if (!st.ok()) {
         batch_rewrite_status = st;
       } else {
@@ -283,14 +302,19 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
 
    private:
     Env* env_;
+    int32_t exptime_;
   };
-  Handler handler(GetEnv());
+  Handler handler(GetEnv(), expiration_time);
   updates->Iterate(&handler);
   if (!handler.batch_rewrite_status.ok()) {
     return handler.batch_rewrite_status;
   } else {
     return db_->Write(opts, &(handler.updates_ttl));
   }
+}
+
+Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
+  return DBWithTTLImpl::WriteWithExpiration(opts, updates, 0);
 }
 
 Iterator* DBWithTTLImpl::NewIterator(const ReadOptions& opts,
