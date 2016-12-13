@@ -457,17 +457,31 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setAllowOsBuffer(
-      final boolean allowOsBuffer) {
+  public DBOptions setUseDirectReads(
+      final boolean useDirectReads) {
     assert(isOwningHandle());
-    setAllowOsBuffer(nativeHandle_, allowOsBuffer);
+    setUseDirectReads(nativeHandle_, useDirectReads);
     return this;
   }
 
   @Override
-  public boolean allowOsBuffer() {
+  public boolean useDirectReads() {
     assert(isOwningHandle());
-    return allowOsBuffer(nativeHandle_);
+    return useDirectReads(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setUseDirectWrites(
+      final boolean useDirectWrites) {
+    assert(isOwningHandle());
+    setUseDirectWrites(nativeHandle_, useDirectWrites);
+    return this;
+  }
+
+  @Override
+  public boolean useDirectWrites() {
+    assert(isOwningHandle());
+    return useDirectWrites(nativeHandle_);
   }
 
   @Override

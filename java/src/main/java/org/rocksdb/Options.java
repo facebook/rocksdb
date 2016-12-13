@@ -530,17 +530,33 @@ public class Options extends RocksObject
   }
 
   @Override
-  public boolean allowOsBuffer() {
+  public DBOptions setUseDirectReads(
+      final boolean useDirectReads) {
     assert(isOwningHandle());
-    return allowOsBuffer(nativeHandle_);
+    setUseDirectReads(nativeHandle_, useDirectReads);
+    return this;
   }
 
   @Override
-  public Options setAllowOsBuffer(final boolean allowOsBuffer) {
+  public boolean useDirectReads() {
     assert(isOwningHandle());
-    setAllowOsBuffer(nativeHandle_, allowOsBuffer);
+    return useDirectReads(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setUseDirectWrites(
+      final boolean useDirectWrites) {
+    assert(isOwningHandle());
+    setUseDirectWrites(nativeHandle_, useDirectWrites);
     return this;
   }
+
+  @Override
+  public boolean useDirectWrites() {
+    assert(isOwningHandle());
+    return useDirectWrites(nativeHandle_);
+  }
+
 
   @Override
   public boolean allowMmapReads() {

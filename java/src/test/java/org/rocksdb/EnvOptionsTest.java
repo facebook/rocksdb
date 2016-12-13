@@ -19,15 +19,6 @@ public class EnvOptionsTest {
   public static final Random rand = PlatformRandomHelper.getPlatformSpecificRandomFactory();
 
   @Test
-  public void useOsBuffer() {
-    try (final EnvOptions envOptions = new EnvOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      envOptions.setUseOsBuffer(boolValue);
-      assertThat(envOptions.useOsBuffer()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void useMmapReads() {
     try (final EnvOptions envOptions = new EnvOptions()) {
       final boolean boolValue = rand.nextBoolean();
