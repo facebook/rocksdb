@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/env_registry.h"
