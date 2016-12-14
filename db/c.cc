@@ -2242,6 +2242,11 @@ void rocksdb_readoptions_set_readahead_size(
   opt->rep.readahead_size = v;
 }
 
+void rocksdb_readoptions_set_pin_data(rocksdb_readoptions_t* opt,
+                                      unsigned char v) {
+  opt->rep.pin_data = v;
+}
+
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {
   return new rocksdb_writeoptions_t;
 }
@@ -2307,6 +2312,14 @@ void rocksdb_cache_destroy(rocksdb_cache_t* cache) {
 
 void rocksdb_cache_set_capacity(rocksdb_cache_t* cache, size_t capacity) {
   cache->rep->SetCapacity(capacity);
+}
+
+size_t rocksdb_cache_get_usage(rocksdb_cache_t* cache) {
+  return cache->rep->GetUsage();
+}
+
+size_t rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache) {
+  return cache->rep->GetPinnedUsage();
 }
 
 rocksdb_env_t* rocksdb_create_default_env() {
