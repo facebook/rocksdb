@@ -11,7 +11,7 @@
 namespace rocksdb {
 
 #ifndef NDEBUG
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
     const std::vector<ColumnFamilyHandle*>& handles,
     bool check_exist) {

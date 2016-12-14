@@ -14,7 +14,7 @@
 
 namespace rocksdb {
 
-#if ROCKSDB_SUPPORT_THREAD_LOCAL
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
 __thread ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 #endif
 
@@ -184,7 +184,7 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0), head_(this) {
 #if !defined(OS_WIN)
   static struct A {
     ~A() {
-#if !(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
       ThreadData* tls_ =
         static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
 #endif
@@ -222,7 +222,7 @@ void ThreadLocalPtr::StaticMeta::RemoveThreadData(
 }
 
 ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
-#if !(ROCKSDB_SUPPORT_THREAD_LOCAL)
+#ifndef ROCKSDB_SUPPORT_THREAD_LOCAL
   // Make this local variable name look like a member variable so that we
   // can share all the code below
   ThreadData* tls_ =

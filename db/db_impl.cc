@@ -6302,7 +6302,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
 #endif  // !ROCKSDB_LITE
 }
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 
 void DBImpl::NewThreadStatusCfInfo(
     ColumnFamilyData* cfd) const {

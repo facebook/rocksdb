@@ -3663,7 +3663,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
 }
 #endif  // ROCKSDB_LITE
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 namespace {
 void VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
                           int expected_count) {
@@ -4970,7 +4970,7 @@ TEST_F(DBTest, MergeTestTime) {
 
   ASSERT_EQ(1, count);
   ASSERT_EQ(2000000, TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME));
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
   ASSERT_GT(TestGetTickerCount(options, FLUSH_WRITE_BYTES), 0);
 #endif  // ROCKSDB_USING_THREAD_STATUS
   this->env_->time_elapse_only_sleep_ = false;
