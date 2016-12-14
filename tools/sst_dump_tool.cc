@@ -591,6 +591,14 @@ int SSTDumpTool::Run(int argc, char** argv) {
           fprintf(stdout, "  # merge operands: UNKNOWN\n");
         }
       }
+      fprintf(stdout,
+              "Raw user collected properties\n"
+              "------------------------------\n");
+      for (const auto& kv : table_properties->user_collected_properties) {
+        std::string prop_name = kv.first;
+        std::string prop_val = Slice(kv.second).ToString(true);
+        fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(), prop_val.c_str());
+      }
     }
   }
   return 0;
