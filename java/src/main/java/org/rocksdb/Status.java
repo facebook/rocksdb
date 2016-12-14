@@ -92,7 +92,7 @@ public class Status {
     MutexTimeout( (byte)0x1),
     LockTimeout(  (byte)0x2),
     LockLimit(    (byte)0x3),
-    MaxSubCode(   (byte)0xFE);
+    MaxSubCode(   (byte)0x7E);
 
     private final byte value;
 
