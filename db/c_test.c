@@ -455,6 +455,69 @@ int main(int argc, char** argv) {
     rocksdb_readoptions_set_pin_data(roptions, 0);
   }
 
+  StartPhase("addfile");
+  {
+    rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
+    rocksdb_options_t* io_options = rocksdb_options_create();
+    rocksdb_sstfilewriter_t* writer =
+        rocksdb_sstfilewriter_create(env_opt, io_options);
+
+    unlink(sstfilename);
+    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk1", 5, "v1", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk2", 5, "v2", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk3", 5, "v3", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+
+    rocksdb_ingestexternalfileoptions_t* ing_opt =
+        rocksdb_ingestexternalfileoptions_create();
+    const char* file_list[1] = {sstfilename};
+    rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "sstk1", "v1");
+    CheckGet(db, roptions, "sstk2", "v2");
+    CheckGet(db, roptions, "sstk3", "v3");
+
+    unlink(sstfilename);
+    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk2", 5, "v4", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk22", 6, "v5", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_add(writer, "sstk3", 5, "v6", 2, &err);
+    CheckNoError(err);
+    rocksdb_sstfilewriter_finish(writer, &err);
+    CheckNoError(err);
+
+    rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "sstk1", "v1");
+    CheckGet(db, roptions, "sstk2", "v4");
+    CheckGet(db, roptions, "sstk22", "v5");
+    CheckGet(db, roptions, "sstk3", "v6");
+
+    rocksdb_ingestexternalfileoptions_destroy(ing_opt);
+    rocksdb_sstfilewriter_destroy(writer);
+    rocksdb_options_destroy(io_options);
+    rocksdb_envoptions_destroy(env_opt);
+
+    // Delete all keys we just ingested
+    rocksdb_delete(db, woptions, "sstk1", 5, &err);
+    CheckNoError(err);
+    rocksdb_delete(db, woptions, "sstk2", 5, &err);
+    CheckNoError(err);
+    rocksdb_delete(db, woptions, "sstk22", 6, &err);
+    CheckNoError(err);
+    rocksdb_delete(db, woptions, "sstk3", 5, &err);
+    CheckNoError(err);
+  }
+
   StartPhase("writebatch");
   {
     rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
@@ -625,59 +688,6 @@ int main(int argc, char** argv) {
     rocksdb_readoptions_set_snapshot(roptions, NULL);
     CheckGet(db, roptions, "foo", NULL);
     rocksdb_release_snapshot(db, snap);
-  }
-
-  StartPhase("addfile");
-  {
-    rocksdb_envoptions_t* env_opt = rocksdb_envoptions_create();
-    rocksdb_options_t* io_options = rocksdb_options_create();
-    rocksdb_sstfilewriter_t* writer =
-        rocksdb_sstfilewriter_create(env_opt, io_options);
-
-    unlink(sstfilename);
-    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
-    CheckNoError(err);
-    rocksdb_sstfilewriter_add(writer, "sstk1", 5, "v1", 2, &err);
-    CheckNoError(err);
-    rocksdb_sstfilewriter_add(writer, "sstk2", 5, "v2", 2, &err);
-    CheckNoError(err);
-    rocksdb_sstfilewriter_add(writer, "sstk3", 5, "v3", 2, &err);
-    CheckNoError(err);
-    rocksdb_sstfilewriter_finish(writer, &err);
-    CheckNoError(err);
-
-    rocksdb_ingestexternalfileoptions_t* ing_opt =
-        rocksdb_ingestexternalfileoptions_create();
-    const char* file_list[1] = {sstfilename};
-    rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
-    CheckNoError(err);
-    CheckGet(db, roptions, "sstk1", "v1");
-    CheckGet(db, roptions, "sstk2", "v2");
-    CheckGet(db, roptions, "sstk3", "v3");
-
-    unlink(sstfilename);
-    rocksdb_sstfilewriter_open(writer, sstfilename, &err);
-    CheckNoError(err);
-    rocksdb_sstfilewriter_add(writer, "sstk2", 5, "v4", 2, &err);
-    CheckNoError(err);
-    rocksdb_sstfilewriter_add(writer, "sstk22", 6, "v5", 2, &err);
-    CheckNoError(err);
-    rocksdb_sstfilewriter_add(writer, "sstk3", 5, "v6", 2, &err);
-    CheckNoError(err);
-    rocksdb_sstfilewriter_finish(writer, &err);
-    CheckNoError(err);
-
-    rocksdb_ingest_external_file(db, file_list, 1, ing_opt, &err);
-    CheckNoError(err);
-    CheckGet(db, roptions, "sstk1", "v1");
-    CheckGet(db, roptions, "sstk2", "v4");
-    CheckGet(db, roptions, "sstk22", "v5");
-    CheckGet(db, roptions, "sstk3", "v6");
-
-    rocksdb_ingestexternalfileoptions_destroy(ing_opt);
-    rocksdb_sstfilewriter_destroy(writer);
-    rocksdb_options_destroy(io_options);
-    rocksdb_envoptions_destroy(env_opt);
   }
 
   StartPhase("repair");
