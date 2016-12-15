@@ -148,7 +148,7 @@ class TestEnv : public EnvWrapper {
 
   class DummySequentialFile : public SequentialFile {
    public:
-    DummySequentialFile(bool fail_reads)
+    explicit DummySequentialFile(bool fail_reads)
         : SequentialFile(), rnd_(5), fail_reads_(fail_reads) {}
     virtual Status Read(size_t n, Slice* result, char* scratch) override {
       if (fail_reads_) {

@@ -617,6 +617,9 @@ Status BackupEngineImpl::Initialize() {
         corrupt_backups_.insert(std::make_pair(
               backup.first, std::make_pair(s, std::move(backup.second))));
       } else if (!s.ok()) {
+        // Distinguish corruption errors from errors in the backup Env.
+        // Errors in the backup Env (i.e., this code path) will cause Open() to
+        // fail, whereas corruption errors would not cause Open() failures.
         return s;
       } else {
         Log(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
