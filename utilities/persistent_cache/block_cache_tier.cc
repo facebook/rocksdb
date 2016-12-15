@@ -28,6 +28,7 @@ Status BlockCacheTier::Open() {
 
   // Check the validity of the options
   status = opt_.ValidateSettings();
+  printf("status %s\n", status.ToString().c_str());
   assert(status.ok());
   if (!status.ok()) {
     Error(opt_.log, "Invalid block cache options");

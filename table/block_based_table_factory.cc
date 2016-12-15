@@ -139,6 +139,11 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
              table_options_.block_cache->GetCapacity());
     ret.append(buffer);
   }
+  if (table_options_.persistent_cache) {
+    snprintf(buffer, kBufferSize, "  persistent_cache_options:\n%s",
+             table_options_.persistent_cache->GetPrintableOptions().c_str());
+    ret.append(buffer);
+  }
   snprintf(buffer, kBufferSize, "  block_cache_compressed: %p\n",
            static_cast<void*>(table_options_.block_cache_compressed.get()));
   ret.append(buffer);
