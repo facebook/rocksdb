@@ -613,11 +613,16 @@ Status BackupEngineImpl::Initialize() {
           &abs_path_to_size);
       Status s =
           backup.second->LoadFromFile(options_.backup_dir, abs_path_to_size);
-      if (!s.ok()) {
+      if (s.IsCorruption()) {
         Log(options_.info_log, "Backup %u corrupted -- %s", backup.first,
             s.ToString().c_str());
         corrupt_backups_.insert(std::make_pair(
               backup.first, std::make_pair(s, std::move(backup.second))));
+      } else if (!s.ok()) {
+        // Distinguish corruption errors from errors in the backup Env.
+        // Errors in the backup Env (i.e., this code path) will cause Open() to
+        // fail, whereas corruption errors would not cause Open() failures.
+        return s;
       } else {
         Log(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
             backup.first, backup.second->GetInfoString().c_str());
@@ -1615,7 +1620,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       try {
         size = abs_path_to_size.at(abs_path);
       } catch (std::out_of_range&) {
-        return Status::NotFound("Size missing for pathname: " + abs_path);
+        return Status::Corruption("Size missing for pathname: " + abs_path);
       }
     }
 

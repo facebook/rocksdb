@@ -148,8 +148,12 @@ class TestEnv : public EnvWrapper {
 
   class DummySequentialFile : public SequentialFile {
    public:
-    DummySequentialFile() : SequentialFile(), rnd_(5) {}
+    explicit DummySequentialFile(bool fail_reads)
+        : SequentialFile(), rnd_(5), fail_reads_(fail_reads) {}
     virtual Status Read(size_t n, Slice* result, char* scratch) override {
+      if (fail_reads_) {
+        return Status::IOError();
+      }
       size_t read_size = (n > size_left) ? size_left : n;
       for (size_t i = 0; i < read_size; ++i) {
         scratch[i] = rnd_.Next() & 255;
@@ -166,13 +170,15 @@ class TestEnv : public EnvWrapper {
    private:
     size_t size_left = 200;
     Random rnd_;
+    bool fail_reads_;
   };
 
   Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
                            const EnvOptions& options) override {
     MutexLock l(&mutex_);
     if (dummy_sequential_file_) {
-      r->reset(new TestEnv::DummySequentialFile());
+      r->reset(
+          new TestEnv::DummySequentialFile(dummy_sequential_file_fail_reads_));
       return Status::OK();
     } else {
       return EnvWrapper::NewSequentialFile(f, r, options);
@@ -224,6 +230,10 @@ class TestEnv : public EnvWrapper {
     MutexLock l(&mutex_);
     dummy_sequential_file_ = dummy_sequential_file;
   }
+  void SetDummySequentialFileFailReads(bool dummy_sequential_file_fail_reads) {
+    MutexLock l(&mutex_);
+    dummy_sequential_file_fail_reads_ = dummy_sequential_file_fail_reads;
+  }
 
   void SetGetChildrenFailure(bool fail) { get_children_failure_ = fail; }
   Status GetChildren(const std::string& dir,
@@ -273,6 +283,7 @@ class TestEnv : public EnvWrapper {
  private:
   port::Mutex mutex_;
   bool dummy_sequential_file_ = false;
+  bool dummy_sequential_file_fail_reads_ = false;
   std::vector<std::string> written_files_;
   std::vector<std::string> filenames_for_mocked_attrs_;
   uint64_t limit_written_files_ = 1000000;
@@ -1275,6 +1286,22 @@ TEST_F(BackupableDBTest, EnvFailures) {
     ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
                                   &backup_engine));
     test_backup_env_->SetNewDirectoryFailure(false);
+  }
+
+  // Read from meta-file failure
+  {
+    DestroyDB(dbname_, options_);
+    OpenDBAndBackupEngine(true);
+    FillDB(db_.get(), 0, 100);
+    ASSERT_TRUE(backup_engine_->CreateNewBackup(db_.get(), true).ok());
+    CloseDBAndBackupEngine();
+    test_backup_env_->SetDummySequentialFile(true);
+    test_backup_env_->SetDummySequentialFileFailReads(true);
+    backupable_options_->destroy_old_data = false;
+    ASSERT_NOK(BackupEngine::Open(test_db_env_.get(), *backupable_options_,
+                                  &backup_engine));
+    test_backup_env_->SetDummySequentialFile(false);
+    test_backup_env_->SetDummySequentialFileFailReads(false);
   }
 
   // no failure
