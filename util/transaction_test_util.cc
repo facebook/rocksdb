@@ -190,7 +190,7 @@ Status RandomTransactionInserter::Verify(DB* db, uint16_t num_sets) {
 
   // For each set of keys with the same prefix, sum all the values
   for (uint32_t i = 0; i < num_sets; i++) {
-    char prefix_buf[5];
+    char prefix_buf[6];
     snprintf(prefix_buf, sizeof(prefix_buf), "%.4u", i + 1);
     uint64_t total = 0;
 

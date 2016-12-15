@@ -2615,7 +2615,7 @@ class Benchmark {
     if (!ok) {
       thread->stats.AddMessage("(compression failure)");
     } else {
-      char buf[100];
+      char buf[340];
       snprintf(buf, sizeof(buf), "(output: %.1f%%)",
                (produced * 100.0) / bytes);
       thread->stats.AddMessage(buf);
