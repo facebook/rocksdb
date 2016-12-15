@@ -716,6 +716,10 @@ class RandomRWFile {
     return c_DefaultPageSize;
   }
 
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
   // should simply forward the call and do not enact read_ahead buffering or locking.
   // The implementation below takes care of reading ahead
