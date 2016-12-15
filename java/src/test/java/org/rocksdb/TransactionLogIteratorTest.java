@@ -138,12 +138,9 @@ public class TransactionLogIteratorTest {
 
   private static class BatchHandler extends WriteBatch.Handler {
 
-    public BatchHandler() {
-    }
+    public BatchHandler() {}
 
-    public void put(int columnFamilyID, byte[] key, byte[] value) {
-      System.out.println("columnFamilyID:" + columnFamilyID);
-    }
+    public void put(int columnFamilyID, byte[] key, byte[] value) {}
 
     public void put(byte[] key, byte[] value) {}
 
