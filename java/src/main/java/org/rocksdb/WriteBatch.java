@@ -59,20 +59,19 @@ public class WriteBatch extends AbstractWriteBatch {
    * @param nativeHandle address of native instance.
    */
   WriteBatch(final long nativeHandle) {
-    this(nativeHandle, true);
+    this(nativeHandle, false);
   }
 
   /**
    * <p>Private WriteBatch constructor which is used to construct
-   * WriteBatch instances from C++ side. As the reference to this
-   * object is also managed from C++ side the handle will be disowned.</p>
+   * WriteBatch instances. </p>
    *
    * @param nativeHandle address of native instance.
-   * @param disOwn whether to own this reference from the C++ side or not
+   * @param owningNativeHandle whether to own this reference from the C++ side or not
    */
-  WriteBatch(final long nativeHandle, boolean disOwn) {
+  WriteBatch(final long nativeHandle, final boolean owningNativeHandle) {
     super(nativeHandle);
-    if(disOwn)
+    if(!owningNativeHandle)
       disOwnNativeHandle();
   }
 
