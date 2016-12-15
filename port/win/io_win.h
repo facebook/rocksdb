@@ -433,6 +433,11 @@ class WinRandomRWFile : private WinFileData,
   // buffer for Write() when UseDirectIO() returns true
   virtual size_t GetRequiredBufferAlignment() const override;
 
+  // Use the returned alignment value to allocate
+  // aligned buffer for Write() when UseOSBuffer()
+  // returns false
+  virtual size_t GetRequiredBufferAlignment() const override;
+
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
   // should simply forward the call and do not enact read_ahead buffering or
   // locking.
