@@ -2937,6 +2937,12 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd) {
     if (shutting_down_.load(std::memory_order_acquire)) {
       return Status::ShutdownInProgress();
     }
+    if (cfd->IsDropped()) {
+      // FlushJob cannot flush a dropped CF, if we did not break here
+      // we will loop forever since cfd->imm()->NumNotFlushed() will never
+      // drop to zero
+      return Status::InvalidArgument("Cannot flush a dropped CF");
+    }
     bg_cv_.Wait();
   }
   if (!bg_error_.ok()) {
@@ -6296,7 +6302,7 @@ Status DBImpl::RenameTempFileToOptionsFile(const std::string& file_name) {
 #endif  // !ROCKSDB_LITE
 }
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 
 void DBImpl::NewThreadStatusCfInfo(
     ColumnFamilyData* cfd) const {
@@ -6491,13 +6497,22 @@ Status DBImpl::IngestExternalFile(
 
     num_running_ingest_file_++;
 
+    // We cannot ingest a file into a dropped CF
+    if (cfd->IsDropped()) {
+      status = Status::InvalidArgument(
+          "Cannot ingest an external file into a dropped CF");
+    }
+
     // Figure out if we need to flush the memtable first
-    bool need_flush = false;
-    status = ingestion_job.NeedsFlush(&need_flush);
-    if (status.ok() && need_flush) {
-      mutex_.Unlock();
-      status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);
-      mutex_.Lock();
+    if (status.ok()) {
+      bool need_flush = false;
+      status = ingestion_job.NeedsFlush(&need_flush);
+
+      if (status.ok() && need_flush) {
+        mutex_.Unlock();
+        status = FlushMemTable(cfd, FlushOptions(), true /* writes_stopped */);
+        mutex_.Lock();
+      }
     }
 
     // Run the ingestion job

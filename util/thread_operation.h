@@ -19,7 +19,7 @@
 
 namespace rocksdb {
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 
 // The structure that describes a major thread operation.
 struct OperationInfo {

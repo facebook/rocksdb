@@ -81,7 +81,7 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
     if (cache_only) {
       // The age of this memtable is too new to use to check for recent
       // writes.
-      char msg[255];
+      char msg[300];
       snprintf(msg, sizeof(msg),
                "Transaction could not check for conflicts for operation at "
                "SequenceNumber %" PRIu64

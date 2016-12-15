@@ -10,7 +10,7 @@
 #include "util/testharness.h"
 #include "rocksdb/db.h"
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 
 namespace rocksdb {
 

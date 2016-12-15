@@ -189,7 +189,7 @@ double HistogramStat::StandardDeviation() const {
 std::string HistogramStat::ToString() const {
   uint64_t cur_num = num();
   std::string r;
-  char buf[200];
+  char buf[1650];
   snprintf(buf, sizeof(buf),
            "Count: %" PRIu64 " Average: %.4f  StdDev: %.2f\n",
            cur_num, Average(), StandardDeviation());

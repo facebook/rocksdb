@@ -453,6 +453,24 @@ int main(int argc, char** argv) {
     int pos = 0;
     rocksdb_writebatch_iterate(wb, &pos, CheckPut, CheckDel);
     CheckCondition(pos == 3);
+    rocksdb_writebatch_clear(wb);
+    rocksdb_writebatch_put(wb, "bar", 3, "b", 1);
+    rocksdb_writebatch_put(wb, "bay", 3, "d", 1);
+    rocksdb_writebatch_delete_range(wb, "bar", 3, "bay", 3);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "bar", NULL);
+    CheckGet(db, roptions, "bay", "d");
+    rocksdb_writebatch_clear(wb);
+    const char* start_list[1] = {"bay"};
+    const size_t start_sizes[1] = {3};
+    const char* end_list[1] = {"baz"};
+    const size_t end_sizes[1] = {3};
+    rocksdb_writebatch_delete_rangev(wb, 1, start_list, start_sizes, end_list,
+                                     end_sizes);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "bay", NULL);
     rocksdb_writebatch_destroy(wb);
   }
 

@@ -159,7 +159,7 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
       case rocksdb::Status::Code::kTryAgain:
         return 0xD;
       default:
-        return 0xFF;  // undefined
+        return 0x7F;  // undefined
     }
   }
 
@@ -176,9 +176,9 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
       case rocksdb::Status::SubCode::kLockLimit:
         return 0x3;
       case rocksdb::Status::SubCode::kMaxSubCode:
-        return 0xFE;
+        return 0x7E;
       default:
-        return 0xFF;  // undefined
+        return 0x7F;  // undefined
     }
   }
 };

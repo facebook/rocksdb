@@ -136,7 +136,7 @@ class SimCacheImpl : public SimCache {
     std::string res;
     res.append("SimCache MISSes: " + std::to_string(get_miss_counter()) + "\n");
     res.append("SimCache HITs:    " + std::to_string(get_hit_counter()) + "\n");
-    char buff[100];
+    char buff[350];
     auto lookups = get_miss_counter() + get_hit_counter();
     snprintf(buff, sizeof(buff), "SimCache HITRATE: %.2f%%\n",
              (lookups == 0 ? 0 : get_hit_counter() * 100.0f / lookups));

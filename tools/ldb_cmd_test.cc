@@ -26,7 +26,7 @@ TEST_F(LdbCmdTest, HexToString) {
     auto actual = rocksdb::LDBCommand::HexToString(inPair.first);
     auto expected = inPair.second;
     for (unsigned int i = 0; i < actual.length(); i++) {
-      EXPECT_EQ(expected[i], static_cast<int>(actual[i]));
+      EXPECT_EQ(expected[i], static_cast<int>((signed char) actual[i]));
     }
     auto reverse = rocksdb::LDBCommand::StringToHex(actual);
     EXPECT_STRCASEEQ(inPair.first.c_str(), reverse.c_str());
