@@ -187,4 +187,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   r->builder.reset();
   return s;
 }
+
+uint64_t SstFileWriter::FileSize() {
+  Rep* r = rep_;
+  return r->file_info.file_size;
+}
 }  // namespace rocksdb

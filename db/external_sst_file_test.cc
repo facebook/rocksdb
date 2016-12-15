@@ -147,7 +147,9 @@ TEST_F(ExternalSSTFileTest, Basic) {
     }
     ExternalSstFileInfo file1_info;
     Status s = sst_file_writer.Finish(&file1_info);
-    ASSERT_TRUE(s.ok()) << s.ToString();
+
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
     ASSERT_EQ(file1_info.file_path, file1);
     ASSERT_EQ(file1_info.num_entries, 100);
     ASSERT_EQ(file1_info.smallest_key, Key(0));
@@ -182,6 +184,9 @@ TEST_F(ExternalSSTFileTest, Basic) {
     }
     ExternalSstFileInfo file3_info;
     s = sst_file_writer.Finish(&file3_info);
+
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
+
     ASSERT_TRUE(s.ok()) << s.ToString();
     ASSERT_EQ(file3_info.file_path, file3);
     ASSERT_EQ(file3_info.num_entries, 105);
