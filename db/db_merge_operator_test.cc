@@ -16,58 +16,6 @@ namespace rocksdb {
 class DBMergeOperatorTest : public DBTestBase {
  public:
   DBMergeOperatorTest() : DBTestBase("/db_merge_operator_test") {}
-
-  void CheckDB(std::vector<std::pair<std::string, std::string>> data) {
-    auto cfd =
-        reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
-            ->cfd();
-    auto iter = new ForwardIterator(dbfull(), ReadOptions(), cfd);
-    iter->SeekToFirst();
-    for (auto p : data) {
-      ASSERT_TRUE(iter->Valid());
-      ParsedInternalKey ikey;
-      ASSERT_TRUE(ParseInternalKey(iter->key(), &ikey));
-      ASSERT_EQ(p.first, ikey.user_key);
-      ASSERT_EQ(p.second, iter->value());
-      iter->Next();
-    };
-    ASSERT_FALSE(iter->Valid());
-    delete iter;
-  }
-
-  void CheckIterator(std::vector<std::pair<std::string, std::string>> data) {
-    for (bool iterate_forward : {true, false}) {
-      auto iter = db_->NewIterator(ReadOptions());
-      bool corrupted = false;
-      if (iterate_forward) {
-        iter->SeekToFirst();
-      } else {
-        iter->SeekToLast();
-        std::reverse(data.begin(), data.end());
-      }
-      for (auto p : data) {
-        ASSERT_TRUE(iter->Valid());
-        ASSERT_EQ(p.first, iter->key());
-        if (p.second != "corrupted") {
-          ASSERT_EQ(p.second, iter->value());
-        } else {
-          corrupted = true;
-        }
-        if (!corrupted) {
-          ASSERT_OK(iter->status());
-        } else {
-          ASSERT_TRUE(iter->status().IsCorruption());
-        }
-        if (iterate_forward) {
-          iter->Next();
-        } else {
-          iter->Prev();
-        }
-      }
-      ASSERT_FALSE(iter->Valid());
-      delete iter;
-    }
-  }
 };
 
 // A test merge operator mimics put but also fails if one of merge operands is
@@ -101,7 +49,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnRead) {
   ASSERT_OK(Merge("k1", "corrupted"));
   std::string value;
   ASSERT_TRUE(db_->Get(ReadOptions(), "k1", &value).IsCorruption());
-  CheckDB({{"k1", "corrupted"}, {"k1", "v1"}});
+  VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v1"}});
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
@@ -116,7 +64,7 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnWrite) {
   // will fail. The delta will be inserted nevertheless.
   ASSERT_OK(Merge("k1", "corrupted"));
   // Data should stay unmerged after the error.
-  CheckDB({{"k1", "corrupted"}, {"k1", "v2"}, {"k1", "v1"}});
+  VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v2"}, {"k1", "v1"}});
 }
 
 TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
@@ -128,15 +76,15 @@ TEST_F(DBMergeOperatorTest, MergeErrorOnIteration) {
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Merge("k1", "corrupted"));
   ASSERT_OK(Put("k2", "v2"));
-  CheckIterator({{"k1", "corrupted"}, {"k2", "v2"}});
-  CheckDB({{"k1", "corrupted"}, {"k1", "v1"}, {"k2", "v2"}});
+  VerifyDBFromMap({{"k1", ""}, {"k2", "v2"}}, {{"k1", Status::Corruption()}});
+  VerifyDBInternal({{"k1", "corrupted"}, {"k1", "v1"}, {"k2", "v2"}});
 
   DestroyAndReopen(options);
   ASSERT_OK(Merge("k1", "v1"));
   ASSERT_OK(Put("k2", "v2"));
   ASSERT_OK(Merge("k2", "corrupted"));
-  CheckIterator({{"k1", "v1"}, {"k2", "corrupted"}});
-  CheckDB({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
+  VerifyDBFromMap({{"k1", "v1"}, {"k2", ""}}, {{"k2", Status::Corruption()}});
+  VerifyDBInternal({{"k1", "v1"}, {"k2", "corrupted"}, {"k2", "v2"}});
 }
 
 }  // namespace rocksdb
