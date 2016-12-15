@@ -735,12 +735,6 @@ void MemTable::Update(SequenceNumber seq,
             return;
           }
         }
-	// fallthrough
-        default:
-          // If the latest value is kTypeDeletion, kTypeMerge or kTypeLogData
-          // we don't have enough space for update inplace
-            Add(seq, kTypeValue, key, value);
-            return;
       }
     }
   }
