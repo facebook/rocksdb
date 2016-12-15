@@ -147,6 +147,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
     }
     ExternalSstFileInfo file1_info;
     Status s = sst_file_writer.Finish(&file1_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
 
     ASSERT_GT(sst_file_writer.FileSize(), 0);
 
