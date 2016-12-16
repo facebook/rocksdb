@@ -309,6 +309,7 @@ TESTS = \
 	db_inplace_update_test \
 	db_iterator_test \
 	db_memtable_test \
+	db_merge_operator_test \
 	db_options_test \
 	db_range_del_test \
 	db_sst_test \
@@ -994,6 +995,9 @@ db_iterator_test: db/db_iterator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHA
 	$(AM_LINK)
 
 db_memtable_test: db/db_memtable_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_merge_operator_test: db/db_merge_operator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_options_test: db/db_options_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

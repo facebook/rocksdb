@@ -699,6 +699,12 @@ class DBTestBase : public testing::Test {
   Status Put(int cf, const Slice& k, const Slice& v,
              WriteOptions wo = WriteOptions());
 
+  Status Merge(const Slice& k, const Slice& v,
+               WriteOptions wo = WriteOptions());
+
+  Status Merge(int cf, const Slice& k, const Slice& v,
+               WriteOptions wo = WriteOptions());
+
   Status Delete(const std::string& k);
 
   Status Delete(int cf, const std::string& k);
@@ -827,7 +833,11 @@ class DBTestBase : public testing::Test {
 
   void VerifyDBFromMap(std::map<std::string, std::string> true_data,
                        size_t* total_reads_res = nullptr,
-                       bool tailing_iter = false);
+                       bool tailing_iter = false,
+                       std::map<std::string, Status> status = {});
+
+  void VerifyDBInternal(
+      std::vector<std::pair<std::string, std::string>> true_data);
 
 #ifndef ROCKSDB_LITE
   uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
