@@ -466,7 +466,8 @@ void CompactionIterator::NextFromInput() {
     } else {
       // 1. new user key -OR-
       // 2. different snapshot stripe
-      bool should_delete = range_del_agg_->ShouldDelete(key_);
+      bool should_delete = range_del_agg_->ShouldDelete(
+          key_, RangeDelAggregator::RangePositioningMode::kForwardTraversal);
       if (should_delete) {
         ++iter_stats_.num_record_drop_hidden;
         ++iter_stats_.num_record_drop_range_del;
