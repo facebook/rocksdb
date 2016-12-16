@@ -39,7 +39,7 @@ class RangeDelAggregator {
   // Note this overload does not lazily initialize Rep.
   RangeDelAggregator(const InternalKeyComparator& icmp,
                      const std::vector<SequenceNumber>& snapshots,
-                     bool for_write = true);
+                     bool collapse_deletions = true);
 
   // @param upper_bound Similar to snapshots above, except with a single
   //    snapshot, which allows us to store the snapshot on the stack and defer
@@ -49,7 +49,8 @@ class RangeDelAggregator {
   //    such that the seqnum space is divided into two stripes. Only the older
   //    stripe will be used by ShouldDelete().
   RangeDelAggregator(const InternalKeyComparator& icmp,
-                     SequenceNumber upper_bound, bool for_write = false);
+                     SequenceNumber upper_bound,
+                     bool collapse_deletions = false);
 
   // Returns whether the key should be deleted, which is the case when it is
   // covered by a range tombstone residing in the same snapshot stripe.
