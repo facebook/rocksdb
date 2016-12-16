@@ -518,6 +518,7 @@ void DBIter::MergeValuesNewToOld() {
                              iter_->IsValuePinned() /* operand_pinned */);
 
   ParsedInternalKey ikey;
+  Status s;
   for (iter_->Next(); iter_->Valid(); iter_->Next()) {
     if (!ParseKey(&ikey)) {
       // skip corrupted key
@@ -538,9 +539,12 @@ void DBIter::MergeValuesNewToOld() {
       // final result in saved_value_. We are done!
       // ignore corruption if there is any.
       const Slice val = iter_->value();
-      MergeHelper::TimedFullMerge(merge_operator_, ikey.user_key, &val,
-                                  merge_context_.GetOperands(), &saved_value_,
-                                  logger_, statistics_, env_, &pinned_value_);
+      s = MergeHelper::TimedFullMerge(
+          merge_operator_, ikey.user_key, &val, merge_context_.GetOperands(),
+          &saved_value_, logger_, statistics_, env_, &pinned_value_);
+      if (!s.ok()) {
+        status_ = s;
+      }
       // iter_ is positioned after put
       iter_->Next();
       return;
@@ -559,9 +563,12 @@ void DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), nullptr,
-                              merge_context_.GetOperands(), &saved_value_,
-                              logger_, statistics_, env_, &pinned_value_);
+  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), nullptr,
+                                  merge_context_.GetOperands(), &saved_value_,
+                                  logger_, statistics_, env_, &pinned_value_);
+  if (!s.ok()) {
+    status_ = s;
+  }
 }
 
 void DBIter::Prev() {
@@ -742,6 +749,7 @@ bool DBIter::FindValueForCurrentKey() {
     FindParseableKey(&ikey, kReverse);
   }
 
+  Status s;
   switch (last_key_entry_type) {
     case kTypeDeletion:
     case kTypeSingleDeletion:
@@ -753,16 +761,16 @@ bool DBIter::FindValueForCurrentKey() {
       if (last_not_merge_type == kTypeDeletion ||
           last_not_merge_type == kTypeSingleDeletion ||
           last_not_merge_type == kTypeRangeDeletion) {
-        MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
-                                    nullptr, merge_context_.GetOperands(),
-                                    &saved_value_, logger_, statistics_, env_,
-                                    &pinned_value_);
+        s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
+                                        nullptr, merge_context_.GetOperands(),
+                                        &saved_value_, logger_, statistics_,
+                                        env_, &pinned_value_);
       } else {
         assert(last_not_merge_type == kTypeValue);
-        MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
-                                    &pinned_value_,
-                                    merge_context_.GetOperands(), &saved_value_,
-                                    logger_, statistics_, env_, &pinned_value_);
+        s = MergeHelper::TimedFullMerge(
+            merge_operator_, saved_key_.GetKey(), &pinned_value_,
+            merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
+            env_, &pinned_value_);
       }
       break;
     case kTypeValue:
@@ -773,6 +781,9 @@ bool DBIter::FindValueForCurrentKey() {
       break;
   }
   valid_ = true;
+  if (!s.ok()) {
+    status_ = s;
+  }
   return true;
 }
 
@@ -818,13 +829,15 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     FindParseableKey(&ikey, kForward);
   }
 
+  Status s;
   if (!iter_->Valid() ||
       !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) ||
       ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       range_del_agg_.ShouldDelete(ikey)) {
-    MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), nullptr,
-                                merge_context_.GetOperands(), &saved_value_,
-                                logger_, statistics_, env_, &pinned_value_);
+    s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
+                                    nullptr, merge_context_.GetOperands(),
+                                    &saved_value_, logger_, statistics_, env_,
+                                    &pinned_value_);
     // Make iter_ valid and point to saved_key_
     if (!iter_->Valid() ||
         !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
@@ -832,14 +845,20 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     }
     valid_ = true;
+    if (!s.ok()) {
+      status_ = s;
+    }
     return true;
   }
 
   const Slice& val = iter_->value();
-  MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), &val,
-                              merge_context_.GetOperands(), &saved_value_,
-                              logger_, statistics_, env_, &pinned_value_);
+  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), &val,
+                                  merge_context_.GetOperands(), &saved_value_,
+                                  logger_, statistics_, env_, &pinned_value_);
   valid_ = true;
+  if (!s.ok()) {
+    status_ = s;
+  }
   return true;
 }
 

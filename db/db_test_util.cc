@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "db/forward_iterator.h"
 
 namespace rocksdb {
 
@@ -500,6 +501,15 @@ Status DBTestBase::Put(int cf, const Slice& k, const Slice& v,
   } else {
     return db_->Put(wo, handles_[cf], k, v);
   }
+}
+
+Status DBTestBase::Merge(const Slice& k, const Slice& v, WriteOptions wo) {
+  return db_->Merge(wo, k, v);
+}
+
+Status DBTestBase::Merge(int cf, const Slice& k, const Slice& v,
+                         WriteOptions wo) {
+  return db_->Merge(wo, handles_[cf], k, v);
 }
 
 Status DBTestBase::Delete(const std::string& k) {
@@ -1090,11 +1100,18 @@ std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
 }
 
 void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
-                                 size_t* total_reads_res, bool tailing_iter) {
+                                 size_t* total_reads_res, bool tailing_iter,
+                                 std::map<std::string, Status> status) {
   size_t total_reads = 0;
 
   for (auto& kv : true_data) {
-    ASSERT_EQ(Get(kv.first), kv.second);
+    Status s = status[kv.first];
+    if (s.ok()) {
+      ASSERT_EQ(Get(kv.first), kv.second);
+    } else {
+      std::string value;
+      ASSERT_EQ(s, db_->Get(ReadOptions(), kv.first, &value));
+    }
     total_reads++;
   }
 
@@ -1107,21 +1124,40 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     // Verify Iterator::Next()
     iter_cnt = 0;
     auto data_iter = true_data.begin();
+    Status s;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
       ASSERT_EQ(iter->key().ToString(), data_iter->first);
-      ASSERT_EQ(iter->value().ToString(), data_iter->second);
+      Status current_status = status[data_iter->first];
+      if (!current_status.ok()) {
+        s = current_status;
+      }
+      ASSERT_EQ(iter->status(), s);
+      if (current_status.ok()) {
+        ASSERT_EQ(iter->value().ToString(), data_iter->second);
+      }
       iter_cnt++;
       total_reads++;
     }
     ASSERT_EQ(data_iter, true_data.end()) << iter_cnt << " / "
                                           << true_data.size();
+    delete iter;
 
     // Verify Iterator::Prev()
+    // Use a new iterator to make sure its status is clean.
+    iter = db_->NewIterator(ro);
     iter_cnt = 0;
+    s = Status::OK();
     auto data_rev = true_data.rbegin();
     for (iter->SeekToLast(); iter->Valid(); iter->Prev(), data_rev++) {
       ASSERT_EQ(iter->key().ToString(), data_rev->first);
-      ASSERT_EQ(iter->value().ToString(), data_rev->second);
+      Status current_status = status[data_rev->first];
+      if (!current_status.ok()) {
+        s = current_status;
+      }
+      ASSERT_EQ(iter->status(), s);
+      if (current_status.ok()) {
+        ASSERT_EQ(iter->value().ToString(), data_rev->second);
+      }
       iter_cnt++;
       total_reads++;
     }
@@ -1135,7 +1171,6 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
       ASSERT_EQ(kv.second, iter->value().ToString());
       total_reads++;
     }
-
     delete iter;
   }
 
@@ -1175,6 +1210,25 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
   if (total_reads_res) {
     *total_reads_res = total_reads;
   }
+}
+
+void DBTestBase::VerifyDBInternal(
+    std::vector<std::pair<std::string, std::string>> true_data) {
+  Arena arena;
+  InternalKeyComparator icmp(last_options_.comparator);
+  RangeDelAggregator range_del_agg(icmp, {});
+  auto iter = dbfull()->NewInternalIterator(&arena, &range_del_agg);
+  iter->SeekToFirst();
+  for (auto p : true_data) {
+    ASSERT_TRUE(iter->Valid());
+    ParsedInternalKey ikey;
+    ASSERT_TRUE(ParseInternalKey(iter->key(), &ikey));
+    ASSERT_EQ(p.first, ikey.user_key);
+    ASSERT_EQ(p.second, iter->value());
+    iter->Next();
+  };
+  ASSERT_FALSE(iter->Valid());
+  iter->~InternalIterator();
 }
 
 #ifndef ROCKSDB_LITE
