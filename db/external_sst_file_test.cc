@@ -1049,7 +1049,7 @@ TEST_F(ExternalSSTFileTest, PickedLevel) {
   EXPECT_EQ(FilesPerLevel(), "1,1,1,2");
 
   size_t kcnt = 0;
-  VerifyDBFromMap(true_data, {}, &kcnt, false);
+  VerifyDBFromMap(true_data, &kcnt, false);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -1278,7 +1278,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
 
   // Verify data in files
   size_t kcnt = 0;
-  VerifyDBFromMap(true_data, {}, &kcnt, false);
+  VerifyDBFromMap(true_data, &kcnt, false);
 
   // Write range [5 => 10] to L0
   for (int i = 5; i <= 10; i++) {
@@ -1295,7 +1295,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelDynamic) {
                                        false, &true_data));
   ASSERT_EQ(FilesPerLevel(), "5,0,0,5");
 
-  VerifyDBFromMap(true_data, {}, &kcnt, false);
+  VerifyDBFromMap(true_data, &kcnt, false);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -1456,9 +1456,9 @@ TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoRandomized) {
       }
     }
     size_t kcnt = 0;
-    VerifyDBFromMap(true_data, {}, &kcnt, false);
+    VerifyDBFromMap(true_data, &kcnt, false);
     db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
-    VerifyDBFromMap(true_data, {}, &kcnt, false);
+    VerifyDBFromMap(true_data, &kcnt, false);
   }
 }
 
@@ -1522,7 +1522,7 @@ TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   ASSERT_EQ("2,0,0,1,2", FilesPerLevel());
 
   size_t kcnt = 0;
-  VerifyDBFromMap(true_data, {}, &kcnt, false);
+  VerifyDBFromMap(true_data, &kcnt, false);
 }
 
 TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoPickedSeqno) {
@@ -1609,7 +1609,7 @@ TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoPickedSeqno) {
   ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
 
   size_t kcnt = 0;
-  VerifyDBFromMap(true_data, {}, &kcnt, false);
+  VerifyDBFromMap(true_data, &kcnt, false);
 }
 
 TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
@@ -1663,7 +1663,7 @@ TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   ASSERT_EQ(entries_in_memtable, 0);
 
   size_t kcnt = 0;
-  VerifyDBFromMap(true_data, {}, &kcnt, false);
+  VerifyDBFromMap(true_data, &kcnt, false);
 }
 
 TEST_F(ExternalSSTFileTest, L0SortingIssue) {

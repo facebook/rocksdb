@@ -832,9 +832,9 @@ class DBTestBase : public testing::Test {
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 
   void VerifyDBFromMap(std::map<std::string, std::string> true_data,
-                       std::map<std::string, Status> status = {},
                        size_t* total_reads_res = nullptr,
-                       bool tailing_iter = false);
+                       bool tailing_iter = false,
+                       std::map<std::string, Status> status = {});
 
   void VerifyDBInternal(
       std::vector<std::pair<std::string, std::string>> true_data);

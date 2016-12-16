@@ -1099,8 +1099,8 @@ std::vector<std::uint64_t> DBTestBase::ListTableFiles(Env* env,
 }
 
 void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
-                                 std::map<std::string, Status> status,
-                                 size_t* total_reads_res, bool tailing_iter) {
+                                 size_t* total_reads_res, bool tailing_iter,
+                                 std::map<std::string, Status> status) {
   size_t total_reads = 0;
 
   for (auto& kv : true_data) {
@@ -1142,6 +1142,7 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     delete iter;
 
     // Verify Iterator::Prev()
+    // Use a new iterator to make sure its status is clean.
     iter = db_->NewIterator(ro);
     iter_cnt = 0;
     s = Status::OK();

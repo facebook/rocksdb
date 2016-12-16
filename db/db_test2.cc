@@ -1845,12 +1845,12 @@ TEST_P(MergeOperatorPinningTest, EvictCacheBeforeMerge) {
   };
 
   size_t total_reads;
-  VerifyDBFromMap(true_data, {}, &total_reads);
+  VerifyDBFromMap(true_data, &total_reads);
   ASSERT_EQ(merge_cnt, total_reads);
 
   db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
-  VerifyDBFromMap(true_data, {}, &total_reads);
+  VerifyDBFromMap(true_data, &total_reads);
 }
 
 TEST_P(MergeOperatorPinningTest, TailingIterator) {
