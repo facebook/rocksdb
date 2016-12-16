@@ -11,7 +11,8 @@ if ! which $CLANG_FORMAT_DIFF &> /dev/null
 then
   echo "You didn't have clang-format-diff.py available in your computer!"
   echo "You can download it by running: "
-  echo "    curl http://goo.gl/iUW1u2"
+  echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
+  echo "and move ${CLANG_FORMAT_DIFF} to some directory within PATH=${PATH}"
   exit 128
 fi
 
