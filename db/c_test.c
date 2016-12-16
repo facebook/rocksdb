@@ -340,7 +340,7 @@ int main(int argc, char** argv) {
 
   roptions = rocksdb_readoptions_create();
   rocksdb_readoptions_set_verify_checksums(roptions, 1);
-  rocksdb_readoptions_set_fill_cache(roptions, 0);
+  rocksdb_readoptions_set_fill_cache(roptions, 1);
 
   woptions = rocksdb_writeoptions_create();
   rocksdb_writeoptions_set_sync(woptions, 1);
@@ -436,6 +436,24 @@ int main(int argc, char** argv) {
   StartPhase("compactrangeopt");
   rocksdb_compact_range_opt(db, coptions, "a", 1, "z", 1);
   CheckGet(db, roptions, "foo", "hello");
+
+  // Simple check cache usage
+  StartPhase("cache_usage");
+  {
+    rocksdb_readoptions_set_pin_data(roptions, 1);
+    rocksdb_iterator_t* iter = rocksdb_create_iterator(db, roptions);
+    rocksdb_iter_seek(iter, "foo", 3);
+
+    size_t usage = rocksdb_cache_get_usage(cache);
+    CheckCondition(usage > 0);
+
+    size_t pin_usage = rocksdb_cache_get_pinned_usage(cache);
+    CheckCondition(pin_usage > 0);
+
+    rocksdb_iter_next(iter);
+    rocksdb_iter_destroy(iter);
+    rocksdb_readoptions_set_pin_data(roptions, 0);
+  }
 
   StartPhase("writebatch");
   {
@@ -795,9 +813,9 @@ int main(int argc, char** argv) {
   {
     rocksdb_close(db);
     rocksdb_destroy_db(options, dbname, &err);
-    CheckNoError(err)
+    CheckNoError(err);
 
-        rocksdb_options_t* db_options = rocksdb_options_create();
+    rocksdb_options_t* db_options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(db_options, 1);
     db = rocksdb_open(db_options, dbname, &err);
     CheckNoError(err)

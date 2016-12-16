@@ -875,6 +875,8 @@ extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_tailing(
     rocksdb_readoptions_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_readahead_size(
     rocksdb_readoptions_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_readoptions_set_pin_data(
+    rocksdb_readoptions_t*, unsigned char);
 
 /* Write options */
 
@@ -917,6 +919,10 @@ extern ROCKSDB_LIBRARY_API rocksdb_cache_t* rocksdb_cache_create_lru(
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_destroy(rocksdb_cache_t* cache);
 extern ROCKSDB_LIBRARY_API void rocksdb_cache_set_capacity(
     rocksdb_cache_t* cache, size_t capacity);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_cache_get_usage(rocksdb_cache_t* cache);
+extern ROCKSDB_LIBRARY_API size_t
+rocksdb_cache_get_pinned_usage(rocksdb_cache_t* cache);
 
 /* Env */
 
