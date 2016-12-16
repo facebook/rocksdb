@@ -305,7 +305,9 @@ class PersistentTieredCache : public PersistentCacheTier {
                 size_t* size) override;
   bool IsCompressed() override;
 
-  std::string GetPrintableOptions() const { return "PersistentTieredCache"; }
+  std::string GetPrintableOptions() const override {
+    return "PersistentTieredCache";
+  }
 
   void AddTier(const Tier& tier);
 
