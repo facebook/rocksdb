@@ -5,6 +5,8 @@
 
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -78,3 +80,5 @@ extern SstFileManager* NewSstFileManager(
     bool delete_exisitng_trash = true, Status* status = nullptr);
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

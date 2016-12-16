@@ -1086,6 +1086,7 @@ Status CompactionJob::FinishCompactionOutputFile(
       event_logger_, cfd->ioptions()->listeners, dbname_, cfd->GetName(), fname,
       job_id_, meta->fd, tp, TableFileCreationReason::kCompaction, s);
 
+#ifndef ROCKSDB_LITE
   // Report new file to SstFileManagerImpl
   auto sfm =
       static_cast<SstFileManagerImpl*>(db_options_.sst_file_manager.get());
@@ -1103,6 +1104,7 @@ Status CompactionJob::FinishCompactionOutputFile(
       }
     }
   }
+#endif
 
   sub_compact->builder.reset();
   sub_compact->current_output_file_size = 0;

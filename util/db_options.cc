@@ -28,7 +28,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       paranoid_checks(options.paranoid_checks),
       env(options.env),
       rate_limiter(options.rate_limiter),
-      sst_file_manager(options.sst_file_manager),
       info_log(options.info_log),
       info_log_level(options.info_log_level),
       max_open_files(options.max_open_files),
@@ -81,6 +80,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       allow_2pc(options.allow_2pc),
       row_cache(options.row_cache),
 #ifndef ROCKSDB_LITE
+      sst_file_manager(options.sst_file_manager),
       wal_filter(options.wal_filter),
 #endif  // ROCKSDB_LITE
       fail_if_options_file_error(options.fail_if_options_file_error),
@@ -180,9 +180,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          use_adaptive_mutex);
   Header(log, "                           Options.rate_limiter: %p",
          rate_limiter.get());
-  Header(
-      log, "    Options.sst_file_manager.rate_bytes_per_sec: %" PRIi64,
-      sst_file_manager ? sst_file_manager->GetDeleteRateBytesPerSecond() : 0);
   Header(log, "                         Options.bytes_per_sync: %" PRIu64,
          bytes_per_sync);
   Header(log, "                     Options.wal_bytes_per_sync: %" PRIu64,
@@ -206,6 +203,9 @@ void ImmutableDBOptions::Dump(Logger* log) const {
     Header(log, "                              Options.row_cache: None");
   }
 #ifndef ROCKSDB_LITE
+  Header(
+      log, "    Options.sst_file_manager.rate_bytes_per_sec: %" PRIi64,
+      sst_file_manager ? sst_file_manager->GetDeleteRateBytesPerSecond() : 0);
   Header(log, "                             Options.wal_filter: %s",
          wal_filter ? wal_filter->Name() : "None");
 #endif  // ROCKDB_LITE

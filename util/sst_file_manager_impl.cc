@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "util/sst_file_manager_impl.h"
 
 #include <vector>
@@ -155,3 +157,5 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
 }
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

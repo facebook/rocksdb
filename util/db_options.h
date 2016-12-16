@@ -24,7 +24,6 @@ struct ImmutableDBOptions {
   bool paranoid_checks;
   Env* env;
   std::shared_ptr<RateLimiter> rate_limiter;
-  std::shared_ptr<SstFileManager> sst_file_manager;
   std::shared_ptr<Logger> info_log;
   InfoLogLevel info_log_level;
   int max_open_files;
@@ -75,6 +74,7 @@ struct ImmutableDBOptions {
   bool allow_2pc;
   std::shared_ptr<Cache> row_cache;
 #ifndef ROCKSDB_LITE
+  std::shared_ptr<SstFileManager> sst_file_manager;
   WalFilter* wal_filter;
 #endif  // ROCKSDB_LITE
   bool fail_if_options_file_error;

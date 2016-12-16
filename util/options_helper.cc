@@ -39,7 +39,6 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.paranoid_checks = immutable_db_options.paranoid_checks;
   options.env = immutable_db_options.env;
   options.rate_limiter = immutable_db_options.rate_limiter;
-  options.sst_file_manager = immutable_db_options.sst_file_manager;
   options.info_log = immutable_db_options.info_log;
   options.info_log_level = immutable_db_options.info_log_level;
   options.max_open_files = immutable_db_options.max_open_files;
@@ -111,6 +110,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.allow_2pc = immutable_db_options.allow_2pc;
   options.row_cache = immutable_db_options.row_cache;
 #ifndef ROCKSDB_LITE
+  options.sst_file_manager = immutable_db_options.sst_file_manager;
   options.wal_filter = immutable_db_options.wal_filter;
 #endif  // ROCKSDB_LITE
   options.fail_if_options_file_error =

@@ -5,6 +5,8 @@
 
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #include <string>
 
 #include "port/port.h"
@@ -93,3 +95,5 @@ class SstFileManagerImpl : public SstFileManager {
 };
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE
