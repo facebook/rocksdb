@@ -59,7 +59,7 @@ bool RangeDelAggregator::ShouldDelete(const ParsedInternalKey& parsed) {
   }
   const auto& tombstone_map = GetTombstoneMap(parsed.sequence);
   if (collapse_deletions_) {
-    auto iter = tombstone_map.upper_bound(parsed.user_key.ToString());
+    auto iter = tombstone_map.upper_bound(parsed.user_key);
     if (iter == tombstone_map.begin()) {
       return false;
     }
@@ -179,7 +179,6 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
     // raising the seqnum for the to-be-inserted element (we insert the max
     // seqnum between the next new interval and the unterminated interval).
     SequenceNumber untermed_seq = kMaxSequenceNumber;
-    SequenceNumber prev_seen_seq = 0;
     while (tombstone_map_iter != tombstone_map.end() &&
            new_range_dels_iter != new_range_dels.end()) {
       const Slice *tombstone_map_iter_end = nullptr,
@@ -229,7 +228,9 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
         // it's covered.
         if (tombstone_map_iter->second.seq_ < new_range_dels_iter->seq_) {
           untermed_seq = tombstone_map_iter->second.seq_;
-          if (prev_seen_seq == new_range_dels_iter->seq_) {
+          if (tombstone_map_iter != tombstone_map.begin() &&
+              std::prev(tombstone_map_iter)->second.seq_ ==
+                  new_range_dels_iter->seq_) {
             tombstone_map_iter = tombstone_map.erase(tombstone_map_iter);
             --tombstone_map_iter;
           } else {
@@ -262,7 +263,6 @@ Status RangeDelAggregator::AddTombstone(RangeTombstone tombstone) {
 
       // advance whichever one ends earlier, or both if their right endpoints
       // coincide
-      prev_seen_seq = tombstone_map_iter->second.seq_;
       if (new_to_old_end_cmp < 0) {
         ++new_range_dels_iter;
       } else if (new_to_old_end_cmp > 0) {
