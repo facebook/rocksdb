@@ -23,6 +23,11 @@ WriteBatchHandlerJniCallback::WriteBatchHandlerJniCallback(
   m_jDeleteMethodId = WriteBatchHandlerJni::getDeleteMethodId(env);
   m_jLogDataMethodId = WriteBatchHandlerJni::getLogDataMethodId(env);
   m_jContinueMethodId = WriteBatchHandlerJni::getContinueMethodId(env);
+  m_jSingleDeleteMethodId = WriteBatchHandlerJni::getSingleDeleteMethodId(env);
+  m_jPutCFMethodId = WriteBatchHandlerJni::getPutCFMethodId(env);
+  m_jMergeCFMethodId = WriteBatchHandlerJni::getMergeCFMethodId(env);
+  m_jDeleteCFMethodId = WriteBatchHandlerJni::getDeleteCFMethodId(env);
+  m_jSingleDeleteCFMethodId = WriteBatchHandlerJni::getSingleDeleteCFMethodId(env);
 }
 
 void WriteBatchHandlerJniCallback::Put(const Slice& key, const Slice& value) {
@@ -81,6 +86,92 @@ bool WriteBatchHandlerJniCallback::Continue() {
       m_jContinueMethodId);
 
   return static_cast<bool>(jContinue == JNI_TRUE);
+}
+
+void WriteBatchHandlerJniCallback::SingleDelete(const Slice& key) {
+  const jbyteArray j_key = sliceToJArray(key);
+
+  m_env->CallVoidMethod(
+                        m_jWriteBatchHandler,
+                        m_jSingleDeleteMethodId,
+                        j_key);
+
+  m_env->DeleteLocalRef(j_key);
+}
+
+Status WriteBatchHandlerJniCallback::PutCF(uint32_t column_family_id, const Slice& key,
+                                             const Slice& value) {
+  if (column_family_id == 0) {
+    Put(key, value);
+  } else {
+    const jbyteArray j_key = sliceToJArray(key);
+    const jbyteArray j_value = sliceToJArray(value);
+
+    m_env->CallVoidMethod(
+                          m_jWriteBatchHandler,
+                          m_jPutCFMethodId,
+                          column_family_id,
+                          j_key,
+                          j_value);
+
+    m_env->DeleteLocalRef(j_value);
+    m_env->DeleteLocalRef(j_key);
+  }
+  return Status::OK();
+}
+
+Status WriteBatchHandlerJniCallback::DeleteCF(uint32_t column_family_id, const Slice& key) {
+  if (column_family_id == 0) {
+    Delete(key);
+  } else {
+    const jbyteArray j_key = sliceToJArray(key);
+
+    m_env->CallVoidMethod(
+                          m_jWriteBatchHandler,
+                          m_jDeleteCFMethodId,
+                          column_family_id,
+                          j_key);
+
+    m_env->DeleteLocalRef(j_key);
+  }
+  return Status::OK();
+}
+
+Status WriteBatchHandlerJniCallback::MergeCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value) {
+  if (column_family_id == 0) {
+    Merge(key, value);
+  } else {
+    const jbyteArray j_key = sliceToJArray(key);
+    const jbyteArray j_value = sliceToJArray(value);
+
+    m_env->CallVoidMethod(
+                          m_jWriteBatchHandler,
+                          m_jMergeCFMethodId,
+                          column_family_id,
+                          j_key,
+                          j_value);
+
+    m_env->DeleteLocalRef(j_value);
+    m_env->DeleteLocalRef(j_key);
+  }
+  return Status::OK();
+}
+
+Status WriteBatchHandlerJniCallback::SingleDeleteCF(uint32_t column_family_id, const Slice& key) {
+  if (column_family_id == 0) {
+    SingleDelete(key);
+  } else {
+    const jbyteArray j_key = sliceToJArray(key);
+    m_env->CallVoidMethod(
+                          m_jWriteBatchHandler,
+                          m_jSingleDeleteCFMethodId,
+                          column_family_id,
+                          j_key);
+
+    m_env->DeleteLocalRef(j_key);
+  }
+  return Status::OK();
 }
 
 /*

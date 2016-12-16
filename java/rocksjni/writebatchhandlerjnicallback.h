@@ -30,6 +30,13 @@ class WriteBatchHandlerJniCallback : public WriteBatch::Handler {
     void Delete(const Slice& key);
     void LogData(const Slice& blob);
     bool Continue();
+    void SingleDelete(const Slice& key);
+    Status PutCF(uint32_t column_family_id, const Slice& key,
+                 const Slice& value);
+    Status DeleteCF(uint32_t column_family_id, const Slice& key);
+    Status MergeCF(uint32_t column_family_id, const Slice& key,
+                   const Slice& value);
+    Status SingleDeleteCF(uint32_t column_family_id, const Slice& key);
 
  private:
     JNIEnv* m_env;
@@ -40,6 +47,11 @@ class WriteBatchHandlerJniCallback : public WriteBatch::Handler {
     jmethodID m_jDeleteMethodId;
     jmethodID m_jLogDataMethodId;
     jmethodID m_jContinueMethodId;
+    jmethodID m_jPutCFMethodId;
+    jmethodID m_jMergeCFMethodId;
+    jmethodID m_jDeleteCFMethodId;
+    jmethodID m_jSingleDeleteMethodId;
+    jmethodID m_jSingleDeleteCFMethodId;
 };
 }  // namespace rocksdb
 

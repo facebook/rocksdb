@@ -135,4 +135,76 @@ public class TransactionLogIteratorTest {
       }
     }
   }
+
+  private static class BatchHandler extends WriteBatch.Handler {
+
+    public BatchHandler() {}
+
+    public void put(int columnFamilyID, byte[] key, byte[] value) {}
+
+    public void put(byte[] key, byte[] value) {}
+
+    public void merge(byte[] key, byte[] value) {}
+
+    public void delete(byte[] key) {}
+
+    public void singleDelete(byte[] key) {}
+
+    public void logData(byte[] blob) {}
+
+  }
+
+  @Test
+  public void testBatchHandler() throws RocksDBException {
+    final int numberOfPuts = 5;
+    try (final Options options = new Options()
+        .setCreateIfMissing(true)
+        .setWalTtlSeconds(1000)
+        .setWalSizeLimitMB(10);
+         final RocksDB db = RocksDB.open(options,
+             dbFolder.getRoot().getAbsolutePath())) {
+
+      for (int i = 0; i < numberOfPuts; i++) {
+        db.put(String.valueOf(i).getBytes(),
+            String.valueOf(i).getBytes());
+      }
+      db.flush(new FlushOptions().setWaitForFlush(true));
+
+      // the latest sequence number is 5 because 5 puts
+      // were written beforehand
+      assertThat(db.getLatestSequenceNumber()).
+          isEqualTo(numberOfPuts);
+
+      // insert 5 writes into a cf
+      try (final ColumnFamilyHandle cfHandle = db.createColumnFamily(
+          new ColumnFamilyDescriptor("new_cf".getBytes()))) {
+        for (int i = 0; i < numberOfPuts; i++) {
+          db.put(cfHandle, String.valueOf(i).getBytes(),
+              String.valueOf(i).getBytes());
+        }
+        // the latest sequence number is 10 because
+        // (5 + 5) puts were written beforehand
+        assertThat(db.getLatestSequenceNumber()).
+            isEqualTo(numberOfPuts + numberOfPuts);
+
+        // Get updates since the beginning
+        try (final TransactionLogIterator transactionLogIterator =
+                 db.getUpdatesSince(0)) {
+          assertThat(transactionLogIterator.isValid()).isTrue();
+          transactionLogIterator.status();
+
+          // The first sequence number is 1
+          final TransactionLogIterator.BatchResult batchResult =
+              transactionLogIterator.getBatch();
+          assertThat(batchResult.sequenceNumber()).isEqualTo(1);
+          try {
+            WriteBatch wb = batchResult.writeBatch();
+            wb.iterate(new BatchHandler());
+          } catch(RocksDBException e) {
+            assertThat(false);
+          }
+        }
+      }
+    }
+  }
 }
