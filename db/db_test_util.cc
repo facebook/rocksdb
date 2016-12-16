@@ -1104,10 +1104,7 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
   size_t total_reads = 0;
 
   for (auto& kv : true_data) {
-    Status s;
-    if (status.count(kv.first)) {
-      s = status[kv.first];
-    }
+    Status s = status[kv.first];
     if (s.ok()) {
       ASSERT_EQ(Get(kv.first), kv.second);
     } else {
@@ -1129,9 +1126,9 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     Status s;
     for (iter->SeekToFirst(); iter->Valid(); iter->Next(), data_iter++) {
       ASSERT_EQ(iter->key().ToString(), data_iter->first);
-      Status current_status;
-      if (status.count(data_iter->first) > 0) {
-        s = current_status = status[data_iter->first];
+      Status current_status = status[data_iter->first];
+      if (!current_status.ok()) {
+        s = current_status;
       }
       ASSERT_EQ(iter->status(), s);
       if (current_status.ok()) {
@@ -1151,9 +1148,9 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
     auto data_rev = true_data.rbegin();
     for (iter->SeekToLast(); iter->Valid(); iter->Prev(), data_rev++) {
       ASSERT_EQ(iter->key().ToString(), data_rev->first);
-      Status current_status;
-      if (status.count(data_rev->first) > 0) {
-        s = current_status = status[data_rev->first];
+      Status current_status = status[data_rev->first];
+      if (!current_status.ok()) {
+        s = current_status;
       }
       ASSERT_EQ(iter->status(), s);
       if (current_status.ok()) {
@@ -1213,7 +1210,8 @@ void DBTestBase::VerifyDBFromMap(std::map<std::string, std::string> true_data,
   }
 }
 
-void DBTestBase::VerifyDBInternal(std::vector<std::pair<std::string, std::string>> true_data) {
+void DBTestBase::VerifyDBInternal(
+    std::vector<std::pair<std::string, std::string>> true_data) {
   Arena arena;
   InternalKeyComparator icmp(last_options_.comparator);
   RangeDelAggregator range_del_agg(icmp, {});
