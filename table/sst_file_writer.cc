@@ -44,7 +44,9 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Options& options,
                              const Comparator* user_comparator,
                              ColumnFamilyHandle* column_family)
-    : rep_(new Rep(env_options, options, user_comparator, column_family)) {}
+    : rep_(new Rep(env_options, options, user_comparator, column_family)) {
+      rep_->file_info.file_size = 0;
+    }
 
 SstFileWriter::~SstFileWriter() {
   if (rep_->builder) {

@@ -139,6 +139,9 @@ TEST_F(ExternalSSTFileTest, Basic) {
 
     SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
 
+    // Current file size should be 0 after sst_file_writer init and before open a file.
+    ASSERT_EQ(sst_file_writer.FileSize(), 0);
+
     // file1.sst (0 => 99)
     std::string file1 = sst_files_dir_ + "file1.sst";
     ASSERT_OK(sst_file_writer.Open(file1));
@@ -149,6 +152,7 @@ TEST_F(ExternalSSTFileTest, Basic) {
     Status s = sst_file_writer.Finish(&file1_info);
     ASSERT_TRUE(s.ok()) << s.ToString();
 
+    // Current file size should be non-zero after success write.
     ASSERT_GT(sst_file_writer.FileSize(), 0);
 
     ASSERT_EQ(file1_info.file_path, file1);
@@ -186,9 +190,9 @@ TEST_F(ExternalSSTFileTest, Basic) {
     ExternalSstFileInfo file3_info;
     s = sst_file_writer.Finish(&file3_info);
 
-    ASSERT_GT(sst_file_writer.FileSize(), 0);
-
     ASSERT_TRUE(s.ok()) << s.ToString();
+    // Current file size should be non-zero after success finish.
+    ASSERT_GT(sst_file_writer.FileSize(), 0);
     ASSERT_EQ(file3_info.file_path, file3);
     ASSERT_EQ(file3_info.num_entries, 105);
     ASSERT_EQ(file3_info.smallest_key, Key(195));
