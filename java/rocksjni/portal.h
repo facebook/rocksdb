@@ -11,6 +11,7 @@
 #define JAVA_ROCKSJNI_PORTAL_H_
 
 #include <jni.h>
+#include <functional>
 #include <limits>
 #include <string>
 #include <vector>

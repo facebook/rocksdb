@@ -16,6 +16,7 @@
 #include <inttypes.h>
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <set>
 #include <thread>
 #include <unordered_map>

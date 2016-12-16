@@ -9,6 +9,7 @@
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
+#include <functional>
 #include <memory>
 #include <vector>
 

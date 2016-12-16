@@ -9,8 +9,9 @@
 
 #include "db/file_indexer.h"
 #include <algorithm>
-#include "rocksdb/comparator.h"
+#include <functional>
 #include "db/version_edit.h"
+#include "rocksdb/comparator.h"
 
 namespace rocksdb {
 

@@ -15,13 +15,14 @@ int main() {
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include <gflags/gflags.h>
 #include <inttypes.h>
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <vector>
-#include <gflags/gflags.h>
 
 #include "dynamic_bloom.h"
 #include "port/port.h"

@@ -7,6 +7,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <functional>
+
 #include "util/random.h"
 #include "utilities/persistent_cache/hash_table.h"
 #include "utilities/persistent_cache/lrulist.h"

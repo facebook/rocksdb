@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <future>
 #include <limits>
 #include <map>

@@ -9,11 +9,12 @@
 #include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <algorithm>
+#include <functional>
 #include <memory>
 #include <string>
 #include <tuple>
 #include <vector>
-#include <algorithm>
 
 #include "include/org_rocksdb_RocksDB.h"
 #include "rocksdb/cache.h"
