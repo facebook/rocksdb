@@ -66,6 +66,9 @@ class SstFileWriter {
   // which will be populated with information about the created sst file
   Status Finish(ExternalSstFileInfo* file_info = nullptr);
 
+  // Return the current file size.
+  uint64_t FileSize();
+
  private:
   struct Rep;
   Rep* rep_;

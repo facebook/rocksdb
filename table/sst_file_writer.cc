@@ -44,7 +44,9 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Options& options,
                              const Comparator* user_comparator,
                              ColumnFamilyHandle* column_family)
-    : rep_(new Rep(env_options, options, user_comparator, column_family)) {}
+    : rep_(new Rep(env_options, options, user_comparator, column_family)) {
+      rep_->file_info.file_size = 0;
+    }
 
 SstFileWriter::~SstFileWriter() {
   if (rep_->builder) {
@@ -186,5 +188,9 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
   r->builder.reset();
   return s;
+}
+
+uint64_t SstFileWriter::FileSize() {
+  return rep_->file_info.file_size;
 }
 }  // namespace rocksdb
