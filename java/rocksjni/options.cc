@@ -4167,6 +4167,50 @@ jlong Java_org_rocksdb_DBOptions_manifestPreallocationSize(
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    useDirectReads
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_useDirectReads(JNIEnv* env, jobject jobj,
+                                                   jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_reads;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setUseDirectReads
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setUseDirectReads(JNIEnv* env, jobject jobj,
+                                                  jlong jhandle,
+                                                  jboolean use_direct_reads) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_reads =
+      static_cast<bool>(use_direct_reads);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    useDirectWrites
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_useDirectWrites(JNIEnv* env, jobject jobj,
+                                                    jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_writes;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setUseDirectReads
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setUseDirectWrites(JNIEnv* env, jobject jobj,
+                                                   jlong jhandle,
+                                                   jboolean use_direct_writes) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_writes =
+      static_cast<bool>(use_direct_writes);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setAllowMmapReads
  * Signature: (JZ)V
  */
