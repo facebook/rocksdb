@@ -1661,6 +1661,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   unique_ptr<WritableFile> backup_meta_file;
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
+  env_options.use_direct_writes = false;
   s = env_->NewWritableFile(meta_filename_ + ".tmp", &backup_meta_file,
                             env_options);
   if (!s.ok()) {

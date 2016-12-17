@@ -48,15 +48,13 @@ class EnvLibrados : public EnvWrapper {
   // The returned file will only be accessed by one thread at a time.
   Status NewWritableFile(const std::string& fname,
                          std::unique_ptr<WritableFile>* result,
-                         const EnvOptions& options,
-                         bool enforce_buffered_io = true) override;
+                         const EnvOptions& options) override;
 
   // Reuse an existing file by renaming it and opening it as writable.
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
                            std::unique_ptr<WritableFile>* result,
-                           const EnvOptions& options,
-                           bool enforce_buffered_io = true) override;
+                           const EnvOptions& options) override;
 
   // Create an object that represents a directory. Will fail if directory
   // doesn't exist. If the directory exists, it will open the directory

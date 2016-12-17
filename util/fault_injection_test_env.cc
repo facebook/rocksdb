@@ -169,8 +169,7 @@ Status FaultInjectionTestEnv::NewDirectory(const std::string& name,
 
 Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
                                               unique_ptr<WritableFile>* result,
-                                              const EnvOptions& soptions,
-                                              bool enforce_buffered_io) {
+                                              const EnvOptions& soptions) {
   if (!IsFilesystemActive()) {
     return Status::Corruption("Not Active");
   }

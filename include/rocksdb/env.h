@@ -158,15 +158,13 @@ class Env {
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options,
-                                 bool enforce_buffered_io = true) = 0;
+                                 const EnvOptions& options) = 0;
 
   // Reuse an existing file by renaming it and opening it as writable.
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
                                    unique_ptr<WritableFile>* result,
-                                   const EnvOptions& options,
-                                   bool enforce_buffered_io = true);
+                                   const EnvOptions& options);
 
   // Open `fname` for random read and write, if file dont exist the file
   // will be created.  On success, stores a pointer to the new file in
@@ -363,8 +361,8 @@ class Env {
   // OptimizeForManifestWrite will create a new EnvOptions object that is a copy
   // of the EnvOptions in the parameters, but is optimized for writing manifest
   // files. Default implementation returns the copy of the same object.
-  virtual EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options)
-      const;
+  virtual EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const;
 
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
@@ -871,17 +869,14 @@ class EnvWrapper : public Env {
     return target_->NewRandomAccessFile(f, r, options);
   }
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& options,
-                         bool enforce_buffered_io = true) override {
-    return target_->NewWritableFile(f, r, options, enforce_buffered_io);
+                         const EnvOptions& options) override {
+    return target_->NewWritableFile(f, r, options);
   }
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
                            unique_ptr<WritableFile>* r,
-                           const EnvOptions& options,
-                           bool enforce_buffered_io = true) override {
-    return target_->ReuseWritableFile(fname, old_fname, r, options,
-                                      enforce_buffered_io);
+                           const EnvOptions& options) override {
+    return target_->ReuseWritableFile(fname, old_fname, r, options);
   }
   Status NewRandomRWFile(const std::string& fname,
                          unique_ptr<RandomRWFile>* result,

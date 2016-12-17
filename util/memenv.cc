@@ -287,8 +287,7 @@ class InMemoryEnv : public EnvWrapper {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& soptions,
-                                 bool enforce_buffered_io) override {
+                                 const EnvOptions& soptions) override {
     std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
     if (file_map_.find(nfname) != file_map_.end()) {

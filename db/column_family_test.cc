@@ -48,10 +48,9 @@ class EnvCounter : public EnvWrapper {
     return num_new_writable_file_;
   }
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions,
-                         bool enforce_buffered_io = true) override {
+                         const EnvOptions& soptions) override {
     ++num_new_writable_file_;
-    return EnvWrapper::NewWritableFile(f, r, soptions, enforce_buffered_io);
+    return EnvWrapper::NewWritableFile(f, r, soptions);
   }
 
  private:

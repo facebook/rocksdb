@@ -90,8 +90,7 @@ public:
 
   virtual Status NewWritableFile(const std::string& fname,
                                  std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options,
-                                 bool enforce_buffered_io);
+                                 const EnvOptions& options);
 
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewRandomRWFile(const std::string& fname,
@@ -192,8 +191,7 @@ public:
 
   Status NewWritableFile(const std::string& fname,
                          std::unique_ptr<WritableFile>* result,
-                         const EnvOptions& options,
-                         bool enforce_buffered_io) override;
+                         const EnvOptions& options) override;
 
   // The returned file will only be accessed by one thread at a time.
   Status NewRandomRWFile(const std::string& fname,

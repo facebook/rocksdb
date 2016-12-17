@@ -230,8 +230,7 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
 
 Status WinEnvIO::NewWritableFile(const std::string& fname,
                                  std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options,
-                                 bool enforce_buffered_io) {
+                                 const EnvOptions& options) {
   const size_t c_BufferCapacity = 64 * 1024;
 
   EnvOptions local_options(options);
@@ -241,8 +240,7 @@ Status WinEnvIO::NewWritableFile(const std::string& fname,
 
   DWORD fileFlags = FILE_ATTRIBUTE_NORMAL;
 
-  if (local_options.use_direct_writes && !local_options.use_mmap_writes &&
-      !enforce_buffered_io) {
+  if (local_options.use_direct_writes && !local_options.use_mmap_writes) {
     fileFlags = FILE_FLAG_NO_BUFFERING;
   }
 
@@ -739,10 +737,10 @@ std::string WinEnvIO::TimeToString(uint64_t secondsSince1970) {
 EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
   const DBOptions& db_options) const {
   EnvOptions optimized = env_options;
-  optimized.use_mmap_writes = false;
   optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
-  optimized.use_direct_writes =
-      false;  // This is because we flush only whole pages on unbuffered io and
+  optimized.use_mmap_writes = false;
+  optimized.use_direct_writes = false;
+  // This is because we flush only whole pages on unbuffered io and
   // the last records are not guaranteed to be flushed.
   // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
   // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
@@ -910,10 +908,8 @@ Status WinEnv::NewRandomAccessFile(const std::string& fname,
 
 Status WinEnv::NewWritableFile(const std::string& fname,
                                std::unique_ptr<WritableFile>* result,
-                               const EnvOptions& options,
-                               bool enforce_buffered_io) {
-  return winenv_io_.NewWritableFile(fname, result, options,
-                                    enforce_buffered_io);
+                               const EnvOptions& options) {
+  return winenv_io_.NewWritableFile(fname, result, options);
 }
 
 Status WinEnv::NewRandomRWFile(const std::string & fname,

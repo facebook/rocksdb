@@ -247,14 +247,13 @@ class PosixEnv : public Env {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options,
-                                 bool enforce_buffered_io) override {
+                                 const EnvOptions& options) override {
     result->reset();
     Status s;
     int fd = -1;
     int flags = O_CREAT | O_TRUNC;
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
-    if (options.use_direct_writes && !enforce_buffered_io) {
+    if (options.use_direct_writes && !options.use_mmap_writes) {
       // Note: we should avoid O_APPEND here due to ta the following bug:
       // POSIX requires that opening a file with the O_APPEND flag should
       // have no affect on the location at which pwrite() writes data.
@@ -268,7 +267,8 @@ class PosixEnv : public Env {
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
     } else {
-      // mmap needs O_RDWR mode
+      // non-direct I/O
+      // since mmap needs O_RDWR mode, set R/W for both mmap and normal mode
       flags |= O_RDWR;
     }
 
@@ -295,7 +295,7 @@ class PosixEnv : public Env {
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
       result->reset(new PosixMmapFile(fname, fd, page_size_, options));
-    } else if (options.use_direct_writes && !enforce_buffered_io) {
+    } else if (options.use_direct_writes && !options.use_mmap_writes) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
         close(fd);
@@ -316,15 +316,14 @@ class PosixEnv : public Env {
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
                                    unique_ptr<WritableFile>* result,
-                                   const EnvOptions& options,
-                                   bool enforce_buffered_io) override {
+                                   const EnvOptions& options) override {
     result->reset();
     Status s;
     int fd = -1;
 
     int flags = O_TRUNC;
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
-    if (options.use_direct_writes && !enforce_buffered_io) {
+    if (options.use_direct_writes && !options.use_mmap_writes) {
       flags |= O_WRONLY;
 #ifndef OS_MACOSX
       flags |= O_DIRECT;
@@ -364,7 +363,7 @@ class PosixEnv : public Env {
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
       result->reset(new PosixMmapFile(fname, fd, page_size_, options));
-    } else if (options.use_direct_writes && !enforce_buffered_io) {
+    } else if (options.use_direct_writes && !options.use_mmap_writes) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
         close(fd);
@@ -746,6 +745,7 @@ class PosixEnv : public Env {
                                  const DBOptions& db_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
+    optimized.use_direct_writes = false;
     optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
     // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
     // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
@@ -758,6 +758,7 @@ class PosixEnv : public Env {
       const EnvOptions& env_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
+    optimized.use_direct_writes = false;
     optimized.fallocate_with_keep_size = true;
     return optimized;
   }

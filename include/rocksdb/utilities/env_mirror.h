@@ -54,13 +54,11 @@ class EnvMirror : public EnvWrapper {
                              unique_ptr<RandomAccessFile>* r,
                              const EnvOptions& options) override;
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& options,
-                         bool enforce_buffered_io = true) override;
+                         const EnvOptions& options) override;
   Status ReuseWritableFile(const std::string& fname,
                            const std::string& old_fname,
                            unique_ptr<WritableFile>* r,
-                           const EnvOptions& options,
-                           bool enforce_buffered_io = true) override;
+                           const EnvOptions& options) override;
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
     unique_ptr<Directory> br;

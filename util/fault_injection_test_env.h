@@ -101,8 +101,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   Status NewWritableFile(const std::string& fname,
                          unique_ptr<WritableFile>* result,
-                         const EnvOptions& soptions,
-                         bool enforce_buffered_io = true) override;
+                         const EnvOptions& soptions) override;
 
   virtual Status DeleteFile(const std::string& f) override;
 

@@ -180,8 +180,7 @@ class TestEnv : public EnvWrapper {
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& options,
-                         bool enforce_buffered_io = true) override {
+                         const EnvOptions& options) override {
     MutexLock l(&mutex_);
     written_files_.push_back(f);
     if (limit_written_files_ <= 0) {
@@ -384,6 +383,7 @@ class FileManager : public EnvWrapper {
     unique_ptr<WritableFile> file;
     EnvOptions env_options;
     env_options.use_mmap_writes = false;
+    env_options.use_direct_writes = false;
     Status s = EnvWrapper::NewWritableFile(fname, &file, env_options);
     if (!s.ok()) {
       return s;

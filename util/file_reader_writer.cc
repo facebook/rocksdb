@@ -471,8 +471,8 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 
 Status NewWritableFile(Env* env, const std::string& fname,
                        unique_ptr<WritableFile>* result,
-                       const EnvOptions& options, bool enforce_buffered_io) {
-  Status s = env->NewWritableFile(fname, result, options, enforce_buffered_io);
+                       const EnvOptions& options) {
+  Status s = env->NewWritableFile(fname, result, options);
   TEST_KILL_RANDOM("NewWritableFile:0", rocksdb_kill_odds * REDUCE_ODDS2);
   return s;
 }

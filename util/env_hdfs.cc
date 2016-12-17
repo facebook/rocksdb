@@ -407,8 +407,7 @@ Status HdfsEnv::NewRandomAccessFile(const std::string& fname,
 // create a new file for writing
 Status HdfsEnv::NewWritableFile(const std::string& fname,
                                 unique_ptr<WritableFile>* result,
-                                const EnvOptions& options,
-                                bool enforce_buffered_io) {
+                                const EnvOptions& options) {
   result->reset();
   Status s;
   HdfsWritableFile* f = new HdfsWritableFile(fileSys_, fname);

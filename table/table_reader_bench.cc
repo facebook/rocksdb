@@ -88,8 +88,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   unique_ptr<WritableFileWriter> file_writer;
   if (!through_db) {
     unique_ptr<WritableFile> file;
-    env->NewWritableFile(file_name, &file, env_options,
-                         false /* enforce_buffered_io */);
+    env->NewWritableFile(file_name, &file, env_options);
 
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;

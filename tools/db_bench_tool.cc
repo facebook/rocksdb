@@ -1015,8 +1015,7 @@ class ReportFileOpEnv : public EnvWrapper {
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions,
-                         bool enforce_buffered_io = true) override {
+                         const EnvOptions& soptions) override {
     class CountingFile : public WritableFile {
      private:
       unique_ptr<WritableFile> target_;
@@ -1041,7 +1040,7 @@ class ReportFileOpEnv : public EnvWrapper {
       Status Sync() override { return target_->Sync(); }
     };
 
-    Status s = target()->NewWritableFile(f, r, soptions, enforce_buffered_io);
+    Status s = target()->NewWritableFile(f, r, soptions);
     if (s.ok()) {
       counters()->open_counter_.fetch_add(1, std::memory_order_relaxed);
       r->reset(new CountingFile(std::move(*r), counters()));

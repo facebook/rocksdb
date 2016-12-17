@@ -55,21 +55,19 @@ class ChrootEnv : public EnvWrapper {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options,
-                                 bool enforce_buffered_io) override {
+                                 const EnvOptions& options) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
     }
     return EnvWrapper::NewWritableFile(status_and_enc_path.second, result,
-                                       options, enforce_buffered_io);
+                                       options);
   }
 
   virtual Status ReuseWritableFile(const std::string& fname,
                                    const std::string& old_fname,
                                    unique_ptr<WritableFile>* result,
-                                   const EnvOptions& options,
-                                   bool enforce_buffered_io) override {
+                                   const EnvOptions& options) override {
     auto status_and_enc_path = EncodePathWithNewBasename(fname);
     if (!status_and_enc_path.first.ok()) {
       return status_and_enc_path.first;
@@ -80,7 +78,7 @@ class ChrootEnv : public EnvWrapper {
     }
     return EnvWrapper::ReuseWritableFile(status_and_old_enc_path.second,
                                          status_and_old_enc_path.second, result,
-                                         options, enforce_buffered_io);
+                                         options);
   }
 
   virtual Status NewRandomRWFile(const std::string& fname,

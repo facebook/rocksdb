@@ -230,13 +230,11 @@ Status EnvMirror::NewRandomAccessFile(const std::string& f,
 
 Status EnvMirror::NewWritableFile(const std::string& f,
                                   unique_ptr<WritableFile>* r,
-                                  const EnvOptions& options,
-                                  bool enforce_buffered_io) {
-  if (f.find("/proc/") == 0)
-    return a_->NewWritableFile(f, r, options, enforce_buffered_io);
+                                  const EnvOptions& options) {
+  if (f.find("/proc/") == 0) return a_->NewWritableFile(f, r, options);
   WritableFileMirror* mf = new WritableFileMirror(f);
-  Status as = a_->NewWritableFile(f, &mf->a_, options, enforce_buffered_io);
-  Status bs = b_->NewWritableFile(f, &mf->b_, options, enforce_buffered_io);
+  Status as = a_->NewWritableFile(f, &mf->a_, options);
+  Status bs = b_->NewWritableFile(f, &mf->b_, options);
   assert(as == bs);
   if (as.ok())
     r->reset(mf);
@@ -248,16 +246,12 @@ Status EnvMirror::NewWritableFile(const std::string& f,
 Status EnvMirror::ReuseWritableFile(const std::string& fname,
                                     const std::string& old_fname,
                                     unique_ptr<WritableFile>* r,
-                                    const EnvOptions& options,
-                                    bool enforce_buffered_io) {
+                                    const EnvOptions& options) {
   if (fname.find("/proc/") == 0)
-    return a_->ReuseWritableFile(fname, old_fname, r, options,
-                                 enforce_buffered_io);
+    return a_->ReuseWritableFile(fname, old_fname, r, options);
   WritableFileMirror* mf = new WritableFileMirror(fname);
-  Status as = a_->ReuseWritableFile(fname, old_fname, &mf->a_, options,
-                                    enforce_buffered_io);
-  Status bs = b_->ReuseWritableFile(fname, old_fname, &mf->b_, options,
-                                    enforce_buffered_io);
+  Status as = a_->ReuseWritableFile(fname, old_fname, &mf->a_, options);
+  Status bs = b_->ReuseWritableFile(fname, old_fname, &mf->b_, options);
   assert(as == bs);
   if (as.ok())
     r->reset(mf);

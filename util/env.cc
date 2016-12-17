@@ -30,13 +30,12 @@ uint64_t Env::GetThreadID() const {
 Status Env::ReuseWritableFile(const std::string& fname,
                               const std::string& old_fname,
                               unique_ptr<WritableFile>* result,
-                              const EnvOptions& options,
-                              bool enforce_buffered_io) {
+                              const EnvOptions& options) {
   Status s = RenameFile(old_fname, fname);
   if (!s.ok()) {
     return s;
   }
-  return NewWritableFile(fname, result, options, enforce_buffered_io);
+  return NewWritableFile(fname, result, options);
 }
 
 Status Env::GetChildrenFileAttributes(const std::string& dir,

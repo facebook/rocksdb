@@ -1151,8 +1151,7 @@ Status CompactionJob::OpenCompactionOutputFile(
 #endif  // !ROCKSDB_LITE
   // Make the output file
   unique_ptr<WritableFile> writable_file;
-  Status s = NewWritableFile(env_, fname, &writable_file, env_options_,
-                             false /* enforce_buffered_io */);
+  Status s = NewWritableFile(env_, fname, &writable_file, env_options_);
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
         "[%s] [JOB %d] OpenCompactionOutputFiles for table #%" PRIu64

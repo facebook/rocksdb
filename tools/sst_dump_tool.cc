@@ -136,8 +136,7 @@ Status SstFileReader::NewTableReader(
 Status SstFileReader::DumpTable(const std::string& out_filename) {
   unique_ptr<WritableFile> out_file;
   Env* env = Env::Default();
-  env->NewWritableFile(out_filename, &out_file, soptions_,
-                       false /* enforce_buffered_io */);
+  env->NewWritableFile(out_filename, &out_file, soptions_);
   Status s = table_reader_->DumpTable(out_file.get());
   out_file->Close();
   return s;
