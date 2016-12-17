@@ -102,6 +102,7 @@ class BlobLogFooter {
   // 4, 4 - ttl range
   // 8, 8 - sn range
   // 8, 8 - ts range
+  // = 56
   static const int kFooterSize = 4 + 4 + 8 + (4 * 2) + (8 * 2) + (8 * 2);
 
   bool HasTTL() const { return has_ttl_; }
@@ -160,8 +161,9 @@ class BlobLogRecord {
   // Key Length ( 4 bytes ),
   // Blob Length ( 8 bytes), timestamp/ttl (8 bytes),
   // type (1 byte), subtype (1 byte)
+  // = 34
   static const int kHeaderSize = 4 + 4 + 4 + 8 + 4 + 8 + 1 + 1;
-  // 34
+
   static const int kFooterSize = 8;
 
  public:

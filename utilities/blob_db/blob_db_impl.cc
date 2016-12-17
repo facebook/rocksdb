@@ -94,6 +94,49 @@ bool blobf_compare_ttl::operator() (const std::shared_ptr<BlobFile>& lhs,
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+void EvictAllVersionsFilter::Callback(int level, const Slice& key,
+  ValueType value_type, const Slice& existing_value,
+  const SequenceNumber& sn, bool is_new) const {
+  if (!is_new && value_type == CompactionFilter::kValue) {
+    BlockHandle handle;
+    uint64_t file_number;
+    bool succ = BlobDBImpl::parseLSMValue(existing_value,
+        &file_number, &handle);
+
+    if (succ) {
+      Log(InfoLogLevel::INFO_LEVEL, impl_->db_options_.info_log,
+        "CALLBACK COMPACTED OUT KEY: %s SN: %d "
+        "NEW: %d FN: %d OFFSET: %d SIZE: %d",
+        key.ToString().c_str(), sn, is_new, file_number,
+        handle.offset(), handle.size());
+
+      impl_->override_vals_q_.enqueue({file_number, key.size(),
+        handle.offset(), handle.size(), sn});
+    }
+  } else {
+    Log(InfoLogLevel::INFO_LEVEL, impl_->db_options_.info_log,
+      "CALLBACK NEW KEY: %s SN: %d NEW: %d", key.ToString().c_str(),
+      sn, is_new);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+std::unique_ptr<CompactionFilter> EvictAllVersionsFilterFactory::
+    CreateCompactionFilter(const CompactionFilter::Context& context) {
+  if (context.is_manual_compaction) {
+    return std::unique_ptr<CompactionFilter>(new EvictAllVersionsFilter(impl_));
+  } else {
+    return std::unique_ptr<CompactionFilter>(nullptr);
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////
 // Destroy the BlobDB completely
 //
 ////////////////////////////////////////////////////////////////////////////////
@@ -260,6 +303,8 @@ void BlobDBImpl::startBackgroundTasks() {
     std::bind(&BlobDBImpl::runGC, this, _1));
   tqueue_.add(bdb_options_.deletion_check_period,
     std::bind(&BlobDBImpl::evictDeletions, this, _1));
+  tqueue_.add(bdb_options_.deletion_check_period,
+    std::bind(&BlobDBImpl::evictCompacted, this, _1));
   tqueue_.add(bdb_options_.delete_obsf_period,
     std::bind(&BlobDBImpl::deleteObsFiles, this, _1));
   tqueue_.add(bdb_options_.sanity_check_period,
@@ -955,6 +1000,10 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
   // std::shared_ptr<blob_log::Writer> writer =
   // checkOrCreateWriter_locked(bfile);
 
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    ">Adding KEY FILE: %s: KEY: %s",
+    bfile->PathName().c_str(), key.ToString().c_str());
+
   std::string index_entry;
   Status s = appendBlob(bfile, headerbuf, key, value, &index_entry);
 
@@ -966,6 +1015,10 @@ Status BlobDBImpl::PutUntil(const WriteOptions& options,
 
   // this is the sequence number of the write.
   SequenceNumber sn = WriteBatchInternal::Sequence(&batch);
+
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    "<Adding KEY FILE: %s: KEY: %s SN: %d", bfile->PathName().c_str(),
+    key.ToString().c_str(), sn);
 
   s = appendSN(bfile, sn);
 
@@ -1019,6 +1072,10 @@ Status BlobDBImpl::appendBlob(const std::shared_ptr<BlobFile>& bfile,
   handle.set_size(value.size());
   handle.set_offset(blob_offset);
   handle.EncodeTo(index_entry);
+
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    ">Adding KEY FILE: %s: BC: %d OFFSET: %d SZ: %d", bfile->PathName().c_str(),
+    bfile->blob_count_.load(), blob_offset, value.size());
 
   return s;
 }
@@ -1269,6 +1326,85 @@ bool BlobDBImpl::FileDeleteOk_SnapshotCheck_locked(
 //
 //
 ////////////////////////////////////////////////////////////////////////////////
+bool BlobDBImpl::parseLSMValue(const Slice& lsmval, uint64_t *file_number,
+  BlockHandle *handle) {
+  Status s;
+  Slice val(lsmval);
+  if (!GetVarint64(&val, file_number) ||
+    !(s = handle->DecodeFrom(&val)).ok()) {
+    return false;
+  }
+
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+bool BlobDBImpl::findFileAndEvictABlob(uint64_t file_number,
+    uint64_t key_size, uint64_t blob_offset, uint64_t blob_size) {
+  (void)blob_offset;
+  std::shared_ptr<BlobFile> bfile;
+  ReadLock l(&mutex_);
+  auto hitr = blob_files_.find(file_number);
+
+  // file was deleted
+  if (hitr == blob_files_.end()) {
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      "Could not find file_number %" PRIu64, file_number);
+    return false;
+  }
+
+  bfile = hitr->second;
+  bfile->deleted_count_++;
+  bfile->deleted_size_ += key_size + blob_size
+    + blob_log::BlobLogRecord::kHeaderSize
+    + blob_log::BlobLogRecord::kFooterSize;
+  return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+bool BlobDBImpl::markBlobDeleted(const Slice& key, const Slice& lsmValue) {
+  BlockHandle handle;
+  uint64_t file_number;
+  bool succ = parseLSMValue(lsmValue, &file_number, &handle);
+  if (!succ)
+    return false;
+
+  succ = findFileAndEvictABlob(file_number, key.size(),
+    handle.offset(), handle.size());
+  return succ;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
+std::pair<bool, int64_t> BlobDBImpl::evictCompacted(bool aborted) {
+  if (aborted) return std::make_pair(false, -1);
+
+  override_packet_t packet;
+  while (override_vals_q_.dequeue(packet)) {
+    bool succ = findFileAndEvictABlob(packet.file_number_,
+      packet.key_size_, packet.blob_offset_, packet.blob_size_);
+
+    (void)succ;
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      "EVICT COMPACTED SN: %d FN: %d OFFSET: %d SIZE: %d",
+      packet.dsn_, packet.file_number_,
+      packet.blob_offset_, packet.blob_size_);
+  }
+  return std::make_pair(true, -1);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+//
+////////////////////////////////////////////////////////////////////////////////
 std::pair<bool, int64_t> BlobDBImpl::evictDeletions(bool aborted) {
   if (aborted) return std::make_pair(false, -1);
 
@@ -1319,37 +1455,9 @@ std::pair<bool, int64_t> BlobDBImpl::evictDeletions(bool aborted) {
         break;
 
       Slice val = iter->value();
+      markBlobDeleted(ikey.user_key, val);
+
       iter->Next();
-
-      BlockHandle handle;
-      uint64_t file_number;
-      Status s;
-      if (!GetVarint64(&val, &file_number) ||
-          !(s = handle.DecodeFrom(&val)).ok()) {
-        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-            "Invalid parse of key-value for file_number %s",
-            val.ToString().c_str());
-        continue;
-      }
-
-      std::shared_ptr<BlobFile> bfile;
-      {
-        ReadLock l(&mutex_);
-        auto hitr = blob_files_.find(file_number);
-
-        // file was deleted
-        if (hitr == blob_files_.end()) {
-          Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-              "Could not find file_number %" PRIu64, file_number);
-          continue;
-        }
-
-        bfile = hitr->second;
-        bfile->deleted_count_++;
-        bfile->deleted_size_ += handle.size()
-          + blob_log::BlobLogRecord::kHeaderSize
-          + blob_log::BlobLogRecord::kFooterSize;
-      }
     }
   }
   return std::make_pair(true, -1);
@@ -1538,7 +1646,8 @@ Status BlobDBImpl::writeBatchOfDeleteKeys(
 
   bool no_relocation_ttl = (has_ttl && tt > bfptr->GetTTLRange().second);
   bool no_relocation_lsmdel = (bfptr->GetFileSize() ==
-    (bfptr->deleted_size_ + blob_log::BlobLogFooter::kFooterSize));
+    (blob_log::BlobLogHeader::kHeaderSize + bfptr->deleted_size_
+     + blob_log::BlobLogFooter::kFooterSize));
 
   bool no_relocation = no_relocation_ttl || no_relocation_lsmdel;
 
@@ -1838,7 +1947,7 @@ std::pair<bool, int64_t> BlobDBImpl::runGC(bool aborted) {
       std::string reason;
       bool shouldgc = shouldGCFile_locked(bfile, tt, last_id, &reason);
       if (!shouldgc) {
-        Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
           "File has been skipped for GC ttl %s %d %d reason='%s'",
           pn.c_str(), tt, bfile->GetTTLRange().second, reason.c_str());
         continue;

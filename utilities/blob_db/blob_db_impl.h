@@ -19,6 +19,7 @@
 #include "db/blob_log_format.h"
 #include "db/blob_log_reader.h"
 #include "db/blob_log_writer.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/options.h"
@@ -38,6 +39,7 @@ class ColumnFamilyHandle;
 class OptimisticTransactionDBImpl;
 class FlushJobInfo;
 class BlobDBImpl;
+class BlockHandle;
 
 class BlobDBFlushBeginListener : public EventListener {
  public:
@@ -73,6 +75,40 @@ class BlobReconcileWalFilter : public WalFilter {
   BlobDBImpl *impl_;
 };
 
+class EvictAllVersionsFilter : public CompactionFilter {
+ private:
+  BlobDBImpl* impl_;
+
+ public:
+  explicit EvictAllVersionsFilter(BlobDBImpl *par) : impl_(par) { }
+
+  virtual void Callback(int level, const Slice& key, ValueType value_type,
+    const Slice& existing_value, const SequenceNumber& sn, bool is_new) const
+    override;
+
+  virtual bool AllVersions() const override { return true; }
+
+  virtual const char* Name() const override {
+    return "EvictAllVersionsFilter";
+  }
+};
+
+class EvictAllVersionsFilterFactory : public CompactionFilterFactory {
+ private:
+  BlobDBImpl* impl_;
+ public:
+  EvictAllVersionsFilterFactory() : impl_(nullptr) {}
+
+  void setImplPtr(BlobDBImpl *p) { impl_ = p; }
+
+  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) override;
+
+  virtual const char* Name() const override {
+    return "EvictAllVersionsFilterFactory";
+  }
+};
+
 // Comparator to sort "TTL" aware Blob files based on the lower value of
 // TTL range.
 struct blobf_compare_ttl {
@@ -91,6 +127,7 @@ typedef std::pair<rocksdb::SequenceNumber, rocksdb::SequenceNumber> snrange_t;
  */
 class BlobDBImpl : public BlobDB {
   friend class BlobDBFlushBeginListener;
+  friend class EvictAllVersionsFilter;
   friend class BlobDB;
   friend class BlobFile;
  public:
@@ -221,6 +258,8 @@ class BlobDBImpl : public BlobDB {
   // background task to do book-keeping of deleted keys
   std::pair<bool, int64_t> evictDeletions(bool aborted);
 
+  std::pair<bool, int64_t> evictCompacted(bool aborted);
+
   // Adds the background tasks to the timer queue
   void startBackgroundTasks();
 
@@ -259,6 +298,14 @@ class BlobDBImpl : public BlobDB {
   // blobs
   bool FileDeleteOk_SnapshotCheck_locked(
       const std::shared_ptr<BlobFile>& bfile);
+
+  bool markBlobDeleted(const Slice& key, const Slice& lsmValue);
+
+  static bool parseLSMValue(const Slice& lsmval, uint64_t *file_number,
+      BlockHandle *handle);
+
+  bool findFileAndEvictABlob(uint64_t file_number, uint64_t key_size,
+      uint64_t blob_offset, uint64_t blob_size);
 
  private:
   // the base DB
@@ -315,11 +362,23 @@ class BlobDBImpl : public BlobDB {
     SequenceNumber dsn_;
   };
 
+  struct override_packet_t {
+    uint64_t file_number_;
+    uint64_t key_size_;
+    uint64_t blob_offset_;
+    uint64_t blob_size_;
+    SequenceNumber dsn_;
+  };
+
   // LOCKLESS multiple producer single consumer queue to quickly append
   // deletes without taking lock. Can rapidly grow in size!!
   // deletes happen in LSM, but minor book-keeping needs to happen on
   // BLOB side (for triggering eviction)
   mpsc_queue_t<delete_packet_t> delete_keys_q_;
+
+  // LOCKLESS multiple producer single consumer queue for values
+  // that are being compacted
+  mpsc_queue_t<override_packet_t> override_vals_q_;
 
   // atomic bool to represent shutdown
   std::atomic<bool> shutdown_;

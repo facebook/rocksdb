@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#include "rocksdb/types.h"
+
 namespace rocksdb {
 
 class Slice;
@@ -36,6 +38,9 @@ class CompactionFilter {
   enum ValueType {
     kValue,
     kMergeOperand,
+    kSingleDelete,
+    kRangeDelete,
+    kDelete,
   };
 
   enum class Decision {
@@ -171,9 +176,16 @@ class CompactionFilter {
         bool rv = FilterMergeOperand(level, key, existing_value);
         return rv ? Decision::kRemove : Decision::kKeep;
       }
+      default :
+        assert(false);
     }
     assert(false);
     return Decision::kKeep;
+  }
+
+  virtual void Callback(int level, const Slice& key,
+      ValueType value_type, const Slice& existing_value,
+      const SequenceNumber& sn, bool is_new) const {
   }
 
   // By default, compaction will only call Filter() on keys written after the
@@ -185,6 +197,8 @@ class CompactionFilter {
   // to understand that the values of thesekeys will change even if we are
   // using a snapshot.
   virtual bool IgnoreSnapshots() const { return false; }
+
+  virtual bool AllVersions() const { return false; }
 
   // Returns a name that identifies this compaction filter.
   // The name will be printed to LOG file on start up for diagnosis.

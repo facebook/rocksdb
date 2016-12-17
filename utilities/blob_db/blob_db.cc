@@ -6,6 +6,7 @@
 #include "utilities/blob_db/blob_db.h"
 #include "db/filename.h"
 #include "db/write_batch_internal.h"
+#include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -24,6 +25,7 @@ namespace rocksdb {
 port::Mutex listener_mutex;
 typedef std::shared_ptr<BlobDBFlushBeginListener> FlushBegin_t;
 typedef std::shared_ptr<BlobReconcileWalFilter> ReconcileWal_t;
+typedef std::shared_ptr<EvictAllVersionsFilterFactory> EvictAllVersions_t;
 
 // to ensure the lifetime of the listeners
 std::vector<FlushBegin_t> all_flush_begins;
@@ -41,6 +43,8 @@ Status BlobDB::OpenAndLoad(const Options& options,
 
   FlushBegin_t fblistener = std::make_shared<BlobDBFlushBeginListener>();
   ReconcileWal_t rw_filter = std::make_shared<BlobReconcileWalFilter>();
+  EvictAllVersions_t comp_filt_factory =
+    std::make_shared<EvictAllVersionsFilterFactory>();
 
   {
     MutexLock l(&listener_mutex);
@@ -51,6 +55,7 @@ Status BlobDB::OpenAndLoad(const Options& options,
   changed_options->listeners.emplace_back(fblistener);
   changed_options->flush_begin_listeners = true;
   changed_options->wal_filter = rw_filter.get();
+  changed_options->compaction_filter_factory = comp_filt_factory;
 
   DBOptions db_options(*changed_options);
   EnvOptions env_options(db_options);
@@ -61,6 +66,7 @@ Status BlobDB::OpenAndLoad(const Options& options,
 
   fblistener->setImplPtr(bdb);
   rw_filter->setImplPtr(bdb);
+  comp_filt_factory->setImplPtr(bdb);
 
   Status s = bdb->openPhase1();
   if (!s.ok())
@@ -81,10 +87,13 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
   Options myoptions(options);
   FlushBegin_t fblistener = std::make_shared<BlobDBFlushBeginListener>();
   ReconcileWal_t rw_filter = std::make_shared<BlobReconcileWalFilter>();
+  EvictAllVersions_t comp_filt_factory =
+    std::make_shared<EvictAllVersionsFilterFactory>();
 
   myoptions.listeners.emplace_back(fblistener);
   myoptions.flush_begin_listeners = true;
   myoptions.wal_filter = rw_filter.get();
+  myoptions.compaction_filter_factory = comp_filt_factory;
 
   {
     MutexLock l(&listener_mutex);
@@ -100,6 +109,7 @@ Status BlobDB::Open(const Options& options, const BlobDBOptions& bdb_options,
     db_options, env_options);
   fblistener->setImplPtr(bdb);
   rw_filter->setImplPtr(bdb);
+  comp_filt_factory->setImplPtr(bdb);
 
   Status s = bdb->openPhase1();
   if (!s.ok())
