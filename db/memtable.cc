@@ -717,30 +717,22 @@ void MemTable::Update(SequenceNumber seq,
       ValueType type;
       SequenceNumber unused;
       UnPackSequenceAndType(tag, &unused, &type);
-      switch (type) {
-        case kTypeValue: {
-          Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
-          uint32_t new_size = static_cast<uint32_t>(value.size());
+      if (type == kTypeValue) {
+        Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
+        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+        uint32_t new_size = static_cast<uint32_t>(value.size());
 
-          // Update value, if new value size  <= previous value size
-          if (new_size <= prev_size ) {
-            char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                     new_size);
-            WriteLock wl(GetLock(lkey.user_key()));
-            memcpy(p, value.data(), value.size());
-            assert((unsigned)((p + value.size()) - entry) ==
-                   (unsigned)(VarintLength(key_length) + key_length +
-                              VarintLength(value.size()) + value.size()));
-            return;
-          }
+        // Update value, if new value size  <= previous value size
+        if (new_size <= prev_size ) {
+          char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
+                                   new_size);
+          WriteLock wl(GetLock(lkey.user_key()));
+          memcpy(p, value.data(), value.size());
+          assert((unsigned)((p + value.size()) - entry) ==
+                 (unsigned)(VarintLength(key_length) + key_length +
+                            VarintLength(value.size()) + value.size()));
+          return;
         }
-	// fallthrough
-        default:
-          // If the latest value is kTypeDeletion, kTypeMerge or kTypeLogData
-          // we don't have enough space for update inplace
-            Add(seq, kTypeValue, key, value);
-            return;
       }
     }
   }
