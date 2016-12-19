@@ -112,8 +112,6 @@ struct ImmutableCFOptions {
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
 
-  bool flush_begin_listeners;
-
   std::shared_ptr<Cache> row_cache;
 
   uint32_t max_subcompactions;

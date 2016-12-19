@@ -138,7 +138,6 @@ class CompactionIterator {
   SequenceNumber earliest_snapshot_;
   SequenceNumber latest_snapshot_;
   bool ignore_snapshots_;
-  bool all_versions_;
 
   // State
   //

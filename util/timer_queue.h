@@ -1,13 +1,16 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// borrowed from
-// http://www.crazygaze.com/blog/2016/03/24/portable-c-timer-queue/
+//  Portions Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
 //
-
+// Borrowed from
+// http://www.crazygaze.com/blog/2016/03/24/portable-c-timer-queue/
+// Timer Queue
+//
 // License
 //
 // The source code in this article is licensed under the CC0 license, so feel
-// free
-// to copy, modify, share, do whatever you want with it.
+// free to copy, modify, share, do whatever you want with it.
 // No attribution is required, but Ill be happy if you do.
 // CC0 license
 
@@ -15,9 +18,7 @@
 // public domain by waiving all of his or her rights to the work worldwide
 // under copyright law, including all related and neighboring rights, to the
 // extent allowed by law.  You can copy, modify, distribute and perform the
-// work, even for
-// commercial purposes, all without asking permission. See Other Information
-// below.
+// work, even for commercial purposes, all without asking permission.
 
 #pragma once
 #include <assert.h>
@@ -29,11 +30,6 @@
 #include <utility>
 #include <vector>
 
-////////////////////////////////////////////////////////////////////////////////
-// borrowed from
-// http://www.crazygaze.com/blog/2016/03/24/portable-c-timer-queue/
-// Timer Queue
-//
 // Allows execution of handlers at a specified time in the future
 // Guarantees:
 //  - All handlers are executed ONCE, even if cancelled (aborted parameter will
@@ -47,8 +43,7 @@
 // http://www.crazygaze.com/blog/2016/03/24/portable-c-timer-queue/
 class TimerQueue {
  public:
-  TimerQueue() : m_th(&TimerQueue::run, this) {
-  }
+  TimerQueue() : m_th(&TimerQueue::run, this) {}
 
   ~TimerQueue() {
     cancelAll();
@@ -178,7 +173,7 @@ class TimerQueue {
 
   void checkWork(std::unique_lock<std::mutex>* lk) {
     while (m_items.size() && m_items.top().end <= Clock::now()) {
-      WorkItem item(std::move(m_items.top()));
+      WorkItem item(m_items.top());
       m_items.pop();
 
       if (item.handler) {
@@ -202,7 +197,6 @@ class TimerQueue {
   bool m_cancel = false;
   uint64_t m_idcounter = 0;
   std::condition_variable m_checkWork;
-  std::thread m_th;
 
   struct WorkItem {
     Clock::time_point end;
@@ -219,4 +213,5 @@ class TimerQueue {
    public:
     std::vector<WorkItem>& getContainer() { return this->c; }
   } m_items;
+  std::thread m_th;
 };

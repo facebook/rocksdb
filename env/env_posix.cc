@@ -253,13 +253,14 @@ class PosixEnv : public Env {
     return s;
   }
 
-  virtual Status NewWritableFile(const std::string& fname,
-                                 unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) override {
+  virtual Status OpenWritableFile(const std::string& fname,
+                                  unique_ptr<WritableFile>* result,
+                                  const EnvOptions& options,
+                                  bool reopen = false) {
     result->reset();
     Status s;
     int fd = -1;
-    int flags = O_CREAT | O_TRUNC;
+    int flags = (reopen) ? (O_CREAT | O_APPEND) : (O_CREAT | O_TRUNC);
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
     if (options.use_direct_writes && !options.use_mmap_writes) {
       // Note: we should avoid O_APPEND here due to ta the following bug:
@@ -333,63 +334,16 @@ class PosixEnv : public Env {
     return s;
   }
 
-  virtual Status ReopenWritableFile(const std::string& fname,
+  virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
                                  const EnvOptions& options) override {
-    result->reset();
-    Status s;
-    int fd = -1;
-    do {
-      IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_CREAT | O_RDWR | O_APPEND , 0644);
-    } while (fd < 0 && errno == EINTR);
-    if (fd < 0) {
-      s = IOError(fname, errno);
-    } else {
-      SetFD_CLOEXEC(fd, &options);
-      if (options.use_mmap_writes) {
-        if (!checkedDiskForMmap_) {
-          // this will be executed once in the program's lifetime.
-          // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-          if (!SupportsFastAllocate(fname)) {
-            forceMmapOff = true;
-          }
-          checkedDiskForMmap_ = true;
-        }
-      }
-      if (options.use_mmap_writes && !forceMmapOff) {
-        result->reset(new PosixMmapFile(fname, fd, page_size_, options));
-      } else if (options.use_direct_writes) {
-#ifdef OS_MACOSX
-        int flags = O_WRONLY | O_APPEND | O_CREAT;
-#else
-        int flags = O_WRONLY | O_APPEND | O_CREAT | O_DIRECT;
-#endif
-        TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
-        fd = open(fname.c_str(), flags, 0644);
-        if (fd < 0) {
-          s = IOError(fname, errno);
-        } else {
-          std::unique_ptr<PosixDirectIOWritableFile> file(
-              new PosixDirectIOWritableFile(fname, fd));
-          *result = std::move(file);
-          s = Status::OK();
-#ifdef OS_MACOSX
-          if (fcntl(fd, F_NOCACHE, 1) == -1) {
-            close(fd);
-            s = IOError(fname, errno);
-          }
-#endif
-        }
-      } else {
-        // disable mmap writes
-        EnvOptions no_mmap_writes_options = options;
-        no_mmap_writes_options.use_mmap_writes = false;
+    return OpenWritableFile(fname, result, options, false);
+  }
 
-        result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
-      }
-    }
-    return s;
+  virtual Status ReopenWritableFile(const std::string& fname,
+                                    unique_ptr<WritableFile>* result,
+                                    const EnvOptions& options) override {
+    return OpenWritableFile(fname, result, options, true);
   }
 
   virtual Status ReuseWritableFile(const std::string& fname,

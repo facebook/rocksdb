@@ -1580,9 +1580,9 @@ void DBImpl::ReleaseSnapshot(const Snapshot* s) {
 bool DBImpl::HasActiveSnapshotLaterThanSN(SequenceNumber sn) {
 
   InstrumentedMutexLock l(&mutex_);
-  if (snapshots_.empty())
+  if (snapshots_.empty()) {
     return false;
-
+  }
   return (snapshots_.newest()->GetSequenceNumber() > sn);
 }
 
@@ -1822,6 +1822,20 @@ void DBImpl::ReturnAndCleanupSuperVersion(uint32_t column_family_id,
 // mutex is held.
 ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
   ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
+
+  if (!cf_memtables->Seek(column_family_id)) {
+    return nullptr;
+  }
+
+  return cf_memtables->GetColumnFamilyHandle();
+}
+
+// REQUIRED: mutex is NOT held.
+ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
+    uint32_t column_family_id) {
+  ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
+
+  InstrumentedMutexLock l(&mutex_);
 
   if (!cf_memtables->Seek(column_family_id)) {
     return nullptr;

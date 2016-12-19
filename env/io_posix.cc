@@ -215,9 +215,7 @@ Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
   return s;
 }
 
-void PosixSequentialFile::Rewind() {
-  rewind(file_);
-}
+void PosixSequentialFile::Rewind() { rewind(file_); }
 
 Status PosixSequentialFile::Skip(uint64_t n) {
   if (fseek(file_, static_cast<long int>(n), SEEK_CUR)) {

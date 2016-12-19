@@ -1,14 +1,35 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-// And a small example just adding and cancelling timers
+//  Portions Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+//  This source code is licensed under the BSD-style license found in the
+//  LICENSE file in the root directory of this source tree. An additional grant
+//  of patent rights can be found in the PATENTS file in the same directory.
 
-//////////////////////////////////////////
+// borrowed from
+// http://www.crazygaze.com/blog/2016/03/24/portable-c-timer-queue/
+// Timer Queue
+//
+// License
+//
+// The source code in this article is licensed under the CC0 license, so feel
+// free
+// to copy, modify, share, do whatever you want with it.
+// No attribution is required, but Ill be happy if you do.
+// CC0 license
+
+// The person who associated a work with this deed has dedicated the work to the
+// public domain by waiving all of his or her rights to the work worldwide
+// under copyright law, including all related and neighboring rights, to the
+// extent allowed by law.  You can copy, modify, distribute and perform the
+// work, even for
+// commercial purposes, all without asking permission. See Other Information
+// below.
+//
+
 #include "util/timer_queue.h"
 #include <future>
 
 namespace Timing {
 
 using Clock = std::chrono::high_resolution_clock;
-static thread_local Clock::time_point ms_previous;
 double now() {
   static auto start = Clock::now();
   return std::chrono::duration<double, std::milli>(Clock::now() - start)

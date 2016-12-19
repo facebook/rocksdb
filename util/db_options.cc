@@ -69,7 +69,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       listeners(options.listeners),
-      flush_begin_listeners(options.flush_begin_listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
       enable_write_thread_adaptive_yield(
@@ -203,8 +202,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
 #endif  // ROCKDB_LITE
   Header(log, "            Options.avoid_flush_during_recovery: %d",
          avoid_flush_during_recovery);
-  Header(log, "            Options.flush_begin_listeners: %d",
-         flush_begin_listeners);
 }
 
 MutableDBOptions::MutableDBOptions()

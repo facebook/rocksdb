@@ -331,9 +331,6 @@ set(SOURCES
         db/internal_stats.cc
         db/log_reader.cc
         db/log_writer.cc
-        db/blob_log_reader.cc
-        db/blob_log_writer.cc
-        db/blob_log_format.cc
         db/managed_iterator.cc
         db/memtable.cc
         db/memtable_list.cc
@@ -450,6 +447,9 @@ set(SOURCES
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
         utilities/blob_db/blob_db_impl.cc
+        utilities/blob_db/blob_log_reader.cc
+        utilities/blob_db/blob_log_writer.cc
+        utilities/blob_db/blob_log_format.cc
         utilities/checkpoint/checkpoint_impl.cc
         utilities/col_buf_decoder.cc
         utilities/col_buf_encoder.cc

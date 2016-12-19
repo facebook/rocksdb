@@ -72,7 +72,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       optimize_filters_for_hits(cf_options.optimize_filters_for_hits),
       force_consistency_checks(cf_options.force_consistency_checks),
       listeners(db_options.listeners),
-      flush_begin_listeners(db_options.flush_begin_listeners),
       row_cache(db_options.row_cache),
       max_subcompactions(db_options.max_subcompactions),
       memtable_insert_with_hint_prefix_extractor(

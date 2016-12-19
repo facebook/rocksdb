@@ -62,7 +62,6 @@ struct ImmutableDBOptions {
   uint64_t bytes_per_sync;
   uint64_t wal_bytes_per_sync;
   std::vector<std::shared_ptr<EventListener>> listeners;
-  bool flush_begin_listeners;
   bool enable_thread_tracking;
   bool allow_concurrent_memtable_write;
   bool enable_write_thread_adaptive_yield;

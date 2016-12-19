@@ -467,6 +467,9 @@ class DBImpl : public DB {
   // mutex is released.
   ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
 
+  // Same as above, should called without mutex held and not on write thread.
+  ColumnFamilyHandle* GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
+
   // Returns the number of currently running flushes.
   // REQUIREMENT: mutex_ must be held when calling this function.
   int num_running_flushes() {
@@ -554,7 +557,6 @@ class DBImpl : public DB {
   Statistics* stats_;
   std::unordered_map<std::string, RecoveredTransaction*>
       recovered_transactions_;
-
 
   InternalIterator* NewInternalIterator(const ReadOptions&,
                                         ColumnFamilyData* cfd,

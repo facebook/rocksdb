@@ -74,7 +74,6 @@ CompactionIterator::CompactionIterator(
       compaction_listener_(compaction_listener),
       shutting_down_(shutting_down),
       ignore_snapshots_(false),
-      all_versions_(false),
       merge_out_iter_(merge_helper_) {
   assert(compaction_filter_ == nullptr || compaction_ != nullptr);
   bottommost_level_ =
@@ -96,9 +95,6 @@ CompactionIterator::CompactionIterator(
   if (compaction_filter_ != nullptr) {
      if (compaction_filter_->IgnoreSnapshots()) {
        ignore_snapshots_ = true;
-     }
-     if (compaction_filter_->AllVersions()) {
-       all_versions_ = true;
      }
   } else {
     ignore_snapshots_ = false;
@@ -232,11 +228,6 @@ void CompactionIterator::NextFromInput() {
       }
 #endif  // ROCKSDB_LITE
       
-      if (all_versions_) {
-        compaction_filter_->Callback(compaction_->level(), ikey_.user_key,
-            fromInternalValueType(ikey_.type), value_, ikey_.sequence, true);
-      }
-
       // apply the compaction filter to the first occurrence of the user key
       if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
           (visible_at_tip_ || ikey_.sequence > latest_snapshot_ ||
