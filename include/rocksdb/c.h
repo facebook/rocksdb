@@ -448,6 +448,10 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate(
     void (*deleted)(void*, const char* k, size_t klen));
 extern ROCKSDB_LIBRARY_API const char* rocksdb_writebatch_data(
     rocksdb_writebatch_t*, size_t* size);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_set_save_point(
+    rocksdb_writebatch_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_rollback_to_save_point(
+    rocksdb_writebatch_t*, char** errptr);
 
 /* Block based table options */
 
