@@ -1,4 +1,10 @@
 # Rocksdb Change Log
+## 4.13.5
+### Public API Change
+* Fix a regression in compaction performance.
+* Disallow calling IngestExternalFile() on a dropped column family.
+* Add EventListener::OnExternalFileIngested() event that will be called for files that are successfully ingested.
+
 ## 4.13.4
 ### Public API Change
 * Removed flashcache support.
