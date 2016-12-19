@@ -54,6 +54,8 @@ class PersistentCache {
   // Persistent cache can be initialized as a tier of caches. The stats are per
   // tire top-down
   virtual StatsType Stats() = 0;
+
+  virtual std::string GetPrintableOptions() const = 0;
 };
 
 // Factor method to create a new persistent cache

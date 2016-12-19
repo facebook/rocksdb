@@ -220,6 +220,8 @@ struct PersistentCacheConfig {
   PersistentCacheConfig MakePersistentCacheConfig(
       const std::string& path, const uint64_t size,
       const std::shared_ptr<Logger>& log);
+
+  std::string ToString() const;
 };
 
 // Persistent Cache Tier
@@ -262,6 +264,8 @@ class PersistentCacheTier : public PersistentCache {
   // Does it store compressed data ?
   virtual bool IsCompressed() = 0;
 
+  virtual std::string GetPrintableOptions() const = 0;
+
   // Return a reference to next tier
   virtual Tier& next_tier() { return next_tier_; }
 
@@ -300,6 +304,10 @@ class PersistentTieredCache : public PersistentCacheTier {
   Status Lookup(const Slice& page_key, std::unique_ptr<char[]>* data,
                 size_t* size) override;
   bool IsCompressed() override;
+
+  std::string GetPrintableOptions() const override {
+    return "PersistentTieredCache";
+  }
 
   void AddTier(const Tier& tier);
 
