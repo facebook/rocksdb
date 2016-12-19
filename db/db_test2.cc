@@ -1505,7 +1505,9 @@ class MockPersistentCache : public PersistentCache {
 
   bool IsCompressed() override { return is_compressed_; }
 
-  std::string GetPrintableOptions() const { return "MockPersistentCache"; }
+  std::string GetPrintableOptions() const override {
+    return "MockPersistentCache";
+  }
 
   port::Mutex lock_;
   std::map<std::string, std::string> data_;
