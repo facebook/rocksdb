@@ -266,10 +266,11 @@ class PosixEnv : public Env {
       flags |= O_DIRECT;
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
-    } else {
+    } else if (options.use_mmap_writes) {
       // non-direct I/O
-      // since mmap needs O_RDWR mode, set R/W for both mmap and normal mode
       flags |= O_RDWR;
+    } else {
+      flags |= O_WRONLY;
     }
 
     do {
@@ -329,9 +330,11 @@ class PosixEnv : public Env {
       flags |= O_DIRECT;
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
-    } else {
+    } else if (options.use_mmap_writes) {
       // mmap needs O_RDWR mode
       flags |= O_RDWR;
+    } else {
+      flags |= O_WRONLY;
     }
 
     do {

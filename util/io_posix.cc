@@ -187,11 +187,6 @@ Status PosixSequentialFile::Read(size_t n, Slice* result, char* scratch) {
       s = IOError(filename_, errno);
     }
   }
-  if (use_direct_io_) {
-    // we need to fadvise away the entire range of pages because
-    // we do not want readahead pages to be cached.
-    Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
-  }
   return s;
 }
 
@@ -324,11 +319,6 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   if (r < 0) {
     // An error: return a non-ok status
     s = IOError(filename_, errno);
-  }
-  if (use_direct_io_) {
-    // we need to fadvise away the entire range of pages because
-    // we do not want readahead pages to be cached.
-    Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
   }
   return s;
 }
@@ -684,8 +674,7 @@ PosixWritableFile::~PosixWritableFile() {
 }
 
 Status PosixWritableFile::Append(const Slice& data) {
-  assert(!direct_io_ ||
-         (IsSectorAligned(data.size()) && IsPageAligned(data.data())));
+  assert(!direct_io_|| (IsSectorAligned(data.size()) && IsPageAligned(data.data())));
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
@@ -704,6 +693,8 @@ Status PosixWritableFile::Append(const Slice& data) {
 }
 
 Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
+  assert(direct_io_ && IsSectorAligned(offset) &&
+         IsSectorAligned(data.size()) && IsPageAligned(data.data()));
   assert(offset <= std::numeric_limits<off_t>::max());
   const char* src = data.data();
   size_t left = data.size();
@@ -719,7 +710,7 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
     offset += done;
     src += done;
   }
-  filesize_ = offset + data.size();
+  filesize_ = offset;
   return Status::OK();
 }
 

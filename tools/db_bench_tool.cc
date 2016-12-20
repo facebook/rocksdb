@@ -2938,10 +2938,6 @@ class Benchmark {
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
 
     // fill storage options
-    options.allow_mmap_reads = FLAGS_mmap_read;
-    options.allow_mmap_writes = FLAGS_mmap_write;
-    options.use_direct_reads = FLAGS_use_direct_reads;
-    options.use_direct_writes = FLAGS_use_direct_writes;
     options.advise_random_on_open = FLAGS_advise_random_on_open;
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice_e;
     options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;

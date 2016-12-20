@@ -152,14 +152,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   Header(log,
          "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
          manifest_preallocation_size);
-  Header(log, "                       Options.allow_mmap_reads: %d",
-         allow_mmap_reads);
-  Header(log, "                      Options.allow_mmap_writes: %d",
-         allow_mmap_writes);
-  Header(log, "                       Options.use_direct_reads: %d",
-         use_direct_reads);
-  Header(log, "                       Options.use_direct_writes: %d",
-         use_direct_writes);
   Header(log, "                    Options.is_fd_close_on_exec: %d",
          is_fd_close_on_exec);
   Header(log, "                  Options.stats_dump_period_sec: %u",

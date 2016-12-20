@@ -739,9 +739,9 @@ EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
   EnvOptions optimized = env_options;
   optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
   optimized.use_mmap_writes = false;
-  optimized.use_direct_writes = false;
   // This is because we flush only whole pages on unbuffered io and
   // the last records are not guaranteed to be flushed.
+  optimized.use_direct_writes = false;
   // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
   // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
   // test and make this false
