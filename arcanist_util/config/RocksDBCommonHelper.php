@@ -35,7 +35,7 @@ function buildUpdateTestStatusCmd($diffID, $test, $status) {
   assert(strlen($test) > 0);
   assert(strlen($status) > 0);
 
-  $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
+  $cmd = 'echo \'{"diff_id": ' . $diffID . ', '
          . '"name":"' . $test . '", '
          . '"result":"' . $status . '"}\' | '
          . 'arc call-conduit '
