@@ -1097,7 +1097,7 @@ Status CompactionJob::FinishCompactionOutputFile(
     if (sfm->IsMaxAllowedSpaceReached()) {
       InstrumentedMutexLock l(db_mutex_);
       if (db_bg_error_->ok()) {
-        s = Status::IOError("Max allowed space was reached");
+        s = Status::NoSpace("Max allowed space was reached");
         *db_bg_error_ = s;
         TEST_SYNC_POINT(
             "CompactionJob::FinishCompactionOutputFile:MaxAllowedSpaceReached");
