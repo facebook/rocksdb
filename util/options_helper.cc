@@ -1080,6 +1080,11 @@ Status GetStringFromCompressionType(std::string* compression_str,
   }
 }
 
+const std::unordered_map<std::string, CompressionType>&
+GetAllCompressionTypes() {
+  return compression_type_string_map;
+}
+
 bool SerializeSingleBlockBasedTableOption(
     std::string* opt_string, const BlockBasedTableOptions& bbt_options,
     const std::string& name, const std::string& delimiter) {
