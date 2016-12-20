@@ -41,7 +41,7 @@ TEST_F(DBRangeDelTest, NonBlockBasedTableNotSupported) {
 
 TEST_F(DBRangeDelTest, FlushOutputHasOnlyRangeTombstones) {
   ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "dr1",
-                             "dr1"));
+                             "dr2"));
   ASSERT_OK(db_->Flush(FlushOptions()));
   ASSERT_EQ(1, NumTableFilesAtLevel(0));
 }
