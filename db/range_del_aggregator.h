@@ -22,6 +22,38 @@
 
 namespace rocksdb {
 
+// Some tombstone collections maintain position info across calls to
+// ShouldDelete(). The caller may wish to specify a mode to optimize
+// positioning the iterator during the next call to ShouldDelete(). The
+// non-kFullScan modes are only available for ordered/collapsed collections.
+//
+// For example, if we invoke Next() on an iterator, kForwardTraversal should
+// be specified to advance one-by-one through deletions until one is found
+// with its interval containing the key. This will typically be faster than
+// doing a full binary search (kBinarySearch).
+enum RangePositioningMode {
+  kFullScan,
+  kForwardTraversal,
+  kBackwardTraversal,
+  kBinarySearch,
+};
+
+class TombstoneCollection {
+ public:
+  explicit TombstoneCollection(const InternalKeyComparator& icmp)
+      : icmp_(icmp) {}
+  virtual ~TombstoneCollection() {}
+  virtual Status AddTombstone(RangeTombstone tombstone) = 0;
+  virtual bool ShouldDelete(const ParsedInternalKey& parsed,
+                            RangePositioningMode mode) = 0;
+  virtual size_t GetSize() = 0;
+  virtual void InvalidatePositions() = 0;
+  virtual std::vector<RangeTombstone> GetTombstones() = 0;
+
+ protected:
+  const InternalKeyComparator& icmp_;
+};
+
 // A RangeDelAggregator aggregates range deletion tombstones as they are
 // encountered in memtables/SST files. It provides methods that check whether a
 // key is covered by range tombstones or write the relevant tombstones to a new
@@ -52,27 +84,11 @@ class RangeDelAggregator {
                      SequenceNumber upper_bound,
                      bool collapse_deletions = false);
 
-  // We maintain position in the tombstone map across calls to ShouldDelete. The
-  // caller may wish to specify a mode to optimize positioning the iterator
-  // during the next call to ShouldDelete. The non-kFullScan modes are only
-  // available when deletion collapsing is enabled.
-  //
-  // For example, if we invoke Next() on an iterator, kForwardTraversal should
-  // be specified to advance one-by-one through deletions until one is found
-  // with its interval containing the key. This will typically be faster than
-  // doing a full binary search (kBinarySearch).
-  enum RangePositioningMode {
-    kFullScan,  // used iff collapse_deletions_ == false
-    kForwardTraversal,
-    kBackwardTraversal,
-    kBinarySearch,
-  };
-
   // Returns whether the key should be deleted, which is the case when it is
   // covered by a range tombstone residing in the same snapshot stripe.
   // @param mode If collapse_deletions_ is true, this dictates how we will find
   //             the deletion whose interval contains this key. Otherwise, its
-  //             value must be kFullScan indicating linear scan from beginning..
+  //             value must be kFullScan indicating linear scan from beginning.
   bool ShouldDelete(const ParsedInternalKey& parsed,
                     RangePositioningMode mode = kFullScan);
   bool ShouldDelete(const Slice& internal_key,
@@ -89,7 +105,7 @@ class RangeDelAggregator {
   // if it's an iterator that just seeked to an arbitrary position. The effect
   // of invalidation is that the following call to ShouldDelete() will binary
   // search for its tombstone.
-  void InvalidateTombstoneMapPositions();
+  void InvalidatePositions();
 
   // Writes tombstones covering a range to a table builder.
   // @param extend_before_min_key If true, the range of tombstones to be added
@@ -118,26 +134,10 @@ class RangeDelAggregator {
   bool IsEmpty();
 
  private:
-  // Maps tombstone user start key -> tombstone object
-  typedef std::multimap<Slice, RangeTombstone, stl_wrappers::LessOfComparator>
-      TombstoneMap;
-  // Also maintains position in TombstoneMap last seen by ShouldDelete(). The
-  // end iterator indicates invalidation (e.g., if AddTombstones() changes the
-  // underlying map). End iterator cannot be invalidated.
-  struct PositionalTombstoneMap {
-    explicit PositionalTombstoneMap(TombstoneMap _raw_map)
-        : raw_map(std::move(_raw_map)), iter(raw_map.end()) {}
-    PositionalTombstoneMap(const PositionalTombstoneMap&) = delete;
-    PositionalTombstoneMap(PositionalTombstoneMap&& other)
-        : raw_map(std::move(other.raw_map)), iter(raw_map.end()) {}
-
-    TombstoneMap raw_map;
-    TombstoneMap::const_iterator iter;
-  };
-
   // Maps snapshot seqnum -> map of tombstones that fall in that stripe, i.e.,
   // their seqnums are greater than the next smaller snapshot's seqnum.
-  typedef std::map<SequenceNumber, PositionalTombstoneMap> StripeMap;
+  typedef std::map<SequenceNumber, std::unique_ptr<TombstoneCollection>>
+      StripeMap;
 
   struct Rep {
     StripeMap stripe_map_;
@@ -148,8 +148,9 @@ class RangeDelAggregator {
   // once the first range deletion is encountered.
   void InitRep(const std::vector<SequenceNumber>& snapshots);
 
-  PositionalTombstoneMap& GetPositionalTombstoneMap(SequenceNumber seq);
-  Status AddTombstone(RangeTombstone tombstone);
+  std::unique_ptr<TombstoneCollection> NewTombstoneCollection(
+      bool collapsed_deletions);
+  TombstoneCollection* GetTombstoneCollection(SequenceNumber seq);
 
   SequenceNumber upper_bound_;
   std::unique_ptr<Rep> rep_;

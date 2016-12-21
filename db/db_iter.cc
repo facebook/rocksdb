@@ -413,8 +413,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                 ikey.user_key,
                 !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
             if (range_del_agg_.ShouldDelete(
-                    ikey, RangeDelAggregator::RangePositioningMode::
-                              kForwardTraversal)) {
+                    ikey, RangePositioningMode::kForwardTraversal)) {
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
               skipping = true;
@@ -430,8 +429,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                 ikey.user_key,
                 !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
             if (range_del_agg_.ShouldDelete(
-                    ikey, RangeDelAggregator::RangePositioningMode::
-                              kForwardTraversal)) {
+                    ikey, RangePositioningMode::kForwardTraversal)) {
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
               skipping = true;
@@ -535,8 +533,7 @@ void DBIter::MergeValuesNewToOld() {
       break;
     } else if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
                range_del_agg_.ShouldDelete(
-                   ikey, RangeDelAggregator::RangePositioningMode::
-                             kForwardTraversal)) {
+                   ikey, RangePositioningMode::kForwardTraversal)) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_->Next();
@@ -605,7 +602,7 @@ void DBIter::ReverseToForward() {
   direction_ = kForward;
   if (!iter_->Valid()) {
     iter_->SeekToFirst();
-    range_del_agg_.InvalidateTombstoneMapPositions();
+    range_del_agg_.InvalidatePositions();
   }
 }
 
@@ -621,7 +618,7 @@ void DBIter::ReverseToBackward() {
     // previous key.
     if (!iter_->Valid()) {
       iter_->SeekToLast();
-      range_del_agg_.InvalidateTombstoneMapPositions();
+      range_del_agg_.InvalidatePositions();
     }
     ParsedInternalKey ikey;
     FindParseableKey(&ikey, kReverse);
@@ -719,8 +716,7 @@ bool DBIter::FindValueForCurrentKey() {
     switch (last_key_entry_type) {
       case kTypeValue:
         if (range_del_agg_.ShouldDelete(
-                ikey,
-                RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+                ikey, RangePositioningMode::kBackwardTraversal)) {
           last_key_entry_type = kTypeRangeDeletion;
           PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         } else {
@@ -738,8 +734,7 @@ bool DBIter::FindValueForCurrentKey() {
         break;
       case kTypeMerge:
         if (range_del_agg_.ShouldDelete(
-                ikey,
-                RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+                ikey, RangePositioningMode::kBackwardTraversal)) {
           merge_context_.Clear();
           last_key_entry_type = kTypeRangeDeletion;
           last_not_merge_type = last_key_entry_type;
@@ -817,8 +812,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   FindParseableKey(&ikey, kForward);
 
   if (ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
-      range_del_agg_.ShouldDelete(
-          ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+      range_del_agg_.ShouldDelete(ikey,
+                                  RangePositioningMode::kBackwardTraversal)) {
     valid_ = false;
     return false;
   }
@@ -833,12 +828,11 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // in operands
   current_entry_is_merged_ = true;
   merge_context_.Clear();
-  while (
-      iter_->Valid() &&
-      user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) &&
-      ikey.type == kTypeMerge &&
-      !range_del_agg_.ShouldDelete(
-          ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+  while (iter_->Valid() &&
+         user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) &&
+         ikey.type == kTypeMerge &&
+         !range_del_agg_.ShouldDelete(
+             ikey, RangePositioningMode::kBackwardTraversal)) {
     merge_context_.PushOperand(iter_->value(),
                                iter_->IsValuePinned() /* operand_pinned */);
     PERF_COUNTER_ADD(internal_merge_count, 1);
@@ -850,8 +844,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   if (!iter_->Valid() ||
       !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) ||
       ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
-      range_del_agg_.ShouldDelete(
-          ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
+      range_del_agg_.ShouldDelete(ikey,
+                                  RangePositioningMode::kBackwardTraversal)) {
     s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
                                     nullptr, merge_context_.GetOperands(),
                                     &saved_value_, logger_, statistics_, env_,
@@ -952,7 +946,7 @@ void DBIter::Seek(const Slice& target) {
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_->Seek(saved_key_.GetKey());
-    range_del_agg_.InvalidateTombstoneMapPositions();
+    range_del_agg_.InvalidatePositions();
   }
   RecordTick(statistics_, NUMBER_DB_SEEK);
   if (iter_->Valid()) {
@@ -992,7 +986,7 @@ void DBIter::SeekForPrev(const Slice& target) {
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_->SeekForPrev(saved_key_.GetKey());
-    range_del_agg_.InvalidateTombstoneMapPositions();
+    range_del_agg_.InvalidatePositions();
   }
 
   RecordTick(statistics_, NUMBER_DB_SEEK);
@@ -1034,7 +1028,7 @@ void DBIter::SeekToFirst() {
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_->SeekToFirst();
-    range_del_agg_.InvalidateTombstoneMapPositions();
+    range_del_agg_.InvalidatePositions();
   }
 
   RecordTick(statistics_, NUMBER_DB_SEEK);
@@ -1068,14 +1062,14 @@ void DBIter::SeekToLast() {
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_->SeekToLast();
-    range_del_agg_.InvalidateTombstoneMapPositions();
+    range_del_agg_.InvalidatePositions();
   }
   // When the iterate_upper_bound is set to a value,
   // it will seek to the last key before the
   // ReadOptions.iterate_upper_bound
   if (iter_->Valid() && iterate_upper_bound_ != nullptr) {
     SeekForPrev(*iterate_upper_bound_);
-    range_del_agg_.InvalidateTombstoneMapPositions();
+    range_del_agg_.InvalidatePositions();
     if (!Valid()) {
       return;
     } else if (user_comparator_->Equal(*iterate_upper_bound_, key())) {
