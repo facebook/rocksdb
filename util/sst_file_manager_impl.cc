@@ -3,19 +3,19 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#ifndef ROCKSDB_LITE
-
 #include "util/sst_file_manager_impl.h"
 
 #include <vector>
 
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/sst_file_manager.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
                                        const std::string& trash_dir,
                                        int64_t rate_bytes_per_sec)
@@ -119,7 +119,6 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
   tracked_files_.erase(tracked_file);
 }
 
-#ifndef ROCKSDB_LITE
 SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
@@ -156,7 +155,9 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
 
   return res;
 }
+
 #else
+
 SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
@@ -167,8 +168,8 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
   }
   return nullptr;
 }
-#endif
+
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 
-#endif  // ROCKSDB_LITE
