@@ -567,7 +567,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
         break;
       }
     }
-    
+
     if (show_properties || show_summary) {
       const rocksdb::TableProperties* table_properties;
 
@@ -596,7 +596,8 @@ int SSTDumpTool::Run(int argc, char** argv) {
           uint64_t merge_operands = rocksdb::GetMergeOperands(
               table_properties->user_collected_properties, &property_present);
           if (property_present) {
-            fprintf(stdout, "  # merge operands: %" PRIu64 "\n", merge_operands);
+            fprintf(stdout, "  # merge operands: %" PRIu64 "\n",
+                    merge_operands);
           } else {
             fprintf(stdout, "  # merge operands: UNKNOWN\n");
           }
@@ -614,17 +615,22 @@ int SSTDumpTool::Run(int argc, char** argv) {
         for (const auto& kv : table_properties->user_collected_properties) {
           std::string prop_name = kv.first;
           std::string prop_val = Slice(kv.second).ToString(true);
-          fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(), prop_val.c_str());
+          fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(),
+                  prop_val.c_str());
         }
       }
     }
   }
   if (show_summary) {
     fprintf(stdout, "total number of files: %" PRIu64 "\n", total_num_files);
-    fprintf(stdout, "total number of data blocks: %" PRIu64 "\n", total_num_data_blocks);
-    fprintf(stdout, "total data block size: %" PRIu64 "\n", total_data_block_size);
-    fprintf(stdout, "total index block size: %" PRIu64 "\n", total_index_block_size);
-    fprintf(stdout, "total filter block size: %" PRIu64 "\n", total_filter_block_size);
+    fprintf(stdout, "total number of data blocks: %" PRIu64 "\n",
+            total_num_data_blocks);
+    fprintf(stdout, "total data block size: %" PRIu64 "\n",
+            total_data_block_size);
+    fprintf(stdout, "total index block size: %" PRIu64 "\n",
+            total_index_block_size);
+    fprintf(stdout, "total filter block size: %" PRIu64 "\n",
+            total_filter_block_size);
   }
   return 0;
 }
