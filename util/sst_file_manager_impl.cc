@@ -119,6 +119,7 @@ void SstFileManagerImpl::OnDeleteFileImpl(const std::string& file_path) {
   tracked_files_.erase(tracked_file);
 }
 
+#ifndef ROCKSDB_LITE
 SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
                                   std::string trash_dir,
                                   int64_t rate_bytes_per_sec,
@@ -155,6 +156,18 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
 
   return res;
 }
+#else
+SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
+                                  std::string trash_dir,
+                                  int64_t rate_bytes_per_sec,
+                                  bool delete_exisitng_trash, Status* status) {
+  if (status) {
+    *status =
+        Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");
+  }
+  return nullptr;
+}
+#endif
 
 }  // namespace rocksdb
 
