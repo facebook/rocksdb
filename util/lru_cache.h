@@ -190,6 +190,8 @@ class LRUCacheShard : public CacheShard {
 
   virtual void EraseUnRefEntries() override;
 
+  virtual std::string GetPrintableOptions() const override;
+
   void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
 
  private:

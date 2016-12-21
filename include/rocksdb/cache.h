@@ -24,6 +24,7 @@
 
 #include <stdint.h>
 #include <memory>
+#include <string>
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -166,6 +167,8 @@ class Cache {
   // Remove all entries.
   // Prerequisit: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
+
+  virtual std::string GetPrintableOptions() const { return ""; }
 
  private:
   // No copying allowed

@@ -11,6 +11,10 @@
 
 #ifndef SUPPORT_CLOCK_CACHE
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 namespace rocksdb {
 
 std::shared_ptr<Cache> NewClockCache(size_t capacity, int num_shard_bits,
