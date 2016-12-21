@@ -36,6 +36,7 @@ class Cleanable {
   // not abstract and therefore clients should not override it.
   typedef void (*CleanupFunction)(void* arg1, void* arg2);
   void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
+  void DelegateCleanupsTo(Cleanable* other);
 
  protected:
   struct Cleanup {
@@ -45,6 +46,8 @@ class Cleanable {
     Cleanup* next;
   };
   Cleanup cleanup_;
+  // It also becomes the owner of c
+  void RegisterCleanup(Cleanup* c);
 };
 
 class Iterator : public Cleanable {

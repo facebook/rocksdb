@@ -1559,15 +1559,8 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         break;
       } else {
         BlockIter stack_biter;
-        if (pin_blocks) {
-          // We need to create the BlockIter on heap because we may need to
-          // pin it if we encounterd merge operands
-          biter = static_cast<BlockIter*>(
-              NewDataBlockIterator(rep_, read_options, iiter.value()));
-        } else {
-          biter = &stack_biter;
-          NewDataBlockIterator(rep_, read_options, iiter.value(), biter);
-        }
+        biter = &stack_biter;
+        NewDataBlockIterator(rep_, read_options, iiter.value(), biter);
 
         if (read_options.read_tier == kBlockCacheTier &&
             biter->status().IsIncomplete()) {
@@ -1596,21 +1589,11 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         }
         s = biter->status();
 
-        if (pin_blocks) {
-          if (get_context->State() == GetContext::kMerge) {
-            // Pin blocks as long as we are merging
-            pinned_iters_mgr->PinIterator(biter);
-          } else {
-            delete biter;
-          }
-          biter = nullptr;
-        } else {
-          // biter is on stack, Nothing to clean
+        if (pin_blocks && get_context->State() == GetContext::kMerge) {
+          // Pin blocks as long as we are merging
+          biter->DelegateCleanupsTo(pinned_iters_mgr);
         }
       }
-    }
-    if (pin_blocks && biter != nullptr) {
-      delete biter;
     }
     if (s.ok()) {
       s = iiter.status();

@@ -324,6 +324,7 @@ TESTS = \
 	db_properties_test \
 	db_table_properties_test \
 	autovector_test \
+	cleanable_test \
 	column_family_test \
 	table_properties_collector_test \
 	arena_test \
@@ -1145,6 +1146,9 @@ full_filter_block_test: table/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNE
 	$(AM_LINK)
 
 log_test: db/log_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+cleanable_test: table/cleanable_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
