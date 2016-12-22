@@ -75,10 +75,7 @@ class Status {
 
   SubCode subcode() const { return subcode_; }
 
-  // Returns a string indicating the message of the Status
-  // The first sizeof(uint32_t) bytes are the length of the string followed by
-  // the string characters themselves. The size is given because the string
-  // is not null terminated.
+  // Returns a C style string indicating the message of the Status
   const char* getState() const { return state_; }
 
   // Return a success status.

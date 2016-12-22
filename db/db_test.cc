@@ -205,18 +205,8 @@ TEST_F(DBTest, OpenWhenOpen) {
 
   ASSERT_EQ(Status::Code::kIOError, s.code());
   ASSERT_EQ(Status::SubCode::kNone, s.subcode());
+  ASSERT_TRUE(strncmp("lock ", s.getState(), 5) == 0);
 
-  const char* const state = s.getState();
-  const size_t size_len = sizeof(uint32_t);
-  uint32_t* size = new uint32_t();
-  memcpy(size, state, size_len);
-  char* const msg = new char[*size];
-  memcpy(msg, state + size_len, *size);
-
-  ASSERT_TRUE(strncmp("lock ", msg, 5) == 0);
-
-  delete [] msg;
-  delete size;
   delete db2;
 }
 
