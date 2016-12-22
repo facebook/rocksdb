@@ -20,15 +20,13 @@ Cleanable::Cleanable() {
 }
 
 Cleanable::~Cleanable() {
-  if (cleanup_.function != nullptr) {
-    (*cleanup_.function)(cleanup_.arg1, cleanup_.arg2);
-    for (Cleanup* c = cleanup_.next; c != nullptr; ) {
-      (*c->function)(c->arg1, c->arg2);
-      Cleanup* next = c->next;
-      delete c;
-      c = next;
-    }
-  }
+  DoCleanup();
+}
+
+void Cleanable::Reset() {
+  DoCleanup();
+  cleanup_.function = nullptr;
+  cleanup_.next = nullptr;
 }
 
 // TODO(myabandeh): if the list is too long we should maintain a tail pointer

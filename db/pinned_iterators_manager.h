@@ -69,6 +69,8 @@ class PinnedIteratorsManager : public Cleanable {
       release_func(ptr);
     }
     pinned_ptrs_.clear();
+    // Also do cleanups from the base Cleanable
+    Cleanable::Reset();
   }
 
  private:
