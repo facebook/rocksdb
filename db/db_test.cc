@@ -197,6 +197,29 @@ TEST_F(DBTest, MemEnvTest) {
 }
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBTest, OpenWhenOpen) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  rocksdb::DB* db2 = nullptr;
+  rocksdb::Status s = DB::Open(options, dbname_, &db2);
+
+  ASSERT_EQ(Status::Code::kIOError, s.code());
+  ASSERT_EQ(Status::SubCode::kNone, s.subcode());
+
+  const char* const state = s.getState();
+  const size_t size_len = sizeof(uint32_t);
+  uint32_t* size = new uint32_t();
+  memcpy(size, state, size_len);
+  char* const msg = new char[*size];
+  memcpy(msg, state + size_len, *size);
+
+  ASSERT_TRUE(strncmp("lock ", msg, 5) == 0);
+
+  delete [] msg;
+  delete size;
+  delete db2;
+}
+
 TEST_F(DBTest, WriteEmptyBatch) {
   Options options = CurrentOptions();
   options.env = env_;

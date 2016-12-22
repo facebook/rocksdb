@@ -120,8 +120,16 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
 
     jstring jstate = nullptr;
     if (status.getState() != nullptr) {
-      std::string s(status.getState());
-      jstate = env->NewStringUTF(s.c_str());
+      const char* const state = status.getState();
+      const size_t size_len = sizeof(uint32_t);
+      uint32_t* size = new uint32_t();
+      memcpy(size, state, size_len);
+      char* const msg = new char[*size + 1];  // +1 for the null terminator
+      memcpy(msg, state + size_len, *size);
+      msg[*size] = '\0';  // add null terminator
+      jstate = env->NewStringUTF(msg);
+      delete [] msg;
+      delete size;
     }
     return env->NewObject(getJClass(env), mid, toJavaStatusCode(status.code()),
                           toJavaStatusSubCode(status.subcode()), jstate);

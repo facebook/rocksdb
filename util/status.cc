@@ -28,13 +28,14 @@ Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2
   const uint32_t len1 = static_cast<uint32_t>(msg.size());
   const uint32_t len2 = static_cast<uint32_t>(msg2.size());
   const uint32_t size = len1 + (len2 ? (2 + len2) : 0);
-  char* result = new char[size + 4];
-  memcpy(result, &size, sizeof(size));
-  memcpy(result + 4, msg.data(), len1);
+  const size_t size_len = sizeof(size);
+  char* const result = new char[size_len + size];
+  memcpy(result, &size, size_len);
+  memcpy(result + size_len, msg.data(), len1);
   if (len2) {
-    result[4 + len1] = ':';
-    result[5 + len1] = ' ';
-    memcpy(result + 6 + len1, msg2.data(), len2);
+    result[size_len + len1] = ':';
+    result[size_len + 1 + len1] = ' ';
+    memcpy(result + size_len + 2 + len1, msg2.data(), len2);
   }
   state_ = result;
 }
