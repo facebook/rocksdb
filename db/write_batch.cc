@@ -28,6 +28,7 @@
 // varstring :=
 //    len: varint32
 //    data: uint8[len]
+#include <iostream>
 
 #include "rocksdb/write_batch.h"
 
@@ -779,6 +780,7 @@ class MemTableInserter : public WriteBatch::Handler {
   MemPostInfoMap mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
+  std::vector<HiddenKeyHandle>* hidden_key_handles_;
 
   // cf_mems should not be shared with concurrent inserters
   MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
@@ -796,11 +798,16 @@ class MemTableInserter : public WriteBatch::Handler {
         db_(reinterpret_cast<DBImpl*>(db)),
         concurrent_memtable_writes_(concurrent_memtable_writes),
         has_valid_writes_(has_valid_writes),
-        rebuilding_trx_(nullptr) {
+        rebuilding_trx_(nullptr),
+        hidden_key_handles_(nullptr) {
     assert(cf_mems_);
   }
 
   void set_log_number_ref(uint64_t log) { log_number_ref_ = log; }
+
+  void set_hidden_key_handles(std::vector<HiddenKeyHandle>* handles) {
+    hidden_key_handles_ = handles;
+  }
 
   SequenceNumber get_final_sequence() { return sequence_; }
 
@@ -865,9 +872,10 @@ class MemTableInserter : public WriteBatch::Handler {
 
     MemTable* mem = cf_mems_->GetMemTable();
     auto* moptions = mem->GetMemTableOptions();
-    if (!moptions->inplace_update_support) {
+    /* if no inplace_update_support or we are doing a hidden insert */
+    if (!moptions->inplace_update_support || hidden_key_handles_ != nullptr) {
       mem->Add(sequence_, kTypeValue, key, value, concurrent_memtable_writes_,
-               get_post_process_info(mem));
+               get_post_process_info(mem), hidden_key_handles_);
     } else if (moptions->inplace_callback == nullptr) {
       assert(!concurrent_memtable_writes_);
       mem->Update(sequence_, key, value);
@@ -901,10 +909,12 @@ class MemTableInserter : public WriteBatch::Handler {
                                                  value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
+          assert(hidden_key_handles_ != nullptr);
           mem->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
+          assert(hidden_key_handles_ != nullptr);
           mem->Add(sequence_, kTypeValue, key, Slice(merged_value));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         }
@@ -922,7 +932,7 @@ class MemTableInserter : public WriteBatch::Handler {
                     const Slice& value, ValueType delete_type) {
     MemTable* mem = cf_mems_->GetMemTable();
     mem->Add(sequence_, delete_type, key, value, concurrent_memtable_writes_,
-             get_post_process_info(mem));
+             get_post_process_info(mem), hidden_key_handles_);
     sequence_++;
     CheckMemtableFull();
     return Status::OK();
@@ -1026,6 +1036,11 @@ class MemTableInserter : public WriteBatch::Handler {
       }
     }
 
+    // cannot perform merge with hidden key
+    if (hidden_key_handles_ != nullptr) {
+      perform_merge = false;
+    }
+
     if (perform_merge) {
       // 1) Get the existing value
       std::string get_value;
@@ -1066,7 +1081,7 @@ class MemTableInserter : public WriteBatch::Handler {
 
     if (!perform_merge) {
       // Add merge operator to memtable
-      mem->Add(sequence_, kTypeMerge, key, value);
+      mem->Add(sequence_, kTypeMerge, key, value, false /*alow_concurrent*/, nullptr /*post_process_info*/, hidden_key_handles_);
     }
 
     sequence_++;
@@ -1109,7 +1124,6 @@ class MemTableInserter : public WriteBatch::Handler {
       // in non-recovery we ignore prepare markers
       // and insert the values directly. making sure we have a
       // log for each insertion to reference.
-      assert(log_number_ref_ > 0);
     }
 
     return Status::OK();
@@ -1126,7 +1140,6 @@ class MemTableInserter : public WriteBatch::Handler {
       rebuilding_trx_ = nullptr;
     } else {
       assert(rebuilding_trx_ == nullptr);
-      assert(log_number_ref_ > 0);
     }
 
     return Status::OK();
@@ -1213,10 +1226,26 @@ Status WriteBatchInternal::InsertInto(
                             concurrent_memtable_writes);
   for (size_t i = 0; i < writers.size(); i++) {
     auto w = writers[i];
+    if (w->ShouldMakeHiddenKeysVisible()) {
+      SequenceNumber seq = sequence;
+      for (const auto& handle : *w->hidden_key_handles) {
+        handle.mem->MakeVisible(seq, concurrent_memtable_writes, handle);
+        seq += 1;
+      }
+    } else if (w->ShouldRollbackHiddenKeys()) {
+      for (const auto& handle : *w->hidden_key_handles) {
+        handle.mem->DeleteHiddenKey(handle);
+      }
+    }
     if (!w->ShouldWriteToMemtable()) {
       continue;
     }
     inserter.set_log_number_ref(w->log_ref);
+    if (w->ShouldInsertBatchHidden()) {
+      inserter.set_hidden_key_handles(w->hidden_key_handles);
+    } else {
+      inserter.set_hidden_key_handles(nullptr);
+    }
     w->status = w->batch->Iterate(&inserter);
     if (!w->status.ok()) {
       return w->status;
@@ -1231,12 +1260,18 @@ Status WriteBatchInternal::InsertInto(WriteThread::Writer* writer,
                                       bool ignore_missing_column_families,
                                       uint64_t log_number, DB* db,
                                       bool concurrent_memtable_writes) {
+
   MemTableInserter inserter(WriteBatchInternal::Sequence(writer->batch),
                             memtables, flush_scheduler,
                             ignore_missing_column_families, log_number, db,
-                            concurrent_memtable_writes);
+                            concurrent_memtable_writes, nullptr /* has_valid_writes*/);
   assert(writer->ShouldWriteToMemtable());
   inserter.set_log_number_ref(writer->log_ref);
+  if (writer->ShouldInsertBatchHidden()) {
+    inserter.set_hidden_key_handles(writer->hidden_key_handles);
+  } else {
+    inserter.set_hidden_key_handles(nullptr);
+  }
   Status s = writer->batch->Iterate(&inserter);
   if (concurrent_memtable_writes) {
     inserter.PostProcess();

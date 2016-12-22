@@ -579,7 +579,8 @@ class DBImpl : public DB {
   Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
                    WriteCallback* callback = nullptr,
                    uint64_t* log_used = nullptr, uint64_t log_ref = 0,
-                   bool disable_memtable = false);
+                   std::vector<HiddenKeyHandle>* handles = nullptr, bool hide=false, bool rollback=false
+                   );
 
   uint64_t FindMinLogContainingOutstandingPrep();
   uint64_t FindMinPrepLogReferencedByMemTable();

@@ -23,6 +23,8 @@
 
 namespace rocksdb {
 
+class HiddenKeyHandle;
+
 class WriteThread {
  public:
   enum State : uint8_t {
@@ -81,7 +83,6 @@ class WriteThread {
     bool sync;
     bool no_slowdown;
     bool disableWAL;
-    bool disable_memtable;
     uint64_t log_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
     bool in_batch_group;
@@ -96,13 +97,15 @@ class WriteThread {
     std::aligned_storage<sizeof(std::condition_variable)>::type state_cv_bytes;
     Writer* link_older;  // read/write only before linking, or as leader
     Writer* link_newer;  // lazy, read/write only before linking, or as leader
+    std::vector<HiddenKeyHandle>* hidden_key_handles; // pointer to transactions list of hidden key handles
+    bool should_hide;
+    bool should_rollback;
 
     Writer()
         : batch(nullptr),
           sync(false),
           no_slowdown(false),
           disableWAL(false),
-          disable_memtable(false),
           log_used(0),
           log_ref(0),
           in_batch_group(false),
@@ -111,7 +114,10 @@ class WriteThread {
           state(STATE_INIT),
           parallel_group(nullptr),
           link_older(nullptr),
-          link_newer(nullptr) {}
+          link_newer(nullptr),
+          hidden_key_handles(nullptr),
+          should_hide(false),
+          should_rollback(false) {}
 
     ~Writer() {
       if (made_waitable) {
@@ -163,10 +169,22 @@ class WriteThread {
     }
 
     bool ShouldWriteToMemtable() {
-      return !CallbackFailed() && !disable_memtable;
+      return !CallbackFailed() && (batch != nullptr);
     }
 
     bool ShouldWriteToWAL() { return !CallbackFailed() && !disableWAL; }
+
+    bool ShouldInsertBatchHidden() {
+      return (batch != nullptr) && (hidden_key_handles != nullptr) && should_hide;
+    }
+
+    bool ShouldRollbackHiddenKeys() {
+      return (hidden_key_handles != nullptr) && should_rollback;
+    }
+
+    bool ShouldMakeHiddenKeysVisible() {
+      return (hidden_key_handles != nullptr) && !should_hide && !should_rollback;
+    }
 
     // No other mutexes may be acquired while holding StateMutex(), it is
     // always last in the order

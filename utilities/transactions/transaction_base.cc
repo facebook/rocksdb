@@ -27,6 +27,7 @@ TransactionBaseImpl::TransactionBaseImpl(DB* db,
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
+  recovered_ = false;
   if (dbimpl_->allow_2pc()) {
     WriteBatchInternal::InsertNoop(write_batch_.GetWriteBatch());
   }
@@ -42,6 +43,7 @@ void TransactionBaseImpl::Clear() {
   write_batch_.Clear();
   commit_time_batch_.Clear();
   tracked_keys_.clear();
+  recovered_ = false;
   num_puts_ = 0;
   num_deletes_ = 0;
   num_merges_ = 0;
@@ -57,6 +59,7 @@ void TransactionBaseImpl::Reinitialize(DB* db,
   ClearSnapshot();
   db_ = db;
   name_.clear();
+  recovered_ = false;
   log_number_ = 0;
   write_options_ = write_options;
   start_time_ = db_->GetEnv()->NowMicros();
