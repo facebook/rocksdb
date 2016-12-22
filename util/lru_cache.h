@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <string>
+
 #include "util/sharded_cache.h"
 
 #include "port/port.h"

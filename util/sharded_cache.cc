@@ -12,6 +12,9 @@
 #endif
 
 #include "util/sharded_cache.h"
+
+#include <string>
+
 #include "util/mutexlock.h"
 
 namespace rocksdb {
