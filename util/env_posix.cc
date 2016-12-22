@@ -227,16 +227,17 @@ class PosixEnv : public Env {
       if (fd < 0) {
         s = IOError(fname, errno);
       } else {
-        std::unique_ptr<PosixDirectIORandomAccessFile> file(
-            new PosixDirectIORandomAccessFile(fname, fd));
-        *result = std::move(file);
-        s = Status::OK();
 #ifdef OS_MACOSX
         if (fcntl(fd, F_NOCACHE, 1) == -1) {
           close(fd);
           s = IOError(fname, errno);
         }
 #endif
+        if (s.ok()) {
+          std::unique_ptr<PosixDirectIORandomAccessFile> file(
+              new PosixDirectIORandomAccessFile(fname, fd));
+          *result = std::move(file);
+        }
       }
     } else {
       result->reset(new PosixRandomAccessFile(fname, fd, options));
@@ -289,16 +290,17 @@ class PosixEnv : public Env {
         if (fd < 0) {
           s = IOError(fname, errno);
         } else {
-          std::unique_ptr<PosixDirectIOWritableFile> file(
-              new PosixDirectIOWritableFile(fname, fd));
-          *result = std::move(file);
-          s = Status::OK();
 #ifdef OS_MACOSX
           if (fcntl(fd, F_NOCACHE, 1) == -1) {
             close(fd);
             s = IOError(fname, errno);
           }
 #endif
+          if (s.ok()) {
+            std::unique_ptr<PosixDirectIOWritableFile> file(
+                new PosixDirectIOWritableFile(fname, fd));
+            *result = std::move(file);
+          }
         }
       } else {
         // disable mmap writes
