@@ -771,9 +771,6 @@ DEFINE_uint64(wal_size_limit_MB, 0, "Set the size limit for the WAL Files"
               " in MB.");
 DEFINE_uint64(max_total_wal_size, 0, "Set total max WAL size");
 
-DEFINE_bool(bufferedio, rocksdb::EnvOptions().use_os_buffer,
-            "Allow buffered io using OS buffers");
-
 DEFINE_bool(mmap_read, rocksdb::EnvOptions().use_mmap_reads,
             "Allow reads to occur via mmap-ing files");
 
@@ -782,6 +779,9 @@ DEFINE_bool(mmap_write, rocksdb::EnvOptions().use_mmap_writes,
 
 DEFINE_bool(use_direct_reads, rocksdb::EnvOptions().use_direct_reads,
             "Use O_DIRECT for reading data");
+
+DEFINE_bool(use_direct_writes, rocksdb::EnvOptions().use_direct_writes,
+            "Use O_DIRECT for writing data");
 
 DEFINE_bool(advise_random_on_open, rocksdb::Options().advise_random_on_open,
             "Advise random access on table file open");
@@ -2750,6 +2750,7 @@ class Benchmark {
     options.allow_mmap_reads = FLAGS_mmap_read;
     options.allow_mmap_writes = FLAGS_mmap_write;
     options.use_direct_reads = FLAGS_use_direct_reads;
+    options.use_direct_writes = FLAGS_use_direct_writes;
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
@@ -2951,9 +2952,6 @@ class Benchmark {
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
 
     // fill storage options
-    options.allow_os_buffer = FLAGS_bufferedio;
-    options.allow_mmap_reads = FLAGS_mmap_read;
-    options.allow_mmap_writes = FLAGS_mmap_write;
     options.advise_random_on_open = FLAGS_advise_random_on_open;
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice_e;
     options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;

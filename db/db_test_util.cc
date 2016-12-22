@@ -478,6 +478,22 @@ Status DBTestBase::TryReopen(const Options& options) {
   return DB::Open(options, dbname_, &db_);
 }
 
+bool DBTestBase::IsDirectIOSupported() {
+  EnvOptions env_options;
+  env_options.use_mmap_writes = false;
+  env_options.use_direct_writes = true;
+  std::string tmp = TempFileName(dbname_, 999);
+  Status s;
+  {
+    unique_ptr<WritableFile> file;
+    s = env_->NewWritableFile(tmp, &file, env_options);
+  }
+  if (s.ok()) {
+    s = env_->DeleteFile(tmp);
+  }
+  return s.ok();
+}
+
 Status DBTestBase::Flush(int cf) {
   if (cf == 0) {
     return db_->Flush(FlushOptions());

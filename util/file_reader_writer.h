@@ -103,7 +103,6 @@ class WritableFileWriter {
   uint64_t                next_write_offset_;
   bool                    pending_sync_;
   const bool              direct_io_;
-  const bool              use_os_buffer_;
   uint64_t                last_sync_size_;
   uint64_t                bytes_per_sync_;
   RateLimiter*            rate_limiter_;
@@ -118,7 +117,6 @@ class WritableFileWriter {
         next_write_offset_(0),
         pending_sync_(false),
         direct_io_(writable_file_->UseDirectIO()),
-        use_os_buffer_(writable_file_->UseOSBuffer()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter) {
@@ -156,8 +154,8 @@ class WritableFileWriter {
 
  private:
   // Used when os buffering is OFF and we are writing
-  // DMA such as in Windows unbuffered mode
-  Status WriteUnbuffered();
+  // DMA such as in Direct I/O mode
+  Status WriteDirect();
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);

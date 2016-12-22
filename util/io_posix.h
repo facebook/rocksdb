@@ -41,7 +41,7 @@ class PosixSequentialFile : public SequentialFile {
   std::string filename_;
   FILE* file_;
   int fd_;
-  bool use_os_buffer_;
+  bool use_direct_io_;
 
  public:
   PosixSequentialFile(const std::string& fname, FILE* f,
@@ -74,7 +74,7 @@ class PosixRandomAccessFile : public RandomAccessFile {
  protected:
   std::string filename_;
   int fd_;
-  bool use_os_buffer_;
+  bool use_direct_io_;
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
@@ -108,6 +108,7 @@ class PosixDirectIORandomAccessFile : public PosixRandomAccessFile {
 class PosixWritableFile : public WritableFile {
  protected:
   const std::string filename_;
+  const bool direct_io_;
   int fd_;
   uint64_t filesize_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -130,7 +131,13 @@ class PosixWritableFile : public WritableFile {
   virtual Status Sync() override;
   virtual Status Fsync() override;
   virtual bool IsSyncThreadSafe() const override;
+  virtual bool UseDirectIO() const override { return direct_io_; }
   virtual uint64_t GetFileSize() override;
+  virtual size_t GetRequiredBufferAlignment() const override {
+    // TODO(gzh): It should be the logical sector size/filesystem block size
+    // hardcoded as 4k for most cases
+    return 4 * 1024;
+  }
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(uint64_t offset, uint64_t len) override;
@@ -139,22 +146,7 @@ class PosixWritableFile : public WritableFile {
 #endif
 };
 
-class PosixDirectIOWritableFile : public PosixWritableFile {
- public:
-  explicit PosixDirectIOWritableFile(const std::string& filename, int fd)
-      : PosixWritableFile(filename, fd, EnvOptions()) {}
-  virtual ~PosixDirectIOWritableFile() {}
-
-  bool UseOSBuffer() const override { return false; }
-  size_t GetRequiredBufferAlignment() const override { return 4 * 1024; }
-  Status Append(const Slice& data) override;
-  Status PositionedAppend(const Slice& data, uint64_t offset) override;
-  bool UseDirectIO() const override { return true; }
-  Status InvalidateCache(size_t offset, size_t length) override {
-    return Status::OK();
-  }
-};
-
+// mmap() based random-access
 class PosixMmapReadableFile : public RandomAccessFile {
  private:
   int fd_;

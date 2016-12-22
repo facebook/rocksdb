@@ -692,6 +692,8 @@ class DBTestBase : public testing::Test {
 
   Status TryReopen(const Options& options);
 
+  bool IsDirectIOSupported();
+
   Status Flush(int cf = 0);
 
   Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions());

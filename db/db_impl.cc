@@ -255,11 +255,17 @@ static Status ValidateOptions(
         "More than four DB paths are not supported yet. ");
   }
 
-  if (db_options.allow_mmap_reads && !db_options.allow_os_buffer) {
+  if (db_options.allow_mmap_reads && db_options.use_direct_reads) {
     // Protect against assert in PosixMMapReadableFile constructor
     return Status::NotSupported(
         "If memory mapped reads (allow_mmap_reads) are enabled "
-        "then os caching (allow_os_buffer) must also be enabled. ");
+        "then direct I/O reads (use_direct_reads) must be disabled. ");
+  }
+
+  if (db_options.allow_mmap_writes && db_options.use_direct_writes) {
+    return Status::NotSupported(
+        "If memory mapped writes (allow_mmap_writes) are enabled "
+        "then direct I/O writes (use_direct_writes) must be disabled. ");
   }
 
   return Status::OK();

@@ -49,23 +49,43 @@ void Java_org_rocksdb_EnvOptions_disposeInternal(JNIEnv *env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_EnvOptions
- * Method:    setUseOsBuffer
+ * Method:    setUseDirectReads
  * Signature: (JZ)V
  */
-void Java_org_rocksdb_EnvOptions_setUseOsBuffer(JNIEnv *env, jobject jobj,
-                                                jlong jhandle,
-                                                jboolean use_os_buffer) {
-  ENV_OPTIONS_SET_BOOL(jhandle, use_os_buffer);
+void Java_org_rocksdb_EnvOptions_setUseDirectReads(JNIEnv *env, jobject jobj,
+                                                   jlong jhandle,
+                                                   jboolean use_direct_reads) {
+  ENV_OPTIONS_SET_BOOL(jhandle, use_direct_reads);
 }
 
 /*
  * Class:     org_rocksdb_EnvOptions
- * Method:    useOsBuffer
+ * Method:    useDirectReads
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_EnvOptions_useOsBuffer(JNIEnv *env, jobject jobj,
-                                                 jlong jhandle) {
-  return ENV_OPTIONS_GET(jhandle, use_os_buffer);
+jboolean Java_org_rocksdb_EnvOptions_useDirectReads(JNIEnv *env, jobject jobj,
+                                                    jlong jhandle) {
+  return ENV_OPTIONS_GET(jhandle, use_direct_reads);
+}
+
+/*
+ * Class:     org_rocksdb_EnvOptions
+ * Method:    setUseDirectWrites
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_EnvOptions_setUseDirectWrites(
+    JNIEnv *env, jobject jobj, jlong jhandle, jboolean use_direct_writes) {
+  ENV_OPTIONS_SET_BOOL(jhandle, use_direct_writes);
+}
+
+/*
+ * Class:     org_rocksdb_EnvOptions
+ * Method:    useDirectWrites
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_EnvOptions_useDirectWrites(JNIEnv *env, jobject jobj,
+                                                     jlong jhandle) {
+  return ENV_OPTIONS_GET(jhandle, use_direct_writes);
 }
 
 /*
@@ -108,47 +128,6 @@ void Java_org_rocksdb_EnvOptions_setUseMmapWrites(JNIEnv *env, jobject jobj,
 jboolean Java_org_rocksdb_EnvOptions_useMmapWrites(JNIEnv *env, jobject jobj,
                                                    jlong jhandle) {
   return ENV_OPTIONS_GET(jhandle, use_mmap_writes);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    setUseDirectReads
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_EnvOptions_setUseDirectReads(JNIEnv *env, jobject jobj,
-                                                   jlong jhandle,
-                                                   jboolean use_direct_reads) {
-  ENV_OPTIONS_SET_BOOL(jhandle, use_direct_reads);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    useDirectReads
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_EnvOptions_useDirectReads(JNIEnv *env, jobject jobj,
-                                                    jlong jhandle) {
-  return ENV_OPTIONS_GET(jhandle, use_direct_reads);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    setUseDirectWrites
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_EnvOptions_setUseDirectWrites(
-    JNIEnv *env, jobject jobj, jlong jhandle, jboolean use_direct_writes) {
-  ENV_OPTIONS_SET_BOOL(jhandle, use_direct_writes);
-}
-
-/*
- * Class:     org_rocksdb_EnvOptions
- * Method:    useDirectWrites
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_EnvOptions_useDirectWrites(JNIEnv *env, jobject jobj,
-                                                     jlong jhandle) {
-  return ENV_OPTIONS_GET(jhandle, use_direct_writes);
 }
 
 /*

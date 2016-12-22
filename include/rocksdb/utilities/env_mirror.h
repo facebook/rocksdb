@@ -15,10 +15,9 @@
 // semantics and behavior are correct (in that they match that of an
 // existing, stable Env, like the default POSIX one).
 
-#ifndef ROCKSDB_LITE
+#pragma once
 
-#ifndef STORAGE_ROCKSDB_INCLUDE_UTILITIES_ENVMIRROR_H_
-#define STORAGE_ROCKSDB_INCLUDE_UTLIITIES_ENVMIRROR_H_
+#ifndef ROCKSDB_LITE
 
 #include <iostream>
 #include <algorithm>
@@ -173,7 +172,5 @@ class EnvMirror : public EnvWrapper {
 };
 
 }  // namespace rocksdb
-
-#endif  // STORAGE_ROCKSDB_INCLUDE_UTILITIES_ENVMIRROR_H_
 
 #endif  // ROCKSDB_LITE

@@ -34,8 +34,7 @@ namespace rocksdb {
 void RunBenchmark() {
   std::string file_name = test::TmpDir() + "/log_write_benchmark.log";
   Env* env = Env::Default();
-  EnvOptions env_options;
-  env_options.use_mmap_writes = false;
+  EnvOptions env_options = env->OptimizeForLogWrite(EnvOptions());
   env_options.bytes_per_sync = FLAGS_bytes_per_sync;
   unique_ptr<WritableFile> file;
   env->NewWritableFile(file_name, &file, env_options);

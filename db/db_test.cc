@@ -3396,19 +3396,21 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
 TEST_F(DBTest, MmapAndBufferOptions) {
   Options options = CurrentOptions();
 
-  options.allow_os_buffer = false;
+  options.use_direct_reads = true;
   options.allow_mmap_reads = true;
   ASSERT_NOK(TryReopen(options));
 
   // All other combinations are acceptable
-  options.allow_os_buffer = true;
+  options.use_direct_reads = false;
   ASSERT_OK(TryReopen(options));
 
-  options.allow_os_buffer = false;
-  options.allow_mmap_reads = false;
-  ASSERT_OK(TryReopen(options));
+  if (IsDirectIOSupported()) {
+    options.use_direct_reads = true;
+    options.allow_mmap_reads = false;
+    ASSERT_OK(TryReopen(options));
+  }
 
-  options.allow_os_buffer = true;
+  options.use_direct_reads = false;
   ASSERT_OK(TryReopen(options));
 }
 #endif

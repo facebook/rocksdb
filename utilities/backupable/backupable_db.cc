@@ -1162,7 +1162,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
   unique_ptr<SequentialFile> src_file;
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
-  env_options.use_os_buffer = false;
+  // TODO:(gzh) maybe use direct writes here if possible
   if (size != nullptr) {
     *size = 0;
   }
@@ -1365,7 +1365,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
 
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
-  env_options.use_os_buffer = false;
+  env_options.use_direct_reads = false;
 
   std::unique_ptr<SequentialFile> src_file;
   Status s = src_env->NewSequentialFile(src, &src_file, env_options);
@@ -1671,6 +1671,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   unique_ptr<WritableFile> backup_meta_file;
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
+  env_options.use_direct_writes = false;
   s = env_->NewWritableFile(meta_filename_ + ".tmp", &backup_meta_file,
                             env_options);
   if (!s.ok()) {

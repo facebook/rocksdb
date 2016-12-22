@@ -38,6 +38,7 @@
 #endif
 #include <deque>
 #include <set>
+#include <vector>
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"
@@ -250,63 +251,65 @@ class PosixEnv : public Env {
     result->reset();
     Status s;
     int fd = -1;
+    int flags = O_CREAT | O_TRUNC;
+    // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
+    if (options.use_direct_writes && !options.use_mmap_writes) {
+      // Note: we should avoid O_APPEND here due to ta the following bug:
+      // POSIX requires that opening a file with the O_APPEND flag should
+      // have no affect on the location at which pwrite() writes data.
+      // However, on Linux, if a file is opened with O_APPEND, pwrite()
+      // appends data to the end of the file, regardless of the value of
+      // offset.
+      // More info here: https://linux.die.net/man/2/pwrite
+      flags |= O_WRONLY;
+#ifndef OS_MACOSX
+      flags |= O_DIRECT;
+#endif
+      TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
+    } else if (options.use_mmap_writes) {
+      // non-direct I/O
+      flags |= O_RDWR;
+    } else {
+      flags |= O_WRONLY;
+    }
+
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+      fd = open(fname.c_str(), flags, 0644);
     } while (fd < 0 && errno == EINTR);
+
     if (fd < 0) {
       s = IOError(fname, errno);
-    } else {
-      SetFD_CLOEXEC(fd, &options);
-      if (options.use_mmap_writes) {
-        if (!checkedDiskForMmap_) {
-          // this will be executed once in the program's lifetime.
-          // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-          if (!SupportsFastAllocate(fname)) {
-            forceMmapOff = true;
-          }
-          checkedDiskForMmap_ = true;
-        }
-      }
-      if (options.use_mmap_writes && !forceMmapOff) {
-        result->reset(new PosixMmapFile(fname, fd, page_size_, options));
-      } else if (options.use_direct_writes) {
-        close(fd);
-#ifdef OS_MACOSX
-        int flags = O_WRONLY | O_APPEND | O_TRUNC | O_CREAT;
-#else
-        // Note: we should avoid O_APPEND here due to ta the following bug:
-        // POSIX requires that opening a file with the O_APPEND flag should
-        // have no affect on the location at which pwrite() writes data.
-        // However, on Linux, if a file is opened with O_APPEND, pwrite()
-        // appends data to the end of the file, regardless of the value of
-        // offset.
-        // More info here: https://linux.die.net/man/2/pwrite
-        int flags = O_WRONLY | O_TRUNC | O_CREAT | O_DIRECT;
-#endif
-        TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
-        fd = open(fname.c_str(), flags, 0644);
-        if (fd < 0) {
-          s = IOError(fname, errno);
-        } else {
-          std::unique_ptr<PosixDirectIOWritableFile> file(
-              new PosixDirectIOWritableFile(fname, fd));
-          *result = std::move(file);
-          s = Status::OK();
-#ifdef OS_MACOSX
-          if (fcntl(fd, F_NOCACHE, 1) == -1) {
-            close(fd);
-            s = IOError(fname, errno);
-          }
-#endif
-        }
-      } else {
-        // disable mmap writes
-        EnvOptions no_mmap_writes_options = options;
-        no_mmap_writes_options.use_mmap_writes = false;
+      return s;
+    }
+    SetFD_CLOEXEC(fd, &options);
 
-        result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+    if (options.use_mmap_writes) {
+      if (!checkedDiskForMmap_) {
+        // this will be executed once in the program's lifetime.
+        // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
+        if (!SupportsFastAllocate(fname)) {
+          forceMmapOff_ = true;
+        }
+        checkedDiskForMmap_ = true;
       }
+    }
+    if (options.use_mmap_writes && !forceMmapOff_) {
+      result->reset(new PosixMmapFile(fname, fd, page_size_, options));
+    } else if (options.use_direct_writes && !options.use_mmap_writes) {
+#ifdef OS_MACOSX
+      if (fcntl(fd, F_NOCACHE, 1) == -1) {
+        close(fd);
+        s = IOError(fname, errno);
+        return s;
+      }
+#endif
+      result->reset(new PosixWritableFile(fname, fd, options));
+    } else {
+      // disable mmap writes
+      EnvOptions no_mmap_writes_options = options;
+      no_mmap_writes_options.use_mmap_writes = false;
+      result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
     }
     return s;
   }
@@ -318,40 +321,68 @@ class PosixEnv : public Env {
     result->reset();
     Status s;
     int fd = -1;
+
+    int flags = 0;
+    // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
+    if (options.use_direct_writes && !options.use_mmap_writes) {
+      flags |= O_WRONLY;
+#ifndef OS_MACOSX
+      flags |= O_DIRECT;
+#endif
+      TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
+    } else if (options.use_mmap_writes) {
+      // mmap needs O_RDWR mode
+      flags |= O_RDWR;
+    } else {
+      flags |= O_WRONLY;
+    }
+
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(old_fname.c_str(), O_RDWR, 0644);
+      fd = open(old_fname.c_str(), flags, 0644);
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
       s = IOError(fname, errno);
-    } else {
-      SetFD_CLOEXEC(fd, &options);
-      // rename into place
-      if (rename(old_fname.c_str(), fname.c_str()) != 0) {
-        Status r = IOError(old_fname, errno);
-        close(fd);
-        return r;
-      }
-      if (options.use_mmap_writes) {
-        if (!checkedDiskForMmap_) {
-          // this will be executed once in the program's lifetime.
-          // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
-          if (!SupportsFastAllocate(fname)) {
-            forceMmapOff = true;
-          }
-          checkedDiskForMmap_ = true;
-        }
-      }
-      if (options.use_mmap_writes && !forceMmapOff) {
-        result->reset(new PosixMmapFile(fname, fd, page_size_, options));
-      } else {
-        // disable mmap writes
-        EnvOptions no_mmap_writes_options = options;
-        no_mmap_writes_options.use_mmap_writes = false;
+      return s;
+    }
 
-        result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+    SetFD_CLOEXEC(fd, &options);
+    // rename into place
+    if (rename(old_fname.c_str(), fname.c_str()) != 0) {
+      s = IOError(old_fname, errno);
+      close(fd);
+      return s;
+    }
+
+    if (options.use_mmap_writes) {
+      if (!checkedDiskForMmap_) {
+        // this will be executed once in the program's lifetime.
+        // do not use mmapWrite on non ext-3/xfs/tmpfs systems.
+        if (!SupportsFastAllocate(fname)) {
+          forceMmapOff_ = true;
+        }
+        checkedDiskForMmap_ = true;
       }
     }
+    if (options.use_mmap_writes && !forceMmapOff_) {
+      result->reset(new PosixMmapFile(fname, fd, page_size_, options));
+    } else if (options.use_direct_writes && !options.use_mmap_writes) {
+#ifdef OS_MACOSX
+      if (fcntl(fd, F_NOCACHE, 1) == -1) {
+        close(fd);
+        s = IOError(fname, errno);
+        return s;
+      }
+#endif
+      result->reset(new PosixWritableFile(fname, fd, options));
+    } else {
+      // disable mmap writes
+      EnvOptions no_mmap_writes_options = options;
+      no_mmap_writes_options.use_mmap_writes = false;
+      result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+    }
+    return s;
+
     return s;
   }
 
@@ -724,6 +755,7 @@ class PosixEnv : public Env {
                                  const DBOptions& db_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
+    optimized.use_direct_writes = false;
     optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
     // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
     // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
@@ -736,14 +768,14 @@ class PosixEnv : public Env {
       const EnvOptions& env_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
+    optimized.use_direct_writes = false;
     optimized.fallocate_with_keep_size = true;
     return optimized;
   }
 
  private:
   bool checkedDiskForMmap_;
-  bool forceMmapOff; // do we override Env options?
-
+  bool forceMmapOff_;  // do we override Env options?
 
   // Returns true iff the named directory exists and is a directory.
   virtual bool DirExists(const std::string& dname) {
@@ -784,7 +816,7 @@ class PosixEnv : public Env {
 
 PosixEnv::PosixEnv()
     : checkedDiskForMmap_(false),
-      forceMmapOff(false),
+      forceMmapOff_(false),
       page_size_(getpagesize()),
       thread_pools_(Priority::TOTAL) {
   ThreadPoolImpl::PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));

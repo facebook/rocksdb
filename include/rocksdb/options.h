@@ -1100,26 +1100,6 @@ struct DBOptions {
   // large amounts of data (such as xfs's allocsize option).
   size_t manifest_preallocation_size;
 
-  // Hint the OS that it should not buffer disk I/O. Enabling this
-  // parameter may improve performance but increases pressure on the
-  // system cache.
-  //
-  // The exact behavior of this parameter is platform dependent.
-  //
-  // On POSIX systems, after RocksDB reads data from disk it will
-  // mark the pages as "unneeded". The operating system may - or may not
-  // - evict these pages from memory, reducing pressure on the system
-  // cache. If the disk block is requested again this can result in
-  // additional disk I/O.
-  //
-  // On WINDOWS system, files will be opened in "unbuffered I/O" mode
-  // which means that data read from the disk will not be cached or
-  // bufferized. The hardware buffer of the devices may however still
-  // be used. Memory mapped files are not impacted by this parameter.
-  //
-  // Default: true
-  bool allow_os_buffer;
-
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
 
@@ -1128,9 +1108,21 @@ struct DBOptions {
   // Default: false
   bool allow_mmap_writes;
 
+  // Enable direct I/O mode for read/write
+  // they may or may not improve performance depending on the use case
+  //
+  // Files will be opened in "direct I/O" mode
+  // which means that data r/w from the disk will not be cached or
+  // bufferized. The hardware buffer of the devices may however still
+  // be used. Memory mapped files are not impacted by these parameters.
+
   // Use O_DIRECT for reading file
   // Default: false
   bool use_direct_reads;
+
+  // Use O_DIRECT for writing file
+  // Default: false
+  bool use_direct_writes;
 
   // If false, fallocate() calls are bypassed
   bool allow_fallocate;

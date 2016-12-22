@@ -1719,9 +1719,14 @@ void rocksdb_options_set_manifest_preallocation_size(
 void rocksdb_options_set_purge_redundant_kvs_while_flush(rocksdb_options_t* opt,
                                                          unsigned char v) {}
 
-void rocksdb_options_set_allow_os_buffer(rocksdb_options_t* opt,
-                                         unsigned char v) {
-  opt->rep.allow_os_buffer = v;
+void rocksdb_options_set_use_direct_reads(rocksdb_options_t* opt,
+                                          unsigned char v) {
+  opt->rep.use_direct_reads = v;
+}
+
+void rocksdb_options_set_use_direct_writes(rocksdb_options_t* opt,
+                                           unsigned char v) {
+  opt->rep.use_direct_writes = v;
 }
 
 void rocksdb_options_set_allow_mmap_reads(
@@ -2000,7 +2005,7 @@ rocksdb_ratelimiter_t* rocksdb_ratelimiter_create(
 
 void rocksdb_ratelimiter_destroy(rocksdb_ratelimiter_t *limiter) {
   if (limiter->rep) {
-	delete limiter->rep;
+    delete limiter->rep;
   }
   delete limiter;
 }

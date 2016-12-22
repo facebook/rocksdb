@@ -221,9 +221,7 @@ class RandomAccessFileImpl : public RandomAccessFile {
 
 class WritableFileImpl : public WritableFile {
  public:
-  WritableFileImpl(FileState* file) : file_(file) {
-    file_->Ref();
-  }
+  explicit WritableFileImpl(FileState* file) : file_(file) { file_->Ref(); }
 
   ~WritableFileImpl() {
     file_->Unref();
