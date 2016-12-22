@@ -144,6 +144,16 @@ class SimCacheImpl : public SimCache {
     return res;
   }
 
+  virtual std::string GetPrintableOptions() const override {
+    std::string ret;
+    ret.reserve(20000);
+    ret.append("    cache_options:\n");
+    ret.append(cache_->GetPrintableOptions());
+    ret.append("    sim_cache_options:\n");
+    ret.append(key_only_cache_->GetPrintableOptions());
+    return ret;
+  }
+
  private:
   std::shared_ptr<Cache> cache_;
   std::shared_ptr<Cache> key_only_cache_;

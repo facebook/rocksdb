@@ -7,7 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include "util/sharded_cache.h"
+
+#include <string>
+
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -112,6 +119,26 @@ void ShardedCache::EraseUnRefEntries() {
   for (int s = 0; s < num_shards; s++) {
     GetShard(s)->EraseUnRefEntries();
   }
+}
+
+std::string ShardedCache::GetPrintableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+  {
+    MutexLock l(&capacity_mutex_);
+    snprintf(buffer, kBufferSize, "    capacity : %" ROCKSDB_PRIszt "\n",
+             capacity_);
+    ret.append(buffer);
+    snprintf(buffer, kBufferSize, "    num_shard_bits : %d\n", num_shard_bits_);
+    ret.append(buffer);
+    snprintf(buffer, kBufferSize, "    strict_capacity_limit : %d\n",
+             strict_capacity_limit_);
+    ret.append(buffer);
+  }
+  ret.append(GetShard(0)->GetPrintableOptions());
+  return ret;
 }
 
 }  // namespace rocksdb

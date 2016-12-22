@@ -7,11 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include "util/lru_cache.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 
 #include "util/mutexlock.h"
 
@@ -406,6 +411,17 @@ size_t LRUCacheShard::GetPinnedUsage() const {
   MutexLock l(&mutex_);
   assert(usage_ >= lru_usage_);
   return usage_ - lru_usage_;
+}
+
+std::string LRUCacheShard::GetPrintableOptions() const {
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+  {
+    MutexLock l(&mutex_);
+    snprintf(buffer, kBufferSize, "    high_pri_pool_ratio: %.3lf\n",
+             high_pri_pool_ratio_);
+  }
+  return std::string(buffer);
 }
 
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,

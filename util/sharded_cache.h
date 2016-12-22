@@ -10,6 +10,7 @@
 #pragma once
 
 #include <atomic>
+#include <string>
 
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -37,6 +38,7 @@ class CacheShard {
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) = 0;
   virtual void EraseUnRefEntries() = 0;
+  virtual std::string GetPrintableOptions() const { return ""; }
 };
 
 // Generic cache interface which shards cache by hash of keys. 2^num_shard_bits
@@ -72,6 +74,7 @@ class ShardedCache : public Cache {
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) override;
   virtual void EraseUnRefEntries() override;
+  virtual std::string GetPrintableOptions() const override;
 
  private:
   static inline uint32_t HashSlice(const Slice& s) {
