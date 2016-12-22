@@ -221,8 +221,6 @@ TEST_F(DBSSTTest, DeleteObsoleteFilesPendingOutputs) {
   listener->VerifyMatchedCount(1);
 }
 
-#endif  // ROCKSDB_LITE
-
 TEST_F(DBSSTTest, DBWithSstFileManager) {
   std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
   auto sfm = static_cast<SstFileManagerImpl*>(sst_file_manager.get());
@@ -287,7 +285,6 @@ TEST_F(DBSSTTest, DBWithSstFileManager) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBSSTTest, RateLimitedDelete) {
   Destroy(last_options_);
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
@@ -482,7 +479,6 @@ TEST_F(DBSSTTest, DestroyDBWithRateLimitedDelete) {
   // We have deleted the 4 sst files in the delete_scheduler
   ASSERT_EQ(bg_delete_file, 4);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBSSTTest, DBWithMaxSpaceAllowed) {
   std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
@@ -580,7 +576,6 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
   ASSERT_GT(reached_max_space_on_compaction, 0);
 }
 
-#ifndef ROCKSDB_LITE
 TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
   // Open DB with infinite max open files
   //  - First iteration use 1 thread to open files

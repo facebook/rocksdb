@@ -20,6 +20,8 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 
+#ifndef ROCKSDB_LITE
+
 namespace rocksdb {
 
 class DeleteSchedulerTest : public testing::Test {
@@ -426,3 +428,10 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+int main(int argc, char** argv) {
+  printf("DeleteScheduler is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+#endif  // ROCKSDB_LITE

@@ -1928,7 +1928,6 @@ Status DBImpl::FlushMemTableToOutputFile(
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
                            job_context->job_id, flush_job.GetTableProperties());
-#endif  // ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm) {
@@ -1942,6 +1941,7 @@ Status DBImpl::FlushMemTableToOutputFile(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached");
       }
     }
+#endif  // ROCKSDB_LITE
   }
   return s;
 }
@@ -6054,6 +6054,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   }
   impl->mutex_.Unlock();
 
+#ifndef ROCKSDB_LITE
   auto sfm = static_cast<SstFileManagerImpl*>(
       impl->immutable_db_options_.sst_file_manager.get());
   if (s.ok() && sfm) {
@@ -6072,6 +6073,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
   }
+#endif  // !ROCKSDB_LITE
 
   if (s.ok()) {
     Log(InfoLogLevel::INFO_LEVEL, impl->immutable_db_options_.info_log,
