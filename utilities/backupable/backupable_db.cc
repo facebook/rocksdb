@@ -1153,6 +1153,8 @@ Status BackupEngineImpl::CopyOrCreateFile(
   unique_ptr<WritableFile> dst_file;
   unique_ptr<SequentialFile> src_file;
   EnvOptions env_options;
+  env_options.use_mmap_writes = false;
+  // TODO:(gzh) maybe use direct writes here if possible
   if (size != nullptr) {
     *size = 0;
   }

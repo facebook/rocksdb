@@ -67,14 +67,9 @@ class WinFileData {
  protected:
   const std::string filename_;
   HANDLE hFile_;
-  // There is no equivalent of advising away buffered pages as in posix.
-  // To implement this flag we would need to do unbuffered reads which
+  // If ture,  the I/O issued would be direct I/O which the buffer
   // will need to be aligned (not sure there is a guarantee that the buffer
   // passed in is aligned).
-  // Hence we currently ignore this flag. It is used only in a few cases
-  // which should not be perf critical.
-  // If perf evaluation finds this to be a problem, we can look into
-  // implementing this.
   const bool use_direct_io_;
 
  public:

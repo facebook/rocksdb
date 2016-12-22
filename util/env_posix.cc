@@ -322,7 +322,7 @@ class PosixEnv : public Env {
     Status s;
     int fd = -1;
 
-    int flags = O_TRUNC;
+    int flags = 0;
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
     if (options.use_direct_writes && !options.use_mmap_writes) {
       flags |= O_WRONLY;

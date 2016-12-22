@@ -3404,10 +3404,11 @@ TEST_F(DBTest, MmapAndBufferOptions) {
   options.use_direct_reads = false;
   ASSERT_OK(TryReopen(options));
 
-  // make check -j64 usually run on tmpfs
-  // options.use_direct_reads = true;
-  // options.allow_mmap_reads = false;
-  // ASSERT_OK(TryReopen(options));
+  if (IsDirectIOSupported()) {
+    options.use_direct_reads = true;
+    options.allow_mmap_reads = false;
+    ASSERT_OK(TryReopen(options));
+  }
 
   options.use_direct_reads = false;
   ASSERT_OK(TryReopen(options));
