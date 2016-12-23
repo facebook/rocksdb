@@ -457,8 +457,15 @@ class Version {
   // for the key if a key was found.
   //
   // REQUIRES: lock is not held
-  void Get(const ReadOptions&, const LookupKey& key, std::string* val,
+  void Get(const ReadOptions& ro, const LookupKey& key, std::string* val,
            Status* status, MergeContext* merge_context,
+           RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
+           bool* key_exists = nullptr, SequenceNumber* seq = nullptr) {
+    Get(ro, key, val, nullptr, status, merge_context, range_del_agg,
+        value_found, key_exists, seq);
+  }
+  void Get(const ReadOptions&, const LookupKey& key, std::string* val,
+           PinnableSlice* pSlice, Status* status, MergeContext* merge_context,
            RangeDelAggregator* range_del_agg, bool* value_found = nullptr,
            bool* key_exists = nullptr, SequenceNumber* seq = nullptr);
 

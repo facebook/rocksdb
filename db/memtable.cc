@@ -521,6 +521,7 @@ struct Saver {
   bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
   bool* merge_in_progress;
   std::string* value;
+  PinnableSlice* pSlice;
   SequenceNumber seq;
   const MergeOperator* merge_operator;
   // the merge operations encountered;
@@ -533,6 +534,10 @@ struct Saver {
   Env* env_;
 };
 }  // namespace
+
+static void UnrefMemTable(void* s, void*) {
+  reinterpret_cast<MemTable*>(s)->Unref();
+}
 
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
@@ -572,12 +577,24 @@ static bool SaveValue(void* arg, const char* entry) {
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), &v,
-              merge_context->GetOperands(), s->value, s->logger, s->statistics,
-              s->env_);
+          if (s->pSlice == nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), s->value, s->logger, s->statistics,
+                s->env_);
+          } else {
+            std::string* str_value = new std::string();
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), str_value, s->logger, s->statistics,
+                s->env_);
+            s->pSlice->PinHeap(str_value);
+          }
         } else if (s->value != nullptr) {
           s->value->assign(v.data(), v.size());
+        } else if (s->pSlice != nullptr) {
+          s->mem->Ref();
+          s->pSlice->PinSlice(v, UnrefMemTable, s->mem, nullptr);
         }
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
@@ -589,10 +606,19 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
+          if (s->pSlice == nullptr) {
           *(s->status) = MergeHelper::TimedFullMerge(
               merge_operator, s->key->user_key(), nullptr,
               merge_context->GetOperands(), s->value, s->logger, s->statistics,
               s->env_);
+          } else {
+            std::string* str_value = new std::string();
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), nullptr,
+              merge_context->GetOperands(), str_value, s->logger, s->statistics,
+              s->env_);
+            s->pSlice->PinHeap(str_value);
+          }
         } else {
           *(s->status) = Status::NotFound();
         }
@@ -626,10 +652,13 @@ static bool SaveValue(void* arg, const char* entry) {
   return false;
 }
 
-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
+bool MemTable::Get(const LookupKey& key, std::string* value,
+                   PinnableSlice* pSlice, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                    const ReadOptions& read_opts) {
+  // It is acceptable if both of them are null
+  assert(value == nullptr || pSlice == nullptr);
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -665,6 +694,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.merge_in_progress = &merge_in_progress;
     saver.key = &key;
     saver.value = value;
+    saver.pSlice = pSlice;
     saver.seq = kMaxSequenceNumber;
     saver.mem = this;
     saver.merge_context = merge_context;
