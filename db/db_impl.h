@@ -92,6 +92,10 @@ class DBImpl : public DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) override;
+  using DB::GetAndPin;
+  virtual Status GetAndPin(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) override;
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -1104,7 +1108,7 @@ class DBImpl : public DB {
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, std::string* value,
+                 const Slice& key, std::string* value, PinnableSlice* pSlice,
                  bool* value_found = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,

@@ -3941,7 +3941,13 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
                    std::string* value) {
-  return GetImpl(read_options, column_family, key, value);
+  return GetImpl(read_options, column_family, key, value, nullptr);
+}
+
+Status DBImpl::GetAndPin(const ReadOptions& read_options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableSlice* value) {
+  return GetImpl(read_options, column_family, key, nullptr, value);
 }
 
 // JobContext gets created and destructed outside of the lock --
@@ -3998,7 +4004,9 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       std::string* value, bool* value_found) {
+                       std::string* value, PinnableSlice* pSlice,
+                       bool* value_found) {
+  assert(value == nullptr || pSlice == nullptr);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -4046,12 +4054,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
-    if (sv->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
+    if (sv->mem->Get(lkey, value, pSlice, &s, &merge_context, &range_del_agg,
                      read_options)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
-               sv->imm->Get(lkey, value, &s, &merge_context, &range_del_agg,
+               sv->imm->Get(lkey, value, pSlice, &s, &merge_context, &range_del_agg,
                             read_options)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
@@ -4062,7 +4070,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->Get(read_options, lkey, value, &s, &merge_context,
+    sv->current->Get(read_options, lkey, value, pSlice, &s, &merge_context,
                      &range_del_agg, value_found);
     RecordTick(stats_, MEMTABLE_MISS);
   }
@@ -4073,8 +4081,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
-    RecordTick(stats_, BYTES_READ, value->size());
-    MeasureTime(stats_, BYTES_PER_READ, value->size());
+    size_t size = pSlice != nullptr ? pSlice->size() : value->size();
+    RecordTick(stats_, BYTES_READ, size);
+    MeasureTime(stats_, BYTES_PER_READ, size);
   }
   return s;
 }
@@ -4152,7 +4161,7 @@ std::vector<Status> DBImpl::MultiGet(
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
-      if (super_version->mem->Get(lkey, value, &s, &merge_context,
+      if (super_version->mem->Get(lkey, value, nullptr, &s, &merge_context,
                                   &range_del_agg, read_options)) {
         done = true;
         // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
@@ -4383,7 +4392,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   }
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier; // read from block cache only
-  auto s = GetImpl(roptions, column_family, key, value, value_found);
+  auto s = GetImpl(roptions, column_family, key, value, nullptr, value_found);
 
   // If block_cache is enabled and the index block of the table didn't
   // not present in block_cache, the return value will be Status::Incomplete.
@@ -6432,7 +6441,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
+  sv->mem->Get(lkey, nullptr, nullptr, &s, &merge_context, &range_del_agg, seq,
                read_options);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {

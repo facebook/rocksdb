@@ -283,6 +283,11 @@ class DB {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) = 0;
+  virtual Status GetAndPin(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) {
+    return Status::NotSupported("");
+  }
   virtual Status Get(const ReadOptions& options, const Slice& key, std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }

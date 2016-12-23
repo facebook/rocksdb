@@ -9,6 +9,7 @@
 #include "db/range_del_aggregator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/types.h"
+#include "table/block.h"
 
 namespace rocksdb {
 class MergeContext;
@@ -31,6 +32,14 @@ class GetContext {
              Env* env, SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr);
 
+  GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
+             Logger* logger, Statistics* statistics, GetState init_state,
+             const Slice& user_key, std::string* ret_value,
+             PinnableSlice* pSlice, bool* value_found,
+             MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+             Env* env, SequenceNumber* seq = nullptr,
+             PinnedIteratorsManager* _pinned_iters_mgr = nullptr);
+
   void MarkKeyMayExist();
 
   // Records this key, value, and any meta-data (such as sequence number and
@@ -39,7 +48,7 @@ class GetContext {
   // Returns True if more keys need to be read (due to merges) or
   //         False if the complete value has been found.
   bool SaveValue(const ParsedInternalKey& parsed_key, const Slice& value,
-                 bool value_pinned = false);
+                 Cleanable* value_pinner = nullptr);
 
   // Simplified version of the previous function. Should only be used when we
   // know that the operation is a Put.
@@ -50,6 +59,8 @@ class GetContext {
   RangeDelAggregator* range_del_agg() { return range_del_agg_; }
 
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
+
+  PinnableSlice* GetPSlice() { return pSlice_; }
 
   // If a non-null string is passed, all the SaveValue calls will be
   // logged into the string. The operations can then be replayed on
@@ -69,6 +80,7 @@ class GetContext {
   GetState state_;
   Slice user_key_;
   std::string* value_;
+  PinnableSlice* pSlice_;
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   RangeDelAggregator* range_del_agg_;
