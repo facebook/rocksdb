@@ -15,7 +15,6 @@
 #include "rocksdb/perf_context.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/testutil.h"
 
 namespace rocksdb {
 

@@ -19,9 +19,7 @@ Cleanable::Cleanable() {
   cleanup_.next = nullptr;
 }
 
-Cleanable::~Cleanable() {
-  DoCleanup();
-}
+Cleanable::~Cleanable() { DoCleanup(); }
 
 void Cleanable::Reset() {
   DoCleanup();
@@ -29,7 +27,34 @@ void Cleanable::Reset() {
   cleanup_.next = nullptr;
 }
 
+void Cleanable::DoCleanup() {
+  if (cleanup_.function != nullptr) {
+    (*cleanup_.function)(cleanup_.arg1, cleanup_.arg2);
+    for (Cleanup* c = cleanup_.next; c != nullptr;) {
+      (*c->function)(c->arg1, c->arg2);
+      Cleanup* next = c->next;
+      delete c;
+      c = next;
+    }
+  }
+}
+
+// If the entire linked list was on heap we could have simply add attach one
+// link list to another. However the head is an embeded object to avoid the cost
+// of creating objects for most of the use cases when the Cleanable has only one
+// Cleanup to do. We could put evernything on heap if benchmarks show no
+// negative impact on performance.
+// Also we need to iterate on the linked list since there is no pointer to the
+// tail. We can add the tail pointer but maintainin it might negatively impact
+// the perforamnce for the common case of one cleanup where tail pointer is not
+// needed. Again benchmarks could clarify that.
+// Even without a tail pointer we could iterate on the list, find the tail, and
+// have only that node updated without the need to insert the Cleanups one by
+// one. This however would be redundant when the source Cleanable has one or a
+// few Cleanups which is the case most of the time.
 // TODO(myabandeh): if the list is too long we should maintain a tail pointer
+// and have the entire list (minus the head that has to be inserted separately)
+// merged with the target linked list at once.
 void Cleanable::DelegateCleanupsTo(Cleanable* other) {
   assert(other != nullptr);
   if (cleanup_.function == nullptr) {

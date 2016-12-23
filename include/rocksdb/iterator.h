@@ -54,17 +54,7 @@ class Cleanable {
  private:
   // Performs all the cleanups. It does not reset the pointers. Making it
   // private to prevent misuse
-  inline void DoCleanup() {
-    if (cleanup_.function != nullptr) {
-      (*cleanup_.function)(cleanup_.arg1, cleanup_.arg2);
-      for (Cleanup* c = cleanup_.next; c != nullptr;) {
-        (*c->function)(c->arg1, c->arg2);
-        Cleanup* next = c->next;
-        delete c;
-        c = next;
-      }
-    }
-  }
+  inline void DoCleanup();
 };
 
 class Iterator : public Cleanable {
