@@ -71,7 +71,7 @@ class EnvLibrados : public EnvWrapper {
   //                  the calling process does not have permission to determine
   //                  whether this file exists, or if the path is invalid.
   //         IOError if an IO Error was encountered
-  Status FileExists(const std::string& fname) overrdie;
+  Status FileExists(const std::string& fname) override;
 
   // Store in *result the names of the children of the specified directory.
   // The names are relative to "dir".
