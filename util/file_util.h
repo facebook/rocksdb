@@ -14,7 +14,8 @@
 namespace rocksdb {
 
 extern Status CopyFile(Env* env, const std::string& source,
-                       const std::string& destination, uint64_t size = 0);
+                       const std::string& destination, uint64_t size = 0,
+                       const bool use_fsync = false);
 
 extern Status CreateFile(Env* env, const std::string& destination,
                          const std::string& contents);
