@@ -927,7 +927,7 @@ Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
       version_number_(version_number) {}
 
 void Version::Get(const ReadOptions& read_options, const LookupKey& k,
-                  std::string* value, PinnableSlice* pSlice, Status* status,
+                  PinnableSlice* pSlice, Status* status,
                   MergeContext* merge_context,
                   RangeDelAggregator* range_del_agg, bool* value_found,
                   bool* key_exists, SequenceNumber* seq) {
@@ -945,7 +945,7 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
   GetContext get_context(
       user_comparator(), merge_operator_, info_log_, db_statistics_,
       status->ok() ? GetContext::kNotFound : GetContext::kMerge, user_key,
-      value, pSlice, value_found, merge_context, range_del_agg, this->env_, seq,
+      pSlice, value_found, merge_context, range_del_agg, this->env_, seq,
       merge_operator_ ? &pinned_iters_mgr : nullptr);
 
   // Pin blocks that we read to hold merge operands
@@ -1004,15 +1004,11 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    if (pSlice == nullptr) {
-      *status = MergeHelper::TimedFullMerge(merge_operator_, user_key, nullptr,
-                                            merge_context->GetOperands(), value,
-                                            info_log_, db_statistics_, env_);
-    } else {
-      std::string* str_value = new std::string();
-      *status = MergeHelper::TimedFullMerge(
-          merge_operator_, user_key, nullptr, merge_context->GetOperands(),
-          str_value, info_log_, db_statistics_, env_);
+    std::string* str_value = pSlice != nullptr ? new std::string() : nullptr;
+    *status = MergeHelper::TimedFullMerge(
+        merge_operator_, user_key, nullptr, merge_context->GetOperands(),
+        str_value, info_log_, db_statistics_, env_);
+    if (LIKELY(pSlice != nullptr)) {
       pSlice->PinHeap(str_value);
     }
   } else {

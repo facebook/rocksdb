@@ -3844,7 +3844,8 @@ class Benchmark {
           s = db_with_cfh->db->GetAndPin(
               options, db_with_cfh->db->DefaultColumnFamily(), key, &pSlice);
         } else {
-          s = db_with_cfh->db->Get(options, key, &value);
+          s = db_with_cfh->db->Get(
+              options, db_with_cfh->db->DefaultColumnFamily(), key, &value);
         }
       }
       if (s.ok()) {

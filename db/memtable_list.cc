@@ -100,14 +100,13 @@ int MemTableList::NumFlushed() const {
 // Search all the memtables starting from the most recent one.
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
-bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
-                              PinnableSlice* pSlice, Status* s,
-                              MergeContext* merge_context,
+bool MemTableListVersion::Get(const LookupKey& key, PinnableSlice* pSlice,
+                              Status* s, MergeContext* merge_context,
                               RangeDelAggregator* range_del_agg,
                               SequenceNumber* seq,
                               const ReadOptions& read_opts) {
-  return GetFromList(&memlist_, key, value, pSlice, s, merge_context,
-                     range_del_agg, seq, read_opts);
+  return GetFromList(&memlist_, key, pSlice, s, merge_context, range_del_agg,
+                     seq, read_opts);
 }
 
 bool MemTableListVersion::GetFromHistory(const LookupKey& key,
@@ -116,24 +115,24 @@ bool MemTableListVersion::GetFromHistory(const LookupKey& key,
                                          RangeDelAggregator* range_del_agg,
                                          SequenceNumber* seq,
                                          const ReadOptions& read_opts) {
-  return GetFromList(&memlist_history_, key, value, nullptr, s, merge_context,
-                     range_del_agg, seq, read_opts);
+  PinnableSlice pSlice;
+  auto res = GetFromList(&memlist_history_, key, &pSlice, s, merge_context,
+                         range_del_agg, seq, read_opts);
+  value->assign(pSlice.data(), pSlice.size());
+  return res;
 }
 
-bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
-                                      const LookupKey& key, std::string* value,
-                                      PinnableSlice* pSlice,
-                                      Status* s, MergeContext* merge_context,
-                                      RangeDelAggregator* range_del_agg,
-                                      SequenceNumber* seq,
-                                      const ReadOptions& read_opts) {
+bool MemTableListVersion::GetFromList(
+    std::list<MemTable*>* list, const LookupKey& key, PinnableSlice* pSlice,
+    Status* s, MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+    SequenceNumber* seq, const ReadOptions& read_opts) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
     SequenceNumber current_seq = kMaxSequenceNumber;
 
-    bool done = memtable->Get(key, value, pSlice, s, merge_context,
-                              range_del_agg, &current_seq, read_opts);
+    bool done = memtable->Get(key, pSlice, s, merge_context, range_del_agg,
+                              &current_seq, read_opts);
     if (*seq == kMaxSequenceNumber) {
       // Store the most recent sequence number of any operation on this key.
       // Since we only care about the most recent change, we only need to
