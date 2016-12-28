@@ -11,6 +11,7 @@
 #include "table/block_based_table_builder.h"
 #include "table/sst_file_writer_collectors.h"
 #include "util/file_reader_writer.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -21,12 +22,15 @@ const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
 
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
-      const Comparator* _user_comparator, ColumnFamilyHandle* _cfh)
+      const Comparator* _user_comparator, ColumnFamilyHandle* _cfh,
+      uint64_t _fadvise_trigger)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
         internal_comparator(_user_comparator),
-        cfh(_cfh) {}
+        cfh(_cfh),
+        fadvise_trigger(_fadvise_trigger),
+        last_fadvise_size(0) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
   std::unique_ptr<TableBuilder> builder;
@@ -38,15 +42,23 @@ struct SstFileWriter::Rep {
   InternalKey ikey;
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
+  // If not -ve, Everytime we write `fadvise_trigger` bytes to the file, we
+  // will Fadvise these bytes away from page cache.
+  uint64_t fadvise_trigger;
+  // the size of the file during the last time we called Fadvise to remove
+  // cached pages from page cache.
+  uint64_t last_fadvise_size;
 };
 
 SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Options& options,
                              const Comparator* user_comparator,
-                             ColumnFamilyHandle* column_family)
-    : rep_(new Rep(env_options, options, user_comparator, column_family)) {
-      rep_->file_info.file_size = 0;
-    }
+                             ColumnFamilyHandle* column_family,
+                             uint64_t fadvise_trigger)
+    : rep_(new Rep(env_options, options, user_comparator, column_family,
+                   fadvise_trigger)) {
+  rep_->file_info.file_size = 0;
+}
 
 SstFileWriter::~SstFileWriter() {
   if (rep_->builder) {
@@ -143,15 +155,17 @@ Status SstFileWriter::Add(const Slice& user_key, const Slice& value) {
     }
   }
 
+  // TODO(tec) : For external SST files we could omit the seqno and type.
+  r->ikey.Set(user_key, 0 /* Sequence Number */,
+              ValueType::kTypeValue /* Put */);
+  r->builder->Add(r->ikey.Encode(), value);
+
   // update file info
   r->file_info.num_entries++;
   r->file_info.largest_key.assign(user_key.data(), user_key.size());
   r->file_info.file_size = r->builder->FileSize();
 
-  // TODO(tec) : For external SST files we could omit the seqno and type.
-  r->ikey.Set(user_key, 0 /* Sequence Number */,
-              ValueType::kTypeValue /* Put */);
-  r->builder->Add(r->ikey.Encode(), value);
+  InvalidatePageCache(false /* closing */);
 
   return Status::OK();
 }
@@ -166,7 +180,10 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   }
 
   Status s = r->builder->Finish();
+  r->file_info.file_size = r->builder->FileSize();
+
   if (s.ok()) {
+    InvalidatePageCache(true /* closing */);
     if (!r->ioptions.disable_data_sync) {
       s = r->file_writer->Sync(r->ioptions.use_fsync);
     }
@@ -181,13 +198,29 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     r->ioptions.env->DeleteFile(r->file_info.file_path);
   }
 
-  if (s.ok() && file_info != nullptr) {
-    r->file_info.file_size = r->builder->FileSize();
+  if (file_info != nullptr) {
     *file_info = r->file_info;
   }
 
   r->builder.reset();
   return s;
+}
+
+void SstFileWriter::InvalidatePageCache(bool closing) {
+  Rep* r = rep_;
+  if (r->fadvise_trigger == 0) {
+    // Fadvise disabled
+    return;
+  }
+
+  uint64_t bytes_in_page_cache = r->builder->FileSize() - r->last_fadvise_size;
+  if (bytes_in_page_cache > r->fadvise_trigger ||
+      (closing && bytes_in_page_cache > 0)) {
+    TEST_SYNC_POINT_CALLBACK("SstFileWriter::InvalidatePageCache",
+                             &(bytes_in_page_cache));
+    r->file_writer->InvalidateCache(r->last_fadvise_size, bytes_in_page_cache);
+    r->last_fadvise_size = r->builder->FileSize();
+  }
 }
 
 uint64_t SstFileWriter::FileSize() {

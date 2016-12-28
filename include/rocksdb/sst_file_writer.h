@@ -47,9 +47,12 @@ class SstFileWriter {
   // User can pass `column_family` to specify that the the generated file will
   // be ingested into this column_family, note that passing nullptr means that
   // the column_family is unknown.
+  // If fadvise_trigger is passed with a non-zero value, SstFileWriter will
+  // invalidate the os page cache every `fadvise_trigger` bytes for the sst file
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 const Comparator* user_comparator,
-                ColumnFamilyHandle* column_family = nullptr);
+                ColumnFamilyHandle* column_family = nullptr,
+                uint64_t fadvise_trigger = 0);
 
   ~SstFileWriter();
 
@@ -70,6 +73,8 @@ class SstFileWriter {
   uint64_t FileSize();
 
  private:
+  void InvalidatePageCache(bool closing);
+
   struct Rep;
   Rep* rep_;
 };
