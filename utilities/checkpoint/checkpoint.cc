@@ -65,6 +65,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   uint64_t sequence_number = db_->GetLatestSequenceNumber();
   bool same_fs = true;
   VectorLogPtr live_wal_files;
+  const bool use_fsync = db_->GetOptions().use_fsync;
 
   s = db_->GetEnv()->FileExists(checkpoint_dir);
   if (s.ok()) {
@@ -142,7 +143,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
       Log(db_->GetOptions().info_log, "Copying %s", src_fname.c_str());
       s = CopyFile(db_->GetEnv(), db_->GetName() + src_fname,
                    full_private_path + src_fname,
-                   (type == kDescriptorFile) ? manifest_file_size : 0);
+                   (type == kDescriptorFile) ? manifest_file_size : 0,
+                   use_fsync);
     }
   }
   if (s.ok() && !current_fname.empty() && !manifest_fname.empty()) {
@@ -154,16 +156,22 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
 
   // Link WAL files. Copy exact size of last one because it is the only one
   // that has changes after the last flush.
+  // With 2PC, some prepared transactions may exist in older WAL files, so
+  // copying all active WAL files is needed.
+  // TODO(yoshinorim): Make 2PC add some flags into WAL header to specify
+  // if the WAL needs copy or not
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
-        (live_wal_files[i]->StartSequence() >= sequence_number)) {
+        ((live_wal_files[i]->StartSequence() >= sequence_number) ||
+         db_->GetOptions().allow_2pc)) {
       if (i + 1 == wal_size) {
         Log(db_->GetOptions().info_log, "Copying %s",
             live_wal_files[i]->PathName().c_str());
         s = CopyFile(db_->GetEnv(),
                      db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
                      full_private_path + live_wal_files[i]->PathName(),
-                     live_wal_files[i]->SizeFileBytes());
+                     live_wal_files[i]->SizeFileBytes(),
+                     use_fsync);
         break;
       }
       if (same_fs) {
@@ -181,9 +189,11 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
       if (!same_fs) {
         Log(db_->GetOptions().info_log, "Copying %s",
             live_wal_files[i]->PathName().c_str());
+        // Sync file for each copy, to prevent burst writes into storage
         s = CopyFile(db_->GetEnv(),
                      db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
-                     full_private_path + live_wal_files[i]->PathName(), 0);
+                     full_private_path + live_wal_files[i]->PathName(), 0,
+                     use_fsync);
       }
     }
   }
