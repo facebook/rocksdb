@@ -155,8 +155,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   // Link WAL files. Copy exact size of last one because it is the only one
   // that has changes after the last flush.
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
-    if ((live_wal_files[i]->Type() == kAliveLogFile) &&
-        (live_wal_files[i]->StartSequence() >= sequence_number)) {
+    if (live_wal_files[i]->Type() == kAliveLogFile) {
       if (i + 1 == wal_size) {
         Log(db_->GetOptions().info_log, "Copying %s",
             live_wal_files[i]->PathName().c_str());
