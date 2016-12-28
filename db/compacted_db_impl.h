@@ -20,10 +20,10 @@ class CompactedDBImpl : public DBImpl {
                      DB** dbptr);
 
   // Implementations of the DB interface
-  using DB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override;
+  using DB::GetAndPin;
+  virtual Status GetAndPin(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* value) override;
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,

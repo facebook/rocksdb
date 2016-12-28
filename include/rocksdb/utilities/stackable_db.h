@@ -54,10 +54,10 @@ class StackableDB : public DB {
   }
 
   using DB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override {
-    return db_->Get(options, column_family, key, value);
+  virtual Status GetAndPin(const ReadOptions& options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* pSlice) override {
+    return db_->GetAndPin(options, column_family, key, pSlice);
   }
 
   using DB::MultiGet;

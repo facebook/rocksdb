@@ -88,10 +88,6 @@ class DBImpl : public DB {
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
 
-  using DB::Get;
-  virtual Status Get(const ReadOptions& options,
-                     ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override;
   using DB::GetAndPin;
   virtual Status GetAndPin(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -1092,7 +1088,7 @@ class DBImpl : public DB {
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, std::string* value, PinnableSlice* pSlice,
+                 const Slice& key, PinnableSlice* pSlice,
                  bool* value_found = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,

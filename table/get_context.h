@@ -27,15 +27,7 @@ class GetContext {
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, std::string* ret_value, bool* value_found,
-             MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-             Env* env, SequenceNumber* seq = nullptr,
-             PinnedIteratorsManager* _pinned_iters_mgr = nullptr);
-
-  GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
-             Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, std::string* ret_value,
-             PinnableSlice* pSlice, bool* value_found,
+             const Slice& user_key, PinnableSlice* pSlice, bool* value_found,
              MergeContext* merge_context, RangeDelAggregator* range_del_agg,
              Env* env, SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr);
@@ -60,8 +52,6 @@ class GetContext {
 
   PinnedIteratorsManager* pinned_iters_mgr() { return pinned_iters_mgr_; }
 
-  PinnableSlice* GetPSlice() { return pSlice_; }
-
   // If a non-null string is passed, all the SaveValue calls will be
   // logged into the string. The operations can then be replayed on
   // another GetContext with replayGetContextLog.
@@ -79,7 +69,6 @@ class GetContext {
 
   GetState state_;
   Slice user_key_;
-  std::string* value_;
   PinnableSlice* pSlice_;
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
