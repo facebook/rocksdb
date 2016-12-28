@@ -500,6 +500,10 @@ class DB {
     //      live data in bytes.
     static const std::string kEstimateLiveDataSize;
 
+    //  "rocksdb.min-log-number-to-keep" - return the minmum log number of the
+    //      log files that should be kept.
+    static const std::string kMinLogNumberToKeep;
+
     //  "rocksdb.total-sst-files-size" - returns total size (bytes) of all SST
     //      files.
     //  WARNING: may slow down online queries if there are too many files.
@@ -565,6 +569,7 @@ class DB {
   //  "rocksdb.num-live-versions"
   //  "rocksdb.current-super-version-number"
   //  "rocksdb.estimate-live-data-size"
+  //  "rocksdb.min-log-number-to-keep"
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"

@@ -21,6 +21,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
 #include "util/xfunc.h"
@@ -386,6 +387,120 @@ TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing) {
   // Successful Open() implies that CURRENT pointed to the manifest in the
   // checkpoint.
   ASSERT_OK(DB::Open(options, kSnapshotName, &snapshotDB));
+  delete snapshotDB;
+  snapshotDB = nullptr;
+}
+
+TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing2PC) {
+  const std::string kSnapshotName = test::TmpDir(env_) + "/snapshot";
+  const std::string dbname = test::TmpDir() + "/transaction_testdb";
+  ASSERT_OK(DestroyDB(kSnapshotName, CurrentOptions()));
+  ASSERT_OK(DestroyDB(dbname, CurrentOptions()));
+  env_->DeleteDir(kSnapshotName);
+  env_->DeleteDir(dbname);
+  Close();
+
+  Options options = CurrentOptions();
+  // allow_2pc is implicitly set with tx prepare
+  // options.allow_2pc = true;
+  TransactionDBOptions txn_db_options;
+  TransactionDB* txdb;
+  Status s = TransactionDB::Open(options, txn_db_options, dbname, &txdb);
+  assert(s.ok());
+  ColumnFamilyHandle* cfa;
+  ColumnFamilyHandle* cfb;
+  ColumnFamilyOptions cf_options;
+  ASSERT_OK(txdb->CreateColumnFamily(cf_options, "CFA", &cfa));
+
+  WriteOptions write_options;
+  // Insert something into CFB so lots of log files will be kept
+  // before creating the checkpoint.
+  ASSERT_OK(txdb->CreateColumnFamily(cf_options, "CFB", &cfb));
+  ASSERT_OK(txdb->Put(write_options, cfb, "", ""));
+
+  ReadOptions read_options;
+  std::string value;
+  TransactionOptions txn_options;
+  Transaction* txn = txdb->BeginTransaction(write_options, txn_options);
+  s = txn->SetName("xid");
+  ASSERT_OK(s);
+  ASSERT_EQ(txdb->GetTransactionByName("xid"), txn);
+
+  s = txn->Put(Slice("foo"), Slice("bar"));
+  s = txn->Put(cfa, Slice("foocfa"), Slice("barcfa"));
+  ASSERT_OK(s);
+  // Writing prepare into middle of first WAL, then flush WALs many times
+  for (int i = 1; i <= 100000; i++) {
+    Transaction* tx = txdb->BeginTransaction(write_options, txn_options);
+    ASSERT_OK(tx->SetName("x"));
+    ASSERT_OK(tx->Put(Slice(std::to_string(i)), Slice("val")));
+    ASSERT_OK(tx->Put(cfa, Slice("aaa"), Slice("111")));
+    ASSERT_OK(tx->Prepare());
+    ASSERT_OK(tx->Commit());
+    if (i % 10000 == 0) {
+      txdb->Flush(FlushOptions());
+    }
+    if (i == 88888) {
+      ASSERT_OK(txn->Prepare());
+    }
+  }
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
+        "DBTest::CurrentFileModifiedWhileCheckpointing2PC:PreCommit"},
+       {"DBTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit",
+        "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  std::thread t([&]() {
+    Checkpoint* checkpoint;
+    ASSERT_OK(Checkpoint::Create(txdb, &checkpoint));
+    ASSERT_OK(checkpoint->CreateCheckpoint(kSnapshotName));
+    delete checkpoint;
+  });
+  TEST_SYNC_POINT("DBTest::CurrentFileModifiedWhileCheckpointing2PC:PreCommit");
+  ASSERT_OK(txn->Commit());
+  TEST_SYNC_POINT(
+      "DBTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit");
+  t.join();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  // No more than two logs files should exist.
+  std::vector<std::string> files;
+  env_->GetChildren(kSnapshotName, &files);
+  int num_log_files = 0;
+  for (auto& file : files) {
+    uint64_t num;
+    FileType type;
+    WalFileType log_type;
+    if (ParseFileName(file, &num, &type, &log_type) && type == kLogFile) {
+      num_log_files++;
+    }
+  }
+  // One flush after preapare + one outstanding file before checkpoint + one log
+  // file generated after checkpoint.
+  ASSERT_LE(num_log_files, 3);
+
+  TransactionDB* snapshotDB;
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+  column_families.push_back(
+      ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
+  column_families.push_back(
+      ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
+  std::vector<rocksdb::ColumnFamilyHandle*> cf_handles;
+  ASSERT_OK(TransactionDB::Open(options, txn_db_options, kSnapshotName,
+                                column_families, &cf_handles, &snapshotDB));
+  ASSERT_OK(snapshotDB->Get(read_options, "foo", &value));
+  ASSERT_EQ(value, "bar");
+  ASSERT_OK(snapshotDB->Get(read_options, cf_handles[1], "foocfa", &value));
+  ASSERT_EQ(value, "barcfa");
+
+  delete cfa;
+  delete cfb;
+  delete cf_handles[0];
+  delete cf_handles[1];
+  delete cf_handles[2];
   delete snapshotDB;
   snapshotDB = nullptr;
 }
