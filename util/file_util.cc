@@ -16,7 +16,7 @@ namespace rocksdb {
 
 // Utility function to copy a file up to a specified length
 Status CopyFile(Env* env, const std::string& source,
-                const std::string& destination, uint64_t size) {
+                const std::string& destination, uint64_t size, bool use_fsync) {
   const EnvOptions soptions;
   Status s;
   unique_ptr<SequentialFileReader> src_reader;
@@ -62,6 +62,7 @@ Status CopyFile(Env* env, const std::string& source,
     }
     size -= slice.size();
   }
+  dest_writer->Sync(use_fsync);
   return Status::OK();
 }
 
