@@ -284,10 +284,10 @@ class TransactionBaseImpl : public Transaction {
           num_merges_(num_merges) {}
   };
 
- private:
   // Records writes pending in this transaction
   WriteBatchWithIndex write_batch_;
 
+ private:
   // batch to be written at commit time
   WriteBatch commit_time_batch_;
 
