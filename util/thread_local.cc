@@ -246,7 +246,7 @@ ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   //
   // Note that here we decide to make "inst" a static pointer w/o deleting
   // it at the end instead of a static variable.  This is to avoid the following
-  // destruction order desester happens when a child thread using ThreadLocalPtr
+  // destruction order disaster happens when a child thread using ThreadLocalPtr
   // dies AFTER the main thread dies:  When a child thread happens to use
   // ThreadLocalPtr, it will try to delete its thread-local data on its
   // OnThreadExit when the child thread dies.  However, OnThreadExit depends
