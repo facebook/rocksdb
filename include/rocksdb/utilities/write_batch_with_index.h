@@ -88,42 +88,45 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // interface, or we can't find a column family from the column family handle
   // passed in, backup_index_comparator will be used for the column family.
   // reserved_bytes: reserved bytes in underlying WriteBatch
+  // max_bytes: maximum size of underlying WriteBatch in bytes
   // overwrite_key: if true, overwrite the key in the index when inserting
   //                the same key as previously, so iterator will never
   //                show two entries with the same key.
   explicit WriteBatchWithIndex(
       const Comparator* backup_index_comparator = BytewiseComparator(),
-      size_t reserved_bytes = 0, bool overwrite_key = false);
+      size_t reserved_bytes = 0, bool overwrite_key = false,
+      size_t max_bytes = 0);
+
   virtual ~WriteBatchWithIndex();
 
   using WriteBatchBase::Put;
-  void Put(ColumnFamilyHandle* column_family, const Slice& key,
-           const Slice& value) override;
-
-  void Put(const Slice& key, const Slice& value) override;
-
-  using WriteBatchBase::Merge;
-  void Merge(ColumnFamilyHandle* column_family, const Slice& key,
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value) override;
 
-  void Merge(const Slice& key, const Slice& value) override;
+  Status Put(const Slice& key, const Slice& value) override;
+
+  using WriteBatchBase::Merge;
+  Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
+               const Slice& value) override;
+
+  Status Merge(const Slice& key, const Slice& value) override;
 
   using WriteBatchBase::Delete;
-  void Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
-  void Delete(const Slice& key) override;
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
+  Status Delete(const Slice& key) override;
 
   using WriteBatchBase::SingleDelete;
-  void SingleDelete(ColumnFamilyHandle* column_family,
-                    const Slice& key) override;
-  void SingleDelete(const Slice& key) override;
+  Status SingleDelete(ColumnFamilyHandle* column_family,
+                      const Slice& key) override;
+  Status SingleDelete(const Slice& key) override;
 
   using WriteBatchBase::DeleteRange;
-  void DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
-                   const Slice& end_key) override;
-  void DeleteRange(const Slice& begin_key, const Slice& end_key) override;
+  Status DeleteRange(ColumnFamilyHandle* column_family, const Slice& begin_key,
+                     const Slice& end_key) override;
+  Status DeleteRange(const Slice& begin_key, const Slice& end_key) override;
 
   using WriteBatchBase::PutLogData;
-  void PutLogData(const Slice& blob) override;
+  Status PutLogData(const Slice& blob) override;
 
   using WriteBatchBase::Clear;
   void Clear() override;
@@ -203,6 +206,8 @@ class WriteBatchWithIndex : public WriteBatchBase {
   //         Status::NotFound() if no previous call to SetSavePoint(),
   //         or other Status on corruption.
   Status RollbackToSavePoint() override;
+
+  void SetMaxBytes(size_t max_bytes) override;
 
  private:
   struct Rep;

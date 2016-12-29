@@ -23,7 +23,7 @@ TransactionBaseImpl::TransactionBaseImpl(DB* db,
       write_options_(write_options),
       cmp_(GetColumnFamilyUserComparator(db->DefaultColumnFamily())),
       start_time_(db_->GetEnv()->NowMicros()),
-      write_batch_(cmp_, 0, true),
+      write_batch_(cmp_, 0, true, 0),
       indexing_enabled_(true) {
   assert(dynamic_cast<DBImpl*>(db_) != nullptr);
   log_number_ = 0;
@@ -262,8 +262,10 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Put(column_family, key, value);
-    num_puts_++;
+    s = GetBatchForWrite()->Put(column_family, key, value);
+    if (s.ok()) {
+      num_puts_++;
+    }
   }
 
   return s;
@@ -276,8 +278,10 @@ Status TransactionBaseImpl::Put(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Put(column_family, key, value);
-    num_puts_++;
+    s = GetBatchForWrite()->Put(column_family, key, value);
+    if (s.ok()) {
+      num_puts_++;
+    }
   }
 
   return s;
@@ -289,8 +293,10 @@ Status TransactionBaseImpl::Merge(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Merge(column_family, key, value);
-    num_merges_++;
+    s = GetBatchForWrite()->Merge(column_family, key, value);
+    if (s.ok()) {
+      num_merges_++;
+    }
   }
 
   return s;
@@ -302,8 +308,10 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Delete(column_family, key);
-    num_deletes_++;
+    s = GetBatchForWrite()->Delete(column_family, key);
+    if (s.ok()) {
+      num_deletes_++;
+    }
   }
 
   return s;
@@ -315,8 +323,10 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Delete(column_family, key);
-    num_deletes_++;
+    s = GetBatchForWrite()->Delete(column_family, key);
+    if (s.ok()) {
+      num_deletes_++;
+    }
   }
 
   return s;
@@ -328,8 +338,10 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    GetBatchForWrite()->SingleDelete(column_family, key);
-    num_deletes_++;
+    s = GetBatchForWrite()->SingleDelete(column_family, key);
+    if (s.ok()) {
+      num_deletes_++;
+    }
   }
 
   return s;
@@ -341,8 +353,10 @@ Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
       TryLock(column_family, key, false /* read_only */, true /* exclusive */);
 
   if (s.ok()) {
-    GetBatchForWrite()->SingleDelete(column_family, key);
-    num_deletes_++;
+    s = GetBatchForWrite()->SingleDelete(column_family, key);
+    if (s.ok()) {
+      num_deletes_++;
+    }
   }
 
   return s;
@@ -354,8 +368,10 @@ Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Put(column_family, key, value);
-    num_puts_++;
+    s = GetBatchForWrite()->Put(column_family, key, value);
+    if (s.ok()) {
+      num_puts_++;
+    }
   }
 
   return s;
@@ -368,8 +384,10 @@ Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Put(column_family, key, value);
-    num_puts_++;
+    s = GetBatchForWrite()->Put(column_family, key, value);
+    if (s.ok()) {
+      num_puts_++;
+    }
   }
 
   return s;
@@ -382,8 +400,10 @@ Status TransactionBaseImpl::MergeUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Merge(column_family, key, value);
-    num_merges_++;
+    s = GetBatchForWrite()->Merge(column_family, key, value);
+    if (s.ok()) {
+      num_merges_++;
+    }
   }
 
   return s;
@@ -395,8 +415,10 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Delete(column_family, key);
-    num_deletes_++;
+    s = GetBatchForWrite()->Delete(column_family, key);
+    if (s.ok()) {
+      num_deletes_++;
+    }
   }
 
   return s;
@@ -408,8 +430,10 @@ Status TransactionBaseImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
                      true /* exclusive */, true /* untracked */);
 
   if (s.ok()) {
-    GetBatchForWrite()->Delete(column_family, key);
-    num_deletes_++;
+    s = GetBatchForWrite()->Delete(column_family, key);
+    if (s.ok()) {
+      num_deletes_++;
+    }
   }
 
   return s;

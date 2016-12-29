@@ -60,6 +60,7 @@ void TransactionImpl::Initialize(const TransactionOptions& txn_options) {
 
   deadlock_detect_ = txn_options.deadlock_detect;
   deadlock_detect_depth_ = txn_options.deadlock_detect_depth;
+  write_batch_.SetMaxBytes(txn_options.max_write_batch_size);
 
   lock_timeout_ = txn_options.lock_timeout * 1000;
   if (lock_timeout_ < 0) {
