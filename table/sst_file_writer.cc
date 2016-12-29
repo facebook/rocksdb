@@ -19,17 +19,18 @@ const std::string ExternalSstFilePropertyNames::kVersion =
     "rocksdb.external_sst_file.version";
 const std::string ExternalSstFilePropertyNames::kGlobalSeqno =
     "rocksdb.external_sst_file.global_seqno";
+const size_t kFadviseTrigger = 1024 * 1024; // 1MB
 
 struct SstFileWriter::Rep {
   Rep(const EnvOptions& _env_options, const Options& options,
       const Comparator* _user_comparator, ColumnFamilyHandle* _cfh,
-      uint64_t _fadvise_trigger)
+      bool _invalidate_page_cache)
       : env_options(_env_options),
         ioptions(options),
         mutable_cf_options(options),
         internal_comparator(_user_comparator),
         cfh(_cfh),
-        fadvise_trigger(_fadvise_trigger),
+        invalidate_page_cache(_invalidate_page_cache),
         last_fadvise_size(0) {}
 
   std::unique_ptr<WritableFileWriter> file_writer;
@@ -42,9 +43,9 @@ struct SstFileWriter::Rep {
   InternalKey ikey;
   std::string column_family_name;
   ColumnFamilyHandle* cfh;
-  // If not -ve, Everytime we write `fadvise_trigger` bytes to the file, we
-  // will Fadvise these bytes away from page cache.
-  uint64_t fadvise_trigger;
+  // If true, We will give the OS a hint that this file pages is not needed
+  // everytime we write 1MB to the file
+  bool invalidate_page_cache;
   // the size of the file during the last time we called Fadvise to remove
   // cached pages from page cache.
   uint64_t last_fadvise_size;
@@ -54,9 +55,9 @@ SstFileWriter::SstFileWriter(const EnvOptions& env_options,
                              const Options& options,
                              const Comparator* user_comparator,
                              ColumnFamilyHandle* column_family,
-                             uint64_t fadvise_trigger)
+                             bool invalidate_page_cache)
     : rep_(new Rep(env_options, options, user_comparator, column_family,
-                   fadvise_trigger)) {
+                   invalidate_page_cache)) {
   rep_->file_info.file_size = 0;
 }
 
@@ -183,10 +184,10 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   r->file_info.file_size = r->builder->FileSize();
 
   if (s.ok()) {
-    InvalidatePageCache(true /* closing */);
     if (!r->ioptions.disable_data_sync) {
       s = r->file_writer->Sync(r->ioptions.use_fsync);
     }
+    InvalidatePageCache(true /* closing */);
     if (s.ok()) {
       s = r->file_writer->Close();
     }
@@ -208,17 +209,18 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
 
 void SstFileWriter::InvalidatePageCache(bool closing) {
   Rep* r = rep_;
-  if (r->fadvise_trigger == 0) {
+  if (r->invalidate_page_cache == false) {
     // Fadvise disabled
     return;
   }
 
-  uint64_t bytes_in_page_cache = r->builder->FileSize() - r->last_fadvise_size;
-  if (bytes_in_page_cache > r->fadvise_trigger ||
-      (closing && bytes_in_page_cache > 0)) {
+  uint64_t bytes_since_last_fadvise =
+      r->builder->FileSize() - r->last_fadvise_size;
+  if (bytes_since_last_fadvise > kFadviseTrigger || closing) {
     TEST_SYNC_POINT_CALLBACK("SstFileWriter::InvalidatePageCache",
-                             &(bytes_in_page_cache));
-    r->file_writer->InvalidateCache(r->last_fadvise_size, bytes_in_page_cache);
+                             &(bytes_since_last_fadvise));
+    // Tell the OS that we dont need this file in page cache
+    r->file_writer->InvalidateCache(0, 0);
     r->last_fadvise_size = r->builder->FileSize();
   }
 }

@@ -1967,8 +1967,6 @@ TEST_F(ExternalSSTFileTest, FadviseTrigger) {
   ASSERT_OK(sst_file_writer->Open(sst_file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
-    // fadvise disabled
-    ASSERT_EQ(total_fadvised_bytes, 0);
   }
   ASSERT_OK(sst_file_writer->Finish());
   // fadvise disabled
@@ -1977,12 +1975,10 @@ TEST_F(ExternalSSTFileTest, FadviseTrigger) {
 
   sst_file_path = sst_files_dir_ + "file_fadvise_enable.sst";
   sst_file_writer.reset(new SstFileWriter(EnvOptions(), options,
-                                          options.comparator, nullptr, 1024));
+                                          options.comparator, nullptr, true));
   ASSERT_OK(sst_file_writer->Open(sst_file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
-    // fadvise enabled
-    ASSERT_EQ(total_fadvised_bytes, sst_file_writer->FileSize());
   }
   ASSERT_OK(sst_file_writer->Finish());
   // fadvise enabled
