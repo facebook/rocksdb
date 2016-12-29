@@ -1760,8 +1760,6 @@ TEST_F(ExternalSSTFileTest, CompactionDeadlock) {
   // `DBImpl::AddFile:Start` will wait until we be here
   TEST_SYNC_POINT("ExternalSSTFileTest::DeadLock:1");
 
-  ASSERT_EQ(running_threads.load(), 2);
-
   // Wait for IngestExternalFile() to start and aquire mutex
   TEST_SYNC_POINT("ExternalSSTFileTest::DeadLock:2");
 
