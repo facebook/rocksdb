@@ -52,7 +52,7 @@ class SstFileWriter {
   SstFileWriter(const EnvOptions& env_options, const Options& options,
                 const Comparator* user_comparator,
                 ColumnFamilyHandle* column_family = nullptr,
-                bool invalidate_page_cache = false);
+                bool invalidate_page_cache = true);
 
   ~SstFileWriter();
 

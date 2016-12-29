@@ -1962,8 +1962,8 @@ TEST_F(ExternalSSTFileTest, FadviseTrigger) {
   std::unique_ptr<SstFileWriter> sst_file_writer;
 
   std::string sst_file_path = sst_files_dir_ + "file_fadvise_disable.sst";
-  sst_file_writer.reset(
-      new SstFileWriter(EnvOptions(), options, options.comparator));
+  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options,
+                                          options.comparator, nullptr, false));
   ASSERT_OK(sst_file_writer->Open(sst_file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
