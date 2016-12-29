@@ -1947,6 +1947,47 @@ TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
   db_->ReleaseSnapshot(snap);
 }
 
+TEST_F(ExternalSSTFileTest, FadviseTrigger) {
+  Options options = CurrentOptions();
+  const int kNumKeys = 10000;
+
+  size_t total_fadvised_bytes = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "SstFileWriter::InvalidatePageCache", [&](void* arg) {
+        size_t fadvise_size = *(reinterpret_cast<size_t*>(arg));
+        total_fadvised_bytes += fadvise_size;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::unique_ptr<SstFileWriter> sst_file_writer;
+
+  std::string sst_file_path = sst_files_dir_ + "file_fadvise_disable.sst";
+  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options,
+                                          options.comparator, nullptr, false));
+  ASSERT_OK(sst_file_writer->Open(sst_file_path));
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
+  }
+  ASSERT_OK(sst_file_writer->Finish());
+  // fadvise disabled
+  ASSERT_EQ(total_fadvised_bytes, 0);
+
+
+  sst_file_path = sst_files_dir_ + "file_fadvise_enable.sst";
+  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options,
+                                          options.comparator, nullptr, true));
+  ASSERT_OK(sst_file_writer->Open(sst_file_path));
+  for (int i = 0; i < kNumKeys; i++) {
+    ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
+  }
+  ASSERT_OK(sst_file_writer->Finish());
+  // fadvise enabled
+  ASSERT_EQ(total_fadvised_bytes, sst_file_writer->FileSize());
+  ASSERT_GT(total_fadvised_bytes, 0);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
