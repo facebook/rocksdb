@@ -16,7 +16,7 @@ namespace rocksdb {
 // PinnedIteratorsManager will be notified whenever we need to pin an Iterator
 // and it will be responsible for deleting pinned Iterators when they are
 // not needed anymore.
-class PinnedIteratorsManager {
+class PinnedIteratorsManager : public Cleanable {
  public:
   PinnedIteratorsManager() : pinning_enabled(false) {}
   ~PinnedIteratorsManager() {
@@ -67,6 +67,8 @@ class PinnedIteratorsManager {
       release_func(ptr);
     }
     pinned_ptrs_.clear();
+    // Also do cleanups from the base Cleanable
+    Cleanable::Reset();
   }
 
  private:
