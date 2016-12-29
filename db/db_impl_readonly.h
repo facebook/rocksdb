@@ -19,8 +19,8 @@ class DBImplReadOnly : public DBImpl {
   virtual ~DBImplReadOnly();
 
   // Implementations of the DB interface
-  using DB::GetAndPin;
-  virtual Status GetAndPin(const ReadOptions& options,
+  using DB::Get;
+  virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
 

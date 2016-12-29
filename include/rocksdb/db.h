@@ -284,13 +284,13 @@ class DB {
                     ColumnFamilyHandle* column_family, const Slice& key,
                     std::string* value) {
     PinnableSlice pSlice;
-    auto s = GetAndPin(options, column_family, key, &pSlice);
+    auto s = Get(options, column_family, key, &pSlice);
     value->assign(pSlice.data(), pSlice.size());
     return s;
   }
-  virtual Status GetAndPin(const ReadOptions& options,
-                           ColumnFamilyHandle* column_family, const Slice& key,
-                           PinnableSlice* value) = 0;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) = 0;
   virtual Status Get(const ReadOptions& options, const Slice& key, std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }

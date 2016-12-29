@@ -49,9 +49,9 @@ class DBWithTTLImpl : public DBWithTTL {
                      const Slice& val) override;
 
   using StackableDB::Get;
-  virtual Status GetAndPin(const ReadOptions& options,
-                           ColumnFamilyHandle* column_family, const Slice& key,
-                           PinnableSlice* pSlice) override;
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* pSlice) override;
 
   using StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(

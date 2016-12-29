@@ -52,7 +52,8 @@ class Cleanable {
   void RegisterCleanup(Cleanup* c);
 
  private:
-  // Performs all the cleanups. It does not reset the pointers. Making it private
+  // Performs all the cleanups. It does not reset the pointers. Making it
+  // private
   // to prevent misuse
   inline void DoCleanup() {
     if (cleanup_.function != nullptr) {

@@ -1510,7 +1510,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             s = Status::Corruption(Slice());
           }
 
-          if (!get_context->SaveValue(parsed_key, biter.value(), biter)) {
+          if (!get_context->SaveValue(parsed_key, biter.value(), &biter)) {
             done = true;
             break;
           }

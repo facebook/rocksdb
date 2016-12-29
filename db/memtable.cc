@@ -575,19 +575,17 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
-        if (*(s->merge_in_progress)) {
-          std::string* str_value =
-              s->pSlice != nullptr ? new std::string() : nullptr;
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), &v,
-              merge_context->GetOperands(), str_value, s->logger, s->statistics,
-              s->env_);
-          if (LIKELY(s->pSlice != nullptr)) {
-            s->pSlice->PinHeap(str_value);
+        if (LIKELY(s->pSlice != nullptr)) {
+          if (*(s->merge_in_progress)) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), &v,
+                merge_context->GetOperands(), s->pSlice->GetSelf(), s->logger,
+                s->statistics, s->env_);
+            s->pSlice->PinSelf();
+          } else {
+            s->mem->Ref();
+            s->pSlice->PinSlice(v, UnrefMemTable, s->mem, nullptr);
           }
-        } else if (LIKELY(s->pSlice != nullptr)) {
-          s->mem->Ref();
-          s->pSlice->PinSlice(v, UnrefMemTable, s->mem, nullptr);
         }
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
@@ -599,14 +597,13 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          std::string* str_value =
-              s->pSlice != nullptr ? new std::string() : nullptr;
-          *(s->status) = MergeHelper::TimedFullMerge(
-              merge_operator, s->key->user_key(), nullptr,
-              merge_context->GetOperands(), str_value, s->logger, s->statistics,
-              s->env_);
-          if (LIKELY(s->pSlice != nullptr)) {
-            s->pSlice->PinHeap(str_value);
+          *(s->status) = Status::OK();
+          if (s->pSlice != nullptr) {
+            *(s->status) = MergeHelper::TimedFullMerge(
+                merge_operator, s->key->user_key(), nullptr,
+                merge_context->GetOperands(), s->pSlice->GetSelf(), s->logger,
+                s->statistics, s->env_);
+            s->pSlice->PinSelf();
           }
         } else {
           *(s->status) = Status::NotFound();

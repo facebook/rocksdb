@@ -77,9 +77,7 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
 
   state_ = kFound;
   if (LIKELY(pSlice_ != nullptr)) {
-    std::string* str_value = new std::string();
-    str_value->assign(value.data(), value.size());
-    pSlice_->PinHeap(str_value);
+    pSlice_->PinSelf(value);
   }
 }
 
@@ -110,21 +108,18 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kFound;
           if (LIKELY(value_pinner != nullptr)) {
             pSlice_->PinSlice(value, value_pinner);
-            } else {
-              std::string* str_value = new std::string();
-              str_value->assign(value.data(), value.size());
-              pSlice_->PinHeap(str_value);
-            }
+          } else {
+            pSlice_->PinSelf(value);
+          }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
           if (LIKELY(pSlice_ != nullptr)) {
-            std::string* str_value = new std::string();
             Status merge_status = MergeHelper::TimedFullMerge(
                 merge_operator_, user_key_, &value,
-                merge_context_->GetOperands(), str_value, logger_, statistics_,
-                env_);
-            pSlice_->PinHeap(str_value);
+                merge_context_->GetOperands(), pSlice_->GetSelf(), logger_,
+                statistics_, env_);
+            pSlice_->PinSelf();
             if (!merge_status.ok()) {
               state_ = kCorrupt;
             }
@@ -143,13 +138,11 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else if (kMerge == state_) {
           state_ = kFound;
           if (LIKELY(pSlice_ != nullptr)) {
-            std::string* str_value = new std::string();
-            Status merge_status =
-                MergeHelper::TimedFullMerge(merge_operator_, user_key_, nullptr,
-                                            merge_context_->GetOperands(),
-                                            str_value, logger_, statistics_, env_);
-
-            pSlice_->PinHeap(str_value);
+            Status merge_status = MergeHelper::TimedFullMerge(
+                merge_operator_, user_key_, nullptr,
+                merge_context_->GetOperands(), pSlice_->GetSelf(), logger_,
+                statistics_, env_);
+            pSlice_->PinSelf();
             if (!merge_status.ok()) {
               state_ = kCorrupt;
             }

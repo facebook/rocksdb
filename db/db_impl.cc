@@ -3938,9 +3938,9 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
   return default_cf_handle_;
 }
 
-Status DBImpl::GetAndPin(const ReadOptions& read_options,
-                         ColumnFamilyHandle* column_family, const Slice& key,
-                         PinnableSlice* pSlice) {
+Status DBImpl::Get(const ReadOptions& read_options,
+                   ColumnFamilyHandle* column_family, const Slice& key,
+                   PinnableSlice* pSlice) {
   return GetImpl(read_options, column_family, key, pSlice);
 }
 

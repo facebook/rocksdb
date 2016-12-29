@@ -29,9 +29,9 @@ DBImplReadOnly::~DBImplReadOnly() {
 }
 
 // Implementations of the DB interface
-Status DBImplReadOnly::GetAndPin(const ReadOptions& read_options,
-                                 ColumnFamilyHandle* column_family,
-                                 const Slice& key, PinnableSlice* pSlice) {
+Status DBImplReadOnly::Get(const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           PinnableSlice* pSlice) {
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
