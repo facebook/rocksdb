@@ -3781,7 +3781,7 @@ class Benchmark {
       } else {
         if (FLAGS_pin_slice == 1) {
           pSlice.Reset();
-          s = db_with_cfh->db->GetAndPin(
+          s = db_with_cfh->db->Get(
               options, db_with_cfh->db->DefaultColumnFamily(), key, &pSlice);
         } else {
           s = db_with_cfh->db->Get(
@@ -3790,7 +3790,8 @@ class Benchmark {
       }
       if (s.ok()) {
         found++;
-        bytes += key.size() + (FLAGS_pin_slice == 1 ? pSlice.size() :  value.size());
+        bytes +=
+            key.size() + (FLAGS_pin_slice == 1 ? pSlice.size() : value.size());
       } else if (!s.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
         abort();

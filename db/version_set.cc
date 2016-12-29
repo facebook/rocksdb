@@ -1005,12 +1005,12 @@ void Version::Get(const ReadOptions& read_options, const LookupKey& k,
     }
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
-    std::string* str_value = pSlice != nullptr ? new std::string() : nullptr;
+    std::string* str_value = pSlice != nullptr ? pSlice->GetSelf() : nullptr;
     *status = MergeHelper::TimedFullMerge(
         merge_operator_, user_key, nullptr, merge_context->GetOperands(),
         str_value, info_log_, db_statistics_, env_);
     if (LIKELY(pSlice != nullptr)) {
-      pSlice->PinHeap(str_value);
+      pSlice->PinSelf();
     }
   } else {
     if (key_exists != nullptr) {

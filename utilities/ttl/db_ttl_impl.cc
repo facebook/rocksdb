@@ -200,10 +200,10 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
   return Write(options, &batch);
 }
 
-Status DBWithTTLImpl::GetAndPin(const ReadOptions& options,
-                                ColumnFamilyHandle* column_family,
-                                const Slice& key, PinnableSlice* pSlice) {
-  Status st = db_->GetAndPin(options, column_family, key, pSlice);
+Status DBWithTTLImpl::Get(const ReadOptions& options,
+                          ColumnFamilyHandle* column_family, const Slice& key,
+                          PinnableSlice* pSlice) {
+  Status st = db_->Get(options, column_family, key, pSlice);
   if (!st.ok()) {
     return st;
   }

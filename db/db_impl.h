@@ -88,8 +88,8 @@ class DBImpl : public DB {
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
 
-  using DB::GetAndPin;
-  virtual Status GetAndPin(const ReadOptions& options,
+  using DB::Get;
+  virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override;
   using DB::MultiGet;

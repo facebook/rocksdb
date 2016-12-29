@@ -147,9 +147,23 @@ class PinnableSlice : public Slice, public Cleanable {
     RegisterCleanup(ReleaseStringHeap, s, nullptr);
   }
 
+  inline void PinSelf(const Slice& slice) {
+    self_space.assign(slice.data(), slice.size());
+    data_ = self_space.data();
+    size_ = self_space.size();
+  }
+
+  inline void PinSelf() {
+    data_ = self_space.data();
+    size_ = self_space.size();
+  }
+
+  inline std::string* GetSelf() { return &self_space; }
+
   inline bool IsPinned() { return cleanup_.function != nullptr; }
 
  private:
+  std::string self_space;
   static void ReleaseCharStrHeap(void* s, void*) {
     delete reinterpret_cast<const char*>(s);
   }
