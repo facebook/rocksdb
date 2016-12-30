@@ -506,7 +506,6 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
     options_.restore_rate_limiter.reset(
         NewGenericRateLimiter(options_.restore_rate_limit));
   }
-          
 }
 
 BackupEngineImpl::~BackupEngineImpl() {
@@ -783,14 +782,13 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
         progress_callback, manifest_fname.substr(1) + "\n");
   }
   Log(options_.info_log, "begin add wal files for backup -- %lu",
-        live_wal_files.size());
-  // Pre-fetch sizes for WAL files
+      live_wal_files.size());
   // Add a CopyOrCreateWorkItem to the channel for each WAL file
   for (size_t i = 0; s.ok() && i < live_wal_files.size(); ++i) {
     uint64_t size_bytes = live_wal_files[i]->SizeFileBytes();
     if (live_wal_files[i]->Type() == kAliveLogFile) {
       Log(options_.info_log, "add wal file for backup %s -- %llu",
-            live_wal_files[i]->PathName().c_str(), size_bytes);
+          live_wal_files[i]->PathName().c_str(), size_bytes);
       // we only care about live log files
       // copy the file into backup_dir/files/<new backup>/
       s = AddBackupFileWorkItem(live_dst_paths, backup_items_to_finish,
