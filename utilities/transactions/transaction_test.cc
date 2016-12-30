@@ -223,8 +223,13 @@ TEST_P(TransactionTest, WaitingTxn) {
 
   auto cf_iterator = lock_data.begin();
 
-  // Column family is 1 (cfa).
-  ASSERT_EQ(cf_iterator->first, 1);
+  // The iterator points to an unordered_multimap
+  // thus the test can not assume any particular order.
+
+  // Column family is 1 or 0 (cfa).
+  if (cf_iterator->first != 1 && cf_iterator->first != 0) {
+    ASSERT_FALSE(true);
+  }
   // The locked key is "foo" and is locked by txn1
   ASSERT_EQ(cf_iterator->second.key, "foo");
   ASSERT_EQ(cf_iterator->second.ids.size(), 1);
@@ -232,8 +237,10 @@ TEST_P(TransactionTest, WaitingTxn) {
 
   cf_iterator++;
 
-  // Column family is 0 (default).
-  ASSERT_EQ(cf_iterator->first, 0);
+  // Column family is 0 (default) or 1.
+  if (cf_iterator->first != 1 && cf_iterator->first != 0) {
+    ASSERT_FALSE(true);
+  }
   // The locked key is "foo" and is locked by txn1
   ASSERT_EQ(cf_iterator->second.key, "foo");
   ASSERT_EQ(cf_iterator->second.ids.size(), 1);
