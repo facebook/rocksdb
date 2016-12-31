@@ -482,6 +482,80 @@ TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
+  // The RangeDelAggregator holds pointers into range deletion blocks created by
+  // table readers. This test ensures the aggregator can still access those
+  // blocks even if it outlives the table readers that created them.
+  //
+  // DBIter always keeps readers open for L0 files. So, in order to test
+  // aggregator outliving reader, we need to have deletions in L1 files, which
+  // are opened/closed on-demand during the scan. This is accomplished by
+  // setting kNumRanges > level0_stop_writes_trigger, which prevents deletions
+  // from all lingering in L0 (there is at most one range deletion per L0 file).
+  //
+  // The first L1 file will contain a range deletion since its begin key is 0.
+  // SeekToFirst() references that table's reader and adds its range tombstone
+  // to the aggregator. Upon advancing beyond that table's key-range via Next(),
+  // the table reader will be unreferenced by the iterator. Since we manually
+  // call Evict() on all readers before the full scan, this unreference causes
+  // the reader's refcount to drop to zero and thus be destroyed.
+  //
+  // When it is destroyed, we do not remove its range deletions from the
+  // aggregator. So, subsequent calls to Next() must be able to use these
+  // deletions to decide whether a key is covered. This will work as long as
+  // the aggregator properly references the range deletion block.
+  const int kNum = 25, kRangeBegin = 0, kRangeEnd = 7, kNumRanges = 5;
+  Options opts = CurrentOptions();
+  opts.comparator = test::Uint64Comparator();
+  opts.level0_file_num_compaction_trigger = 4;
+  opts.level0_stop_writes_trigger = 4;
+  opts.memtable_factory.reset(new SpecialSkipListFactory(1));
+  opts.num_levels = 2;
+  BlockBasedTableOptions bbto;
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.block_cache = NewLRUCache(8 << 20);
+  opts.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(opts);
+
+  // Hold a snapshot so range deletions can't become obsolete during compaction
+  // to bottommost level (i.e., L1).
+  const Snapshot* snapshot = db_->GetSnapshot();
+  for (int i = 0; i < kNum; ++i) {
+    db_->Put(WriteOptions(), GetNumericStr(i), "val");
+    if (i > 0) {
+      dbfull()->TEST_WaitForFlushMemTable();
+    }
+    if (i >= kNum / 2 && i < kNum / 2 + kNumRanges) {
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                       GetNumericStr(kRangeBegin), GetNumericStr(kRangeEnd));
+    }
+  }
+  // Must be > 1 so the first L1 file can be closed before scan finishes
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+  std::vector<uint64_t> file_numbers = ListTableFiles(env_, dbname_);
+
+  ReadOptions read_opts;
+  auto* iter = db_->NewIterator(read_opts);
+  int expected = kRangeEnd;
+  iter->SeekToFirst();
+  for (auto file_number : file_numbers) {
+    // This puts table caches in the state of being externally referenced only
+    // so they are destroyed immediately upon iterator unreferencing.
+    TableCache::Evict(dbfull()->TEST_table_cache(), file_number);
+  }
+  for (; iter->Valid(); iter->Next()) {
+    ASSERT_EQ(GetNumericStr(expected), iter->key());
+    ++expected;
+    // Keep clearing block cache's LRU so range deletion block can be freed as
+    // soon as its refcount drops to zero.
+    bbto.block_cache->EraseUnRefEntries();
+  }
+  ASSERT_EQ(kNum, expected);
+  delete iter;
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
   db_->Put(WriteOptions(), "key", "val");
   ASSERT_OK(
