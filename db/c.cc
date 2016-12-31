@@ -448,7 +448,11 @@ rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr) {
   BackupEngine* be;
   if (SaveError(errptr, BackupEngine::Open(options->rep.env,
-                                           BackupableDBOptions(path), &be))) {
+                                           BackupableDBOptions(path,
+                                                               nullptr,
+                                                               true,
+                                                               options->rep.info_log.get()),
+                                           &be))) {
     return nullptr;
   }
   rocksdb_backup_engine_t* result = new rocksdb_backup_engine_t;
