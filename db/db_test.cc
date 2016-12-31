@@ -205,7 +205,7 @@ TEST_F(DBTest, OpenWhenOpen) {
 
   ASSERT_EQ(Status::Code::kIOError, s.code());
   ASSERT_EQ(Status::SubCode::kNone, s.subcode());
-  ASSERT_TRUE(strncmp("lock ", s.getState(), 5) == 0);
+  ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
 
   delete db2;
 }
