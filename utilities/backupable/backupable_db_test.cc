@@ -112,8 +112,6 @@ class DummyDB : public StackableDB {
     }
 
     virtual uint64_t SizeFileBytes() const override {
-      // backupabledb should not need this method
-      EXPECT_TRUE(false);
       return 0;
     }
 
