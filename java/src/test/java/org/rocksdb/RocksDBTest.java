@@ -47,10 +47,10 @@ public class RocksDBTest {
   public void openWhenOpen() throws RocksDBException {
     final String dbPath = dbFolder.getRoot().getAbsolutePath();
 
-    try(final RocksDB db1 = RocksDB.open(dbPath)) {
-      try(final RocksDB db2 = RocksDB.open(dbPath)) {
+    try (final RocksDB db1 = RocksDB.open(dbPath)) {
+      try (final RocksDB db2 = RocksDB.open(dbPath)) {
         fail("Should have thrown an exception when opening the same db twice");
-      } catch(final RocksDBException e) {
+      } catch (final RocksDBException e) {
         assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.IOError);
         assertThat(e.getStatus().getSubCode()).isEqualTo(Status.SubCode.None);
         assertThat(e.getStatus().getState()).startsWith("lock ");

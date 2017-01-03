@@ -7,15 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "rocksdb/status.h"
 #include <stdio.h>
 #include <cstring>
 #include "port/port.h"
-#include "rocksdb/status.h"
 
 namespace rocksdb {
 
 const char* Status::CopyState(const char* state) {
-  char* const result = new char[std::strlen(state) + 1];  // +1 for the null terminator
+  char* const result =
+      new char[std::strlen(state) + 1];  // +1 for the null terminator
   std::strcpy(result, state);
   return result;
 }
