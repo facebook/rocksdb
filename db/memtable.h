@@ -198,6 +198,15 @@ class MemTable {
     return Get(key, pSlice, s, merge_context, range_del_agg, &seq, read_opts);
   }
 
+  // deprecated. Use Get with PinnableSlice
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           SequenceNumber* seq, const ReadOptions& read_opts);
+  // deprecated. Use Get with PinnableSlice
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           const ReadOptions& read_opts);
+
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode
   //   if key exists in current memtable && prev_value is of type kTypeValue
