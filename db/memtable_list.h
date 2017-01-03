@@ -65,6 +65,15 @@ class MemTableListVersion {
     return Get(key, pSlice, s, merge_context, range_del_agg, &seq, read_opts);
   }
 
+  // deprecated. Use Get with PinnableSlice
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           SequenceNumber* seq, const ReadOptions& read_opts);
+  // deprecated. Use Get with PinnableSlice
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           const ReadOptions& read_opts);
+
   // Similar to Get(), but searches the Memtable history of memtables that
   // have already been flushed.  Should only be used from in-memory only
   // queries (such as Transaction validation) as the history may contain

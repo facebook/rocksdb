@@ -6404,7 +6404,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  sv->mem->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
+  PinnableSlice* pSliceNullPtr = nullptr;
+  sv->mem->Get(lkey, pSliceNullPtr, &s, &merge_context, &range_del_agg, seq,
                read_options);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
@@ -6423,7 +6424,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, nullptr, &s, &merge_context, &range_del_agg, seq,
+  PinnableSlice* pSlice = nullptr;
+  sv->imm->Get(lkey, pSlice, &s, &merge_context, &range_del_agg, seq,
                read_options);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
