@@ -36,6 +36,9 @@ class Cleanable {
   // not abstract and therefore clients should not override it.
   typedef void (*CleanupFunction)(void* arg1, void* arg2);
   void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
+  void DelegateCleanupsTo(Cleanable* other);
+  // DoCleanup and also resets the pointers for reuse
+  void Reset();
 
  protected:
   struct Cleanup {
@@ -45,6 +48,13 @@ class Cleanable {
     Cleanup* next;
   };
   Cleanup cleanup_;
+  // It also becomes the owner of c
+  void RegisterCleanup(Cleanup* c);
+
+ private:
+  // Performs all the cleanups. It does not reset the pointers. Making it
+  // private to prevent misuse
+  inline void DoCleanup();
 };
 
 class Iterator : public Cleanable {

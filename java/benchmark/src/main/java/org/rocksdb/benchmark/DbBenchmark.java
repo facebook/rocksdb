@@ -1417,12 +1417,18 @@ public class DbBenchmark {
       }
     },
     /* TODO(yhchiang): enable the following
-    bufferedio(rocksdb::EnvOptions().use_os_buffer,
-        "Allow buffered io using OS buffers.") {
+    direct_reads(rocksdb::EnvOptions().use_direct_reads,
+        "Allow direct I/O reads.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
       }
-    },
+      },
+    direct_writes(rocksdb::EnvOptions().use_direct_reads,
+      "Allow direct I/O reads.") {
+      @Override public Object parseValue(String value) {
+      return parseBoolean(value);
+      }
+      },
     */
     mmap_read(false,
         "Allow reads to occur via mmap-ing files.") {

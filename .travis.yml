@@ -11,7 +11,7 @@ jdk:
 addons:
    apt:
       sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
-      packages: ['clang-3.6' , 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'gflags']
+      packages: ['clang-3.6' , 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl']
 env:
   # Run all tests before db_block_cache_test (db_test, db_test2)
   - JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test

@@ -380,6 +380,8 @@ class DBImpl : public DB {
   // schedule a purge
   void ScheduleBgLogWriterClose(JobContext* job_context);
 
+  uint64_t MinLogNumberToKeep();
+
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than

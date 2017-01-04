@@ -220,7 +220,7 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
   assert(data.size());
   assert(cache_file_);
 
-  StopWatchNano timer(opt_.env);
+  StopWatchNano timer(opt_.env, /*auto_start=*/ true);
 
   WriteLock _(&lock_);
 
@@ -263,7 +263,7 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
 
 Status BlockCacheTier::Lookup(const Slice& key, unique_ptr<char[]>* val,
                               size_t* size) {
-  StopWatchNano timer(opt_.env);
+  StopWatchNano timer(opt_.env, /*auto_start=*/ true);
 
   LBA lba;
   bool status;

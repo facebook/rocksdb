@@ -116,9 +116,10 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"WAL_ttl_seconds", "43"},
       {"WAL_size_limit_MB", "44"},
       {"manifest_preallocation_size", "45"},
-      {"allow_os_buffer", "false"},
       {"allow_mmap_reads", "true"},
       {"allow_mmap_writes", "false"},
+      {"use_direct_reads", "false"},
+      {"use_direct_writes", "false"},
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
       {"stats_dump_period_sec", "46"},
@@ -231,9 +232,10 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.WAL_ttl_seconds, static_cast<uint64_t>(43));
   ASSERT_EQ(new_db_opt.WAL_size_limit_MB, static_cast<uint64_t>(44));
   ASSERT_EQ(new_db_opt.manifest_preallocation_size, 45U);
-  ASSERT_EQ(new_db_opt.allow_os_buffer, false);
   ASSERT_EQ(new_db_opt.allow_mmap_reads, true);
   ASSERT_EQ(new_db_opt.allow_mmap_writes, false);
+  ASSERT_EQ(new_db_opt.use_direct_reads, false);
+  ASSERT_EQ(new_db_opt.use_direct_writes, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.skip_log_error_on_recovery, false);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);

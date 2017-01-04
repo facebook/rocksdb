@@ -1539,7 +1539,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
     PinnedIteratorsManager* pinned_iters_mgr = get_context->pinned_iters_mgr();
     bool pin_blocks = pinned_iters_mgr && pinned_iters_mgr->PinningEnabled();
-    BlockIter* biter = nullptr;
 
     bool done = false;
     for (iiter.Seek(key); iiter.Valid() && !done; iiter.Next()) {
@@ -1558,59 +1557,41 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
         RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
         break;
       } else {
-        BlockIter stack_biter;
-        if (pin_blocks) {
-          // We need to create the BlockIter on heap because we may need to
-          // pin it if we encounterd merge operands
-          biter = static_cast<BlockIter*>(
-              NewDataBlockIterator(rep_, read_options, iiter.value()));
-        } else {
-          biter = &stack_biter;
-          NewDataBlockIterator(rep_, read_options, iiter.value(), biter);
-        }
+        BlockIter biter;
+        NewDataBlockIterator(rep_, read_options, iiter.value(), &biter);
 
         if (read_options.read_tier == kBlockCacheTier &&
-            biter->status().IsIncomplete()) {
+            biter.status().IsIncomplete()) {
           // couldn't get block from block_cache
           // Update Saver.state to Found because we are only looking for whether
           // we can guarantee the key is not there when "no_io" is set
           get_context->MarkKeyMayExist();
           break;
         }
-        if (!biter->status().ok()) {
-          s = biter->status();
+        if (!biter.status().ok()) {
+          s = biter.status();
           break;
         }
 
         // Call the *saver function on each entry/block until it returns false
-        for (biter->Seek(key); biter->Valid(); biter->Next()) {
+        for (biter.Seek(key); biter.Valid(); biter.Next()) {
           ParsedInternalKey parsed_key;
-          if (!ParseInternalKey(biter->key(), &parsed_key)) {
+          if (!ParseInternalKey(biter.key(), &parsed_key)) {
             s = Status::Corruption(Slice());
           }
 
-          if (!get_context->SaveValue(parsed_key, biter->value(), pin_blocks)) {
+          if (!get_context->SaveValue(parsed_key, biter.value(), pin_blocks)) {
             done = true;
             break;
           }
         }
-        s = biter->status();
+        s = biter.status();
 
-        if (pin_blocks) {
-          if (get_context->State() == GetContext::kMerge) {
-            // Pin blocks as long as we are merging
-            pinned_iters_mgr->PinIterator(biter);
-          } else {
-            delete biter;
-          }
-          biter = nullptr;
-        } else {
-          // biter is on stack, Nothing to clean
+        if (pin_blocks && get_context->State() == GetContext::kMerge) {
+          // Pin blocks as long as we are merging
+          biter.DelegateCleanupsTo(pinned_iters_mgr);
         }
       }
-    }
-    if (pin_blocks && biter != nullptr) {
-      delete biter;
     }
     if (s.ok()) {
       s = iiter.status();

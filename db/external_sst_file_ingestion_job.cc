@@ -96,10 +96,12 @@ Status ExternalSstFileIngestionJob::Prepare(
       status = env_->LinkFile(path_outside_db, path_inside_db);
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
-        status = CopyFile(env_, path_outside_db, path_inside_db, 0);
+        status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                          db_options_.use_fsync);
       }
     } else {
-      status = CopyFile(env_, path_outside_db, path_inside_db, 0);
+      status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync);
     }
     TEST_SYNC_POINT("DBImpl::AddFile:FileCopied");
     if (!status.ok()) {

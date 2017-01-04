@@ -362,6 +362,11 @@ DEFINE_int32(cache_numshardbits, 6,
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
 
+DEFINE_double(cache_high_pri_pool_ratio, 0.0,
+              "Ratio of block cache reserve for high pri blocks. "
+              "If > 0.0, we also enable "
+              "cache_index_and_filter_blocks_with_high_priority.");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -752,6 +757,11 @@ DEFINE_uint64(
     "If non-zero, db_bench will rate-limit the writes going into RocksDB. This "
     "is the global rate in bytes/second.");
 
+DEFINE_uint64(
+    benchmark_read_rate_limit, 0,
+    "If non-zero, db_bench will rate-limit the reads from RocksDB. This "
+    "is the global rate in ops/second.");
+
 DEFINE_uint64(max_compaction_bytes, rocksdb::Options().max_compaction_bytes,
               "Max bytes allowed in one compaction");
 
@@ -766,9 +776,6 @@ DEFINE_uint64(wal_size_limit_MB, 0, "Set the size limit for the WAL Files"
               " in MB.");
 DEFINE_uint64(max_total_wal_size, 0, "Set total max WAL size");
 
-DEFINE_bool(bufferedio, rocksdb::EnvOptions().use_os_buffer,
-            "Allow buffered io using OS buffers");
-
 DEFINE_bool(mmap_read, rocksdb::EnvOptions().use_mmap_reads,
             "Allow reads to occur via mmap-ing files");
 
@@ -777,6 +784,9 @@ DEFINE_bool(mmap_write, rocksdb::EnvOptions().use_mmap_writes,
 
 DEFINE_bool(use_direct_reads, rocksdb::EnvOptions().use_direct_reads,
             "Use O_DIRECT for reading data");
+
+DEFINE_bool(use_direct_writes, rocksdb::EnvOptions().use_direct_writes,
+            "Use O_DIRECT for writing data");
 
 DEFINE_bool(advise_random_on_open, rocksdb::Options().advise_random_on_open,
             "Advise random access on table file open");
@@ -1667,6 +1677,7 @@ struct SharedState {
   int total;
   int perf_level;
   std::shared_ptr<RateLimiter> write_rate_limiter;
+  std::shared_ptr<RateLimiter> read_rate_limiter;
 
   // Each thread goes through the following states:
   //    (1) initializing
@@ -1821,6 +1832,8 @@ class Benchmark {
              / 1048576.0));
     fprintf(stdout, "Write rate: %" PRIu64 " bytes/second\n",
             FLAGS_benchmark_write_rate_limit);
+    fprintf(stdout, "Read rate: %" PRIu64 " ops/second\n",
+            FLAGS_benchmark_read_rate_limit);
     if (FLAGS_enable_numa) {
       fprintf(stderr, "Running in NUMA enabled mode.\n");
 #ifndef NUMA
@@ -1985,7 +1998,9 @@ class Benchmark {
       }
       return cache;
     } else {
-      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits);
+      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits,
+                         false /*strict_capacity_limit*/,
+                         FLAGS_cache_high_pri_pool_ratio);
     }
   }
 
@@ -2478,6 +2493,10 @@ class Benchmark {
       shared.write_rate_limiter.reset(
           NewGenericRateLimiter(FLAGS_benchmark_write_rate_limit));
     }
+    if (FLAGS_benchmark_read_rate_limit > 0) {
+      shared.read_rate_limiter.reset(
+          NewGenericRateLimiter(FLAGS_benchmark_read_rate_limit));
+    }
 
     std::unique_ptr<ReporterAgent> reporter_agent;
     if (FLAGS_report_interval_seconds > 0) {
@@ -2738,6 +2757,7 @@ class Benchmark {
     options.allow_mmap_reads = FLAGS_mmap_read;
     options.allow_mmap_writes = FLAGS_mmap_write;
     options.use_direct_reads = FLAGS_use_direct_reads;
+    options.use_direct_writes = FLAGS_use_direct_writes;
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
@@ -2871,6 +2891,10 @@ class Benchmark {
           FLAGS_cache_index_and_filter_blocks;
       block_based_options.pin_l0_filter_and_index_blocks_in_cache =
           FLAGS_pin_l0_filter_and_index_blocks_in_cache;
+      if (FLAGS_cache_high_pri_pool_ratio > 1e-6) {  // > 0.0 + eps
+        block_based_options.cache_index_and_filter_blocks_with_high_priority =
+            true;
+      }
       block_based_options.block_cache = cache_;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
@@ -2939,9 +2963,6 @@ class Benchmark {
     options.optimize_filters_for_hits = FLAGS_optimize_filters_for_hits;
 
     // fill storage options
-    options.allow_os_buffer = FLAGS_bufferedio;
-    options.allow_mmap_reads = FLAGS_mmap_read;
-    options.allow_mmap_writes = FLAGS_mmap_write;
     options.advise_random_on_open = FLAGS_advise_random_on_open;
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice_e;
     options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;
@@ -3629,7 +3650,13 @@ class Benchmark {
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedOps(nullptr, db, 1, kRead);
       ++i;
+
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          i % 1024 == 1023) {
+        thread->shared->read_rate_limiter->Request(1024, Env::IO_HIGH);
+      }
     }
+
     delete iter;
     thread->stats.AddBytes(bytes);
     if (FLAGS_perf_level > rocksdb::PerfLevel::kDisable) {
@@ -3655,6 +3682,10 @@ class Benchmark {
       bytes += iter->key().size() + iter->value().size();
       thread->stats.FinishedOps(nullptr, db, 1, kRead);
       ++i;
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          i % 1024 == 1023) {
+        thread->shared->read_rate_limiter->Request(1024, Env::IO_HIGH);
+      }
     }
     delete iter;
     thread->stats.AddBytes(bytes);
@@ -3693,6 +3724,10 @@ class Benchmark {
           ++nonexist;
         }
       }
+      if (thread->shared->read_rate_limiter.get() != nullptr) {
+        thread->shared->read_rate_limiter->Request(100, Env::IO_HIGH);
+      }
+
       thread->stats.FinishedOps(nullptr, db, 100, kRead);
     } while (!duration.Done(100));
 
@@ -3761,6 +3796,12 @@ class Benchmark {
         fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
         abort();
       }
+
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          read % 256 == 255) {
+        thread->shared->read_rate_limiter->Request(256, Env::IO_HIGH);
+      }
+
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1, kRead);
     }
 
@@ -3780,6 +3821,7 @@ class Benchmark {
   // Returns the total number of keys found.
   void MultiReadRandom(ThreadState* thread) {
     int64_t read = 0;
+    int64_t num_multireads = 0;
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     std::vector<Slice> keys;
@@ -3800,6 +3842,7 @@ class Benchmark {
       assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
 
       read += entries_per_batch_;
+      num_multireads++;
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
         if (statuses[i].ok()) {
           ++found;
@@ -3808,6 +3851,11 @@ class Benchmark {
                   statuses[i].ToString().c_str());
           abort();
         }
+      }
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          num_multireads % 256 == 255) {
+        thread->shared->read_rate_limiter->Request(256 * entries_per_batch_,
+                                                   Env::IO_HIGH);
       }
       thread->stats.FinishedOps(nullptr, db, entries_per_batch_, kRead);
     }
@@ -3900,6 +3948,11 @@ class Benchmark {
           iter_to_use->Prev();
         }
         assert(iter_to_use->status().ok());
+      }
+
+      if (thread->shared->read_rate_limiter.get() != nullptr &&
+          read % 256 == 255) {
+        thread->shared->read_rate_limiter->Request(256, Env::IO_HIGH);
       }
 
       thread->stats.FinishedOps(&db_, db_.db, 1, kSeek);
@@ -4699,6 +4752,10 @@ class Benchmark {
         }
       }
       found += key_found;
+
+      if (thread->shared->read_rate_limiter.get() != nullptr) {
+        thread->shared->read_rate_limiter->Request(1, Env::IO_HIGH);
+      }
     }
     delete iter;
 

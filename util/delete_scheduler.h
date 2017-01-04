@@ -5,6 +5,8 @@
 
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #include <map>
 #include <queue>
 #include <string>
@@ -88,3 +90,5 @@ class DeleteScheduler {
 };
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

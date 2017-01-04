@@ -9,11 +9,13 @@
 
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "rocksdb/sst_file_manager.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 SstFileManagerImpl::SstFileManagerImpl(Env* env, std::shared_ptr<Logger> logger,
                                        const std::string& trash_dir,
                                        int64_t rate_bytes_per_sec)
@@ -154,4 +156,20 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
   return res;
 }
 
+#else
+
+SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
+                                  std::string trash_dir,
+                                  int64_t rate_bytes_per_sec,
+                                  bool delete_exisitng_trash, Status* status) {
+  if (status) {
+    *status =
+        Status::NotSupported("SstFileManager is not supported in ROCKSDB_LITE");
+  }
+  return nullptr;
+}
+
+#endif  // ROCKSDB_LITE
+
 }  // namespace rocksdb
+

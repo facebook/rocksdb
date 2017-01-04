@@ -50,10 +50,10 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_ttl_seconds(options.WAL_ttl_seconds),
       wal_size_limit_mb(options.WAL_size_limit_MB),
       manifest_preallocation_size(options.manifest_preallocation_size),
-      allow_os_buffer(options.allow_os_buffer),
       allow_mmap_reads(options.allow_mmap_reads),
       allow_mmap_writes(options.allow_mmap_writes),
       use_direct_reads(options.use_direct_reads),
+      use_direct_writes(options.use_direct_writes),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       stats_dump_period_sec(options.stats_dump_period_sec),
@@ -119,16 +119,16 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   Header(log,
          "                   Options.recycle_log_file_num: %" ROCKSDB_PRIszt,
          recycle_log_file_num);
-  Header(log, "                        Options.allow_os_buffer: %d",
-         allow_os_buffer);
-  Header(log, "                       Options.allow_mmap_reads: %d",
-         allow_mmap_reads);
   Header(log, "                        Options.allow_fallocate: %d",
          allow_fallocate);
+  Header(log, "                       Options.allow_mmap_reads: %d",
+         allow_mmap_reads);
   Header(log, "                      Options.allow_mmap_writes: %d",
          allow_mmap_writes);
   Header(log, "                       Options.use_direct_reads: %d",
          use_direct_reads);
+  Header(log, "                       Options.use_direct_writes: %d",
+         use_direct_writes);
   Header(log, "         Options.create_missing_column_families: %d",
          create_missing_column_families);
   Header(log, "                             Options.db_log_dir: %s",
@@ -148,12 +148,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   Header(log,
          "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
          manifest_preallocation_size);
-  Header(log, "                        Options.allow_os_buffer: %d",
-         allow_os_buffer);
-  Header(log, "                       Options.allow_mmap_reads: %d",
-         allow_mmap_reads);
-  Header(log, "                      Options.allow_mmap_writes: %d",
-         allow_mmap_writes);
   Header(log, "                    Options.is_fd_close_on_exec: %d",
          is_fd_close_on_exec);
   Header(log, "                  Options.stats_dump_period_sec: %u",

@@ -871,27 +871,6 @@ void Java_org_rocksdb_Options_setManifestPreallocationSize(
 }
 
 /*
- * Class:     org_rocksdb_Options
- * Method:    allowOsBuffer
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_allowOsBuffer(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->allow_os_buffer;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setAllowOsBuffer
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setAllowOsBuffer(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow_os_buffer) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->allow_os_buffer =
-      static_cast<bool>(allow_os_buffer);
-}
-
-/*
  * Method:    setTableFactory
  * Signature: (JJ)V
  */
@@ -941,6 +920,50 @@ void Java_org_rocksdb_Options_setAllowMmapWrites(
     JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow_mmap_writes) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->allow_mmap_writes =
       static_cast<bool>(allow_mmap_writes);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    useDirectReads
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_useDirectReads(JNIEnv* env, jobject jobj,
+                                                 jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->use_direct_reads;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setUseDirectReads
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setUseDirectReads(JNIEnv* env, jobject jobj,
+                                                jlong jhandle,
+                                                jboolean use_direct_reads) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->use_direct_reads =
+      static_cast<bool>(use_direct_reads);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    useDirectWrites
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_useDirectWrites(JNIEnv* env, jobject jobj,
+                                                  jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->use_direct_writes;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setUseDirectReads
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setUseDirectWrites(JNIEnv* env, jobject jobj,
+                                                 jlong jhandle,
+                                                 jboolean use_direct_writes) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->use_direct_writes =
+      static_cast<bool>(use_direct_writes);
 }
 
 /*
@@ -4144,23 +4167,46 @@ jlong Java_org_rocksdb_DBOptions_manifestPreallocationSize(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    setAllowOsBuffer
- * Signature: (JZ)V
+ * Method:    useDirectReads
+ * Signature: (J)Z
  */
-void Java_org_rocksdb_DBOptions_setAllowOsBuffer(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow_os_buffer) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->allow_os_buffer =
-      static_cast<bool>(allow_os_buffer);
+jboolean Java_org_rocksdb_DBOptions_useDirectReads(JNIEnv* env, jobject jobj,
+                                                   jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_reads;
 }
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    allowOsBuffer
+ * Method:    setUseDirectReads
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setUseDirectReads(JNIEnv* env, jobject jobj,
+                                                  jlong jhandle,
+                                                  jboolean use_direct_reads) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_reads =
+      static_cast<bool>(use_direct_reads);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    useDirectWrites
  * Signature: (J)Z
  */
-jboolean Java_org_rocksdb_DBOptions_allowOsBuffer(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->allow_os_buffer;
+jboolean Java_org_rocksdb_DBOptions_useDirectWrites(JNIEnv* env, jobject jobj,
+                                                    jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_writes;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setUseDirectReads
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setUseDirectWrites(JNIEnv* env, jobject jobj,
+                                                   jlong jhandle,
+                                                   jboolean use_direct_writes) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_direct_writes =
+      static_cast<bool>(use_direct_writes);
 }
 
 /*

@@ -440,8 +440,8 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
 }
 
 Status MockEnv::NewWritableFile(const std::string& fname,
-                                   unique_ptr<WritableFile>* result,
-                                   const EnvOptions& env_options) {
+                                unique_ptr<WritableFile>* result,
+                                const EnvOptions& env_options) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) != file_map_.end()) {

@@ -197,6 +197,19 @@ TEST_F(DBTest, MemEnvTest) {
 }
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBTest, OpenWhenOpen) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  rocksdb::DB* db2 = nullptr;
+  rocksdb::Status s = DB::Open(options, dbname_, &db2);
+
+  ASSERT_EQ(Status::Code::kIOError, s.code());
+  ASSERT_EQ(Status::SubCode::kNone, s.subcode());
+  ASSERT_TRUE(strncmp("lock ", s.getState(), 5) == 0);
+
+  delete db2;
+}
+
 TEST_F(DBTest, WriteEmptyBatch) {
   Options options = CurrentOptions();
   options.env = env_;
@@ -3396,19 +3409,21 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
 TEST_F(DBTest, MmapAndBufferOptions) {
   Options options = CurrentOptions();
 
-  options.allow_os_buffer = false;
+  options.use_direct_reads = true;
   options.allow_mmap_reads = true;
   ASSERT_NOK(TryReopen(options));
 
   // All other combinations are acceptable
-  options.allow_os_buffer = true;
+  options.use_direct_reads = false;
   ASSERT_OK(TryReopen(options));
 
-  options.allow_os_buffer = false;
-  options.allow_mmap_reads = false;
-  ASSERT_OK(TryReopen(options));
+  if (IsDirectIOSupported()) {
+    options.use_direct_reads = true;
+    options.allow_mmap_reads = false;
+    ASSERT_OK(TryReopen(options));
+  }
 
-  options.allow_os_buffer = true;
+  options.use_direct_reads = false;
   ASSERT_OK(TryReopen(options));
 }
 #endif

@@ -64,6 +64,8 @@ class BlockCacheTier : public PersistentCacheTier {
 
   bool IsCompressed() override { return opt_.is_compressed; }
 
+  std::string GetPrintableOptions() const override { return opt_.ToString(); }
+
   PersistentCache::StatsType Stats() override;
 
   void TEST_Flush() override {

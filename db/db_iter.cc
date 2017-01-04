@@ -123,7 +123,8 @@ class DBIter: public Iterator {
         prefix_same_as_start_(prefix_same_as_start),
         pin_thru_lifetime_(pin_data),
         total_order_seek_(total_order_seek),
-        range_del_agg_(ioptions.internal_comparator, s) {
+        range_del_agg_(ioptions.internal_comparator, s,
+                       true /* collapse_deletions */) {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = ioptions.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;

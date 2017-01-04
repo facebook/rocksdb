@@ -255,11 +255,17 @@ static Status ValidateOptions(
         "More than four DB paths are not supported yet. ");
   }
 
-  if (db_options.allow_mmap_reads && !db_options.allow_os_buffer) {
+  if (db_options.allow_mmap_reads && db_options.use_direct_reads) {
     // Protect against assert in PosixMMapReadableFile constructor
     return Status::NotSupported(
         "If memory mapped reads (allow_mmap_reads) are enabled "
-        "then os caching (allow_os_buffer) must also be enabled. ");
+        "then direct I/O reads (use_direct_reads) must be disabled. ");
+  }
+
+  if (db_options.allow_mmap_writes && db_options.use_direct_writes) {
+    return Status::NotSupported(
+        "If memory mapped writes (allow_mmap_writes) are enabled "
+        "then direct I/O writes (use_direct_writes) must be disabled. ");
   }
 
   return Status::OK();
@@ -734,6 +740,34 @@ void DBImpl::ScheduleBgLogWriterClose(JobContext* job_context) {
   }
 }
 
+uint64_t DBImpl::MinLogNumberToKeep() {
+  uint64_t log_number = versions_->MinLogNumber();
+
+  if (allow_2pc()) {
+    // if are 2pc we must consider logs containing prepared
+    // sections of outstanding transactions.
+    //
+    // We must check min logs with outstanding prep before we check
+    // logs referneces by memtables because a log referenced by the
+    // first data structure could transition to the second under us.
+    //
+    // TODO(horuff): iterating over all column families under db mutex.
+    // should find more optimial solution
+    auto min_log_in_prep_heap = FindMinLogContainingOutstandingPrep();
+
+    if (min_log_in_prep_heap != 0 && min_log_in_prep_heap < log_number) {
+      log_number = min_log_in_prep_heap;
+    }
+
+    auto min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable();
+
+    if (min_log_refed_by_mem != 0 && min_log_refed_by_mem < log_number) {
+      log_number = min_log_refed_by_mem;
+    }
+  }
+  return log_number;
+}
+
 // * Returns the list of live files in 'sst_live'
 // If it's doing full scan:
 // * Returns the list of all files in the filesystem in
@@ -792,32 +826,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->manifest_file_number = versions_->manifest_file_number();
   job_context->pending_manifest_file_number =
       versions_->pending_manifest_file_number();
-  job_context->log_number = versions_->MinLogNumber();
-
-  if (allow_2pc()) {
-    // if are 2pc we must consider logs containing prepared
-    // sections of outstanding transactions.
-    //
-    // We must check min logs with outstanding prep before we check
-    // logs referneces by memtables because a log referenced by the
-    // first data structure could transition to the second under us.
-    //
-    // TODO(horuff): iterating over all column families under db mutex.
-    // should find more optimial solution
-    auto min_log_in_prep_heap = FindMinLogContainingOutstandingPrep();
-
-    if (min_log_in_prep_heap != 0 &&
-        min_log_in_prep_heap < job_context->log_number) {
-      job_context->log_number = min_log_in_prep_heap;
-    }
-
-    auto min_log_refed_by_mem = FindMinPrepLogReferencedByMemTable();
-
-    if (min_log_refed_by_mem != 0 &&
-        min_log_refed_by_mem < job_context->log_number) {
-      job_context->log_number = min_log_refed_by_mem;
-    }
-  }
+  job_context->log_number = MinLogNumberToKeep();
 
   job_context->prev_log_number = versions_->prev_log_number();
 
@@ -1928,7 +1937,6 @@ Status DBImpl::FlushMemTableToOutputFile(
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
                            job_context->job_id, flush_job.GetTableProperties());
-#endif  // ROCKSDB_LITE
     auto sfm = static_cast<SstFileManagerImpl*>(
         immutable_db_options_.sst_file_manager.get());
     if (sfm) {
@@ -1942,6 +1950,7 @@ Status DBImpl::FlushMemTableToOutputFile(
             "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached");
       }
     }
+#endif  // ROCKSDB_LITE
   }
   return s;
 }
@@ -6054,6 +6063,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   }
   impl->mutex_.Unlock();
 
+#ifndef ROCKSDB_LITE
   auto sfm = static_cast<SstFileManagerImpl*>(
       impl->immutable_db_options_.sst_file_manager.get());
   if (s.ok() && sfm) {
@@ -6072,6 +6082,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
   }
+#endif  // !ROCKSDB_LITE
 
   if (s.ok()) {
     Log(InfoLogLevel::INFO_LEVEL, impl->immutable_db_options_.info_log,

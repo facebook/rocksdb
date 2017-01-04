@@ -324,6 +324,7 @@ TESTS = \
 	db_properties_test \
 	db_table_properties_test \
 	autovector_test \
+	cleanable_test \
 	column_family_test \
 	table_properties_collector_test \
 	arena_test \
@@ -418,6 +419,7 @@ TESTS = \
 	persistent_cache_test \
 	statistics_test \
 	lua_test \
+	range_del_aggregator_test \
 	lru_cache_test \
 
 PARALLEL_TEST = \
@@ -1146,6 +1148,9 @@ full_filter_block_test: table/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNE
 log_test: db/log_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+cleanable_test: table/cleanable_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1306,6 +1311,9 @@ lru_cache_test: util/lru_cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 lua_test: utilities/lua/rocks_lua_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+range_del_aggregator_test: db/range_del_aggregator_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 #-------------------------------------------------

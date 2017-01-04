@@ -12,6 +12,7 @@ import org.junit.rules.TemporaryFolder;
 import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.Assert.fail;
 
 public class RocksDBTest {
 
@@ -39,6 +40,21 @@ public class RocksDBTest {
          final RocksDB db = RocksDB.open(opt,
              dbFolder.getRoot().getAbsolutePath())) {
       assertThat(db).isNotNull();
+    }
+  }
+
+  @Test
+  public void openWhenOpen() throws RocksDBException {
+    final String dbPath = dbFolder.getRoot().getAbsolutePath();
+
+    try (final RocksDB db1 = RocksDB.open(dbPath)) {
+      try (final RocksDB db2 = RocksDB.open(dbPath)) {
+        fail("Should have thrown an exception when opening the same db twice");
+      } catch (final RocksDBException e) {
+        assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.IOError);
+        assertThat(e.getStatus().getSubCode()).isEqualTo(Status.SubCode.None);
+        assertThat(e.getStatus().getState()).startsWith("lock ");
+      }
     }
   }
 

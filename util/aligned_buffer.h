@@ -24,7 +24,7 @@ inline size_t Roundup(size_t x, size_t y) {
 }
 
 // This class is to manage an aligned user
-// allocated buffer for unbuffered I/O purposes
+// allocated buffer for direct I/O purposes
 // though can be used for any purpose.
 class AlignedBuffer {
   size_t alignment_;

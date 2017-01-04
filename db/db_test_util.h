@@ -692,6 +692,8 @@ class DBTestBase : public testing::Test {
 
   Status TryReopen(const Options& options);
 
+  bool IsDirectIOSupported();
+
   Status Flush(int cf = 0);
 
   Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions());
@@ -831,10 +833,10 @@ class DBTestBase : public testing::Test {
 
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 
-  void VerifyDBFromMap(std::map<std::string, std::string> true_data,
-                       size_t* total_reads_res = nullptr,
-                       bool tailing_iter = false,
-                       std::map<std::string, Status> status = {});
+  void VerifyDBFromMap(
+      std::map<std::string, std::string> true_data,
+      size_t* total_reads_res = nullptr, bool tailing_iter = false,
+      std::map<std::string, Status> status = std::map<std::string, Status>());
 
   void VerifyDBInternal(
       std::vector<std::pair<std::string, std::string>> true_data);

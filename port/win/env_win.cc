@@ -7,9 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include "port/win/env_win.h"
 #include <algorithm>
-#include <thread>
 #include <ctime>
+#include <thread>
 
 #include <errno.h>
 #include <process.h> // _getpid
@@ -25,7 +26,6 @@
 #include "port/dirent.h"
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
-#include "port/win/env_win.h"
 
 #include "util/iostats_context_imp.h"
 
@@ -148,7 +148,7 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
   // Random access is to disable read-ahead as the system reads too much data
   DWORD fileFlags = FILE_ATTRIBUTE_READONLY;
 
-  if (!options.use_os_buffer && !options.use_mmap_reads) {
+  if (options.use_direct_reads && !options.use_mmap_reads) {
     fileFlags |= FILE_FLAG_NO_BUFFERING;
   } else {
     fileFlags |= FILE_FLAG_RANDOM_ACCESS;
@@ -229,8 +229,8 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
 }
 
 Status WinEnvIO::NewWritableFile(const std::string& fname,
-  std::unique_ptr<WritableFile>* result,
-  const EnvOptions& options) {
+                                 std::unique_ptr<WritableFile>* result,
+                                 const EnvOptions& options) {
   const size_t c_BufferCapacity = 64 * 1024;
 
   EnvOptions local_options(options);
@@ -240,7 +240,7 @@ Status WinEnvIO::NewWritableFile(const std::string& fname,
 
   DWORD fileFlags = FILE_ATTRIBUTE_NORMAL;
 
-  if (!local_options.use_os_buffer && !local_options.use_mmap_writes) {
+  if (local_options.use_direct_writes && !local_options.use_mmap_writes) {
     fileFlags = FILE_FLAG_NO_BUFFERING;
   }
 
@@ -305,7 +305,7 @@ Status WinEnvIO::NewRandomRWFile(const std::string & fname,
   DWORD creation_disposition = OPEN_ALWAYS; // Create if necessary or open existing
   DWORD file_flags = FILE_FLAG_RANDOM_ACCESS;
 
-  if (!options.use_os_buffer) {
+  if (options.use_direct_reads && options.use_direct_writes) {
     file_flags |= FILE_FLAG_NO_BUFFERING;
   }
 
@@ -744,11 +744,11 @@ std::string WinEnvIO::TimeToString(uint64_t secondsSince1970) {
 EnvOptions WinEnvIO::OptimizeForLogWrite(const EnvOptions& env_options,
   const DBOptions& db_options) const {
   EnvOptions optimized = env_options;
-  optimized.use_mmap_writes = false;
   optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
-  optimized.use_os_buffer =
-    true;  // This is because we flush only whole pages on unbuffered io and
+  optimized.use_mmap_writes = false;
+  // This is because we flush only whole pages on unbuffered io and
   // the last records are not guaranteed to be flushed.
+  optimized.use_direct_writes = false;
   // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
   // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
   // test and make this false
@@ -760,7 +760,7 @@ EnvOptions WinEnvIO::OptimizeForManifestWrite(
   const EnvOptions& env_options) const {
   EnvOptions optimized = env_options;
   optimized.use_mmap_writes = false;
-  optimized.use_os_buffer = true;
+  optimized.use_direct_writes = false;
   optimized.fallocate_with_keep_size = true;
   return optimized;
 }
@@ -914,8 +914,8 @@ Status WinEnv::NewRandomAccessFile(const std::string& fname,
 }
 
 Status WinEnv::NewWritableFile(const std::string& fname,
-  std::unique_ptr<WritableFile>* result,
-  const EnvOptions& options) {
+                               std::unique_ptr<WritableFile>* result,
+                               const EnvOptions& options) {
   return winenv_io_.NewWritableFile(fname, result, options);
 }
 
