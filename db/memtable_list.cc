@@ -116,9 +116,12 @@ bool MemTableListVersion::GetFromHistory(const LookupKey& key,
                                          SequenceNumber* seq,
                                          const ReadOptions& read_opts) {
   PinnableSlice pSlice;
-  auto res = GetFromList(&memlist_history_, key, &pSlice, s, merge_context,
+  PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
+  auto res = GetFromList(&memlist_history_, key, pSlicePtr, s, merge_context,
                          range_del_agg, seq, read_opts);
-  value->assign(pSlice.data(), pSlice.size());
+  if (value != nullptr) {
+    value->assign(pSlice.data(), pSlice.size());
+  }
   return res;
 }
 

@@ -284,8 +284,11 @@ class DB {
                     ColumnFamilyHandle* column_family, const Slice& key,
                     std::string* value) {
     PinnableSlice pSlice;
-    auto s = Get(options, column_family, key, &pSlice);
-    value->assign(pSlice.data(), pSlice.size());
+    PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
+    auto s = Get(options, column_family, key, pSlicePtr);
+    if (value != nullptr) {
+      value->assign(pSlice.data(), pSlice.size());
+    }
     return s;
   }
   virtual Status Get(const ReadOptions& options,

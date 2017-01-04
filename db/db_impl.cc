@@ -4389,7 +4389,8 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier; // read from block cache only
   PinnableSlice pSlice;
-  auto s = GetImpl(roptions, column_family, key, &pSlice, value_found);
+  PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
+  auto s = GetImpl(roptions, column_family, key, pSlicePtr, value_found);
   if (value != nullptr) {
     value->assign(pSlice.data(), pSlice.size());
   }
@@ -6461,8 +6462,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  PinnableSlice* pSlice = nullptr;
-  sv->imm->Get(lkey, pSlice, &s, &merge_context, &range_del_agg, seq,
+  sv->imm->Get(lkey, pSliceNullPtr, &s, &merge_context, &range_del_agg, seq,
                read_options);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
