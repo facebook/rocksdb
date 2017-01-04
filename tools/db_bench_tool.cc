@@ -362,6 +362,11 @@ DEFINE_int32(cache_numshardbits, 6,
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
 
+DEFINE_double(cache_high_pri_pool_ratio, 0.0,
+              "Ratio of block cache reserve for high pri blocks. "
+              "If > 0.0, we also enable "
+              "cache_index_and_filter_blocks_with_high_priority.");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -1993,7 +1998,9 @@ class Benchmark {
       }
       return cache;
     } else {
-      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits);
+      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits,
+                         false /*strict_capacity_limit*/,
+                         FLAGS_cache_high_pri_pool_ratio);
     }
   }
 
@@ -2884,6 +2891,10 @@ class Benchmark {
           FLAGS_cache_index_and_filter_blocks;
       block_based_options.pin_l0_filter_and_index_blocks_in_cache =
           FLAGS_pin_l0_filter_and_index_blocks_in_cache;
+      if (FLAGS_cache_high_pri_pool_ratio > 1e-6) {  // > 0.0 + eps
+        block_based_options.cache_index_and_filter_blocks_with_high_priority =
+            true;
+      }
       block_based_options.block_cache = cache_;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;

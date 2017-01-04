@@ -408,11 +408,17 @@ int SSTDumpTool::Run(int argc, char** argv) {
   bool has_to = false;
   bool show_properties = false;
   bool show_compression_sizes = false;
+  bool show_summary = false;
   bool set_block_size = false;
   std::string from_key;
   std::string to_key;
   std::string block_size_str;
   size_t block_size;
+  uint64_t total_num_files = 0;
+  uint64_t total_num_data_blocks = 0;
+  uint64_t total_data_block_size = 0;
+  uint64_t total_index_block_size = 0;
+  uint64_t total_filter_block_size = 0;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
@@ -438,6 +444,8 @@ int SSTDumpTool::Run(int argc, char** argv) {
       show_properties = true;
     } else if (strcmp(argv[i], "--show_compression_sizes") == 0) {
       show_compression_sizes = true;
+    } else if (strcmp(argv[i], "--show_summary") == 0) {
+      show_summary = true;
     } else if (strncmp(argv[i], "--set_block_size=", 17) == 0) {
       set_block_size = true;
       block_size_str = argv[i] + 17;
@@ -518,7 +526,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
     if (!reader.getStatus().ok()) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               reader.getStatus().ToString().c_str());
-      exit(1);
+      continue;
     }
 
     if (show_compression_sizes) {
@@ -559,7 +567,8 @@ int SSTDumpTool::Run(int argc, char** argv) {
         break;
       }
     }
-    if (show_properties) {
+
+    if (show_properties || show_summary) {
       const rocksdb::TableProperties* table_properties;
 
       std::shared_ptr<const rocksdb::TableProperties>
@@ -573,33 +582,55 @@ int SSTDumpTool::Run(int argc, char** argv) {
         table_properties = table_properties_from_reader.get();
       }
       if (table_properties != nullptr) {
-        fprintf(stdout,
-                "Table Properties:\n"
-                "------------------------------\n"
-                "  %s",
-                table_properties->ToString("\n  ", ": ").c_str());
-        fprintf(stdout, "# deleted keys: %" PRIu64 "\n",
-                rocksdb::GetDeletedKeys(
-                    table_properties->user_collected_properties));
+        if (show_properties) {
+          fprintf(stdout,
+                  "Table Properties:\n"
+                  "------------------------------\n"
+                  "  %s",
+                  table_properties->ToString("\n  ", ": ").c_str());
+          fprintf(stdout, "# deleted keys: %" PRIu64 "\n",
+                  rocksdb::GetDeletedKeys(
+                      table_properties->user_collected_properties));
 
-        bool property_present;
-        uint64_t merge_operands = rocksdb::GetMergeOperands(
-            table_properties->user_collected_properties, &property_present);
-        if (property_present) {
-          fprintf(stdout, "  # merge operands: %" PRIu64 "\n", merge_operands);
-        } else {
-          fprintf(stdout, "  # merge operands: UNKNOWN\n");
+          bool property_present;
+          uint64_t merge_operands = rocksdb::GetMergeOperands(
+              table_properties->user_collected_properties, &property_present);
+          if (property_present) {
+            fprintf(stdout, "  # merge operands: %" PRIu64 "\n",
+                    merge_operands);
+          } else {
+            fprintf(stdout, "  # merge operands: UNKNOWN\n");
+          }
+        }
+        total_num_files += 1;
+        total_num_data_blocks += table_properties->num_data_blocks;
+        total_data_block_size += table_properties->data_size;
+        total_index_block_size += table_properties->index_size;
+        total_filter_block_size += table_properties->filter_size;
+      }
+      if (show_properties) {
+        fprintf(stdout,
+                "Raw user collected properties\n"
+                "------------------------------\n");
+        for (const auto& kv : table_properties->user_collected_properties) {
+          std::string prop_name = kv.first;
+          std::string prop_val = Slice(kv.second).ToString(true);
+          fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(),
+                  prop_val.c_str());
         }
       }
-      fprintf(stdout,
-              "Raw user collected properties\n"
-              "------------------------------\n");
-      for (const auto& kv : table_properties->user_collected_properties) {
-        std::string prop_name = kv.first;
-        std::string prop_val = Slice(kv.second).ToString(true);
-        fprintf(stdout, "  # %s: 0x%s\n", prop_name.c_str(), prop_val.c_str());
-      }
     }
+  }
+  if (show_summary) {
+    fprintf(stdout, "total number of files: %" PRIu64 "\n", total_num_files);
+    fprintf(stdout, "total number of data blocks: %" PRIu64 "\n",
+            total_num_data_blocks);
+    fprintf(stdout, "total data block size: %" PRIu64 "\n",
+            total_data_block_size);
+    fprintf(stdout, "total index block size: %" PRIu64 "\n",
+            total_index_block_size);
+    fprintf(stdout, "total filter block size: %" PRIu64 "\n",
+            total_filter_block_size);
   }
   return 0;
 }
