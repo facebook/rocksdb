@@ -27,7 +27,8 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                               const ReadOptions& read_opts) {
   PinnableSlice pSlice;
   PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-  auto res = Get(key, pSlicePtr, s, merge_context, range_del_agg, seq, read_opts);
+  auto res =
+      Get(key, pSlicePtr, s, merge_context, range_del_agg, seq, read_opts);
   if (value != nullptr) {
     value->assign(pSlice.data(), pSlice.size());
   }
@@ -48,7 +49,8 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    const ReadOptions& read_opts) {
   PinnableSlice pSlice;
   PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-  auto res = Get(key, pSlicePtr, s, merge_context, range_del_agg, seq, read_opts);
+  auto res =
+      Get(key, pSlicePtr, s, merge_context, range_del_agg, seq, read_opts);
   if (value != nullptr) {
     value->assign(pSlice.data(), pSlice.size());
   }
