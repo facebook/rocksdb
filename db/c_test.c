@@ -989,6 +989,19 @@ int main(int argc, char** argv) {
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
 
+    rocksdb_readoptions_set_total_order_seek(roptions, 1);
+    iter = rocksdb_create_iterator(db, roptions);
+    CheckCondition(!rocksdb_iter_valid(iter));
+
+    rocksdb_iter_seek(iter, "ba", 2);
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    CheckCondition(rocksdb_iter_valid(iter));
+    CheckIter(iter, "bar1", "bar");
+
+    rocksdb_iter_destroy(iter);
+    rocksdb_readoptions_set_total_order_seek(roptions, 0);
+
     rocksdb_close(db);
     rocksdb_destroy_db(options, dbname, &err);
   }

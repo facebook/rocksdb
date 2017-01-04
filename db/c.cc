@@ -2256,6 +2256,11 @@ void rocksdb_readoptions_set_pin_data(rocksdb_readoptions_t* opt,
   opt->rep.pin_data = v;
 }
 
+void rocksdb_readoptions_set_total_order_seek(rocksdb_readoptions_t* opt,
+                                              unsigned char v) {
+  opt->rep.total_order_seek = v;
+}
+
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {
   return new rocksdb_writeoptions_t;
 }
