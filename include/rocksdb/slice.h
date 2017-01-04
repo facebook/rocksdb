@@ -163,6 +163,7 @@ class PinnableSlice : public Slice, public Cleanable {
   inline bool IsPinned() { return cleanup_.function != nullptr; }
 
  private:
+  friend class PinnableSlice4Test;
   std::string self_space;
   static void ReleaseCharStrHeap(void* s, void*) {
     delete reinterpret_cast<const char*>(s);
