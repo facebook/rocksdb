@@ -288,6 +288,9 @@ Status GetStringFromColumnFamilyOptions(std::string* opts_str,
 Status GetStringFromCompressionType(std::string* compression_str,
                                     CompressionType compression_type);
 
+const std::unordered_map<std::string, CompressionType>&
+GetAllCompressionTypes();
+
 Status GetBlockBasedTableOptionsFromString(
     const BlockBasedTableOptions& table_options,
     const std::string& opts_str,
