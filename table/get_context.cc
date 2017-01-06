@@ -106,10 +106,12 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
           state_ = kFound;
-          if (LIKELY(value_pinner != nullptr)) {
-            pSlice_->PinSlice(value, value_pinner);
-          } else {
-            pSlice_->PinSelf(value);
+          if (LIKELY(pSlice_ != nullptr)) {
+            if (LIKELY(value_pinner != nullptr)) {
+              pSlice_->PinSlice(value, value_pinner);
+            } else {
+              pSlice_->PinSelf(value);
+            }
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
@@ -153,7 +155,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       case kTypeMerge:
         assert(state_ == kNotFound || state_ == kMerge);
         state_ = kMerge;
-        if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled()) {
+        // value_pinner is not set from plain_table_reader.cc for example.
+        if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
+            value_pinner != nullptr) {
           value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
           merge_context_->PushOperand(value, true /*value_pinned*/);
         } else {
