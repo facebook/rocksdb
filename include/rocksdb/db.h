@@ -286,7 +286,7 @@ class DB {
     PinnableSlice pSlice;
     PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
     auto s = Get(options, column_family, key, pSlicePtr);
-    if (value != nullptr) {
+    if (value != nullptr && s.ok()) {
       value->assign(pSlice.data(), pSlice.size());
     }
     return s;
