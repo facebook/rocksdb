@@ -534,9 +534,9 @@ struct Saver {
 };
 }  // namespace
 
-static void UnrefMemTable(void* s, void*) {
-  reinterpret_cast<MemTable*>(s)->Unref();
-}
+//static void UnrefMemTable(void* s, void*) {
+// reinterpret_cast<MemTable*>(s)->Unref();
+//}
 
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
@@ -583,8 +583,9 @@ static bool SaveValue(void* arg, const char* entry) {
                 s->statistics, s->env_);
             s->pSlice->PinSelf();
           } else {
-            s->mem->Ref();
-            s->pSlice->PinSlice(v, UnrefMemTable, s->mem, nullptr);
+            //s->mem->Ref();
+            //s->pSlice->PinSlice(v, UnrefMemTable, s->mem, nullptr);
+            s->pSlice->PinSelf(v);
           }
         }
         if (s->inplace_update_support) {
