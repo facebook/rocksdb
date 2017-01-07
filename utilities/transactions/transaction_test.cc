@@ -2033,8 +2033,9 @@ TEST_P(TransactionTest, ColumnFamiliesTest) {
 
   s = txn2->Commit();
   ASSERT_OK(s);
+  // In the above the latest change to AAAZZZ in handles[1] is delete.
   s = db->Get(read_options, handles[1], "AAAZZZ", &value);
-  ASSERT_EQ(value, "barbar");
+  ASSERT_TRUE(s.IsNotFound());
 
   delete txn;
   delete txn2;
