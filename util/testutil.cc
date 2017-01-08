@@ -12,59 +12,10 @@
 #include <cctype>
 #include <sstream>
 
-#include "db/memtable_list.h"
 #include "port/port.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
-
-// These methods are deprecated and only being used in tests for backward
-// compatibility
-bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
-                              Status* s, MergeContext* merge_context,
-                              RangeDelAggregator* range_del_agg,
-                              SequenceNumber* seq,
-                              const ReadOptions& read_opts) {
-  PinnableSlice pSlice;
-  PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-  auto res =
-      Get(key, pSlicePtr, s, merge_context, range_del_agg, seq, read_opts);
-  if (value != nullptr) {
-    value->assign(pSlice.data(), pSlice.size());
-  }
-  return res;
-}
-
-bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
-                              Status* s, MergeContext* merge_context,
-                              RangeDelAggregator* range_del_agg,
-                              const ReadOptions& read_opts) {
-  SequenceNumber seq;
-  return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
-}
-
-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext* merge_context,
-                   RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts) {
-  PinnableSlice pSlice;
-  PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-  auto res =
-      Get(key, pSlicePtr, s, merge_context, range_del_agg, seq, read_opts);
-  if (value != nullptr) {
-    value->assign(pSlice.data(), pSlice.size());
-  }
-  return res;
-}
-
-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext* merge_context,
-                   RangeDelAggregator* range_del_agg,
-                   const ReadOptions& read_opts) {
-  SequenceNumber seq;
-  return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
-}
-
 namespace test {
 
 Slice RandomString(Random* rnd, int len, std::string* dst) {

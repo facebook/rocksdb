@@ -280,20 +280,9 @@ class DB {
   // a status for which Status::IsNotFound() returns true.
   //
   // May return some other Status on an error.
-  inline Status Get(const ReadOptions& options,
-                    ColumnFamilyHandle* column_family, const Slice& key,
-                    std::string* value) {
-    PinnableSlice pSlice;
-    PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-    auto s = Get(options, column_family, key, pSlicePtr);
-    if (value != nullptr && s.ok()) {
-      value->assign(pSlice.data(), pSlice.size());
-    }
-    return s;
-  }
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     PinnableSlice* value) = 0;
+                     std::string* value) = 0;
   virtual Status Get(const ReadOptions& options, const Slice& key, std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }

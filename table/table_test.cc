@@ -1968,12 +1968,12 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   ASSERT_OK(c3.Reopen(ioptions4));
   reader = dynamic_cast<BlockBasedTable*>(c3.GetTableReader());
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
-  PinnableSlice value;
+  std::string value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, user_key, &value, nullptr,
                          nullptr, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), user_key, &get_context));
-  ASSERT_STREQ(value.data(), "hello");
+  ASSERT_EQ(value, "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
   c3.ResetTableReader();
@@ -2051,7 +2051,7 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
       c.Finish(options, ioptions, table_options,
                GetPlainInternalComparator(options.comparator), &keys, &kvmap);
       auto reader = c.GetTableReader();
-      PinnableSlice value;
+      std::string value;
       GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, user_key, &value, nullptr,
                              nullptr, nullptr, nullptr);
@@ -2065,14 +2065,13 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
         ASSERT_EQ(perf_context.block_read_count, 1);
       }
       ASSERT_EQ(get_context.State(), GetContext::kFound);
-      ASSERT_STREQ(value.data(), "hello");
+      ASSERT_EQ(value, "hello");
 
       // Get non-existing key
       user_key = "does-not-exist";
       internal_key = InternalKey(user_key, 0, kTypeValue);
       encoded_key = internal_key.Encode().ToString();
 
-      value.Reset();
       get_context = GetContext(options.comparator, nullptr, nullptr, nullptr,
                                GetContext::kNotFound, user_key, &value, nullptr,
                                nullptr, nullptr, nullptr);

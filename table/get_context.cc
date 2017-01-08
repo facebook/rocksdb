@@ -35,7 +35,7 @@ void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
 GetContext::GetContext(const Comparator* ucmp,
                        const MergeOperator* merge_operator, Logger* logger,
                        Statistics* statistics, GetState init_state,
-                       const Slice& user_key, PinnableSlice* pSlice,
+                       const Slice& user_key, std::string* ret_value,
                        bool* value_found, MergeContext* merge_context,
                        RangeDelAggregator* _range_del_agg, Env* env,
                        SequenceNumber* seq,
@@ -46,7 +46,7 @@ GetContext::GetContext(const Comparator* ucmp,
       statistics_(statistics),
       state_(init_state),
       user_key_(user_key),
-      pSlice_(pSlice),
+      value_(ret_value),
       value_found_(value_found),
       merge_context_(merge_context),
       range_del_agg_(_range_del_agg),
@@ -76,13 +76,13 @@ void GetContext::SaveValue(const Slice& value, SequenceNumber seq) {
   appendToReplayLog(replay_log_, kTypeValue, value);
 
   state_ = kFound;
-  if (LIKELY(pSlice_ != nullptr)) {
-    pSlice_->PinSelf(value);
+  if (value_ != nullptr) {
+    value_->assign(value.data(), value.size());
   }
 }
 
 bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
-                           const Slice& value, Cleanable* value_pinner) {
+                           const Slice& value, bool value_pinned) {
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
@@ -106,22 +106,17 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
           state_ = kFound;
-          if (LIKELY(pSlice_ != nullptr)) {
-            if (LIKELY(value_pinner != nullptr)) {
-              pSlice_->PinSlice(value, value_pinner);
-            } else {
-              pSlice_->PinSelf(value);
-            }
+          if (value_ != nullptr) {
+            value_->assign(value.data(), value.size());
           }
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
-          if (LIKELY(pSlice_ != nullptr)) {
+          if (value_ != nullptr) {
             Status merge_status = MergeHelper::TimedFullMerge(
                 merge_operator_, user_key_, &value,
-                merge_context_->GetOperands(), pSlice_->GetSelf(), logger_,
-                statistics_, env_);
-            pSlice_->PinSelf();
+                merge_context_->GetOperands(), value_, logger_, statistics_,
+                env_);
             if (!merge_status.ok()) {
               state_ = kCorrupt;
             }
@@ -139,12 +134,12 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kDeleted;
         } else if (kMerge == state_) {
           state_ = kFound;
-          if (LIKELY(pSlice_ != nullptr)) {
-            Status merge_status = MergeHelper::TimedFullMerge(
-                merge_operator_, user_key_, nullptr,
-                merge_context_->GetOperands(), pSlice_->GetSelf(), logger_,
-                statistics_, env_);
-            pSlice_->PinSelf();
+          if (value_ != nullptr) {
+            Status merge_status =
+                MergeHelper::TimedFullMerge(merge_operator_, user_key_, nullptr,
+                                            merge_context_->GetOperands(),
+                                            value_, logger_, statistics_, env_);
+
             if (!merge_status.ok()) {
               state_ = kCorrupt;
             }
@@ -155,14 +150,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
       case kTypeMerge:
         assert(state_ == kNotFound || state_ == kMerge);
         state_ = kMerge;
-        // value_pinner is not set from plain_table_reader.cc for example.
-        if (pinned_iters_mgr() && pinned_iters_mgr()->PinningEnabled() &&
-            value_pinner != nullptr) {
-          value_pinner->DelegateCleanupsTo(pinned_iters_mgr());
-          merge_context_->PushOperand(value, true /*value_pinned*/);
-        } else {
-          merge_context_->PushOperand(value, false);
-        }
+        merge_context_->PushOperand(value, value_pinned);
         return true;
 
       default:
@@ -178,7 +166,6 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
                          GetContext* get_context) {
 #ifndef ROCKSDB_LITE
-  static Cleanable nonToClean;
   Slice s = replay_log;
   while (s.size()) {
     auto type = static_cast<ValueType>(*s.data());
@@ -191,8 +178,7 @@ void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
     // Since SequenceNumber is not stored and unknown, we will use
     // kMaxSequenceNumber.
     get_context->SaveValue(
-        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value,
-        &nonToClean);
+        ParsedInternalKey(user_key, kMaxSequenceNumber, type), value, true);
   }
 #else   // ROCKSDB_LITE
   assert(false);
