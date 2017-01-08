@@ -170,6 +170,17 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
   return (timestamp_value + ttl) < curtime;
 }
 
+// Strips the TS from the end of the slice
+Status DBWithTTLImpl::StripTS(Slice* slice) {
+  Status st;
+  if (slice->size() < kTSLength) {
+    return Status::Corruption("Bad timestamp in key-value");
+  }
+  // Erasing characters which hold the TS
+  slice->remove_suffix(kTSLength);
+  return st;
+}
+
 // Strips the TS from the end of the string
 Status DBWithTTLImpl::StripTS(std::string* str) {
   Status st;
@@ -191,16 +202,16 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          std::string* value) {
-  Status st = db_->Get(options, column_family, key, value);
+                          PinnableSlice* pSlice) {
+  Status st = db_->Get(options, column_family, key, pSlice);
   if (!st.ok()) {
     return st;
   }
-  st = SanityCheckTimestamp(*value);
+  st = SanityCheckTimestamp(*pSlice);
   if (!st.ok()) {
     return st;
   }
-  return StripTS(value);
+  return StripTS(pSlice);
 }
 
 std::vector<Status> DBWithTTLImpl::MultiGet(

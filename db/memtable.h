@@ -186,16 +186,26 @@ class MemTable {
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
-  bool Get(const LookupKey& key, std::string* value, Status* s,
+  bool Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            SequenceNumber* seq, const ReadOptions& read_opts);
 
+  inline bool Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
+                  MergeContext* merge_context,
+                  RangeDelAggregator* range_del_agg,
+                  const ReadOptions& read_opts) {
+    SequenceNumber seq;
+    return Get(key, pSlice, s, merge_context, range_del_agg, &seq, read_opts);
+  }
+
+  // deprecated. Use Get with PinnableSlice
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           const ReadOptions& read_opts) {
-    SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
-  }
+           SequenceNumber* seq, const ReadOptions& read_opts);
+  // deprecated. Use Get with PinnableSlice
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           const ReadOptions& read_opts);
 
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode

@@ -53,16 +53,26 @@ class MemTableListVersion {
   // If any operation was found for this key, its most recent sequence number
   // will be stored in *seq on success (regardless of whether true/false is
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
-  bool Get(const LookupKey& key, std::string* value, Status* s,
+  bool Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            SequenceNumber* seq, const ReadOptions& read_opts);
 
+  inline bool Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
+                  MergeContext* merge_context,
+                  RangeDelAggregator* range_del_agg,
+                  const ReadOptions& read_opts) {
+    SequenceNumber seq;
+    return Get(key, pSlice, s, merge_context, range_del_agg, &seq, read_opts);
+  }
+
+  // deprecated. Use Get with PinnableSlice
   bool Get(const LookupKey& key, std::string* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-           const ReadOptions& read_opts) {
-    SequenceNumber seq;
-    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
-  }
+           SequenceNumber* seq, const ReadOptions& read_opts);
+  // deprecated. Use Get with PinnableSlice
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext* merge_context, RangeDelAggregator* range_del_agg,
+           const ReadOptions& read_opts);
 
   // Similar to Get(), but searches the Memtable history of memtables that
   // have already been flushed.  Should only be used from in-memory only
@@ -72,10 +82,10 @@ class MemTableListVersion {
                       MergeContext* merge_context,
                       RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                       const ReadOptions& read_opts);
-  bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
-                      MergeContext* merge_context,
-                      RangeDelAggregator* range_del_agg,
-                      const ReadOptions& read_opts) {
+  inline bool GetFromHistory(const LookupKey& key, std::string* value,
+                             Status* s, MergeContext* merge_context,
+                             RangeDelAggregator* range_del_agg,
+                             const ReadOptions& read_opts) {
     SequenceNumber seq;
     return GetFromHistory(key, value, s, merge_context, range_del_agg, &seq,
                           read_opts);
@@ -112,7 +122,8 @@ class MemTableListVersion {
   void TrimHistory(autovector<MemTable*>* to_delete);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
-                   std::string* value, Status* s, MergeContext* merge_context,
+                   PinnableSlice* pSlice, Status* s,
+                   MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                    const ReadOptions& read_opts);
 
