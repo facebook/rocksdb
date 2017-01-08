@@ -47,30 +47,6 @@ TEST_F(CleanableTest, Register) {
   }
   // ~Cleanable
   ASSERT_EQ(6, res);
-
-  // Test the Reset does cleanup
-  res = 1;
-  {
-    Cleanable c1;
-    c1.RegisterCleanup(Multiplier, &res, &n2);  // res = 2;
-    c1.RegisterCleanup(Multiplier, &res, &n3);  // res = 2 * 3;
-    c1.Reset();
-    ASSERT_EQ(6, res);
-  }
-  // ~Cleanable
-  ASSERT_EQ(6, res);
-
-  // Test Clenable is usable after Reset
-  res = 1;
-  {
-    Cleanable c1;
-    c1.RegisterCleanup(Multiplier, &res, &n2);  // res = 2;
-    c1.Reset();
-    ASSERT_EQ(2, res);
-    c1.RegisterCleanup(Multiplier, &res, &n3);  // res = 2 * 3;
-  }
-  // ~Cleanable
-  ASSERT_EQ(6, res);
 }
 
 // the first Cleanup is on stack and the rest on heap,
@@ -196,102 +172,6 @@ TEST_F(CleanableTest, Delegation) {
   }
   // ~Cleanable
   ASSERT_EQ(5, res);
-}
-
-class PinnableSlice4Test : public PinnableSlice {
- public:
-  void TestCharStrIsRegistered(char* s) {
-    ASSERT_EQ(cleanup_.function, ReleaseCharStrHeap);
-    ASSERT_EQ(cleanup_.arg1, s);
-    ASSERT_EQ(cleanup_.arg2, nullptr);
-    ASSERT_EQ(cleanup_.next, nullptr);
-  }
-
-  void TestStringIsRegistered(std::string* s) {
-    ASSERT_EQ(cleanup_.function, ReleaseStringHeap);
-    ASSERT_EQ(cleanup_.arg1, s);
-    ASSERT_EQ(cleanup_.arg2, nullptr);
-    ASSERT_EQ(cleanup_.next, nullptr);
-  }
-};
-
-// Putting the PinnableSlice tests here due to similarity to Cleanable tests
-TEST_F(CleanableTest, PinnableSlice) {
-  int n2 = 2;
-  int res = 1;
-  const std::string const_str = "123";
-  const char* const_s = "123";
-
-  {
-    PinnableSlice4Test pSlice;
-    char* s = strdup(const_s);
-    pSlice.PinHeap(s, strlen(const_s));
-    std::string str;
-    str.assign(pSlice.data(), pSlice.size());
-    ASSERT_EQ(const_s, str);
-    pSlice.TestCharStrIsRegistered(s);
-  }
-
-  {
-    PinnableSlice4Test pSlice;
-    std::string* heap_str = new std::string(const_str);
-    pSlice.PinHeap(heap_str);
-    std::string str;
-    str.assign(pSlice.data(), pSlice.size());
-    ASSERT_EQ(const_str, str);
-    pSlice.TestStringIsRegistered(heap_str);
-  }
-
-  {
-    res = 1;
-    PinnableSlice4Test pSlice;
-    Slice slice(const_str);
-    pSlice.PinSlice(slice, Multiplier, &res, &n2);
-    std::string str;
-    str.assign(pSlice.data(), pSlice.size());
-    ASSERT_EQ(const_str, str);
-  }
-  // ~Cleanable
-  ASSERT_EQ(2, res);
-
-  {
-    res = 1;
-    PinnableSlice4Test pSlice;
-    Slice slice(const_str);
-    {
-      Cleanable c1;
-      c1.RegisterCleanup(Multiplier, &res, &n2);  // res = 2;
-      pSlice.PinSlice(slice, &c1);
-    }
-    // ~Cleanable
-    ASSERT_EQ(1, res);  // cleanups must have be delegated to pSlice
-    std::string str;
-    str.assign(pSlice.data(), pSlice.size());
-    ASSERT_EQ(const_str, str);
-  }
-  // ~Cleanable
-  ASSERT_EQ(2, res);
-
-  {
-    PinnableSlice4Test pSlice;
-    Slice slice(const_str);
-    pSlice.PinSelf(slice);
-    std::string str;
-    str.assign(pSlice.data(), pSlice.size());
-    ASSERT_EQ(const_str, str);
-    ASSERT_EQ(false, pSlice.IsPinned());  // self pinned
-  }
-
-  {
-    PinnableSlice4Test pSlice;
-    std::string* self_str_ptr = pSlice.GetSelf();
-    self_str_ptr->assign(const_str);
-    pSlice.PinSelf();
-    std::string str;
-    str.assign(pSlice.data(), pSlice.size());
-    ASSERT_EQ(const_str, str);
-    ASSERT_EQ(false, pSlice.IsPinned());  // self pinned
-  }
 }
 
 }  // namespace rocksdb

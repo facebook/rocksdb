@@ -25,8 +25,6 @@
 #include <string.h>
 #include <string>
 
-#include "rocksdb/cleanable.h"
-
 namespace rocksdb {
 
 class Slice {
@@ -116,61 +114,6 @@ class Slice {
   size_t size_;
 
   // Intentionally copyable
-};
-
-class PinnableSlice : public Slice, public Cleanable {
- public:
-  PinnableSlice() {}
-
-  inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
-                       void* arg2) {
-    data_ = s.data();
-    size_ = s.size();
-    RegisterCleanup(f, arg1, arg2);
-  }
-
-  inline void PinSlice(const Slice& s, Cleanable* cleanable) {
-    data_ = s.data();
-    size_ = s.size();
-    cleanable->DelegateCleanupsTo(this);
-  }
-
-  inline void PinHeap(const char* s, const size_t n) {
-    data_ = s;
-    size_ = n;
-    RegisterCleanup(ReleaseCharStrHeap, const_cast<char*>(data_), nullptr);
-  }
-
-  inline void PinHeap(std::string* s) {
-    data_ = s->data();
-    size_ = s->size();
-    RegisterCleanup(ReleaseStringHeap, s, nullptr);
-  }
-
-  inline void PinSelf(const Slice& slice) {
-    self_space.assign(slice.data(), slice.size());
-    data_ = self_space.data();
-    size_ = self_space.size();
-  }
-
-  inline void PinSelf() {
-    data_ = self_space.data();
-    size_ = self_space.size();
-  }
-
-  inline std::string* GetSelf() { return &self_space; }
-
-  inline bool IsPinned() { return cleanup_.function != nullptr; }
-
- private:
-  friend class PinnableSlice4Test;
-  std::string self_space;
-  static void ReleaseCharStrHeap(void* s, void*) {
-    delete reinterpret_cast<const char*>(s);
-  }
-  static void ReleaseStringHeap(void* s, void*) {
-    delete reinterpret_cast<const std::string*>(s);
-  }
 };
 
 // A set of Slices that are virtually concatenated together.  'parts' points

@@ -21,6 +21,24 @@ Cleanable::Cleanable() {
 
 Cleanable::~Cleanable() { DoCleanup(); }
 
+void Cleanable::Reset() {
+  DoCleanup();
+  cleanup_.function = nullptr;
+  cleanup_.next = nullptr;
+}
+
+void Cleanable::DoCleanup() {
+  if (cleanup_.function != nullptr) {
+    (*cleanup_.function)(cleanup_.arg1, cleanup_.arg2);
+    for (Cleanup* c = cleanup_.next; c != nullptr;) {
+      (*c->function)(c->arg1, c->arg2);
+      Cleanup* next = c->next;
+      delete c;
+      c = next;
+    }
+  }
+}
+
 // If the entire linked list was on heap we could have simply add attach one
 // link list to another. However the head is an embeded object to avoid the cost
 // of creating objects for most of the use cases when the Cleanable has only one

@@ -2691,7 +2691,7 @@ class ModelDB : public DB {
   }
   using DB::Get;
   virtual Status Get(const ReadOptions& options, ColumnFamilyHandle* cf,
-                     const Slice& key, PinnableSlice* pSlice) override {
+                     const Slice& key, std::string* value) override {
     return Status::NotSupported(key);
   }
 

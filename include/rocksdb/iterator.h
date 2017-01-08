@@ -20,11 +20,42 @@
 #define STORAGE_ROCKSDB_INCLUDE_ITERATOR_H_
 
 #include <string>
-#include "rocksdb/cleanable.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
+
+class Cleanable {
+ public:
+  Cleanable();
+  ~Cleanable();
+  // Clients are allowed to register function/arg1/arg2 triples that
+  // will be invoked when this iterator is destroyed.
+  //
+  // Note that unlike all of the preceding methods, this method is
+  // not abstract and therefore clients should not override it.
+  typedef void (*CleanupFunction)(void* arg1, void* arg2);
+  void RegisterCleanup(CleanupFunction function, void* arg1, void* arg2);
+  void DelegateCleanupsTo(Cleanable* other);
+  // DoCleanup and also resets the pointers for reuse
+  void Reset();
+
+ protected:
+  struct Cleanup {
+    CleanupFunction function;
+    void* arg1;
+    void* arg2;
+    Cleanup* next;
+  };
+  Cleanup cleanup_;
+  // It also becomes the owner of c
+  void RegisterCleanup(Cleanup* c);
+
+ private:
+  // Performs all the cleanups. It does not reset the pointers. Making it
+  // private to prevent misuse
+  inline void DoCleanup();
+};
 
 class Iterator : public Cleanable {
  public:

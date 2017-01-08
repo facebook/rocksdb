@@ -520,7 +520,7 @@ struct Saver {
   const LookupKey* key;
   bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
   bool* merge_in_progress;
-  PinnableSlice* pSlice;
+  std::string* value;
   SequenceNumber seq;
   const MergeOperator* merge_operator;
   // the merge operations encountered;
@@ -533,10 +533,6 @@ struct Saver {
   Env* env_;
 };
 }  // namespace
-
-//static void UnrefMemTable(void* s, void*) {
-// reinterpret_cast<MemTable*>(s)->Unref();
-//}
 
 static bool SaveValue(void* arg, const char* entry) {
   Saver* s = reinterpret_cast<Saver*>(arg);
@@ -575,18 +571,13 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
-        if (LIKELY(s->pSlice != nullptr)) {
-          if (*(s->merge_in_progress)) {
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), &v,
-                merge_context->GetOperands(), s->pSlice->GetSelf(), s->logger,
-                s->statistics, s->env_);
-            s->pSlice->PinSelf();
-          } else {
-            //s->mem->Ref();
-            //s->pSlice->PinSlice(v, UnrefMemTable, s->mem, nullptr);
-            s->pSlice->PinSelf(v);
-          }
+        if (*(s->merge_in_progress)) {
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), &v,
+              merge_context->GetOperands(), s->value, s->logger, s->statistics,
+              s->env_);
+        } else if (s->value != nullptr) {
+          s->value->assign(v.data(), v.size());
         }
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
@@ -598,14 +589,10 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          *(s->status) = Status::OK();
-          if (s->pSlice != nullptr) {
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), s->pSlice->GetSelf(), s->logger,
-                s->statistics, s->env_);
-            s->pSlice->PinSelf();
-          }
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), nullptr,
+              merge_context->GetOperands(), s->value, s->logger, s->statistics,
+              s->env_);
         } else {
           *(s->status) = Status::NotFound();
         }
@@ -639,7 +626,7 @@ static bool SaveValue(void* arg, const char* entry) {
   return false;
 }
 
-bool MemTable::Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
+bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                    const ReadOptions& read_opts) {
@@ -677,7 +664,7 @@ bool MemTable::Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
     saver.found_final_value = &found_final_value;
     saver.merge_in_progress = &merge_in_progress;
     saver.key = &key;
-    saver.pSlice = pSlice;
+    saver.value = value;
     saver.seq = kMaxSequenceNumber;
     saver.mem = this;
     saver.merge_context = merge_context;
