@@ -128,7 +128,7 @@ class CuckooReaderTest : public testing::Test {
                              GetContext::kNotFound, Slice(user_keys[i]), &value,
                              nullptr, nullptr, nullptr, nullptr);
       ASSERT_OK(reader.Get(ReadOptions(), Slice(keys[i]), &get_context));
-      ASSERT_EQ(values[i], value.data());
+      ASSERT_STREQ(values[i].c_str(), value.data());
     }
   }
   void UpdateKeys(bool with_zero_seqno) {

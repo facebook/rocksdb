@@ -1999,7 +1999,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
                          GetContext::kNotFound, user_key, &value, nullptr,
                          nullptr, nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), user_key, &get_context));
-  ASSERT_EQ(value.data(), "hello");
+  ASSERT_STREQ(value.data(), "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
   c3.ResetTableReader();
@@ -2091,7 +2091,7 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
         ASSERT_EQ(perf_context.block_read_count, 1);
       }
       ASSERT_EQ(get_context.State(), GetContext::kFound);
-      ASSERT_EQ(value.data(), "hello");
+      ASSERT_STREQ(value.data(), "hello");
 
       // Get non-existing key
       user_key = "does-not-exist";
