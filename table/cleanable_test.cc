@@ -200,15 +200,8 @@ TEST_F(CleanableTest, Delegation) {
 
 class PinnableSlice4Test : public PinnableSlice {
  public:
-  void TestCharStrIsRegistered(char* s) {
-    ASSERT_EQ(cleanup_.function, ReleaseCharStrHeap);
-    ASSERT_EQ(cleanup_.arg1, s);
-    ASSERT_EQ(cleanup_.arg2, nullptr);
-    ASSERT_EQ(cleanup_.next, nullptr);
-  }
-
   void TestStringIsRegistered(std::string* s) {
-    ASSERT_EQ(cleanup_.function, ReleaseStringHeap);
+    ASSERT_TRUE(cleanup_.function == ReleaseStringHeap);
     ASSERT_EQ(cleanup_.arg1, s);
     ASSERT_EQ(cleanup_.arg2, nullptr);
     ASSERT_EQ(cleanup_.next, nullptr);
@@ -220,17 +213,6 @@ TEST_F(CleanableTest, PinnableSlice) {
   int n2 = 2;
   int res = 1;
   const std::string const_str = "123";
-  const char* const_s = "123";
-
-  {
-    PinnableSlice4Test pSlice;
-    char* s = strdup(const_s);
-    pSlice.PinHeap(s, strlen(const_s));
-    std::string str;
-    str.assign(pSlice.data(), pSlice.size());
-    ASSERT_EQ(const_s, str);
-    pSlice.TestCharStrIsRegistered(s);
-  }
 
   {
     PinnableSlice4Test pSlice;

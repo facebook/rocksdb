@@ -135,12 +135,6 @@ class PinnableSlice : public Slice, public Cleanable {
     cleanable->DelegateCleanupsTo(this);
   }
 
-  inline void PinHeap(const char* s, const size_t n) {
-    data_ = s;
-    size_ = n;
-    RegisterCleanup(ReleaseCharStrHeap, const_cast<char*>(data_), nullptr);
-  }
-
   inline void PinHeap(std::string* s) {
     data_ = s->data();
     size_ = s->size();
@@ -165,9 +159,6 @@ class PinnableSlice : public Slice, public Cleanable {
  private:
   friend class PinnableSlice4Test;
   std::string self_space;
-  static void ReleaseCharStrHeap(void* s, void*) {
-    delete reinterpret_cast<const char*>(s);
-  }
   static void ReleaseStringHeap(void* s, void*) {
     delete reinterpret_cast<const std::string*>(s);
   }
