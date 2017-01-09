@@ -27,7 +27,7 @@
 #include "util/xfunc.h"
 
 namespace rocksdb {
-class DBTest : public testing::Test {
+class CheckpointTest : public testing::Test {
  protected:
   // Sequence of option configurations to try
   enum OptionConfig {
@@ -43,7 +43,7 @@ class DBTest : public testing::Test {
   Options last_options_;
   std::vector<ColumnFamilyHandle*> handles_;
 
-  DBTest() : env_(Env::Default()) {
+  CheckpointTest() : env_(Env::Default()) {
     env_->SetBackgroundThreads(1, Env::LOW);
     env_->SetBackgroundThreads(1, Env::HIGH);
     dbname_ = test::TmpDir(env_) + "/db_test";
@@ -58,7 +58,7 @@ class DBTest : public testing::Test {
     Reopen(options);
   }
 
-  ~DBTest() {
+  ~CheckpointTest() {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
@@ -216,69 +216,67 @@ class DBTest : public testing::Test {
   }
 };
 
-TEST_F(DBTest, GetSnapshotLink) {
-    Options options;
-    const std::string snapshot_name = test::TmpDir(env_) + "/snapshot";
-    DB* snapshotDB;
-    ReadOptions roptions;
-    std::string result;
-    Checkpoint* checkpoint;
+TEST_F(CheckpointTest, GetSnapshotLink) {
+  Options options;
+  const std::string snapshot_name = test::TmpDir(env_) + "/snapshot";
+  DB* snapshotDB;
+  ReadOptions roptions;
+  std::string result;
+  Checkpoint* checkpoint;
 
-    options = CurrentOptions();
-    delete db_;
-    db_ = nullptr;
-    ASSERT_OK(DestroyDB(dbname_, options));
-    ASSERT_OK(DestroyDB(snapshot_name, options));
-    env_->DeleteDir(snapshot_name);
+  options = CurrentOptions();
+  delete db_;
+  db_ = nullptr;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  ASSERT_OK(DestroyDB(snapshot_name, options));
+  env_->DeleteDir(snapshot_name);
 
-    // Create a database
-    Status s;
-    options.create_if_missing = true;
-    ASSERT_OK(DB::Open(options, dbname_, &db_));
-    std::string key = std::string("foo");
-    ASSERT_OK(Put(key, "v1"));
-    // Take a snapshot
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name));
-    ASSERT_OK(Put(key, "v2"));
-    ASSERT_EQ("v2", Get(key));
-    ASSERT_OK(Flush());
-    ASSERT_EQ("v2", Get(key));
-    // Open snapshot and verify contents while DB is running
-    options.create_if_missing = false;
-    ASSERT_OK(DB::Open(options, snapshot_name, &snapshotDB));
-    ASSERT_OK(snapshotDB->Get(roptions, key, &result));
-    ASSERT_EQ("v1", result);
-    delete snapshotDB;
-    snapshotDB = nullptr;
-    delete db_;
-    db_ = nullptr;
+  // Create a database
+  Status s;
+  options.create_if_missing = true;
+  ASSERT_OK(DB::Open(options, dbname_, &db_));
+  std::string key = std::string("foo");
+  ASSERT_OK(Put(key, "v1"));
+  // Take a snapshot
+  ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+  ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name));
+  ASSERT_OK(Put(key, "v2"));
+  ASSERT_EQ("v2", Get(key));
+  ASSERT_OK(Flush());
+  ASSERT_EQ("v2", Get(key));
+  // Open snapshot and verify contents while DB is running
+  options.create_if_missing = false;
+  ASSERT_OK(DB::Open(options, snapshot_name, &snapshotDB));
+  ASSERT_OK(snapshotDB->Get(roptions, key, &result));
+  ASSERT_EQ("v1", result);
+  delete snapshotDB;
+  snapshotDB = nullptr;
+  delete db_;
+  db_ = nullptr;
 
-    // Destroy original DB
-    ASSERT_OK(DestroyDB(dbname_, options));
+  // Destroy original DB
+  ASSERT_OK(DestroyDB(dbname_, options));
 
-    // Open snapshot and verify contents
-    options.create_if_missing = false;
-    dbname_ = snapshot_name;
-    ASSERT_OK(DB::Open(options, dbname_, &db_));
-    ASSERT_EQ("v1", Get(key));
-    delete db_;
-    db_ = nullptr;
-    ASSERT_OK(DestroyDB(dbname_, options));
-    delete checkpoint;
+  // Open snapshot and verify contents
+  options.create_if_missing = false;
+  dbname_ = snapshot_name;
+  ASSERT_OK(DB::Open(options, dbname_, &db_));
+  ASSERT_EQ("v1", Get(key));
+  delete db_;
+  db_ = nullptr;
+  ASSERT_OK(DestroyDB(dbname_, options));
+  delete checkpoint;
 
-    // Restore DB name
-    dbname_ = test::TmpDir(env_) + "/db_test";
+  // Restore DB name
+  dbname_ = test::TmpDir(env_) + "/db_test";
 }
 
-TEST_F(DBTest, CheckpointCF) {
+TEST_F(CheckpointTest, CheckpointCF) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"one", "two", "three", "four", "five"}, options);
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBTest::CheckpointCF:2",
-        "DBImpl::GetLiveFiles:2"},
-       {"DBImpl::GetLiveFiles:1",
-        "DBTest::CheckpointCF:1"}});
+      {{"CheckpointTest::CheckpointCF:2", "DBImpl::GetLiveFiles:2"},
+       {"DBImpl::GetLiveFiles:1", "CheckpointTest::CheckpointCF:1"}});
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -306,14 +304,14 @@ TEST_F(DBTest, CheckpointCF) {
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name));
     delete checkpoint;
   });
-  TEST_SYNC_POINT("DBTest::CheckpointCF:1");
+  TEST_SYNC_POINT("CheckpointTest::CheckpointCF:1");
   ASSERT_OK(Put(0, "Default", "Default1"));
   ASSERT_OK(Put(1, "one", "eleven"));
   ASSERT_OK(Put(2, "two", "twelve"));
   ASSERT_OK(Put(3, "three", "thirteen"));
   ASSERT_OK(Put(4, "four", "fourteen"));
   ASSERT_OK(Put(5, "five", "fifteen"));
-  TEST_SYNC_POINT("DBTest::CheckpointCF:2");
+  TEST_SYNC_POINT("CheckpointTest::CheckpointCF:2");
   t.join();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_OK(Put(1, "one", "twentyone"));
@@ -347,7 +345,7 @@ TEST_F(DBTest, CheckpointCF) {
   ASSERT_OK(DestroyDB(snapshot_name, options));
 }
 
-TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing) {
+TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
   const std::string kSnapshotName = test::TmpDir(env_) + "/snapshot";
   ASSERT_OK(DestroyDB(kSnapshotName, CurrentOptions()));
   env_->DeleteDir(kSnapshotName);
@@ -361,7 +359,7 @@ TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing) {
        // the db so the checkpoint thread won't hit the WriteManifest
        // syncpoints.
        {"DBImpl::GetLiveFiles:1",
-        "DBTest::CurrentFileModifiedWhileCheckpointing:PrePut"},
+        "CheckpointTest::CurrentFileModifiedWhileCheckpointing:PrePut"},
        // Roll the manifest during checkpointing right after live files are
        // snapshotted.
        {"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
@@ -376,7 +374,8 @@ TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing) {
     ASSERT_OK(checkpoint->CreateCheckpoint(kSnapshotName));
     delete checkpoint;
   });
-  TEST_SYNC_POINT("DBTest::CurrentFileModifiedWhileCheckpointing:PrePut");
+  TEST_SYNC_POINT(
+      "CheckpointTest::CurrentFileModifiedWhileCheckpointing:PrePut");
   ASSERT_OK(Put("Default", "Default1"));
   ASSERT_OK(Flush());
   t.join();
@@ -391,16 +390,17 @@ TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing) {
   snapshotDB = nullptr;
 }
 
-TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing2PC) {
+TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
+  Close();
   const std::string kSnapshotName = test::TmpDir(env_) + "/snapshot";
   const std::string dbname = test::TmpDir() + "/transaction_testdb";
   ASSERT_OK(DestroyDB(kSnapshotName, CurrentOptions()));
   ASSERT_OK(DestroyDB(dbname, CurrentOptions()));
   env_->DeleteDir(kSnapshotName);
   env_->DeleteDir(dbname);
-  Close();
 
   Options options = CurrentOptions();
+  options.allow_2pc = true;
   // allow_2pc is implicitly set with tx prepare
   // options.allow_2pc = true;
   TransactionDBOptions txn_db_options;
@@ -443,11 +443,12 @@ TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing2PC) {
     if (i == 88888) {
       ASSERT_OK(txn->Prepare());
     }
+    delete tx;
   }
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"CheckpointImpl::CreateCheckpoint:SavedLiveFiles1",
-        "DBTest::CurrentFileModifiedWhileCheckpointing2PC:PreCommit"},
-       {"DBTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit",
+        "CheckpointTest::CurrentFileModifiedWhileCheckpointing2PC:PreCommit"},
+       {"CheckpointTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit",
         "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   std::thread t([&]() {
@@ -456,10 +457,12 @@ TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing2PC) {
     ASSERT_OK(checkpoint->CreateCheckpoint(kSnapshotName));
     delete checkpoint;
   });
-  TEST_SYNC_POINT("DBTest::CurrentFileModifiedWhileCheckpointing2PC:PreCommit");
-  ASSERT_OK(txn->Commit());
   TEST_SYNC_POINT(
-      "DBTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit");
+      "CheckpointTest::CurrentFileModifiedWhileCheckpointing2PC:PreCommit");
+  ASSERT_OK(txn->Commit());
+  delete txn;
+  TEST_SYNC_POINT(
+      "CheckpointTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit");
   t.join();
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -503,6 +506,7 @@ TEST_F(DBTest, CurrentFileModifiedWhileCheckpointing2PC) {
   delete cf_handles[2];
   delete snapshotDB;
   snapshotDB = nullptr;
+  delete txdb;
 }
 
 }  // namespace rocksdb
