@@ -529,7 +529,7 @@ TEST_P(EnvPosixTestWithParam, DecreaseNumBgThreads) {
   ASSERT_TRUE(!tasks[5].IsSleeping());
 }
 
-#ifdef OS_LINUX
+#if (defined OS_LINUX || defined OS_WIN)
 // Travis doesn't support fallocate or getting unique ID from files for whatever
 // reason.
 #ifndef TRAVIS
@@ -564,6 +564,9 @@ char temp_id[MAX_ID_SIZE];
 // Note that this function "knows" that dir has just been created
 // and is empty, so we create a simply-named test file: "f".
 bool ioctl_support__FS_IOC_GETVERSION(const std::string& dir) {
+#ifdef OS_WIN
+  return true;
+#else
   const std::string file = dir + "/f";
   int fd;
   do {
@@ -576,6 +579,7 @@ bool ioctl_support__FS_IOC_GETVERSION(const std::string& dir) {
   unlink(file.c_str());
 
   return ok;
+#endif
 }
 
 // To ensure that Env::GetUniqueId-related tests work correctly, the files
@@ -590,10 +594,25 @@ class IoctlFriendlyTmpdir {
  public:
   explicit IoctlFriendlyTmpdir() {
     char dir_buf[100];
-    std::list<std::string> candidate_dir_list = {"/var/tmp", "/tmp"};
 
     const char *fmt = "%s/rocksdb.XXXXXX";
     const char *tmp = getenv("TEST_IOCTL_FRIENDLY_TMPDIR");
+
+#ifdef OS_WIN
+#define rmdir _rmdir
+    if(tmp == nullptr) {
+      tmp = getenv("TMP");
+    }
+
+    snprintf(dir_buf, sizeof dir_buf, fmt, tmp);
+    auto result = _mktemp(dir_buf);
+    assert(result != nullptr);
+    BOOL ret = CreateDirectory(dir_buf, NULL);
+    assert(ret == TRUE);
+    dir_ = dir_buf;
+#else
+    std::list<std::string> candidate_dir_list = {"/var/tmp", "/tmp"};
+
     // If $TEST_IOCTL_FRIENDLY_TMPDIR/rocksdb.XXXXXX fits, use
     // $TEST_IOCTL_FRIENDLY_TMPDIR; subtract 2 for the "%s", and
     // add 1 for the trailing NUL byte.
@@ -627,12 +646,14 @@ class IoctlFriendlyTmpdir {
     fprintf(stderr, "failed to find an ioctl-friendly temporary directory;"
             " specify one via the TEST_IOCTL_FRIENDLY_TMPDIR envvar\n");
     std::abort();
-  }
+#endif
+}
 
   ~IoctlFriendlyTmpdir() {
     rmdir(dir_.c_str());
   }
-  const std::string& name() {
+
+  const std::string& name() const {
     return dir_;
   }
 
@@ -807,7 +828,7 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
   return false;
 }
 
-// Only works in linux platforms
+// Only works in linux and WIN platforms
 TEST_F(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   for (bool directio : {true, false}) {
     // Check whether a bunch of concurrently existing files have unique IDs.
@@ -849,7 +870,7 @@ TEST_F(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   }
 }
 
-// Only works in linux platforms
+// Only works in linux and WIN platforms
 TEST_F(EnvPosixTest, RandomAccessUniqueIDDeletes) {
   for (bool directio : {true, false}) {
     EnvOptions soptions;
@@ -891,7 +912,11 @@ TEST_F(EnvPosixTest, RandomAccessUniqueIDDeletes) {
 }
 
 // Only works in linux platforms
+#ifdef OS_WIN
+TEST_P(EnvPosixTestWithParam, DISABLED_InvalidateCache) {
+#else
 TEST_P(EnvPosixTestWithParam, InvalidateCache) {
+#endif
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   for (bool directio : {true, false}) {
     EnvOptions soptions;
@@ -915,9 +940,9 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       }
 #endif
       ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
-      ASSERT_OK(wfile.get()->Append(slice));
-      ASSERT_OK(wfile.get()->InvalidateCache(0, 0));
-      ASSERT_OK(wfile.get()->Close());
+      ASSERT_OK(wfile->Append(slice));
+      ASSERT_OK(wfile->InvalidateCache(0, 0));
+      ASSERT_OK(wfile->Close());
     }
 
     // Random Read
@@ -935,10 +960,10 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       }
 #endif
       ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
-      ASSERT_OK(file.get()->Read(0, kSectorSize, &result, scratch));
+      ASSERT_OK(file->Read(0, kSectorSize, &result, scratch));
       ASSERT_EQ(memcmp(scratch, data.get(), kSectorSize), 0);
-      ASSERT_OK(file.get()->InvalidateCache(0, 11));
-      ASSERT_OK(file.get()->InvalidateCache(0, 0));
+      ASSERT_OK(file->InvalidateCache(0, 11));
+      ASSERT_OK(file->InvalidateCache(0, 0));
     }
 
     // Sequential Read
@@ -956,10 +981,10 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       }
 #endif
       ASSERT_OK(env_->NewSequentialFile(fname, &file, soptions));
-      ASSERT_OK(file.get()->Read(kSectorSize, &result, scratch));
+      ASSERT_OK(file->Read(kSectorSize, &result, scratch));
       ASSERT_EQ(memcmp(scratch, data.get(), kSectorSize), 0);
-      ASSERT_OK(file.get()->InvalidateCache(0, 11));
-      ASSERT_OK(file.get()->InvalidateCache(0, 0));
+      ASSERT_OK(file->InvalidateCache(0, 11));
+      ASSERT_OK(file->InvalidateCache(0, 0));
     }
     // Delete the file
     ASSERT_OK(env_->DeleteFile(fname));
@@ -967,7 +992,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
   rocksdb::SyncPoint::GetInstance()->ClearTrace();
 }
 #endif  // not TRAVIS
-#endif  // OS_LINUX
+#endif  // OS_LINUX || OS_WIN
 
 class TestLogger : public Logger {
  public:
@@ -1087,6 +1112,7 @@ TEST_P(EnvPosixTestWithParam, LogBufferMaxSizeTest) {
 
 TEST_P(EnvPosixTestWithParam, Preallocation) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   for (bool directio : {true, false}) {
     const std::string src = test::TmpDir(env_) + "/" + "testfile";
     unique_ptr<WritableFile> srcfile;

@@ -18,6 +18,30 @@
 namespace rocksdb {
 namespace port {
 
+/*
+* DirectIOHelper
+*/
+namespace {
+
+const size_t kSectorSize = 512;
+
+inline
+bool IsPowerOfTwo(const size_t alignment) {
+  return ((alignment) & (alignment - 1)) == 0;
+}
+
+inline
+bool IsSectorAligned(const size_t off) { 
+  return (off & (kSectorSize - 1)) == 0;
+}
+
+inline
+bool IsAligned(size_t alignment, const void* ptr) {
+  return ((uintptr_t(ptr)) & (alignment - 1)) == 0;
+}
+}
+
+
 std::string GetWindowsErrSz(DWORD err) {
   LPSTR lpMsgBuf;
   FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
@@ -135,6 +159,8 @@ size_t GetUniqueIdFromFile(HANDLE hFile, char* id, size_t max_size) {
     return 0;
   }
 
+  // This function has to be re-worked for cases when
+  // ReFS file system introduced on Windows Server 2012 is used
   BY_HANDLE_FILE_INFORMATION FileInfo;
 
   BOOL result = GetFileInformationByHandle(hFile, &FileInfo);
@@ -847,22 +873,50 @@ WinWritableImpl::WinWritableImpl(WinFileData* file_data, size_t alignment)
 
 Status WinWritableImpl::AppendImpl(const Slice& data) {
 
-  // Used for buffered access ONLY
-  assert(!file_data_->UseDirectIO());
-  assert(data.size() < std::numeric_limits<DWORD>::max());
-
   Status s;
 
-  DWORD bytesWritten = 0;
-  if (!WriteFile(file_data_->GetFileHandle(), data.data(),
-    static_cast<DWORD>(data.size()), &bytesWritten, NULL)) {
-    auto lastError = GetLastError();
-    s = IOErrorFromWindowsError(
-      "Failed to WriteFile: " + file_data_->GetName(),
-      lastError);
+  assert(data.size() < std::numeric_limits<DWORD>::max());
+
+  uint64_t written = 0;
+
+  if (file_data_->UseDirectIO()) {
+
+    // With no offset specified we are appending
+    // to the end of the file
+
+    assert(IsSectorAligned(filesize_));
+    assert(IsSectorAligned(data.size()));
+    assert(IsAligned(GetAlignement(), data.data()));
+
+    SSIZE_T ret = pwrite(file_data_->GetFileHandle(), data.data(),
+     data.size(), filesize_);
+
+    if (ret < 0) {
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError(
+        "Failed to pwrite for: " + file_data_->GetName(), lastError);
+    }
+    else {
+      written = ret;
+    }
+
+  } else {
+
+    DWORD bytesWritten = 0;
+    if (!WriteFile(file_data_->GetFileHandle(), data.data(),
+      static_cast<DWORD>(data.size()), &bytesWritten, NULL)) {
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError(
+        "Failed to WriteFile: " + file_data_->GetName(),
+        lastError);
+    }
+    else {
+      written = bytesWritten;
+    }
   }
-  else {
-    assert(size_t(bytesWritten) == data.size());
+
+  if(s.ok()) {
+    assert(written == data.size());
     filesize_ += data.size();
   }
 
@@ -870,6 +924,13 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
 }
 
 Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset) {
+
+  if(file_data_->UseDirectIO()) {
+    assert(IsSectorAligned(offset));
+    assert(IsSectorAligned(data.size()));
+    assert(IsAligned(GetAlignement(), data.data()));
+  }
+
   Status s;
 
   SSIZE_T ret = pwrite(file_data_->GetFileHandle(), data.data(), data.size(), offset);

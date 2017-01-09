@@ -361,6 +361,8 @@ Status WinEnvIO::FileExists(const std::string& fname) {
 
 Status WinEnvIO::GetChildren(const std::string& dir,
   std::vector<std::string>* result) {
+
+  result->clear();
   std::vector<std::string> output;
 
   Status status;
