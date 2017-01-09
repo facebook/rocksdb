@@ -57,96 +57,96 @@ class AwsEnv : public Env {
 
   virtual Status NewSequentialFile(const std::string& fname,
                                    std::unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& options);
+                                   const EnvOptions& options) override;
 
   virtual Status NewRandomAccessFile(const std::string& fname,
                                      std::unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& options);
+                                     const EnvOptions& options) override;
 
   virtual Status NewWritableFile(const std::string& fname,
                                  std::unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options);
+                                 const EnvOptions& options) override;
 
   virtual Status NewDirectory(const std::string& name,
-                              std::unique_ptr<Directory>* result);
+                              std::unique_ptr<Directory>* result) override;
 
-  virtual Status FileExists(const std::string& fname);
+  virtual Status FileExists(const std::string& fname) override;
 
   virtual Status GetChildren(const std::string& path,
-                             std::vector<std::string>* result);
+                             std::vector<std::string>* result) override;
 
-  virtual Status DeleteFile(const std::string& fname);
+  virtual Status DeleteFile(const std::string& fname) override;
 
-  virtual Status CreateDir(const std::string& name);
+  virtual Status CreateDir(const std::string& name) override;
 
-  virtual Status CreateDirIfMissing(const std::string& name);
+  virtual Status CreateDirIfMissing(const std::string& name) override;
 
-  virtual Status DeleteDir(const std::string& name);
+  virtual Status DeleteDir(const std::string& name) override;
 
-  virtual Status GetFileSize(const std::string& fname, uint64_t* size);
+  virtual Status GetFileSize(const std::string& fname, uint64_t* size) override;
 
   virtual Status GetFileModificationTime(const std::string& fname,
-                                         uint64_t* file_mtime);
+                                         uint64_t* file_mtime) override;
 
-  virtual Status RenameFile(const std::string& src, const std::string& target);
+  virtual Status RenameFile(const std::string& src, const std::string& target) override;
 
-  virtual Status LinkFile(const std::string& src, const std::string& target) {
+  virtual Status LinkFile(const std::string& src, const std::string& target) override {
     return Status::NotSupported(); // not supported
   }
 
-  virtual Status LockFile(const std::string& fname, FileLock** lock);
+  virtual Status LockFile(const std::string& fname, FileLock** lock) override;
 
-  virtual Status UnlockFile(FileLock* lock);
+  virtual Status UnlockFile(FileLock* lock) override;
 
   virtual Status NewLogger(const std::string& fname,
-                           std::shared_ptr<Logger>* result);
+                           std::shared_ptr<Logger>* result) override;
 
   virtual void Schedule(void (*function)(void* arg), void* arg,
-                        Priority pri = LOW, void* tag = nullptr, void (*unschedFunction)(void* arg) = 0) {
+                        Priority pri = LOW, void* tag = nullptr, void (*unschedFunction)(void* arg) = 0) override {
     posixEnv_->Schedule(function, arg, pri, tag, unschedFunction);
   }
 
-  virtual int UnSchedule(void* tag, Priority pri) {
+  virtual int UnSchedule(void* tag, Priority pri) override {
     return posixEnv_->UnSchedule(tag, pri);
   }
 
-  virtual void StartThread(void (*function)(void* arg), void* arg) {
+  virtual void StartThread(void (*function)(void* arg), void* arg) override {
     posixEnv_->StartThread(function, arg);
   }
 
-  virtual void WaitForJoin() { posixEnv_->WaitForJoin(); }
+  virtual void WaitForJoin() override { posixEnv_->WaitForJoin(); }
 
   virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const
       override {
     return posixEnv_->GetThreadPoolQueueLen(pri);
   }
 
-  virtual Status GetTestDirectory(std::string* path) {
+  virtual Status GetTestDirectory(std::string* path) override {
     return posixEnv_->GetTestDirectory(path);
   }
 
-  virtual uint64_t NowMicros() {
+  virtual uint64_t NowMicros() override {
     return posixEnv_->NowMicros();
   }
 
-  virtual void SleepForMicroseconds(int micros) {
+  virtual void SleepForMicroseconds(int micros) override {
     posixEnv_->SleepForMicroseconds(micros);
   }
 
-  virtual Status GetHostName(char* name, uint64_t len) {
+  virtual Status GetHostName(char* name, uint64_t len) override {
     return posixEnv_->GetHostName(name, len);
   }
 
-  virtual Status GetCurrentTime(int64_t* unix_time) {
+  virtual Status GetCurrentTime(int64_t* unix_time) override {
     return posixEnv_->GetCurrentTime(unix_time);
   }
 
   virtual Status GetAbsolutePath(const std::string& db_path,
-      std::string* output_path) {
+      std::string* output_path) override {
     return posixEnv_->GetAbsolutePath(db_path, output_path);
   }
 
-  virtual void SetBackgroundThreads(int number, Priority pri = LOW) {
+  virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {
     posixEnv_->SetBackgroundThreads(number, pri);
   }
 
@@ -154,7 +154,7 @@ class AwsEnv : public Env {
     posixEnv_->IncBackgroundThreadsIfNeeded(number, pri);
   }
 
-  virtual std::string TimeToString(uint64_t number) {
+  virtual std::string TimeToString(uint64_t number) override {
     return posixEnv_->TimeToString(number);
   }
 

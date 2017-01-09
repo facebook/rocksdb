@@ -242,7 +242,7 @@ S3WritableFile::S3WritableFile(AwsEnv* env,
     if (!s.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[s3] NewWritableFile src %s %s",
-        fname_, s.ToString().c_str());
+        fname_.c_str(), s.ToString().c_str());
       status_ = s;
     }
     s3_bucket_ = GetBucket(env_->bucket_prefix_);

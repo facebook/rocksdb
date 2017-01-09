@@ -482,7 +482,7 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
 	  s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
         Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
             "[s3] GetChildren dir %s does not exist",
-            path.c_str(), errmsg);
+            path.c_str(), errmsg.c_str());
         return Status::NotFound(path, errmsg.c_str());
       }
       return Status::IOError(path, errmsg.c_str());
