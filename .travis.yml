@@ -1,17 +1,22 @@
 sudo: false
+dist: trusty
 language: cpp
 os:
   - linux
   - osx
 compiler:
   - clang
+  - gcc
 jdk:
   - oraclejdk7
+cache:
+  - ccache
+  - apt
 
 addons:
    apt:
       sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
-      packages: ['clang-3.6' , 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl']
+      packages: ['clang-3.6' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev']
 env:
   # Run all tests before db_block_cache_test (db_test, db_test2)
   - JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test
@@ -22,17 +27,26 @@ env:
   # Build ROCKSDB_LITE
   - JOB_NAME=lite_build
 
-install:
-  # Build gflags
-  # TODO(noetzli): Remove when gflags available through Travis
-  - pushd /tmp/ && curl -L https://github.com/gflags/gflags/archive/v2.1.2.tar.gz -o gflags.tar.gz && tar xfz gflags.tar.gz && cd gflags-2.1.2 && cmake . && make && popd
+matrix:
+  exclude:
+  - os: osx
+    compiler: gcc
+  - os: linux
+    compiler: gcc
+    env: JOB_NAME=java_test
+  - os: linux
+    compiler: gcc
+    env: JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test
 
 before_script:
-  - if [[ "${TRAVIS_OS_NAME}" == 'linux' ]]; then CXX=clang++-3.6; fi
+  - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'clang++' ]]; then CXX=clang++-3.6; fi
+  # test one linux g++ build with g++-6
+  - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'g++' && "${JOB_NAME}" == 'unittests' ]]; then CXX=g++-6; fi
   # Limit the maximum number of open file descriptors to 8192
   - ulimit -n 8192 || true
 
 script:
+  - ${CXX} --version
   - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j4 check_some; fi
   - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
   - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
