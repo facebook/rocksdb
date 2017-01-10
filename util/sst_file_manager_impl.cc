@@ -50,13 +50,23 @@ Status SstFileManagerImpl::OnDeleteFile(const std::string& file_path) {
 
 Status SstFileManagerImpl::OnMoveFile(const std::string& old_path,
                                       const std::string& new_path) {
+  Status s;
   {
+    uint64_t file_size = 0;
     MutexLock l(&mu_);
-    OnAddFileImpl(new_path, tracked_files_[old_path]);
-    OnDeleteFileImpl(old_path);
+    auto it = tracked_files_.find(old_path);
+    if (it != tracked_files_.end()) {
+      file_size = it->second;
+    } else {
+      s = env_->GetFileSize(new_path, &file_size);
+    }
+    if (s.ok()) {
+      OnAddFileImpl(new_path, file_size);
+      OnDeleteFileImpl(old_path);
+    }
   }
   TEST_SYNC_POINT("SstFileManagerImpl::OnMoveFile");
-  return Status::OK();
+  return s;
 }
 
 void SstFileManagerImpl::SetMaxAllowedSpaceUsage(uint64_t max_allowed_space) {
