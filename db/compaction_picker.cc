@@ -470,12 +470,6 @@ bool CompactionPicker::SetupOtherInputs(
     // Get closed interval of output level
     InternalKey all_start, all_limit;
     GetRange(*inputs, *output_level_inputs, &all_start, &all_limit);
-    // Slice output_open_start = output_start.user_key();
-    // Slice output_open_limit = output_limit.user_key();
-    // bool has_start, has_limit;
-    // // all_start and all_limit store open boundary after this call
-    // vstorage->GetOpenInterval(output_level, &output_open_start,
-    //                           &output_open_limit, &has_start, &has_limit);
     vstorage->GetCleanInputsWithinInterval(
         input_level,
         &all_start,
