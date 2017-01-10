@@ -18,7 +18,6 @@
 #include <queue>
 #include <string>
 #include <utility>
-
 #include "db/column_family.h"
 #include "db/filename.h"
 #include "util/log_buffer.h"
@@ -468,47 +467,31 @@ bool CompactionPicker::SetupOtherInputs(
   if (!output_level_inputs->empty()) {
     CompactionInputFiles expanded0;
     expanded0.level = input_level;
-    // Get entire range covered by compaction
+    // Get closed interval of output level
     InternalKey all_start, all_limit;
     GetRange(*inputs, *output_level_inputs, &all_start, &all_limit);
-
-    vstorage->GetOverlappingInputs(input_level, &all_start, &all_limit,
-                                   &expanded0.files, base_index, nullptr);
-    const uint64_t inputs0_size = TotalCompensatedFileSize(inputs->files);
+    // Slice output_open_start = output_start.user_key();
+    // Slice output_open_limit = output_limit.user_key();
+    // bool has_start, has_limit;
+    // // all_start and all_limit store open boundary after this call
+    // vstorage->GetOpenInterval(output_level, &output_open_start,
+    //                           &output_open_limit, &has_start, &has_limit);
+    vstorage->GetCleanInputsWithinInterval(
+        input_level,
+        &all_start,
+        &all_limit,
+        &expanded0.files,
+        base_index,
+        nullptr);
     const uint64_t inputs1_size =
         TotalCompensatedFileSize(output_level_inputs->files);
     const uint64_t expanded0_size = TotalCompensatedFileSize(expanded0.files);
-    uint64_t limit = mutable_cf_options.max_compaction_bytes;
     if (expanded0.size() > inputs->size() &&
-        inputs1_size + expanded0_size < limit &&
-        !FilesInCompaction(expanded0.files) &&
-        !vstorage->HasOverlappingUserKey(&expanded0.files, input_level)) {
-      InternalKey new_start, new_limit;
-      GetRange(expanded0, &new_start, &new_limit);
-      CompactionInputFiles expanded1;
-      expanded1.level = output_level;
-      vstorage->GetOverlappingInputs(output_level, &new_start, &new_limit,
-                                     &expanded1.files, *parent_index,
-                                     parent_index);
-      assert(!expanded1.empty());
-      if (!FilesInCompaction(expanded1.files) &&
-          ExpandWhileOverlapping(cf_name, vstorage, &expanded1) &&
-          expanded1.size() == output_level_inputs->size()) {
-        Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
-            "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64
-            "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
-            " (%" PRIu64 "+%" PRIu64 "bytes)\n",
-            cf_name.c_str(), input_level, inputs->size(),
-            output_level_inputs->size(), inputs0_size, inputs1_size,
-            expanded0.size(), expanded1.size(), expanded0_size, inputs1_size);
-        smallest = new_start;
-        largest = new_limit;
-        inputs->files = expanded0.files;
-        output_level_inputs->files = expanded1.files;
-      }
+        inputs1_size + expanded0_size < mutable_cf_options.max_compaction_bytes &&
+        !FilesInCompaction(expanded0.files)) {
+      inputs->files = expanded0.files;
     }
   }
-
   return true;
 }
 
@@ -1129,6 +1112,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
     // of a currently running compaction, we cannot run it.
     return nullptr;
   }
+
 
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
