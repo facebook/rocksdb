@@ -486,7 +486,9 @@ void MemTable::Add(SequenceNumber s, ValueType type,
     key_handle.key = key_ptr;
     key_handle.key_size = key_size;
     key_handle.encoded_len = encoded_len;
+    // lock
     handles->push_back(key_handle);
+    // unlock
     hidden_key_count_++;
   } else {
     DoInsert(s, allow_concurrent, handle, type, key_ptr, key_size, encoded_len);

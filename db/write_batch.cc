@@ -909,12 +909,12 @@ class MemTableInserter : public WriteBatch::Handler {
                                                  value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
-          assert(hidden_key_handles_ != nullptr);
+          assert(hidden_key_handles_ == nullptr);
           mem->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
-          assert(hidden_key_handles_ != nullptr);
+          assert(hidden_key_handles_ == nullptr);
           mem->Add(sequence_, kTypeValue, key, Slice(merged_value));
           RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         }
