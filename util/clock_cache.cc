@@ -247,6 +247,11 @@ class ClockCacheShard : public CacheShard {
                         Cache::Handle** handle,
                         Cache::Priority priority) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+  // If the entry in in cache, increase reference count and return true.
+  // Return false otherwise.
+  //
+  // Not necessary to hold mutex_ before being called.
+  virtual bool Ref(Cache::Handle* handle) override;
   virtual void Release(Cache::Handle* handle) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
   virtual size_t GetUsage() const override;
@@ -265,12 +270,6 @@ class ClockCacheShard : public CacheShard {
   static bool InCache(uint32_t flags) { return flags & kInCacheBit; }
   static bool HasUsage(uint32_t flags) { return flags & kUsageBit; }
   static uint32_t CountRefs(uint32_t flags) { return flags >> kRefsOffset; }
-
-  // If the entry in in cache, increase reference count and return true.
-  // Return false otherwise.
-  //
-  // Not necessary to hold mutex_ before being called.
-  bool Ref(CacheHandle* handle);
 
   // Decrease reference count of the entry. If this decreases the count to 0,
   // recycle the entry. If set_usage is true, also set the usage bit.
@@ -413,7 +412,8 @@ void ClockCacheShard::Cleanup(const CleanupContext& context) {
   }
 }
 
-bool ClockCacheShard::Ref(CacheHandle* handle) {
+bool ClockCacheShard::Ref(Cache::Handle* h) {
+  auto handle = reinterpret_cast<CacheHandle*>(h);
   // CAS loop to increase reference count.
   uint32_t flags = handle->flags.load(std::memory_order_relaxed);
   while (InCache(flags)) {
@@ -602,7 +602,7 @@ Cache::Handle* ClockCacheShard::Lookup(const Slice& key, uint32_t hash) {
   accessor.release();
   // Ref() could fail if another thread sneak in and evict/erase the cache
   // entry before we are able to hold reference.
-  if (!Ref(handle)) {
+  if (!Ref(reinterpret_cast<Cache::Handle*>(handle))) {
     return nullptr;
   }
   // Double check the key since the handle may now representing another key

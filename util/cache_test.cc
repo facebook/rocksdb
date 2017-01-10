@@ -303,6 +303,32 @@ TEST_P(CacheTest, EvictionPolicy) {
   ASSERT_EQ(-1, Lookup(200));
 }
 
+TEST_P(CacheTest, ExternalRefPinsEntries) {
+  Insert(100, 101);
+  Cache::Handle* h = cache_->Lookup(EncodeKey(100));
+  ASSERT_TRUE(cache_->Ref(h));
+  ASSERT_EQ(101, DecodeValue(cache_->Value(h)));
+  ASSERT_EQ(1U, cache_->GetUsage());
+
+  for (int i = 0; i < 3; ++i) {
+    if (i > 0) {
+      // First release (i == 1) corresponds to Ref(), second release (i == 2)
+      // corresponds to Lookup(). Then, since all external refs are released,
+      // the below insertions should push out the cache entry.
+      cache_->Release(h);
+    }
+    // double cache size because the usage bit in block cache prevents 100 from
+    // being evicted in the first kCacheSize iterations
+    for (int j = 0; j < 2 * kCacheSize + 100; j++) {
+      Insert(1000 + j, 2000 + j);
+    }
+    if (i < 2) {
+      ASSERT_EQ(101, Lookup(100));
+    }
+  }
+  ASSERT_EQ(-1, Lookup(100));
+}
+
 TEST_P(CacheTest, EvictionPolicyRef) {
   Insert(100, 101);
   Insert(101, 102);
