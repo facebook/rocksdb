@@ -708,14 +708,6 @@ class RandomRWFile {
   // If false you must pass aligned buffer to Write()
   virtual bool UseDirectIO() const { return false; }
 
-  const size_t c_DefaultPageSize = 4 * 1024;
-
-  // Use the returned alignment value to allocate aligned
-  // buffer for Write() when UseDirectIO() returns true
-  virtual size_t GetRequiredBufferAlignment() const {
-    return c_DefaultPageSize;
-  }
-
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
   virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
