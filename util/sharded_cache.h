@@ -29,6 +29,7 @@ class CacheShard {
                         void (*deleter)(const Slice& key, void* value),
                         Cache::Handle** handle, Cache::Priority priority) = 0;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
+  virtual bool Ref(Cache::Handle* handle) = 0;
   virtual void Release(Cache::Handle* handle) = 0;
   virtual void Erase(const Slice& key, uint32_t hash) = 0;
   virtual void SetCapacity(size_t capacity) = 0;
@@ -63,6 +64,7 @@ class ShardedCache : public Cache {
                         void (*deleter)(const Slice& key, void* value),
                         Handle** handle, Priority priority) override;
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
+  virtual bool Ref(Handle* handle) override;
   virtual void Release(Handle* handle) override;
   virtual void Erase(const Slice& key) override;
   virtual uint64_t NewId() override;
