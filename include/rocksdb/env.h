@@ -446,6 +446,7 @@ class SequentialFile {
   }
 
   // Positioned Read for direct I/O
+  // If Direct I/O enabled, offset, n, and scratch should be properly aligned
   virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
                                 char* scratch) {
     return Status::NotSupported();
