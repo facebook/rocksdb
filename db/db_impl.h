@@ -308,6 +308,8 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
+  void TEST_FlushColumnFamilies();
+
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true,
                             ColumnFamilyHandle* cfh = nullptr);

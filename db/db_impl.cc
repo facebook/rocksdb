@@ -5027,19 +5027,19 @@ void DBImpl::FlushColumnFamilies() {
     return;
   }
 
-  uint64_t flush_column_family_if_log_file = alive_log_files_.begin()->number;
+  uint64_t oldest_alive_log = alive_log_files_.begin()->number;
   alive_log_files_.begin()->getting_flushed = true;
   Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
       "Flushing all column families with data in WAL number %" PRIu64
       ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
-      flush_column_family_if_log_file, total_log_size_, GetMaxTotalWalSize());
+      oldest_alive_log, total_log_size_, GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
-    if (cfd->GetLogNumber() <= flush_column_family_if_log_file) {
+    if (cfd->OldestLogReferenced() <= oldest_alive_log) {
       auto status = SwitchMemtable(cfd, &context);
       if (!status.ok()) {
         break;

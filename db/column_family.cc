@@ -492,6 +492,22 @@ ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {
   return BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
 }
 
+uint64_t ColumnFamilyData::OldestLogReferenced() {
+  auto current_log = GetLogNumber();
+  auto imm_prep_log = imm()->GetMinLogContainingPrepSection();
+  auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
+
+  if (imm_prep_log > 0 && imm_prep_log < current_log) {
+    current_log = imm_prep_log;
+  }
+
+  if (mem_prep_log > 0 && mem_prep_log < current_log) {
+    current_log = mem_prep_log;
+  }
+
+  return current_log;
+}
+
 const double kIncSlowdownRatio = 0.8;
 const double kDecSlowdownRatio = 1 / kIncSlowdownRatio;
 const double kNearStopSlowdownRatio = 0.6;
