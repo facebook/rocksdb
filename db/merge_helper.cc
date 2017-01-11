@@ -104,6 +104,10 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
   Status s;
   bool hit_the_next_user_key = false;
   for (; iter->Valid(); iter->Next(), original_key_is_iter = false) {
+    if (IsShuttingDown()) {
+      return Status::ShutdownInProgress();
+    }
+
     ParsedInternalKey ikey;
     assert(keys_.size() == merge_context_.GetNumOperands());
 
@@ -278,10 +282,6 @@ Status MergeHelper::MergeUntil(InternalIterator* iter,
     // We haven't seen the beginning of the key nor a Put/Delete.
     // Attempt to use the user's associative merge function to
     // merge the stacked merge operands into a single operand.
-    //
-    // TODO(noetzli) The docblock of MergeUntil suggests that a successful
-    // partial merge returns Status::OK(). Should we change the status code
-    // after a successful partial merge?
     s = Status::MergeInProgress();
     if (merge_context_.GetNumOperands() >= 2 &&
         merge_context_.GetNumOperands() >= min_partial_merge_operands_) {

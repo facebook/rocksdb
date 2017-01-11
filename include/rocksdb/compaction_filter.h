@@ -140,6 +140,12 @@ class CompactionFilter {
   //      by kRemoveAndSkipUntil can disappear from a snapshot - beware
   //      if you're using TransactionDB or DB::GetSnapshot().
   //
+  //      Another warning: if value for a key was overwritten or merged into
+  //      (multiple Put()s or Merge()s), and compaction filter skips this key
+  //      with kRemoveAndSkipUntil, it's possible that it will remove only
+  //      the new value, exposing the old value that was supposed to be
+  //      overwritten.
+  //
   //      If you use kRemoveAndSkipUntil, consider also reducing
   //      compaction_readahead_size option.
   //
