@@ -128,7 +128,7 @@ void EventHelpers::LogAndNotifyTableFileDeletion(
   info.job_id = job_id;
   info.file_path = file_path;
   info.status = status;
-  for (auto listener : listeners) {
+  for (auto& listener : listeners) {
     listener->OnTableFileDeleted(info);
   }
 #endif  // !ROCKSDB_LITE
