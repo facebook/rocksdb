@@ -737,7 +737,7 @@ Status PosixWritableFile::Close() {
     // but it will be nice to log these errors.
     int dummy __attribute__((unused));
     dummy = ftruncate(fd_, filesize_);
-#ifdef ROCKSDB_FALLOCATE_PRESENT
+#if defined(ROCKSDB_FALLOCATE_PRESENT) && !defined(TRAVIS)
     // in some file systems, ftruncate only trims trailing space if the
     // new file size is smaller than the current size. Calling fallocate
     // with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused
@@ -749,6 +749,11 @@ Status PosixWritableFile::Close() {
     //   tmpfs (since Linux 3.5)
     // We ignore error since failure of this operation does not affect
     // correctness.
+    // TRAVIS - this code does not work on TRAVIS filesystems.
+    // the FALLOC_FL_KEEP_SIZE option is expected to not change the size
+    // of the file, but it does. Simple strace report will show that.
+    // While we work with Travis-CI team to figure out if this is a
+    // quirk of Docker/AUFS, we will comment this out.
     IOSTATS_TIMER_GUARD(allocate_nanos);
     if (allow_fallocate_) {
       fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, filesize_,
