@@ -1781,7 +1781,7 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
     for (auto index: files_in_range_list[i]) {
       inputs->push_back(files_[level][index]);
       if (file_index) {
-        *file_index = index;
+        *file_index = static_cast<int>(index);
       }
     }
   }
