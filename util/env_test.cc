@@ -924,7 +924,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     std::string fname = test::TmpDir(env_) + "/" + "testfile";
 
     const size_t kSectorSize = 512;
-    auto data = NewAligned(kSectorSize, 'A');
+    auto data = NewAligned(kSectorSize, 0);
     Slice slice(data.get(), kSectorSize);
 
     // Create file.
@@ -932,11 +932,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<WritableFile> wfile;
 #if !defined(OS_MACOSX) && !defined(OS_WIN)
       if (soptions.use_direct_writes) {
-        rocksdb::SyncPoint::GetInstance()->SetCallBack(
-            "NewWritableFile:O_DIRECT", [&](void* arg) {
-              int* val = static_cast<int*>(arg);
-              *val &= ~O_DIRECT;
-            });
+        soptions.use_direct_writes = false;
       }
 #endif
       ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
@@ -948,20 +944,16 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     // Random Read
     {
       unique_ptr<RandomAccessFile> file;
-      char scratch[kSectorSize];
+      auto scratch = NewAligned(kSectorSize, 0);
       Slice result;
 #if !defined(OS_MACOSX) && !defined(OS_WIN)
       if (soptions.use_direct_reads) {
-        rocksdb::SyncPoint::GetInstance()->SetCallBack(
-            "NewRandomAccessFile:O_DIRECT", [&](void* arg) {
-              int* val = static_cast<int*>(arg);
-              *val &= ~O_DIRECT;
-            });
+        soptions.use_direct_reads = false;
       }
 #endif
       ASSERT_OK(env_->NewRandomAccessFile(fname, &file, soptions));
-      ASSERT_OK(file->Read(0, kSectorSize, &result, scratch));
-      ASSERT_EQ(memcmp(scratch, data.get(), kSectorSize), 0);
+      ASSERT_OK(file->Read(0, kSectorSize, &result, scratch.get()));
+      ASSERT_EQ(memcmp(scratch.get(), data.get(), kSectorSize), 0);
       ASSERT_OK(file->InvalidateCache(0, 11));
       ASSERT_OK(file->InvalidateCache(0, 0));
     }
@@ -969,20 +961,20 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     // Sequential Read
     {
       unique_ptr<SequentialFile> file;
-      char scratch[kSectorSize];
+      auto scratch = NewAligned(kSectorSize, 0);
       Slice result;
 #if !defined(OS_MACOSX) && !defined(OS_WIN)
       if (soptions.use_direct_reads) {
-        rocksdb::SyncPoint::GetInstance()->SetCallBack(
-            "NewSequentialFile:O_DIRECT", [&](void* arg) {
-              int* val = static_cast<int*>(arg);
-              *val &= ~O_DIRECT;
-            });
+        soptions.use_direct_reads = false;
       }
 #endif
       ASSERT_OK(env_->NewSequentialFile(fname, &file, soptions));
-      ASSERT_OK(file->Read(kSectorSize, &result, scratch));
-      ASSERT_EQ(memcmp(scratch, data.get(), kSectorSize), 0);
+      if (file->UseDirectIO()) {
+        ASSERT_OK(file->PositionedRead(0, kSectorSize, &result, scratch.get()));
+      } else {
+        ASSERT_OK(file->Read(kSectorSize, &result, scratch.get()));
+      }
+      ASSERT_EQ(memcmp(scratch.get(), data.get(), kSectorSize), 0);
       ASSERT_OK(file->InvalidateCache(0, 11));
       ASSERT_OK(file->InvalidateCache(0, 0));
     }

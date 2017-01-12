@@ -44,30 +44,16 @@ class PosixSequentialFile : public SequentialFile {
   bool use_direct_io_;
 
  public:
-  PosixSequentialFile(const std::string& fname, FILE* f,
+  PosixSequentialFile(const std::string& fname, FILE* file, int fd,
                       const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override;
+  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                                char* scratch) override;
   virtual Status Skip(uint64_t n) override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
-};
-
-class PosixDirectIOSequentialFile : public SequentialFile {
- public:
-  explicit PosixDirectIOSequentialFile(const std::string& filename, int fd)
-      : filename_(filename), fd_(fd) {}
-
-  virtual ~PosixDirectIOSequentialFile() {}
-
-  Status Read(size_t n, Slice* result, char* scratch) override;
-  Status Skip(uint64_t n) override;
-  Status InvalidateCache(size_t offset, size_t length) override;
-
- private:
-  const std::string filename_;
-  int fd_ = -1;
-  std::atomic<size_t> off_{0};  // read offset
+  virtual bool UseDirectIO() const override { return use_direct_io_; }
 };
 
 class PosixRandomAccessFile : public RandomAccessFile {
@@ -88,21 +74,7 @@ class PosixRandomAccessFile : public RandomAccessFile {
 #endif
   virtual void Hint(AccessPattern pattern) override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
-};
-
-// Direct IO random access file direct IO implementation
-class PosixDirectIORandomAccessFile : public PosixRandomAccessFile {
- public:
-  explicit PosixDirectIORandomAccessFile(const std::string& filename, int fd)
-      : PosixRandomAccessFile(filename, fd, EnvOptions()) {}
-  virtual ~PosixDirectIORandomAccessFile() {}
-
-  Status Read(uint64_t offset, size_t n, Slice* result,
-              char* scratch) const override;
-  virtual void Hint(AccessPattern pattern) override {}
-  Status InvalidateCache(size_t offset, size_t length) override {
-    return Status::OK();
-  }
+  virtual bool UseDirectIO() const override { return use_direct_io_; }
 };
 
 class PosixWritableFile : public WritableFile {

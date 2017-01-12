@@ -58,28 +58,6 @@ const size_t kPageSize = sysconf(_SC_PAGESIZE);
 const size_t kPageSize = 4 * 1024;
 #endif
 
-std::unique_ptr<void, void (&)(void*)> NewAligned(const size_t size) {
-  void* ptr = nullptr;
-  if (posix_memalign(&ptr, 4 * 1024, size) != 0) {
-    return std::unique_ptr<char, void (&)(void*)>(nullptr, free);
-  }
-  std::unique_ptr<void, void (&)(void*)> uptr(ptr, free);
-  return uptr;
-}
-
-size_t Upper(const size_t size, const size_t fac) {
-  if (size % fac == 0) {
-    return size;
-  }
-  return size + (fac - size % fac);
-}
-
-size_t Lower(const size_t size, const size_t fac) {
-  if (size % fac == 0) {
-    return size;
-  }
-  return size - (size % fac);
-}
 
 bool IsSectorAligned(const size_t off) { return off % kSectorSize == 0; }
 
@@ -87,89 +65,32 @@ static bool IsPageAligned(const void* ptr) {
   return uintptr_t(ptr) % (kPageSize) == 0;
 }
 
-Status ReadAligned(int fd, Slice* data, const uint64_t offset,
-                   const size_t size, char* scratch) {
-  assert(IsSectorAligned(offset));
-  assert(IsSectorAligned(size));
-  assert(IsPageAligned(scratch));
-
-  size_t bytes_read = 0;
-  ssize_t status = -1;
-  while (bytes_read < size) {
-    status =
-        pread(fd, scratch + bytes_read, size - bytes_read, offset + bytes_read);
-    if (status <= 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      break;
-    }
-    bytes_read += status;
-    if (status % static_cast<ssize_t>(kSectorSize) != 0) {
-      // Bytes reads don't fill sectors. Should only happen at the end
-      // of the file.
-      break;
-    }
-  }
-
-  *data = Slice(scratch, bytes_read);
-  return status < 0 ? Status::IOError(strerror(errno)) : Status::OK();
 }
-
-Status ReadUnaligned(int fd, Slice* data, const uint64_t offset,
-                     const size_t size, char* scratch) {
-  assert(scratch);
-  assert(!IsSectorAligned(offset) || !IsSectorAligned(size) ||
-         !IsPageAligned(scratch));
-
-  const uint64_t aligned_off = Lower(offset, kSectorSize);
-  const size_t aligned_size = Upper(size + (offset - aligned_off), kSectorSize);
-  auto aligned_scratch = NewAligned(aligned_size);
-  assert(aligned_scratch);
-  if (!aligned_scratch) {
-    return Status::IOError("Unable to allocate");
-  }
-
-  assert(IsSectorAligned(aligned_off));
-  assert(IsSectorAligned(aligned_size));
-  assert(aligned_scratch);
-  assert(IsPageAligned(aligned_scratch.get()));
-  assert(offset + size <= aligned_off + aligned_size);
-
-  Slice scratch_slice;
-  Status s = ReadAligned(fd, &scratch_slice, aligned_off, aligned_size,
-                         reinterpret_cast<char*>(aligned_scratch.get()));
-
-  // copy data upto min(size, what was read)
-  memcpy(scratch, reinterpret_cast<char*>(aligned_scratch.get()) +
-                      (offset % kSectorSize),
-         std::min(size, scratch_slice.size()));
-  *data = Slice(scratch, std::min(size, scratch_slice.size()));
-  return s;
-}
-
-Status DirectIORead(int fd, Slice* result, size_t off, size_t n,
-                    char* scratch) {
-  if (IsSectorAligned(off) && IsSectorAligned(n) && IsPageAligned(scratch)) {
-    return ReadAligned(fd, result, off, n, scratch);
-  }
-  return ReadUnaligned(fd, result, off, n, scratch);
-}
-}  // namespace
 
 /*
  * PosixSequentialFile
  */
-PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* f,
-                                         const EnvOptions& options)
+PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
+                                         int fd, const EnvOptions& options)
     : filename_(fname),
-      file_(f),
-      fd_(fileno(f)),
-      use_direct_io_(options.use_direct_reads) {}
+      file_(file),
+      fd_(fd),
+      use_direct_io_(options.use_direct_reads) {
+  assert(!options.use_direct_reads || !options.use_mmap_reads);
+}
 
-PosixSequentialFile::~PosixSequentialFile() { fclose(file_); }
+PosixSequentialFile::~PosixSequentialFile() {
+  if (!UseDirectIO()) {
+    assert(file_);
+    fclose(file_);
+  } else {
+    assert(fd_);
+    close(fd_);
+  }
+}
 
 Status PosixSequentialFile::Read(size_t n, Slice* result, char* scratch) {
+  assert(result != nullptr && !UseDirectIO());
   Status s;
   size_t r = 0;
   do {
@@ -187,11 +108,41 @@ Status PosixSequentialFile::Read(size_t n, Slice* result, char* scratch) {
       s = IOError(filename_, errno);
     }
   }
-  if (use_direct_io_) {
-    // we need to fadvise away the entire range of pages because
-    // we do not want readahead pages to be cached.
-    Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
+  // we need to fadvise away the entire range of pages because
+  // we do not want readahead pages to be cached under buffered io
+  Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
+  return s;
+}
+
+Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
+                                           Slice* result, char* scratch) {
+  Status s;
+  ssize_t r = -1;
+  size_t left = n;
+  char* ptr = scratch;
+  assert(UseDirectIO());
+  while (left > 0) {
+    r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+    if (r <= 0) {
+      if (r == -1 && errno == EINTR) {
+        continue;
+      }
+      break;
+    }
+    ptr += r;
+    offset += r;
+    left -= r;
+    if (r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
+      // Bytes reads don't fill sectors. Should only happen at the end
+      // of the file.
+      break;
+    }
   }
+  if (r < 0) {
+    // An error: return a non-ok status
+    s = IOError(filename_, errno);
+  }
+  *result = Slice(scratch, (r < 0) ? 0 : n - left);
   return s;
 }
 
@@ -206,32 +157,15 @@ Status PosixSequentialFile::InvalidateCache(size_t offset, size_t length) {
 #ifndef OS_LINUX
   return Status::OK();
 #else
-  // free OS pages
-  int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
-  if (ret == 0) {
-    return Status::OK();
+  if (!UseDirectIO()) {
+    // free OS pages
+    int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
+    if (ret != 0) {
+      return IOError(filename_, errno);
+    }
   }
-  return IOError(filename_, errno);
+  return Status::OK();
 #endif
-}
-
-/*
- * PosixDirectIOSequentialFile
- */
-Status PosixDirectIOSequentialFile::Read(size_t n, Slice* result,
-                                         char* scratch) {
-  const size_t off = off_.fetch_add(n);
-  return DirectIORead(fd_, result, off, n, scratch);
-}
-
-Status PosixDirectIOSequentialFile::Skip(uint64_t n) {
-  off_ += n;
-  return Status::OK();
-}
-
-Status PosixDirectIOSequentialFile::InvalidateCache(size_t /*offset*/,
-                                                    size_t /*length*/) {
-  return Status::OK();
 }
 
 /*
@@ -295,6 +229,7 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
 PosixRandomAccessFile::PosixRandomAccessFile(const std::string& fname, int fd,
                                              const EnvOptions& options)
     : filename_(fname), fd_(fd), use_direct_io_(options.use_direct_reads) {
+  assert(!options.use_direct_reads || !options.use_mmap_reads);
   assert(!options.use_mmap_reads || sizeof(void*) < 8);
 }
 
@@ -308,9 +243,8 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
   char* ptr = scratch;
   while (left > 0) {
     r = pread(fd_, ptr, left, static_cast<off_t>(offset));
-
     if (r <= 0) {
-      if (errno == EINTR) {
+      if (r == -1 && errno == EINTR) {
         continue;
       }
       break;
@@ -318,19 +252,23 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     ptr += r;
     offset += r;
     left -= r;
+    if (UseDirectIO() &&
+        r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
+      // Bytes reads don't fill sectors. Should only happen at the end
+      // of the file.
+      break;
+    }
   }
-
-  *result = Slice(scratch, (r < 0) ? 0 : n - left);
   if (r < 0) {
     // An error: return a non-ok status
     s = IOError(filename_, errno);
   }
-
-  if (use_direct_io_) {
+  if (!UseDirectIO()) {
     // we need to fadvise away the entire range of pages because
     // we do not want readahead pages to be cached.
     Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
   }
+  *result = Slice(scratch, (r < 0) ? 0 : n - left);
   return s;
 }
 
@@ -341,6 +279,9 @@ size_t PosixRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
 #endif
 
 void PosixRandomAccessFile::Hint(AccessPattern pattern) {
+  if (UseDirectIO()) {
+    return;
+  }
   switch (pattern) {
     case NORMAL:
       Fadvise(fd_, 0, 0, POSIX_FADV_NORMAL);
@@ -364,6 +305,9 @@ void PosixRandomAccessFile::Hint(AccessPattern pattern) {
 }
 
 Status PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
+  if (UseDirectIO()) {
+    return Status::OK();
+  }
 #ifndef OS_LINUX
   return Status::OK();
 #else
@@ -374,15 +318,6 @@ Status PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
   }
   return IOError(filename_, errno);
 #endif
-}
-
-/*
- * PosixDirectIORandomAccessFile
- */
-Status PosixDirectIORandomAccessFile::Read(uint64_t offset, size_t n,
-                                           Slice* result, char* scratch) const {
-  Status s = DirectIORead(fd_, result, offset, n, scratch);
-  return s;
 }
 
 /*
@@ -467,7 +402,6 @@ Status PosixMmapFile::UnmapCurrentRegion() {
 Status PosixMmapFile::MapNewRegion() {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   assert(base_ == nullptr);
-
   TEST_KILL_RANDOM("PosixMmapFile::UnmapCurrentRegion:0", rocksdb_kill_odds);
   // we can't fallocate with FALLOC_FL_KEEP_SIZE here
   if (allow_fallocate_) {

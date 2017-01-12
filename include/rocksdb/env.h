@@ -51,6 +51,7 @@ struct ThreadStatus;
 using std::unique_ptr;
 using std::shared_ptr;
 
+const size_t kDefaultPageSize = 4 * 1024;
 
 // Options while opening a file to read/write
 struct EnvOptions {
@@ -429,11 +430,26 @@ class SequentialFile {
   // REQUIRES: External synchronization
   virtual Status Skip(uint64_t n) = 0;
 
+  // Indicates the upper layers if the current SequentialFile implementation
+  // uses direct IO.
+  virtual bool UseDirectIO() const { return false; }
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   virtual Status InvalidateCache(size_t offset, size_t length) {
     return Status::NotSupported("InvalidateCache not supported.");
+  }
+
+  // Positioned Read for direct I/O
+  // If Direct I/O enabled, offset, n, and scratch should be properly aligned
+  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                                char* scratch) {
+    return Status::NotSupported();
   }
 };
 
@@ -452,6 +468,7 @@ class RandomAccessFile {
   // status.
   //
   // Safe for concurrent use by multiple threads.
+  // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
 
@@ -489,6 +506,14 @@ class RandomAccessFile {
 
   virtual void Hint(AccessPattern pattern) {}
 
+  // Indicates the upper layers if the current RandomAccessFile implementation
+  // uses direct IO.
+  virtual bool UseDirectIO() const { return false; }
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
@@ -508,19 +533,6 @@ class WritableFile {
       io_priority_(Env::IO_TOTAL) {
   }
   virtual ~WritableFile();
-
-  // Indicates if the class makes use of direct IO
-  // If true you must pass aligned buffer to Write()
-  virtual bool UseDirectIO() const { return false; }
-
-  const size_t c_DefaultPageSize = 4 * 1024;
-
-  // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseDirectIO()
-  // returns true
-  virtual size_t GetRequiredBufferAlignment() const {
-    return c_DefaultPageSize;
-  }
 
   // Append data to the end of the file
   // Note: A WriteabelFile object must support either Append or
@@ -578,6 +590,13 @@ class WritableFile {
     return false;
   }
 
+  // Indicates the upper layers if the current WritableFile implementation
+  // uses direct IO.
+  virtual bool UseDirectIO() const { return false; }
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
   /*
    * Change the priority in rate limiter if rate limiting is enabled.
    * If rate limiting is not enabled, this call has no effect.
@@ -690,13 +709,9 @@ class RandomRWFile {
   // If false you must pass aligned buffer to Write()
   virtual bool UseDirectIO() const { return false; }
 
-  const size_t c_DefaultPageSize = 4 * 1024;
-
-  // Use the returned alignment value to allocate aligned
-  // buffer for Write() when UseDirectIO() returns true
-  virtual size_t GetRequiredBufferAlignment() const {
-    return c_DefaultPageSize;
-  }
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
   // should simply forward the call and do not enact read_ahead buffering or locking.
