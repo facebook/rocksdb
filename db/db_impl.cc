@@ -5028,7 +5028,6 @@ void DBImpl::FlushColumnFamilies() {
   }
 
   uint64_t oldest_alive_log = alive_log_files_.begin()->number;
-  alive_log_files_.begin()->getting_flushed = true;
   Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
       "Flushing all column families with data in WAL number %" PRIu64
       ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
@@ -5049,6 +5048,26 @@ void DBImpl::FlushColumnFamilies() {
     }
   }
   MaybeScheduleFlushOrCompaction();
+
+  // we only mark this log as getting flushed if we have successfully
+  // flushed all data in this log. If this log contains outstanding prepred
+  // transactions then we cannot flush this log until those transactions are commited.
+
+  if (allow_2pc()) {
+    auto oldest_log_with_uncommited_prep =
+      FindMinLogContainingOutstandingPrep();
+
+    if (oldest_log_with_uncommited_prep == 0 ||
+        oldest_log_with_uncommited_prep > oldest_alive_log) {
+      // this log contains no outstanding prepared transactions
+      alive_log_files_.begin()->getting_flushed = true;
+    } else {
+      Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
+          "Unable to release oldest log due to uncommited transaction");
+    }
+  } else {
+    alive_log_files_.begin()->getting_flushed = true;
+  }
 }
 
 uint64_t DBImpl::GetMaxTotalWalSize() const {

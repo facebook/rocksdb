@@ -310,6 +310,10 @@ class DBImpl : public DB {
 
   void TEST_FlushColumnFamilies();
 
+  bool TEST_IsLogGettingFlushed() {
+    return alive_log_files_.begin()->getting_flushed;
+  }
+
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true,
                             ColumnFamilyHandle* cfh = nullptr);

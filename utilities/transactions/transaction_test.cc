@@ -1359,10 +1359,12 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
 
   Status s;
-  ColumnFamilyHandle *cfa;
+  ColumnFamilyHandle *cfa, *cfb;
 
   ColumnFamilyOptions cf_options;
   s = db->CreateColumnFamily(cf_options, "CFA", &cfa);
+  ASSERT_OK(s);
+  s = db->CreateColumnFamily(cf_options, "CFB", &cfb);
   ASSERT_OK(s);
 
   WriteOptions wopts;
@@ -1370,6 +1372,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   wopts.sync = true;
 
   auto cfh_a = reinterpret_cast<ColumnFamilyHandleImpl*>(cfa);
+  auto cfh_b = reinterpret_cast<ColumnFamilyHandleImpl*>(cfb);
 
   TransactionOptions topts1;
   Transaction* txn1 = db->BeginTransaction(wopts, topts1);
@@ -1378,8 +1381,18 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = txn1->Put(cfa, "boys", "girls1");
   ASSERT_OK(s);
 
+  Transaction* txn2 = db->BeginTransaction(wopts, topts1);
+  s = txn2->SetName("xid2");
+  ASSERT_OK(s);
+  s = txn2->Put(cfb, "up", "down1");
+  ASSERT_OK(s);
+
   // prepre transaction in LOG A
   s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  // prepre transaction in LOG A
+  s = txn2->Prepare();
   ASSERT_OK(s);
 
   // regular put so that mem table can actually be flushed for log rolling
@@ -1395,7 +1408,8 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   ASSERT_GT(db_impl->TEST_LogfileNumber(), prepare_log_no);
   ASSERT_GT(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
   ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
-  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), prepare_log_no);
+  ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(),
+            prepare_log_no);
   ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), 0);
 
   // commit in LOG B
@@ -1408,11 +1422,32 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   // alive log file can be killed
   db_impl->TEST_FlushColumnFamilies();
 
-  //assert that cfa has a flush requested
+  // log cannot be flushed because txn2 has not been commited
+  ASSERT_TRUE(!db_impl->TEST_IsLogGettingFlushed());
+
+  // assert that cfa has a flush requested
   ASSERT_TRUE(cfh_a->cfd()->imm()->HasFlushRequested());
 
+  // cfb should not be flushed becuse it has no data from LOG A
+  ASSERT_TRUE(!cfh_b->cfd()->imm()->HasFlushRequested());
+
+  // cfb now has data from LOG A
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  db_impl->TEST_FlushColumnFamilies();
+
+  // we should see that cfb now has a flush requested
+  ASSERT_TRUE(cfh_b->cfd()->imm()->HasFlushRequested());
+
+  // all data in LOG A resides in a memtable that has been
+  // requested for a flush
+  ASSERT_TRUE(db_impl->TEST_IsLogGettingFlushed());
+
   delete txn1;
+  delete txn2;
   delete cfa;
+  delete cfb;
 }
 /*
  * 1) use prepare to keep first log around to determine starting sequence
