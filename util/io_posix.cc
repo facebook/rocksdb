@@ -50,6 +50,7 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 /*
  * DirectIOHelper
  */
+#ifndef NDEBUG
 namespace {
 const size_t kSectorSize = 512;
 #ifdef OS_LINUX
@@ -66,6 +67,7 @@ static bool IsPageAligned(const void* ptr) {
 }
 
 }
+#endif
 
 /*
  * PosixSequentialFile
