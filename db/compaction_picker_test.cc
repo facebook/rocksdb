@@ -764,6 +764,7 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys8) {
   // grow the number of inputs in "level" without
   // changing the number of "level+1" files we pick up
   // Expand input level as much as possible
+  // no overlapping case
   Add(1, 1U, "101", "150", 1U);
   Add(1, 2U, "151", "200", 1U);
   Add(1, 3U, "201", "300", 1000000000U);
@@ -794,15 +795,16 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys9) {
   // grow the number of inputs in "level" without
   // changing the number of "level+1" files we pick up
   // Expand input level as much as possible
-  Add(1, 1U, "101", "150", 1U);
+  // overlapping case
+  Add(1, 1U, "121", "150", 1U);
   Add(1, 2U, "151", "200", 1U);
   Add(1, 3U, "201", "300", 1000000000U);
   Add(1, 4U, "301", "400", 1U);
   Add(1, 5U, "401", "500", 1U);
-  Add(2, 6U, "100", "140", 1U);
+  Add(2, 6U, "100", "120", 1U);
   Add(2, 7U, "150", "200", 1U);
   Add(2, 8U, "200", "450", 1U, 0, 0);
-  Add(2, 9U, "500", "600", 1U);
+  Add(2, 9U, "501", "600", 1U);
 
   UpdateVersionStorageInfo();
 
@@ -810,11 +812,12 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys9) {
       cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
   ASSERT_TRUE(compaction.get() != nullptr);
   ASSERT_EQ(2U, compaction->num_input_levels());
-  ASSERT_GE(3U, compaction->num_input_files(0));
-  ASSERT_GE(2U, compaction->num_input_files(1));
-  ASSERT_EQ(2U, compaction->input(0, 0)->fd.GetNumber());
-  ASSERT_EQ(3U, compaction->input(0, 1)->fd.GetNumber());
-  ASSERT_EQ(4U, compaction->input(0, 2)->fd.GetNumber());
+  ASSERT_EQ(5U, compaction->num_input_files(0));
+  ASSERT_EQ(2U, compaction->num_input_files(1));
+  ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
+  ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
+  ASSERT_EQ(3U, compaction->input(0, 2)->fd.GetNumber());
+  ASSERT_EQ(4U, compaction->input(0, 3)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 0)->fd.GetNumber());
   ASSERT_EQ(8U, compaction->input(1, 1)->fd.GetNumber());
 }
