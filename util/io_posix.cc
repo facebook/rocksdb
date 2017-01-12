@@ -668,7 +668,7 @@ Status PosixMmapFile::Allocate(uint64_t offset, uint64_t len) {
 PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
                                      const EnvOptions& options)
     : filename_(fname),
-      direct_io_(options.use_direct_writes),
+      use_direct_io_(options.use_direct_writes),
       fd_(fd),
       filesize_(0) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -685,7 +685,7 @@ PosixWritableFile::~PosixWritableFile() {
 }
 
 Status PosixWritableFile::Append(const Slice& data) {
-  assert(!direct_io_|| (IsSectorAligned(data.size()) && IsPageAligned(data.data())));
+  assert(!use_direct_io() || (IsSectorAligned(data.size()) && IsPageAligned(data.data())));
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
@@ -704,7 +704,7 @@ Status PosixWritableFile::Append(const Slice& data) {
 }
 
 Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
-  assert(direct_io_ && IsSectorAligned(offset) &&
+  assert(use_direct_io() && IsSectorAligned(offset) &&
          IsSectorAligned(data.size()) && IsPageAligned(data.data()));
   assert(offset <= std::numeric_limits<off_t>::max());
   const char* src = data.data();
@@ -786,7 +786,7 @@ bool PosixWritableFile::IsSyncThreadSafe() const { return true; }
 uint64_t PosixWritableFile::GetFileSize() { return filesize_; }
 
 Status PosixWritableFile::InvalidateCache(size_t offset, size_t length) {
-  if (direct_io_) {
+  if (use_direct_io()) {
     return Status::OK();
   }
 #ifndef OS_LINUX

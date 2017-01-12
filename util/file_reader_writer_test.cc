@@ -90,7 +90,7 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
    public:
     explicit FakeWF() : use_direct_io_(false), io_error_(false) {}
 
-    virtual bool UseDirectIO() const override { return use_direct_io_; }
+    virtual bool use_direct_io() const override { return use_direct_io_; }
     Status Append(const Slice& data) override {
       if (io_error_) {
         return Status::IOError("Fake IO error");
@@ -106,7 +106,7 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
     Status Close() override { return Status::OK(); }
     Status Flush() override { return Status::OK(); }
     Status Sync() override { return Status::OK(); }
-    void SetUseDirectIO(bool val) { use_direct_io_ = val; }
+    void Setuse_direct_io(bool val) { use_direct_io_ = val; }
     void SetIOError(bool val) { io_error_ = val; }
 
    protected:
@@ -114,7 +114,7 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
     bool io_error_;
   };
   unique_ptr<FakeWF> wf(new FakeWF());
-  wf->SetUseDirectIO(true);
+  wf->Setuse_direct_io(true);
   unique_ptr<WritableFileWriter> writer(
       new WritableFileWriter(std::move(wf), EnvOptions()));
 

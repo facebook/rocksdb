@@ -116,7 +116,7 @@ class WritableFileWriter {
         filesize_(0),
         next_write_offset_(0),
         pending_sync_(false),
-        direct_io_(writable_file_->UseDirectIO()),
+        direct_io_(writable_file_->use_direct_io()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter) {

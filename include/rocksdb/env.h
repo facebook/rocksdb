@@ -511,12 +511,12 @@ class WritableFile {
 
   // Indicates if the class makes use of direct IO
   // If true you must pass aligned buffer to Write()
-  virtual bool UseDirectIO() const { return false; }
+  virtual bool use_direct_io() const { return false; }
 
   const size_t c_DefaultPageSize = 4 * 1024;
 
   // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseDirectIO()
+  // aligned buffer for Write() when use_direct_io()
   // returns true
   virtual size_t GetRequiredBufferAlignment() const {
     return c_DefaultPageSize;
@@ -688,12 +688,12 @@ class RandomRWFile {
 
   // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
-  virtual bool UseDirectIO() const { return false; }
+  virtual bool use_direct_io() const { return false; }
 
   const size_t c_DefaultPageSize = 4 * 1024;
 
   // Use the returned alignment value to allocate aligned
-  // buffer for Write() when UseDirectIO() returns true
+  // buffer for Write() when use_direct_io() returns true
   virtual size_t GetRequiredBufferAlignment() const {
     return c_DefaultPageSize;
   }
@@ -710,7 +710,7 @@ class RandomRWFile {
   virtual void EnableReadAhead() {}
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when UseDirectIO() returns true.
+  // Pass aligned buffer when use_direct_io() returns true.
   virtual Status Write(uint64_t offset, const Slice& data) = 0;
 
   // Read up to `n` bytes starting from offset `offset` and store them in

@@ -108,7 +108,7 @@ class PosixDirectIORandomAccessFile : public PosixRandomAccessFile {
 class PosixWritableFile : public WritableFile {
  protected:
   const std::string filename_;
-  const bool direct_io_;
+  const bool use_direct_io_;
   int fd_;
   uint64_t filesize_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -131,7 +131,7 @@ class PosixWritableFile : public WritableFile {
   virtual Status Sync() override;
   virtual Status Fsync() override;
   virtual bool IsSyncThreadSafe() const override;
-  virtual bool UseDirectIO() const override { return direct_io_; }
+  virtual bool use_direct_io() const override { return use_direct_io_; }
   virtual uint64_t GetFileSize() override;
   virtual size_t GetRequiredBufferAlignment() const override {
     // TODO(gzh): It should be the logical sector size/filesystem block size
