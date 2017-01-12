@@ -379,6 +379,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   InstrumentedMutexLock l(&mutex_);
 
+  Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
+      "Shutdown: canceling all background work");
+
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_ &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
@@ -503,6 +506,8 @@ DBImpl::~DBImpl() {
     env_->UnlockFile(db_lock_);
   }
 
+  Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
+      "Shutdown complete");
   LogFlush(immutable_db_options_.info_log);
 }
 
