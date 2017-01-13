@@ -556,6 +556,7 @@ WinSequentialFile::~WinSequentialFile() {
 }
 
 Status WinSequentialFile::Read(size_t n, Slice* result, char* scratch) {
+  assert(result != nullptr && !WinFileData::use_direct_io());
   Status s;
   size_t r = 0;
 
@@ -579,6 +580,41 @@ Status WinSequentialFile::Read(size_t n, Slice* result, char* scratch) {
 
   return s;
 }
+
+SSIZE_T WinSequentialFile::PositionedReadInternal(char* src, size_t numBytes,
+  uint64_t offset) const {
+  return pread(GetFileHandle(), src, numBytes, offset);
+}
+
+Status WinSequentialFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
+  char* scratch) {
+
+  Status s;
+
+  assert(WinFileData::use_direct_io());
+
+  // Windows ReadFile API accepts a DWORD.
+  // While it is possible to read in a loop if n is > UINT_MAX
+  // it is a highly unlikely case.
+  if (n > UINT_MAX) {
+    return IOErrorFromWindowsError(GetName(), ERROR_INVALID_PARAMETER);
+  }
+
+  auto r = PositionedReadInternal(scratch, n, offset);
+
+  if (r < 0) {
+    auto lastError = GetLastError();
+    // Posix impl wants to treat reads from beyond
+    // of the file as OK.
+    if (lastError != ERROR_HANDLE_EOF) {
+      s = IOErrorFromWindowsError(GetName(), lastError);
+    }
+  }
+
+  *result = Slice(scratch, (r < 0) ? 0 : size_t(r));
+  return s;
+}
+
 
 Status WinSequentialFile::Skip(uint64_t n) {
   // Can't handle more than signed max as SetFilePointerEx accepts a signed 64-bit
@@ -853,6 +889,10 @@ Status WinRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
 
 size_t WinRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
   return GetUniqueIdFromFile(GetFileHandle(), id, max_size);
+}
+
+size_t WinRandomAccessFile::GetRequiredBufferAlignment() const {
+  return GetAlignment();
 }
 
 /////////////////////////////////////////////////////////////////////////////

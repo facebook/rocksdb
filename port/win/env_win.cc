@@ -119,13 +119,20 @@ Status WinEnvIO::NewSequentialFile(const std::string& fname,
   // while they are still open with another handle. For that reason we
   // allow share_write and delete(allows rename).
   HANDLE hFile = INVALID_HANDLE_VALUE;
+
+  DWORD fileFlags = FILE_ATTRIBUTE_READONLY;
+
+  if (options.use_direct_reads && !options.use_mmap_reads) {
+    fileFlags |= FILE_FLAG_NO_BUFFERING;
+  }
+
   {
     IOSTATS_TIMER_GUARD(open_nanos);
     hFile = CreateFileA(
       fname.c_str(), GENERIC_READ,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL,
       OPEN_EXISTING,  // Original fopen mode is "rb"
-      FILE_ATTRIBUTE_NORMAL, NULL);
+      fileFlags, NULL);
   }
 
   if (INVALID_HANDLE_VALUE == hFile) {
