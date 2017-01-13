@@ -432,7 +432,7 @@ class SequentialFile {
 
   // Indicates the upper layers if the current SequentialFile implementation
   // uses direct IO.
-  virtual bool UseDirectIO() const { return false; }
+  virtual bool use_direct_io() const { return false; }
 
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
@@ -508,7 +508,7 @@ class RandomAccessFile {
 
   // Indicates the upper layers if the current RandomAccessFile implementation
   // uses direct IO.
-  virtual bool UseDirectIO() const { return false; }
+  virtual bool use_direct_io() const { return false; }
 
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
@@ -592,7 +592,7 @@ class WritableFile {
 
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
-  virtual bool UseDirectIO() const { return false; }
+  virtual bool use_direct_io() const { return false; }
 
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
@@ -707,7 +707,7 @@ class RandomRWFile {
 
   // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
-  virtual bool UseDirectIO() const { return false; }
+  virtual bool use_direct_io() const { return false; }
 
   // Use the returned alignment value to allocate
   // aligned buffer for Direct I/O
@@ -725,7 +725,7 @@ class RandomRWFile {
   virtual void EnableReadAhead() {}
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when UseDirectIO() returns true.
+  // Pass aligned buffer when use_direct_io() returns true.
   virtual Status Write(uint64_t offset, const Slice& data) = 0;
 
   // Read up to `n` bytes starting from offset `offset` and store them in

@@ -969,7 +969,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       }
 #endif
       ASSERT_OK(env_->NewSequentialFile(fname, &file, soptions));
-      if (file->UseDirectIO()) {
+      if (file->use_direct_io()) {
         ASSERT_OK(file->PositionedRead(0, kSectorSize, &result, scratch.get()));
       } else {
         ASSERT_OK(file->Read(kSectorSize, &result, scratch.get()));

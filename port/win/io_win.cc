@@ -688,7 +688,7 @@ WinRandomAccessImpl::WinRandomAccessImpl(WinFileData* file_base,
   assert(!options.use_mmap_reads);
 
   // Direct access, use internal buffer for reads
-  if (file_base_->UseDirectIO()) {
+  if (file_base_->use_direct_io()) {
     // Do not allocate the buffer either until the first request or
     // until there is a call to allocate a read-ahead buffer
     buffer_.Alignment(alignment);
@@ -712,7 +712,7 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
   // When in direct I/O mode we need to do the following changes:
   // - use our own aligned buffer
   // - always read at the offset of that is a multiple of alignment
-  if (file_base_->UseDirectIO()) {
+  if (file_base_->use_direct_io()) {
     uint64_t first_page_start = 0;
     size_t actual_bytes_toread = 0;
     size_t bytes_requested = left;
@@ -803,7 +803,7 @@ Status WinRandomAccessImpl::ReadImpl(uint64_t offset, size_t n, Slice* result,
 
 inline
 void WinRandomAccessImpl::HintImpl(RandomAccessFile::AccessPattern pattern) {
-  if (pattern == RandomAccessFile::SEQUENTIAL && file_base_->UseDirectIO() &&
+  if (pattern == RandomAccessFile::SEQUENTIAL && file_base_->use_direct_io() &&
       compaction_readahead_size_ > 0) {
     std::lock_guard<std::mutex> lg(buffer_mut_);
     if (!read_ahead_) {
@@ -879,7 +879,7 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
 
   uint64_t written = 0;
 
-  if (file_data_->UseDirectIO()) {
+  if (file_data_->use_direct_io()) {
 
     // With no offset specified we are appending
     // to the end of the file
@@ -925,7 +925,7 @@ Status WinWritableImpl::AppendImpl(const Slice& data) {
 
 Status WinWritableImpl::PositionedAppendImpl(const Slice& data, uint64_t offset) {
 
-  if(file_data_->UseDirectIO()) {
+  if(file_data_->use_direct_io()) {
     assert(IsSectorAligned(offset));
     assert(IsSectorAligned(data.size()));
     assert(IsAligned(GetAlignement(), data.data()));
@@ -1036,7 +1036,7 @@ WinWritableFile::~WinWritableFile() {
 }
 
 // Indicates if the class makes use of direct I/O
-bool WinWritableFile::UseDirectIO() const { return WinFileData::UseDirectIO(); }
+bool WinWritableFile::use_direct_io() const { return WinFileData::use_direct_io(); }
 
 size_t WinWritableFile::GetRequiredBufferAlignment() const {
   return GetAlignement();
@@ -1094,7 +1094,7 @@ WinRandomRWFile::WinRandomRWFile(const std::string& fname, HANDLE hFile,
       WinRandomAccessImpl(this, alignment, options),
       WinWritableImpl(this, alignment) {}
 
-bool WinRandomRWFile::UseDirectIO() const { return WinFileData::UseDirectIO(); }
+bool WinRandomRWFile::use_direct_io() const { return WinFileData::use_direct_io(); }
 
 size_t WinRandomRWFile::GetRequiredBufferAlignment() const {
   return GetAlignement();

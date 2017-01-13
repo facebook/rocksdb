@@ -82,7 +82,7 @@ PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
 }
 
 PosixSequentialFile::~PosixSequentialFile() {
-  if (!UseDirectIO()) {
+  if (!use_direct_io()) {
     assert(file_);
     fclose(file_);
   } else {
@@ -92,7 +92,7 @@ PosixSequentialFile::~PosixSequentialFile() {
 }
 
 Status PosixSequentialFile::Read(size_t n, Slice* result, char* scratch) {
-  assert(result != nullptr && !UseDirectIO());
+  assert(result != nullptr && !use_direct_io());
   Status s;
   size_t r = 0;
   do {
@@ -122,7 +122,7 @@ Status PosixSequentialFile::PositionedRead(uint64_t offset, size_t n,
   ssize_t r = -1;
   size_t left = n;
   char* ptr = scratch;
-  assert(UseDirectIO());
+  assert(use_direct_io());
   while (left > 0) {
     r = pread(fd_, ptr, left, static_cast<off_t>(offset));
     if (r <= 0) {
@@ -159,7 +159,7 @@ Status PosixSequentialFile::InvalidateCache(size_t offset, size_t length) {
 #ifndef OS_LINUX
   return Status::OK();
 #else
-  if (!UseDirectIO()) {
+  if (!use_direct_io()) {
     // free OS pages
     int ret = Fadvise(fd_, offset, length, POSIX_FADV_DONTNEED);
     if (ret != 0) {
@@ -254,7 +254,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     ptr += r;
     offset += r;
     left -= r;
-    if (UseDirectIO() &&
+    if (use_direct_io() &&
         r % static_cast<ssize_t>(GetRequiredBufferAlignment()) != 0) {
       // Bytes reads don't fill sectors. Should only happen at the end
       // of the file.
@@ -265,7 +265,7 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     // An error: return a non-ok status
     s = IOError(filename_, errno);
   }
-  if (!UseDirectIO()) {
+  if (!use_direct_io()) {
     // we need to fadvise away the entire range of pages because
     // we do not want readahead pages to be cached.
     Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
@@ -281,7 +281,7 @@ size_t PosixRandomAccessFile::GetUniqueId(char* id, size_t max_size) const {
 #endif
 
 void PosixRandomAccessFile::Hint(AccessPattern pattern) {
-  if (UseDirectIO()) {
+  if (use_direct_io()) {
     return;
   }
   switch (pattern) {
@@ -307,7 +307,7 @@ void PosixRandomAccessFile::Hint(AccessPattern pattern) {
 }
 
 Status PosixRandomAccessFile::InvalidateCache(size_t offset, size_t length) {
-  if (UseDirectIO()) {
+  if (use_direct_io()) {
     return Status::OK();
   }
 #ifndef OS_LINUX
@@ -604,7 +604,7 @@ Status PosixMmapFile::Allocate(uint64_t offset, uint64_t len) {
 PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
                                      const EnvOptions& options)
     : filename_(fname),
-      direct_io_(options.use_direct_writes),
+      use_direct_io_(options.use_direct_writes),
       fd_(fd),
       filesize_(0) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -621,7 +621,7 @@ PosixWritableFile::~PosixWritableFile() {
 }
 
 Status PosixWritableFile::Append(const Slice& data) {
-  assert(!direct_io_|| (IsSectorAligned(data.size()) && IsPageAligned(data.data())));
+  assert(!use_direct_io() || (IsSectorAligned(data.size()) && IsPageAligned(data.data())));
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
@@ -640,7 +640,7 @@ Status PosixWritableFile::Append(const Slice& data) {
 }
 
 Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
-  assert(direct_io_ && IsSectorAligned(offset) &&
+  assert(use_direct_io() && IsSectorAligned(offset) &&
          IsSectorAligned(data.size()) && IsPageAligned(data.data()));
   assert(offset <= std::numeric_limits<off_t>::max());
   const char* src = data.data();
@@ -727,7 +727,7 @@ bool PosixWritableFile::IsSyncThreadSafe() const { return true; }
 uint64_t PosixWritableFile::GetFileSize() { return filesize_; }
 
 Status PosixWritableFile::InvalidateCache(size_t offset, size_t length) {
-  if (direct_io_) {
+  if (use_direct_io()) {
     return Status::OK();
   }
 #ifndef OS_LINUX

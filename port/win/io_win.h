@@ -95,7 +95,7 @@ class WinFileData {
 
   HANDLE GetFileHandle() const { return hFile_; }
 
-  bool UseDirectIO() const { return use_direct_io_; }
+  bool use_direct_io() const { return use_direct_io_; }
 
   WinFileData(const WinFileData&) = delete;
   WinFileData& operator=(const WinFileData&) = delete;
@@ -384,7 +384,7 @@ class WinWritableFile : private WinFileData,
 
   // Indicates if the class makes use of direct I/O
   // Use PositionedAppend
-  virtual bool UseDirectIO() const override;
+  virtual bool use_direct_io() const override;
 
   virtual size_t GetRequiredBufferAlignment() const override;
 
@@ -427,10 +427,10 @@ class WinRandomRWFile : private WinFileData,
 
   // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
-  virtual bool UseDirectIO() const override;
+  virtual bool use_direct_io() const override;
 
   // Use the returned alignment value to allocate aligned
-  // buffer for Write() when UseDirectIO() returns true
+  // buffer for Write() when use_direct_io() returns true
   virtual size_t GetRequiredBufferAlignment() const override;
 
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
@@ -444,7 +444,7 @@ class WinRandomRWFile : private WinFileData,
   virtual void EnableReadAhead() override;
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when UseDirectIO() returns true.
+  // Pass aligned buffer when use_direct_io() returns true.
   virtual Status Write(uint64_t offset, const Slice& data) override;
 
   // Read up to `n` bytes starting from offset `offset` and store them in

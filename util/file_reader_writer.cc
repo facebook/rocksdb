@@ -23,7 +23,7 @@ namespace rocksdb {
 
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s;
-  if (UseDirectIO()) {
+  if (use_direct_io()) {
     size_t offset = offset_.fetch_add(n);
     size_t alignment = file_->GetRequiredBufferAlignment();
     size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
@@ -73,7 +73,7 @@ Status SequentialFileReader::DirectRead(size_t n, Slice* result,
 }
 
 Status SequentialFileReader::Skip(uint64_t n) {
-  if (UseDirectIO()) {
+  if (use_direct_io()) {
     offset_ += n;
     return Status::OK();
   } else {
@@ -89,7 +89,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
     StopWatch sw(env_, stats_, hist_type_,
                  (stats_ != nullptr) ? &elapsed : nullptr);
     IOSTATS_TIMER_GUARD(read_nanos);
-    if (UseDirectIO()) {
+    if (use_direct_io()) {
       size_t alignment = file_->GetRequiredBufferAlignment();
       size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
       size_t offset_advance = offset - aligned_offset;

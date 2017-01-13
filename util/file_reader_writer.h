@@ -48,7 +48,7 @@ class SequentialFileReader {
 
   SequentialFile* file() { return file_.get(); }
 
-  bool UseDirectIO() const { return file_->UseDirectIO(); }
+  bool use_direct_io() const { return file_->use_direct_io(); }
 
  protected:
   Status DirectRead(size_t n, Slice* result, char* scratch);
@@ -94,7 +94,7 @@ class RandomAccessFileReader {
 
   RandomAccessFile* file() { return file_.get(); }
 
-  bool UseDirectIO() const { return file_->UseDirectIO(); }
+  bool use_direct_io() const { return file_->use_direct_io(); }
 
  protected:
   Status DirectRead(uint64_t offset, size_t n, Slice* result,
@@ -129,7 +129,7 @@ class WritableFileWriter {
         filesize_(0),
         next_write_offset_(0),
         pending_sync_(false),
-        direct_io_(writable_file_->UseDirectIO()),
+        direct_io_(writable_file_->use_direct_io()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter) {
@@ -165,7 +165,7 @@ class WritableFileWriter {
 
   WritableFile* writable_file() const { return writable_file_.get(); }
 
-  bool UseDirectIO() { return writable_file_->UseDirectIO(); }
+  bool use_direct_io() { return writable_file_->use_direct_io(); }
 
  private:
   // Used when os buffering is OFF and we are writing
