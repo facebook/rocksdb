@@ -308,7 +308,11 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
-  void TEST_FlushColumnFamilies();
+  void TEST_MaybeFlushColumnFamilies();
+
+  bool TEST_UnableToFlushOldestLog() {
+    return unable_to_flush_oldest_log_;
+  }
 
   bool TEST_IsLogGettingFlushed() {
     return alive_log_files_.begin()->getting_flushed;
@@ -740,7 +744,7 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked
   Status PersistOptions();
 
-  void FlushColumnFamilies();
+  void MaybeFlushColumnFamilies();
 
   uint64_t GetMaxTotalWalSize() const;
 
@@ -999,6 +1003,15 @@ class DBImpl : public DB {
   // data that is not yet persisted into either WAL or SST file.
   // Used when disableWAL is true.
   bool has_unpersisted_data_;
+
+
+  // if an attempt was made to flush all column families that
+  // the oldest log depends on but uncommited data in the oldest
+  // log prevents the log from being released.
+  // We must attempt to free the dependent memtables again
+  // at a later time after the transaction in the oldest
+  // log is fully commited.
+  bool unable_to_flush_oldest_log_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
   // MSVC version 1800 still does not have constexpr for ::max()
