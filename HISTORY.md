@@ -1,5 +1,5 @@
 # Rocksdb Change Log
-## Unreleased
+## 5.1.0 (01/13/2016)
 ### Public API Change
 * Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().
 * Added EventListener::OnExternalFileIngested which will be called when IngestExternalFile() add a file successfully.
