@@ -156,6 +156,9 @@ class PosixEnv : public Env {
     FILE* file = nullptr;
 
     if (options.use_direct_reads && !options.use_mmap_reads) {
+#ifdef ROCKSDB_LITE
+      return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
+#endif  // !ROCKSDB_LITE
 #ifndef OS_MACOSX
       flags |= O_DIRECT;
 #endif
@@ -200,6 +203,9 @@ class PosixEnv : public Env {
     int fd;
     int flags = O_RDONLY;
     if (options.use_direct_reads && !options.use_mmap_reads) {
+#ifdef ROCKSDB_LITE
+      return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
+#endif  // !ROCKSDB_LITE
 #ifndef OS_MACOSX
       flags |= O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
@@ -261,6 +267,9 @@ class PosixEnv : public Env {
       // appends data to the end of the file, regardless of the value of
       // offset.
       // More info here: https://linux.die.net/man/2/pwrite
+#ifdef ROCKSDB_LITE
+      return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
+#endif  // !ROCKSDB_LITE
       flags |= O_WRONLY;
 #ifndef OS_MACOSX
       flags |= O_DIRECT;
@@ -325,6 +334,9 @@ class PosixEnv : public Env {
     int flags = 0;
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
     if (options.use_direct_writes && !options.use_mmap_writes) {
+#ifdef ROCKSDB_LITE
+      return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
+#endif  // !ROCKSDB_LITE
       flags |= O_WRONLY;
 #ifndef OS_MACOSX
       flags |= O_DIRECT;
