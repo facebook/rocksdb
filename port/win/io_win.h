@@ -101,6 +101,32 @@ class WinFileData {
   WinFileData& operator=(const WinFileData&) = delete;
 };
 
+class WinSequentialFile : protected WinFileData, public SequentialFile {
+
+  // Override for behavior change when creating a custom env
+  virtual SSIZE_T PositionedReadInternal(char* src, size_t numBytes,
+    uint64_t offset) const;
+
+public:
+  WinSequentialFile(const std::string& fname, HANDLE f,
+    const EnvOptions& options);
+
+  ~WinSequentialFile();
+
+  WinSequentialFile(const WinSequentialFile&) = delete;
+  WinSequentialFile& operator=(const WinSequentialFile&) = delete;
+
+  virtual Status Read(size_t n, Slice* result, char* scratch) override;
+  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+    char* scratch) override;
+
+  virtual Status Skip(uint64_t n) override;
+
+  virtual Status InvalidateCache(size_t offset, size_t length) override;
+
+  virtual bool use_direct_io() const override { return WinFileData::use_direct_io(); }
+};
+
 // mmap() based random-access
 class WinMmapReadableFile : private WinFileData, public RandomAccessFile {
   HANDLE hMap_;
@@ -208,23 +234,6 @@ class WinMmapFile : private WinFileData, public WritableFile {
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
-class WinSequentialFile : private WinFileData, public SequentialFile {
- public:
-  WinSequentialFile(const std::string& fname, HANDLE f,
-                    const EnvOptions& options);
-
-  ~WinSequentialFile();
-
-  WinSequentialFile(const WinSequentialFile&) = delete;
-  WinSequentialFile& operator=(const WinSequentialFile&) = delete;
-
-  virtual Status Read(size_t n, Slice* result, char* scratch) override;
-
-  virtual Status Skip(uint64_t n) override;
-
-  virtual Status InvalidateCache(size_t offset, size_t length) override;
-};
-
 class WinRandomAccessImpl {
  protected:
   WinFileData* file_base_;
@@ -281,14 +290,17 @@ class WinRandomAccessImpl {
 
   virtual ~WinRandomAccessImpl() {}
 
- public:
-  WinRandomAccessImpl(const WinRandomAccessImpl&) = delete;
-  WinRandomAccessImpl& operator=(const WinRandomAccessImpl&) = delete;
-
   Status ReadImpl(uint64_t offset, size_t n, Slice* result,
                   char* scratch) const;
 
   void HintImpl(RandomAccessFile::AccessPattern pattern);
+
+  size_t GetAlignment() const { return buffer_.Alignment(); }
+
+ public:
+
+  WinRandomAccessImpl(const WinRandomAccessImpl&) = delete;
+  WinRandomAccessImpl& operator=(const WinRandomAccessImpl&) = delete;
 };
 
 // pread() based random-access
@@ -303,18 +315,22 @@ class WinRandomAccessFile
 
   ~WinRandomAccessFile();
 
-  virtual void EnableReadAhead() override;
-
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override;
 
   virtual bool ShouldForwardRawRequest() const override;
 
+  virtual void EnableReadAhead() override;
+
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+
   virtual void Hint(AccessPattern pattern) override;
+
+  virtual bool use_direct_io() const override { return WinFileData::use_direct_io(); }
 
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
+  virtual size_t GetRequiredBufferAlignment() const override;
 };
 
 // This is a sequential write class. It has been mimicked (as others) after
@@ -382,12 +398,6 @@ class WinWritableFile : private WinFileData,
 
   ~WinWritableFile();
 
-  // Indicates if the class makes use of direct I/O
-  // Use PositionedAppend
-  virtual bool use_direct_io() const override;
-
-  virtual size_t GetRequiredBufferAlignment() const override;
-
   virtual Status Append(const Slice& data) override;
 
   // Requires that the data is aligned as specified by
@@ -407,6 +417,12 @@ class WinWritableFile : private WinFileData,
   virtual Status Sync() override;
 
   virtual Status Fsync() override;
+
+  // Indicates if the class makes use of direct I/O
+  // Use PositionedAppend
+  virtual bool use_direct_io() const override;
+
+  virtual size_t GetRequiredBufferAlignment() const override;
 
   virtual uint64_t GetFileSize() override;
 
