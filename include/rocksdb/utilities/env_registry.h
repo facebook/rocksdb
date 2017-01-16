@@ -15,11 +15,7 @@
 
 namespace rocksdb {
 
-// Returns a new T when called with a string. Populates the unique_ptr argument
-// if granting ownership to caller.
-template <typename T>
-using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*)>;
-
+namespace {  // TODO: remove this once templated
 // Creates a new Env using the registered factory function corresponding to a
 // prefix of uri.
 //
@@ -28,6 +24,11 @@ using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*)>;
 //
 // Populates env_guard with result pointer if caller is granted ownership.
 Env* NewEnvFromUri(const std::string& uri, std::unique_ptr<Env>* env_guard);
+
+// Returns a new T when called with a string. Populates the unique_ptr argument
+// if granting ownership to caller.
+template <typename T>
+using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*)>;
 
 // To register an Env factory function, initialize an EnvRegistrar object with
 // static storage duration. For example:
@@ -40,6 +41,50 @@ class EnvRegistrar {
  public:
   explicit EnvRegistrar(std::string uri_prefix, FactoryFunc<Env> env_factory);
 };
+}
+
+// Implementation details follow.
+
+namespace internal {
+
+template <typename T>
+struct RegistryEntry {
+  std::string prefix;
+  FactoryFunc<T> env_factory;
+};
+
+template <typename T>
+struct Registry {
+  static Registry* Get() {
+    static Registry<T> instance;
+    return &instance;
+  }
+  std::vector<RegistryEntry<T>> entries;
+
+ private:
+  Registry() = default;
+};
+
+}  // namespace internal
+
+namespace {  // TODO: remove this once templated
+Env* NewEnvFromUri(const std::string& uri, std::unique_ptr<Env>* env_guard) {
+  env_guard->reset();
+  for (const auto& entry : internal::Registry<Env>::Get()->entries) {
+    if (uri.compare(0, entry.prefix.size(), entry.prefix) == 0) {
+      return entry.env_factory(uri, env_guard);
+    }
+  }
+  return nullptr;
+}
+
+EnvRegistrar::EnvRegistrar(std::string uri_prefix,
+                           FactoryFunc<Env> env_factory) {
+  internal::Registry<Env>::Get()->entries.emplace_back(
+      internal::RegistryEntry<Env>{std::move(uri_prefix),
+                                   std::move(env_factory)});
+}
+}
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE
