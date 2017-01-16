@@ -31,20 +31,18 @@ T* NewCustomObject(const std::string& text, std::unique_ptr<T>* res_guard);
 template <typename T>
 using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*)>;
 
-namespace {  // TODO: remove this once templated
-
-// To register an Env factory function, initialize an EnvRegistrar object with
-// static storage duration. For example:
+// To register a factory function for a type T, initialize a Registrar<T> object
+// with static storage duration. For example:
 //
-//   static EnvRegistrar hdfs_reg("hdfs://", &CreateHdfsEnv);
+//   static Registrar<Env> hdfs_reg("hdfs://", &CreateHdfsEnv);
 //
 // Then, calling NewCustomObject<Env>("hdfs://some_path", ...) will use
 // CreateHdfsEnv to make a new Env.
-class EnvRegistrar {
+template <typename T>
+class Registrar {
  public:
-  explicit EnvRegistrar(std::string uri_prefix, FactoryFunc<Env> env_factory);
+  explicit Registrar(std::string uri_prefix, FactoryFunc<T> env_factory);
 };
-}
 
 // Implementation details follow.
 
@@ -81,14 +79,10 @@ T* NewCustomObject(const std::string& text, std::unique_ptr<T>* res_guard) {
   return nullptr;
 }
 
-namespace {  // TODO: remove this once templated
-
-EnvRegistrar::EnvRegistrar(std::string uri_prefix,
-                           FactoryFunc<Env> env_factory) {
-  internal::Registry<Env>::Get()->entries.emplace_back(
-      internal::RegistryEntry<Env>{std::move(uri_prefix),
-                                   std::move(env_factory)});
-}
+template <typename T>
+Registrar<T>::Registrar(std::string pattern, FactoryFunc<T> factory) {
+  internal::Registry<T>::Get()->entries.emplace_back(
+      internal::RegistryEntry<T>{std::move(pattern), std::move(factory)});
 }
 
 }  // namespace rocksdb
