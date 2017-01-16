@@ -10,33 +10,36 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "rocksdb/env.h"
 
 namespace rocksdb {
 
-namespace {  // TODO: remove this once templated
-// Creates a new Env using the registered factory function corresponding to a
-// prefix of uri.
+// Creates a new T using the registered factory function corresponding to the
+// provided string.
 //
-// If no prefixes match, returns nullptr. If multiple prefixes match, the
-// factory function used is unspecified.
+// If no registered functions match, returns nullptr. If multiple functions
+// match, the factory function used is unspecified.
 //
-// Populates env_guard with result pointer if caller is granted ownership.
-Env* NewEnvFromUri(const std::string& uri, std::unique_ptr<Env>* env_guard);
+// Populates res_guard with result pointer if caller is granted ownership.
+template <typename T>
+T* NewCustomObject(const std::string& text, std::unique_ptr<T>* res_guard);
 
 // Returns a new T when called with a string. Populates the unique_ptr argument
 // if granting ownership to caller.
 template <typename T>
 using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*)>;
 
+namespace {  // TODO: remove this once templated
+
 // To register an Env factory function, initialize an EnvRegistrar object with
 // static storage duration. For example:
 //
 //   static EnvRegistrar hdfs_reg("hdfs://", &CreateHdfsEnv);
 //
-// Then, calling NewEnvFromUri("hdfs://some_path", ...) will use CreateHdfsEnv
-// to make a new Env.
+// Then, calling NewCustomObject<Env>("hdfs://some_path", ...) will use
+// CreateHdfsEnv to make a new Env.
 class EnvRegistrar {
  public:
   explicit EnvRegistrar(std::string uri_prefix, FactoryFunc<Env> env_factory);
@@ -67,16 +70,18 @@ struct Registry {
 
 }  // namespace internal
 
-namespace {  // TODO: remove this once templated
-Env* NewEnvFromUri(const std::string& uri, std::unique_ptr<Env>* env_guard) {
-  env_guard->reset();
-  for (const auto& entry : internal::Registry<Env>::Get()->entries) {
-    if (uri.compare(0, entry.prefix.size(), entry.prefix) == 0) {
-      return entry.env_factory(uri, env_guard);
+template <typename T>
+T* NewCustomObject(const std::string& text, std::unique_ptr<T>* res_guard) {
+  res_guard->reset();
+  for (const auto& entry : internal::Registry<T>::Get()->entries) {
+    if (text.compare(0, entry.prefix.size(), entry.prefix) == 0) {
+      return entry.env_factory(text, res_guard);
     }
   }
   return nullptr;
 }
+
+namespace {  // TODO: remove this once templated
 
 EnvRegistrar::EnvRegistrar(std::string uri_prefix,
                            FactoryFunc<Env> env_factory) {

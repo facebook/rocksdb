@@ -35,19 +35,19 @@ static EnvRegistrar test_reg_b("b://", [](const std::string& uri,
 
 TEST_F(EnvRegistryTest, Basics) {
   std::unique_ptr<Env> env_guard;
-  auto res = NewEnvFromUri("a://test", &env_guard);
+  auto res = NewCustomObject<Env>("a://test", &env_guard);
   ASSERT_NE(res, nullptr);
   ASSERT_EQ(env_guard, nullptr);
   ASSERT_EQ(1, num_a);
   ASSERT_EQ(0, num_b);
 
-  res = NewEnvFromUri("b://test", &env_guard);
+  res = NewCustomObject<Env>("b://test", &env_guard);
   ASSERT_NE(res, nullptr);
   ASSERT_NE(env_guard, nullptr);
   ASSERT_EQ(1, num_a);
   ASSERT_EQ(1, num_b);
 
-  res = NewEnvFromUri("c://test", &env_guard);
+  res = NewCustomObject<Env>("c://test", &env_guard);
   ASSERT_EQ(res, nullptr);
   ASSERT_EQ(env_guard, nullptr);
   ASSERT_EQ(1, num_a);

@@ -2634,7 +2634,7 @@ void BackupCommand::DoCommand() {
   }
   printf("open db OK\n");
   std::unique_ptr<Env> custom_env_guard;
-  Env* custom_env = NewEnvFromUri(test_cluster_, &custom_env_guard);
+  Env* custom_env = NewCustomObject<Env>(test_cluster_, &custom_env_guard);
   BackupableDBOptions backup_options =
       BackupableDBOptions(test_path_, custom_env);
   backup_options.max_background_operations = thread_num_;
@@ -2696,7 +2696,7 @@ void RestoreCommand::Help(std::string& ret) {
 
 void RestoreCommand::DoCommand() {
   std::unique_ptr<Env> custom_env_guard;
-  Env* custom_env = NewEnvFromUri(backup_env_uri_, &custom_env_guard);
+  Env* custom_env = NewCustomObject<Env>(backup_env_uri_, &custom_env_guard);
   std::unique_ptr<BackupEngineReadOnly> restore_engine;
   Status status;
   {
