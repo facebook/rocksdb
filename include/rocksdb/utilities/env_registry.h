@@ -15,10 +15,10 @@
 
 namespace rocksdb {
 
-// Returns a new Env when called with a URI string. Populates the unique_ptr
-// argument if granting ownership to caller.
-typedef std::function<Env*(const std::string&, std::unique_ptr<Env>*)>
-    EnvFactoryFunc;
+// Returns a new T when called with a string. Populates the unique_ptr argument
+// if granting ownership to caller.
+template <typename T>
+using FactoryFunc = std::function<T*(const std::string&, std::unique_ptr<T>*)>;
 
 // Creates a new Env using the registered factory function corresponding to a
 // prefix of uri.
@@ -38,7 +38,7 @@ Env* NewEnvFromUri(const std::string& uri, std::unique_ptr<Env>* env_guard);
 // to make a new Env.
 class EnvRegistrar {
  public:
-  explicit EnvRegistrar(std::string uri_prefix, EnvFactoryFunc env_factory);
+  explicit EnvRegistrar(std::string uri_prefix, FactoryFunc<Env> env_factory);
 };
 
 }  // namespace rocksdb

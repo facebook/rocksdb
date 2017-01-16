@@ -14,7 +14,7 @@ namespace rocksdb {
 
 struct EnvRegistryEntry {
   std::string prefix;
-  EnvFactoryFunc env_factory;
+  FactoryFunc<Env> env_factory;
 };
 
 struct EnvRegistry {
@@ -38,7 +38,8 @@ Env* NewEnvFromUri(const std::string& uri, std::unique_ptr<Env>* env_guard) {
   return nullptr;
 }
 
-EnvRegistrar::EnvRegistrar(std::string uri_prefix, EnvFactoryFunc env_factory) {
+EnvRegistrar::EnvRegistrar(std::string uri_prefix,
+                           FactoryFunc<Env> env_factory) {
   EnvRegistry::Get()->entries.emplace_back(
       EnvRegistryEntry{std::move(uri_prefix), std::move(env_factory)});
 }
