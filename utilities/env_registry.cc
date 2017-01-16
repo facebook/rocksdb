@@ -12,25 +12,27 @@
 
 namespace rocksdb {
 
-struct EnvRegistryEntry {
+template <typename T>
+struct RegistryEntry {
   std::string prefix;
-  FactoryFunc<Env> env_factory;
+  FactoryFunc<T> env_factory;
 };
 
-struct EnvRegistry {
-  static EnvRegistry* Get() {
-    static EnvRegistry instance;
+template <typename T>
+struct Registry {
+  static Registry* Get() {
+    static Registry<T> instance;
     return &instance;
   }
-  std::vector<EnvRegistryEntry> entries;
+  std::vector<RegistryEntry<T>> entries;
 
  private:
-  EnvRegistry() = default;
+  Registry() = default;
 };
 
 Env* NewEnvFromUri(const std::string& uri, std::unique_ptr<Env>* env_guard) {
   env_guard->reset();
-  for (const auto& entry : EnvRegistry::Get()->entries) {
+  for (const auto& entry : Registry<Env>::Get()->entries) {
     if (uri.compare(0, entry.prefix.size(), entry.prefix) == 0) {
       return entry.env_factory(uri, env_guard);
     }
@@ -40,8 +42,8 @@ Env* NewEnvFromUri(const std::string& uri, std::unique_ptr<Env>* env_guard) {
 
 EnvRegistrar::EnvRegistrar(std::string uri_prefix,
                            FactoryFunc<Env> env_factory) {
-  EnvRegistry::Get()->entries.emplace_back(
-      EnvRegistryEntry{std::move(uri_prefix), std::move(env_factory)});
+  Registry<Env>::Get()->entries.emplace_back(
+      RegistryEntry<Env>{std::move(uri_prefix), std::move(env_factory)});
 }
 
 }  // namespace rocksdb
