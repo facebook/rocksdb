@@ -370,7 +370,8 @@ ColumnFamilyData::ColumnFamilyData(
       column_family_set_(column_family_set),
       pending_flush_(false),
       pending_compaction_(false),
-      prev_compaction_needed_bytes_(0) {
+      prev_compaction_needed_bytes_(0),
+      allow_2pc_(db_options.allow_2pc) {
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
@@ -492,17 +493,20 @@ ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {
   return BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
 }
 
-uint64_t ColumnFamilyData::OldestLogReferenced() {
+uint64_t ColumnFamilyData::OldestLogToKeep() {
   auto current_log = GetLogNumber();
-  auto imm_prep_log = imm()->GetMinLogContainingPrepSection();
-  auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
 
-  if (imm_prep_log > 0 && imm_prep_log < current_log) {
-    current_log = imm_prep_log;
-  }
+  if (allow_2pc_) {
+    auto imm_prep_log = imm()->GetMinLogContainingPrepSection();
+    auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
 
-  if (mem_prep_log > 0 && mem_prep_log < current_log) {
-    current_log = mem_prep_log;
+    if (imm_prep_log > 0 && imm_prep_log < current_log) {
+      current_log = imm_prep_log;
+    }
+
+    if (mem_prep_log > 0 && mem_prep_log < current_log) {
+      current_log = mem_prep_log;
+    }
   }
 
   return current_log;

@@ -664,6 +664,10 @@ void DBImpl::MaybeDumpStats() {
 }
 
 uint64_t DBImpl::FindMinPrepLogReferencedByMemTable() {
+  if (!allow_2pc()) {
+    return 0;
+  }
+
   uint64_t min_log = 0;
 
   // we must look through the memtables for two phase transactions
@@ -708,6 +712,11 @@ void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
 }
 
 uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
+
+  if (!allow_2pc()) {
+    return 0;
+  }
+
   std::lock_guard<std::mutex> lock(prep_heap_mutex_);
   uint64_t min_log = 0;
 
@@ -5028,7 +5037,8 @@ void DBImpl::MaybeFlushColumnFamilies() {
   auto oldest_alive_log = alive_log_files_.begin()->number;
   auto oldest_log_with_uncommited_prep = FindMinLogContainingOutstandingPrep();
 
-  if (unable_to_flush_oldest_log_ &&
+  if (allow_2pc() &&
+      unable_to_flush_oldest_log_ &&
       oldest_log_with_uncommited_prep > 0 &&
       oldest_log_with_uncommited_prep <= oldest_alive_log) {
     // we already attempted to flush all column families dependent on
@@ -5050,7 +5060,7 @@ void DBImpl::MaybeFlushColumnFamilies() {
     if (cfd->IsDropped()) {
       continue;
     }
-    if (cfd->OldestLogReferenced() <= oldest_alive_log) {
+    if (cfd->OldestLogToKeep() <= oldest_alive_log) {
       auto status = SwitchMemtable(cfd, &context);
       if (!status.ok()) {
         break;
