@@ -73,8 +73,7 @@ DBTestBase::~DBTestBase() {
   options.db_paths.emplace_back(dbname_ + "_3", 0);
   options.db_paths.emplace_back(dbname_ + "_4", 0);
 
-  const char* keep_db = getenv("KEEP_DB");
-  if (keep_db && keep_db[0] == '1') {
+  if (getenv("KEEP_DB")) {
     printf("DB is still at %s\n", dbname_.c_str());
   } else {
     EXPECT_OK(DestroyDB(dbname_, options));
