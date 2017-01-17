@@ -8,7 +8,7 @@
 #include <algorithm>
 
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/env_registry.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/mock_env.h"
 #include "util/testharness.h"
 
