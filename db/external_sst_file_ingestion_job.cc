@@ -252,7 +252,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
 
 Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     const std::string& external_file, IngestedFileInfo* file_to_ingest) {
-  static std::set<int> supported_versions = {1,2};
+  static std::unordered_set<int> supported_versions = {1,2};
   file_to_ingest->external_file_path = external_file;
 
   // Get external file size
