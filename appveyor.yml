@@ -15,3 +15,8 @@ test_script:
 - ps: build_tools\run_ci_db_test.ps1 -EnableRerun -Run db_test -Exclude DBTest.GroupCommitTest -Concurrency 10
 - ps: build_tools\run_ci_db_test.ps1 -Run env_test -Concurrency 1
 
+
+artifacts:
+  - path: build\Release
+    name: Rocksdb
+    type: zip
