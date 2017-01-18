@@ -265,11 +265,6 @@ Status PosixRandomAccessFile::Read(uint64_t offset, size_t n, Slice* result,
     // An error: return a non-ok status
     s = IOError(filename_, errno);
   }
-  if (!use_direct_io()) {
-    // we need to fadvise away the entire range of pages because
-    // we do not want readahead pages to be cached.
-    Fadvise(fd_, 0, 0, POSIX_FADV_DONTNEED);  // free OS pages
-  }
   *result = Slice(scratch, (r < 0) ? 0 : n - left);
   return s;
 }
