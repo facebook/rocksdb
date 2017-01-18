@@ -6,6 +6,8 @@
 #include "rocksdb/status.h"
 #include "rocksdb/env.h"
 
+#include <fstream>
+#include <regex>
 #include <vector>
 #include "util/coding.h"
 #include "util/testharness.h"
@@ -33,6 +35,33 @@ class LockTest : public testing::Test {
   Status UnlockFile(FileLock* db_lock) {
     return env_->UnlockFile(db_lock);
   }
+
+  bool IsFileLocked(){
+    std::regex regex;
+    {
+      struct stat var;
+      if( stat(file_.c_str(),&var) < 0 ) {
+	return false;
+      }
+      ino_t inode = var.st_ino;
+
+      std::ostringstream oss;
+      oss << ".*POSIX +ADVISORY + WRITE +" << getpid() << ".*:" << inode << " +0 +EOF";
+      regex =  std::regex( oss.str() );
+    }
+
+    std::ifstream ifs("/proc/locks", std::ios::in);
+    ifs.exceptions(std::ios::badbit);
+    while (ifs.good() && !ifs.eof()) {
+      std::string line;
+      if (!getline(ifs, line, '\n')) { break; }
+      if ( std::regex_match (line, regex) ) {
+	return true;
+      }
+    }
+    return false;
+  }
+
 };
 LockTest* LockTest::current_;
 
@@ -43,11 +72,20 @@ TEST_F(LockTest, LockBySameThread) {
   // acquire a lock on a file
   ASSERT_OK(LockFile(&lock1));
 
+  // check the file is locked
+  ASSERT_TRUE( IsFileLocked() );
+
   // re-acquire the lock on the same file. This should fail.
   ASSERT_TRUE(LockFile(&lock2).IsIOError());
 
+  // check the file is locked
+  ASSERT_TRUE( IsFileLocked() );
+
   // release the lock
   ASSERT_OK(UnlockFile(lock1));
+
+  // check the file is not locked
+  ASSERT_TRUE( ! IsFileLocked() );
 
 }
 
