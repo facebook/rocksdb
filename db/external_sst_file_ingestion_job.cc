@@ -252,6 +252,7 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
 
 Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     const std::string& external_file, IngestedFileInfo* file_to_ingest) {
+  static std::set<int> supported_versions = {1,2};
   file_to_ingest->external_file_path = external_file;
 
   // Get external file size
@@ -306,7 +307,13 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (file_to_ingest->global_seqno_offset == 0) {
       return Status::Corruption("Was not able to find file global seqno field");
     }
-  } else {
+  } else if (file_to_ingest->version == 1 &&
+        (ingestion_options_.allow_blocking_flush == true ||
+         ingestion_options_.allow_global_seqno == true)) {
+    return Status::InvalidArgument(
+            "external file's version number is not correct");
+  } else if (supported_versions.find(file_to_ingest->version) ==
+          supported_versions.end()){
     return Status::InvalidArgument("external file version is not supported");
   }
   // Get number of entries in table
