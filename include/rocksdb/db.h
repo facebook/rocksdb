@@ -586,6 +586,12 @@ class DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* value) = 0;
 
+  enum SizeApproximationFlags : uint8_t {
+    NONE = 0,
+    INCLUDE_MEMTABLES = 1,
+    INCLUDE_FILES = 1 << 1
+  };
+
   // For each i in [0,n-1], store in "sizes[i]", the approximate
   // file system space used by keys in "[range[i].start .. range[i].limit)".
   //
@@ -593,16 +599,18 @@ class DB {
   // if the user data compresses by a factor of ten, the returned
   // sizes will be one-tenth the size of the corresponding user data size.
   //
-  // If include_memtable is set to true, then the result will also
-  // include those recently written data in the mem-tables if
-  // the mem-table type supports it.
+  // If include_flags defines whether the returned size should include
+  // the recently written data in the mem-tables (if
+  // the mem-table type supports it), data serialized to disk, or both.
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   bool include_memtable = false) = 0;
+                                   SizeApproximationFlags include_flags
+                                   = INCLUDE_FILES) = 0;
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes,
-                                   bool include_memtable = false) {
+                                   SizeApproximationFlags include_flags
+                                   = INCLUDE_FILES) {
     GetApproximateSizes(DefaultColumnFamily(), range, n, sizes,
-                        include_memtable);
+                        include_flags);
   }
 
   // Compact the underlying storage for the key range [*begin,*end].

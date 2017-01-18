@@ -5534,7 +5534,9 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
                                  const Range* range, int n, uint64_t* sizes,
-                                 bool include_memtable) {
+                                 SizeApproximationFlags include_flags) {
+  assert(include_flags & SizeApproximationFlags::INCLUDE_FILES ||
+         include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES);
   Version* v;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -5545,8 +5547,10 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     // Convert user_key into a corresponding internal key.
     InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
-    sizes[i] = versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
-    if (include_memtable) {
+    if (include_flags & SizeApproximationFlags::INCLUDE_FILES) {
+      sizes[i] = versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
+    }
+    if (include_flags & SizeApproximationFlags::INCLUDE_MEMTABLES) {
       sizes[i] += sv->mem->ApproximateSize(k1.Encode(), k2.Encode());
       sizes[i] += sv->imm->ApproximateSize(k1.Encode(), k2.Encode());
     }
