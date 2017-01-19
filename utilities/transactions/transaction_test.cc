@@ -1405,6 +1405,11 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = db_impl->TEST_FlushMemTable(true);
   ASSERT_OK(s);
 
+  // now we pause background work so that
+  // imm()s are not flushed before we can check their status
+  s = db_impl->PauseBackgroundWork();
+  ASSERT_OK(s);
+
   ASSERT_GT(db_impl->TEST_LogfileNumber(), prepare_log_no);
   ASSERT_GT(cfh_a->cfd()->GetLogNumber(), prepare_log_no);
   ASSERT_EQ(cfh_a->cfd()->GetLogNumber(), db_impl->TEST_LogfileNumber());
