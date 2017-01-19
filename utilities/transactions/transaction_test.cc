@@ -104,7 +104,7 @@ class TransactionTest : public ::testing::TestWithParam<bool> {
                                &compaction_enabled_cf_indices);
     std::vector<ColumnFamilyHandle*> handles;
     DB* root_db;
-    Options options_copy(options);
+    DBOptions options_copy(options);
     Status s =
         DB::Open(options_copy, dbname, column_families, &handles, &root_db);
     if (s.ok()) {

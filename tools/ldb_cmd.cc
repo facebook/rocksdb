@@ -328,14 +328,14 @@ void LDBCommand::OpenDB() {
       if (column_families_.empty()) {
         st = DB::OpenForReadOnly(opt, db_path_, &db_);
       } else {
-        st = DB::OpenForReadOnly(opt, db_path_, column_families_,
+        st = DB::OpenForReadOnly(static_cast<DBOptions&>(opt), db_path_, column_families_,
                                  &handles_opened, &db_);
       }
     } else {
       if (column_families_.empty()) {
         st = DB::Open(opt, db_path_, &db_);
       } else {
-        st = DB::Open(opt, db_path_, column_families_, &handles_opened, &db_);
+        st = DB::Open(static_cast<DBOptions&>(opt), db_path_, column_families_, &handles_opened, &db_);
       }
     }
   }

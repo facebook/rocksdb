@@ -329,7 +329,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
     for (size_t i = 0; i < cfs.size(); ++i) {
       column_families.push_back(ColumnFamilyDescriptor(cfs[i], options));
     }
-  ASSERT_OK(DB::Open(options, snapshot_name,
+  ASSERT_OK(DB::Open(static_cast<DBOptions&>(options), snapshot_name,
         column_families, &cphandles, &snapshotDB));
   ASSERT_OK(snapshotDB->Get(roptions, cphandles[0], "Default", &result));
   ASSERT_EQ("Default1", result);
