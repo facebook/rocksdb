@@ -2216,6 +2216,18 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+TEST_F(DBTest2, OptimizeForPointLookup) {
+  Options options = CurrentOptions();
+  Close();
+  options.OptimizeForPointLookup(2);
+  ASSERT_OK(DB::Open(options, dbname_, &db_));
+
+  ASSERT_OK(Put("foo", "v1"));
+  ASSERT_EQ("v1", Get("foo"));
+  Flush();
+  ASSERT_EQ("v1", Get("foo"));
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
