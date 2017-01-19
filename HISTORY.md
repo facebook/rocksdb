@@ -1,6 +1,9 @@
 # Rocksdb Change Log
 ## Unreleased
 ### Public API Change
+* Added new overloaded function GetApproximateSizes that supports getting memtable stats only without including approximate stats based on SST files.
+
+### Public API Change
 * Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().
 * Added EventListener::OnExternalFileIngested which will be called when IngestExternalFile() add a file successfully.
 * BackupEngine::Open and BackupEngineReadOnly::Open now always return error statuses matching those of the backup Env.
