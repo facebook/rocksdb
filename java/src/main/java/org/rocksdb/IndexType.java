@@ -19,13 +19,17 @@ public enum IndexType {
    * {@code Options.prefix_extractor} is provided.
    */
   kHashSearch((byte) 1);
-
   /**
-   * Returns the byte value of the enumerations value
-   *
-   * @return byte representation
+   * A two-level index implementation. Both levels are binary search indexes.
    */
-  public byte getValue() {
+  kTwoLevelIndexSearch((byte) 2),
+
+      /**
+       * Returns the byte value of the enumerations value
+       *
+       * @return byte representation
+       */
+      public byte getValue() {
     return value_;
   }
 
