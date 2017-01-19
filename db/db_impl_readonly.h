@@ -79,7 +79,6 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
-#ifndef ROCKSDB_LITE
   virtual Status DisableFileDeletions() override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
@@ -92,7 +91,6 @@ class DBImplReadOnly : public DBImpl {
                               bool flush_memtable = true) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
-#endif  // ROCKSDB_LITE
 
   using DBImpl::Flush;
   virtual Status Flush(const FlushOptions& options,
@@ -102,6 +100,14 @@ class DBImplReadOnly : public DBImpl {
 
   using DBImpl::SyncWAL;
   virtual Status SyncWAL() override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
+  using DB::IngestExternalFile;
+  virtual Status IngestExternalFile(
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& external_files,
+      const IngestExternalFileOptions& ingestion_options) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
