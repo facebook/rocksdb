@@ -111,6 +111,194 @@ typedef struct rocksdb_ingestexternalfileoptions_t rocksdb_ingestexternalfileopt
 typedef struct rocksdb_sstfilewriter_t   rocksdb_sstfilewriter_t;
 typedef struct rocksdb_ratelimiter_t     rocksdb_ratelimiter_t;
 
+typedef enum {
+    kOk = 0,
+    kNotFound = 1,
+    kCorruption = 2,
+    kNotSupported = 3,
+    kInvalidArgument = 4,
+    kIOError = 5,
+    kMergeInProgress = 6,
+    kIncomplete = 7,
+    kShutdownInProgress = 8,
+    kTimedOut = 9,
+    kAborted = 10,
+    kBusy = 11,
+    kExpired = 12,
+    kTryAgain = 13,
+} code;
+
+typedef enum {
+    kNone = 0,
+    kMutexTimeout = 1,
+    kLockTimeout = 2,
+    kLockLimit = 3,
+    kNoSpace = 4,
+    kDeadlock = 5,
+    kMaxSubCode
+}sub_code;
+
+typedef struct {
+  code code;
+  sub_code subcode;
+} status;
+
+typedef enum {
+  kUnknown,
+  // [Level] number of L0 files > level0_file_num_compaction_trigger
+  kLevelL0FilesNum,
+  // [Level] total size of level > MaxBytesForLevel()
+  kLevelMaxLevelSize,
+  // [Universal] Compacting for size amplification
+  kUniversalSizeAmplification,
+  // [Universal] Compacting for size ratio
+  kUniversalSizeRatio,
+  // [Universal] number of sorted runs > level0_file_num_compaction_trigger
+  kUniversalSortedRunNum,
+  // [FIFO] total size > max_table_files_size
+  kFIFOMaxSize,
+  // Manual compaction
+  kManualCompaction,
+  // DB::SuggestCompactRange() marked files for compaction
+  kFilesMarkedForCompaction,
+} compaction_reason;
+
+
+typedef struct compaction_job_stats {
+  // the elapsed time in micro of this compaction.
+  uint64_t elapsed_micros;
+
+  // the number of compaction input records.
+  uint64_t num_input_records;
+  // the number of compaction input files.
+  size_t num_input_files;
+  // the number of compaction input files at the output level.
+  size_t num_input_files_at_output_level;
+
+  // the number of compaction output records.
+  uint64_t num_output_records;
+  // the number of compaction output files.
+  size_t num_output_files;
+
+  // true if the compaction is a manual compaction
+  int is_manual_compaction;
+
+  // the size of the compaction input in bytes.
+  uint64_t total_input_bytes;
+  // the size of the compaction output in bytes.
+  uint64_t total_output_bytes;
+
+  // number of records being replaced by newer record associated with same key.
+  // this could be a new value or a deletion entry for that key so this field
+  // sums up all updated and deleted keys
+  uint64_t num_records_replaced;
+
+  // the sum of the uncompressed input keys in bytes.
+  uint64_t total_input_raw_key_bytes;
+  // the sum of the uncompressed input values in bytes.
+  uint64_t total_input_raw_value_bytes;
+
+  // the number of deletion entries before compaction. Deletion entries
+  // can disappear after compaction because they expired
+  uint64_t num_input_deletion_records;
+  // number of deletion records that were found obsolete and discarded
+  // because it is not possible to delete any more keys with this entry
+  // (i.e. all possible deletions resulting from it have been completed)
+  uint64_t num_expired_deletion_records;
+
+  // number of corrupt keys (ParseInternalKey returned false when applied to
+  // the key) encountered and written out.
+  uint64_t num_corrupt_keys;
+
+  // Following counters are only populated if
+  // options.report_bg_io_stats = true;
+
+  // Time spent on file's Append() call.
+  uint64_t file_write_nanos;
+
+  // Time spent on sync file range.
+  uint64_t file_range_sync_nanos;
+
+  // Time spent on file fsync.
+  uint64_t file_fsync_nanos;
+
+  // Time spent on preparing file write (falocate, etc)
+  uint64_t file_prepare_write_nanos;
+}compaction_job_stats;
+
+typedef struct compaction_job_info {
+  // the status indicating whether the compaction was successful or not.
+  status status;
+  // the id of the thread that completed this compaction job.
+  uint64_t thread_id;
+  // the job id, which is unique in the same thread.
+  int job_id;
+  // the smallest input level of the compaction.
+  int base_input_level;
+  // the output level of the compaction.
+  int output_level;
+
+  // Reason to run the compaction
+  compaction_reason compaction_reason;
+
+  // If non-null, this variable stores detailed information
+  // about this compaction.
+  compaction_job_stats *stats;
+}compaction_job_info;
+
+typedef struct flash_table_properties {
+  // the total size of all data blocks.
+  uint64_t data_size;
+  // the size of index block.
+  uint64_t index_size;
+  // the size of filter block.
+  uint64_t filter_size;
+  // total raw key size
+  uint64_t raw_key_size;
+  // total raw value size
+  uint64_t raw_value_size;
+  // the number of blocks in this table
+  uint64_t num_data_blocks;
+  // the number of entries in this table
+  uint64_t num_entries;
+  // format version, reserved for backward compatibility
+  uint64_t format_version;
+  // If 0, key is variable length. Otherwise number of bytes for each key.
+  uint64_t fixed_key_len;
+}flash_table_properties;
+
+typedef struct flush_job_info {
+  // the name of the column family
+  const char* cf_name;
+  // the path to the newly created file
+  const char* file_path;
+  // the id of the thread that completed this flush job.
+  uint64_t thread_id;
+  // the job id, which is unique in the same thread.
+  int job_id;
+  // If true, then rocksdb is currently slowing-down all writes to prevent
+  // creating too many Level 0 files as compaction seems not able to
+  // catch up the write request speed.  This indicates that there are
+  // too many files in Level 0.
+  int triggered_writes_slowdown;
+  // If true, then rocksdb is currently blocking any writes to prevent
+  // creating more L0 files.  This indicates that there are too many
+  // files in level 0.  Compactions should try to compact L0 files down
+  // to lower levels as soon as possible.
+  int triggered_writes_stop;
+  // The smallest sequence number in the newly created file
+  uint64_t smallest_seqno;
+  // The largest sequence number in the newly created file
+  uint64_t largest_seqno;
+  // Table properties of the table being flushed
+  flash_table_properties table_properties;
+}flush_job_info;
+
+typedef void (*flush_started_cb) (void* context, flush_job_info*);
+typedef void (*flush_completed_cb) (void* context, flush_job_info*);
+typedef void (*compaction_started_cb) (void* context, compaction_job_info*);
+typedef void (*compaction_completed_cb) (void* context, compaction_job_info*);
+
 /* DB operations */
 
 extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open(
@@ -600,6 +788,10 @@ rocksdb_options_set_max_bytes_for_level_multiplier_additional(
     rocksdb_options_t*, int* level_values, size_t num_levels);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_enable_statistics(
     rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_add_event_listener_cb(
+    rocksdb_options_t*, void* context,
+    flush_started_cb flush_start, flush_completed_cb flush_compl,
+    compaction_started_cb, compaction_completed_cb);
 
 /* returns a pointer to a malloc()-ed, null terminated string */
 extern ROCKSDB_LIBRARY_API char* rocksdb_options_statistics_get_string(
