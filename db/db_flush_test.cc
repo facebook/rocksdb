@@ -9,6 +9,7 @@
 
 #include "db/db_test_util.h"
 #include "port/stack_trace.h"
+#include "util/fault_injection_test_env.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -45,6 +46,38 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
 #ifndef ROCKSDB_LITE
   ASSERT_EQ(2, TotalTableFiles());
 #endif  // ROCKSDB_LITE
+}
+
+TEST_F(DBFlushTest, SyncFail) {
+  std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
+      new FaultInjectionTestEnv(Env::Default()));
+  Options options;
+  options.disable_auto_compactions = true;
+  options.env = fault_injection_env.get();
+
+  SyncPoint::GetInstance()->LoadDependency(
+      {{"DBFlushTest::SyncFail:1", "DBImpl::SyncClosedLogs:Start"},
+       {"DBImpl::SyncClosedLogs:Failed", "DBFlushTest::SyncFail:2"}});
+  SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+  Put("key", "value");
+  auto* cfd =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(db_->DefaultColumnFamily())
+          ->cfd();
+  int refs_before = cfd->current()->TEST_refs();
+  FlushOptions flush_options;
+  flush_options.wait = false;
+  ASSERT_OK(dbfull()->Flush(flush_options));
+  fault_injection_env->SetFilesystemActive(false);
+  TEST_SYNC_POINT("DBFlushTest::SyncFail:1");
+  TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
+  fault_injection_env->SetFilesystemActive(true);
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ("", FilesPerLevel());  // flush failed.
+  // Flush job should release ref count to current version.
+  ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
+  Destroy(options);
 }
 
 }  // namespace rocksdb

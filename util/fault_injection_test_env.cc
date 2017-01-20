@@ -149,7 +149,7 @@ Status TestWritableFile::Flush() {
 
 Status TestWritableFile::Sync() {
   if (!env_->IsFilesystemActive()) {
-    return Status::OK();
+    return Status::IOError("FaultInjectionTestEnv: not active");
   }
   // No need to actual sync.
   state_.pos_at_last_sync_ = state_.pos_;
