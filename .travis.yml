@@ -20,8 +20,10 @@ addons:
 env:
   # Run all tests before db_block_cache_test (db_test, db_test2)
   - JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test
-  # Run all tests starting from db_block_cache_test (db_block_cache_test, db_iter_test, ...)
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test
+  # Run all tests starting from db_block_cache_test (db_block_cache_test, ..., plain_table_db_test)
+  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test
+  # Run all tests starting from db_block_cache_test (comparator_db_test, ...)
+  - JOB_NAME=unittests ROCKSDBTESTS_START=comparator_db_test
   # Run java tests
   - JOB_NAME=java_test
   # Build ROCKSDB_LITE
