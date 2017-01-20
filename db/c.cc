@@ -1336,6 +1336,15 @@ const char* rocksdb_writebatch_data(rocksdb_writebatch_t* b, size_t* size) {
   return b->rep.Data().c_str();
 }
 
+void rocksdb_writebatch_set_save_point(rocksdb_writebatch_t* b) {
+  b->rep.SetSavePoint();
+}
+
+void rocksdb_writebatch_rollback_to_save_point(rocksdb_writebatch_t* b,
+                                               char** errptr) {
+  SaveError(errptr, b->rep.RollbackToSavePoint());
+}
+
 rocksdb_block_based_table_options_t*
 rocksdb_block_based_options_create() {
   return new rocksdb_block_based_table_options_t;
