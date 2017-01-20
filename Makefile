@@ -1388,19 +1388,24 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
 endif
+ifeq ($(PLATFORM), OS_FREEBSD)
+       ROCKSDBJNILIB = librocksdbjni-freebsd$(ARCH).so
+       ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-freebsd$(ARCH).jar
+       JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/freebsd
+endif
 
 libz.a:
 	-rm -rf zlib-1.2.8
 	curl -O -L http://zlib.net/zlib-1.2.8.tar.gz
 	tar xvzf zlib-1.2.8.tar.gz
-	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
+	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && $(MAKE)
 	cp zlib-1.2.8/libz.a .
 
 libbz2.a:
 	-rm -rf bzip2-1.0.6
 	curl -O -L http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
 	tar xvzf bzip2-1.0.6.tar.gz
-	cd bzip2-1.0.6 && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
+	cd bzip2-1.0.6 && $(MAKE) CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
 	cp bzip2-1.0.6/libbz2.a .
 
 libsnappy.a:
@@ -1408,7 +1413,7 @@ libsnappy.a:
 	curl -O -L https://github.com/google/snappy/releases/download/1.1.3/snappy-1.1.3.tar.gz
 	tar xvzf snappy-1.1.3.tar.gz
 	cd snappy-1.1.3 && ./configure --with-pic --enable-static
-	cd snappy-1.1.3 && make
+	cd snappy-1.1.3 && $(MAKE)
 	cp snappy-1.1.3/.libs/libsnappy.a .
 
 liblz4.a:
@@ -1416,7 +1421,7 @@ liblz4.a:
 	   curl -O -L https://codeload.github.com/Cyan4973/lz4/tar.gz/r127
 	   mv r127 lz4-r127.tar.gz
 	   tar xvzf lz4-r127.tar.gz
-	   cd lz4-r127/lib && make CFLAGS='-fPIC' all
+	   cd lz4-r127/lib && $(MAKE) CFLAGS='-fPIC' all
 	   cp lz4-r127/lib/liblz4.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
@@ -1498,7 +1503,7 @@ commit_prereq: build_tools/rocksdb-lego-determinator \
 xfunc:
 	for xftest in $(XFUNC_TESTS); do \
 		echo "===== Running xftest $$xftest"; \
-		make check ROCKSDB_XFUNC_TEST="$$xftest" tests-regexp="DBTest" ;\
+		$(MAKE) check ROCKSDB_XFUNC_TEST="$$xftest" tests-regexp="DBTest" ;\
 	done
 
 
