@@ -5596,8 +5596,9 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     // Convert user_key into a corresponding internal key.
     InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
+    sizes[i] = 0;
     if (include_flags & DB::SizeApproximationFlags::INCLUDE_FILES) {
-      sizes[i] = versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
+      sizes[i] += versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
     }
     if (include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES) {
       sizes[i] += sv->mem->ApproximateSize(k1.Encode(), k2.Encode());
