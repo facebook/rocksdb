@@ -95,7 +95,8 @@ class MemTableListVersion {
 
   uint64_t GetTotalNumDeletes() const;
 
-  uint64_t ApproximateSize(const Slice& start_ikey, const Slice& end_ikey);
+  MemTable::MemTableStats ApproximateStats(const Slice& start_ikey,
+                                           const Slice& end_ikey);
 
   // Returns the value of MemTable::GetEarliestSequenceNumber() on the most
   // recent MemTable in this list or kMaxSequenceNumber if the list is empty.

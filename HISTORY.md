@@ -7,6 +7,7 @@
 * Added new overloaded function GetApproximateSizes that allows to specify if memtable stats should be computed only without computing SST files' stats approximations.
 * NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
 * Change the default of delayed slowdown value to 16MB/s and further increase the L0 stop condition to 36 files.
+* Added new function GetApproximateMemTableStats that approximates both number of records and size of memtables.
 
 ### Bug Fixes
 * Fix the bug that if 2PC is enabled, checkpoints may loss some recent transactions.
