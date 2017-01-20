@@ -3,6 +3,7 @@
 ### Bug fixes
 * Fix the data corruption bug in the case that concurrent memtable write is enabled and 2PC is used.
 * OptimizeForPointLookup() doesn't work with the default DB setting of allow_concurrent_memtable_write=true. Fix it.
+* Fix a 2PC related bug where WAL files size grow too large.
 
 ## 5.0.0 (11/17/2016)
 ### Public API Change
