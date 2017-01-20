@@ -4,6 +4,7 @@
 * Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().
 * Added EventListener::OnExternalFileIngested which will be called when IngestExternalFile() add a file successfully.
 * BackupEngine::Open and BackupEngineReadOnly::Open now always return error statuses matching those of the backup Env.
+* Added new overloaded function GetApproximateSizes that allows to specify if memtable stats should be computed only without computing SST files' stats approximations.
 
 ### Bug Fixes
 * Fix the bug that if 2PC is enabled, checkpoints may loss some recent transactions.

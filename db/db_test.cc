@@ -1407,17 +1407,19 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  uint8_t include_both = DB::SizeApproximationFlags::INCLUDE_FILES |
+                         DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
-  db_->GetApproximateSizes(&r, 1, &size, false);
+  db_->GetApproximateSizes(&r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
@@ -1427,13 +1429,13 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
 
   options.max_write_buffer_number = 8;
@@ -1456,28 +1458,28 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(100);
   end = Key(300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
 
   start = Key(2100);
   end = Key(2300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
   uint64_t size_with_mt, size_without_mt;
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, true);
+  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
   ASSERT_GT(size_with_mt, 6000);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt, false);
+  db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_EQ(size_without_mt, 0);
 
   Flush();
@@ -1489,8 +1491,8 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, true);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt, false);
+  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
 }
@@ -2813,7 +2815,8 @@ class ModelDB : public DB {
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   bool include_memtable) override {
+                                   uint8_t include_flags
+                                   = INCLUDE_FILES) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
