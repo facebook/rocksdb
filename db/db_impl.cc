@@ -1842,6 +1842,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 }
 
 Status DBImpl::SyncClosedLogs(JobContext* job_context) {
+  TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
   mutex_.AssertHeld();
   autovector<log::Writer*, 1> logs_to_sync;
   uint64_t current_log_number = logfile_number_;
@@ -1878,6 +1879,7 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
     MarkLogsSynced(current_log_number - 1, true, s);
     if (!s.ok()) {
       bg_error_ = s;
+      TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return s;
     }
   }
@@ -1928,6 +1930,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   // is unlocked by the current thread.
   if (s.ok()) {
     s = flush_job.Run(&file_meta);
+  } else {
+    flush_job.Cancel();
   }
 
   if (s.ok()) {
@@ -2762,7 +2766,7 @@ void DBImpl::MarkLogsSynced(
       ++it;
     }
   }
-  assert(logs_.empty() || logs_[0].number > up_to ||
+  assert(!status.ok() || logs_.empty() || logs_[0].number > up_to ||
          (logs_.size() == 1 && !logs_[0].getting_synced));
   log_sync_cv_.SignalAll();
 }
