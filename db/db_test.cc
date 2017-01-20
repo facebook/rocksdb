@@ -1407,9 +1407,8 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
-  auto include_both = DB::SizeApproximationFlags(
-                        DB::SizeApproximationFlags::INCLUDE_FILES |
-                        DB::SizeApproximationFlags::INCLUDE_MEMTABLES);
+  uint8_t include_both = DB::SizeApproximationFlags::INCLUDE_FILES |
+                         DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
   db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
@@ -2816,7 +2815,7 @@ class ModelDB : public DB {
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   DB::SizeApproximationFlags include_flags
+                                   uint8_t include_flags
                                    = INCLUDE_FILES) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
