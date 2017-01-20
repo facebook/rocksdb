@@ -14,71 +14,60 @@ public abstract class AbstractWriteBatch extends RocksObject
 
   @Override
   public int count() {
-    assert (isOwningHandle());
     return count0(nativeHandle_);
   }
 
   @Override
   public void put(byte[] key, byte[] value) {
-    assert (isOwningHandle());
     put(nativeHandle_, key, key.length, value, value.length);
   }
 
   @Override
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key,
       byte[] value) {
-    assert (isOwningHandle());
     put(nativeHandle_, key, key.length, value, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void merge(byte[] key, byte[] value) {
-    assert (isOwningHandle());
     merge(nativeHandle_, key, key.length, value, value.length);
   }
 
   @Override
   public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key,
       byte[] value) {
-    assert (isOwningHandle());
     merge(nativeHandle_, key, key.length, value, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void remove(byte[] key) {
-    assert (isOwningHandle());
     remove(nativeHandle_, key, key.length);
   }
 
   @Override
   public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
-    assert (isOwningHandle());
     remove(nativeHandle_, key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
   @Override
   public void putLogData(byte[] blob) {
-    assert (isOwningHandle());
     putLogData(nativeHandle_, blob, blob.length);
   }
 
   @Override
   public void clear() {
-    assert (isOwningHandle());
     clear0(nativeHandle_);
   }
 
   @Override
   public void setSavePoint() {
-    assert (isOwningHandle());
     setSavePoint0(nativeHandle_);
   }
 
   @Override
   public void rollbackToSavePoint() throws RocksDBException {
-    assert (isOwningHandle());
     rollbackToSavePoint0(nativeHandle_);
   }
 
