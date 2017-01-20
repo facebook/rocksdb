@@ -141,9 +141,10 @@ class DBImpl : public DB {
                                    uint8_t include_flags
                                    = INCLUDE_FILES) override;
   using DB::GetApproximateMemTableStats;
-  virtual void GetApproximateMemTableStats(
-      ColumnFamilyHandle* column_family,
-      const Range* range, int n, uint64_t* counts, uint64_t* sizes) override;
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) override;
   using DB::CompactRange;
   virtual Status CompactRange(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,

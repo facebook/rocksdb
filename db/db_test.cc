@@ -1516,7 +1516,7 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
-  db_->GetApproximateMemTableStats(&r, 1, &count, &size);
+  db_->GetApproximateMemTableStats(r, &count, &size);
   ASSERT_GT(count, 0);
   ASSERT_LE(count, N);
   ASSERT_GT(size, 6000);
@@ -1525,7 +1525,7 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateMemTableStats(&r, 1, &count, &size);
+  db_->GetApproximateMemTableStats(r, &count, &size);
   ASSERT_EQ(count, 0);
   ASSERT_EQ(size, 0);
 
@@ -1534,7 +1534,7 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
   start = Key(50);
   end = Key(60);
   r = Range(start, end);
-  db_->GetApproximateMemTableStats(&r, 1, &count, &size);
+  db_->GetApproximateMemTableStats(r, &count, &size);
   ASSERT_EQ(count, 0);
   ASSERT_EQ(size, 0);
 
@@ -1545,7 +1545,7 @@ TEST_F(DBTest, GetApproximateMemTableStats) {
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateMemTableStats(&r, 1, &count, &size);
+  db_->GetApproximateMemTableStats(r, &count, &size);
   ASSERT_GT(count, 20);
   ASSERT_GT(size, 6000);
 }
@@ -2875,13 +2875,12 @@ class ModelDB : public DB {
     }
   }
   using DB::GetApproximateMemTableStats;
-  virtual void GetApproximateMemTableStats(
-      ColumnFamilyHandle* column_family,
-      const Range* range, int n, uint64_t* counts, uint64_t* sizes) override {
-    for (int i = 0; i < n; i++) {
-      counts[i] = 0;
-      sizes[i] = 0;
-    }
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) override {
+    *count = 0;
+    *size = 0;
   }
   using DB::CompactRange;
   virtual Status CompactRange(const CompactRangeOptions& options,

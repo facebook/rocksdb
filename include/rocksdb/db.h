@@ -618,12 +618,14 @@ class DB {
 
   // The method is similar to GetApproximateSizes, except it
   // returns approximate number of records in memtables.
-  virtual void GetApproximateMemTableStats(
-      ColumnFamilyHandle* column_family,
-      const Range* range, int n, uint64_t* counts, uint64_t* sizes) = 0;
-  virtual void GetApproximateMemTableStats(const Range* range, int n,
-                                           uint64_t* counts, uint64_t* sizes) {
-    GetApproximateMemTableStats(DefaultColumnFamily(), range, n, counts, sizes);
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) = 0;
+  virtual void GetApproximateMemTableStats(const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) {
+    GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
   }
 
   // Deprecated versions of GetApproximateSizes

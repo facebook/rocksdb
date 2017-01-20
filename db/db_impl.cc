@@ -5559,24 +5559,23 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
 }
 
 void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
-                                         const Range* range,
-                                         int n, uint64_t* counts,
-                                         uint64_t* sizes) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  auto cfd = cfh->cfd();
+                                         const Range& range,
+                                         uint64_t* const count,
+                                         uint64_t* const size) {
+  ColumnFamilyHandleImpl* cfh =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
-  for (int i = 0; i < n; i++) {
-    // Convert user_key into a corresponding internal key.
-    InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
-    InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
-    counts[i] = 0;
-    sizes[i] = 0;
-    auto memStats = sv->mem->ApproximateStats(k1.Encode(), k2.Encode());
-    auto immStats = sv->imm->ApproximateStats(k1.Encode(), k2.Encode());
-    counts[i] += memStats.count + immStats.count;
-    sizes[i] += memStats.size + immStats.size;
-  }
+  // Convert user_key into a corresponding internal key.
+  InternalKey k1(range.start, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k2(range.limit, kMaxSequenceNumber, kValueTypeForSeek);
+  MemTable::MemTableStats memStats =
+      sv->mem->ApproximateStats(k1.Encode(), k2.Encode());
+  MemTable::MemTableStats immStats =
+      sv->imm->ApproximateStats(k1.Encode(), k2.Encode());
+  *count = memStats.count + immStats.count;
+  *size = memStats.size + immStats.size;
 
   ReturnAndCleanupSuperVersion(cfd, sv);
 }

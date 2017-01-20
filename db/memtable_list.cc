@@ -191,8 +191,7 @@ uint64_t MemTableListVersion::GetTotalNumEntries() const {
 }
 
 MemTable::MemTableStats MemTableListVersion::ApproximateStats(
-    const Slice& start_ikey,
-    const Slice& end_ikey) {
+    const Slice& start_ikey, const Slice& end_ikey) {
   MemTable::MemTableStats total_stats = {0, 0};
   for (auto& m : memlist_) {
     auto mStats = m->ApproximateStats(start_ikey, end_ikey);
