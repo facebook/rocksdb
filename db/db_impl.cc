@@ -268,6 +268,10 @@ static Status ValidateOptions(
         "then direct I/O writes (use_direct_writes) must be disabled. ");
   }
 
+  if (db_options.keep_log_file_num == 0) {
+    return Status::InvalidArgument("keep_log_file_num must be greater than 0");
+  }
+
   return Status::OK();
 }
 
