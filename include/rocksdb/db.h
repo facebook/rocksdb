@@ -464,7 +464,7 @@ class DB {
     static const std::string kNumDeletesImmMemTables;
 
     //  "rocksdb.estimate-num-keys" - returns estimated number of total keys in
-    //      the active and unflushed immutable memtables.
+    //      the active and unflushed immutable memtables and storage.
     static const std::string kEstimateNumKeys;
 
     //  "rocksdb.estimate-table-readers-mem" - returns estimated memory used for
