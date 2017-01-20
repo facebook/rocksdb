@@ -167,6 +167,14 @@ class StackableDB : public DB {
                                     include_flags);
   }
 
+  using DB::GetApproximateMemTableStats;
+  virtual void GetApproximateMemTableStats(
+      ColumnFamilyHandle* column_family,
+      const Range* range, int n, uint64_t* counts, uint64_t* sizes) override {
+    return db_->GetApproximateMemTableStats(column_family, range,
+                                            n, counts, sizes);
+  }
+
   using DB::CompactRange;
   virtual Status CompactRange(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,

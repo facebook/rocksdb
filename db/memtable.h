@@ -326,7 +326,13 @@ class MemTable {
     return table_->IsSnapshotSupported() && !moptions_.inplace_update_support;
   }
 
-  uint64_t ApproximateSize(const Slice& start_ikey, const Slice& end_ikey);
+  struct MemTableStats {
+    uint64_t size;
+    uint64_t count;
+  };
+
+  MemTableStats ApproximateStats(const Slice& start_ikey,
+                                 const Slice& end_ikey);
 
   // Get the lock associated for the key
   port::RWMutex* GetLock(const Slice& key);
