@@ -560,7 +560,7 @@ static bool SaveValue(void* arg, const char* entry) {
     ValueType type;
     UnPackSequenceAndType(tag, &s->seq, &type);
 
-    if ((type == kTypeValue || type == kTypeDeletion) &&
+    if ((type == kTypeValue || type == kTypeDeletion || type == kTypeMerge) &&
         range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
       type = kTypeRangeDeletion;
     }
