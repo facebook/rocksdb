@@ -130,7 +130,7 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
   // getting returned if there is not sufficient memtable history to check
   // for conflicts.
   return TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys(),
-                                                true /* cache_only */);
+                                                false /* cache_only */);
 }
 
 Status OptimisticTransactionImpl::SetName(const TransactionName& name) {
