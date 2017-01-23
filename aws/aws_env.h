@@ -21,6 +21,7 @@
 namespace rocksdb {
 
 class KinesisSystem;
+class CloudEnvOptions;
 
 //
 // The S3 environment for rocksdb. This class overrides all the
@@ -37,6 +38,12 @@ class KinesisSystem;
 //
 // When a WAL file or MANIFEST file is written, every write is synchronously
 // written to a Kinesis stream.
+//
+// If you access multiple rocksdb-cloud instances, create a separate instance
+// of AwsEnv for each of those rocksdb-cloud instances. This is required because
+// the cloud-configuration needed to operate on an individual instance of rocksdb
+// is associated with a specific instance of AwsEnv. All AwsEnv internally shares
+// Env::Posix() for sharing common resources like background threads, etc.
 //
 class AwsEnv : public Env {
  public:
