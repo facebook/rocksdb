@@ -75,6 +75,7 @@ class Status {
 
   SubCode subcode() const { return subcode_; }
 
+  // Returns a C style string indicating the message of the Status
   const char* getState() const { return state_; }
 
   // Return a success status.

@@ -1080,6 +1080,17 @@ Status GetStringFromCompressionType(std::string* compression_str,
   }
 }
 
+std::vector<CompressionType> GetSupportedCompressions() {
+  std::vector<CompressionType> supported_compressions;
+  for (const auto& comp_to_name : compression_type_string_map) {
+    CompressionType t = comp_to_name.second;
+    if (t != kDisableCompressionOption && CompressionTypeSupported(t)) {
+      supported_compressions.push_back(t);
+    }
+  }
+  return supported_compressions;
+}
+
 bool SerializeSingleBlockBasedTableOption(
     std::string* opt_string, const BlockBasedTableOptions& bbt_options,
     const std::string& name, const std::string& delimiter) {

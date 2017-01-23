@@ -76,7 +76,7 @@ public class TransactionLogIterator extends RocksObject {
     public BatchResult(final long sequenceNumber,
         final long nativeHandle) {
       sequenceNumber_ = sequenceNumber;
-      writeBatch_ = new WriteBatch(nativeHandle);
+      writeBatch_ = new WriteBatch(nativeHandle, true);
     }
 
     /**

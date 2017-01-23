@@ -67,9 +67,11 @@ class FlushJob {
 
   ~FlushJob();
 
-  // Require db_mutex held
+  // Require db_mutex held.
+  // Once PickMemTable() is called, either Run() or Cancel() has to be call.
   void PickMemTable();
   Status Run(FileMetaData* file_meta = nullptr);
+  void Cancel();
   TableProperties GetTableProperties() const { return table_properties_; }
 
  private:

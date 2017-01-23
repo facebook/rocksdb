@@ -454,7 +454,7 @@ public:
    * @details [long description]
    * @return [description]
    */
-  bool UseDirectIO() const {
+  bool use_direct_io() const {
     return false;
   }
 

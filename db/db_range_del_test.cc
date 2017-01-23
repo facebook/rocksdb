@@ -112,6 +112,59 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
+  // Ensures range deletion spanning multiple compaction output files that are
+  // cut by max_compaction_bytes will have non-overlapping key-ranges.
+  // https://github.com/facebook/rocksdb/issues/1778
+  const int kNumFiles = 2, kNumPerFile = 1 << 8, kBytesPerVal = 1 << 12;
+  Options opts = CurrentOptions();
+  opts.comparator = test::Uint64Comparator();
+  opts.disable_auto_compactions = true;
+  opts.level0_file_num_compaction_trigger = kNumFiles;
+  opts.max_compaction_bytes = kNumPerFile * kBytesPerVal;
+  opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  // Want max_compaction_bytes to trigger the end of compaction output file, not
+  // target_file_size_base, so make the latter much bigger
+  opts.target_file_size_base = 100 * opts.max_compaction_bytes;
+  Reopen(opts);
+
+  // snapshot protects range tombstone from dropping due to becoming obsolete.
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // It spans the whole key-range, thus will be included in all output files
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             GetNumericStr(0),
+                             GetNumericStr(kNumFiles * kNumPerFile - 1)));
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    std::vector<std::string> values;
+    // Write 1MB (256 values, each 4K)
+    for (int j = 0; j < kNumPerFile; j++) {
+      values.push_back(RandomString(&rnd, kBytesPerVal));
+      ASSERT_OK(Put(GetNumericStr(kNumPerFile * i + j), values[j]));
+    }
+    // extra entry to trigger SpecialSkipListFactory's flush
+    ASSERT_OK(Put(GetNumericStr(kNumPerFile), ""));
+    dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+  }
+
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GE(NumTableFilesAtLevel(1), 2);
+
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
+
+  for (size_t i = 0; i < files[1].size() - 1; ++i) {
+    ASSERT_TRUE(InternalKeyComparator(opts.comparator)
+                    .Compare(files[1][i].largest, files[1][i + 1].smallest) <
+                0);
+  }
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBRangeDelTest, FlushRangeDelsSameStartKey) {
   db_->Put(WriteOptions(), "b1", "val");
   ASSERT_OK(

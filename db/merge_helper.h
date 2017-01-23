@@ -34,11 +34,13 @@ class MergeHelper {
               const CompactionFilter* compaction_filter, Logger* logger,
               unsigned min_partial_merge_operands,
               bool assert_valid_internal_key, SequenceNumber latest_snapshot,
-              int level = 0, Statistics* stats = nullptr)
+              int level = 0, Statistics* stats = nullptr,
+              const std::atomic<bool>* shutting_down = nullptr)
       : env_(env),
         user_comparator_(user_comparator),
         user_merge_operator_(user_merge_operator),
         compaction_filter_(compaction_filter),
+        shutting_down_(shutting_down),
         logger_(logger),
         min_partial_merge_operands_(min_partial_merge_operands),
         assert_valid_internal_key_(assert_valid_internal_key),
@@ -81,10 +83,12 @@ class MergeHelper {
   //
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
-  // - MergeInProgress: Put/Delete not encountered and unable to merge operands.
+  // - MergeInProgress: Put/Delete not encountered, and didn't reach the start
+  //   of key's history. Output consists of merge operands only.
   // - Corruption: Merge operator reported unsuccessful merge or a corrupted
   //   key has been encountered and not expected (applies only when compiling
   //   with asserts removed).
+  // - ShutdownInProgress: interrupted by shutdown (*shutting_down == true).
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(InternalIterator* iter,
@@ -150,6 +154,7 @@ class MergeHelper {
   const Comparator* user_comparator_;
   const MergeOperator* user_merge_operator_;
   const CompactionFilter* compaction_filter_;
+  const std::atomic<bool>* shutting_down_;
   Logger* logger_;
   unsigned min_partial_merge_operands_;
   bool assert_valid_internal_key_; // enforce no internal key corruption?
@@ -171,6 +176,11 @@ class MergeHelper {
   bool has_compaction_filter_skip_until_ = false;
   std::string compaction_filter_value_;
   InternalKey compaction_filter_skip_until_;
+
+  bool IsShuttingDown() {
+    // This is a best-effort facility, so memory_order_relaxed is sufficient.
+    return shutting_down_ && shutting_down_->load(std::memory_order_relaxed);
+  }
 };
 
 // MergeOutputIterator can be used to iterate over the result of a merge.

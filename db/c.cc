@@ -448,7 +448,11 @@ rocksdb_backup_engine_t* rocksdb_backup_engine_open(
     const rocksdb_options_t* options, const char* path, char** errptr) {
   BackupEngine* be;
   if (SaveError(errptr, BackupEngine::Open(options->rep.env,
-                                           BackupableDBOptions(path), &be))) {
+                                           BackupableDBOptions(path,
+                                                               nullptr,
+                                                               true,
+                                                               options->rep.info_log.get()),
+                                           &be))) {
     return nullptr;
   }
   rocksdb_backup_engine_t* result = new rocksdb_backup_engine_t;
@@ -1330,6 +1334,15 @@ void rocksdb_writebatch_iterate(
 const char* rocksdb_writebatch_data(rocksdb_writebatch_t* b, size_t* size) {
   *size = b->rep.GetDataSize();
   return b->rep.Data().c_str();
+}
+
+void rocksdb_writebatch_set_save_point(rocksdb_writebatch_t* b) {
+  b->rep.SetSavePoint();
+}
+
+void rocksdb_writebatch_rollback_to_save_point(rocksdb_writebatch_t* b,
+                                               char** errptr) {
+  SaveError(errptr, b->rep.RollbackToSavePoint());
 }
 
 rocksdb_block_based_table_options_t*
@@ -2250,6 +2263,11 @@ void rocksdb_readoptions_set_readahead_size(
 void rocksdb_readoptions_set_pin_data(rocksdb_readoptions_t* opt,
                                       unsigned char v) {
   opt->rep.pin_data = v;
+}
+
+void rocksdb_readoptions_set_total_order_seek(rocksdb_readoptions_t* opt,
+                                              unsigned char v) {
+  opt->rep.total_order_seek = v;
 }
 
 rocksdb_writeoptions_t* rocksdb_writeoptions_create() {

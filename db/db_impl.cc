@@ -268,6 +268,10 @@ static Status ValidateOptions(
         "then direct I/O writes (use_direct_writes) must be disabled. ");
   }
 
+  if (db_options.keep_log_file_num == 0) {
+    return Status::InvalidArgument("keep_log_file_num must be greater than 0");
+  }
+
   return Status::OK();
 }
 
@@ -342,6 +346,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
       has_unpersisted_data_(false),
+      unable_to_flush_oldest_log_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
@@ -378,6 +383,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 // Will lock the mutex_,  will wait for completion if wait is true
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   InstrumentedMutexLock l(&mutex_);
+
+  Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
+      "Shutdown: canceling all background work");
 
   if (!shutting_down_.load(std::memory_order_acquire) &&
       has_unpersisted_data_ &&
@@ -503,6 +511,8 @@ DBImpl::~DBImpl() {
     env_->UnlockFile(db_lock_);
   }
 
+  Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
+      "Shutdown complete");
   LogFlush(immutable_db_options_.info_log);
 }
 
@@ -658,6 +668,10 @@ void DBImpl::MaybeDumpStats() {
 }
 
 uint64_t DBImpl::FindMinPrepLogReferencedByMemTable() {
+  if (!allow_2pc()) {
+    return 0;
+  }
+
   uint64_t min_log = 0;
 
   // we must look through the memtables for two phase transactions
@@ -702,6 +716,11 @@ void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
 }
 
 uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
+
+  if (!allow_2pc()) {
+    return 0;
+  }
+
   std::lock_guard<std::mutex> lock(prep_heap_mutex_);
   uint64_t min_log = 0;
 
@@ -1827,6 +1846,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 }
 
 Status DBImpl::SyncClosedLogs(JobContext* job_context) {
+  TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
   mutex_.AssertHeld();
   autovector<log::Writer*, 1> logs_to_sync;
   uint64_t current_log_number = logfile_number_;
@@ -1863,6 +1883,7 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
     MarkLogsSynced(current_log_number - 1, true, s);
     if (!s.ok()) {
       bg_error_ = s;
+      TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return s;
     }
   }
@@ -1913,6 +1934,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   // is unlocked by the current thread.
   if (s.ok()) {
     s = flush_job.Run(&file_meta);
+  } else {
+    flush_job.Cancel();
   }
 
   if (s.ok()) {
@@ -2500,7 +2523,7 @@ Status DBImpl::SetDBOptions(
       mutable_db_options_ = new_options;
 
       if (total_log_size_ > GetMaxTotalWalSize()) {
-        FlushColumnFamilies();
+        MaybeFlushColumnFamilies();
       }
 
       persist_options_status = PersistOptions();
@@ -2747,7 +2770,7 @@ void DBImpl::MarkLogsSynced(
       ++it;
     }
   }
-  assert(logs_.empty() || logs_[0].number > up_to ||
+  assert(!status.ok() || logs_.empty() || logs_[0].number > up_to ||
          (logs_.size() == 1 && !logs_[0].getting_synced));
   log_sync_cv_.SignalAll();
 }
@@ -4693,9 +4716,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
 
   if (UNLIKELY(!single_column_family_mode_ &&
-               !alive_log_files_.begin()->getting_flushed &&
                total_log_size_ > GetMaxTotalWalSize())) {
-    FlushColumnFamilies();
+    MaybeFlushColumnFamilies();
   } else if (UNLIKELY(write_buffer_manager_->ShouldFlush())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
@@ -5013,28 +5035,40 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   return status;
 }
 
-void DBImpl::FlushColumnFamilies() {
+void DBImpl::MaybeFlushColumnFamilies() {
   mutex_.AssertHeld();
-
-  WriteContext context;
 
   if (alive_log_files_.begin()->getting_flushed) {
     return;
   }
 
-  uint64_t flush_column_family_if_log_file = alive_log_files_.begin()->number;
-  alive_log_files_.begin()->getting_flushed = true;
+  auto oldest_alive_log = alive_log_files_.begin()->number;
+  auto oldest_log_with_uncommited_prep = FindMinLogContainingOutstandingPrep();
+
+  if (allow_2pc() &&
+      unable_to_flush_oldest_log_ &&
+      oldest_log_with_uncommited_prep > 0 &&
+      oldest_log_with_uncommited_prep <= oldest_alive_log) {
+    // we already attempted to flush all column families dependent on
+    // the oldest alive log but the log still contained uncommited transactions.
+    // the oldest alive log STILL contains uncommited transaction so there
+    // is still nothing that we can do.
+    return;
+  }
+
+  WriteContext context;
+
   Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
       "Flushing all column families with data in WAL number %" PRIu64
       ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
-      flush_column_family_if_log_file, total_log_size_, GetMaxTotalWalSize());
+      oldest_alive_log, total_log_size_, GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
-    if (cfd->GetLogNumber() <= flush_column_family_if_log_file) {
+    if (cfd->OldestLogToKeep() <= oldest_alive_log) {
       auto status = SwitchMemtable(cfd, &context);
       if (!status.ok()) {
         break;
@@ -5044,6 +5078,26 @@ void DBImpl::FlushColumnFamilies() {
     }
   }
   MaybeScheduleFlushOrCompaction();
+
+  // we only mark this log as getting flushed if we have successfully
+  // flushed all data in this log. If this log contains outstanding prepred
+  // transactions then we cannot flush this log until those transactions are commited.
+
+  unable_to_flush_oldest_log_ = false;
+
+  if (allow_2pc()) {
+    if (oldest_log_with_uncommited_prep == 0 ||
+        oldest_log_with_uncommited_prep > oldest_alive_log) {
+      // this log contains no outstanding prepared transactions
+      alive_log_files_.begin()->getting_flushed = true;
+    } else {
+      Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
+          "Unable to release oldest log due to uncommited transaction");
+      unable_to_flush_oldest_log_ = true;
+    }
+  } else {
+    alive_log_files_.begin()->getting_flushed = true;
+  }
 }
 
 uint64_t DBImpl::GetMaxTotalWalSize() const {
@@ -5529,7 +5583,9 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
                                  const Range* range, int n, uint64_t* sizes,
-                                 bool include_memtable) {
+                                 uint8_t include_flags) {
+  assert(include_flags & DB::SizeApproximationFlags::INCLUDE_FILES ||
+         include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES);
   Version* v;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -5540,8 +5596,11 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     // Convert user_key into a corresponding internal key.
     InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
-    sizes[i] = versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
-    if (include_memtable) {
+    sizes[i] = 0;
+    if (include_flags & DB::SizeApproximationFlags::INCLUDE_FILES) {
+      sizes[i] += versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
+    }
+    if (include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES) {
       sizes[i] += sv->mem->ApproximateSize(k1.Encode(), k2.Encode());
       sizes[i] += sv->imm->ApproximateSize(k1.Encode(), k2.Encode());
     }

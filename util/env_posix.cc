@@ -5,7 +5,7 @@
 //
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
+// found in the LICENSE file. See the AUTHORS file for names of contributors
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -149,42 +149,45 @@ class PosixEnv : public Env {
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override {
     result->reset();
-    FILE* f = nullptr;
+    int fd = -1;
+    int flags = O_RDONLY;
+    FILE* file = nullptr;
+
+    if (options.use_direct_reads && !options.use_mmap_reads) {
+#ifndef OS_MACOSX
+      flags |= O_DIRECT;
+#endif
+    }
+
     do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      f = fopen(fname.c_str(), "r");
-    } while (f == nullptr && errno == EINTR);
-    if (f == nullptr) {
-      *result = nullptr;
+      fd = open(fname.c_str(), flags, 0644);
+    } while (fd < 0 && errno == EINTR);
+    if (fd < 0) {
       return IOError(fname, errno);
-    } else if (options.use_direct_reads && !options.use_mmap_writes) {
-      fclose(f);
-#ifdef OS_MACOSX
-      int flags = O_RDONLY;
-#else
-      int flags = O_RDONLY | O_DIRECT;
-      TEST_SYNC_POINT_CALLBACK("NewSequentialFile:O_DIRECT", &flags);
-#endif
-      int fd = open(fname.c_str(), flags, 0644);
-      if (fd < 0) {
-        return IOError(fname, errno);
-      }
+    }
+
+    SetFD_CLOEXEC(fd, &options);
+
+    if (options.use_direct_reads && !options.use_mmap_reads) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
         close(fd);
         return IOError(fname, errno);
       }
 #endif
-      std::unique_ptr<PosixDirectIOSequentialFile> file(
-          new PosixDirectIOSequentialFile(fname, fd));
-      *result = std::move(file);
-      return Status::OK();
     } else {
-      int fd = fileno(f);
-      SetFD_CLOEXEC(fd, &options);
-      result->reset(new PosixSequentialFile(fname, f, options));
-      return Status::OK();
+      do {
+        IOSTATS_TIMER_GUARD(open_nanos);
+        file = fdopen(fd, "r");
+      } while (file == nullptr && errno == EINTR);
+      if (file == nullptr) {
+        close(fd);
+        return IOError(fname, errno);
+      }
     }
+    result->reset(new PosixSequentialFile(fname, file, fd, options));
+    return Status::OK();
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
@@ -193,14 +196,24 @@ class PosixEnv : public Env {
     result->reset();
     Status s;
     int fd;
-    {
+    int flags = O_RDONLY;
+    if (options.use_direct_reads && !options.use_mmap_reads) {
+#ifndef OS_MACOSX
+      flags |= O_DIRECT;
+      TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
+#endif
+    }
+
+    do {
       IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_RDONLY);
+      fd = open(fname.c_str(), flags, 0644);
+    } while (fd < 0 && errno == EINTR);
+    if (fd < 0) {
+      return IOError(fname, errno);
     }
     SetFD_CLOEXEC(fd, &options);
-    if (fd < 0) {
-      s = IOError(fname, errno);
-    } else if (options.use_mmap_reads && sizeof(void*) >= 8) {
+
+    if (options.use_mmap_reads && sizeof(void*) >= 8) {
       // Use of mmap for random reads has been removed because it
       // kills performance when storage is fast.
       // Use mmap when virtual address-space is plentiful.
@@ -216,30 +229,15 @@ class PosixEnv : public Env {
         }
       }
       close(fd);
-    } else if (options.use_direct_reads) {
-      close(fd);
-#ifdef OS_MACOSX
-      int flags = O_RDONLY;
-#else
-      int flags = O_RDONLY | O_DIRECT;
-      TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
-#endif
-      fd = open(fname.c_str(), flags, 0644);
-      if (fd < 0) {
-        s = IOError(fname, errno);
-      } else {
-        std::unique_ptr<PosixDirectIORandomAccessFile> file(
-            new PosixDirectIORandomAccessFile(fname, fd));
-        *result = std::move(file);
-        s = Status::OK();
+    } else {
+      if (options.use_direct_reads && !options.use_mmap_reads) {
 #ifdef OS_MACOSX
         if (fcntl(fd, F_NOCACHE, 1) == -1) {
           close(fd);
-          s = IOError(fname, errno);
+          return IOError(fname, errno);
         }
 #endif
       }
-    } else {
       result->reset(new PosixRandomAccessFile(fname, fd, options));
     }
     return s;
