@@ -258,11 +258,11 @@ TEST_F(ExternalSSTFileTest, Basic) {
       ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
     }
 
-    // This file has overlapping values with the exisitng data
+    // This file has overlapping values with the existing data
     s = DeprecatedAddFile({file3});
     ASSERT_FALSE(s.ok()) << s.ToString();
 
-    // This file has overlapping values with the exisitng data
+    // This file has overlapping values with the existing data
     s = DeprecatedAddFile({file4});
     ASSERT_FALSE(s.ok()) << s.ToString();
 
@@ -510,7 +510,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
       ASSERT_EQ(user_props["xyz_Count"], "100");
     }
 
-    // This file list has overlapping values with the exisitng data
+    // This file list has overlapping values with the existing data
     s = DeprecatedAddFile(file_list3);
     ASSERT_FALSE(s.ok()) << s.ToString();
 
@@ -705,7 +705,7 @@ TEST_F(ExternalSSTFileTest, NoCopy) {
   ASSERT_TRUE(s.ok()) << s.ToString();
   ASSERT_OK(env_->FileExists(file2));
 
-  // This file have overlapping values with the exisitng data
+  // This file have overlapping values with the existing data
   s = DeprecatedAddFile({file2}, true /* move file */);
   ASSERT_FALSE(s.ok()) << s.ToString();
   ASSERT_OK(env_->FileExists(file3));

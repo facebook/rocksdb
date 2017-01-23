@@ -45,7 +45,7 @@ Status BlockCacheTier::Open() {
   // Create base/<cache dir> directory
   status = opt_.env->CreateDir(GetCachePath());
   if (!status.ok()) {
-    // directory already exisits, clean it up
+    // directory already exists, clean it up
     status = CleanupCacheFolder(GetCachePath());
     assert(status.ok());
     if (!status.ok()) {
@@ -226,7 +226,7 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
 
   LBA lba;
   if (metadata_.Lookup(key, &lba)) {
-    // the key already exisits, this is duplicate insert
+    // the key already exists, this is duplicate insert
     return Status::OK();
   }
 
