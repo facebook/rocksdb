@@ -481,7 +481,6 @@ TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {
 
   db_->ReleaseSnapshot(snapshot);
 }
-#endif  // ROCKSDB_LITE
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
   db_->Put(WriteOptions(), "key", "val");
@@ -655,6 +654,34 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   delete iter;
   db_->ReleaseSnapshot(snapshot);
 }
+
+TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
+  db_->Put(WriteOptions(), "key", "val");
+  // snapshot prevents key from being deleted during flush
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+
+  // iterations check unsupported in memtable, l0, and then l1
+  for (int i = 0; i < 3; ++i) {
+    ReadOptions read_opts;
+    read_opts.tailing = true;
+    auto* iter = db_->NewIterator(read_opts);
+    if (i == 2) {
+      // For L1+, iterators over files are created on-demand, so need seek
+      iter->SeekToFirst();
+    }
+    ASSERT_TRUE(iter->status().IsNotSupported());
+    delete iter;
+    if (i == 0) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    } else if (i == 1) {
+      MoveFilesToLevel(1);
+    }
+  }
+  db_->ReleaseSnapshot(snapshot);
+}
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 
