@@ -601,6 +601,36 @@ TEST_F(DBRangeDelTest, GetCoveredKeyFromSst) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, GetCoveredMergeOperandFromMemtable) {
+  const int kNumMergeOps = 10;
+  Options opts = CurrentOptions();
+  opts.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  Reopen(opts);
+
+  for (int i = 0; i < kNumMergeOps; ++i) {
+    std::string val;
+    PutFixed64(&val, i);
+    db_->Merge(WriteOptions(), "key", val);
+    if (i == kNumMergeOps / 2) {
+      // deletes [0, 5]
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "key",
+                       "key_");
+    }
+  }
+
+  ReadOptions read_opts;
+  std::string expected, actual;
+  ASSERT_OK(db_->Get(read_opts, "key", &actual));
+  PutFixed64(&expected, 30);  // 6+7+8+9
+  ASSERT_EQ(expected, actual);
+
+  expected.clear();
+  read_opts.ignore_range_deletions = true;
+  ASSERT_OK(db_->Get(read_opts, "key", &actual));
+  PutFixed64(&expected, 45);  // 0+1+2+...+9
+  ASSERT_EQ(expected, actual);
+}
+
 TEST_F(DBRangeDelTest, GetIgnoresRangeDeletions) {
   Options opts = CurrentOptions();
   opts.max_write_buffer_number = 4;
