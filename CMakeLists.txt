@@ -90,6 +90,21 @@ endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
+if (NOT WIN32)
+  execute_process(COMMAND
+      "./build_tools/version.sh" "full"
+      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+      OUTPUT_VARIABLE ROCKSDB_VERSION
+  )
+  string(STRIP "${ROCKSDB_VERSION}" ROCKSDB_VERSION)
+  execute_process(COMMAND
+      "./build_tools/version.sh" "major"
+      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+      OUTPUT_VARIABLE ROCKSDB_VERSION_MAJOR
+  )
+  string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
+endif()
+
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 add_library(build_version OBJECT ${BUILD_VERSION_CC})
@@ -472,6 +487,8 @@ else()
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
   set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
                         LINKER_LANGUAGE CXX
+                        VERSION ${ROCKSDB_VERSION}
+                        SOVERSION ${ROCKSDB_VERSION_MAJOR}
                         CXX_STANDARD 11
                         OUTPUT_NAME "rocksdb")
 endif()
@@ -709,3 +726,13 @@ foreach(sourcefile ${C_TEST_EXES})
     add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
 endforeach(sourcefile ${C_TEST_EXES})
 add_subdirectory(tools)
+
+# Installation and packaging for Linux
+if (NOT WIN32)
+install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib64)
+install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib64)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/rocksdb/"
+        COMPONENT devel
+        DESTINATION include/rocksdb)
+set(CMAKE_INSTALL_PREFIX /usr)
+endif()
