@@ -2153,7 +2153,7 @@ Status DBImpl::CompactFiles(
                        immutable_db_options_.info_log.get());
 
   // Perform CompactFiles
-  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -2165,7 +2165,12 @@ Status DBImpl::CompactFiles(
                          input_file_names, output_level,
                          output_path_id, &job_context, &log_buffer);
   }
-  ReturnAndCleanupSuperVersion(cfd, sv);
+  if (sv->Unref()) {
+    mutex_.Lock();
+    sv->Cleanup();
+    mutex_.Unlock();
+    delete sv;
+  }
 
   // Find and delete obsolete files
   {
