@@ -420,9 +420,10 @@ void RangeDelAggregator::AddToBuilder(
       RangeTombstone tombstone;
       if (collapse_deletions_) {
         auto next_tombstone_map_iter = std::next(tombstone_map_iter);
-        if (next_tombstone_map_iter == stripe_map_iter->second.raw_map.end()) {
-          // it's the sentinel tombstone
-          break;
+        if (next_tombstone_map_iter == stripe_map_iter->second.raw_map.end() ||
+            tombstone_map_iter->second.seq_ == 0) {
+          // it's a sentinel tombstone
+          continue;
         }
         tombstone.start_key_ = tombstone_map_iter->first;
         tombstone.end_key_ = next_tombstone_map_iter->first;
