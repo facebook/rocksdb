@@ -5493,22 +5493,6 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
   return GetAndRefSuperVersion(cfd);
 }
 
-// REQUIRED:  mutex is NOT held
-SuperVersion* DBImpl::GetAndRefSuperVersionUnlocked(uint32_t column_family_id) {
-  ColumnFamilyData* cfd;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    auto column_family_set = versions_->GetColumnFamilySet();
-    cfd = column_family_set->GetColumnFamily(column_family_id);
-  }
-
-  if (!cfd) {
-    return nullptr;
-  }
-
-  return GetAndRefSuperVersion(cfd);
-}
-
 void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
                                           SuperVersion* sv) {
   bool unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
@@ -5539,40 +5523,10 @@ void DBImpl::ReturnAndCleanupSuperVersion(uint32_t column_family_id,
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
-// REQUIRED: Mutex should NOT be held.
-void DBImpl::ReturnAndCleanupSuperVersionUnlocked(uint32_t column_family_id,
-                                                  SuperVersion* sv) {
-  ColumnFamilyData* cfd;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    auto column_family_set = versions_->GetColumnFamilySet();
-    cfd = column_family_set->GetColumnFamily(column_family_id);
-  }
-
-  // If SuperVersion is held, and we successfully fetched a cfd using
-  // GetAndRefSuperVersion(), it must still exist.
-  assert(cfd != nullptr);
-  ReturnAndCleanupSuperVersion(cfd, sv);
-}
-
 // REQUIRED: this function should only be called on the write thread or if the
 // mutex is held.
 ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
   ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
-
-  if (!cf_memtables->Seek(column_family_id)) {
-    return nullptr;
-  }
-
-  return cf_memtables->GetColumnFamilyHandle();
-}
-
-// REQUIRED: mutex is NOT held.
-ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
-    uint32_t column_family_id) {
-  ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
-
-  InstrumentedMutexLock l(&mutex_);
 
   if (!cf_memtables->Seek(column_family_id)) {
     return nullptr;
