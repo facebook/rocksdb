@@ -47,7 +47,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/utilities/env_registry.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/sim_cache.h"
@@ -4903,7 +4903,7 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    FLAGS_env = NewEnvFromUri(FLAGS_env_uri, &custom_env_guard);
+    FLAGS_env = NewCustomObject<Env>(FLAGS_env_uri, &custom_env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);
