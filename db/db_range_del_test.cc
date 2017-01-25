@@ -165,6 +165,28 @@ TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, SentinelsOmittedFromOutputFile) {
+  // Regression test for bug where sentinel range deletions (i.e., ones with
+  // sequence number of zero) were included in output files.
+  // snapshot protects range tombstone from dropping due to becoming obsolete.
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // gaps between ranges creates sentinels in our internal representation
+  std::vector<std::pair<std::string, std::string>> range_dels = {{"a", "b"}, {"c", "d"}, {"e", "f"}};
+  for (const auto& range_del : range_dels) {
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               range_del.first, range_del.second));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
+  ASSERT_GT(files[0][0].smallest_seqno, 0);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBRangeDelTest, FlushRangeDelsSameStartKey) {
   db_->Put(WriteOptions(), "b1", "val");
   ASSERT_OK(
