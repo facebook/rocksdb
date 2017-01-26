@@ -259,14 +259,11 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
 bool LRUCacheShard::Ref(Cache::Handle* h) {
   LRUHandle* handle = reinterpret_cast<LRUHandle*>(h);
   MutexLock l(&mutex_);
-  if (handle->InCache()) {
-    if (handle->refs == 1) {
-      LRU_Remove(handle);
-    }
-    handle->refs++;
-    return true;
+  if (handle->InCache() && handle->refs == 1) {
+    LRU_Remove(handle);
   }
-  return false;
+  handle->refs++;
+  return true;
 }
 
 void LRUCacheShard::SetHighPriorityPoolRatio(double high_pri_pool_ratio) {
