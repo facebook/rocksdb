@@ -1500,14 +1500,14 @@ InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
     assert(rep_->range_del_entry.value != nullptr);
     Cache* block_cache = rep_->table_options.block_cache.get();
     assert(block_cache != nullptr);
-    block_cache->Ref(rep_->range_del_entry.cache_handle);
-
-    auto iter = rep_->range_del_entry.value->NewIterator(
-        &rep_->internal_comparator, nullptr /* iter */,
-        true /* total_order_seek */, rep_->ioptions.statistics);
-    iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
-                          rep_->range_del_entry.cache_handle);
-    return iter;
+    if (block_cache->Ref(rep_->range_del_entry.cache_handle)) {
+      auto iter = rep_->range_del_entry.value->NewIterator(
+          &rep_->internal_comparator, nullptr /* iter */,
+          true /* total_order_seek */, rep_->ioptions.statistics);
+      iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
+                            rep_->range_del_entry.cache_handle);
+      return iter;
+    }
   }
   std::string str;
   rep_->range_del_handle.EncodeTo(&str);
