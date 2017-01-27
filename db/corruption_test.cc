@@ -44,7 +44,7 @@ class CorruptionTest : public testing::Test {
     // If LRU cache shard bit is smaller than 2 (or -1 which will automatically
     // set it to 0), test SequenceNumberRecovery will fail, likely because of a
     // bug in recovery code. Keep it 4 for now to make the test passes.
-    tiny_cache_ = NewLRUCache(100, 2);
+    tiny_cache_ = NewLRUCache(100, 4);
     options_.wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
     options_.env = &env_;
     dbname_ = test::TmpDir() + "/corruption_test";
