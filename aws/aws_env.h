@@ -9,6 +9,7 @@
 #include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
+#include "aws/cloud_env_options.h"
 
 #ifdef USE_AWS
 
@@ -21,7 +22,6 @@
 namespace rocksdb {
 
 class KinesisSystem;
-class CloudEnvOptions;
 
 //
 // The S3 environment for rocksdb. This class overrides all the
@@ -42,7 +42,7 @@ class CloudEnvOptions;
 // If you access multiple rocksdb-cloud instances, create a separate instance
 // of AwsEnv for each of those rocksdb-cloud instances. This is required because
 // the cloud-configuration needed to operate on an individual instance of rocksdb
-// is associated with a specific instance of AwsEnv. All AwsEnv internally shares
+// is associated with a specific instance of AwsEnv. All AwsEnv internally share
 // Env::Posix() for sharing common resources like background threads, etc.
 //
 class AwsEnv : public Env {
@@ -51,6 +51,7 @@ class AwsEnv : public Env {
   static  AwsEnv* NewAwsEnv(const std::string& bucket_prefix,
                           const std::string& access_key_id,
                           const std::string& secret_key,
+			  const CloudEnvOptions& env_options,
                           std::shared_ptr<Logger> info_log = nullptr);
 
   virtual ~AwsEnv();
@@ -188,11 +189,8 @@ class AwsEnv : public Env {
   // The Kinesis client
   std::shared_ptr<Aws::Kinesis::KinesisClient> kinesis_client_;
 
-  // If set, then all sst files have a replica on the local storage as
-  // well as AWS-S3. Reads are satisfied from the local replica.
-  // If reset, then all sst files are stored only on AWS-S3. Reads are
-  // satisfied directly from the AWS-S3 files.
-  const bool keep_local_sst_files_;
+  // Configurations for this cloud environent
+  const CloudEnvOptions cloud_env_options;
 
   //
   // Get credentials for running unit tests
@@ -208,8 +206,8 @@ class AwsEnv : public Env {
   explicit AwsEnv(const std::string& bucket_prefix,
 		 const std::string& access_key_id,
 		 const std::string& secret_key,
-		 std::shared_ptr<Logger> info_log = nullptr,
-		 const bool keep_local_sst_files = false);
+		 const CloudEnvOptions& cloud_env_options,
+		 std::shared_ptr<Logger> info_log = nullptr);
 
   Env*  posixEnv_;      // This object is derived from Env, but not from
                         // posixEnv_. We have posixnv as an encapsulated

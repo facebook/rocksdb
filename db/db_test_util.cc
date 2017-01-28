@@ -67,6 +67,7 @@ DBTestBase::DBTestBase(const std::string path)
     s3_env_ = AwsEnv::NewAwsEnv("dbtest",
 			      aws_access_key_id,
 			      aws_secret_access_key,
+			      rocksdb::CloudEnvOptions(),
 			      info_log);
   }
 #endif

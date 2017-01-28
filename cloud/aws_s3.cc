@@ -300,7 +300,7 @@ Status S3WritableFile::Close() {
   }
 
   // delete local file
-  if (!env_->keep_local_sst_files_) {
+  if (!env_->cloud_env_options.keep_local_sst_files) {
     st = env_->GetPosixEnv()->DeleteFile(fname_);
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,

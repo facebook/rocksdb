@@ -884,6 +884,7 @@ rocksdb::AwsEnv* CreateAwsEnv(const std::string& dbpath,
   rocksdb::AwsEnv* s = rocksdb::AwsEnv::NewAwsEnv("dbbench",
 		                        FLAGS_aws_access_id,
                                         FLAGS_aws_secret_key,
+					rocksdb::CloudEnvOptions(),
 					std::move(info_log));
 
   result->reset(s);

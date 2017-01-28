@@ -21,11 +21,11 @@ namespace rocksdb {
 AwsEnv::AwsEnv(const std::string& bucket_prefix,
 	     const std::string& access_key_id,
 	     const std::string& secret_key,
-	     std::shared_ptr<Logger> info_log,
-	     const bool keep_local_sst_files)
+	     const CloudEnvOptions& _cloud_env_options,
+	     std::shared_ptr<Logger> info_log)
   : bucket_prefix_(bucket_prefix),
     info_log_(info_log),
-    keep_local_sst_files_(keep_local_sst_files),
+    cloud_env_options(_cloud_env_options),
     running_(true)  {
   posixEnv_ = Env::Default();
   Aws::InitAPI(Aws::SDKOptions());
@@ -109,8 +109,9 @@ Status AwsEnv::IsValid() {
 //
 Status AwsEnv::CheckOption(const EnvOptions& options) {
   // Cannot mmap files that reside on AWS S3, unless the file is also local
-  if (options.use_mmap_reads && !keep_local_sst_files_) {
-    std::string msg = "Mmap only if keep_local_sst_files_ is set";
+  if (options.use_mmap_reads &&
+      !cloud_env_options.keep_local_sst_files) {
+    std::string msg = "Mmap only if keep_local_sst_files is set";
     return Status::InvalidArgument(msg);
   }
   return Status::OK();
@@ -149,7 +150,7 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
   if (sstfile) {
     // If this is a sst file and we are instructed to keep the local
     // sst file intact, then use local file system.
-    if (keep_local_sst_files_) {
+    if (cloud_env_options.keep_local_sst_files) {
       return posixEnv_->NewSequentialFile(fname, result, options);
     }
     // read from S3
@@ -206,7 +207,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
   if (sstfile) {
     // If this is a sst file and we are instructed to keep the local
     // sst file intact, then use local file system.
-    if (keep_local_sst_files_) {
+    if (cloud_env_options.keep_local_sst_files) {
       return posixEnv_->NewRandomAccessFile(fname, result, options);
     }
     // read from S3
@@ -377,7 +378,7 @@ Status AwsEnv::FileExists(const std::string& fname) {
   if (sstfile) {
     // If this is a sst file and we are instructed to keep the local
     // sst file intact, then use local file system.
-    if (keep_local_sst_files_) {
+    if (cloud_env_options.keep_local_sst_files) {
       st = posixEnv_->FileExists(fname);
     } else {
     st = PathExistsInS3(fname, true);
@@ -429,11 +430,11 @@ Status AwsEnv::PathExistsInS3(const std::string& fname, bool isfile) {
         fname.c_str(), ret.ToString().c_str());
     return ret;
   }
-  // If keep_local_sst_files_, then a local copy of the file should exist
+  // If keep_local_sst_files, then a local copy of the file should exist
   // too. Print informational message if this situation occurs. It can occur
   // if the database is restarted on a new machine and the original files
   // are not available on the local storage.
-  if (keep_local_sst_files_ && isfile) {
+  if (cloud_env_options.keep_local_sst_files && isfile) {
     Status st = posixEnv_->FileExists(fname);
     if (!st.ok()) {
       Log(InfoLogLevel::WARN_LEVEL, info_log_,
@@ -571,7 +572,7 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
   if (sstfile) {
     // Delete from S3 and local file system
     st = DeletePathInS3(fname);
-    if (st.ok() && keep_local_sst_files_) {
+    if (st.ok() && cloud_env_options.keep_local_sst_files) {
       st = posixEnv_->DeleteFile(fname);
     }
   } else if (logfile) {
@@ -763,7 +764,7 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
     // Get file length from S3
     st = GetFileInfoInS3(fname, size, nullptr);
 
-    if (st.ok() && keep_local_sst_files_) {
+    if (st.ok() && cloud_env_options.keep_local_sst_files) {
       // Sanity check with local copy of sst file
       uint64_t local_size;
       Status ret = posixEnv_->GetFileSize(fname, &local_size);
@@ -859,7 +860,7 @@ Status AwsEnv::GetFileModificationTime(const std::string& fname,
     // Get file length from S3
     st = GetFileInfoInS3(fname, nullptr, time);
 
-    if (st.ok() && keep_local_sst_files_) {
+    if (st.ok() && cloud_env_options.keep_local_sst_files) {
       // Sanity check with local copy of sst file
       Status ret = posixEnv_->FileExists(fname);
       if (!ret.ok()) {
@@ -970,8 +971,9 @@ Status AwsEnv::NewLogger(const std::string& fname,
 AwsEnv* AwsEnv::NewAwsEnv(const std::string& bucket_prefix,
 		       const std::string& access_key_id,
 		       const std::string& secret_key,
+		       const CloudEnvOptions& cloud_options,
 		       std::shared_ptr<Logger> info_log) {
-  AwsEnv* s =  new AwsEnv(bucket_prefix, access_key_id, secret_key, info_log);
+  AwsEnv* s =  new AwsEnv(bucket_prefix, access_key_id, secret_key, cloud_options, info_log);
   if (s == nullptr || !s->IsValid().ok()) {
     delete s;
     return nullptr;
