@@ -57,7 +57,7 @@ class AwsEnv : public Env {
   virtual ~AwsEnv();
 
   // We cannot invoke Aws::ShutdownAPI from the destructor because there could be
-  // multiple S#Env's ceated by a process and Aws::ShutdownAPI should be called
+  // multiple AwsEnv's ceated by a process and Aws::ShutdownAPI should be called
   // only once by the entire process when all AwsEnvs are destroyed.
   static void Shutdown() {
     Aws::ShutdownAPI(Aws::SDKOptions());
@@ -210,7 +210,7 @@ class AwsEnv : public Env {
 		 std::shared_ptr<Logger> info_log = nullptr);
 
   Env*  posixEnv_;      // This object is derived from Env, but not from
-                        // posixEnv_. We have posixnv as an encapsulated
+                        // posixEnv_. We have posixEnv as an encapsulated
                         // object here so that we can use posix timers,
                         // posix threads, etc.
   Status create_bucket_status_;

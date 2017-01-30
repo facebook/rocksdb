@@ -93,7 +93,6 @@ AwsEnv::AwsEnv(const std::string& bucket_prefix,
 }
 
 AwsEnv::~AwsEnv() {
-  fprintf(stderr, "Destroying AwsEnv::Default()\n");
   running_ = false;
   if (tid_.joinable()) {
     tid_.join();

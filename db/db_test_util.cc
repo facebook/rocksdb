@@ -431,6 +431,7 @@ Options DBTestBase::CurrentOptions(
 #ifdef USE_AWS
     case kAwsEnv: {
       options.env = s3_env_;
+      options.recycle_log_file_num = 0; // do not reuse log files
       options.allow_mmap_reads = false; // mmap is incompatible with S3
       break;
     }

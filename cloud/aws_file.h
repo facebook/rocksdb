@@ -306,7 +306,7 @@ class KinesisWritableFile: public WritableFile {
 };
 
 //
-// Intricacies of reading a Kinesys stream
+// Intricacies of reading a Kinesis stream
 //
 class KinesisSystem {
  public:

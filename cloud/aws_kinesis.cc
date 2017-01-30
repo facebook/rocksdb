@@ -186,7 +186,15 @@ Status KinesisSystem::Apply(const Slice& in) {
   } else if (operation == Delete) {
     // Delete file from cache dir
     auto iter = cache_fds_.find(pathname);
-    assert(iter == cache_fds_.end());
+    if (iter != cache_fds_.end()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+          "[kinesis] Tailer Delete file %s but it is still open."
+          " Closing it now.",
+	  pathname.c_str());
+      RandomRWFile* fd = iter->second.get();
+      fd->Close();
+      cache_fds_.erase(iter);
+    }
     st = env_->GetPosixEnv()->DeleteFile(pathname);
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[kinesis] Tailer Delete file %s %s",

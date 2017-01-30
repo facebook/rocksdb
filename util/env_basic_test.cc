@@ -111,6 +111,7 @@ Env* CreateAwsEnv(const std::string& dbpath,
   rocksdb::AwsEnv* s = rocksdb::AwsEnv::NewAwsEnv("dbtest",
                                                aws_access_key_id,
                                                aws_secret_access_key,
+					       rocksdb::CloudEnvOptions(),
                                                std::move(info_log));
   result->reset(s);
   return new NormalizingEnvWrapper(s); // XXX when does this get freed?
