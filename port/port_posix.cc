@@ -23,6 +23,8 @@
 #include <cstdlib>
 #include "util/logging.h"
 
+#include <thread>
+
 namespace rocksdb {
 namespace port {
 

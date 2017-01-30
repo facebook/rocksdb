@@ -377,6 +377,7 @@ set(SOURCES
         util/histogram_windowing.cc
         util/instrumented_mutex.cc
         util/iostats_context.cc
+        
         util/lru_cache.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
@@ -461,6 +462,7 @@ if(WIN32)
     port/win/env_default.cc
     port/win/port_win.cc
     port/win/win_logger.cc
+    port/win/win_thread.cc
     port/win/xpress_win.cc)
 else()
   list(APPEND SOURCES

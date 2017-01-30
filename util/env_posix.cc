@@ -41,6 +41,7 @@
 #include <vector>
 #include "port/port.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/options.h"
 #include "util/coding.h"
 #include "util/io_posix.h"
 #include "util/iostats_context_imp.h"

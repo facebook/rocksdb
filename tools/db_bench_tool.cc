@@ -1213,7 +1213,7 @@ class ReporterAgent {
       abort();
     }
 
-    reporting_thread_ = std::thread([&]() { SleepAndReport(); });
+    reporting_thread_ = port::Thread([&]() { SleepAndReport(); });
   }
 
   ~ReporterAgent() {
@@ -1273,7 +1273,7 @@ class ReporterAgent {
   std::atomic<int64_t> total_ops_done_;
   int64_t last_report_;
   const uint64_t report_interval_secs_;
-  std::thread reporting_thread_;
+  rocksdb::port::Thread reporting_thread_;
   std::mutex mutex_;
   // will notify on stop
   std::condition_variable stop_cv_;

@@ -17,6 +17,7 @@
 #include "util/logging.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
+#include "port/port.h"
 
 using std::string;
 
@@ -241,7 +242,7 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
           rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
           // do all the writes
-          std::vector<std::thread> threads;
+          std::vector<port::Thread> threads;
           for (uint32_t i = 0; i < write_group.size(); i++) {
             threads.emplace_back(write_with_callback_func);
           }

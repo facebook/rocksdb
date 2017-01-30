@@ -18,9 +18,18 @@
 
 #include <rocksdb/env.h>
 #include "util/threadpool_imp.h"
+#include "port/win/win_thread.h"
 
+#include <stdint.h>
 #include <mutex>
 #include <vector>
+#include <string>
+
+#include <Windows.h>
+
+#undef GetCurrentTime
+#undef DeleteFile
+#undef GetTickCount
 
 namespace rocksdb {
 namespace port {
@@ -64,7 +73,7 @@ private:
   Env*                     hosted_env_;
   mutable std::mutex       mu_;
   std::vector<ThreadPoolImpl> thread_pools_;
-  std::vector<std::thread> threads_to_join_;
+  std::vector<WindowsThread> threads_to_join_;
 
 };
 

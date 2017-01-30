@@ -138,7 +138,7 @@ class BlockCacheTier : public PersistentCacheTier {
   port::RWMutex lock_;                          // Synchronization
   const PersistentCacheConfig opt_;             // BlockCache options
   BoundedQueue<InsertOp> insert_ops_;           // Ops waiting for insert
-  std::thread insert_th_;                       // Insert thread
+  rocksdb::port::Thread insert_th_;                       // Insert thread
   uint32_t writer_cache_id_ = 0;                // Current cache file identifier
   WriteableCacheFile* cache_file_ = nullptr;    // Current cache file reference
   CacheWriteBufferAllocator buffer_allocator_;  // Buffer provider

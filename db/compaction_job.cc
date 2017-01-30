@@ -522,7 +522,7 @@ Status CompactionJob::Run() {
   const uint64_t start_micros = env_->NowMicros();
 
   // Launch a thread for each of subcompactions 1...num_threads-1
-  std::vector<std::thread> thread_pool;
+  std::vector<port::Thread> thread_pool;
   thread_pool.reserve(num_threads - 1);
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
     thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,

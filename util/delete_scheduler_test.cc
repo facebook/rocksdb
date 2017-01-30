@@ -183,7 +183,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 
     // Delete dummy files using 10 threads and measure time spent to empty trash
     std::atomic<int> thread_num(0);
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
     std::function<void()> delete_thread = [&]() {
       int idx = thread_num.fetch_add(1);
       int range_start = idx * num_files;

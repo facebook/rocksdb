@@ -50,6 +50,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -2204,8 +2205,8 @@ TEST_F(BlockBasedTableTest, NewIndexIteratorLeak) {
     std::unique_ptr<InternalIterator> iter(reader->NewIterator(ro));
   };
 
-  auto thread1 = std::thread(func1);
-  auto thread2 = std::thread(func2);
+  auto thread1 = port::Thread(func1);
+  auto thread2 = port::Thread(func2);
   thread1.join();
   thread2.join();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();

@@ -16,6 +16,7 @@
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -231,7 +232,7 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // Start compacting files.
-  std::thread compaction_thread(
+  rocksdb::port::Thread compaction_thread(
       [&] { EXPECT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1)); });
 
   // In the meantime flush another file.

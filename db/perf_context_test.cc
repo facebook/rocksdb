@@ -19,6 +19,7 @@
 #include "util/testharness.h"
 #include "util/thread_status_util.h"
 #include "utilities/merge_operators.h"
+#include "port/port.h"
 
 bool FLAGS_random_key = false;
 bool FLAGS_use_set_based_memetable = false;
@@ -561,7 +562,7 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
     for (int c = 0; c < 2; ++c) {
     InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
     mutex.Lock();
-    std::thread child_thread([&] {
+    rocksdb::port::Thread child_thread([&] {
       SetPerfLevel(perf_level);
       perf_context.Reset();
       ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);

@@ -426,7 +426,7 @@ class Benchmark {
   virtual ~Benchmark() {}
   virtual void Run() {
     std::cout << "Number of threads: " << num_threads_ << std::endl;
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
     uint64_t bytes_written = 0;
     uint64_t bytes_read = 0;
     uint64_t read_hits = 0;
@@ -457,7 +457,7 @@ class Benchmark {
     }
   }
 
-  virtual void RunThreads(std::vector<std::thread>* threads,
+  virtual void RunThreads(std::vector<port::Thread>* threads,
                           uint64_t* bytes_written, uint64_t* bytes_read,
                           bool write, uint64_t* read_hits) = 0;
 
@@ -478,7 +478,7 @@ class FillBenchmark : public Benchmark {
     num_write_ops_per_thread_ = FLAGS_num_operations;
   }
 
-  void RunThreads(std::vector<std::thread>* threads, uint64_t* bytes_written,
+  void RunThreads(std::vector<port::Thread>* threads, uint64_t* bytes_written,
                   uint64_t* bytes_read, bool write,
                   uint64_t* read_hits) override {
     FillBenchmarkThread(table_, key_gen_, bytes_written, bytes_read, sequence_,
@@ -494,7 +494,7 @@ class ReadBenchmark : public Benchmark {
     num_read_ops_per_thread_ = FLAGS_num_operations / FLAGS_num_threads;
   }
 
-  void RunThreads(std::vector<std::thread>* threads, uint64_t* bytes_written,
+  void RunThreads(std::vector<port::Thread>* threads, uint64_t* bytes_written,
                   uint64_t* bytes_read, bool write,
                   uint64_t* read_hits) override {
     for (int i = 0; i < FLAGS_num_threads; ++i) {
@@ -518,7 +518,7 @@ class SeqReadBenchmark : public Benchmark {
     num_read_ops_per_thread_ = FLAGS_num_scans;
   }
 
-  void RunThreads(std::vector<std::thread>* threads, uint64_t* bytes_written,
+  void RunThreads(std::vector<port::Thread>* threads, uint64_t* bytes_written,
                   uint64_t* bytes_read, bool write,
                   uint64_t* read_hits) override {
     for (int i = 0; i < FLAGS_num_threads; ++i) {
@@ -545,7 +545,7 @@ class ReadWriteBenchmark : public Benchmark {
     num_write_ops_per_thread_ = FLAGS_num_operations;
   }
 
-  void RunThreads(std::vector<std::thread>* threads, uint64_t* bytes_written,
+  void RunThreads(std::vector<port::Thread>* threads, uint64_t* bytes_written,
                   uint64_t* bytes_read, bool write,
                   uint64_t* read_hits) override {
     std::atomic_int threads_done;
