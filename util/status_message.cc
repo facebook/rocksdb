@@ -13,7 +13,8 @@ const char* Status::msgs[] = {
     "Timeout waiting to lock key",                        // kLockTimeout
     "Failed to acquire lock due to max_num_locks limit",  // kLockLimit
     "No space left on device",                            // kNoSpace
-    "Deadlock"                                            // kDeadlock
+    "Deadlock",                                           // kDeadlock
+    "Stale file handle"                                   // kStaleFile
 };
 
 }  // namespace rocksdb

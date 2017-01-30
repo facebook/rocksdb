@@ -26,9 +26,14 @@
 namespace rocksdb {
 
 static Status IOError(const std::string& context, int err_number) {
-  return (err_number == ENOSPC) ?
-      Status::NoSpace(context, strerror(err_number)) :
-      Status::IOError(context, strerror(err_number));
+  switch (err_number) {
+  case ENOSPC:
+    return Status::NoSpace(context, strerror(err_number));
+  case ESTALE:
+    return Status::IOError(Status::kStaleFile);
+  default:
+    return Status::IOError(context, strerror(err_number));
+  }
 }
 
 class PosixHelper {
