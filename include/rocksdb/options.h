@@ -933,8 +933,6 @@ struct DBOptions {
   uint64_t max_total_wal_size;
 
   // If non-null, then we should collect metrics about database operations
-  // Statistics objects should not be shared between DB instances as
-  // it does not use any locks to prevent concurrent updates.
   std::shared_ptr<Statistics> statistics;
 
   // If true, then the contents of manifest and data files are not synced
