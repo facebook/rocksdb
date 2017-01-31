@@ -684,6 +684,7 @@ DEFINE_string(env_uri, "", "URI for registry Env lookup. Mutually exclusive"
               " with --hdfs.");
 DEFINE_string(aws_access_id, "", "Access id for AWS");
 DEFINE_string(aws_secret_key, "", "Secret key for AWS");
+DEFINE_string(aws_region, "", "AWS region");
 #endif  // ROCKSDB_LITE
 DEFINE_string(hdfs, "", "Name of hdfs environment. Mutually exclusive with"
               " --env_uri.");
@@ -884,6 +885,7 @@ rocksdb::AwsEnv* CreateAwsEnv(const std::string& dbpath,
   rocksdb::AwsEnv* s = rocksdb::AwsEnv::NewAwsEnv("dbbench",
 		                        FLAGS_aws_access_id,
                                         FLAGS_aws_secret_key,
+					FLAGS_aws_region,
 					rocksdb::CloudEnvOptions(),
 					std::move(info_log));
 

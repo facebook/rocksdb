@@ -17,6 +17,7 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/utils/Outcome.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/BucketLocationConstraint.h>
 #include <aws/kinesis/KinesisClient.h>
 
 namespace rocksdb {
@@ -51,6 +52,7 @@ class AwsEnv : public Env {
   static  AwsEnv* NewAwsEnv(const std::string& bucket_prefix,
                           const std::string& access_key_id,
                           const std::string& secret_key,
+			  const std::string& region,
 			  const CloudEnvOptions& env_options,
                           std::shared_ptr<Logger> info_log = nullptr);
 
@@ -62,6 +64,11 @@ class AwsEnv : public Env {
   static void Shutdown() {
     Aws::ShutdownAPI(Aws::SDKOptions());
   }
+
+  // If you do not specify a region, then S3 buckets are created in the
+  // standard-region which might not satisfy read-your-own-writes. So,
+  // explicitly make the default region be us-west-2.
+  static constexpr const char* default_region = "us-west-2";
 
   virtual Status NewSequentialFile(const std::string& fname,
                                    std::unique_ptr<SequentialFile>* result,
@@ -196,7 +203,8 @@ class AwsEnv : public Env {
   // Get credentials for running unit tests
   //
   static Status GetTestCredentials(std::string* aws_access_key_id,
-		                   std::string* aws_secret_access_key);
+		                   std::string* aws_secret_access_key,
+				   std::string* region);
 
  private:
   //
@@ -206,6 +214,7 @@ class AwsEnv : public Env {
   explicit AwsEnv(const std::string& bucket_prefix,
 		 const std::string& access_key_id,
 		 const std::string& secret_key,
+		 const std::string& region,
 		 const CloudEnvOptions& cloud_env_options,
 		 std::shared_ptr<Logger> info_log = nullptr);
 
@@ -220,6 +229,8 @@ class AwsEnv : public Env {
   std::atomic<bool> running_;
 
   std::unique_ptr<KinesisSystem> tailer_;
+
+  Aws::S3::Model::BucketLocationConstraint bucket_location_;
 
   // Create bucket in S3
   Status IsValid();
@@ -384,6 +395,7 @@ class AwsEnv : public Env {
   static AwsEnv* NewAwsEnv(const std::string& bucket_prefix,
 		         const std::string& access_key_id,
 		         const std::string& secret_key,
+			 const std::string& region,
 		         std::shared_ptr<Logger> info_log = nullptr) {
       return nullptr;
   }

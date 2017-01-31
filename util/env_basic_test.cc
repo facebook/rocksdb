@@ -102,8 +102,11 @@ Env* CreateAwsEnv(const std::string& dbpath,
   info_log.reset(new rocksdb::StderrLogger(rocksdb::InfoLogLevel::DEBUG_LEVEL));
   std::string aws_access_key_id;
   std::string aws_secret_access_key;
+  std::string aws_region;
   Status st = rocksdb::AwsEnv::GetTestCredentials(
-		  &aws_access_key_id, &aws_secret_access_key);
+		  &aws_access_key_id,
+		  &aws_secret_access_key,
+		  &aws_region);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
     return nullptr;
@@ -111,6 +114,7 @@ Env* CreateAwsEnv(const std::string& dbpath,
   rocksdb::AwsEnv* s = rocksdb::AwsEnv::NewAwsEnv("dbtest",
                                                aws_access_key_id,
                                                aws_secret_access_key,
+					       aws_region,
 					       rocksdb::CloudEnvOptions(),
                                                std::move(info_log));
   result->reset(s);

@@ -298,11 +298,11 @@ TEST_F(OptimisticTransactionTest, FlushTest2) {
   db->Flush(flush_ops);
 
   s = txn->Commit();
-  // txn should not commit since MemTableList History is not large enough
-  ASSERT_TRUE(s.IsTryAgain());
+  // conflict checking is done even if data is not in memtable
+  ASSERT_TRUE(s.ok());
 
   db->Get(read_options, "foo", &value);
-  ASSERT_EQ(value, "bar");
+  ASSERT_EQ(value, "bar2");
 
   delete txn;
 }

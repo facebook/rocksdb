@@ -58,8 +58,9 @@ DBTestBase::DBTestBase(const std::string path)
   // get AWS credentials
   std::string aws_access_key_id;
   std::string aws_secret_access_key;
+  std::string aws_region;
   Status st = AwsEnv::GetTestCredentials(
-                &aws_access_key_id, &aws_secret_access_key);
+                &aws_access_key_id, &aws_secret_access_key, &aws_region);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
     assert(st.ok());
@@ -67,8 +68,10 @@ DBTestBase::DBTestBase(const std::string path)
     s3_env_ = AwsEnv::NewAwsEnv("dbtest",
 			      aws_access_key_id,
 			      aws_secret_access_key,
+			      aws_region,
 			      rocksdb::CloudEnvOptions(),
 			      info_log);
+    assert(s3_env_);
   }
 #endif
   env_->SetBackgroundThreads(1, Env::LOW);

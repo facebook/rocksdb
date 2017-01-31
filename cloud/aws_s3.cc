@@ -206,12 +206,18 @@ Status S3ReadableFile::GetFileInfo() {
 // Create bucket in S3 if it does not already exist.
 //
 Status S3WritableFile::CreateBucketInS3(std::shared_ptr<Aws::S3::S3Client> client,
-		const std::string& bucket_prefix) {
+		          const std::string& bucket_prefix,
+			  const Aws::S3::Model::BucketLocationConstraint& location) {
+
+  // specify region for the bucket
+  Aws::S3::Model::CreateBucketConfiguration conf;
+  conf.SetLocationConstraint(location);
 
   // create bucket
   Aws::String bucket = GetBucket(bucket_prefix);
   Aws::S3::Model::CreateBucketRequest request;
   request.SetBucket(bucket);
+  request.SetCreateBucketConfiguration(conf);
   Aws::S3::Model::CreateBucketOutcome outcome =
       client->CreateBucket(request);
   bool isSuccess = outcome.IsSuccess();
@@ -219,7 +225,8 @@ Status S3WritableFile::CreateBucketInS3(std::shared_ptr<Aws::S3::S3Client> clien
     const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
     std::string errmsg(error.GetMessage().c_str());
     Aws::S3::S3Errors s3err = error.GetErrorType();
-    if (s3err != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS) {
+    if (s3err != Aws::S3::S3Errors::BUCKET_ALREADY_EXISTS &&
+	s3err != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) {
       return Status::IOError(bucket.c_str(), errmsg.c_str());
     }
   }

@@ -21,6 +21,7 @@ namespace rocksdb {
 AwsEnv::AwsEnv(const std::string& bucket_prefix,
 	     const std::string& access_key_id,
 	     const std::string& secret_key,
+	     const std::string& region,
 	     const CloudEnvOptions& _cloud_env_options,
 	     std::shared_ptr<Logger> info_log)
   : bucket_prefix_(bucket_prefix),
@@ -38,9 +39,20 @@ AwsEnv::AwsEnv(const std::string& bucket_prefix,
   Aws::Client::ClientConfiguration config;
   config.connectTimeoutMs = 30000;
   config.requestTimeoutMs = 600000;
+
+  // Use specified region if any
+  if (region.empty()) {
+    config.region = Aws::String(default_region);
+  } else {
+    config.region = Aws::String(region.c_str(), region.size());
+  }
+  bucket_location_ = Aws::S3::Model::BucketLocationConstraintMapper::
+	               GetBucketLocationConstraintForName(config.region);
+
   s3client_ = std::make_shared<Aws::S3::S3Client>(creds, config);
 
-  create_bucket_status_ = S3WritableFile::CreateBucketInS3(s3client_, bucket_prefix);
+  create_bucket_status_ = S3WritableFile::CreateBucketInS3(
+		             s3client_, bucket_prefix, bucket_location_);
   if (!create_bucket_status_.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log,
         "[aws] NewAwsEnv Unable to  create bucket %s",
@@ -48,41 +60,40 @@ AwsEnv::AwsEnv(const std::string& bucket_prefix,
   }
 
   // create Kinesis client for storing logs
-  if (create_bucket_status_.ok()) {
+  if (create_bucket_status_.ok() && !cloud_env_options.keep_local_log_files) {
     kinesis_client_ = std::make_shared<Aws::Kinesis::KinesisClient>(
 		                    creds, config);
     if (kinesis_client_ == nullptr) {
-      create_bucket_status_ = Status::IOError(
-		      "Error in creating Kinesis client");
+      create_bucket_status_ = Status::IOError("Error in creating Kinesis client");
     }
-  }
 
-  // Create Kinesis stream and wait for it to be ready
-  if (create_bucket_status_.ok()) {
-    create_bucket_status_ = KinesisSystem::CreateStream(
+    // Create Kinesis stream and wait for it to be ready
+    if (create_bucket_status_.ok()) {
+      create_bucket_status_ = KinesisSystem::CreateStream(
 		              this,
 		              info_log_,
 		              kinesis_client_,
 		              bucket_prefix);
-    if (!create_bucket_status_.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log,
-          "[aws] NewAwsEnv Unable to  create stream %s",
-          create_bucket_status_.ToString().c_str());
+      if (!create_bucket_status_.ok()) {
+        Log(InfoLogLevel::DEBUG_LEVEL, info_log,
+            "[aws] NewAwsEnv Unable to  create stream %s",
+            create_bucket_status_.ToString().c_str());
+      }
     }
-  }
 
-  if (create_bucket_status_.ok()) {
-    // create tailer object
-    KinesisSystem* f = new KinesisSystem(this, info_log);
-    create_bucket_status_ = f->status();
-    tailer_.reset(f);
-
-    // create tailer thread
     if (create_bucket_status_.ok()) {
-      auto lambda = [this]() {
-                    tailer_->TailStream();
-                    };
-      tid_ = std::thread(lambda);
+      // create tailer object
+      KinesisSystem* f = new KinesisSystem(this, info_log);
+      create_bucket_status_ = f->status();
+      tailer_.reset(f);
+
+      // create tailer thread
+      if (create_bucket_status_.ok()) {
+        auto lambda = [this]() {
+                      tailer_->TailStream();
+                      };
+        tid_ = std::thread(lambda);
+      }
     }
   }
   if (!create_bucket_status_.ok()) {
@@ -146,12 +157,7 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
         fname.c_str(), st.ToString().c_str());
     return st;
   }
-  if (sstfile) {
-    // If this is a sst file and we are instructed to keep the local
-    // sst file intact, then use local file system.
-    if (cloud_env_options.keep_local_sst_files) {
-      return posixEnv_->NewSequentialFile(fname, result, options);
-    }
+  if (sstfile && !cloud_env_options.keep_local_sst_files) {
     // read from S3
     S3ReadableFile* f = new S3ReadableFile(this, fname);
     if (!f->status().ok()) {
@@ -163,7 +169,8 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
         "[s3] NewSequentialFile file %s %s",
         fname.c_str(), "ok");
 
-  } else if (logfile) {               // read from Kinesis
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
+    // read from Kinesis
     assert(tailer_->status().ok());
 
     // map  pathname to cache dir
@@ -203,12 +210,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
         fname.c_str(), st.ToString().c_str());
     return st;
   }
-  if (sstfile) {
-    // If this is a sst file and we are instructed to keep the local
-    // sst file intact, then use local file system.
-    if (cloud_env_options.keep_local_sst_files) {
-      return posixEnv_->NewRandomAccessFile(fname, result, options);
-    }
+  if (sstfile && !cloud_env_options.keep_local_sst_files) {
     // read from S3
     S3ReadableFile* f = new S3ReadableFile(this, fname);
     if (!f->status().ok()) {
@@ -219,7 +221,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
         "[s3] NewRandomAccessFile file %s %s",
         fname.c_str(), "ok");
-  } else if (logfile) {
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
     assert(tailer_->status().ok());
 
@@ -256,12 +258,7 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
   GetFileType(fname, &sstfile, &logfile);
   result->reset();
 
-  // If this is not an sst or log file, then use local file system
-  if (!sstfile && !logfile) {
-    return posixEnv_->NewWritableFile(fname, result, options);
-  }
-
-  if (sstfile) {
+  if (sstfile && !cloud_env_options.keep_local_sst_files) {
     S3WritableFile* f = new S3WritableFile(this, fname, options);
     if (f == nullptr || !f->status().ok()) {
       delete f;
@@ -273,7 +270,7 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
       return s;
     }
     result->reset(dynamic_cast<WritableFile*>(f));
-  } else if (logfile) {
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
     KinesisWritableFile* f = new KinesisWritableFile(this, fname, options);
     if (f == nullptr || !f->status().ok()) {
       delete f;
@@ -285,6 +282,8 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
       return s;
     }
     result->reset(dynamic_cast<WritableFile*>(f));
+  } else {
+    return posixEnv_->NewWritableFile(fname, result, options);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] NewWritableFile src %s %s",
@@ -374,15 +373,9 @@ Status AwsEnv::FileExists(const std::string& fname) {
   bool sstfile;
   GetFileType(fname, &sstfile, &logfile);
 
-  if (sstfile) {
-    // If this is a sst file and we are instructed to keep the local
-    // sst file intact, then use local file system.
-    if (cloud_env_options.keep_local_sst_files) {
-      st = posixEnv_->FileExists(fname);
-    } else {
+  if (sstfile && !cloud_env_options.keep_local_sst_files) {
     st = PathExistsInS3(fname, true);
-    }
-  } else if (logfile) {
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
     assert(tailer_->status().ok());
 
@@ -568,13 +561,13 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
   bool sstfile;
   GetFileType(fname, &sstfile, &logfile);
 
-  if (sstfile) {
+  if (sstfile && !cloud_env_options.keep_local_sst_files) {
     // Delete from S3 and local file system
     st = DeletePathInS3(fname);
     if (st.ok() && cloud_env_options.keep_local_sst_files) {
       st = posixEnv_->DeleteFile(fname);
     }
-  } else if (logfile) {
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
     assert(tailer_->status().ok());
 
@@ -777,7 +770,7 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
             fname.c_str(), *size, local_size);
       }
     }
-  } else if (logfile) {
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
     assert(tailer_->status().ok());
 
     // map  pathname to cache dir
@@ -868,7 +861,7 @@ Status AwsEnv::GetFileModificationTime(const std::string& fname,
             fname.c_str());
       }
     }
-  } else if (logfile) {
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
     assert(tailer_->status().ok());
 
     // map  pathname to cache dir
@@ -970,9 +963,11 @@ Status AwsEnv::NewLogger(const std::string& fname,
 AwsEnv* AwsEnv::NewAwsEnv(const std::string& bucket_prefix,
 		       const std::string& access_key_id,
 		       const std::string& secret_key,
+		       const std::string& region,
 		       const CloudEnvOptions& cloud_options,
 		       std::shared_ptr<Logger> info_log) {
-  AwsEnv* s =  new AwsEnv(bucket_prefix, access_key_id, secret_key, cloud_options, info_log);
+  AwsEnv* s =  new AwsEnv(bucket_prefix, access_key_id, secret_key,
+		          region, cloud_options, info_log);
   if (s == nullptr || !s->IsValid().ok()) {
     delete s;
     return nullptr;
@@ -985,7 +980,8 @@ AwsEnv* AwsEnv::NewAwsEnv(const std::string& bucket_prefix,
 // called "aws_access_key_id" and "aws_secret_access_key".
 //
 Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
-		                 std::string* aws_secret_access_key) {
+		                  std::string* aws_secret_access_key,
+				  std::string* region) {
   Status st;
   if (getenv("aws_access_key_id") == nullptr ||
       getenv("aws_secret_access_key") == nullptr) {
@@ -997,6 +993,9 @@ Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
   }
   aws_access_key_id->assign(getenv("aws_access_key_id"));
   aws_secret_access_key->assign(getenv("aws_secret_access_key"));
+  if (getenv("aws_region") != nullptr) {
+    region->assign(getenv("aws_region"));
+  }
   return st;
 }
 

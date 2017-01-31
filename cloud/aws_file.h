@@ -19,6 +19,7 @@
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/GetObjectResult.h>
 #include <aws/s3/model/CreateBucketRequest.h>
+#include <aws/s3/model/CreateBucketConfiguration.h>
 #include <aws/s3/model/CreateBucketResult.h>
 #include <aws/s3/model/PutObjectRequest.h>
 #include <aws/s3/model/PutObjectResult.h>
@@ -134,13 +135,13 @@ inline bool IsLogFile(const std::string& pathname) {
 
 // Get my bucket name
 inline Aws::String GetBucket(const std::string& bucket_prefix) {
-  std::string dd = "ROCKSET." + bucket_prefix;
+  std::string dd = "rockset." + bucket_prefix;
   return Aws::String(dd.c_str(), dd.size());
 }
 
 // Get my stream name
 inline Aws::String GetStreamName(const std::string& bucket_prefix) {
-  std::string dd = "ROCKSET." + bucket_prefix;
+  std::string dd = "rockset." + bucket_prefix;
   return Aws::String(dd.c_str(), dd.size());
 }
 
@@ -229,8 +230,10 @@ class S3WritableFile: public WritableFile {
 
  public:
   // create S3 bucket
-  static Status CreateBucketInS3(std::shared_ptr<Aws::S3::S3Client> client,
-		                 const std::string& bucket_prefix);
+  static Status CreateBucketInS3(
+		  std::shared_ptr<Aws::S3::S3Client> client,
+		  const std::string& bucket_prefix,
+		const Aws::S3::Model::BucketLocationConstraint& location);
 
   S3WritableFile(AwsEnv* env,
 		 const std::string& fname,
