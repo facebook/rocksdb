@@ -310,10 +310,6 @@ DBOptions::DBOptions(const Options& options)
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown) {
 }
 
-static const char* const access_hints[] = {
-  "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"
-};
-
 void DBOptions::Dump(Logger* log) const {
     ImmutableDBOptions(*this).Dump(log);
     MutableDBOptions(*this).Dump(log);
