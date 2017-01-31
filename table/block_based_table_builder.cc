@@ -60,7 +60,7 @@ namespace {
 rocksdb::IndexBuilder* CreateIndexBuilder(
     IndexType index_type, const InternalKeyComparator* comparator,
     const SliceTransform* prefix_extractor, int index_block_restart_interval,
-    uint64_t index_per_partition);
+    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
 }
 
 // The interface for building index.
@@ -194,20 +194,27 @@ class ShortenedIndexBuilder : public IndexBuilder {
  * containing a secondary index on the partitions, built using
  * ShortenedIndexBuilder.
  */
-class PartitionIndexBuilder : public IndexBuilder {
+class PartitionIndexBuilder : public IndexBuilder, public FullFilterBlockBuilder {
  public:
   explicit PartitionIndexBuilder(const InternalKeyComparator* comparator,
                                  const SliceTransform* prefix_extractor,
                                  const uint64_t index_per_partition,
-                                 int index_block_restart_interval)
+                                 int index_block_restart_interval,
+                                 bool whole_key_filtering,
+                                 FilterBitsBuilder* filter_bits_builder,
+                                 const BlockBasedTableOptions& table_opt)
       : IndexBuilder(comparator),
+        FullFilterBlockBuilder(prefix_extractor, whole_key_filtering,
+                               filter_bits_builder),
         prefix_extractor_(prefix_extractor),
         index_block_builder_(index_block_restart_interval),
         index_per_partition_(index_per_partition),
-        index_block_restart_interval_(index_block_restart_interval) {
+        index_block_restart_interval_(index_block_restart_interval),
+        index_on_filter_block_builder_(index_block_restart_interval),
+        table_opt_(table_opt) {
     sub_index_builder_ =
         CreateIndexBuilder(sub_type_, comparator_, prefix_extractor_,
-                           index_block_restart_interval_, index_per_partition_);
+                           index_block_restart_interval_, index_per_partition_, table_opt_);
   }
 
   virtual ~PartitionIndexBuilder() { delete sub_index_builder_; }
@@ -227,7 +234,8 @@ class PartitionIndexBuilder : public IndexBuilder {
                           std::unique_ptr<IndexBuilder>(sub_index_builder_)});
       sub_index_builder_ = CreateIndexBuilder(
           sub_type_, comparator_, prefix_extractor_,
-          index_block_restart_interval_, index_per_partition_);
+          index_block_restart_interval_, index_per_partition_, table_opt_);
+      cut_filter_block = true;
     }
   }
 
@@ -237,8 +245,8 @@ class PartitionIndexBuilder : public IndexBuilder {
     assert(!entries_.empty());
     // It must be set to null after last key is added
     assert(sub_index_builder_ == nullptr);
-    if (finishing == true) {
-      Entry& last_entry = entries_.front();
+    if (finishing_indexes == true) {
+      Entry& last_entry = entries.front();
       std::string handle_encoding;
       last_partition_block_handle.EncodeTo(&handle_encoding);
       index_block_builder_.Add(last_entry.key, handle_encoding);
@@ -253,7 +261,7 @@ class PartitionIndexBuilder : public IndexBuilder {
       // expect more calls to Finish
       Entry& entry = entries_.front();
       auto s = entry.value->Finish(index_blocks);
-      finishing = true;
+      finishing_indexes = true;
       return s.ok() ? Status::Incomplete() : s;
     }
   }
@@ -269,6 +277,56 @@ class PartitionIndexBuilder : public IndexBuilder {
     return total;
   }
 
+  // FullFilterBlockBuilder
+  // The policy of when cut a filter block and Finish it
+  inline bool ShouldCutFilterBlock() {
+    // Current policy is to align the partitions of index and filters
+    if (cut_filter_block) {
+      cut_filter_block = false;
+      return true;
+    }
+    return false;
+  }
+
+  void CutAFilterBlock() {
+    filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
+    Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
+    std::string& index_key = entries.back().key;
+    filters.push_back({index_key, filter});
+  }
+
+  void AddKey(const Slice& key) override {
+    if (ShouldCutFilterBlock()) {
+      CutAFilterBlock();
+    }
+    filter_bits_builder_->AddKey(key);
+  }
+
+  virtual Slice Finish(
+      const BlockHandle& last_partition_block_handle, Status* status) override {
+    assert(!filters.empty());
+    if (finishing_filters == true) {
+      FilterEntry& last_entry = filters.front();
+      std::string handle_encoding;
+      last_partition_block_handle.EncodeTo(&handle_encoding);
+      // This is the full key vs. the user key in the filters. We assume that
+      // user key <= full key
+      index_on_filter_block_builder_.Add(last_entry.key, handle_encoding);
+      filters.pop_front();
+    }
+    // If there is no sub_filter left, then return empty Slice
+    if (UNLIKELY(filters.empty())) {
+      *status = Status::OK();
+      return index_on_filter_block_builder_.Finish();
+    } else {
+      // Finish the next partition index in line and Incomplete() to indicate we
+      // expect more calls to Finish
+      *status = Status::Incomplete();
+      finishing_filters = true;
+      return filters.front().filter;
+    }
+  }
+
  private:
   static const IndexType sub_type_ = BlockBasedTableOptions::kBinarySearch;
   struct Entry {
@@ -282,8 +340,22 @@ class PartitionIndexBuilder : public IndexBuilder {
   uint64_t index_per_partition_;
   int index_block_restart_interval_;
   uint64_t num_indexes = 0;
-  bool finishing =
+  bool finishing_indexes =
       false;  // true if Finish is called once but not complete yet.
+  // Filter data
+  BlockBuilder index_on_filter_block_builder_;  // top-level index builder
+  struct FilterEntry {
+    std::string key;
+    Slice filter;
+  };
+  std::list<FilterEntry> filters;  // list of partitioned indexes and their keys
+  std::unique_ptr<IndexBuilder> value;
+  std::vector<std::unique_ptr<const char[]>> filter_gc;
+  bool finishing_filters =
+      false;  // true if Finish is called once but not complete yet.
+  bool cut_filter_block =
+      false;  // true if it should cut the next filter partition block
+  const BlockBasedTableOptions& table_opt_;
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -407,7 +479,8 @@ IndexBuilder* CreateIndexBuilder(IndexType index_type,
                                  const InternalKeyComparator* comparator,
                                  const SliceTransform* prefix_extractor,
                                  int index_block_restart_interval,
-                                 uint64_t index_per_partition) {
+                                 uint64_t index_per_partition,
+                                 const BlockBasedTableOptions& table_opt) {
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
       return new ShortenedIndexBuilder(comparator,
@@ -418,9 +491,20 @@ IndexBuilder* CreateIndexBuilder(IndexType index_type,
                                   index_block_restart_interval);
     }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
-      return new PartitionIndexBuilder(comparator, prefix_extractor,
-                                       index_per_partition,
-                                       index_block_restart_interval);
+      class DummyFilterBitsBuilder : public FilterBitsBuilder {
+        public:
+          virtual void AddKey(const Slice& key) { assert(0); }
+          virtual Slice Finish(std::unique_ptr<const char[]>* buf) { assert(0); }
+      };
+      FilterBitsBuilder* filter_bits_builder =
+          table_opt.filter_policy != nullptr
+              ? table_opt.filter_policy->GetFilterBitsBuilder()
+              : new DummyFilterBitsBuilder();
+      assert(filter_bits_builder);
+      return new PartitionIndexBuilder(
+          comparator, prefix_extractor, index_per_partition,
+          index_block_restart_interval, table_opt.whole_key_filtering,
+          filter_bits_builder, table_opt);
     }
     default: {
       assert(!"Do not recognize the index type ");
@@ -653,12 +737,12 @@ struct BlockBasedTableBuilder::Rep {
             CreateIndexBuilder(table_options.index_type, &internal_comparator,
                                &this->internal_prefix_transform,
                                table_options.index_block_restart_interval,
-                               table_options.index_per_partition)),
+                               table_options.index_per_partition, table_options)),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
-        filter_block(skip_filters ? nullptr : CreateFilterBlockBuilder(
-                                                  _ioptions, table_options)),
+        filter_block(skip_filters ? nullptr : table_opt.partition_filters ? (PartitionIndexBuilder*)index_builder.get() :
+          CreateFilterBlockBuilder(_ioptions, table_options)),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
@@ -746,6 +830,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       }
     }
 
+    // Note: PartitionIndexBuilder requires adding to filter_block to be after
+    // adding to index_builder
     if (r->filter_block != nullptr) {
       r->filter_block->Add(ExtractUserKey(key));
     }
@@ -975,21 +1061,34 @@ Status BlockBasedTableBuilder::Finish() {
   assert(!r->closed);
   r->closed = true;
 
-  BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle,
-      compression_dict_block_handle, range_del_block_handle;
-  // Write filter block
-  if (ok() && r->filter_block != nullptr) {
-    auto filter_contents = r->filter_block->Finish();
-    r->props.filter_size = filter_contents.size();
-    WriteRawBlock(filter_contents, kNoCompression, &filter_block_handle);
-  }
-
   // To make sure properties block is able to keep the accurate size of index
   // block, we will finish writing all index entries here and flush them
   // to storage after metaindex block is written.
   if (ok() && !empty_data_block) {
     r->index_builder->AddIndexEntry(
         &r->last_key, nullptr /* no next data block */, r->pending_handle);
+  }
+
+  BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle,
+      compression_dict_block_handle, range_del_block_handle;
+  // Write filter block
+  if (ok() && r->filter_block != nullptr) {
+    Status s;
+    Slice filter_content = r->filter_block->Finish(filter_block_handle, &s);
+    r->props.filter_size += filter_content.size();
+    WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
+    while (s.IsIncomplete()) {
+      filter_content = r->filter_block->Finish(filter_block_handle, &s);
+      r->props.filter_size += filter_content.size();
+      if (s.IsIncomplete()) {
+        WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
+      } else { // index on filter partitions
+        assert(s.ok());
+        const bool is_data_block = true;
+        WriteBlock(filter_content,
+            &filter_block_handle, !is_data_block);
+      }
+    }
   }
 
   IndexBuilder::IndexBlocks index_blocks;
@@ -1025,7 +1124,9 @@ Status BlockBasedTableBuilder::Finish() {
       if (r->filter_block->IsBlockBased()) {
         key = BlockBasedTable::kFilterBlockPrefix;
       } else {
-        key = BlockBasedTable::kFullFilterBlockPrefix;
+        key = r->table_options.partition_filters
+                  ? BlockBasedTable::kPartitionedFilterBlockPrefix
+                  : BlockBasedTable::kFullFilterBlockPrefix;
       }
       key.append(r->table_options.filter_policy->Name());
       meta_index_builder.Add(key, filter_block_handle);
@@ -1185,4 +1286,5 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
+const std::string BlockBasedTable::kPartitionedFilterBlockPrefix = "partitionedfilter.";
 }  // namespace rocksdb

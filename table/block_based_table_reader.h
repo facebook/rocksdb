@@ -60,6 +60,7 @@ class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
   static const std::string kFullFilterBlockPrefix;
+  static const std::string kPartitionedFilterBlockPrefix;
   // The longest prefix of the cache key used to identify blocks.
   // For Posix files the unique ID is three varints.
   static const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length * 3 + 1;
@@ -155,7 +156,6 @@ class BlockBasedTable : public TableReader {
  private:
   template <class TValue>
   struct CachableEntry;
-
   struct Rep;
   Rep* rep_;
   bool compaction_optimized_;
@@ -181,6 +181,9 @@ class BlockBasedTable : public TableReader {
   // if `no_io == true`, we will not try to read filter/index from sst file
   // were they not present in cache yet.
   CachableEntry<FilterBlockReader> GetFilter(bool no_io = false) const;
+  CachableEntry<FilterBlockReader> GetFilter(
+      const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
+      bool no_io) const;
 
   // Get the iterator from the index reader.
   // If input_iter is not set, return new Iterator
@@ -244,14 +247,16 @@ class BlockBasedTable : public TableReader {
 
   bool FullFilterKeyMayMatch(const ReadOptions& read_options,
                              FilterBlockReader* filter,
-                             const Slice& user_key) const;
+                             const Slice& user_key,
+                             const bool no_io) const;
 
   // Read the meta block from sst.
   static Status ReadMetaBlock(Rep* rep, std::unique_ptr<Block>* meta_block,
                               std::unique_ptr<InternalIterator>* iter);
 
   // Create the filter from the filter block.
-  static FilterBlockReader* ReadFilter(Rep* rep);
+  FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
+                                       const bool is_a_filter_partition) const;
 
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 
@@ -273,6 +278,8 @@ class BlockBasedTable : public TableReader {
   // No copying allowed
   explicit BlockBasedTable(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
+
+  friend class PartitionedFilterBlockReader;
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure

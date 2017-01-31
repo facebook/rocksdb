@@ -41,7 +41,8 @@ class BlockBasedFilterBlockBuilder : public FilterBlockBuilder {
   virtual bool IsBlockBased() override { return true; }
   virtual void StartBlock(uint64_t block_offset) override;
   virtual void Add(const Slice& key) override;
-  virtual Slice Finish() override;
+  virtual Slice Finish(const BlockHandle& tmp, Status* status) override;
+  using FilterBlockBuilder::Finish;
 
  private:
   void AddKey(const Slice& key);
@@ -81,9 +82,9 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
                               BlockContents&& contents, Statistics* statistics);
   virtual bool IsBlockBased() override { return true; }
   virtual bool KeyMayMatch(const Slice& key,
-                           uint64_t block_offset = kNotValid) override;
+                           uint64_t block_offset = kNotValid, const bool no_io = false) override;
   virtual bool PrefixMayMatch(const Slice& prefix,
-                              uint64_t block_offset = kNotValid) override;
+                              uint64_t block_offset = kNotValid, const bool no_io = false) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
   // convert this object to a human readable form
