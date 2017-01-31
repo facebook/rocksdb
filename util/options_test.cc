@@ -1289,6 +1289,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_EQ(10 * 1048576, old_default_opts.max_bytes_for_level_base);
     ASSERT_EQ(5000, old_default_opts.max_open_files);
     ASSERT_EQ(-1, old_default_opts.base_background_compactions);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
     ASSERT_EQ(WALRecoveryMode::kTolerateCorruptedTailRecords,
               old_default_opts.wal_recovery_mode);
   }
@@ -1304,6 +1305,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_NE(10 * 1048576, old_default_opts.max_bytes_for_level_base);
     ASSERT_NE(4, old_default_opts.table_cache_numshardbits);
     ASSERT_EQ(5000, old_default_opts.max_open_files);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
   }
   {
     ColumnFamilyOptions old_default_cf_opts;
@@ -1329,6 +1331,16 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_NE(2 * 1048576, old_default_cf_opts.target_file_size_base);
     ASSERT_EQ(CompactionPri::kByCompensatedSize,
               old_default_cf_opts.compaction_pri);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(5, 1);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(5, 2);
+    ASSERT_EQ(16 * 1024U * 1024U, old_default_opts.delayed_write_rate);
   }
 
   Options small_opts;
