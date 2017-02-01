@@ -13,6 +13,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 
+#include <list>
 #include <map>
 #include <memory>
 #include <string>
@@ -187,6 +188,11 @@ class ShortenedIndexBuilder : public IndexBuilder {
  * IndexBuilder for two-level indexing. Internally it creates a new index for
  * each partition and Finish then in order when Finish is called on it
  * continiously until Status::OK() is returned.
+ *
+ * The format on the disk would be I I I I I I IP where I is block containing a
+ * partition of indexes built using ShortenedIndexBuilder and IP is a block
+ * containing a secondary index on the partitions, built using
+ * ShortenedIndexBuilder.
  */
 class PartitionIndexBuilder : public IndexBuilder {
  public:
@@ -213,11 +219,11 @@ class PartitionIndexBuilder : public IndexBuilder {
                                       first_key_in_next_block, block_handle);
     num_indexes++;
     if (UNLIKELY(first_key_in_next_block == nullptr)) {  // no more keys
-      entries.push_back({std::string(*last_key_in_current_block),
+      entries_.push_back({std::string(*last_key_in_current_block),
                          std::unique_ptr<IndexBuilder>(sub_index_builder_)});
       sub_index_builder_ = nullptr;
     } else if (num_indexes % index_per_partition_ == 0) {
-      entries.push_back({std::string(*last_key_in_current_block),
+      entries_.push_back({std::string(*last_key_in_current_block),
                          std::unique_ptr<IndexBuilder>(sub_index_builder_)});
       sub_index_builder_ = CreateIndexBuilder(
           sub_type_, comparator_, prefix_extractor_,
@@ -228,24 +234,24 @@ class PartitionIndexBuilder : public IndexBuilder {
   virtual Status Finish(
       IndexBlocks* index_blocks,
       const BlockHandle& last_partition_block_handle) override {
-    assert(!entries.empty());
+    assert(!entries_.empty());
     // It must be set to null after last key is added
     assert(sub_index_builder_ == nullptr);
     if (finishing == true) {
-      Entry& last_entry = entries.front();
+      Entry& last_entry = entries_.front();
       std::string handle_encoding;
       last_partition_block_handle.EncodeTo(&handle_encoding);
       index_block_builder_.Add(last_entry.key, handle_encoding);
-      entries.erase(entries.begin());
+      entries_.pop_front();
     }
     // If there is no sub_index left, then return the 2nd level index.
-    if (UNLIKELY(entries.empty())) {
+    if (UNLIKELY(entries_.empty())) {
       index_blocks->index_block_contents = index_block_builder_.Finish();
       return Status::OK();
     } else {
       // Finish the next partition index in line and Incomplete() to indicate we
       // expect more calls to Finish
-      Entry& entry = entries.front();
+      Entry& entry = entries_.front();
       auto s = entry.value->Finish(index_blocks);
       finishing = true;
       return s.ok() ? Status::Incomplete() : s;
@@ -254,7 +260,7 @@ class PartitionIndexBuilder : public IndexBuilder {
 
   virtual size_t EstimatedSize() const override {
     size_t total = 0;
-    for (auto it = entries.begin(); it != entries.end(); ++it) {
+    for (auto it = entries_.begin(); it != entries_.end(); ++it) {
       total += it->value->EstimatedSize();
     }
     total += index_block_builder_.CurrentSizeEstimate();
@@ -269,7 +275,7 @@ class PartitionIndexBuilder : public IndexBuilder {
     std::string key;
     std::unique_ptr<IndexBuilder> value;
   };
-  std::vector<Entry> entries;  // list of partitioned indexes and their keys
+  std::list<Entry> entries_;  // list of partitioned indexes and their keys
   const SliceTransform* prefix_extractor_;
   BlockBuilder index_block_builder_;  // top-level index builder
   IndexBuilder* sub_index_builder_;   // the active partition index builder

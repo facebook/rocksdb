@@ -207,7 +207,7 @@ class PartitionIndexReader : public IndexReader {
                                         bool dont_care = true) override {
     // No support for initializing iter
     return NewTwoLevelIterator(
-        new BlockBasedTable::IndexPartitionIteratorState(table_, ReadOptions(),
+        new BlockBasedTable::BlockEntryIteratorState(table_, ReadOptions(),
                                                          false),
         index_block_->NewIterator(comparator_, iter, true));
   }
@@ -1411,35 +1411,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
   return s;
 }
 
-class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
- public:
-  BlockEntryIteratorState(BlockBasedTable* table,
-                          const ReadOptions& read_options, bool skip_filters)
-      : TwoLevelIteratorState(table->rep_->ioptions.prefix_extractor !=
-                              nullptr),
-        table_(table),
-        read_options_(read_options),
-        skip_filters_(skip_filters) {}
-
-  InternalIterator* NewSecondaryIterator(const Slice& index_value) override {
-    return NewDataBlockIterator(table_->rep_, read_options_, index_value);
-  }
-
-  bool PrefixMayMatch(const Slice& internal_key) override {
-    if (read_options_.total_order_seek || skip_filters_) {
-      return true;
-    }
-    return table_->PrefixMayMatch(internal_key);
-  }
-
- private:
-  // Don't own table_
-  BlockBasedTable* table_;
-  const ReadOptions read_options_;
-  bool skip_filters_;
-};
-
-BlockBasedTable::IndexPartitionIteratorState::IndexPartitionIteratorState(
+BlockBasedTable::BlockEntryIteratorState::BlockEntryIteratorState(
     BlockBasedTable* table, const ReadOptions& read_options, bool skip_filters)
     : TwoLevelIteratorState(table->rep_->ioptions.prefix_extractor != nullptr),
       table_(table),
@@ -1447,13 +1419,13 @@ BlockBasedTable::IndexPartitionIteratorState::IndexPartitionIteratorState(
       skip_filters_(skip_filters) {}
 
 InternalIterator*
-BlockBasedTable::IndexPartitionIteratorState::NewSecondaryIterator(
+BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
     const Slice& index_value) {
   // Return a block iterator on the index partition
   return NewDataBlockIterator(table_->rep_, read_options_, index_value);
 }
 
-bool BlockBasedTable::IndexPartitionIteratorState::PrefixMayMatch(
+bool BlockBasedTable::BlockEntryIteratorState::PrefixMayMatch(
     const Slice& internal_key) {
   if (read_options_.total_order_seek || skip_filters_) {
     return true;

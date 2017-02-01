@@ -150,7 +150,8 @@ class BlockBasedTable : public TableReader {
   // The key retrieved are internal keys.
   Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
 
-  class IndexPartitionIteratorState;
+  //class IndexPartitionIteratorState;
+  class BlockEntryIteratorState;
 
  private:
   template <class TValue>
@@ -160,7 +161,6 @@ class BlockBasedTable : public TableReader {
   Rep* rep_;
   bool compaction_optimized_;
 
-  class BlockEntryIteratorState;
   // input_iter: if it is not null, update this one and return it as Iterator
   static InternalIterator* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
@@ -277,10 +277,10 @@ class BlockBasedTable : public TableReader {
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure
-class BlockBasedTable::IndexPartitionIteratorState
+class BlockBasedTable::BlockEntryIteratorState
     : public TwoLevelIteratorState {
  public:
-  IndexPartitionIteratorState(BlockBasedTable* table,
+  BlockEntryIteratorState(BlockBasedTable* table,
                               const ReadOptions& read_options,
                               bool skip_filters);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
