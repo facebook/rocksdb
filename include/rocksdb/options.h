@@ -574,7 +574,7 @@ struct ColumnFamilyOptions {
   uint64_t hard_pending_compaction_bytes_limit = 256 * 1073741824ull;
 
   // DEPRECATED -- this options is no longer used
-  unsigned int rate_limit_delay_max_milliseconds = 100;
+  unsigned int rate_limit_delay_max_milliseconds = 1000;
 
   // size of one block in arena memory allocation.
   // If <= 0, a proper value is automatically calculated (usually 1/8 of
