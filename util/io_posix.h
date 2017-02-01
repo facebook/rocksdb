@@ -113,9 +113,9 @@ class PosixWritableFile : public WritableFile {
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(uint64_t offset, uint64_t len) override;
+#endif
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
-#endif
 };
 
 // mmap() based random-access
