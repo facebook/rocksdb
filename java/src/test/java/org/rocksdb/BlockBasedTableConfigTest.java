@@ -95,7 +95,7 @@ public class BlockBasedTableConfigTest {
   @Test
   public void indexType() {
     BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
-    assertThat(IndexType.values().length).isEqualTo(2);
+    assertThat(IndexType.values().length).isEqualTo(3);
     blockBasedTableConfig.setIndexType(IndexType.kHashSearch);
     assertThat(blockBasedTableConfig.indexType().equals(
         IndexType.kHashSearch));
