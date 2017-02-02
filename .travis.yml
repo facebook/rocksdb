@@ -47,7 +47,8 @@ script:
   - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
   - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
 notifications:
-    email:
-      - leveldb@fb.com
-    webhooks:
-      - https://buildtimetrend.herokuapp.com/travis
+  slack:
+    rooms:
+    - rocksetchat:"$SLACK_TOKEN"#rocksdb-cloud
+    on_success: change
+    on_failure: always
