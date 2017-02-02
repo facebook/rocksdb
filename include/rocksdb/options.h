@@ -423,13 +423,17 @@ struct ColumnFamilyOptions {
   // point. A value <0 means that no writing slow down will be triggered by
   // number of files in level-0.
   //
+  // Default: 20
+  //
   // Dynamically changeable through SetOptions() API
   int level0_slowdown_writes_trigger = 20;
 
   // Maximum number of level-0 files.  We stop writes at this point.
   //
+  // Default: 36
+  //
   // Dynamically changeable through SetOptions() API
-  int level0_stop_writes_trigger = 32;
+  int level0_stop_writes_trigger = 36;
 
   // This does not do anything anymore. Deprecated.
   int max_mem_compaction_level;
@@ -1287,8 +1291,8 @@ struct DBOptions {
   // gets behind further.
   // Unit: byte per second.
   //
-  // Default: 2MB/s
-  uint64_t delayed_write_rate = 2 * 1024U * 1024U;
+  // Default: 16MB/s
+  uint64_t delayed_write_rate = 16 * 1024U * 1024U;
 
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it

@@ -417,6 +417,11 @@ DBOptions* DBOptions::OldDefaults(int rocksdb_major_version,
     max_file_opening_threads = 1;
     table_cache_numshardbits = 4;
   }
+  if (rocksdb_major_version < 5 ||
+      (rocksdb_major_version == 5 && rocksdb_minor_version < 2)) {
+    delayed_write_rate = 2 * 1024U * 1024U;
+  }
+
   max_open_files = 5000;
   base_background_compactions = -1;
   wal_recovery_mode = WALRecoveryMode::kTolerateCorruptedTailRecords;
@@ -435,6 +440,8 @@ ColumnFamilyOptions* ColumnFamilyOptions::OldDefaults(
   }
   if (rocksdb_major_version < 5) {
     level0_stop_writes_trigger = 24;
+  } else if (rocksdb_major_version == 5 && rocksdb_minor_version < 2) {
+    level0_stop_writes_trigger = 30;
   }
   compaction_pri = CompactionPri::kByCompensatedSize;
 
