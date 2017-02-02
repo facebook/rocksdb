@@ -48,6 +48,15 @@ class LockTest : public testing::Test {
     // to open and close the file from a different process
     // to avoid either releasing the lock on close, or not
     // contending for it when requesting a lock.
+
+#ifdef OS_WIN
+
+    // WaitForSingleObject and GetExitCodeProcess can do what waitpid does.
+    // TODO - implement on Windows
+    return true;
+
+#else
+
     pid_t pid = fork();
     if ( 0 == pid ) {
       // child process
@@ -91,8 +100,10 @@ class LockTest : public testing::Test {
       fprintf( stderr, "Fork failed\n" );
       return false;
     }
-
     return false;
+
+#endif
+
   }
 
 };
