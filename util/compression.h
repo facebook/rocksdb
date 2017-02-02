@@ -808,6 +808,9 @@ inline std::string ZSTD_TrainDictionary(const std::string& samples,
   size_t dict_len =
       ZDICT_trainFromBuffer(&dict_data[0], max_dict_bytes, samples.data(),
                             &sample_lens[0], num_samples);
+  if (ZDICT_isError(dict_len)) {
+    return "";
+  }
   // TODO(andrewkr): we may be able to avoid this copy by storing
   // compression_dict in something other than std::string.
   return std::string(&dict_data[0], dict_len);
