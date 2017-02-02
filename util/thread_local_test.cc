@@ -51,8 +51,10 @@ struct Params {
 };
 
 class IDChecker : public ThreadLocalPtr {
- public:
-  static uint32_t PeekId() { return Instance()->PeekId(); }
+public:
+  static uint32_t PeekId() {
+    return TEST_PeekId();
+  }
 };
 
 }  // anonymous namespace
