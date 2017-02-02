@@ -153,7 +153,6 @@ LIB_SOURCES =                                                   \
   utilities/document/json_document_builder.cc                   \
   utilities/document/json_document.cc                           \
   utilities/env_mirror.cc                                       \
-  utilities/env_registry.cc                                     \
   utilities/geodb/geodb_impl.cc                                 \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/lua/rocks_lua_compaction_filter.cc                  \
@@ -299,7 +298,7 @@ MAIN_SOURCES =                                                    \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/document/document_db_test.cc                                \
   utilities/document/json_document_test.cc                              \
-  utilities/env_registry_test.cc                                        \
+  utilities/object_registry_test.cc                                     \
   utilities/geodb/geodb_test.cc                                         \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \

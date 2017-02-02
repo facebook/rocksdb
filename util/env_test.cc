@@ -95,18 +95,30 @@ class EnvPosixTestWithParam : public EnvPosixTest,
                               public ::testing::WithParamInterface<Env*> {
  public:
   EnvPosixTestWithParam() { env_ = GetParam(); }
+
+  void WaitThreadPoolsEmpty() {
+    // Wait until the thread pools are empty.
+    while (env_->GetThreadPoolQueueLen(Env::Priority::LOW) != 0) {
+      Env::Default()->SleepForMicroseconds(kDelayMicros);
+    }
+    while (env_->GetThreadPoolQueueLen(Env::Priority::HIGH) != 0) {
+      Env::Default()->SleepForMicroseconds(kDelayMicros);
+    }
+  }
+
+  ~EnvPosixTestWithParam() { WaitThreadPoolsEmpty(); }
 };
 
 static void SetBool(void* ptr) {
-  reinterpret_cast<std::atomic<bool>*>(ptr)
-      ->store(true, std::memory_order_relaxed);
+  reinterpret_cast<std::atomic<bool>*>(ptr)->store(true);
 }
 
 TEST_P(EnvPosixTestWithParam, RunImmediately) {
   std::atomic<bool> called(false);
   env_->Schedule(&SetBool, &called);
   Env::Default()->SleepForMicroseconds(kDelayMicros);
-  ASSERT_TRUE(called.load(std::memory_order_relaxed));
+  ASSERT_TRUE(called.load());
+  WaitThreadPoolsEmpty();
 }
 
 TEST_P(EnvPosixTestWithParam, UnSchedule) {
@@ -134,14 +146,15 @@ TEST_P(EnvPosixTestWithParam, UnSchedule) {
   /* Schedule another task */
   env_->Schedule(&SetBool, &called);
   for (int i = 0; i < kDelayMicros; i++) {
-    if (called.load(std::memory_order_relaxed)) {
+    if (called.load()) {
       break;
     }
     Env::Default()->SleepForMicroseconds(1);
   }
-  ASSERT_TRUE(called.load(std::memory_order_relaxed));
+  ASSERT_TRUE(called.load());
 
   ASSERT_TRUE(!sleeping_task.IsSleeping() && !sleeping_task1.IsSleeping());
+  WaitThreadPoolsEmpty();
 }
 
 TEST_P(EnvPosixTestWithParam, RunMany) {
@@ -155,9 +168,9 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
 
     static void Run(void* v) {
       CB* cb = reinterpret_cast<CB*>(v);
-      int cur = cb->last_id_ptr->load(std::memory_order_relaxed);
+      int cur = cb->last_id_ptr->load();
       ASSERT_EQ(cb->id - 1, cur);
-      cb->last_id_ptr->store(cb->id, std::memory_order_release);
+      cb->last_id_ptr->store(cb->id);
     }
   };
 
@@ -174,6 +187,7 @@ TEST_P(EnvPosixTestWithParam, RunMany) {
   Env::Default()->SleepForMicroseconds(kDelayMicros);
   int cur = last_id.load(std::memory_order_acquire);
   ASSERT_EQ(4, cur);
+  WaitThreadPoolsEmpty();
 }
 
 struct State {
@@ -207,6 +221,7 @@ TEST_P(EnvPosixTestWithParam, StartThread) {
     Env::Default()->SleepForMicroseconds(kDelayMicros);
   }
   ASSERT_EQ(state.val, 3);
+  WaitThreadPoolsEmpty();
 }
 
 TEST_P(EnvPosixTestWithParam, TwoPools) {
@@ -376,6 +391,7 @@ TEST_P(EnvPosixTestWithParam, TwoPools) {
   }
 
   env_->SetBackgroundThreads(kHighPoolSize, Env::Priority::HIGH);
+  WaitThreadPoolsEmpty();
 }
 
 TEST_P(EnvPosixTestWithParam, DecreaseNumBgThreads) {
@@ -527,6 +543,7 @@ TEST_P(EnvPosixTestWithParam, DecreaseNumBgThreads) {
 
   Env::Default()->SleepForMicroseconds(kDelayMicros);
   ASSERT_TRUE(!tasks[5].IsSleeping());
+  WaitThreadPoolsEmpty();
 }
 
 #if (defined OS_LINUX || defined OS_WIN)

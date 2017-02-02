@@ -2228,6 +2228,29 @@ TEST_F(DBTest2, OptimizeForPointLookup) {
   Flush();
   ASSERT_EQ("v1", Get("foo"));
 }
+
+// Disable the test before we fix the bug
+TEST_F(DBTest2, DISABLED_GetRaceFlush) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:1", "DBTest2::GetRaceFlush:1"},
+       {"DBTest2::GetRaceFlush:2", "DBImpl::GetImpl:2"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread threads([&] {
+    TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::GetRaceFlush:2");
+  });
+
+  // Get() is issued after the first Put(), so it should see either
+  // "v1" or "v2".
+  ASSERT_NE("NOT_FOUND", Get("foo"));
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

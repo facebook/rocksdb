@@ -421,6 +421,7 @@ TESTS = \
 	lua_test \
 	range_del_aggregator_test \
 	lru_cache_test \
+	object_registry_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1085,7 +1086,7 @@ env_librados_test: utilities/env_librados_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 endif
 
-env_registry_test: utilities/env_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
+object_registry_test: utilities/object_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)

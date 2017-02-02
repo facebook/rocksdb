@@ -1489,13 +1489,30 @@ InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
 InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
     const ReadOptions& read_options) {
   if (rep_->range_del_handle.IsNull()) {
+    // The block didn't exist, nullptr indicates no range tombstones.
     return nullptr;
+  }
+  if (rep_->range_del_entry.cache_handle != nullptr) {
+    // We have a handle to an uncompressed block cache entry that's held for
+    // this table's lifetime. Increment its refcount before returning an
+    // iterator based on it since the returned iterator may outlive this table
+    // reader.
+    assert(rep_->range_del_entry.value != nullptr);
+    Cache* block_cache = rep_->table_options.block_cache.get();
+    assert(block_cache != nullptr);
+    if (block_cache->Ref(rep_->range_del_entry.cache_handle)) {
+      auto iter = rep_->range_del_entry.value->NewIterator(
+          &rep_->internal_comparator, nullptr /* iter */,
+          true /* total_order_seek */, rep_->ioptions.statistics);
+      iter->RegisterCleanup(&ReleaseCachedEntry, block_cache,
+                            rep_->range_del_entry.cache_handle);
+      return iter;
+    }
   }
   std::string str;
   rep_->range_del_handle.EncodeTo(&str);
-  // Even though range_del_entry already references the meta-block when block
-  // cache is enabled, we still call the below function to get another reference
-  // since the caller may need the iterator beyond this table reader's lifetime.
+  // The meta-block exists but isn't in uncompressed block cache (maybe because
+  // it is disabled), so go through the full lookup process.
   return NewDataBlockIterator(rep_, read_options, Slice(str));
 }
 

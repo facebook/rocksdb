@@ -259,14 +259,11 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
 bool LRUCacheShard::Ref(Cache::Handle* h) {
   LRUHandle* handle = reinterpret_cast<LRUHandle*>(h);
   MutexLock l(&mutex_);
-  if (handle->InCache()) {
-    if (handle->refs == 1) {
-      LRU_Remove(handle);
-    }
-    handle->refs++;
-    return true;
+  if (handle->InCache() && handle->refs == 1) {
+    LRU_Remove(handle);
   }
-  return false;
+  handle->refs++;
+  return true;
 }
 
 void LRUCacheShard::SetHighPriorityPoolRatio(double high_pri_pool_ratio) {
@@ -482,6 +479,9 @@ std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
   if (high_pri_pool_ratio < 0.0 || high_pri_pool_ratio > 1.0) {
     // invalid high_pri_pool_ratio
     return nullptr;
+  }
+  if (num_shard_bits < 0) {
+    num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<LRUCache>(capacity, num_shard_bits,
                                     strict_capacity_limit, high_pri_pool_ratio);

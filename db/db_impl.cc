@@ -4007,6 +4007,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   } else {
     snapshot = versions_->LastSequence();
   }
+
+  TEST_SYNC_POINT("DBImpl::GetImpl:1");
+  TEST_SYNC_POINT("DBImpl::GetImpl:2");
   // Acquire SuperVersion
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
   // Prepare to store a list of merge operations if merge occurs.
@@ -4807,6 +4810,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // and protects against concurrent loggers and concurrent writes
     // into memtables
   }
+  log::Writer* cur_log_writer = logs_.back().writer;
 
   mutex_.Unlock();
 
@@ -4894,7 +4898,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       WriteBatchInternal::SetSequence(merged_batch, current_sequence);
 
       Slice log_entry = WriteBatchInternal::Contents(merged_batch);
-      status = logs_.back().writer->AddRecord(log_entry);
+      status = cur_log_writer->AddRecord(log_entry);
       total_log_size_ += log_entry.size();
       alive_log_files_.back().AddSize(log_entry.size());
       log_empty_ = false;

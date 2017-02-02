@@ -901,6 +901,17 @@ char* rocksdb_property_value(
   }
 }
 
+int rocksdb_property_int(
+    rocksdb_t* db,
+    const char* propname,
+    uint64_t *out_val) {
+  if (db->rep->GetIntProperty(Slice(propname), out_val)) {
+    return 0;
+  } else {
+    return -1;
+  }
+}
+
 char* rocksdb_property_value_cf(
     rocksdb_t* db,
     rocksdb_column_family_handle_t* column_family,
@@ -1487,6 +1498,14 @@ void rocksdb_options_set_cuckoo_table_factory(
   }
 }
 
+void rocksdb_set_options(
+    rocksdb_t* db, int count, const char* const keys[], const char* const values[], char** errptr) {
+        std::unordered_map<std::string, std::string> options_map;
+        for (int i=0; i<count; i++)
+            options_map[keys[i]] = values[i];
+        SaveError(errptr,
+            db->rep->SetOptions(options_map));
+    }
 
 rocksdb_options_t* rocksdb_options_create() {
   return new rocksdb_options_t;
@@ -1871,6 +1890,14 @@ void rocksdb_options_set_hard_rate_limit(rocksdb_options_t* opt, double v) {
   opt->rep.hard_rate_limit = v;
 }
 
+void rocksdb_options_set_soft_pending_compaction_bytes_limit(rocksdb_options_t* opt, size_t v) {
+  opt->rep.soft_pending_compaction_bytes_limit = v;
+}
+
+void rocksdb_options_set_hard_pending_compaction_bytes_limit(rocksdb_options_t* opt, size_t v) {
+  opt->rep.hard_pending_compaction_bytes_limit = v;
+}
+
 void rocksdb_options_set_rate_limit_delay_max_milliseconds(
     rocksdb_options_t* opt, unsigned int v) {
   opt->rep.rate_limit_delay_max_milliseconds = v;
@@ -1898,6 +1925,10 @@ void rocksdb_options_set_arena_block_size(
 
 void rocksdb_options_set_disable_auto_compactions(rocksdb_options_t* opt, int disable) {
   opt->rep.disable_auto_compactions = disable;
+}
+
+void rocksdb_options_set_optimize_filters_for_hits(rocksdb_options_t* opt, int v) {
+  opt->rep.optimize_filters_for_hits = v;
 }
 
 void rocksdb_options_set_delete_obsolete_files_period_micros(
