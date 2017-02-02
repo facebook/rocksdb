@@ -747,6 +747,14 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       shutting_down_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
+  if (c_iter->Valid()) {
+    // ShouldStopBefore() maintains state based on keys processed so far. The
+    // compaction loop always calls it on the "next" key, thus won't tell it the
+    // first key. So we do that here.
+    bool should_stop = sub_compact->ShouldStopBefore(
+      c_iter->key(), sub_compact->current_output_file_size);
+    assert(!should_stop);
+  }
   const auto& c_iter_stats = c_iter->iter_stats();
   auto sample_begin_offset_iter = sample_begin_offsets.cbegin();
   // data_begin_offset and compression_dict are only valid while generating
