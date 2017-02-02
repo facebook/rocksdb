@@ -768,6 +768,7 @@ Status PosixWritableFile::Allocate(uint64_t offset, uint64_t len) {
 }
 #endif
 
+#ifdef OS_LINUX
 Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
   assert(offset <= std::numeric_limits<off_t>::max());
   assert(nbytes <= std::numeric_limits<off_t>::max());
@@ -782,6 +783,7 @@ Status PosixWritableFile::RangeSync(uint64_t offset, uint64_t nbytes) {
 size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
   return PosixHelper::GetUniqueIdFromFile(fd_, id, max_size);
 }
+#endif
 
 /*
  * PosixRandomRWFile
