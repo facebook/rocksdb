@@ -35,7 +35,10 @@
 
 #if defined(ZSTD)
 #include <zstd.h>
-#endif
+#if ZSTD_VERSION_NUMBER >= 800  // v0.8.0+
+#include <zdict.h>
+#endif  // ZSTD_VERSION_NUMBER >= 800
+#endif  // ZSTD
 
 #if defined(XPRESS)
 #include "port/xpress.h"
@@ -786,6 +789,28 @@ inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
   return output;
 #endif
   return nullptr;
+}
+
+inline std::string ZSTD_TrainDictionary(const std::string& samples,
+                                        size_t sample_len_shift,
+                                        size_t max_dict_bytes) {
+  if (!ZSTD_Supported()) {
+    // Dictionary trainer is available since v0.6.1, and kZSTD is supported if
+    // version is 0.8.0+. So actually we can loosen this version constraint
+    // later if needed.
+    assert(false);
+    return "";
+  }
+  // skips potential partial sample at the end of "samples"
+  size_t num_samples = samples.size() >> sample_len_shift;
+  std::vector<size_t> sample_lens(num_samples, 1 << sample_len_shift);
+  std::unique_ptr<char[]> dict_data(new char[max_dict_bytes]);
+  size_t dict_len =
+      ZDICT_trainFromBuffer(&dict_data[0], max_dict_bytes, samples.data(),
+                            &sample_lens[0], num_samples);
+  // TODO(andrewkr): we may be able to avoid this copy by storing
+  // compression_dict in something other than std::string.
+  return std::string(&dict_data[0], dict_len);
 }
 
 }  // namespace rocksdb

@@ -123,6 +123,16 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
           " is not linked with the binary.");
     }
   }
+  if (cf_options.compression_opts.zstd_max_train_bytes > 0 &&
+      !CompressionTypeSupported(CompressionType::kZSTD)) {
+    // Dictionary trainer is available since v0.6.1, and kZSTD is supported if
+    // version is 0.8.0+. So actually we can loosen this version constraint
+    // later if needed.
+    return Status::InvalidArgument(
+        "zstd dictionary trainer cannot be used because " +
+        CompressionTypeToString(CompressionType::kZSTD) +
+        " is not linked with the binary.");
+  }
   return Status::OK();
 }
 
