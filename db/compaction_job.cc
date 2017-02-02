@@ -874,7 +874,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         next_key = &c_iter->key();
       }
       CompactionIterationStats range_del_out_stats;
-      status = FinishCompactionOutputFile(input->status(), sub_compact,
+      status = FinishCompactionOutputFile(input_status, sub_compact,
                                           range_del_agg.get(),
                                           &range_del_out_stats, next_key);
       RecordDroppedKeys(range_del_out_stats,
