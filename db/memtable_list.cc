@@ -16,7 +16,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
 #include "util/sync_point.h"
