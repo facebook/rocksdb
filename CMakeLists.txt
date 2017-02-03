@@ -338,7 +338,7 @@ set(SOURCES
         table/full_filter_block.cc
         table/get_context.cc
         table/iterator.cc
-        table/merger.cc
+        table/merging_iterator.cc
         table/sst_file_writer.cc
         table/meta_blocks.cc
         table/plain_table_builder.cc

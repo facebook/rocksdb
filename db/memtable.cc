@@ -26,7 +26,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/arena.h"
 #include "util/autovector.h"
 #include "util/coding.h"

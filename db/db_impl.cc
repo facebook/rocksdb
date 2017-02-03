@@ -76,7 +76,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "util/autovector.h"

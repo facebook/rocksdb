@@ -18,7 +18,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 

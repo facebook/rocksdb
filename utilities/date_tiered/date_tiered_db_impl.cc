@@ -15,7 +15,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/utilities/date_tiered_db.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/coding.h"
 #include "util/instrumented_mutex.h"
 #include "util/options_helper.h"

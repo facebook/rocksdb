@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "db/version_edit.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
