@@ -125,9 +125,8 @@ Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
   }
   if (cf_options.compression_opts.zstd_max_train_bytes > 0 &&
       !CompressionTypeSupported(CompressionType::kZSTD)) {
-    // Dictionary trainer is available since v0.6.1, and kZSTD is supported if
-    // version is 0.8.0+. So actually we can loosen this version constraint
-    // later if needed.
+    // Dictionary trainer is available since v0.6.1, but ZSTD was marked stable
+    // only since v0.8.0. For now we enable the feature in stable versions only.
     return Status::InvalidArgument(
         "zstd dictionary trainer cannot be used because " +
         CompressionTypeToString(CompressionType::kZSTD) +
