@@ -12,6 +12,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
+#include "port/port.h"
 #include "util/histogram.h"
 #include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
@@ -19,7 +20,6 @@
 #include "util/testharness.h"
 #include "util/thread_status_util.h"
 #include "utilities/merge_operators.h"
-#include "port/port.h"
 
 bool FLAGS_random_key = false;
 bool FLAGS_use_set_based_memetable = false;

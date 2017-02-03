@@ -21,6 +21,7 @@
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "memtable/stl_wrappers.h"
+#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -50,7 +51,6 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
-#include "port/port.h"
 
 namespace rocksdb {
 

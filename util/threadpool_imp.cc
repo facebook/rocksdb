@@ -8,16 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/threadpool_imp.h"
-#include "util/thread_status_util.h"
+
 #include "port/port.h"
-
-#include <algorithm>
-#include <atomic>
-#include <mutex>
-#include <condition_variable>
-#include <thread>
-#include <vector>
-
+#include "util/thread_status_util.h"
 
 #ifndef OS_WIN
 #  include <unistd.h>
@@ -26,6 +19,13 @@
 #ifdef OS_LINUX
 #  include <sys/syscall.h>
 #endif
+
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 namespace rocksdb {
 
@@ -263,7 +263,8 @@ void* ThreadPoolImpl::Impl::BGThreadWrapper(void* arg) {
   return nullptr;
 }
 
-void ThreadPoolImpl::Impl::SetBackgroundThreadsInternal(int num, bool allow_reduce) {
+void ThreadPoolImpl::Impl::SetBackgroundThreadsInternal(int num,
+  bool allow_reduce) {
   std::unique_lock<std::mutex> lock(mu_);
   if (exit_all_threads_) {
     lock.unlock();
@@ -406,8 +407,8 @@ void ThreadPoolImpl::SubmitJob(std::function<void()>&& job) {
   impl_->Submit(std::move(job), std::function<void()>(), nullptr);
 }
 
-void ThreadPoolImpl::Schedule(void(*function)(void* arg1), void* arg, void* tag,
-  void(*unschedFunction)(void* arg)) {
+void ThreadPoolImpl::Schedule(void(*function)(void* arg1), void* arg,
+  void* tag, void(*unschedFunction)(void* arg)) {
 
   std::function<void()> fn = [arg, function] { function(arg); };
 

@@ -9,9 +9,9 @@
 
 #include "port/win/win_thread.h"
 
+#include <assert.h>
 #include <process.h> // __beginthreadex
 #include <Windows.h>
-#include <assert.h>
 
 #include <stdexcept>
 #include <system_error>
@@ -42,14 +42,15 @@ void WindowsThread::Init(std::function<void()>&& func) {
   data_.reset(new Data(std::move(func)));
 
   data_->handle_ = _beginthreadex(NULL,
-    0,    // stacksize
+    0,    // stack size
     &Data::ThreadProc,
     data_.get(),
-    0,   // initflag
+    0,   // init flag
     &th_id_);
 
   if (data_->handle_ == 0) {
-    throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again),
+    throw std::system_error(std::make_error_code(
+      std::errc::resource_unavailable_try_again),
       "Unable to create a thread");
   }
 }
@@ -121,7 +122,8 @@ void WindowsThread::join() {
       "Can not join itself");
   }
 
-  auto ret = WaitForSingleObject(reinterpret_cast<HANDLE>(data_->handle_), INFINITE);
+  auto ret = WaitForSingleObject(reinterpret_cast<HANDLE>(data_->handle_),
+    INFINITE);
   if (ret != WAIT_OBJECT_0) {
     auto lastError = GetLastError();
     assert(false);
@@ -140,7 +142,7 @@ bool WindowsThread::detach() {
     assert(false);
     throw std::system_error(
       std::make_error_code(std::errc::invalid_argument),
-      "Thread is no longer avaiable");
+      "Thread is no longer available");
   }
 
   BOOL ret = CloseHandle(reinterpret_cast<HANDLE>(data_->handle_));
@@ -160,5 +162,5 @@ unsigned int __stdcall  WindowsThread::Data::ThreadProc(void* arg) {
   _endthreadex(0);
   return 0;
 }
-}
-}
+} // namespace port
+} // namespace rocksdb

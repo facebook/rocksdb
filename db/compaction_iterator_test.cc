@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "port/port.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "port/port.h"
 
 namespace rocksdb {
 

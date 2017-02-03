@@ -15,6 +15,7 @@
 
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -26,7 +27,6 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
-#include "port/port.h"
 
 namespace rocksdb {
 

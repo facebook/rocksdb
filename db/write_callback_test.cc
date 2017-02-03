@@ -14,10 +14,10 @@
 #include "db/write_callback.h"
 #include "rocksdb/db.h"
 #include "rocksdb/write_batch.h"
+#include "port/port.h"
 #include "util/logging.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
-#include "port/port.h"
 
 using std::string;
 

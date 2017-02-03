@@ -28,8 +28,8 @@
 #include "db/internal_stats.h"
 #include "db/table_cache.h"
 #include "db/version_set.h"
-#include "table/table_reader.h"
 #include "port/port.h"
+#include "table/table_reader.h"
 
 namespace rocksdb {
 

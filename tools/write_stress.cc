@@ -66,13 +66,13 @@ int main() {
 #include <string>
 #include <thread>
 
+#include "db/filename.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 
-#include "db/filename.h"
-#include "port/port.h"
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;

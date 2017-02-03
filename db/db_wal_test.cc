@@ -8,8 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
-#include "port/stack_trace.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 #include "util/fault_injection_test_env.h"
 #include "util/options_helper.h"
 #include "util/sync_point.h"

@@ -13,8 +13,8 @@
 #if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
-#include "port/stack_trace.h"
 #include "port/port.h"
+#include "port/stack_trace.h"
 
 namespace rocksdb {
 class DBTestDynamicLevel : public DBTestBase {

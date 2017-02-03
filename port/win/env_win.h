@@ -16,16 +16,17 @@
 
 #pragma once
 
+#include "port/win/win_thread.h"
 #include <rocksdb/env.h>
 #include "util/threadpool_imp.h"
-#include "port/win/win_thread.h"
 
 #include <stdint.h>
+#include <Windows.h>
+
 #include <mutex>
 #include <vector>
 #include <string>
 
-#include <Windows.h>
 
 #undef GetCurrentTime
 #undef DeleteFile
@@ -290,5 +291,5 @@ private:
   WinEnvThreads winenv_threads_;
 };
 
-}
-}
+} // namespace port
+} // namespace rocksdb
