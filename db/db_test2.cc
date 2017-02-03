@@ -2229,8 +2229,9 @@ TEST_F(DBTest2, OptimizeForPointLookup) {
   ASSERT_EQ("v1", Get("foo"));
 }
 
-// Disable the test before we fix the bug
-TEST_F(DBTest2, DISABLED_GetRaceFlush) {
+#endif  // ROCKSDB_LITE
+
+TEST_F(DBTest2, GetRaceFlush1) {
   ASSERT_OK(Put("foo", "v1"));
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
@@ -2239,7 +2240,7 @@ TEST_F(DBTest2, DISABLED_GetRaceFlush) {
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread threads([&] {
+  std::thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
     ASSERT_OK(Put("foo", "v2"));
     Flush();
@@ -2249,10 +2250,32 @@ TEST_F(DBTest2, DISABLED_GetRaceFlush) {
   // Get() is issued after the first Put(), so it should see either
   // "v1" or "v2".
   ASSERT_NE("NOT_FOUND", Get("foo"));
+  t1.join();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif  // ROCKSDB_LITE
 
+TEST_F(DBTest2, GetRaceFlush2) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:3", "DBTest2::GetRaceFlush:1"},
+       {"DBTest2::GetRaceFlush:2", "DBImpl::GetImpl:4"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  std::thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::GetRaceFlush:2");
+  });
+
+  // Get() is issued after the first Put(), so it should see either
+  // "v1" or "v2".
+  ASSERT_NE("NOT_FOUND", Get("foo"));
+  t1.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
