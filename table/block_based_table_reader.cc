@@ -1963,6 +1963,21 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   if (!s.ok()) {
     return s;
   }
+
+  // Output compression dictionary
+  if (rep_->compression_dict_block != nullptr) {
+    auto compression_dict = rep_->compression_dict_block->data;
+    out_file->Append(
+        "Compression Dictionary:\n"
+        "--------------------------------------\n");
+    out_file->Append("  size (bytes): ");
+    out_file->Append(rocksdb::ToString(compression_dict.size()));
+    out_file->Append("\n\n");
+    out_file->Append("  HEX    ");
+    out_file->Append(compression_dict.ToString(true).c_str());
+    out_file->Append("\n\n");
+  }
+
   // Output range deletions block
   auto* range_del_iter = NewRangeTombstoneIterator(ReadOptions());
   if (range_del_iter != nullptr) {
