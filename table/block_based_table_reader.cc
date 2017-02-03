@@ -1965,8 +1965,8 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
   }
 
   // Output compression dictionary
-  auto compression_dict = rep_->compression_dict_block->data;
-  if (!compression_dict.empty()) {
+  if (rep_->compression_dict_block != nullptr) {
+    auto compression_dict = rep_->compression_dict_block->data;
     out_file->Append(
         "Compression Dictionary:\n"
         "--------------------------------------\n");
