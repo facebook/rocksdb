@@ -153,9 +153,12 @@ class BlockBasedTable::IndexReader {
   virtual ~IndexReader() {}
 
   // Create an iterator for index access.
-  // If a non-null iter is passed in it MIGHT be used instead of creating a new
-  // object on heap. In that case the return value would point to the same
-  // object as iter.
+  // If iter is null then a new object is created on heap and the callee will
+  // have the ownership. If a non-null iter is passed in it will be used, and
+  // the returned value is either the same as iter or a new on-heap object that
+  // wrapps the passed iter. In the latter case the return value would point to
+  // a different object then iter and the callee has the ownership of the
+  // returned object.
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
                                         bool total_order_seek = true) = 0;
 
@@ -205,10 +208,9 @@ class PartitionIndexReader : public IndexReader {
   // return a two-level iterator: first level is on the partition index
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
                                         bool dont_care = true) override {
-    // No support for initializing iter
     return NewTwoLevelIterator(
         new BlockBasedTable::BlockEntryIteratorState(table_, ReadOptions(),
-                                                         false),
+                                                     false),
         index_block_->NewIterator(comparator_, iter, true));
   }
 

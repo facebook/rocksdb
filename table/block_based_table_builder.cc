@@ -220,11 +220,11 @@ class PartitionIndexBuilder : public IndexBuilder {
     num_indexes++;
     if (UNLIKELY(first_key_in_next_block == nullptr)) {  // no more keys
       entries_.push_back({std::string(*last_key_in_current_block),
-                         std::unique_ptr<IndexBuilder>(sub_index_builder_)});
+                          std::unique_ptr<IndexBuilder>(sub_index_builder_)});
       sub_index_builder_ = nullptr;
     } else if (num_indexes % index_per_partition_ == 0) {
       entries_.push_back({std::string(*last_key_in_current_block),
-                         std::unique_ptr<IndexBuilder>(sub_index_builder_)});
+                          std::unique_ptr<IndexBuilder>(sub_index_builder_)});
       sub_index_builder_ = CreateIndexBuilder(
           sub_type_, comparator_, prefix_extractor_,
           index_block_restart_interval_, index_per_partition_);

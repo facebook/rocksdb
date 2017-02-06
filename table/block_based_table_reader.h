@@ -150,7 +150,6 @@ class BlockBasedTable : public TableReader {
   // The key retrieved are internal keys.
   Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
 
-  //class IndexPartitionIteratorState;
   class BlockEntryIteratorState;
 
  private:
@@ -277,12 +276,10 @@ class BlockBasedTable : public TableReader {
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure
-class BlockBasedTable::BlockEntryIteratorState
-    : public TwoLevelIteratorState {
+class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
  public:
   BlockEntryIteratorState(BlockBasedTable* table,
-                              const ReadOptions& read_options,
-                              bool skip_filters);
+                          const ReadOptions& read_options, bool skip_filters);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
   bool PrefixMayMatch(const Slice& internal_key) override;
 
