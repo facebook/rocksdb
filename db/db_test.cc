@@ -1497,6 +1497,59 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   ASSERT_GT(size_without_mt, 6000);
 }
 
+TEST_F(DBTest, GetApproximateMemTableStats) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100000000;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const int N = 128;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+
+  uint64_t count;
+  uint64_t size;
+
+  std::string start = Key(50);
+  std::string end = Key(60);
+  Range r(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_GT(count, 0);
+  ASSERT_LE(count, N);
+  ASSERT_GT(size, 6000);
+  ASSERT_LT(size, 204800);
+
+  start = Key(500);
+  end = Key(600);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_EQ(count, 0);
+  ASSERT_EQ(size, 0);
+
+  Flush();
+
+  start = Key(50);
+  end = Key(60);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_EQ(count, 0);
+  ASSERT_EQ(size, 0);
+
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(1000 + i), RandomString(&rnd, 1024)));
+  }
+
+  start = Key(100);
+  end = Key(1020);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_GT(count, 20);
+  ASSERT_GT(size, 6000);
+}
+
 TEST_F(DBTest, ApproximateSizes) {
   do {
     Options options = CurrentOptions();
@@ -2820,6 +2873,14 @@ class ModelDB : public DB {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
+  }
+  using DB::GetApproximateMemTableStats;
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) override {
+    *count = 0;
+    *size = 0;
   }
   using DB::CompactRange;
   virtual Status CompactRange(const CompactRangeOptions& options,

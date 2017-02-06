@@ -390,16 +390,16 @@ port::RWMutex* MemTable::GetLock(const Slice& key) {
   return &locks_[hash(key) % locks_.size()];
 }
 
-uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
-                                   const Slice& end_ikey) {
+MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
+                                                   const Slice& end_ikey) {
   uint64_t entry_count = table_->ApproximateNumEntries(start_ikey, end_ikey);
   entry_count += range_del_table_->ApproximateNumEntries(start_ikey, end_ikey);
   if (entry_count == 0) {
-    return 0;
+    return {0, 0};
   }
   uint64_t n = num_entries_.load(std::memory_order_relaxed);
   if (n == 0) {
-    return 0;
+    return {0, 0};
   }
   if (entry_count > n) {
     // (range_del_)table_->ApproximateNumEntries() is just an estimate so it can
@@ -408,7 +408,7 @@ uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
     entry_count = n;
   }
   uint64_t data_size = data_size_.load(std::memory_order_relaxed);
-  return entry_count * (data_size / n);
+  return {entry_count * (data_size / n), entry_count};
 }
 
 void MemTable::Add(SequenceNumber s, ValueType type,

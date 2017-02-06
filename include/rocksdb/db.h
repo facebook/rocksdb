@@ -616,6 +616,18 @@ class DB {
                         include_flags);
   }
 
+  // The method is similar to GetApproximateSizes, except it
+  // returns approximate number of records in memtables.
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) = 0;
+  virtual void GetApproximateMemTableStats(const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) {
+    GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
+  }
+
   // Deprecated versions of GetApproximateSizes
   ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
       const Range* range, int n, uint64_t* sizes,
