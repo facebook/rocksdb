@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "db/db_impl.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/string_util.h"
@@ -231,7 +232,7 @@ TEST_F(CompactFilesTest, CapturingPendingFiles) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // Start compacting files.
-  std::thread compaction_thread(
+  rocksdb::port::Thread compaction_thread(
       [&] { EXPECT_OK(db->CompactFiles(CompactionOptions(), l0_files, 1)); });
 
   // In the meantime flush another file.

@@ -425,7 +425,7 @@ class BackupEngineImpl : public BackupEngine {
   bool initialized_;
   std::mutex byte_report_mutex_;
   channel<CopyOrCreateWorkItem> files_to_copy_or_create_;
-  std::vector<std::thread> threads_;
+  std::vector<port::Thread> threads_;
 
   // Adds a file to the backup work queue to be copied or created if it doesn't
   // already exist.

@@ -39,6 +39,8 @@
 #include <deque>
 #include <set>
 #include <vector>
+
+#include "rocksdb/options.h"
 #include "port/port.h"
 #include "rocksdb/slice.h"
 #include "util/coding.h"

@@ -11,6 +11,7 @@
 #include <functional>
 
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
@@ -1616,8 +1617,8 @@ TEST_F(DBTest2, SyncPointMarker) {
     CountSyncPoint();
   };
 
-  auto thread1 = std::thread(func1);
-  auto thread2 = std::thread(func2);
+  auto thread1 = port::Thread(func1);
+  auto thread2 = port::Thread(func2);
   thread1.join();
   thread2.join();
 
@@ -1906,8 +1907,8 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
     delete iter;
   };
 
-  std::thread writer_thread(writer_func);
-  std::thread reader_thread(reader_func);
+  rocksdb::port::Thread writer_thread(writer_func);
+  rocksdb::port::Thread reader_thread(reader_func);
 
   writer_thread.join();
   reader_thread.join();
@@ -2178,7 +2179,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
     cro.exclusive_manual_compaction = false;
     ASSERT_OK(db_->CompactRange(cro, &k1s, &k2s));
   };
-  std::thread bg_thread;
+  rocksdb::port::Thread bg_thread;
 
   // While the compaction is running, we will create 2 new files that
   // can fit in L1, these 2 files will be moved to L1 and overlap with
@@ -2199,7 +2200,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
         ASSERT_OK(Flush());
 
         // Start a non-exclusive manual compaction in a bg thread
-        bg_thread = std::thread(bg_manual_compact);
+        bg_thread = port::Thread(bg_manual_compact);
         // This manual compaction conflict with the other manual compaction
         // so it should wait until the first compaction finish
         env_->SleepForMicroseconds(1000000);
@@ -2240,7 +2241,7 @@ TEST_F(DBTest2, GetRaceFlush1) {
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread t1([&] {
+  rocksdb::port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
     ASSERT_OK(Put("foo", "v2"));
     Flush();
@@ -2263,7 +2264,7 @@ TEST_F(DBTest2, GetRaceFlush2) {
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread t1([&] {
+  port::Thread t1([&] {
     TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
     ASSERT_OK(Put("foo", "v2"));
     Flush();

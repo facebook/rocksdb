@@ -21,6 +21,7 @@
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "memtable/stl_wrappers.h"
+#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -2204,8 +2205,8 @@ TEST_F(BlockBasedTableTest, NewIndexIteratorLeak) {
     std::unique_ptr<InternalIterator> iter(reader->NewIterator(ro));
   };
 
-  auto thread1 = std::thread(func1);
-  auto thread2 = std::thread(func2);
+  auto thread1 = port::Thread(func1);
+  auto thread2 = port::Thread(func2);
   thread1.join();
   thread2.join();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();

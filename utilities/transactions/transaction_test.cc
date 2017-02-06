@@ -27,6 +27,8 @@
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
 
+#include "port/port.h"
+
 using std::string;
 
 namespace rocksdb {
@@ -386,7 +388,7 @@ TEST_P(TransactionTest, DeadlockCycleShared) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // We want the leaf transactions to block and hold everyone back.
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   for (uint32_t i = 0; i < 15; i++) {
     std::function<void()> blocking_thread = [&, i] {
       auto s = txns[i]->GetForUpdate(read_options, ToString(i + 1), nullptr,
@@ -455,7 +457,7 @@ TEST_P(TransactionTest, DeadlockCycle) {
 
     // We want the last transaction in the chain to block and hold everyone
     // back.
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
     for (uint32_t i = 0; i < len - 1; i++) {
       std::function<void()> blocking_thread = [&, i] {
         auto s =
@@ -534,7 +536,7 @@ TEST_P(TransactionTest, DeadlockStress) {
     }
   };
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   for (uint32_t i = 0; i < NUM_TXN_THREADS; i++) {
     threads.emplace_back(stress_thread, rnd.Next());
   }
@@ -1034,7 +1036,7 @@ TEST_P(TransactionTest, TwoPhaseMultiThreadTest) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // do all the writes
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   for (uint32_t i = 0; i < NUM_TXN_THREADS; i++) {
     threads.emplace_back(txn_write_thread);
   }
@@ -4446,7 +4448,7 @@ TEST_P(TransactionTest, TransactionStressTest) {
   // Setting the key-space to be 100 keys should cause enough write-conflicts
   // to make this test interesting.
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
 
   std::function<void()> call_inserter = [&] {
     ASSERT_OK(TransactionStressTestInserter(db, num_transactions_per_thread,

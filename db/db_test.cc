@@ -31,6 +31,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "memtable/hash_linklist_rep.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -998,7 +999,7 @@ TEST_F(DBTest, FlushSchedule) {
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
 
   std::atomic<int> thread_num(0);
   // each column family will have 5 thread, each thread generating 2 memtables.
@@ -3556,7 +3557,7 @@ TEST_F(DBTest, SanitizeNumThreads) {
 }
 
 TEST_F(DBTest, WriteSingleThreadEntry) {
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   dbfull()->TEST_LockMutex();
   auto w = dbfull()->TEST_BeginWrite();
   threads.emplace_back([&] { Put("a", "b"); });
@@ -5434,7 +5435,7 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     }
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
     threads.emplace_back([&]() { Compact("a", "z"); });
 
     TEST_SYNC_POINT("DBTest::FlushesInParallelWithCompactRange:1");
@@ -5840,7 +5841,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   options.write_buffer_size = 100000;  // Small write buffer
   Reopen(options);
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   std::atomic<bool> done(false);
   db_->PauseBackgroundWork();
   threads.emplace_back([&]() {
