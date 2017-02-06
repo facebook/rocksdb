@@ -87,9 +87,9 @@ struct BlockBasedTableOptions {
     // `Options.prefix_extractor` is provided.
     kHashSearch,
 
-    // TODO: this feature is in experimental phase and shall not be used in
-    // production; either remove the feature or remove this comment if it is
-    // ready to be used in production.
+    // TODO(myabandeh): this feature is in experimental phase and shall not be
+    // used in production; either remove the feature or remove this comment if
+    // it is ready to be used in production.
     // A two-level index implementation. Both levels are binary search indexes.
     kTwoLevelIndexSearch,
   };
