@@ -996,6 +996,7 @@ class TableTest : public testing::Test {
     }
     return *plain_internal_comparator;
   }
+  void IndexTest(BlockBasedTableOptions table_options);
 
  private:
   std::unique_ptr<InternalKeyComparator> plain_internal_comparator;
@@ -1383,12 +1384,17 @@ TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
       options.prefix_extractor.reset(NewFixedPrefixTransform(4));
       break;
     case 3:
-    default:
       // Hash search index with filter policy
       table_options.index_type = BlockBasedTableOptions::kHashSearch;
       table_options.filter_policy.reset(NewBloomFilterPolicy(10));
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+      break;
+    case 4:
+    default:
+      // Binary search index
+      table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+      options.table_factory.reset(new BlockBasedTableFactory(table_options));
       break;
     }
 
@@ -1528,7 +1534,7 @@ void AddInternalKey(TableConstructor* c, const std::string& prefix,
   c->Add(k.Encode().ToString(), "v");
 }
 
-TEST_F(TableTest, HashIndexTest) {
+void TableTest::IndexTest(BlockBasedTableOptions table_options) {
   TableConstructor c(BytewiseComparator());
 
   // keys with prefix length 3, make sure the key/value is big enough to fill
@@ -1552,9 +1558,6 @@ TEST_F(TableTest, HashIndexTest) {
   stl_wrappers::KVMap kvmap;
   Options options;
   options.prefix_extractor.reset(NewFixedPrefixTransform(3));
-  BlockBasedTableOptions table_options;
-  table_options.index_type = BlockBasedTableOptions::kHashSearch;
-  table_options.hash_index_allow_collision = true;
   table_options.block_size = 1700;
   table_options.block_cache = NewLRUCache(1024, 4);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -1568,7 +1571,7 @@ TEST_F(TableTest, HashIndexTest) {
   auto props = reader->GetTableProperties();
   ASSERT_EQ(5u, props->num_data_blocks);
 
-  std::unique_ptr<InternalIterator> hash_iter(
+  std::unique_ptr<InternalIterator> index_iter(
       reader->NewIterator(ReadOptions()));
 
   // -- Find keys do not exist, but have common prefix.
@@ -1578,13 +1581,13 @@ TEST_F(TableTest, HashIndexTest) {
 
   // find the lower bound of the prefix
   for (size_t i = 0; i < prefixes.size(); ++i) {
-    hash_iter->Seek(InternalKey(prefixes[i], 0, kTypeValue).Encode());
-    ASSERT_OK(hash_iter->status());
-    ASSERT_TRUE(hash_iter->Valid());
+    index_iter->Seek(InternalKey(prefixes[i], 0, kTypeValue).Encode());
+    ASSERT_OK(index_iter->status());
+    ASSERT_TRUE(index_iter->Valid());
 
     // seek the first element in the block
-    ASSERT_EQ(lower_bound[i], hash_iter->key().ToString());
-    ASSERT_EQ("v", hash_iter->value().ToString());
+    ASSERT_EQ(lower_bound[i], index_iter->key().ToString());
+    ASSERT_EQ("v", index_iter->value().ToString());
   }
 
   // find the upper bound of prefixes
@@ -1593,51 +1596,73 @@ TEST_F(TableTest, HashIndexTest) {
   // find existing keys
   for (const auto& item : kvmap) {
     auto ukey = ExtractUserKey(item.first).ToString();
-    hash_iter->Seek(ukey);
+    index_iter->Seek(ukey);
 
     // ASSERT_OK(regular_iter->status());
-    ASSERT_OK(hash_iter->status());
+    ASSERT_OK(index_iter->status());
 
     // ASSERT_TRUE(regular_iter->Valid());
-    ASSERT_TRUE(hash_iter->Valid());
+    ASSERT_TRUE(index_iter->Valid());
 
-    ASSERT_EQ(item.first, hash_iter->key().ToString());
-    ASSERT_EQ(item.second, hash_iter->value().ToString());
+    ASSERT_EQ(item.first, index_iter->key().ToString());
+    ASSERT_EQ(item.second, index_iter->value().ToString());
   }
 
   for (size_t i = 0; i < prefixes.size(); ++i) {
     // the key is greater than any existing keys.
     auto key = prefixes[i] + "9";
-    hash_iter->Seek(InternalKey(key, 0, kTypeValue).Encode());
+    index_iter->Seek(InternalKey(key, 0, kTypeValue).Encode());
 
-    ASSERT_OK(hash_iter->status());
+    ASSERT_OK(index_iter->status());
     if (i == prefixes.size() - 1) {
       // last key
-      ASSERT_TRUE(!hash_iter->Valid());
+      ASSERT_TRUE(!index_iter->Valid());
     } else {
-      ASSERT_TRUE(hash_iter->Valid());
+      ASSERT_TRUE(index_iter->Valid());
       // seek the first element in the block
-      ASSERT_EQ(upper_bound[i], hash_iter->key().ToString());
-      ASSERT_EQ("v", hash_iter->value().ToString());
+      ASSERT_EQ(upper_bound[i], index_iter->key().ToString());
+      ASSERT_EQ("v", index_iter->value().ToString());
     }
   }
 
   // find keys with prefix that don't match any of the existing prefixes.
   std::vector<std::string> non_exist_prefixes = {"002", "004", "006", "008"};
   for (const auto& prefix : non_exist_prefixes) {
-    hash_iter->Seek(InternalKey(prefix, 0, kTypeValue).Encode());
+    index_iter->Seek(InternalKey(prefix, 0, kTypeValue).Encode());
     // regular_iter->Seek(prefix);
 
-    ASSERT_OK(hash_iter->status());
+    ASSERT_OK(index_iter->status());
     // Seek to non-existing prefixes should yield either invalid, or a
     // key with prefix greater than the target.
-    if (hash_iter->Valid()) {
-      Slice ukey = ExtractUserKey(hash_iter->key());
+    if (index_iter->Valid()) {
+      Slice ukey = ExtractUserKey(index_iter->key());
       Slice ukey_prefix = options.prefix_extractor->Transform(ukey);
       ASSERT_TRUE(BytewiseComparator()->Compare(prefix, ukey_prefix) < 0);
     }
   }
   c.ResetTableReader();
+}
+
+TEST_F(TableTest, BinaryIndexTest) {
+  BlockBasedTableOptions table_options;
+  table_options.index_type = BlockBasedTableOptions::kBinarySearch;
+  IndexTest(table_options);
+}
+
+TEST_F(TableTest, HashIndexTest) {
+  BlockBasedTableOptions table_options;
+  table_options.index_type = BlockBasedTableOptions::kHashSearch;
+  IndexTest(table_options);
+}
+
+TEST_F(TableTest, PartitionIndexTest) {
+  const int max_index_keys = 5;
+  for (int i = 1; i <= max_index_keys + 1; i++) {
+    BlockBasedTableOptions table_options;
+    table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
+    table_options.index_per_partition = i;
+    IndexTest(table_options);
+  }
 }
 
 // It's very hard to figure out the index block size of a block accurately.

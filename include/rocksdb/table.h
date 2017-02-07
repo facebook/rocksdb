@@ -86,6 +86,12 @@ struct BlockBasedTableOptions {
     // The hash index, if enabled, will do the hash lookup when
     // `Options.prefix_extractor` is provided.
     kHashSearch,
+
+    // TODO(myabandeh): this feature is in experimental phase and shall not be
+    // used in production; either remove the feature or remove this comment if
+    // it is ready to be used in production.
+    // A two-level index implementation. Both levels are binary search indexes.
+    kTwoLevelIndexSearch,
   };
 
   IndexType index_type = kBinarySearch;
@@ -137,6 +143,10 @@ struct BlockBasedTableOptions {
 
   // Same as block_restart_interval but used for the index block.
   int index_block_restart_interval = 1;
+
+  // Number of index keys per partition of indexes in a multi-level index
+  // i.e., the number of data blocks covered by each index partition
+  uint64_t index_per_partition = 2;
 
   // Use delta encoding to compress keys in blocks.
   // ReadOptions::pin_data requires this option to be disabled.
