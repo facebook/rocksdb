@@ -468,13 +468,14 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
   ReadaheadRandomAccessFile(std::unique_ptr<RandomAccessFile>&& file,
                             size_t readahead_size)
       : file_(std::move(file)),
-        readahead_size_(readahead_size),
+        alignment_(file_->GetRequiredBufferAlignment()),
+        readahead_size_(Roundup(readahead_size, alignment_)),
         forward_calls_(file_->ShouldForwardRawRequest()),
         buffer_(),
         buffer_offset_(0),
         buffer_len_(0) {
     if (!forward_calls_) {
-      buffer_.reset(new char[readahead_size_]);
+      buffer_.reset(new char[readahead_size_ + alignment_]);
     } else if (readahead_size_ > 0) {
       file_->EnableReadAhead();
     }
@@ -512,19 +513,24 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
         return Status::OK();
       }
     }
+    size_t aligned_offset = TruncateToPageBoundary(alignment_, offset + copied);
     Slice readahead_result;
-    Status s = file_->Read(offset + copied, readahead_size_, &readahead_result,
-      buffer_.get());
+    Status s = file_->Read(aligned_offset, readahead_size_ + alignment_,
+                           &readahead_result, buffer_.get());
     if (!s.ok()) {
       return s;
     }
-
-    auto left_to_copy = std::min(readahead_result.size(), n - copied);
-    memcpy(scratch + copied, readahead_result.data(), left_to_copy);
-    *result = Slice(scratch, copied + left_to_copy);
+    size_t offset_advance = offset - aligned_offset;
+    if (offset_advance < readahead_result.size()) {
+      auto left_to_copy =
+          std::min(readahead_result.size() - offset_advance, n - copied);
+      memcpy(scratch + copied, readahead_result.data() + offset_advance,
+             left_to_copy);
+      *result = Slice(scratch, copied + left_to_copy);
+    }
 
     if (readahead_result.data() == buffer_.get()) {
-      buffer_offset_ = offset + copied;
+      buffer_offset_ = aligned_offset;
       buffer_len_ = readahead_result.size();
     } else {
       buffer_len_ = 0;
@@ -545,6 +551,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
  private:
   std::unique_ptr<RandomAccessFile> file_;
+  const size_t alignment_;
   size_t               readahead_size_;
   const bool           forward_calls_;
 
