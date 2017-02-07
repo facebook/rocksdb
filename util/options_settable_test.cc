@@ -314,17 +314,15 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
   // options in the blacklist need to appear in the same order as in
   // ColumnFamilyOptions.
   const OffsetGap kColumnFamilyOptionsBlacklist = {
-      {offset_of(&ColumnFamilyOptions::comparator), sizeof(Comparator*)},
-      {offset_of(&ColumnFamilyOptions::merge_operator),
-       sizeof(std::shared_ptr<MergeOperator>)},
-      {offset_of(&ColumnFamilyOptions::compaction_filter),
-       sizeof(const CompactionFilter*)},
-      {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
-       sizeof(std::shared_ptr<CompactionFilterFactory>)},
-      {offset_of(&ColumnFamilyOptions::compression_per_level),
-       sizeof(std::vector<CompressionType>)},
       {offset_of(&ColumnFamilyOptions::prefix_extractor),
        sizeof(std::shared_ptr<const SliceTransform>)},
+      {offset_of(&ColumnFamilyOptions::inplace_callback),
+       sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
+      {offset_of(
+           &ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor),
+       sizeof(std::shared_ptr<const SliceTransform>)},
+      {offset_of(&ColumnFamilyOptions::compression_per_level),
+       sizeof(std::vector<CompressionType>)},
       {offset_of(
            &ColumnFamilyOptions::max_bytes_for_level_multiplier_additional),
        sizeof(std::vector<int>)},
@@ -334,11 +332,13 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
        sizeof(std::shared_ptr<TableFactory>)},
       {offset_of(&ColumnFamilyOptions::table_properties_collector_factories),
        sizeof(ColumnFamilyOptions::TablePropertiesCollectorFactories)},
-      {offset_of(&ColumnFamilyOptions::inplace_callback),
-       sizeof(UpdateStatus(*)(char*, uint32_t*, Slice, std::string*))},
-      {offset_of(
-           &ColumnFamilyOptions::memtable_insert_with_hint_prefix_extractor),
-       sizeof(std::shared_ptr<const SliceTransform>)},
+      {offset_of(&ColumnFamilyOptions::comparator), sizeof(Comparator*)},
+      {offset_of(&ColumnFamilyOptions::merge_operator),
+       sizeof(std::shared_ptr<MergeOperator>)},
+      {offset_of(&ColumnFamilyOptions::compaction_filter),
+       sizeof(const CompactionFilter*)},
+      {offset_of(&ColumnFamilyOptions::compaction_filter_factory),
+       sizeof(std::shared_ptr<CompactionFilterFactory>)},
   };
 
   char* options_ptr = new char[sizeof(ColumnFamilyOptions)];
