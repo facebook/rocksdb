@@ -49,6 +49,6 @@ script:
 notifications:
   slack:
     rooms:
-    - rocksetchat:"$SLACK_TOKEN"#rocksdb-cloud
+    - rockset-io:"$SLACK_TOKEN"#rocksdb-cloud
     on_success: change
     on_failure: always
