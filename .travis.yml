@@ -49,6 +49,6 @@ script:
 notifications:
   slack:
     rooms:
-    - rockset-io:$SLACK_TOKEN#rocksdb-cloud
+      secure: S9sPiLpGnRXLWqhc5sONu463Bsxeo+jvE2VUEkYGY4cdVylTLlkYXcuVP0XrGbRLiYrL2SBdl4gNO/N04de0yhtAkEJvjzJbeex/NxQot8FN0Q/noJ1wo3iJmGfpeY3HaLXidlR3l15qFpKVYtt4UWRTWdBLlUuEBukyYWam47dF/+AN4roTgSA53A0qXcY8UsO9n8h2YknQF5VFbCMIy4YfaZDaGciFIAJMAjBiKcONmLPq3f9zNeMQcK8tpGMPeDkgiuB024LGvrTHUoZ8RskKv6o8oYP372QLr7AoxwgNg8dvSjQmDw/S/1LHjirDWmz9VqoUqPmaVkEF7C3KKsn5HbDcJpM1AJe6HfYVjTfGL3sBsmFg+8y+e71goMvBOdwQO+ewYKaullxIrrjRZpa3MFwLeFADD0bqX7nOhUtn+utb5D0kLBmeRMXJM19niooPbPFynuN/xcwR1e3xNkmCdtbl9pnBkwlJrfqytRaJfcjC5YBVluVd+PlTCChZ49e6goQ+JUzGxm2/HqfK1So9R76zbEEnGNwD5Qan2wsSNfMtwG7yD9giz8Z6fXiEKuQ5D/vZ61sbGnORDqCeFWgh+s0dg1jxqAXMhz5XQXDQh1FEu7VZC5B/kLdR/Anex31/HtQihs7fztSsMe1xxjM+FffjMBATvumMtfuvOaU=
     on_success: change
     on_failure: always
