@@ -1371,6 +1371,8 @@ ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).
 ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadoc.jar
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
 
+ZLIB_VER = 1.2.11
+
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
@@ -1392,11 +1394,11 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 endif
 
 libz.a:
-	-rm -rf zlib-1.2.10
-	curl -O -L http://zlib.net/zlib-1.2.10.tar.gz
-	tar xvzf zlib-1.2.10.tar.gz
-	cd zlib-1.2.10 && CFLAGS='-fPIC' ./configure --static && make
-	cp zlib-1.2.10/libz.a .
+	-rm -rf zlib-$(ZLIB_VER)
+	curl -O -L http://zlib.net/zlib-$(ZLIB_VER).tar.gz
+	tar xvzf zlib-$(ZLIB_VER).tar.gz
+	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC' ./configure --static && make
+	cp zlib-$(ZLIB_VER)/libz.a .
 
 libbz2.a:
 	-rm -rf bzip2-1.0.6
@@ -1426,7 +1428,7 @@ java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
-JAVA_STATIC_INCLUDES = -I./zlib-1.2.10 -I./bzip2-1.0.6 -I./snappy-1.1.3 -I./lz4-r127/lib
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-1.0.6 -I./snappy-1.1.3 -I./lz4-r127/lib
 
 $(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
