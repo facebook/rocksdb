@@ -29,10 +29,21 @@ class CloudEnvOptions {
   // Default:  true
   bool keep_local_log_files;
 
+  // The periodicity when the manifest should be made durable by backing it
+  // to cloud store. If set to 0, then manifest is not uploaded to S3.
+  // This feature is enabled only if keep_local_log_files = true.
+  // Default:  1 minute
+  uint64_t manifest_durable_periodicity_millis;
+
   CloudEnvOptions(bool _keep_local_sst_files = false,
-		  bool _keep_local_log_files = true)
+		  bool _keep_local_log_files = true,
+		  uint64_t _manifest_durable_periodicity_millis = 60 * 1000)
     : keep_local_sst_files(_keep_local_sst_files),
-      keep_local_log_files(_keep_local_log_files) {
+      keep_local_log_files(_keep_local_log_files),
+      manifest_durable_periodicity_millis(_manifest_durable_periodicity_millis) {
+
+        assert(manifest_durable_periodicity_millis == 0 ||
+	       keep_local_log_files == true);
   }
 };
 

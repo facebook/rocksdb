@@ -248,9 +248,12 @@ class AwsEnv : public Env {
   // Validate options
   Status CheckOption(const EnvOptions& options);
 
-  // Determine type of a file based on filename
+  // Determine type of a file based on filename. Rules:
+  // 1. filename ends with a .sst is a sst file.
+  // 2. filename ends with .log or starts with MANIFEST is a logfile
+  // 3. filename starts with MANIFEST is a manifest file
   void GetFileType(const std::string& fname,
-                   bool* sstFile, bool* logfile);
+                   bool* sstFile, bool* logfile, bool* manifest = nullptr);
 
   // Return the list of children of the specified path
   Status GetChildrenFromS3(const std::string& path,

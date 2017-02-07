@@ -131,11 +131,17 @@ Status AwsEnv::CheckOption(const EnvOptions& options) {
 // find out whether this is an sst file or a log file.
 //
 void AwsEnv::GetFileType(const std::string& fname,
-		         bool* sstFile, bool* logFile) {
+		         bool* sstFile, bool* logFile,
+			 bool* manifest) {
   *logFile = false;
+  if (manifest) *manifest = false;
+
   *sstFile = IsSstFile(fname);
   if (!*sstFile) {
     *logFile = IsLogFile(fname);
+    if (manifest) {
+      *manifest = IsManifestFile(fname);
+    }
   }
 }
 
@@ -255,11 +261,14 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
   // Get file type
   bool logfile;
   bool sstfile;
-  GetFileType(fname, &sstfile, &logfile);
+  bool manifest;
+  GetFileType(fname, &sstfile, &logfile, &manifest);
   result->reset();
 
-  if (sstfile && !cloud_env_options.keep_local_sst_files) {
-    S3WritableFile* f = new S3WritableFile(this, fname, options);
+  if ((sstfile && !cloud_env_options.keep_local_sst_files) ||
+      (manifest && cloud_env_options.manifest_durable_periodicity_millis > 0)) {
+
+    S3WritableFile* f = new S3WritableFile(this, fname, options, cloud_env_options);
     if (f == nullptr || !f->status().ok()) {
       delete f;
       *result = nullptr;
@@ -788,8 +797,8 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
     st = posixEnv_->GetFileSize(fname, size);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[aws] GetFileSize src '%s' %s", fname.c_str(), st.ToString().c_str());
-  info_log_->Flush();
+      "[aws] GetFileSize src '%s' %s %ld",
+      fname.c_str(), st.ToString().c_str(), size);
   return st;
 }
 

@@ -227,6 +227,9 @@ class S3WritableFile: public WritableFile {
   unique_ptr<WritableFile> temp_file_; // handle to the temporary file
   Aws::String s3_bucket_;
   Aws::String s3_object_;
+  bool is_manifest_;
+  const uint64_t manifest_durable_periodicity_millis_;
+  uint64_t manifest_last_sync_time_; // last time when manifest made duarbale
 
  public:
   // create S3 bucket
@@ -237,7 +240,8 @@ class S3WritableFile: public WritableFile {
 
   S3WritableFile(AwsEnv* env,
 		 const std::string& fname,
-		 const EnvOptions& options);
+		 const EnvOptions& options,
+		 const CloudEnvOptions cloud_env_options);
 
   virtual ~S3WritableFile();
 
@@ -252,16 +256,16 @@ class S3WritableFile: public WritableFile {
     return temp_file_->Flush();
   }
 
-  virtual Status Sync() {
-    assert(status_.ok());
-    return temp_file_->Sync();
-  }
+  virtual Status Sync();
 
   virtual Status status() {
     return status_;
   }
 
   virtual Status Close();
+
+  virtual Status CopyManifestToS3();
+  virtual Status CopyToS3(const Aws::String& destination_object);
 };
 
 // Creates a new file, appends data to a file or delete an existing file via
