@@ -1770,7 +1770,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
   // verify compaction result
   files_per_level = "";
   int num_files = 0;
-  for (int i = 0; i < db_->NumberLevels(); i++) {
+  for (int i = 0; i < db_->NumberLevels(GetCfHandle()); i++) {
     db_->GetProperty(GetCfHandle(),
                      "rocksdb.num-files-at-level" + NumberToString(i),
                      &property);
