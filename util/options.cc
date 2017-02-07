@@ -31,6 +31,7 @@
 #include "table/block_based_table_factory.h"
 #include "util/compression.h"
 #include "util/db_options.h"
+#include "util/options_helper.h"
 #include "util/statistics.h"
 #include "util/xfunc.h"
 
@@ -285,10 +286,30 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         disable_auto_compactions);
     Header(log, "          Options.verify_checksums_in_compaction: %d",
         verify_checksums_in_compaction);
-    Header(log, "                        Options.compaction_style: %d",
-        compaction_style);
-    Header(log, "                          Options.compaction_pri: %d",
-           compaction_pri);
+
+    const auto& it_compaction_style =
+        compaction_style_to_string.find(compaction_style);
+    std::string str_compaction_style;
+    if (it_compaction_style == compaction_style_to_string.end()) {
+      assert(false);
+      str_compaction_style = "unknown_" + std::to_string(compaction_style);
+    } else {
+      str_compaction_style = it_compaction_style->second;
+    }
+    Header(log, "                        Options.compaction_style: %s",
+           str_compaction_style.c_str());
+
+    const auto& it_compaction_pri =
+        compaction_pri_to_string.find(compaction_pri);
+    std::string str_compaction_pri;
+    if (it_compaction_pri == compaction_pri_to_string.end()) {
+      assert(false);
+      str_compaction_pri = "unknown_" + std::to_string(compaction_pri);
+    } else {
+      str_compaction_pri = it_compaction_pri->second;
+    }
+    Header(log, "                          Options.compaction_pri: %s",
+           str_compaction_pri.c_str());
     Header(log, " Options.compaction_options_universal.size_ratio: %u",
         compaction_options_universal.size_ratio);
     Header(log, "Options.compaction_options_universal.min_merge_width: %u",

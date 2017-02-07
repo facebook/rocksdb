@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -23,6 +24,18 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
 ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
+
+static std::map<CompactionStyle, std::string> compaction_style_to_string = {
+    {kCompactionStyleLevel, "kCompactionStyleLevel"},
+    {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
+    {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
+    {kCompactionStyleNone, "kCompactionStyleNone"}};
+
+static std::map<CompactionPri, std::string> compaction_pri_to_string = {
+    {kByCompensatedSize, "kByCompensatedSize"},
+    {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
+    {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
+    {kMinOverlappingRatio, "kMinOverlappingRatio"}};
 
 #ifndef ROCKSDB_LITE
 
