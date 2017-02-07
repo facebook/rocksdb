@@ -64,6 +64,8 @@ public:
 
   void SleepForMicroseconds(int micros);
 
+  void SleepForNanoseconds(int nanos);
+
   // Allow increasing the number of worker threads.
   void SetBackgroundThreads(int num, Env::Priority pri);
 
@@ -273,6 +275,8 @@ public:
   uint64_t GetThreadID() const override;
 
   void SleepForMicroseconds(int micros) override;
+
+  void SleepForNanoseconds(int nanos) override;
 
   // Allow increasing the number of worker threads.
   void SetBackgroundThreads(int num, Env::Priority pri) override;

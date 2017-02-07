@@ -440,6 +440,16 @@ class SpecialEnv : public EnvWrapper {
     }
   }
 
+  virtual void SleepForNanoseconds(int nanos) override {
+    sleep_counter_.Increment();
+    if (no_slowdown_ || time_elapse_only_sleep_) {
+      addon_time_.fetch_add(nanos/1000);
+    }
+    if (!no_slowdown_) {
+      target()->SleepForNanoseconds(nanos);
+    }
+  }
+
   virtual Status GetCurrentTime(int64_t* unix_time) override {
     Status s;
     if (!time_elapse_only_sleep_) {

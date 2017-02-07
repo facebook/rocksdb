@@ -15,8 +15,8 @@ class WriteControllerTest : public testing::Test {};
 class TimeSetEnv : public EnvWrapper {
  public:
   explicit TimeSetEnv() : EnvWrapper(nullptr) {}
-  uint64_t now_micros_ = 6666;
-  virtual uint64_t NowMicros() override { return now_micros_; }
+  uint64_t now_nanos_ = 6666000;
+  virtual uint64_t NowNanos() override { return now_nanos_; }
 };
 
 TEST_F(WriteControllerTest, ChangeDelayRateTest) {
@@ -25,21 +25,21 @@ TEST_F(WriteControllerTest, ChangeDelayRateTest) {
   controller.set_delayed_write_rate(10000000u);
   auto delay_token_0 =
       controller.GetDelayToken(controller.delayed_write_rate());
-  ASSERT_EQ(static_cast<uint64_t>(2000000),
+  ASSERT_EQ(static_cast<uint64_t>(2000000000),
             controller.GetDelay(&env, 20000000u));
   auto delay_token_1 = controller.GetDelayToken(2000000u);
-  ASSERT_EQ(static_cast<uint64_t>(10000000),
+  ASSERT_EQ(static_cast<uint64_t>(10000000000),
             controller.GetDelay(&env, 20000000u));
   auto delay_token_2 = controller.GetDelayToken(1000000u);
-  ASSERT_EQ(static_cast<uint64_t>(20000000),
+  ASSERT_EQ(static_cast<uint64_t>(20000000000),
             controller.GetDelay(&env, 20000000u));
   auto delay_token_3 = controller.GetDelayToken(20000000u);
-  ASSERT_EQ(static_cast<uint64_t>(1000000),
+  ASSERT_EQ(static_cast<uint64_t>(1000000000),
             controller.GetDelay(&env, 20000000u));
   // This is more than max rate. Max delayed rate will be used.
   auto delay_token_4 =
       controller.GetDelayToken(controller.delayed_write_rate() * 3);
-  ASSERT_EQ(static_cast<uint64_t>(500000),
+  ASSERT_EQ(static_cast<uint64_t>(500000000),
             controller.GetDelay(&env, 20000000u));
 }
 
@@ -57,67 +57,67 @@ TEST_F(WriteControllerTest, SanityTest) {
   TimeSetEnv env;
 
   auto delay_token_1 = controller.GetDelayToken(10000000u);
-  ASSERT_EQ(static_cast<uint64_t>(2000000),
+  ASSERT_EQ(static_cast<uint64_t>(2000000000),
             controller.GetDelay(&env, 20000000u));
 
-  env.now_micros_ += 1999900u;  // sleep debt 1000
+  env.now_nanos_ += 1999900000u;  // sleep debt 100000
 
   auto delay_token_2 = controller.GetDelayToken(10000000u);
   // Rate reset after changing the token.
-  ASSERT_EQ(static_cast<uint64_t>(2000000),
+  ASSERT_EQ(static_cast<uint64_t>(2000000000),
             controller.GetDelay(&env, 20000000u));
 
-  env.now_micros_ += 1999900u;  // sleep debt 1000
+  env.now_nanos_ += 1999900000u;  // sleep debt 100000
 
-  // One refill: 10240 bytes allowed, 1000 used, 9240 left
-  ASSERT_EQ(static_cast<uint64_t>(1124), controller.GetDelay(&env, 1000u));
-  env.now_micros_ += 1124u;  // sleep debt 0
+  // One refill: 10000 bytes allowed, 1000 used, 9000 left
+  ASSERT_EQ(static_cast<uint64_t>(1100000), controller.GetDelay(&env, 1000u));
+  env.now_nanos_ += 1100000u;  // sleep debt 0
 
   delay_token_2.reset();
-  // 1000 used, 8240 left
+  // 1000 used, 8000 left
   ASSERT_EQ(static_cast<uint64_t>(0), controller.GetDelay(&env, 1000u));
 
-  env.now_micros_ += 100u;  // sleep credit 100
-  // 1000 used, 7240 left
+  env.now_nanos_ += 100000u;  // sleep credit 100000
+  // 1000 used, 7000 left
   ASSERT_EQ(static_cast<uint64_t>(0), controller.GetDelay(&env, 1000u));
 
-  env.now_micros_ += 100u;  // sleep credit 200
-  // One refill: 10240 fileed, sleep credit generates 2000. 8000 used
-  //             7240 + 10240 + 2000 - 8000 = 11480 left
-  ASSERT_EQ(static_cast<uint64_t>(1024u), controller.GetDelay(&env, 8000u));
+  env.now_nanos_ += 100000u;  // sleep credit 200000
+  // One refill: 10000 filed, sleep credit generates 2000. 8000 used
+  //             7000 + 10000 + 2000 - 8000 = 11000 left
+  ASSERT_EQ(static_cast<uint64_t>(1000000u), controller.GetDelay(&env, 8000u));
 
-  env.now_micros_ += 200u;  // sleep debt 824
-  // 1000 used, 10480 left.
+  env.now_nanos_ += 200000u;  // sleep debt 800000
+  // 1000 used, 10000 left.
   ASSERT_EQ(static_cast<uint64_t>(0), controller.GetDelay(&env, 1000u));
 
-  env.now_micros_ += 200u;  // sleep debt 624
+  env.now_nanos_ += 200000u;  // sleep debt 600000
   // Out of bound sleep, still 10480 left
-  ASSERT_EQ(static_cast<uint64_t>(3000624u),
+  ASSERT_EQ(static_cast<uint64_t>(3000600000u),
             controller.GetDelay(&env, 30000000u));
 
-  env.now_micros_ += 3000724u;  // sleep credit 100
-  // 6000 used, 4480 left.
+  env.now_nanos_ += 3000700000u;  // sleep credit 100000
+  // 6000 used, 4000 left.
   ASSERT_EQ(static_cast<uint64_t>(0), controller.GetDelay(&env, 6000u));
 
-  env.now_micros_ += 200u;  // sleep credit 300
-  // One refill, credit 4480 balance + 3000 credit + 10240 refill
-  // Use 8000, 9720 left
-  ASSERT_EQ(static_cast<uint64_t>(1024u), controller.GetDelay(&env, 8000u));
+  env.now_nanos_ += 200000u;  // sleep credit 300000
+  // One refill, credit 4000 balance + 3000 credit + 10000 refill
+  // Use 8000, 9000 left
+  ASSERT_EQ(static_cast<uint64_t>(1000000u), controller.GetDelay(&env, 8000u));
 
-  env.now_micros_ += 3024u;  // sleep credit 2000
+  env.now_nanos_ += 3000000u;  // sleep credit 2000000
 
-  // 1720 left
+  // 1000 left
   ASSERT_EQ(static_cast<uint64_t>(0u), controller.GetDelay(&env, 8000u));
 
-  // 1720 balance + 20000 credit = 20170 left
-  // Use 8000, 12170 left
+  // 1000 balance + 20000 credit = 21000 left
+  // Use 8000, 13000 left
   ASSERT_EQ(static_cast<uint64_t>(0u), controller.GetDelay(&env, 8000u));
 
-  // 4170 left
+  // 5000 left
   ASSERT_EQ(static_cast<uint64_t>(0u), controller.GetDelay(&env, 8000u));
 
   // Need a refill
-  ASSERT_EQ(static_cast<uint64_t>(1024u), controller.GetDelay(&env, 9000u));
+  ASSERT_EQ(static_cast<uint64_t>(1000000u), controller.GetDelay(&env, 9000u));
 
   delay_token_1.reset();
   ASSERT_EQ(static_cast<uint64_t>(0), controller.GetDelay(&env, 30000000u));

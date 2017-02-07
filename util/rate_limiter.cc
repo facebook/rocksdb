@@ -28,7 +28,7 @@ struct GenericRateLimiter::Req {
 GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
                                        int64_t refill_period_us,
                                        int32_t fairness)
-    : refill_period_us_(refill_period_us),
+    : refill_period_ns_(refill_period_us * 1000),
       refill_bytes_per_period_(
           CalculateRefillBytesPerPeriod(rate_bytes_per_sec)),
       env_(Env::Default()),
@@ -36,7 +36,7 @@ GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
       exit_cv_(&request_mutex_),
       requests_to_wait_(0),
       available_bytes_(0),
-      next_refill_us_(env_->NowMicros()),
+      next_refill_ns_(env_->NowNanos()),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
       leader_(nullptr) {
@@ -107,7 +107,10 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
          (!queue_[Env::IO_LOW].empty() &&
             &r == queue_[Env::IO_LOW].front()))) {
       leader_ = &r;
-      timedout = r.cv.TimedWait(next_refill_us_);
+      int64_t nano_delta = next_refill_ns_ - env_->NowNanos();
+      nano_delta = nano_delta > 0 ? nano_delta : 0;
+      int64_t wait_util = env_->NowMicros() + nano_delta/1000;
+      timedout = r.cv.TimedWait(wait_util);
     } else {
       // Not at the front of queue or an leader has already been elected
       r.cv.Wait();
@@ -178,7 +181,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
 
 void GenericRateLimiter::Refill() {
   TEST_SYNC_POINT("GenericRateLimiter::Refill");
-  next_refill_us_ = env_->NowMicros() + refill_period_us_;
+  next_refill_ns_ = env_->NowNanos() + refill_period_ns_;
   // Carry over the left over quota from the last period
   auto refill_bytes_per_period =
       refill_bytes_per_period_.load(std::memory_order_relaxed);
@@ -214,13 +217,13 @@ void GenericRateLimiter::Refill() {
 
 int64_t GenericRateLimiter::CalculateRefillBytesPerPeriod(
     int64_t rate_bytes_per_sec) {
-  if (port::kMaxInt64 / rate_bytes_per_sec < refill_period_us_) {
+  if (port::kMaxInt64 / rate_bytes_per_sec < refill_period_ns_/1000) {
     // Avoid unexpected result in the overflow case. The result now is still
     // inaccurate but is a number that is large enough.
     return port::kMaxInt64 / 1000000;
   } else {
     return std::max(kMinRefillBytesPerPeriod,
-                    rate_bytes_per_sec * refill_period_us_ / 1000000);
+                    rate_bytes_per_sec * refill_period_ns_ / 1000000000);
   }
 }
 

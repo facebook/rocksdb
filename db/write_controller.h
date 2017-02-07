@@ -36,7 +36,7 @@ class WriteController {
   // When an actor (column family) requests a delay token, total delay for all
   // writes to the DB will be controlled under the delayed write rate. Every
   // write needs to call GetDelay() with number of bytes writing to the DB,
-  // which returns number of microseconds to sleep.
+  // which returns number of nanoseconds to sleep.
   std::unique_ptr<WriteControllerToken> GetDelayToken(
       uint64_t delayed_write_rate);
   // When an actor (column family) requests a moderate token, compaction
@@ -49,7 +49,7 @@ class WriteController {
   bool NeedSpeedupCompaction() const {
     return IsStopped() || NeedsDelay() || total_compaction_pressure_ > 0;
   }
-  // return how many microseconds the caller needs to sleep after the call
+  // return how many nanoseconds the caller needs to sleep after the call
   // num_bytes: how many number of bytes to put into the DB.
   // Prerequisite: DB mutex held.
   uint64_t GetDelay(Env* env, uint64_t num_bytes);

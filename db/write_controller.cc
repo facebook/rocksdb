@@ -38,7 +38,7 @@ bool WriteController::IsStopped() const { return total_stopped_ > 0; }
 // frequency to get time.
 // If it turns out to be a performance issue, we can redesign the thread
 // synchronization model here.
-// The function trust caller will sleep micros returned.
+// The function trust caller will sleep nanos returned.
 uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   if (total_stopped_ > 0) {
     return 0;
@@ -47,8 +47,8 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
     return 0;
   }
 
-  const uint64_t kMicrosPerSecond = 1000000;
-  const uint64_t kRefillInterval = 1024U;
+  const uint64_t kNanosPerSecond = 1000000000U;
+  const uint64_t kRefillInterval = 1000000U;
 
   if (bytes_left_ >= num_bytes) {
     bytes_left_ -= num_bytes;
@@ -56,7 +56,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   }
   // The frequency to get time inside DB mutex is less than one per refill
   // interval.
-  auto time_now = env->NowMicros();
+  auto time_now = env->NowNanos();
 
   uint64_t sleep_debt = 0;
   uint64_t time_since_last_refill = 0;
@@ -67,7 +67,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
       time_since_last_refill = time_now - last_refill_time_;
       bytes_left_ +=
           static_cast<uint64_t>(static_cast<double>(time_since_last_refill) /
-                                kMicrosPerSecond * delayed_write_rate_);
+                                kNanosPerSecond * delayed_write_rate_);
       if (time_since_last_refill >= kRefillInterval &&
           bytes_left_ > num_bytes) {
         // If refill interval already passed and we have enough bytes
@@ -80,7 +80,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   }
 
   uint64_t single_refill_amount =
-      delayed_write_rate_ * kRefillInterval / kMicrosPerSecond;
+      delayed_write_rate_ * kRefillInterval / kNanosPerSecond;
   if (bytes_left_ + single_refill_amount >= num_bytes) {
     // Wait until a refill interval
     // Never trigger expire for less than one refill interval to avoid to get
@@ -97,7 +97,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   uint64_t sleep_amount =
       static_cast<uint64_t>(num_bytes /
                             static_cast<long double>(delayed_write_rate_) *
-                            kMicrosPerSecond) +
+                            kNanosPerSecond) +
       sleep_debt;
   last_refill_time_ = time_now + sleep_amount;
   return sleep_amount;

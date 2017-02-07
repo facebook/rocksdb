@@ -675,6 +675,10 @@ class PosixEnv : public Env {
 
   virtual void SleepForMicroseconds(int micros) override { usleep(micros); }
 
+  virtual void SleepForNanoseconds(int nanos) override {
+    std::this_thread::sleep_for(std::chrono::nanoseconds(nanos));
+  }
+
   virtual Status GetHostName(char* name, uint64_t len) override {
     int ret = gethostname(name, static_cast<size_t>(len));
     if (ret < 0) {
