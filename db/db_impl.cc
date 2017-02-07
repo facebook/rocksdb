@@ -3940,8 +3940,8 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
 
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
-                   PinnableSlice* pSlice) {
-  return GetImpl(read_options, column_family, key, pSlice);
+                   PinnableSlice* value) {
+  return GetImpl(read_options, column_family, key, value);
 }
 
 // JobContext gets created and destructed outside of the lock --
@@ -3998,7 +3998,7 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       PinnableSlice* pSlice, bool* value_found) {
+                       PinnableSlice* value, bool* value_found) {
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
@@ -4046,12 +4046,12 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
                         has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
-    if (sv->mem->Get(lkey, pSlice, &s, &merge_context, &range_del_agg,
+    if (sv->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
                      read_options)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
-               sv->imm->Get(lkey, pSlice, &s, &merge_context, &range_del_agg,
+               sv->imm->Get(lkey, value, &s, &merge_context, &range_del_agg,
                             read_options)) {
       done = true;
       RecordTick(stats_, MEMTABLE_HIT);
@@ -4062,7 +4062,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->Get(read_options, lkey, pSlice, &s, &merge_context,
+    sv->current->Get(read_options, lkey, value, &s, &merge_context,
                      &range_del_agg, value_found);
     RecordTick(stats_, MEMTABLE_MISS);
   }
@@ -4073,7 +4073,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
-    size_t size = pSlice->size();
+    size_t size = value->size();
     RecordTick(stats_, BYTES_READ, size);
     MeasureTime(stats_, BYTES_PER_READ, size);
   }
@@ -4152,30 +4152,31 @@ std::vector<Status> DBImpl::MultiGet(
         (read_options.read_tier == kPersistedTier &&
          has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
-    PinnableSlice pSlice;
+    PinnableSlice pinnable_val;
     if (!skip_memtable) {
-      if (super_version->mem->Get(lkey, &pSlice, &s, &merge_context,
+      if (super_version->mem->Get(lkey, &pinnable_val, &s, &merge_context,
                                   &range_del_agg, read_options)) {
-        value->assign(pSlice.data(), pSlice.size());
+        value->assign(pinnable_val.data(), pinnable_val.size());
         done = true;
         // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
-      } else if (super_version->imm->Get(lkey, &pSlice, &s, &merge_context,
-                                         &range_del_agg, read_options)) {
-        value->assign(pSlice.data(), pSlice.size());
+      } else if (super_version->imm->Get(lkey, &pinnable_val, &s,
+                                         &merge_context, &range_del_agg,
+                                         read_options)) {
+        value->assign(pinnable_val.data(), pinnable_val.size());
         done = true;
         // TODO(?): RecordTick(stats_, MEMTABLE_HIT)?
       }
     }
     if (!done) {
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(read_options, lkey, &pSlice, &s,
+      super_version->current->Get(read_options, lkey, &pinnable_val, &s,
                                   &merge_context, &range_del_agg);
-      value->assign(pSlice.data(), pSlice.size());
+      value->assign(pinnable_val.data(), pinnable_val.size());
       // TODO(?): RecordTick(stats_, MEMTABLE_MISS)?
     }
 
     if (s.ok()) {
-      bytes_read += pSlice.size();
+      bytes_read += pinnable_val.size();
     }
   }
 
@@ -4388,11 +4389,11 @@ bool DBImpl::KeyMayExist(const ReadOptions& read_options,
   }
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier; // read from block cache only
-  PinnableSlice pSlice;
-  PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-  auto s = GetImpl(roptions, column_family, key, pSlicePtr, value_found);
+  PinnableSlice pinnable_val;
+  PinnableSlice* value_ptr = value != nullptr ? &pinnable_val : nullptr;
+  auto s = GetImpl(roptions, column_family, key, value_ptr, value_found);
   if (value != nullptr) {
-    value->assign(pSlice.data(), pSlice.size());
+    value->assign(pinnable_val.data(), pinnable_val.size());
   }
 
   // If block_cache is enabled and the index block of the table didn't
@@ -6442,8 +6443,8 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   *found_record_for_key = false;
 
   // Check if there is a record for this key in the latest memtable
-  PinnableSlice* pSliceNullPtr = nullptr;
-  sv->mem->Get(lkey, pSliceNullPtr, &s, &merge_context, &range_del_agg, seq,
+  PinnableSlice* value_null_ptr = nullptr;
+  sv->mem->Get(lkey, value_null_ptr, &s, &merge_context, &range_del_agg, seq,
                read_options);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
@@ -6462,7 +6463,7 @@ Status DBImpl::GetLatestSequenceForKey(SuperVersion* sv, const Slice& key,
   }
 
   // Check if there is a record for this key in the immutable memtables
-  sv->imm->Get(lkey, pSliceNullPtr, &s, &merge_context, &range_del_agg, seq,
+  sv->imm->Get(lkey, value_null_ptr, &s, &merge_context, &range_del_agg, seq,
                read_options);
 
   if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {

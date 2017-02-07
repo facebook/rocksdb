@@ -118,6 +118,12 @@ class Slice {
   // Intentionally copyable
 };
 
+/**
+ * A Slice that can be pinned with some cleanup tasks, which will be run upon
+ * ::Reset() or object destruction, whichever is invoked first. This can be used
+ * to avoid memcpy by having the PinnsableSlice object referring to the data
+ * that is locked in the memory and release them after the data is consuned.
+ */
 class PinnableSlice : public Slice, public Cleanable {
  public:
   PinnableSlice() {}
@@ -135,12 +141,6 @@ class PinnableSlice : public Slice, public Cleanable {
     cleanable->DelegateCleanupsTo(this);
   }
 
-  inline void PinHeap(std::string* s) {
-    data_ = s->data();
-    size_ = s->size();
-    RegisterCleanup(ReleaseStringHeap, s, nullptr);
-  }
-
   inline void PinSelf(const Slice& slice) {
     self_space.assign(slice.data(), slice.size());
     data_ = self_space.data();
@@ -153,8 +153,6 @@ class PinnableSlice : public Slice, public Cleanable {
   }
 
   inline std::string* GetSelf() { return &self_space; }
-
-  inline bool IsPinned() { return cleanup_.function != nullptr; }
 
  private:
   friend class PinnableSlice4Test;

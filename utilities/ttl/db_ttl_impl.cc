@@ -202,16 +202,16 @@ Status DBWithTTLImpl::Put(const WriteOptions& options,
 
 Status DBWithTTLImpl::Get(const ReadOptions& options,
                           ColumnFamilyHandle* column_family, const Slice& key,
-                          PinnableSlice* pSlice) {
-  Status st = db_->Get(options, column_family, key, pSlice);
+                          PinnableSlice* value) {
+  Status st = db_->Get(options, column_family, key, value);
   if (!st.ok()) {
     return st;
   }
-  st = SanityCheckTimestamp(*pSlice);
+  st = SanityCheckTimestamp(*value);
   if (!st.ok()) {
     return st;
   }
-  return StripTS(pSlice);
+  return StripTS(value);
 }
 
 std::vector<Status> DBWithTTLImpl::MultiGet(

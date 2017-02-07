@@ -16,6 +16,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "port/likely.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -283,13 +284,17 @@ class DB {
   inline Status Get(const ReadOptions& options,
                     ColumnFamilyHandle* column_family, const Slice& key,
                     std::string* value) {
-    PinnableSlice pSlice;
-    PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-    auto s = Get(options, column_family, key, pSlicePtr);
-    if (value != nullptr && s.ok()) {
-      value->assign(pSlice.data(), pSlice.size());
+    if (LIKELY(value != nullptr)) {
+      PinnableSlice pinnable_val;
+      auto s = Get(options, column_family, key, &pinnable_val);
+      if (LIKELY(s.ok())) {
+        value->assign(pinnable_val.data(), pinnable_val.size());
+      }
+      return s;
+    } else {
+      PinnableSlice* null_ptr = nullptr;
+      return Get(options, column_family, key, null_ptr);
     }
-    return s;
   }
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,

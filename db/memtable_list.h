@@ -53,16 +53,16 @@ class MemTableListVersion {
   // If any operation was found for this key, its most recent sequence number
   // will be stored in *seq on success (regardless of whether true/false is
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
-  bool Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
+  bool Get(const LookupKey& key, PinnableSlice* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            SequenceNumber* seq, const ReadOptions& read_opts);
 
-  inline bool Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
+  inline bool Get(const LookupKey& key, PinnableSlice* value, Status* s,
                   MergeContext* merge_context,
                   RangeDelAggregator* range_del_agg,
                   const ReadOptions& read_opts) {
     SequenceNumber seq;
-    return Get(key, pSlice, s, merge_context, range_del_agg, &seq, read_opts);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
   }
 
   // deprecated. Use Get with PinnableSlice
@@ -123,8 +123,7 @@ class MemTableListVersion {
   void TrimHistory(autovector<MemTable*>* to_delete);
 
   bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
-                   PinnableSlice* pSlice, Status* s,
-                   MergeContext* merge_context,
+                   PinnableSlice* value, Status* s, MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                    const ReadOptions& read_opts);
 

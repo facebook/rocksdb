@@ -27,7 +27,7 @@ class GetContext {
 
   GetContext(const Comparator* ucmp, const MergeOperator* merge_operator,
              Logger* logger, Statistics* statistics, GetState init_state,
-             const Slice& user_key, PinnableSlice* pSlice, bool* value_found,
+             const Slice& user_key, PinnableSlice* value, bool* value_found,
              MergeContext* merge_context, RangeDelAggregator* range_del_agg,
              Env* env, SequenceNumber* seq = nullptr,
              PinnedIteratorsManager* _pinned_iters_mgr = nullptr);
@@ -69,7 +69,7 @@ class GetContext {
 
   GetState state_;
   Slice user_key_;
-  PinnableSlice* pSlice_;
+  PinnableSlice* pinnable_val_;
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   RangeDelAggregator* range_del_agg_;

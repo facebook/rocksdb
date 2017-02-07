@@ -3823,7 +3823,7 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     std::string value;
-    PinnableSlice pSlice;
+    PinnableSlice pinnable_val;
 
     Duration duration(FLAGS_duration, reads_);
     while (!duration.Done(1)) {
@@ -3840,9 +3840,10 @@ class Benchmark {
                                  &value);
       } else {
         if (FLAGS_pin_slice == 1) {
-          pSlice.Reset();
-          s = db_with_cfh->db->Get(
-              options, db_with_cfh->db->DefaultColumnFamily(), key, &pSlice);
+          pinnable_val.Reset();
+          s = db_with_cfh->db->Get(options,
+                                   db_with_cfh->db->DefaultColumnFamily(), key,
+                                   &pinnable_val);
         } else {
           s = db_with_cfh->db->Get(
               options, db_with_cfh->db->DefaultColumnFamily(), key, &value);
@@ -3850,8 +3851,8 @@ class Benchmark {
       }
       if (s.ok()) {
         found++;
-        bytes +=
-            key.size() + (FLAGS_pin_slice == 1 ? pSlice.size() : value.size());
+        bytes += key.size() +
+                 (FLAGS_pin_slice == 1 ? pinnable_val.size() : value.size());
       } else if (!s.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
         abort();

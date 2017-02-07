@@ -25,14 +25,16 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                               RangeDelAggregator* range_del_agg,
                               SequenceNumber* seq,
                               const ReadOptions& read_opts) {
-  PinnableSlice pSlice;
-  PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-  auto res =
-      Get(key, pSlicePtr, s, merge_context, range_del_agg, seq, read_opts);
   if (value != nullptr) {
-    value->assign(pSlice.data(), pSlice.size());
+    PinnableSlice pinnable_val;
+    auto res = Get(key, &pinnable_val, s, merge_context, range_del_agg, seq,
+                   read_opts);
+    value->assign(pinnable_val.data(), pinnable_val.size());
+    return res;
+  } else {
+    PinnableSlice* null_ptr = nullptr;
+    return Get(key, null_ptr, s, merge_context, range_del_agg, seq, read_opts);
   }
-  return res;
 }
 
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
@@ -47,14 +49,16 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                    const ReadOptions& read_opts) {
-  PinnableSlice pSlice;
-  PinnableSlice* pSlicePtr = value != nullptr ? &pSlice : nullptr;
-  auto res =
-      Get(key, pSlicePtr, s, merge_context, range_del_agg, seq, read_opts);
   if (value != nullptr) {
-    value->assign(pSlice.data(), pSlice.size());
+    PinnableSlice pinnable_val;
+    auto res = Get(key, &pinnable_val, s, merge_context, range_del_agg, seq,
+                   read_opts);
+    value->assign(pinnable_val.data(), pinnable_val.size());
+    return res;
+  } else {
+    PinnableSlice* null_ptr = nullptr;
+    return Get(key, null_ptr, s, merge_context, range_del_agg, seq, read_opts);
   }
-  return res;
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,

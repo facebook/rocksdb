@@ -186,16 +186,16 @@ class MemTable {
   // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
   // status returned indicates a corruption or other unexpected error.
-  bool Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
+  bool Get(const LookupKey& key, PinnableSlice* value, Status* s,
            MergeContext* merge_context, RangeDelAggregator* range_del_agg,
            SequenceNumber* seq, const ReadOptions& read_opts);
 
-  inline bool Get(const LookupKey& key, PinnableSlice* pSlice, Status* s,
+  inline bool Get(const LookupKey& key, PinnableSlice* value, Status* s,
                   MergeContext* merge_context,
                   RangeDelAggregator* range_del_agg,
                   const ReadOptions& read_opts) {
     SequenceNumber seq;
-    return Get(key, pSlice, s, merge_context, range_del_agg, &seq, read_opts);
+    return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
   }
 
   // deprecated. Use Get with PinnableSlice

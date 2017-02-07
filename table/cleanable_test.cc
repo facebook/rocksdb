@@ -215,22 +215,12 @@ TEST_F(CleanableTest, PinnableSlice) {
   const std::string const_str = "123";
 
   {
-    PinnableSlice4Test pSlice;
-    std::string* heap_str = new std::string(const_str);
-    pSlice.PinHeap(heap_str);
-    std::string str;
-    str.assign(pSlice.data(), pSlice.size());
-    ASSERT_EQ(const_str, str);
-    pSlice.TestStringIsRegistered(heap_str);
-  }
-
-  {
     res = 1;
-    PinnableSlice4Test pSlice;
+    PinnableSlice4Test value;
     Slice slice(const_str);
-    pSlice.PinSlice(slice, Multiplier, &res, &n2);
+    value.PinSlice(slice, Multiplier, &res, &n2);
     std::string str;
-    str.assign(pSlice.data(), pSlice.size());
+    str.assign(value.data(), value.size());
     ASSERT_EQ(const_str, str);
   }
   // ~Cleanable
@@ -238,41 +228,39 @@ TEST_F(CleanableTest, PinnableSlice) {
 
   {
     res = 1;
-    PinnableSlice4Test pSlice;
+    PinnableSlice4Test value;
     Slice slice(const_str);
     {
       Cleanable c1;
       c1.RegisterCleanup(Multiplier, &res, &n2);  // res = 2;
-      pSlice.PinSlice(slice, &c1);
+      value.PinSlice(slice, &c1);
     }
     // ~Cleanable
-    ASSERT_EQ(1, res);  // cleanups must have be delegated to pSlice
+    ASSERT_EQ(1, res);  // cleanups must have be delegated to value
     std::string str;
-    str.assign(pSlice.data(), pSlice.size());
+    str.assign(value.data(), value.size());
     ASSERT_EQ(const_str, str);
   }
   // ~Cleanable
   ASSERT_EQ(2, res);
 
   {
-    PinnableSlice4Test pSlice;
+    PinnableSlice4Test value;
     Slice slice(const_str);
-    pSlice.PinSelf(slice);
+    value.PinSelf(slice);
     std::string str;
-    str.assign(pSlice.data(), pSlice.size());
+    str.assign(value.data(), value.size());
     ASSERT_EQ(const_str, str);
-    ASSERT_EQ(false, pSlice.IsPinned());  // self pinned
   }
 
   {
-    PinnableSlice4Test pSlice;
-    std::string* self_str_ptr = pSlice.GetSelf();
+    PinnableSlice4Test value;
+    std::string* self_str_ptr = value.GetSelf();
     self_str_ptr->assign(const_str);
-    pSlice.PinSelf();
+    value.PinSelf();
     std::string str;
-    str.assign(pSlice.data(), pSlice.size());
+    str.assign(value.data(), value.size());
     ASSERT_EQ(const_str, str);
-    ASSERT_EQ(false, pSlice.IsPinned());  // self pinned
   }
 }
 

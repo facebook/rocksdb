@@ -826,7 +826,7 @@ class DocumentDBImpl : public DocumentDB {
     // Lock now, since we're starting DB operations
     MutexLock l(&write_mutex_);
     // check if there is already a document with the same primary key
-    std::string value;
+    PinnableSlice value;
     Status s = DocumentDB::Get(ReadOptions(), primary_key_column_family_,
                                primary_key_slice, &value);
     if (!s.IsNotFound()) {
@@ -1037,15 +1037,15 @@ class DocumentDBImpl : public DocumentDB {
   }
 
   // RocksDB functions
- //virtual Status Get(const ReadOptions& options,
- //                   ColumnFamilyHandle* column_family, const Slice& key,
- //                   PinnableSlice* pSlice) override {
- //  return Status::NotSupported("");
- //}
- //virtual Status Get(const ReadOptions& options, const Slice& key,
- //                   std::string* value) override {
- //  return Status::NotSupported("");
- //}
+  virtual Status Get(const ReadOptions& options,
+                     ColumnFamilyHandle* column_family, const Slice& key,
+                     PinnableSlice* value) override {
+    return Status::NotSupported("");
+  }
+  virtual Status Get(const ReadOptions& options, const Slice& key,
+                     std::string* value) override {
+    return Status::NotSupported("");
+  }
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override {
     return Status::NotSupported("");
