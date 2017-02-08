@@ -37,8 +37,7 @@
 namespace rocksdb {
 
 AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions()
-    : bottommost_compression(kDisableCompressionOption),
-      table_factory(
+    : table_factory(
           std::shared_ptr<TableFactory>(new BlockBasedTableFactory())) {
   assert(memtable_factory.get() != nullptr);
 }
@@ -60,9 +59,7 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
           options.memtable_insert_with_hint_prefix_extractor),
       bloom_locality(options.bloom_locality),
       arena_block_size(options.arena_block_size),
-      compression_opts(options.compression_opts),
       compression_per_level(options.compression_per_level),
-      bottommost_compression(options.bottommost_compression),
       num_levels(options.num_levels),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
       level0_stop_writes_trigger(options.level0_stop_writes_trigger),
@@ -70,7 +67,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       target_file_size_multiplier(options.target_file_size_multiplier),
       level_compaction_dynamic_level_bytes(
           options.level_compaction_dynamic_level_bytes),
-      max_bytes_for_level_base(options.max_bytes_for_level_base),
       max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
@@ -112,8 +108,11 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       compaction_filter_factory(options.compaction_filter_factory),
       write_buffer_size(options.write_buffer_size),
       compression(options.compression),
+      bottommost_compression(options.bottommost_compression),
+      compression_opts(options.compression_opts),
       level0_file_num_compaction_trigger(
           options.level0_file_num_compaction_trigger),
+      max_bytes_for_level_base(options.max_bytes_for_level_base),
       disable_auto_compactions(options.disable_auto_compactions) {}
 
 DBOptions::DBOptions() {}

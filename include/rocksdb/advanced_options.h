@@ -291,9 +291,6 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   size_t arena_block_size = 0;
 
-  // different options for compression algorithms
-  CompressionOptions compression_opts;
-
   // Different levels can have different compression policies. There
   // are cases where most lower levels would like to use quick compression
   // algorithms while the higher levels (which have more data) use
@@ -316,13 +313,6 @@ struct AdvancedColumnFamilyOptions {
   // and L4 using compression_per_level[3]. Compaction for each level can
   // change when data grows.
   std::vector<CompressionType> compression_per_level;
-
-  // Compression algorithm that will be used for the bottommost level that
-  // contain files. If level-compaction is used, this option will only affect
-  // levels after base level.
-  //
-  // Default: kDisableCompressionOption (Disabled)
-  CompressionType bottommost_compression;
 
   // Number of levels for this database
   int num_levels = 7;
@@ -421,20 +411,6 @@ struct AdvancedColumnFamilyOptions {
   //
   // Default: false
   bool level_compaction_dynamic_level_bytes = false;
-
-  // Control maximum total data size for a level.
-  // max_bytes_for_level_base is the max total for level-1.
-  // Maximum number of bytes for level L can be calculated as
-  // (max_bytes_for_level_base) * (max_bytes_for_level_multiplier ^ (L-1))
-  // For example, if max_bytes_for_level_base is 200MB, and if
-  // max_bytes_for_level_multiplier is 10, total data size for level-1
-  // will be 200MB, total file size for level-2 will be 2GB,
-  // and total file size for level-3 will be 20GB.
-  //
-  // Default: 256MB.
-  //
-  // Dynamically changeable through SetOptions() API
-  uint64_t max_bytes_for_level_base = 256 * 1048576;
 
   // Default: 10.
   //

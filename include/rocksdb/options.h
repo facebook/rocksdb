@@ -204,6 +204,16 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // efficiently detect that and will switch to uncompressed mode.
   CompressionType compression;
 
+  // Compression algorithm that will be used for the bottommost level that
+  // contain files. If level-compaction is used, this option will only affect
+  // levels after base level.
+  //
+  // Default: kDisableCompressionOption (Disabled)
+  CompressionType bottommost_compression = kDisableCompressionOption;
+
+  // different options for compression algorithms
+  CompressionOptions compression_opts;
+
   // Number of files to trigger level-0 compaction. A value <0 means that
   // level-0 compaction will not be triggered by number of files at all.
   //
@@ -211,6 +221,20 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   int level0_file_num_compaction_trigger = 4;
+
+  // Control maximum total data size for a level.
+  // max_bytes_for_level_base is the max total for level-1.
+  // Maximum number of bytes for level L can be calculated as
+  // (max_bytes_for_level_base) * (max_bytes_for_level_multiplier ^ (L-1))
+  // For example, if max_bytes_for_level_base is 200MB, and if
+  // max_bytes_for_level_multiplier is 10, total data size for level-1
+  // will be 200MB, total file size for level-2 will be 2GB,
+  // and total file size for level-3 will be 20GB.
+  //
+  // Default: 256MB.
+  //
+  // Dynamically changeable through SetOptions() API
+  uint64_t max_bytes_for_level_base = 256 * 1048576;
 
   // Disable automatic compactions. Manual compactions can still
   // be issued on this column family
