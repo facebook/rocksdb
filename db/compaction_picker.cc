@@ -1173,8 +1173,11 @@ uint32_t LevelCompactionPicker::GetPathId(
 
   uint64_t level_size;
   int cur_level = 0;
-
-  level_size = mutable_cf_options.max_bytes_for_level_base;
+  
+  level_size = static_cast<uint64_t>(
+      mutable_cf_options.write_buffer_size * 
+      ioptions.min_write_buffer_number_to_merge *
+      mutable_cf_options.level0_file_num_compaction_trigger);
 
   // Last path is the fallback
   while (p < ioptions.db_paths.size() - 1) {
@@ -1184,8 +1187,13 @@ uint32_t LevelCompactionPicker::GetPathId(
         return p;
       } else {
         current_path_size -= level_size;
-        level_size = static_cast<uint64_t>(
-            level_size * mutable_cf_options.max_bytes_for_level_multiplier);
+        if (cur_level == 0) {
+          level_size = static_cast<uint64_t>(
+              mutable_cf_options.max_bytes_for_level_base); 
+        } else {
+          level_size = static_cast<uint64_t>(
+              level_size * mutable_cf_options.max_bytes_for_level_multiplier);
+        }
         cur_level++;
         continue;
       }
