@@ -865,7 +865,7 @@ void InternalStats::DumpCFMapStats(std::map<std::string, double>* cf_stats) {
   }
 }
 
-int InternalStats::DumpCFMapStats(
+void InternalStats::DumpCFMapStats(
     std::map<int, std::map<LevelStatType, double>>* levels_stats,
     CompactionStats* compaction_stats_sum) {
   const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
@@ -925,7 +925,6 @@ int InternalStats::DumpCFMapStats(
   PrepareLevelStats(&sum_stats, total_files, total_files_being_compacted,
                     total_file_size, 0, w_amp, *compaction_stats_sum);
   (*levels_stats)[-1] = sum_stats;  //  -1 is for the Sum level
-  return num_levels_to_check;
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
@@ -937,8 +936,8 @@ void InternalStats::DumpCFStats(std::string* value) {
   // Print stats for each level
   std::map<int, std::map<LevelStatType, double>> levels_stats;
   CompactionStats compaction_stats_sum(0);
-  int levels = DumpCFMapStats(&levels_stats, &compaction_stats_sum);
-  for (int l = 0; l < levels; ++l) {
+  DumpCFMapStats(&levels_stats, &compaction_stats_sum);
+  for (int l = 0; l < number_levels_; ++l) {
     if (levels_stats.find(l) != levels_stats.end()) {
       PrintLevelStats(buf, sizeof(buf), "L" + ToString(l), levels_stats[l]);
       value->append(buf);

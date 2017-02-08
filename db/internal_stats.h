@@ -273,7 +273,7 @@ class InternalStats {
  private:
   void DumpDBStats(std::string* value);
   void DumpCFMapStats(std::map<std::string, double>* cf_stats);
-  int DumpCFMapStats(
+  void DumpCFMapStats(
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
   void DumpCFStats(std::string* value);
