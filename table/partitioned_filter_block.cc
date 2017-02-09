@@ -5,6 +5,7 @@
 
 #include "table/partitioned_filter_block.h"
 
+#include "table/block_based_table_reader.h"
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
 #include "util/coding.h"
@@ -134,5 +135,68 @@ Slice PartitionIndexBuilder::Finish(
     return filters.front().filter;
   }
 }
+
+  PartitionedFilterBlockReader::PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
+                                        bool whole_key_filtering_2,
+                                        BlockContents&& contents,
+                                        FilterBitsReader* filter_bits_reader,
+                                        Statistics* stats,
+                                        const Comparator& comparator,
+                                        const BlockBasedTable* table)
+      : FullFilterBlockReader(prefix_extractor, whole_key_filtering_2,
+                              contents.data, filter_bits_reader, stats),
+        comparator_(comparator),
+        table_(table) {
+    idx_on_fltr_blk_.reset(new Block(std::move(contents),
+                                     kDisableGlobalSequenceNumber,
+                                     0 /* read_amp_bytes_per_bit */, stats));
+  };
+
+  bool PartitionedFilterBlockReader::KeyMayMatch(const Slice& key, uint64_t block_offset, const bool no_io) {
+    assert(block_offset == kNotValid);
+    if (!whole_key_filtering_) {
+      return true;
+    }
+    if (UNLIKELY(contents_.size() == 0)) {
+      return true;
+    }
+    // This is the user key vs. the full key in the partition index. We assume
+    // that user key <= full key
+    auto filter_partition = GetFilterPartition(key, no_io);
+    auto res = filter_partition.value->KeyMayMatch(key, block_offset, no_io);
+    filter_partition.Release(table_->rep_->table_options.block_cache.get());
+    return res;
+  }
+
+  bool PartitionedFilterBlockReader::PrefixMayMatch(const Slice& prefix, uint64_t block_offset,
+                      const bool no_io) {
+    assert(block_offset == kNotValid);
+    if (!prefix_extractor_) {
+      return true;
+    }
+    if (UNLIKELY(contents_.size() == 0)) {
+      return true;
+    }
+    auto filter_partition = GetFilterPartition(prefix, no_io);
+    auto res = filter_partition.value->PrefixMayMatch(prefix, no_io);
+    filter_partition.Release(table_->rep_->table_options.block_cache.get());
+    return res;
+  }
+
+  BlockBasedTable::CachableEntry<FilterBlockReader> PartitionedFilterBlockReader::GetFilterPartition(
+      const Slice& entry, const bool no_io) {
+    BlockIter iter;
+    idx_on_fltr_blk_->NewIterator(&comparator_, &iter, true);
+    iter.Seek(entry.data());
+    assert(iter.Valid());
+    Slice handle_value = iter.value();
+    BlockHandle fltr_blk_handle;
+    auto s = fltr_blk_handle.DecodeFrom(&handle_value);
+    assert(s.ok());
+    const bool is_a_filter_partition = true;
+    auto filter =
+        table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
+    return filter;
+  }
 
 }  // namespace rocksdb

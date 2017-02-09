@@ -37,6 +37,7 @@
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
 #include "table/meta_blocks.h"
+#include "table/partitioned_filter_block.h"
 #include "table/persistent_cache_helper.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/two_level_iterator.h"
@@ -56,6 +57,12 @@ extern const std::string kHashIndexPrefixesMetadataBlock;
 using std::unique_ptr;
 
 typedef BlockBasedTable::IndexReader IndexReader;
+
+BlockBasedTable::~BlockBasedTable() {
+  Close();
+  delete rep_;
+}
+
 
 namespace {
 // Read the block identified by "handle" from "file".
@@ -142,42 +149,6 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
 }
 
 }  // namespace
-
-// -- IndexReader and its subclasses
-// IndexReader is the interface that provide the functionality for index access.
-class BlockBasedTable::IndexReader {
- public:
-  explicit IndexReader(const Comparator* comparator, Statistics* stats)
-      : comparator_(comparator), statistics_(stats) {}
-
-  virtual ~IndexReader() {}
-
-  // Create an iterator for index access.
-  // If iter is null then a new object is created on heap and the callee will
-  // have the ownership. If a non-null iter is passed in it will be used, and
-  // the returned value is either the same as iter or a new on-heap object that
-  // wrapps the passed iter. In the latter case the return value would point to
-  // a different object then iter and the callee has the ownership of the
-  // returned object.
-  virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                        bool total_order_seek = true) = 0;
-
-  // The size of the index.
-  virtual size_t size() const = 0;
-  // Memory usage of the index block
-  virtual size_t usable_size() const = 0;
-  // return the statistics pointer
-  virtual Statistics* statistics() const { return statistics_; }
-  // Report an approximation of how much memory has been used other than memory
-  // that was allocated in block cache.
-  virtual size_t ApproximateMemoryUsage() const = 0;
-
- protected:
-  const Comparator* comparator_;
-
- private:
-  Statistics* statistics_;
-};
 
 // Index that allows binary search lookup in a two-level index structure.
 class PartitionIndexReader : public IndexReader {
@@ -396,119 +367,6 @@ class HashIndexReader : public IndexReader {
   std::unique_ptr<Block> index_block_;
   BlockContents prefixes_contents_;
 };
-
-// CachableEntry represents the entries that *may* be fetched from block cache.
-//  field `value` is the item we want to get.
-//  field `cache_handle` is the cache handle to the block cache. If the value
-//    was not read from cache, `cache_handle` will be nullptr.
-template <class TValue>
-struct BlockBasedTable::CachableEntry {
-  CachableEntry(TValue* _value, Cache::Handle* _cache_handle)
-      : value(_value), cache_handle(_cache_handle) {}
-  CachableEntry() : CachableEntry(nullptr, nullptr) {}
-  void Release(Cache* cache) {
-    if (cache_handle) {
-      cache->Release(cache_handle);
-      value = nullptr;
-      cache_handle = nullptr;
-    }
-  }
-  bool IsSet() const { return cache_handle != nullptr; }
-
-  TValue* value = nullptr;
-  // if the entry is from the cache, cache_handle will be populated.
-  Cache::Handle* cache_handle = nullptr;
-};
-
-struct BlockBasedTable::Rep {
-  Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
-      const BlockBasedTableOptions& _table_opt,
-      const InternalKeyComparator& _internal_comparator, bool skip_filters)
-      : ioptions(_ioptions),
-        env_options(_env_options),
-        table_options(_table_opt),
-        filter_policy(skip_filters ? nullptr : _table_opt.filter_policy.get()),
-        internal_comparator(_internal_comparator),
-        filter_type(FilterType::kNoFilter),
-        whole_key_filtering(_table_opt.whole_key_filtering),
-        prefix_filtering(true),
-        range_del_handle(BlockHandle::NullBlockHandle()),
-        global_seqno(kDisableGlobalSequenceNumber) {}
-
-  const ImmutableCFOptions& ioptions;
-  const EnvOptions& env_options;
-  const BlockBasedTableOptions& table_options;
-  const FilterPolicy* const filter_policy;
-  const InternalKeyComparator& internal_comparator;
-  Status status;
-  unique_ptr<RandomAccessFileReader> file;
-  char cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t cache_key_prefix_size = 0;
-  char persistent_cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t persistent_cache_key_prefix_size = 0;
-  char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
-  size_t compressed_cache_key_prefix_size = 0;
-  uint64_t dummy_index_reader_offset =
-      0;  // ID that is unique for the block cache.
-  PersistentCacheOptions persistent_cache_options;
-
-  // Footer contains the fixed table information
-  Footer footer;
-  // index_reader and filter will be populated and used only when
-  // options.block_cache is nullptr; otherwise we will get the index block via
-  // the block cache.
-  unique_ptr<IndexReader> index_reader;
-  unique_ptr<FilterBlockReader> filter;
-
-  enum class FilterType {
-    kNoFilter,
-    kFullFilter,
-    kBlockFilter,
-    kPartitionedFilter,
-  };
-  FilterType filter_type;
-  BlockHandle filter_handle;
-
-  std::shared_ptr<const TableProperties> table_properties;
-  // Block containing the data for the compression dictionary. We take ownership
-  // for the entire block struct, even though we only use its Slice member. This
-  // is easier because the Slice member depends on the continued existence of
-  // another member ("allocation").
-  std::unique_ptr<const BlockContents> compression_dict_block;
-  BlockBasedTableOptions::IndexType index_type;
-  bool hash_index_allow_collision;
-  bool whole_key_filtering;
-  bool prefix_filtering;
-  // TODO(kailiu) It is very ugly to use internal key in table, since table
-  // module should not be relying on db module. However to make things easier
-  // and compatible with existing code, we introduce a wrapper that allows
-  // block to extract prefix without knowing if a key is internal or not.
-  unique_ptr<SliceTransform> internal_prefix_transform;
-
-  // only used in level 0 files:
-  // when pin_l0_filter_and_index_blocks_in_cache is true, we do use the
-  // LRU cache, but we always keep the filter & idndex block's handle checked
-  // out here (=we don't call Release()), plus the parsed out objects
-  // the LRU cache will never push flush them out, hence they're pinned
-  CachableEntry<FilterBlockReader> filter_entry;
-  CachableEntry<IndexReader> index_entry;
-  // range deletion meta-block is pinned through reader's lifetime when LRU
-  // cache is enabled.
-  CachableEntry<Block> range_del_entry;
-  BlockHandle range_del_handle;
-
-  // If global_seqno is used, all Keys in this file will have the same
-  // seqno with value `global_seqno`.
-  //
-  // A value of kDisableGlobalSequenceNumber means that this feature is disabled
-  // and every key have it's own seqno.
-  SequenceNumber global_seqno;
-};
-
-BlockBasedTable::~BlockBasedTable() {
-  Close();
-  delete rep_;
-}
 
 // Helper function to setup the cache key's prefix for the Table.
 void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep, uint64_t file_size) {
@@ -1103,76 +961,6 @@ Status BlockBasedTable::PutDataBlockToCache(
 
   return s;
 }
-
-class PartitionedFilterBlockReader : public FullFilterBlockReader {
- public:
-  explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
-                                        bool whole_key_filtering_2,
-                                        BlockContents&& contents,
-                                        FilterBitsReader* filter_bits_reader,
-                                        Statistics* stats,
-                                        const Comparator& comparator,
-                                        const BlockBasedTable* table)
-      : FullFilterBlockReader(prefix_extractor, whole_key_filtering_2,
-                              contents.data, filter_bits_reader, stats),
-        comparator_(comparator),
-        table_(table) {
-    idx_on_fltr_blk_.reset(new Block(std::move(contents),
-                                     kDisableGlobalSequenceNumber,
-                                     0 /* read_amp_bytes_per_bit */, stats));
-  };
-
-  bool KeyMayMatch(const Slice& key, uint64_t block_offset, const bool no_io) {
-    assert(block_offset == kNotValid);
-    if (!whole_key_filtering_) {
-      return true;
-    }
-    if (UNLIKELY(contents_.size() == 0)) {
-      return true;
-    }
-    // This is the user key vs. the full key in the partition index. We assume
-    // that user key <= full key
-    auto filter_partition = GetFilterPartition(key, no_io);
-    auto res = filter_partition.value->KeyMayMatch(key, block_offset, no_io);
-    filter_partition.Release(table_->rep_->table_options.block_cache.get());
-    return res;
-  }
-
-  bool PrefixMayMatch(const Slice& prefix, uint64_t block_offset,
-                      const bool no_io) {
-    assert(block_offset == kNotValid);
-    if (!prefix_extractor_) {
-      return true;
-    }
-    if (UNLIKELY(contents_.size() == 0)) {
-      return true;
-    }
-    auto filter_partition = GetFilterPartition(prefix, no_io);
-    auto res = filter_partition.value->PrefixMayMatch(prefix, no_io);
-    filter_partition.Release(table_->rep_->table_options.block_cache.get());
-    return res;
-  }
-
- private:
-  std::unique_ptr<Block> idx_on_fltr_blk_;
-  const Comparator& comparator_;
-  const BlockBasedTable* table_;
-  BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
-      const Slice& entry, const bool no_io) {
-    BlockIter iter;
-    idx_on_fltr_blk_->NewIterator(&comparator_, &iter, true);
-    iter.Seek(entry.data());
-    assert(iter.Valid());
-    Slice handle_value = iter.value();
-    BlockHandle fltr_blk_handle;
-    auto s = fltr_blk_handle.DecodeFrom(&handle_value);
-    assert(s.ok());
-    const bool is_a_filter_partition = true;
-    auto filter =
-        table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
-    return filter;
-  }
-};
 
 FilterBlockReader* BlockBasedTable::ReadFilter(
     const BlockHandle& filter_handle, const bool is_a_filter_partition) const {

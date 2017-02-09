@@ -21,8 +21,6 @@
 
 namespace rocksdb {
 
-//class FilterBitsBuilder;
-
 /**
  * IndexBuilder for two-level indexing. Internally it creates a new index for
  * each partition and Finish then in order when Finish is called on it
@@ -100,6 +98,29 @@ class PartitionIndexBuilder : public IndexBuilder, public FullFilterBlockBuilder
     return false;
   }
   void CutAFilterBlock();
+};
+
+class PartitionedFilterBlockReader : public FullFilterBlockReader {
+ public:
+  explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
+                                        bool whole_key_filtering_2,
+                                        BlockContents&& contents,
+                                        FilterBitsReader* filter_bits_reader,
+                                        Statistics* stats,
+                                        const Comparator& comparator,
+                                        const BlockBasedTable* table);
+
+  bool KeyMayMatch(const Slice& key, uint64_t block_offset, const bool no_io);
+
+  bool PrefixMayMatch(const Slice& prefix, uint64_t block_offset,
+                      const bool no_io);
+
+ private:
+  std::unique_ptr<Block> idx_on_fltr_blk_;
+  const Comparator& comparator_;
+  const BlockBasedTable* table_;
+  BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
+      const Slice& entry, const bool no_io);
 };
 
 }  // namespace rocksdb
