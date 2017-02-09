@@ -47,7 +47,6 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.max_file_opening_threads;
   options.max_total_wal_size = mutable_db_options.max_total_wal_size;
   options.statistics = immutable_db_options.statistics;
-  options.disableDataSync = immutable_db_options.disable_data_sync;
   options.use_fsync = immutable_db_options.use_fsync;
   options.db_paths = immutable_db_options.db_paths;
   options.db_log_dir = immutable_db_options.db_log_dir;

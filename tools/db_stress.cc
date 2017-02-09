@@ -276,9 +276,6 @@ DEFINE_bool(statistics, false, "Create database statistics");
 
 DEFINE_bool(sync, false, "Sync all writes to disk");
 
-DEFINE_bool(disable_data_sync, false,
-            "If true, do not wait until data is synced to disk.");
-
 DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
 DEFINE_int32(kill_random_test, 0,
@@ -2143,7 +2140,6 @@ class StressTest {
     options_.max_open_files = FLAGS_open_files;
     options_.statistics = dbstats;
     options_.env = FLAGS_env;
-    options_.disableDataSync = FLAGS_disable_data_sync;
     options_.use_fsync = FLAGS_use_fsync;
     options_.allow_mmap_reads = FLAGS_mmap_read;
     options_.target_file_size_base = FLAGS_target_file_size_base;

@@ -184,9 +184,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
   r->file_info.file_size = r->builder->FileSize();
 
   if (s.ok()) {
-    if (!r->ioptions.disable_data_sync) {
-      s = r->file_writer->Sync(r->ioptions.use_fsync);
-    }
+    s = r->file_writer->Sync(r->ioptions.use_fsync);
     InvalidatePageCache(true /* closing */);
     if (s.ok()) {
       s = r->file_writer->Close();

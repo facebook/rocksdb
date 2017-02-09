@@ -1915,8 +1915,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   Status s;
   if (logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0 &&
-      !immutable_db_options_.disable_data_sync) {
+      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
     // If there are more than one column families, we need to make sure that
     // all the log files except the most recent one are synced. Otherwise if
     // the host crashes after flushing and before WAL is persistent, the

@@ -466,9 +466,6 @@ DEFINE_int64(writes, -1, "Number of write operations to do. If negative, do"
 
 DEFINE_bool(sync, false, "Sync all writes to disk");
 
-DEFINE_bool(disable_data_sync, false, "If true, do not wait until data is"
-            " synced to disk.");
-
 DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
@@ -2785,7 +2782,6 @@ class Benchmark {
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
     options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
-    options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
     options.num_levels = FLAGS_num_levels;
     options.target_file_size_base = FLAGS_target_file_size_base;

@@ -827,7 +827,6 @@ TEST_F(DBTest, GetPicksCorrectFile) {
 TEST_F(DBTest, GetEncountersEmptyLevel) {
   do {
     Options options = CurrentOptions();
-    options.disableDataSync = true;
     CreateAndReopenWithCF({"pikachu"}, options);
     // Arrange for the following to happen:
     //   * sstable A in level 0
@@ -3571,31 +3570,6 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
 
   for (auto& t : threads) {
     t.join();
-  }
-}
-
-TEST_F(DBTest, DisableDataSyncTest) {
-  env_->sync_counter_.store(0);
-  // iter 0 -- no sync
-  // iter 1 -- sync
-  for (int iter = 0; iter < 2; ++iter) {
-    Options options = CurrentOptions();
-    options.disableDataSync = iter == 0;
-    options.create_if_missing = true;
-    options.num_levels = 10;
-    options.env = env_;
-    Reopen(options);
-    CreateAndReopenWithCF({"pikachu"}, options);
-
-    MakeTables(10, "a", "z");
-    Compact("a", "z");
-
-    if (iter == 0) {
-      ASSERT_EQ(env_->sync_counter_.load(), 0);
-    } else {
-      ASSERT_GT(env_->sync_counter_.load(), 0);
-    }
-    Destroy(options);
   }
 }
 

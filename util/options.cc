@@ -133,7 +133,6 @@ DBOptions::DBOptions(const Options& options)
       max_file_opening_threads(options.max_file_opening_threads),
       max_total_wal_size(options.max_total_wal_size),
       statistics(options.statistics),
-      disableDataSync(options.disableDataSync),
       use_fsync(options.use_fsync),
       db_paths(options.db_paths),
       db_log_dir(options.db_log_dir),
@@ -387,7 +386,6 @@ Options::PrepareForBulkLoad()
   // no auto compactions please. The application should issue a
   // manual compaction after all data is loaded into L0.
   disable_auto_compactions = true;
-  disableDataSync = true;
   // A manual compaction run should pick all files in L0 in
   // a single compaction run.
   max_compaction_bytes = (static_cast<uint64_t>(1) << 60);
