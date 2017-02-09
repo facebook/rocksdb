@@ -1,14 +1,25 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 5.2.0 (02/08/2017)
 ### Public API Change
+* NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
+* Change the default of delayed slowdown value to 16MB/s and further increase the L0 stop condition to 36 files.
+* (Experimental) Two-level indexing that partition the index and creates a 2nd level index on the partitions. The feature can be enabled by setting kTwoLevelIndexSearch as IndexType and configuring index_per_partition.
+
+### New Features
+* Added new overloaded function GetApproximateSizes that allows to specify if memtable stats should be computed only without computing SST files' stats approximations.
+* Added new function GetApproximateMemTableStats that approximates both number of records and size of memtables.
+
+### Bug Fixes
+* RangeSync() should work if ROCKSDB_FALLOCATE_PRESENT is not set
+* Fix wrong results in a data race case in Get()
+* Some fixes related to 2PC.
+
+## 5.1.0 (01/13/2017)
 * Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().
 * Added EventListener::OnExternalFileIngested which will be called when IngestExternalFile() add a file successfully.
 * BackupEngine::Open and BackupEngineReadOnly::Open now always return error statuses matching those of the backup Env.
-* Added new overloaded function GetApproximateSizes that allows to specify if memtable stats should be computed only without computing SST files' stats approximations.
-* NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
-* Change the default of delayed slowdown value to 16MB/s and further increase the L0 stop condition to 36 files.
-* Added new function GetApproximateMemTableStats that approximates both number of records and size of memtables.
-* (Experimental) Two-level indexing that partition the index and creates a 2nd level index on the partitions. The feature can be enabled by setting kTwoLevelIndexSearch as IndexType and configuring index_per_partition.
 
 ### Bug Fixes
 * Fix the bug that if 2PC is enabled, checkpoints may loss some recent transactions.
