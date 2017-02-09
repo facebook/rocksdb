@@ -81,10 +81,11 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
                               bool whole_key_filtering,
                               BlockContents&& contents, Statistics* statistics);
   virtual bool IsBlockBased() override { return true; }
-  virtual bool KeyMayMatch(const Slice& key,
-                           uint64_t block_offset = kNotValid, const bool no_io = false) override;
+  virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
+                           const bool no_io = false) override;
   virtual bool PrefixMayMatch(const Slice& prefix,
-                              uint64_t block_offset = kNotValid, const bool no_io = false) override;
+                              uint64_t block_offset = kNotValid,
+                              const bool no_io = false) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
   // convert this object to a human readable form

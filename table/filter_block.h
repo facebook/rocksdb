@@ -51,10 +51,10 @@ class FilterBlockBuilder {
   virtual bool IsBlockBased() = 0;                    // If is blockbased filter
   virtual void StartBlock(uint64_t block_offset) = 0;  // Start new block filter
   virtual void Add(const Slice& key) = 0;      // Add a key to current filter
-  inline Slice Finish() {                     // Generate Filter
-      const BlockHandle empty_handle;
-      Status dont_care_status;
-      return Finish(empty_handle, &dont_care_status);
+  inline Slice Finish() {                      // Generate Filter
+    const BlockHandle empty_handle;
+    Status dont_care_status;
+    return Finish(empty_handle, &dont_care_status);
   }
   virtual Slice Finish(const BlockHandle& tmp, Status* status) = 0;
 
@@ -80,16 +80,17 @@ class FilterBlockReader {
   virtual ~FilterBlockReader() {}
 
   virtual bool IsBlockBased() = 0;  // If is blockbased filter
-  virtual bool KeyMayMatch(const Slice& key,
-                           uint64_t block_offset = kNotValid, const bool no_io = false) = 0;
+  virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
+                           const bool no_io = false) = 0;
   virtual bool PrefixMayMatch(const Slice& prefix,
-                              uint64_t block_offset = kNotValid, const bool no_io = false) = 0;
+                              uint64_t block_offset = kNotValid,
+                              const bool no_io = false) = 0;
   virtual size_t ApproximateMemoryUsage() const = 0;
   virtual size_t size() const { return size_; }
   virtual Statistics* statistics() const { return statistics_; }
 
   bool whole_key_filtering() const { return whole_key_filtering_; }
-  
+
   // convert this object to a human readable form
   virtual std::string ToString() const {
     std::string error_msg("Unsupported filter \n");

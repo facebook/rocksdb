@@ -246,8 +246,7 @@ class BlockBasedTable : public TableReader {
       InternalIterator* preloaded_meta_index_iter = nullptr);
 
   bool FullFilterKeyMayMatch(const ReadOptions& read_options,
-                             FilterBlockReader* filter,
-                             const Slice& user_key,
+                             FilterBlockReader* filter, const Slice& user_key,
                              const bool no_io) const;
 
   // Read the meta block from sst.
@@ -256,7 +255,7 @@ class BlockBasedTable : public TableReader {
 
   // Create the filter from the filter block.
   FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
-                                       const bool is_a_filter_partition) const;
+                                const bool is_a_filter_partition) const;
 
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
 

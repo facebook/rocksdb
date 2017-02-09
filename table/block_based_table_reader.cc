@@ -697,13 +697,22 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   // Find filter handle and filter type
   if (rep->filter_policy) {
-    for (auto filter_type : {Rep::FilterType::kFullFilter, Rep::FilterType::kPartitionedFilter, Rep::FilterType::kBlockFilter}) {
+    for (auto filter_type :
+         {Rep::FilterType::kFullFilter, Rep::FilterType::kPartitionedFilter,
+          Rep::FilterType::kBlockFilter}) {
       std::string prefix;
       switch (filter_type) {
-        case Rep::FilterType::kFullFilter: prefix = kFullFilterBlockPrefix; break;
-        case Rep::FilterType::kPartitionedFilter: prefix = kPartitionedFilterBlockPrefix; break;
-        case Rep::FilterType::kBlockFilter: prefix = kFilterBlockPrefix; break;
-        default: assert(0);
+        case Rep::FilterType::kFullFilter:
+          prefix = kFullFilterBlockPrefix;
+          break;
+        case Rep::FilterType::kPartitionedFilter:
+          prefix = kPartitionedFilterBlockPrefix;
+          break;
+        case Rep::FilterType::kBlockFilter:
+          prefix = kFilterBlockPrefix;
+          break;
+        default:
+          assert(0);
       }
       std::string filter_block_key = prefix;
       filter_block_key.append(rep->filter_policy->Name());
@@ -857,7 +866,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
       // Set filter block
       if (rep->filter_policy) {
         const bool is_a_filter_partition = true;
-        rep->filter.reset(new_table->ReadFilter(rep->filter_handle, !is_a_filter_partition));
+        rep->filter.reset(
+            new_table->ReadFilter(rep->filter_handle, !is_a_filter_partition));
       }
     } else {
       delete index_reader;
@@ -1095,78 +1105,81 @@ Status BlockBasedTable::PutDataBlockToCache(
 }
 
 class PartitionedFilterBlockReader : public FullFilterBlockReader {
-  public:
-   explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
-                                         bool whole_key_filtering_2,
-                                         BlockContents&& contents,
-                                         FilterBitsReader* filter_bits_reader,
-                                         Statistics* stats,
-                                         const Comparator& comparator,
-                                         const BlockBasedTable* table)
-       : FullFilterBlockReader(prefix_extractor, whole_key_filtering_2,
-                               contents.data, filter_bits_reader, stats), comparator_(comparator), table_(table) {
-     idx_on_fltr_blk_.reset(new Block(std::move(contents),
-                                       kDisableGlobalSequenceNumber,
-                                       0 /* read_amp_bytes_per_bit */, stats));
-   };
+ public:
+  explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
+                                        bool whole_key_filtering_2,
+                                        BlockContents&& contents,
+                                        FilterBitsReader* filter_bits_reader,
+                                        Statistics* stats,
+                                        const Comparator& comparator,
+                                        const BlockBasedTable* table)
+      : FullFilterBlockReader(prefix_extractor, whole_key_filtering_2,
+                              contents.data, filter_bits_reader, stats),
+        comparator_(comparator),
+        table_(table) {
+    idx_on_fltr_blk_.reset(new Block(std::move(contents),
+                                     kDisableGlobalSequenceNumber,
+                                     0 /* read_amp_bytes_per_bit */, stats));
+  };
 
-   bool KeyMayMatch(const Slice& key,
-       uint64_t block_offset, const bool no_io) {
-     assert(block_offset == kNotValid);
-     if (!whole_key_filtering_) {
-       return true;
-     }
-     if (UNLIKELY(contents_.size() == 0)) {
-       return true;
-     }
-     // This is the user key vs. the full key in the partition index. We assume
-     // that user key <= full key
-     auto filter_partition = GetFilterPartition(key, no_io);
-     auto res = filter_partition.value->KeyMayMatch(key, block_offset, no_io);
-     filter_partition.Release(table_->rep_->table_options.block_cache.get());
-     return res;
-   }
+  bool KeyMayMatch(const Slice& key, uint64_t block_offset, const bool no_io) {
+    assert(block_offset == kNotValid);
+    if (!whole_key_filtering_) {
+      return true;
+    }
+    if (UNLIKELY(contents_.size() == 0)) {
+      return true;
+    }
+    // This is the user key vs. the full key in the partition index. We assume
+    // that user key <= full key
+    auto filter_partition = GetFilterPartition(key, no_io);
+    auto res = filter_partition.value->KeyMayMatch(key, block_offset, no_io);
+    filter_partition.Release(table_->rep_->table_options.block_cache.get());
+    return res;
+  }
 
-   bool PrefixMayMatch(const Slice& prefix,
-       uint64_t block_offset, const bool no_io) {
-     assert(block_offset == kNotValid);
-     if (!prefix_extractor_) {
-       return true;
-     }
-     if (UNLIKELY(contents_.size() == 0)) {
-       return true;
-     }
-     auto filter_partition = GetFilterPartition(prefix, no_io);
-     auto res = filter_partition.value->PrefixMayMatch(prefix, no_io);
-     filter_partition.Release(table_->rep_->table_options.block_cache.get());
-     return res;
-   }
+  bool PrefixMayMatch(const Slice& prefix, uint64_t block_offset,
+                      const bool no_io) {
+    assert(block_offset == kNotValid);
+    if (!prefix_extractor_) {
+      return true;
+    }
+    if (UNLIKELY(contents_.size() == 0)) {
+      return true;
+    }
+    auto filter_partition = GetFilterPartition(prefix, no_io);
+    auto res = filter_partition.value->PrefixMayMatch(prefix, no_io);
+    filter_partition.Release(table_->rep_->table_options.block_cache.get());
+    return res;
+  }
 
-  private:
-   std::unique_ptr<Block> idx_on_fltr_blk_;
-   const Comparator& comparator_;
-   const BlockBasedTable* table_;
-   BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(const Slice& entry, const bool no_io) {
-     BlockIter iter;
-     idx_on_fltr_blk_->NewIterator(&comparator_, &iter, true);
-     iter.Seek(entry.data());
-     assert(iter.Valid());
-     Slice handle_value = iter.value();
-     BlockHandle fltr_blk_handle;
-     auto s = fltr_blk_handle.DecodeFrom(&handle_value);
-     assert(s.ok());
-     const bool is_a_filter_partition = true;
-     auto filter = table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
-     return filter;
-   }
+ private:
+  std::unique_ptr<Block> idx_on_fltr_blk_;
+  const Comparator& comparator_;
+  const BlockBasedTable* table_;
+  BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
+      const Slice& entry, const bool no_io) {
+    BlockIter iter;
+    idx_on_fltr_blk_->NewIterator(&comparator_, &iter, true);
+    iter.Seek(entry.data());
+    assert(iter.Valid());
+    Slice handle_value = iter.value();
+    BlockHandle fltr_blk_handle;
+    auto s = fltr_blk_handle.DecodeFrom(&handle_value);
+    assert(s.ok());
+    const bool is_a_filter_partition = true;
+    auto filter =
+        table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
+    return filter;
+  }
 };
 
-FilterBlockReader* BlockBasedTable::ReadFilter(const BlockHandle& filter_handle,
-    const bool is_a_filter_partition) const {
+FilterBlockReader* BlockBasedTable::ReadFilter(
+    const BlockHandle& filter_handle, const bool is_a_filter_partition) const {
   auto& rep = rep_;
-      // TODO: We might want to unify with ReadBlockFromFile() if we start
-      // requiring checksum verification in Table::Open.
-      if (rep->filter_type == Rep::FilterType::kNoFilter) {
+  // TODO: We might want to unify with ReadBlockFromFile() if we start
+  // requiring checksum verification in Table::Open.
+  if (rep->filter_type == Rep::FilterType::kNoFilter) {
     return nullptr;
   }
   BlockContents block;
@@ -1182,21 +1195,21 @@ FilterBlockReader* BlockBasedTable::ReadFilter(const BlockHandle& filter_handle,
   assert(rep->filter_policy);
 
   auto filter_type = rep->filter_type;
-  if (rep->filter_type == Rep::FilterType::kPartitionedFilter && is_a_filter_partition) {
+  if (rep->filter_type == Rep::FilterType::kPartitionedFilter &&
+      is_a_filter_partition) {
     filter_type = Rep::FilterType::kFullFilter;
   }
 
   switch (filter_type) {
-    case Rep::FilterType::kPartitionedFilter:
-      {
+    case Rep::FilterType::kPartitionedFilter: {
       auto filter_bits_reader =
-        rep->filter_policy->GetFilterBitsReader(block.data);
+          rep->filter_policy->GetFilterBitsReader(block.data);
       assert(filter_bits_reader);
       return new PartitionedFilterBlockReader(
           rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
           rep->whole_key_filtering, std::move(block), filter_bits_reader,
           rep->ioptions.statistics, rep->internal_comparator, this);
-      }
+    }
 
     case Rep::FilterType::kBlockFilter:
       return new BlockBasedFilterBlockReader(
@@ -1204,16 +1217,15 @@ FilterBlockReader* BlockBasedTable::ReadFilter(const BlockHandle& filter_handle,
           rep->table_options, rep->whole_key_filtering, std::move(block),
           rep->ioptions.statistics);
 
-    case Rep::FilterType::kFullFilter:
-      {
+    case Rep::FilterType::kFullFilter: {
       auto filter_bits_reader =
-        rep->filter_policy->GetFilterBitsReader(block.data);
+          rep->filter_policy->GetFilterBitsReader(block.data);
       assert(filter_bits_reader != nullptr);
       return new FullFilterBlockReader(
           rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
           rep->whole_key_filtering, std::move(block), filter_bits_reader,
           rep->ioptions.statistics);
-      }
+    }
 
     default:
       // filter_type is either kNoFilter (exited the function at the first if),
@@ -1237,7 +1249,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   // We will return rep_->filter anyway. rep_->filter can be nullptr if filter
   // read fails at Open() time. We don't want to reload again since it will
   // most probably fail again.
-  if (!is_a_filter_partition && !rep_->table_options.cache_index_and_filter_blocks) {
+  if (!is_a_filter_partition &&
+      !rep_->table_options.cache_index_and_filter_blocks) {
     return {rep_->filter.get(), nullptr /* cache handle */};
   }
 
@@ -1256,8 +1269,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
   // Fetching from the cache
   char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
-                         filter_blk_handle,
-                         cache_key);
+                         filter_blk_handle, cache_key);
 
   Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle =
