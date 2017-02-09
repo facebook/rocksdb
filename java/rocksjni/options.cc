@@ -344,27 +344,6 @@ void Java_org_rocksdb_Options_setMaxOpenFiles(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    disableDataSync
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_disableDataSync(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->disableDataSync;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setDisableDataSync
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setDisableDataSync(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean disableDataSync) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->disableDataSync =
-      static_cast<bool>(disableDataSync);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    useFsync
  * Signature: (J)Z
  */
@@ -3746,27 +3725,6 @@ jlong Java_org_rocksdb_DBOptions_statisticsPtr(
   auto st = reinterpret_cast<rocksdb::DBOptions*>(jOptHandle)->
       statistics.get();
   return reinterpret_cast<jlong>(st);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setDisableDataSync
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_DBOptions_setDisableDataSync(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean disableDataSync) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->disableDataSync =
-      static_cast<bool>(disableDataSync);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    disableDataSync
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_DBOptions_disableDataSync(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->disableDataSync;
 }
 
 /*
