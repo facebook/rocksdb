@@ -422,6 +422,7 @@ TESTS = \
 	range_del_aggregator_test \
 	lru_cache_test \
 	object_registry_test \
+	repair_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
