@@ -45,6 +45,7 @@ before_script:
   - ulimit -n 8192 || true
 
   # install AWWS CPP SDK
+  - mkdir $TRAVIS_BUILD_DIR/aws
   - pushd .
   - cd $TRAVIS_BUILD_DIR/aws
   - git clone https://github.com/aws/aws-sdk-cpp.git
