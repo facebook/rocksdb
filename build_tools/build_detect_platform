@@ -413,9 +413,11 @@ if test "$USE_HDFS"; then
 fi
 
 #
-# shall we support S3?
+# Support the AWS cloud environment only if the env variable named USE_AWS
+# is set to 1. Setting it to any other value or not setting it at all means
+# that the AWS build is not triggered.
 #
-if test "$USE_AWS"; then
+if [ "${USE_AWS}XXX" = "1XXX" ]; then
   AWS_SDK=/usr/local
   AWI=${AWS_SDK}/include/
   S3_CCFLAGS="$S3_CCFLAGS -I$AWI -DUSE_AWS"
