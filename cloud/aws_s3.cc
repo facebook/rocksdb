@@ -46,8 +46,6 @@ Status S3ReadableFile::Read(size_t n, Slice* result, char* scratch) {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3ReadableFile reading %s %ld",
       fname_.c_str(), n);
-  assert(status_.ok());
-
   Status s =  Read(offset_, n, result, scratch);
 
   // If the read successfully returned some data, then update
@@ -64,7 +62,10 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3ReadableFile reading %s at offset %ld size %ld",
       fname_.c_str(), offset, n);
-  assert(status_.ok());
+
+  if (!status_.ok()) {
+    return status_;
+  }
   *result = Slice();
 
   if (offset > file_size_) {
@@ -110,7 +111,8 @@ Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
     Aws::S3::S3Errors s3err = error.GetErrorType();
     if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
         s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
-        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
+        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
+	errmsg.find("Response code: 404") != std::string::npos) {
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[s3] S3ReadableFile error in reading not-existent %s %s",
           fname_.c_str(), errmsg.c_str());
@@ -147,7 +149,9 @@ Status S3ReadableFile::Skip(uint64_t n) {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3ReadableFile file %s skip %ld",
       fname_.c_str(), n);
-  assert(status_.ok());
+  if (!status_.ok()) {
+    return status_;
+  }
 
   // Update offset_ so that it does not go beyond filesize
   offset_ += n;
@@ -177,9 +181,11 @@ Status S3ReadableFile::GetFileInfo() {
     const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
     std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
     Aws::S3::S3Errors s3err = error.GetErrorType();
+
     if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
         s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
-        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
+        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
+	errmsg.find("Response code: 404") != std::string::npos) {
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[s3] S3GetFileInfo error not-existent %s %s",
           fname_.c_str(), errmsg.c_str());
