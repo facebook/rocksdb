@@ -71,3 +71,5 @@ db_logs/
 tp2/
 fbcode/
 fbcode
+
+travis-build/
