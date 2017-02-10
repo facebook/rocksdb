@@ -98,11 +98,9 @@ class FullFilterBlockReader : public FilterBlockReader {
                               const bool no_io = false) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
- protected:
+ private:
   const SliceTransform* prefix_extractor_;
   Slice contents_;
-
- private:
   bool MayMatch(const Slice& entry);
 
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;

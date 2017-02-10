@@ -990,12 +990,9 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
 
   switch (filter_type) {
     case Rep::FilterType::kPartitionedFilter: {
-      auto filter_bits_reader =
-          rep->filter_policy->GetFilterBitsReader(block.data);
-      assert(filter_bits_reader);
       return new PartitionedFilterBlockReader(
           rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
-          rep->whole_key_filtering, std::move(block), filter_bits_reader,
+          rep->whole_key_filtering, std::move(block), nullptr,
           rep->ioptions.statistics, rep->internal_comparator, this);
     }
 

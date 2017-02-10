@@ -87,7 +87,6 @@ class PartitionIndexBuilder : public IndexBuilder, public FullFilterBlockBuilder
   bool cut_filter_block =
       false;  // true if it should cut the next filter partition block
   const BlockBasedTableOptions& table_opt_;
-  // FullFilterBlockBuilder
   // The policy of when cut a filter block and Finish it
   inline bool ShouldCutFilterBlock() {
     // Current policy is to align the partitions of index and filters
@@ -97,25 +96,29 @@ class PartitionIndexBuilder : public IndexBuilder, public FullFilterBlockBuilder
     }
     return false;
   }
-  void CutAFilterBlock();
+  void MayBeCutAFilterBlock();
 };
 
-class PartitionedFilterBlockReader : public FullFilterBlockReader {
+class PartitionedFilterBlockReader : public FilterBlockReader {
  public:
   explicit PartitionedFilterBlockReader(const SliceTransform* prefix_extractor,
-                                        bool whole_key_filtering_2,
+                                        bool whole_key_filtering,
                                         BlockContents&& contents,
                                         FilterBitsReader* filter_bits_reader,
                                         Statistics* stats,
                                         const Comparator& comparator,
                                         const BlockBasedTable* table);
 
-  bool KeyMayMatch(const Slice& key, uint64_t block_offset, const bool no_io);
-
-  bool PrefixMayMatch(const Slice& prefix, uint64_t block_offset,
-                      const bool no_io);
+  virtual bool IsBlockBased() override { return false; }
+  virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
+                           const bool no_io = false) override;
+  virtual bool PrefixMayMatch(const Slice& prefix,
+                              uint64_t block_offset = kNotValid,
+                              const bool no_io = false) override;
+  virtual size_t ApproximateMemoryUsage() const override;
 
  private:
+  const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;
   const Comparator& comparator_;
   const BlockBasedTable* table_;

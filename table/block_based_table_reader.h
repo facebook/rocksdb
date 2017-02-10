@@ -316,6 +316,7 @@ class IndexReader {
   void operator=(const TableReader&) = delete;
 
   friend class PartitionedFilterBlockReader;
+  friend class PartitionedFilterBlockTest;
 };
 
 // Maitaning state of a two-level iteration on a partitioned index structure
