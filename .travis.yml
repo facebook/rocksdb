@@ -1,4 +1,4 @@
-sudo: false
+sudo: required
 dist: trusty
 language: cpp
 os:
@@ -40,14 +40,10 @@ branches:
 before_install:
   - mkdir $TRAVIS_BUILD_DIR
 
-before_script:
-  # Limit the maximum number of open file descriptors to 8192
-  - ulimit -n 8192 || true
-
+install:
   # install AWWS CPP SDK
   - mkdir $TRAVIS_BUILD_DIR/aws
-  - pushd .
-  - cd $TRAVIS_BUILD_DIR/aws
+  - pushd $TRAVIS_BUILD_DIR/aws
   - git clone https://github.com/aws/aws-sdk-cpp.git
   - cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_ONLY="s3;kinesis" aws-sdk-cpp/
   - make
@@ -55,11 +51,16 @@ before_script:
   - sudo ldconfig
   - popd
 
+before_script:
+  # Limit the maximum number of open file descriptors to 8192
+  - ulimit -n 8192 || true
+
 script:
   - ${CXX} --version
   - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j4 check_some; fi
   - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
   - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
+
 notifications:
   slack:
     rooms:
