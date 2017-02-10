@@ -8,6 +8,7 @@
 * NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
 * Change the default of delayed slowdown value to 16MB/s and further increase the L0 stop condition to 36 files.
 * Added new function GetApproximateMemTableStats that approximates both number of records and size of memtables.
+* (Experimental) Two-level indexing that partition the index and creates a 2nd level index on the partitions. The feature can be enabled by setting kTwoLevelIndexSearch as IndexType and configuring index_per_partition.
 
 ### Bug Fixes
 * Fix the bug that if 2PC is enabled, checkpoints may loss some recent transactions.
