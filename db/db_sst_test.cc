@@ -525,9 +525,12 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
       [&](void* arg) {
+        Status* bg_error = static_cast<Status*>(arg);
         bg_error_set = true;
         GetAllSSTFiles(&total_sst_files_size);
         reached_max_space_on_flush++;
+        // clear error to ensure compaction callback is called
+        *bg_error = Status::OK();
       });
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
