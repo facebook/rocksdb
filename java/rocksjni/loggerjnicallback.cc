@@ -10,6 +10,8 @@
 
 #include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/portal.h"
+#include <cstdarg>
+#include <cstdio>
 
 namespace rocksdb {
 
@@ -94,55 +96,35 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
         break;
     }
 
-    // We try twice: the first time with a fixed-size stack allocated buffer,
-    // and the second time with a much larger dynamically allocated buffer.
-    char buffer[500];
-    for (int iter = 0; iter < 2; iter++) {
-      char* base;
-      int bufsize;
-      if (iter == 0) {
-        bufsize = sizeof(buffer);
-        base = buffer;
-      } else {
-        bufsize = 30000;
-        base = new char[bufsize];
-      }
-      char* p = base;
-      char* limit = base + bufsize;
-      // Print the message
-      if (p < limit) {
-        va_list backup_ap;
-        va_copy(backup_ap, ap);
-        p += vsnprintf(p, limit - p, format, backup_ap);
-        va_end(backup_ap);
-      }
-      // Truncate to available space if necessary
-      if (p >= limit) {
-        if (iter == 0) {
-          continue;       // Try again with larger buffer
-        } else {
-          p = limit - 1;
-        }
-      }
-      assert(p < limit);
-      *p++ = '\0';
+    const std::unique_ptr<char[]> msg = format_str(format, ap);
 
-      JNIEnv* env = getJniEnv();
+    // pass msg to java callback handler
+    JNIEnv* env = getJniEnv();
 
-      // pass java string to callback handler
-      env->CallVoidMethod(
-          m_jLogger,
-          m_jLogMethodId,
-          jlog_level,
-          env->NewStringUTF(base));
+    env->CallVoidMethod(
+        m_jLogger,
+        m_jLogMethodId,
+        jlog_level,
+        env->NewStringUTF(msg.get()));
 
-      if (base != buffer) {
-        delete[] base;
-      }
-      break;
-    }
     m_jvm->DetachCurrentThread();
   }
+}
+
+std::unique_ptr<char[]> LoggerJniCallback::format_str(const char* format, va_list ap) const {
+  va_list ap_copy;
+
+  va_copy(ap_copy, ap);
+  const size_t required = vsnprintf(nullptr, 0, format, ap_copy) + 1; // Extra space for '\0'
+  va_end(ap_copy);
+
+  std::unique_ptr<char[]> buf(new char[required]);
+
+  va_copy(ap_copy, ap);
+  vsnprintf(buf.get(), required, format, ap_copy);
+  va_end(ap_copy);
+
+  return buf;
 }
 
 LoggerJniCallback::~LoggerJniCallback() {
