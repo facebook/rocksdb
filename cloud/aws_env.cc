@@ -150,6 +150,7 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
                                 unique_ptr<SequentialFile>* result,
                                 const EnvOptions& options) {
   assert(IsValid().ok());
+  *result = nullptr;
 
   // Get file type
   bool logfile;
@@ -167,7 +168,9 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
     // read from S3
     S3ReadableFile* f = new S3ReadableFile(this, fname);
     if (!f->status().ok()) {
-      return f->status();
+      Status stax = f->status();
+      delete f;
+      return stax;
     }
     result->reset(dynamic_cast<SequentialFile*>(f));
 
@@ -202,6 +205,7 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
                                     unique_ptr<RandomAccessFile>* result,
 				    const EnvOptions& options) {
   assert(IsValid().ok());
+  *result = nullptr;
 
   // Get file type
   bool logfile;
@@ -220,7 +224,9 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
     // read from S3
     S3ReadableFile* f = new S3ReadableFile(this, fname);
     if (!f->status().ok()) {
-      return f->status();
+      Status stax = f->status();
+      delete f;
+      return stax;
     }
     result->reset(dynamic_cast<RandomAccessFile*>(f));
 
@@ -270,9 +276,12 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
 
     S3WritableFile* f = new S3WritableFile(this, fname, options, cloud_env_options);
     if (f == nullptr || !f->status().ok()) {
-      delete f;
       *result = nullptr;
       Status s =  Status::IOError("[aws] NewWritableFile", fname.c_str());
+      if (f) {
+        s = f->status();
+      }
+      delete f;
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[s3] NewWritableFile src %s %s",
         fname.c_str(), s.ToString().c_str());
@@ -798,7 +807,7 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] GetFileSize src '%s' %s %ld",
-      fname.c_str(), st.ToString().c_str(), size);
+      fname.c_str(), st.ToString().c_str(), *size);
   return st;
 }
 
