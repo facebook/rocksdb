@@ -53,9 +53,9 @@ your make commands, like this: `PORTABLE=1 make static_lib`
       `yum install gcc48-c++`
     * Install gflags:
 
-              wget https://gflags.googlecode.com/files/gflags-2.0-no-svn-files.tar.gz
-              tar -xzvf gflags-2.0-no-svn-files.tar.gz
-              cd gflags-2.0
+              git clone https://github.com/gflags/gflags.git
+              git checkout v2.0
+              cd gflags
               ./configure && make && sudo make install
 
     * Install snappy:
