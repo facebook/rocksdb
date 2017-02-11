@@ -31,6 +31,8 @@ your make commands, like this: `PORTABLE=1 make static_lib`
   - [bzip2](http://www.bzip.org/) - a library for data compression.
   - [snappy](http://google.github.io/snappy/) - a library for fast
       data compression.
+  - [zstandard](http://www.zstd.net) - Fast real-time compression
+      algorithm.
 
 * All our tools depend on:
   - [gflags](https://gflags.github.io/gflags/) - a library that handles
@@ -48,7 +50,9 @@ your make commands, like this: `PORTABLE=1 make static_lib`
       `sudo apt-get install libsnappy-dev`.
     * Install zlib. Try: `sudo apt-get install zlib1g-dev`.
     * Install bzip2: `sudo apt-get install libbz2-dev`.
-* **Linux - CentOS**
+    * Install zstandard: `sudo apt-get install libzstd-dev`.
+
+* **Linux - CentOS / RHEL**
     * Upgrade your gcc to version at least 4.8 to get C++11 support:
       `yum install gcc48-c++`
     * Install gflags:
@@ -74,6 +78,14 @@ your make commands, like this: `PORTABLE=1 make static_lib`
 
               sudo yum install bzip2
               sudo yum install bzip2-devel
+
+    * Install zstandard:
+
+             wget https://github.com/facebook/zstd/archive/v1.1.3.tar.gz
+             mv v1.1.3.tar.gz zstandard-1.1.3.tar.gz
+             tar zxvf zstd-1.1.3.tar.gz
+             cd zstd-1.1.3
+             make && sudo make install
 
 * **OS X**:
     * Install latest C++ compiler that supports C++ 11:
