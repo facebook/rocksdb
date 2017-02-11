@@ -1378,8 +1378,8 @@ BZIP2_VER = 1.0.6
 BZIP2_SHA256 = a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
 SNAPPY_VER = 1.1.4
 SNAPPY_SHA256 = 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
-LZ4_VER = r127
-LZ4_SHA256 = 5209bf7a2231b41222b0cea4229700bae459b523bc13db488f0e1279405e6b43
+LZ4_VER = 1.7.5
+LZ4_SHA256 = 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
@@ -1442,8 +1442,8 @@ libsnappy.a:
 
 liblz4.a:
 	-rm -rf lz4-$(LZ4_VER)
-	curl -O -L https://codeload.github.com/Cyan4973/lz4/tar.gz/$(LZ4_VER)
-	mv $(LZ4_VER) lz4-$(LZ4_VER).tar.gz
+	curl -O -L https://github.com/lz4/lz4/archive/v$(LZ4_VER).tar.gz
+	mv v$(LZ4_VER).tar.gz lz4-$(LZ4_VER).tar.gz
 	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
 	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
 		echo lz4-$(LZ4_VER).tar.gz checksum mismatch, expected=\"$(LZ4_SHA256)\" actual=\"$$LZ4_SHA256_ACTUAL\"; \
