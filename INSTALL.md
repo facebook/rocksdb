@@ -29,7 +29,7 @@ your make commands, like this: `PORTABLE=1 make static_lib`
 * You can link RocksDB with following compression libraries:
   - [zlib](http://www.zlib.net/) - a library for data compression.
   - [bzip2](http://www.bzip.org/) - a library for data compression.
-  - [snappy](https://code.google.com/p/snappy/) - a library for fast
+  - [snappy](http://google.github.io/snappy/) - a library for fast
       data compression.
 
 * All our tools depend on:
@@ -60,9 +60,9 @@ your make commands, like this: `PORTABLE=1 make static_lib`
 
     * Install snappy:
 
-              wget https://snappy.googlecode.com/files/snappy-1.1.1.tar.gz
-              tar -xzvf snappy-1.1.1.tar.gz
-              cd snappy-1.1.1
+              wget https://github.com/google/snappy/releases/download/1.1.4/snappy-1.1.4.tar.gz
+              tar -xzvf snappy-1.1.4.tar.gz
+              cd snappy-1.1.4
               ./configure && make && sudo make install
 
     * Install zlib:
