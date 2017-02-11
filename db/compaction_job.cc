@@ -1062,6 +1062,8 @@ Status CompactionJob::FinishCompactionOutputFile(
   if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     s = sub_compact->outfile->Sync(db_options_.use_fsync);
+  }
+  if (s.ok()) {
     s = sub_compact->outfile->Close();
   }
   sub_compact->outfile.reset();

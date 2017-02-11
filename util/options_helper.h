@@ -213,6 +213,10 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     {"create_missing_column_families",
      {offsetof(struct DBOptions, create_missing_column_families),
       OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
+    {"disableDataSync",
+     {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}},
+    {"disable_data_sync",  // for compatibility
+     {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, false, 0}},
     {"enable_thread_tracking",
      {offsetof(struct DBOptions, enable_thread_tracking), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},

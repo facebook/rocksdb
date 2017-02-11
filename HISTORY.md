@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
+* Remove disableDataSync option.
 
 ## 5.2.0 (02/08/2017)
 ### Public API Change
