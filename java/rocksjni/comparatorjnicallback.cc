@@ -44,7 +44,13 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
     // exception thrown
     return;
   }
-  m_name = JniUtil::copyString(env, jsName);  // also releases jsName
+  jboolean has_exception = JNI_FALSE;
+  m_name = JniUtil::copyString(env, jsName,
+      &has_exception);  // also releases jsName
+  if (has_exception == JNI_TRUE) {
+    // exception thrown
+    return;
+  }
 
   m_jCompareMethodId = AbstractComparatorJni::getCompareMethodId(env);
   if(m_jCompareMethodId == nullptr) {
@@ -175,7 +181,7 @@ void BaseComparatorJniCallback::FindShortestSeparator(
 
   if(env->ExceptionCheck()) {
     // exception thrown from CallObjectMethod
-    env->ExceptionDescribe(); // print out exception to stderr
+    env->ExceptionDescribe();  // print out exception to stderr
     env->DeleteLocalRef(jsStart);
     JniUtil::releaseJniEnv(m_jvm, attached_thread);
     return;
@@ -185,8 +191,18 @@ void BaseComparatorJniCallback::FindShortestSeparator(
 
   if (jsResultStart != nullptr) {
     // update start with result
-    *start =
-      JniUtil::copyString(env, jsResultStart);  // also releases jsResultStart
+    jboolean has_exception = JNI_FALSE;
+    std::string result = JniUtil::copyString(env, jsResultStart,
+        &has_exception);  // also releases jsResultStart
+    if (has_exception == JNI_TRUE) {
+      if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();  // print out exception to stderr
+      }
+      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      return;
+    }
+
+    *start = result;
   }
 
   JniUtil::releaseJniEnv(m_jvm, attached_thread);
@@ -234,7 +250,17 @@ void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
 
   if (jsResultKey != nullptr) {
     // updates key with result, also releases jsResultKey.
-    *key = JniUtil::copyString(env, jsResultKey);
+    jboolean has_exception = JNI_FALSE;
+    std::string result = JniUtil::copyString(env, jsResultKey, &has_exception);
+    if (has_exception == JNI_TRUE) {
+      if (env->ExceptionCheck()) {
+        env->ExceptionDescribe();  // print out exception to stderr
+      }
+      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      return;
+    }
+
+    *key = result;
   }
 
   JniUtil::releaseJniEnv(m_jvm, attached_thread);

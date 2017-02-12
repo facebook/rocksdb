@@ -921,14 +921,39 @@ class JniUtil {
       }
     }
 
-    /*
+    /**
      * Copies a jstring to a std::string
      * and releases the original jstring
+     *
+     * If an exception occurs, then JNIEnv::ExceptionCheck()
+     * will have been called
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param js (IN) The java string to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     *
+     * @return A std:string copy of the jstring, or an
+     *     empty std::string if has_exception == JNI_TRUE
      */
-    static std::string copyString(JNIEnv* env, jstring js) {
+    static std::string copyString(JNIEnv* env, jstring js,
+        jboolean* has_exception) {
       const char *utf = env->GetStringUTFChars(js, NULL);
+      if(utf == nullptr) {
+        // exception thrown: OutOfMemoryError
+        env->ExceptionCheck();
+        *has_exception = JNI_TRUE;
+        return std::string();
+      } else if(env->ExceptionCheck()) {
+        // exception thrown
+        env->ReleaseStringUTFChars(js, utf);
+        *has_exception = JNI_TRUE;
+        return std::string();
+      }
+
       std::string name(utf);
       env->ReleaseStringUTFChars(js, utf);
+      *has_exception = JNI_FALSE;
       return name;
     }
 
