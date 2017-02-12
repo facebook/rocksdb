@@ -17,37 +17,99 @@ namespace rocksdb {
 
 LoggerJniCallback::LoggerJniCallback(
     JNIEnv* env, jobject jlogger) {
-  const jint rs __attribute__((unused)) = env->GetJavaVM(&m_jvm);
-  assert(rs == JNI_OK);
+  // Note: Logger methods may be accessed by multiple threads,
+  // so we ref the jvm not the env
+  const jint rs = env->GetJavaVM(&m_jvm);
+  if(rs != JNI_OK) {
+    // exception thrown
+    return;
+  }
 
   // Note: we want to access the Java Logger instance
   // across multiple method calls, so we create a global ref
+  assert(jlogger != nullptr);
   m_jLogger = env->NewGlobalRef(jlogger);
+  if(m_jLogger == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
   m_jLogMethodId = LoggerJni::getLogMethodId(env);
+  if(m_jLogMethodId == nullptr) {
+    // exception thrown: NoSuchMethodException or OutOfMemoryError
+    return;
+  }
 
   jobject jdebug_level = InfoLogLevelJni::DEBUG_LEVEL(env);
-  assert(jdebug_level != nullptr);
+  if(jdebug_level == nullptr) {
+    // exception thrown: NoSuchFieldError, ExceptionInInitializerError
+    // or OutOfMemoryError
+    return;
+  }
   m_jdebug_level = env->NewGlobalRef(jdebug_level);
+  if(m_jdebug_level == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
 
   jobject jinfo_level = InfoLogLevelJni::INFO_LEVEL(env);
-  assert(jinfo_level != nullptr);
+  if(jinfo_level == nullptr) {
+    // exception thrown: NoSuchFieldError, ExceptionInInitializerError
+    // or OutOfMemoryError
+    return;
+  }
   m_jinfo_level = env->NewGlobalRef(jinfo_level);
+  if(m_jinfo_level == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
 
   jobject jwarn_level = InfoLogLevelJni::WARN_LEVEL(env);
-  assert(jwarn_level != nullptr);
+  if(jwarn_level == nullptr) {
+    // exception thrown: NoSuchFieldError, ExceptionInInitializerError
+    // or OutOfMemoryError
+    return;
+  }
   m_jwarn_level = env->NewGlobalRef(jwarn_level);
+  if(m_jwarn_level == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
 
   jobject jerror_level = InfoLogLevelJni::ERROR_LEVEL(env);
-  assert(jerror_level != nullptr);
+  if(jerror_level == nullptr) {
+    // exception thrown: NoSuchFieldError, ExceptionInInitializerError
+    // or OutOfMemoryError
+    return;
+  }
   m_jerror_level = env->NewGlobalRef(jerror_level);
+  if(m_jerror_level == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
 
   jobject jfatal_level = InfoLogLevelJni::FATAL_LEVEL(env);
-  assert(jfatal_level != nullptr);
+  if(jfatal_level == nullptr) {
+    // exception thrown: NoSuchFieldError, ExceptionInInitializerError
+    // or OutOfMemoryError
+    return;
+  }
   m_jfatal_level = env->NewGlobalRef(jfatal_level);
+  if(m_jfatal_level == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
 
   jobject jheader_level = InfoLogLevelJni::HEADER_LEVEL(env);
-  assert(jheader_level != nullptr);
+  if(jheader_level == nullptr) {
+    // exception thrown: NoSuchFieldError, ExceptionInInitializerError
+    // or OutOfMemoryError
+    return;
+  }
   m_jheader_level = env->NewGlobalRef(jheader_level);
+  if(m_jheader_level == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
 }
 
 void LoggerJniCallback::Logv(const char* format, va_list ap) {
@@ -85,6 +147,8 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
         break;
     }
 
+    assert(format != nullptr);
+    assert(ap != nullptr);
     const std::unique_ptr<char[]> msg = format_str(format, ap);
 
     // pass msg to java callback handler
@@ -92,12 +156,33 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
     JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
     assert(env != nullptr);
 
-    env->CallVoidMethod(
-        m_jLogger,
-        m_jLogMethodId,
-        jlog_level,
-        env->NewStringUTF(msg.get()));
+    jstring jmsg = env->NewStringUTF(msg.get());
+    if(jmsg == nullptr) {
+      // unable to construct string
+      if(env->ExceptionCheck()) {
+        env->ExceptionDescribe(); // print out exception to stderr
+      }
+      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      return;
+    }
+    if(env->ExceptionCheck()) {
+      // exception thrown: OutOfMemoryError
+      env->ExceptionDescribe(); // print out exception to stderr
+      env->DeleteLocalRef(jmsg);
+      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      return;
+    }
 
+    env->CallVoidMethod(m_jLogger, m_jLogMethodId, jlog_level, jmsg);
+    if(env->ExceptionCheck()) {
+      // exception thrown
+      env->ExceptionDescribe(); // print out exception to stderr
+      env->DeleteLocalRef(jmsg);
+      JniUtil::releaseJniEnv(m_jvm, attached_thread);
+      return;
+    }
+
+    env->DeleteLocalRef(jmsg);
     JniUtil::releaseJniEnv(m_jvm, attached_thread);
   }
 }
@@ -123,14 +208,33 @@ LoggerJniCallback::~LoggerJniCallback() {
   JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
   assert(env != nullptr);
 
-  env->DeleteGlobalRef(m_jLogger);
+  if(m_jLogger != nullptr) {
+    env->DeleteGlobalRef(m_jLogger);
+  }
 
-  env->DeleteGlobalRef(m_jdebug_level);
-  env->DeleteGlobalRef(m_jinfo_level);
-  env->DeleteGlobalRef(m_jwarn_level);
-  env->DeleteGlobalRef(m_jerror_level);
-  env->DeleteGlobalRef(m_jfatal_level);
-  env->DeleteGlobalRef(m_jheader_level);
+  if(m_jdebug_level != nullptr) {
+    env->DeleteGlobalRef(m_jdebug_level);
+  }
+
+  if(m_jinfo_level != nullptr) {
+    env->DeleteGlobalRef(m_jinfo_level);
+  }
+
+  if(m_jwarn_level != nullptr) {
+    env->DeleteGlobalRef(m_jwarn_level);
+  }
+
+  if(m_jerror_level != nullptr) {
+    env->DeleteGlobalRef(m_jerror_level);
+  }
+
+  if(m_jfatal_level != nullptr) {
+    env->DeleteGlobalRef(m_jfatal_level);
+  }
+
+  if(m_jheader_level != nullptr) {
+    env->DeleteGlobalRef(m_jheader_level);
+  }
 
   JniUtil::releaseJniEnv(m_jvm, attached_thread);
 }
