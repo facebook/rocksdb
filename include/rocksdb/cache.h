@@ -24,6 +24,7 @@
 
 #include <stdint.h>
 #include <memory>
+#include <string>
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
@@ -38,8 +39,10 @@ class Cache;
 // is set, insert to the cache will fail when cache is full. User can also
 // set percentage of the cache reserves for high priority entries via
 // high_pri_pool_pct.
+// num_shard_bits = -1 means it is automatically determined: every shard
+// will be at least 512KB and number of shard bits will not exceed 6.
 extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
-                                          int num_shard_bits = 6,
+                                          int num_shard_bits = -1,
                                           bool strict_capacity_limit = false,
                                           double high_pri_pool_ratio = 0.0);
 
@@ -49,7 +52,7 @@ extern std::shared_ptr<Cache> NewLRUCache(size_t capacity,
 //
 // Return nullptr if it is not supported.
 extern std::shared_ptr<Cache> NewClockCache(size_t capacity,
-                                            int num_shard_bits = 6,
+                                            int num_shard_bits = -1,
                                             bool strict_capacity_limit = false);
 
 class Cache {
@@ -100,6 +103,12 @@ class Cache {
   // If stats is not nullptr, relative tickers could be used inside the
   // function.
   virtual Handle* Lookup(const Slice& key, Statistics* stats = nullptr) = 0;
+
+  // Increments the reference count for the handle if it refers to an entry in
+  // the cache. Returns true if refcount was incremented; otherwise, returns
+  // false.
+  // REQUIRES: handle must have been returned by a method on *this.
+  virtual bool Ref(Handle* handle) = 0;
 
   // Release a mapping returned by a previous Lookup().
   // REQUIRES: handle must not have been released yet.
@@ -166,6 +175,8 @@ class Cache {
   // Remove all entries.
   // Prerequisit: no entry is referenced.
   virtual void EraseUnRefEntries() = 0;
+
+  virtual std::string GetPrintableOptions() const { return ""; }
 
  private:
   // No copying allowed

@@ -39,8 +39,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       db_paths(options.db_paths),
       db_log_dir(options.db_log_dir),
       wal_dir(options.wal_dir),
-      delete_obsolete_files_period_micros(
-          options.delete_obsolete_files_period_micros),
       max_subcompactions(options.max_subcompactions),
       max_background_flushes(options.max_background_flushes),
       max_log_file_size(options.max_log_file_size),
@@ -52,10 +50,10 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_ttl_seconds(options.WAL_ttl_seconds),
       wal_size_limit_mb(options.WAL_size_limit_MB),
       manifest_preallocation_size(options.manifest_preallocation_size),
-      allow_os_buffer(options.allow_os_buffer),
       allow_mmap_reads(options.allow_mmap_reads),
       allow_mmap_writes(options.allow_mmap_writes),
       use_direct_reads(options.use_direct_reads),
+      use_direct_writes(options.use_direct_writes),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
       stats_dump_period_sec(options.stats_dump_period_sec),
@@ -121,16 +119,16 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   Header(log,
          "                   Options.recycle_log_file_num: %" ROCKSDB_PRIszt,
          recycle_log_file_num);
-  Header(log, "                        Options.allow_os_buffer: %d",
-         allow_os_buffer);
-  Header(log, "                       Options.allow_mmap_reads: %d",
-         allow_mmap_reads);
   Header(log, "                        Options.allow_fallocate: %d",
          allow_fallocate);
+  Header(log, "                       Options.allow_mmap_reads: %d",
+         allow_mmap_reads);
   Header(log, "                      Options.allow_mmap_writes: %d",
          allow_mmap_writes);
   Header(log, "                       Options.use_direct_reads: %d",
          use_direct_reads);
+  Header(log, "                       Options.use_direct_writes: %d",
+         use_direct_writes);
   Header(log, "         Options.create_missing_column_families: %d",
          create_missing_column_families);
   Header(log, "                             Options.db_log_dir: %s",
@@ -139,8 +137,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
          wal_dir.c_str());
   Header(log, "               Options.table_cache_numshardbits: %d",
          table_cache_numshardbits);
-  Header(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
-         delete_obsolete_files_period_micros);
   Header(log, "                     Options.max_subcompactions: %" PRIu32,
          max_subcompactions);
   Header(log, "                 Options.max_background_flushes: %d",
@@ -152,12 +148,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
   Header(log,
          "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
          manifest_preallocation_size);
-  Header(log, "                        Options.allow_os_buffer: %d",
-         allow_os_buffer);
-  Header(log, "                       Options.allow_mmap_reads: %d",
-         allow_mmap_reads);
-  Header(log, "                      Options.allow_mmap_writes: %d",
-         allow_mmap_writes);
   Header(log, "                    Options.is_fd_close_on_exec: %d",
          is_fd_close_on_exec);
   Header(log, "                  Options.stats_dump_period_sec: %u",
@@ -222,14 +212,17 @@ MutableDBOptions::MutableDBOptions()
       max_background_compactions(1),
       avoid_flush_during_shutdown(false),
       delayed_write_rate(2 * 1024U * 1024U),
-      max_total_wal_size(0) {}
+      max_total_wal_size(0),
+      delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : base_background_compactions(options.base_background_compactions),
       max_background_compactions(options.max_background_compactions),
       avoid_flush_during_shutdown(options.avoid_flush_during_shutdown),
       delayed_write_rate(options.delayed_write_rate),
-      max_total_wal_size(options.max_total_wal_size) {}
+      max_total_wal_size(options.max_total_wal_size),
+      delete_obsolete_files_period_micros(
+          options.delete_obsolete_files_period_micros) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   Header(log, "            Options.base_background_compactions: %d",
@@ -242,6 +235,9 @@ void MutableDBOptions::Dump(Logger* log) const {
          delayed_write_rate);
   Header(log, "            Options.max_total_wal_size: %" PRIu64,
          max_total_wal_size);
+  Header(log,
+         "            Options.delete_obsolete_files_period_micros: %" PRIu64,
+         delete_obsolete_files_period_micros);
 }
 
 }  // namespace rocksdb

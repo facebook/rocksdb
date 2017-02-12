@@ -5,6 +5,8 @@
 
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #include <map>
 #include <queue>
 #include <string>
@@ -79,7 +81,7 @@ class DeleteScheduler {
   //    - closing_ value is set to true
   InstrumentedCondVar cv_;
   // Background thread running BackgroundEmptyTrash
-  std::unique_ptr<std::thread> bg_thread_;
+  std::unique_ptr<port::Thread> bg_thread_;
   // Mutex to protect threads from file name conflicts
   InstrumentedMutex file_move_mu_;
   Logger* info_log_;
@@ -88,3 +90,5 @@ class DeleteScheduler {
 };
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

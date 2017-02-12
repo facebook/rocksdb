@@ -572,11 +572,20 @@ public class OptionsTest {
   }
 
   @Test
-  public void allowOsBuffer() {
-    try (final Options opt = new Options()) {
+  public void useDirectReads() {
+    try(final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();
-      opt.setAllowOsBuffer(boolValue);
-      assertThat(opt.allowOsBuffer()).isEqualTo(boolValue);
+      opt.setUseDirectReads(boolValue);
+      assertThat(opt.useDirectReads()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void useDirectWrites() {
+    try(final Options opt = new Options()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setUseDirectWrites(boolValue);
+      assertThat(opt.useDirectWrites()).isEqualTo(boolValue);
     }
   }
 

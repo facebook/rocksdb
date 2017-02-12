@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <future>
 #include <limits>
 #include <map>
@@ -424,7 +425,7 @@ class BackupEngineImpl : public BackupEngine {
   bool initialized_;
   std::mutex byte_report_mutex_;
   channel<CopyOrCreateWorkItem> files_to_copy_or_create_;
-  std::vector<std::thread> threads_;
+  std::vector<port::Thread> threads_;
 
   // Adds a file to the backup work queue to be copied or created if it doesn't
   // already exist.
@@ -556,8 +557,10 @@ Status BackupEngineImpl::Initialize() {
   std::vector<std::string> backup_meta_files;
   {
     auto s = backup_env_->GetChildren(GetBackupMetaDir(), &backup_meta_files);
-    if (!s.ok()) {
+    if (s.IsNotFound()) {
       return Status::NotFound(GetBackupMetaDir() + " is missing");
+    } else if (!s.ok()) {
+      return s;
     }
   }
   // create backups_ structure
@@ -611,11 +614,16 @@ Status BackupEngineImpl::Initialize() {
           &abs_path_to_size);
       Status s =
           backup.second->LoadFromFile(options_.backup_dir, abs_path_to_size);
-      if (!s.ok()) {
+      if (s.IsCorruption()) {
         Log(options_.info_log, "Backup %u corrupted -- %s", backup.first,
             s.ToString().c_str());
         corrupt_backups_.insert(std::make_pair(
               backup.first, std::make_pair(s, std::move(backup.second))));
+      } else if (!s.ok()) {
+        // Distinguish corruption errors from errors in the backup Env.
+        // Errors in the backup Env (i.e., this code path) will cause Open() to
+        // fail, whereas corruption errors would not cause Open() failures.
+        return s;
       } else {
         Log(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
             backup.first, backup.second->GetInfoString().c_str());
@@ -773,36 +781,24 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
         manifest_fname.size(), 0 /* size_limit */, false /* shared_checksum */,
         progress_callback, manifest_fname.substr(1) + "\n");
   }
-
-  // Pre-fetch sizes for WAL files
-  std::unordered_map<std::string, uint64_t> wal_path_to_size;
-  if (s.ok()) {
-    if (db->GetOptions().wal_dir != "") {
-      s = InsertPathnameToSizeBytes(db->GetOptions().wal_dir, db_env_,
-                                    &wal_path_to_size);
-    } else {
-      wal_path_to_size = std::move(data_path_to_size);
-    }
-  }
-
+  Log(options_.info_log, "begin add wal files for backup -- %" ROCKSDB_PRIszt,
+      live_wal_files.size());
   // Add a CopyOrCreateWorkItem to the channel for each WAL file
   for (size_t i = 0; s.ok() && i < live_wal_files.size(); ++i) {
-    auto wal_path_to_size_iter =
-        wal_path_to_size.find(live_wal_files[i]->PathName());
-    uint64_t size_bytes = wal_path_to_size_iter == wal_path_to_size.end()
-                              ? port::kMaxUint64
-                              : wal_path_to_size_iter->second;
+    uint64_t size_bytes = live_wal_files[i]->SizeFileBytes();
     if (live_wal_files[i]->Type() == kAliveLogFile) {
+      Log(options_.info_log, "add wal file for backup %s -- %" PRIu64,
+          live_wal_files[i]->PathName().c_str(), size_bytes);
       // we only care about live log files
       // copy the file into backup_dir/files/<new backup>/
       s = AddBackupFileWorkItem(live_dst_paths, backup_items_to_finish,
                                 new_backup_id, false, /* not shared */
                                 db->GetOptions().wal_dir,
                                 live_wal_files[i]->PathName(), rate_limiter,
-                                size_bytes);
+                                size_bytes, size_bytes);
     }
   }
-
+  Log(options_.info_log, "add files for backup done, wait finish.");
   Status item_status;
   for (auto& item : backup_items_to_finish) {
     item.result.wait();
@@ -1154,7 +1150,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
   unique_ptr<SequentialFile> src_file;
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
-  env_options.use_os_buffer = false;
+  // TODO:(gzh) maybe use direct writes here if possible
   if (size != nullptr) {
     *size = 0;
   }
@@ -1357,7 +1353,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
 
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
-  env_options.use_os_buffer = false;
+  env_options.use_direct_reads = false;
 
   std::unique_ptr<SequentialFile> src_file;
   Status s = src_env->NewSequentialFile(src, &src_file, env_options);
@@ -1613,7 +1609,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       try {
         size = abs_path_to_size.at(abs_path);
       } catch (std::out_of_range&) {
-        return Status::NotFound("Size missing for pathname: " + abs_path);
+        return Status::Corruption("Size missing for pathname: " + abs_path);
       }
     }
 
@@ -1663,6 +1659,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   unique_ptr<WritableFile> backup_meta_file;
   EnvOptions env_options;
   env_options.use_mmap_writes = false;
+  env_options.use_direct_writes = false;
   s = env_->NewWritableFile(meta_filename_ + ".tmp", &backup_meta_file,
                             env_options);
   if (!s.ok()) {

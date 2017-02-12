@@ -7,17 +7,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <stdio.h>
-#include "port/port.h"
 #include "rocksdb/status.h"
+#include <stdio.h>
+#include <cstring>
+#include "port/port.h"
 
 namespace rocksdb {
 
 const char* Status::CopyState(const char* state) {
-  uint32_t size;
-  memcpy(&size, state, sizeof(size));
-  char* result = new char[size + 4];
-  memcpy(result, state, size + 4);
+  char* const result =
+      new char[std::strlen(state) + 1];  // +1 for the null terminator
+  std::strcpy(result, state);
   return result;
 }
 
@@ -25,17 +25,17 @@ Status::Status(Code _code, SubCode _subcode, const Slice& msg, const Slice& msg2
     : code_(_code), subcode_(_subcode) {
   assert(code_ != kOk);
   assert(subcode_ != kMaxSubCode);
-  const uint32_t len1 = static_cast<uint32_t>(msg.size());
-  const uint32_t len2 = static_cast<uint32_t>(msg2.size());
-  const uint32_t size = len1 + (len2 ? (2 + len2) : 0);
-  char* result = new char[size + 4];
-  memcpy(result, &size, sizeof(size));
-  memcpy(result + 4, msg.data(), len1);
+  const size_t len1 = msg.size();
+  const size_t len2 = msg2.size();
+  const size_t size = len1 + (len2 ? (2 + len2) : 0);
+  char* const result = new char[size + 1];  // +1 for null terminator
+  memcpy(result, msg.data(), len1);
   if (len2) {
-    result[4 + len1] = ':';
-    result[5 + len1] = ' ';
-    memcpy(result + 6 + len1, msg2.data(), len2);
+    result[len1] = ':';
+    result[len1 + 1] = ' ';
+    memcpy(result + len1 + 2, msg2.data(), len2);
   }
+  result[size] = '\0';  // null terminator for C style string
   state_ = result;
 }
 
@@ -98,9 +98,7 @@ std::string Status::ToString() const {
   }
 
   if (state_ != nullptr) {
-    uint32_t length;
-    memcpy(&length, state_, sizeof(length));
-    result.append(state_ + 4, length);
+    result.append(state_);
   }
   return result;
 }

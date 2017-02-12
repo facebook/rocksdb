@@ -22,6 +22,7 @@
 #include "rocksdb/table.h"
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
+#include "table/two_level_iterator.h"
 #include "util/cf_options.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
@@ -149,6 +150,8 @@ class BlockBasedTable : public TableReader {
   // The key retrieved are internal keys.
   Status GetKVPairsFromDataBlocks(std::vector<KVPairBlock>* kv_pair_blocks);
 
+  class BlockEntryIteratorState;
+
  private:
   template <class TValue>
   struct CachableEntry;
@@ -157,7 +160,6 @@ class BlockBasedTable : public TableReader {
   Rep* rep_;
   bool compaction_optimized_;
 
-  class BlockEntryIteratorState;
   // input_iter: if it is not null, update this one and return it as Iterator
   static InternalIterator* NewDataBlockIterator(
       Rep* rep, const ReadOptions& ro, const Slice& index_value,
@@ -271,6 +273,21 @@ class BlockBasedTable : public TableReader {
   // No copying allowed
   explicit BlockBasedTable(const TableReader&) = delete;
   void operator=(const TableReader&) = delete;
+};
+
+// Maitaning state of a two-level iteration on a partitioned index structure
+class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
+ public:
+  BlockEntryIteratorState(BlockBasedTable* table,
+                          const ReadOptions& read_options, bool skip_filters);
+  InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
+  bool PrefixMayMatch(const Slice& internal_key) override;
+
+ private:
+  // Don't own table_
+  BlockBasedTable* table_;
+  const ReadOptions read_options_;
+  bool skip_filters_;
 };
 
 }  // namespace rocksdb

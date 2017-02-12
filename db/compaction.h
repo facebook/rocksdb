@@ -258,6 +258,8 @@ class Compaction {
   static bool IsFullCompaction(VersionStorageInfo* vstorage,
                                const std::vector<CompactionInputFiles>& inputs);
 
+  VersionStorageInfo* input_vstorage_;
+
   const int start_level_;    // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;

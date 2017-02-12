@@ -46,7 +46,7 @@ ColBufEncoder *ColBufEncoder::NewColBufEncoder(
   return nullptr;
 }
 
-#if defined(__clang__)
+#if __clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 9)
 __attribute__((__no_sanitize__("undefined")))
 #elif __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 9)
 __attribute__((__no_sanitize_undefined__))

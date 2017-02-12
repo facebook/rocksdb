@@ -41,40 +41,26 @@ class PosixSequentialFile : public SequentialFile {
   std::string filename_;
   FILE* file_;
   int fd_;
-  bool use_os_buffer_;
+  bool use_direct_io_;
 
  public:
-  PosixSequentialFile(const std::string& fname, FILE* f,
+  PosixSequentialFile(const std::string& fname, FILE* file, int fd,
                       const EnvOptions& options);
   virtual ~PosixSequentialFile();
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override;
+  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                                char* scratch) override;
   virtual Status Skip(uint64_t n) override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
-};
-
-class PosixDirectIOSequentialFile : public SequentialFile {
- public:
-  explicit PosixDirectIOSequentialFile(const std::string& filename, int fd)
-      : filename_(filename), fd_(fd) {}
-
-  virtual ~PosixDirectIOSequentialFile() {}
-
-  Status Read(size_t n, Slice* result, char* scratch) override;
-  Status Skip(uint64_t n) override;
-  Status InvalidateCache(size_t offset, size_t length) override;
-
- private:
-  const std::string filename_;
-  int fd_ = -1;
-  std::atomic<size_t> off_{0};  // read offset
+  virtual bool use_direct_io() const override { return use_direct_io_; }
 };
 
 class PosixRandomAccessFile : public RandomAccessFile {
  protected:
   std::string filename_;
   int fd_;
-  bool use_os_buffer_;
+  bool use_direct_io_;
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
@@ -88,26 +74,13 @@ class PosixRandomAccessFile : public RandomAccessFile {
 #endif
   virtual void Hint(AccessPattern pattern) override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
-};
-
-// Direct IO random access file direct IO implementation
-class PosixDirectIORandomAccessFile : public PosixRandomAccessFile {
- public:
-  explicit PosixDirectIORandomAccessFile(const std::string& filename, int fd)
-      : PosixRandomAccessFile(filename, fd, EnvOptions()) {}
-  virtual ~PosixDirectIORandomAccessFile() {}
-
-  Status Read(uint64_t offset, size_t n, Slice* result,
-              char* scratch) const override;
-  virtual void Hint(AccessPattern pattern) override {}
-  Status InvalidateCache(size_t offset, size_t length) override {
-    return Status::OK();
-  }
+  virtual bool use_direct_io() const override { return use_direct_io_; }
 };
 
 class PosixWritableFile : public WritableFile {
  protected:
   const std::string filename_;
+  const bool use_direct_io_;
   int fd_;
   uint64_t filesize_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
@@ -130,31 +103,24 @@ class PosixWritableFile : public WritableFile {
   virtual Status Sync() override;
   virtual Status Fsync() override;
   virtual bool IsSyncThreadSafe() const override;
+  virtual bool use_direct_io() const override { return use_direct_io_; }
   virtual uint64_t GetFileSize() override;
+  virtual size_t GetRequiredBufferAlignment() const override {
+    // TODO(gzh): It should be the logical sector size/filesystem block size
+    // hardcoded as 4k for most cases
+    return 4 * 1024;
+  }
   virtual Status InvalidateCache(size_t offset, size_t length) override;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(uint64_t offset, uint64_t len) override;
+#endif
+#ifdef OS_LINUX
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
 };
 
-class PosixDirectIOWritableFile : public PosixWritableFile {
- public:
-  explicit PosixDirectIOWritableFile(const std::string& filename, int fd)
-      : PosixWritableFile(filename, fd, EnvOptions()) {}
-  virtual ~PosixDirectIOWritableFile() {}
-
-  bool UseOSBuffer() const override { return false; }
-  size_t GetRequiredBufferAlignment() const override { return 4 * 1024; }
-  Status Append(const Slice& data) override;
-  Status PositionedAppend(const Slice& data, uint64_t offset) override;
-  bool UseDirectIO() const override { return true; }
-  Status InvalidateCache(size_t offset, size_t length) override {
-    return Status::OK();
-  }
-};
-
+// mmap() based random-access
 class PosixMmapReadableFile : public RandomAccessFile {
  private:
   int fd_;

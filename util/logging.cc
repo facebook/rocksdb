@@ -98,7 +98,7 @@ std::string NumberToString(uint64_t num) {
 }
 
 std::string NumberToHumanString(int64_t num) {
-  char buf[16];
+  char buf[19];
   int64_t absnum = num < 0 ? -num : num;
   if (absnum < 10000) {
     snprintf(buf, sizeof(buf), "%" PRIi64, num);

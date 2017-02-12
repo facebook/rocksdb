@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 
+#include <string>
+
 #include "util/sharded_cache.h"
 
 #include "port/port.h"
@@ -175,6 +177,7 @@ class LRUCacheShard : public CacheShard {
                         Cache::Handle** handle,
                         Cache::Priority priority) override;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) override;
+  virtual bool Ref(Cache::Handle* handle) override;
   virtual void Release(Cache::Handle* handle) override;
   virtual void Erase(const Slice& key, uint32_t hash) override;
 
@@ -189,6 +192,8 @@ class LRUCacheShard : public CacheShard {
                                       bool thread_safe) override;
 
   virtual void EraseUnRefEntries() override;
+
+  virtual std::string GetPrintableOptions() const override;
 
   void TEST_GetLRUList(LRUHandle** lru, LRUHandle** lru_low_pri);
 

@@ -440,8 +440,8 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
 }
 
 Status MockEnv::NewWritableFile(const std::string& fname,
-                                   unique_ptr<WritableFile>* result,
-                                   const EnvOptions& env_options) {
+                                unique_ptr<WritableFile>* result,
+                                const EnvOptions& env_options) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) != file_map_.end()) {
@@ -483,14 +483,18 @@ Status MockEnv::FileExists(const std::string& fname) {
 Status MockEnv::GetChildren(const std::string& dir,
                                std::vector<std::string>* result) {
   auto d = NormalizePath(dir);
+  bool found_dir = false;
   {
     MutexLock lock(&mutex_);
     result->clear();
     for (const auto& iter : file_map_) {
       const std::string& filename = iter.first;
 
-      if (filename.size() >= d.size() + 1 && filename[d.size()] == '/' &&
-          Slice(filename).starts_with(Slice(d))) {
+      if (filename == d) {
+        found_dir = true;
+      } else if (filename.size() >= d.size() + 1 && filename[d.size()] == '/' &&
+                 Slice(filename).starts_with(Slice(d))) {
+        found_dir = true;
         size_t next_slash = filename.find('/', d.size() + 1);
         if (next_slash != std::string::npos) {
           result->push_back(filename.substr(
@@ -502,7 +506,7 @@ Status MockEnv::GetChildren(const std::string& dir,
     }
   }
   result->erase(std::unique(result->begin(), result->end()), result->end());
-  return Status::OK();
+  return found_dir ? Status::OK() : Status::NotFound();
 }
 
 void MockEnv::DeleteFileInternal(const std::string& fname) {
@@ -526,15 +530,24 @@ Status MockEnv::DeleteFile(const std::string& fname) {
 }
 
 Status MockEnv::CreateDir(const std::string& dirname) {
+  auto dn = NormalizePath(dirname);
+  if (file_map_.find(dn) == file_map_.end()) {
+    MemFile* file = new MemFile(this, dn, false);
+    file->Ref();
+    file_map_[dn] = file;
+  } else {
+    return Status::IOError();
+  }
   return Status::OK();
 }
 
 Status MockEnv::CreateDirIfMissing(const std::string& dirname) {
+  CreateDir(dirname);
   return Status::OK();
 }
 
 Status MockEnv::DeleteDir(const std::string& dirname) {
-  return Status::OK();
+  return DeleteFile(dirname);
 }
 
 Status MockEnv::GetFileSize(const std::string& fname, uint64_t* file_size) {

@@ -221,9 +221,7 @@ class RandomAccessFileImpl : public RandomAccessFile {
 
 class WritableFileImpl : public WritableFile {
  public:
-  WritableFileImpl(FileState* file) : file_(file) {
-    file_->Ref();
-  }
+  explicit WritableFileImpl(FileState* file) : file_(file) { file_->Ref(); }
 
   ~WritableFileImpl() {
     file_->Unref();
@@ -325,16 +323,21 @@ class InMemoryEnv : public EnvWrapper {
     MutexLock lock(&mutex_);
     result->clear();
 
+    bool found_dir = false;
     for (FileSystem::iterator i = file_map_.begin(); i != file_map_.end(); ++i){
       const std::string& filename = i->first;
 
-      if (filename.size() >= dir.size() + 1 && filename[dir.size()] == '/' &&
-          Slice(filename).starts_with(Slice(dir))) {
+      if (dir == filename) {
+        found_dir = true;
+      } else if (filename.size() >= dir.size() + 1 &&
+                 filename[dir.size()] == '/' &&
+                 Slice(filename).starts_with(Slice(dir))) {
+        found_dir = true;
         result->push_back(filename.substr(dir.size() + 1));
       }
     }
 
-    return Status::OK();
+    return found_dir ? Status::OK() : Status::NotFound();
   }
 
   void DeleteFileInternal(const std::string& fname) {
@@ -358,15 +361,24 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status CreateDir(const std::string& dirname) override {
+    auto ndirname = NormalizeFileName(dirname);
+    if (file_map_.find(ndirname) == file_map_.end()) {
+      FileState* file = new FileState();
+      file->Ref();
+      file_map_[ndirname] = file;
+    } else {
+      return Status::IOError();
+    }
     return Status::OK();
   }
 
   virtual Status CreateDirIfMissing(const std::string& dirname) override {
+    CreateDir(dirname);
     return Status::OK();
   }
 
   virtual Status DeleteDir(const std::string& dirname) override {
-    return Status::OK();
+    return DeleteFile(dirname);
   }
 
   virtual Status GetFileSize(const std::string& fname,

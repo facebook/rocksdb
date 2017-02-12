@@ -21,7 +21,7 @@ function postURL($diffID, $url) {
   assert(is_numeric($diffID));
   assert(strlen($url) > 0);
 
-  $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
+  $cmd = 'echo \'{"diff_id": ' . $diffID . ', '
          . '"name":"click here for sandcastle tests for D' . $diffID . '", '
          . '"link":"' . $url . '"}\' | '
          . 'arc call-conduit '
@@ -35,7 +35,7 @@ function buildUpdateTestStatusCmd($diffID, $test, $status) {
   assert(strlen($test) > 0);
   assert(strlen($status) > 0);
 
-  $cmd = 'echo \'{"diff_id": "' . $diffID . '", '
+  $cmd = 'echo \'{"diff_id": ' . $diffID . ', '
          . '"name":"' . $test . '", '
          . '"result":"' . $status . '"}\' | '
          . 'arc call-conduit '

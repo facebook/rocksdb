@@ -116,6 +116,10 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            table_options_.cache_index_and_filter_blocks);
   ret.append(buffer);
   snprintf(buffer, kBufferSize,
+           "  cache_index_and_filter_blocks_with_high_priority: %d\n",
+           table_options_.cache_index_and_filter_blocks_with_high_priority);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize,
            "  pin_l0_filter_and_index_blocks_in_cache: %d\n",
            table_options_.pin_l0_filter_and_index_blocks_in_cache);
   ret.append(buffer);
@@ -135,18 +139,36 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            static_cast<void*>(table_options_.block_cache.get()));
   ret.append(buffer);
   if (table_options_.block_cache) {
-    snprintf(buffer, kBufferSize, "  block_cache_size: %" ROCKSDB_PRIszt "\n",
-             table_options_.block_cache->GetCapacity());
-    ret.append(buffer);
+    const char* block_cache_name = table_options_.block_cache->Name();
+    if (block_cache_name != nullptr) {
+      snprintf(buffer, kBufferSize, "  block_cache_name: %s\n",
+               block_cache_name);
+      ret.append(buffer);
+    }
+    ret.append("  block_cache_options:\n");
+    ret.append(table_options_.block_cache->GetPrintableOptions());
   }
   snprintf(buffer, kBufferSize, "  block_cache_compressed: %p\n",
            static_cast<void*>(table_options_.block_cache_compressed.get()));
   ret.append(buffer);
   if (table_options_.block_cache_compressed) {
-    snprintf(buffer, kBufferSize,
-             "  block_cache_compressed_size: %" ROCKSDB_PRIszt "\n",
-             table_options_.block_cache_compressed->GetCapacity());
+    const char* block_cache_compressed_name =
+        table_options_.block_cache_compressed->Name();
+    if (block_cache_compressed_name != nullptr) {
+      snprintf(buffer, kBufferSize, "  block_cache_name: %s\n",
+               block_cache_compressed_name);
+      ret.append(buffer);
+    }
+    ret.append("  block_cache_compressed_options:\n");
+    ret.append(table_options_.block_cache_compressed->GetPrintableOptions());
+  }
+  snprintf(buffer, kBufferSize, "  persistent_cache: %p\n",
+           static_cast<void*>(table_options_.persistent_cache.get()));
+  ret.append(buffer);
+  if (table_options_.persistent_cache) {
+    snprintf(buffer, kBufferSize, "  persistent_cache_options:\n");
     ret.append(buffer);
+    ret.append(table_options_.persistent_cache->GetPrintableOptions());
   }
   snprintf(buffer, kBufferSize, "  block_size: %" ROCKSDB_PRIszt "\n",
            table_options_.block_size);

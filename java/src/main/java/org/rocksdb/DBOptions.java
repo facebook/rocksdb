@@ -457,17 +457,31 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setAllowOsBuffer(
-      final boolean allowOsBuffer) {
+  public DBOptions setUseDirectReads(
+      final boolean useDirectReads) {
     assert(isOwningHandle());
-    setAllowOsBuffer(nativeHandle_, allowOsBuffer);
+    setUseDirectReads(nativeHandle_, useDirectReads);
     return this;
   }
 
   @Override
-  public boolean allowOsBuffer() {
+  public boolean useDirectReads() {
     assert(isOwningHandle());
-    return allowOsBuffer(nativeHandle_);
+    return useDirectReads(nativeHandle_);
+  }
+
+  @Override
+  public DBOptions setUseDirectWrites(
+      final boolean useDirectWrites) {
+    assert(isOwningHandle());
+    setUseDirectWrites(nativeHandle_, useDirectWrites);
+    return this;
+  }
+
+  @Override
+  public boolean useDirectWrites() {
+    assert(isOwningHandle());
+    return useDirectWrites(nativeHandle_);
   }
 
   @Override
@@ -710,9 +724,10 @@ public long delayedWriteRate(){
   private native void setManifestPreallocationSize(
       long handle, long size) throws IllegalArgumentException;
   private native long manifestPreallocationSize(long handle);
-  private native void setAllowOsBuffer(
-      long handle, boolean allowOsBuffer);
-  private native boolean allowOsBuffer(long handle);
+  private native void setUseDirectReads(long handle, boolean useDirectReads);
+  private native boolean useDirectReads(long handle);
+  private native void setUseDirectWrites(long handle, boolean useDirectWrites);
+  private native boolean useDirectWrites(long handle);
   private native void setAllowMmapReads(
       long handle, boolean allowMmapReads);
   private native boolean allowMmapReads(long handle);

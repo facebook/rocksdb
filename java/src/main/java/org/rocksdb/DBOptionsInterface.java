@@ -673,21 +673,38 @@ public interface DBOptionsInterface {
   long manifestPreallocationSize();
 
   /**
-   * Data being read from file storage may be buffered in the OS
-   * Default: true
+   * Enable the OS to use direct I/O for reading sst tables.
+   * Default: false
    *
-   * @param allowOsBuffer if true, then OS buffering is allowed.
+   * @param useDirectReads if true, then direct read is enabled
    * @return the instance of the current Object.
    */
-  Object setAllowOsBuffer(boolean allowOsBuffer);
+  Object setUseDirectReads(boolean useDirectReads);
 
   /**
-   * Data being read from file storage may be buffered in the OS
-   * Default: true
+   * Enable the OS to use direct I/O for reading sst tables.
+   * Default: false
    *
-   * @return if true, then OS buffering is allowed.
+   * @return if true, then direct reads are enabled
    */
-  boolean allowOsBuffer();
+  boolean useDirectReads();
+
+  /**
+   * Enable the OS to use direct I/O for writing sst tables.
+   * Default: false
+   *
+   * @param useDirectWrites if true, then direct write is enabled
+   * @return the instance of the current Object.
+   */
+  Object setUseDirectWrites(boolean useDirectWrites);
+
+  /**
+   * Enable the OS to use direct I/O for writing sst tables.
+   * Default: false
+   *
+   * @return if true, then direct writes are enabled
+   */
+  boolean useDirectWrites();
 
   /**
    * Allow the OS to mmap file for reading sst tables.

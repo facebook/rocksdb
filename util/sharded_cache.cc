@@ -7,7 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include "util/sharded_cache.h"
+
+#include <string>
+
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -49,6 +56,11 @@ Status ShardedCache::Insert(const Slice& key, void* value, size_t charge,
 Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* stats) {
   uint32_t hash = HashSlice(key);
   return GetShard(Shard(hash))->Lookup(key, hash);
+}
+
+bool ShardedCache::Ref(Handle* handle) {
+  uint32_t hash = GetHash(handle);
+  return GetShard(Shard(hash))->Ref(handle);
 }
 
 void ShardedCache::Release(Handle* handle) {
@@ -112,6 +124,38 @@ void ShardedCache::EraseUnRefEntries() {
   for (int s = 0; s < num_shards; s++) {
     GetShard(s)->EraseUnRefEntries();
   }
+}
+
+std::string ShardedCache::GetPrintableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+  {
+    MutexLock l(&capacity_mutex_);
+    snprintf(buffer, kBufferSize, "    capacity : %" ROCKSDB_PRIszt "\n",
+             capacity_);
+    ret.append(buffer);
+    snprintf(buffer, kBufferSize, "    num_shard_bits : %d\n", num_shard_bits_);
+    ret.append(buffer);
+    snprintf(buffer, kBufferSize, "    strict_capacity_limit : %d\n",
+             strict_capacity_limit_);
+    ret.append(buffer);
+  }
+  ret.append(GetShard(0)->GetPrintableOptions());
+  return ret;
+}
+int GetDefaultCacheShardBits(size_t capacity) {
+  int num_shard_bits = 0;
+  size_t min_shard_size = 512L * 1024L;  // Every shard is at least 512KB.
+  size_t num_shards = capacity / min_shard_size;
+  while (num_shards >>= 1) {
+    if (++num_shard_bits >= 6) {
+      // No more than 6.
+      return num_shard_bits;
+    }
+  }
+  return num_shard_bits;
 }
 
 }  // namespace rocksdb

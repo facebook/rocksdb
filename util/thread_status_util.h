@@ -84,7 +84,7 @@ class ThreadStatusUtil {
   // a non-null pointer.
   static bool MaybeInitThreadLocalUpdater(const Env* env);
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
   // A boolean flag indicating whether thread_updater_local_cache_
   // is initialized.  It is set to true when an Env uses any
   // ThreadStatusUtil functions using the current thread other
@@ -125,7 +125,7 @@ class AutoThreadOperationStageUpdater {
       ThreadStatus::OperationStage stage);
   ~AutoThreadOperationStageUpdater();
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
  private:
   ThreadStatus::OperationStage prev_stage_;
 #endif

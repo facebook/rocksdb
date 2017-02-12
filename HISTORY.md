@@ -1,7 +1,29 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 5.2.0 (02/08/2017)
 ### Public API Change
-* Options.level0_stop_writes_trigger default value changes from 24 to 32.
+* NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
+* Change the default of delayed slowdown value to 16MB/s and further increase the L0 stop condition to 36 files.
+* (Experimental) Two-level indexing that partition the index and creates a 2nd level index on the partitions. The feature can be enabled by setting kTwoLevelIndexSearch as IndexType and configuring index_per_partition.
+
+### New Features
+* Added new overloaded function GetApproximateSizes that allows to specify if memtable stats should be computed only without computing SST files' stats approximations.
+* Added new function GetApproximateMemTableStats that approximates both number of records and size of memtables.
+
+### Bug Fixes
+* RangeSync() should work if ROCKSDB_FALLOCATE_PRESENT is not set
+* Fix wrong results in a data race case in Get()
+* Some fixes related to 2PC.
+
+## 5.1.0 (01/13/2017)
+* Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().
+* Added EventListener::OnExternalFileIngested which will be called when IngestExternalFile() add a file successfully.
+* BackupEngine::Open and BackupEngineReadOnly::Open now always return error statuses matching those of the backup Env.
+
+### Bug Fixes
+* Fix the bug that if 2PC is enabled, checkpoints may loss some recent transactions.
+* When file copying is needed when creating checkpoints or bulk loading files, fsync the file after the file copying.
 
 ## 5.0.0 (11/17/2016)
 ### Public API Change
@@ -11,6 +33,10 @@
 * Support dynamically change `delayed_write_rate` option via SetDBOptions().
 * Options::allow_concurrent_memtable_write and Options::enable_write_thread_adaptive_yield are now true by default.
 * Remove Tickers::SEQUENCE_NUMBER to avoid confusion if statistics object is shared among RocksDB instance. Alternatively DB::GetLatestSequenceNumber() can be used to get the same value.
+* Options.level0_stop_writes_trigger default value changes from 24 to 32.
+* New compaction filter API: CompactionFilter::FilterV2(). Allows to drop ranges of keys.
+* Removed flashcache support.
+* DB::AddFile() is deprecated and is replaced with DB::IngestExternalFile(). DB::IngestExternalFile() remove all the restrictions that existed for DB::AddFile.
 
 ### New Features
 * Add avoid_flush_during_shutdown option, which speeds up DB shutdown by not flushing unpersisted data (i.e. with disableWAL = true). Unpersisted data will be lost. The options is dynamically changeable via SetDBOptions().

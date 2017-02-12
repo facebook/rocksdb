@@ -16,7 +16,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "table/iterator_wrapper.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"

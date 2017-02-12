@@ -491,7 +491,7 @@ Status HdfsEnv::GetChildren(const std::string& path,
     break;
   }
   case HDFS_DOESNT_EXIST:  // directory does not exist, exit
-    break;
+    return Status::NotFound();
   default:          // anything else should be an error
     Log(InfoLogLevel::FATAL_LEVEL, mylog,
         "GetChildren hdfsExists call failed");

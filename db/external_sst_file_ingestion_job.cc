@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "db/version_edit.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
@@ -36,6 +36,15 @@ Status ExternalSstFileIngestionJob::Prepare(
       return status;
     }
     files_to_ingest_.push_back(file_to_ingest);
+  }
+
+  for (const IngestedFileInfo& f : files_to_ingest_) {
+    if (f.cf_id !=
+            TablePropertiesCollectorFactory::Context::kUnknownColumnFamily &&
+        f.cf_id != cfd_->GetID()) {
+      return Status::InvalidArgument(
+          "External file column family id dont match");
+    }
   }
 
   const Comparator* ucmp = cfd_->internal_comparator().user_comparator();
@@ -87,10 +96,12 @@ Status ExternalSstFileIngestionJob::Prepare(
       status = env_->LinkFile(path_outside_db, path_inside_db);
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
-        status = CopyFile(env_, path_outside_db, path_inside_db, 0);
+        status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                          db_options_.use_fsync);
       }
     } else {
-      status = CopyFile(env_, path_outside_db, path_inside_db, 0);
+      status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync);
     }
     TEST_SYNC_POINT("DBImpl::AddFile:FileCopied");
     if (!status.ok()) {
@@ -295,15 +306,29 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (file_to_ingest->global_seqno_offset == 0) {
       return Status::Corruption("Was not able to find file global seqno field");
     }
+  } else if (file_to_ingest->version == 1) {
+    // SST file V1 should not have global seqno field
+    assert(seqno_iter == uprops.end());
+    if (ingestion_options_.allow_blocking_flush ||
+            ingestion_options_.allow_global_seqno) {
+      return Status::InvalidArgument(
+            "External SST file V1 does not support global seqno");
+    }
   } else {
-    return Status::InvalidArgument("external file version is not supported");
+    return Status::InvalidArgument("External file version is not supported");
   }
   // Get number of entries in table
   file_to_ingest->num_entries = props->num_entries;
 
   ParsedInternalKey key;
-  std::unique_ptr<InternalIterator> iter(
-      table_reader->NewIterator(ReadOptions()));
+  ReadOptions ro;
+  // During reading the external file we can cache blocks that we read into
+  // the block cache, if we later change the global seqno of this file, we will
+  // have block in cache that will include keys with wrong seqno.
+  // We need to disable fill_cache so that we read from the file without
+  // updating the block cache.
+  ro.fill_cache = false;
+  std::unique_ptr<InternalIterator> iter(table_reader->NewIterator(ro));
 
   // Get first (smallest) key from file
   iter->SeekToFirst();
@@ -324,6 +349,10 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     return Status::Corruption("external file have non zero sequence number");
   }
   file_to_ingest->largest_user_key = key.user_key.ToString();
+
+  file_to_ingest->cf_id = static_cast<uint32_t>(props->column_family_id);
+
+  file_to_ingest->table_properties = *props;
 
   return status;
 }

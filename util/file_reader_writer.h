@@ -7,10 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
+#include <atomic>
 #include <string>
+#include "port/port.h"
 #include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
-#include "port/port.h"
 
 namespace rocksdb {
 
@@ -23,10 +24,11 @@ std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
+  std::atomic<size_t> offset_;  // read offset
 
  public:
   explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file)
-      : file_(std::move(_file)) {}
+      : file_(std::move(_file)), offset_(0) {}
 
   SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
     *this = std::move(o);
@@ -45,6 +47,11 @@ class SequentialFileReader {
   Status Skip(uint64_t n);
 
   SequentialFile* file() { return file_.get(); }
+
+  bool use_direct_io() const { return file_->use_direct_io(); }
+
+ protected:
+  Status DirectRead(size_t n, Slice* result, char* scratch);
 };
 
 class RandomAccessFileReader {
@@ -86,6 +93,12 @@ class RandomAccessFileReader {
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
   RandomAccessFile* file() { return file_.get(); }
+
+  bool use_direct_io() const { return file_->use_direct_io(); }
+
+ protected:
+  Status DirectRead(uint64_t offset, size_t n, Slice* result,
+                    char* scratch) const;
 };
 
 // Use posix write to write data to a file.
@@ -103,7 +116,6 @@ class WritableFileWriter {
   uint64_t                next_write_offset_;
   bool                    pending_sync_;
   const bool              direct_io_;
-  const bool              use_os_buffer_;
   uint64_t                last_sync_size_;
   uint64_t                bytes_per_sync_;
   RateLimiter*            rate_limiter_;
@@ -117,14 +129,13 @@ class WritableFileWriter {
         filesize_(0),
         next_write_offset_(0),
         pending_sync_(false),
-        direct_io_(writable_file_->UseDirectIO()),
-        use_os_buffer_(writable_file_->UseOSBuffer()),
+        direct_io_(writable_file_->use_direct_io()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter) {
 
     buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
-    buf_.AllocateNewBuffer(65536);
+    buf_.AllocateNewBuffer(std::min((size_t)65536, max_buffer_size_));
   }
 
   WritableFileWriter(const WritableFileWriter&) = delete;
@@ -154,10 +165,12 @@ class WritableFileWriter {
 
   WritableFile* writable_file() const { return writable_file_.get(); }
 
+  bool use_direct_io() { return writable_file_->use_direct_io(); }
+
  private:
   // Used when os buffering is OFF and we are writing
-  // DMA such as in Windows unbuffered mode
-  Status WriteUnbuffered();
+  // DMA such as in Direct I/O mode
+  Status WriteDirect();
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -23,6 +24,18 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
 ColumnFamilyOptions BuildColumnFamilyOptions(
     const ColumnFamilyOptions& ioptions,
     const MutableCFOptions& mutable_cf_options);
+
+static std::map<CompactionStyle, std::string> compaction_style_to_string = {
+    {kCompactionStyleLevel, "kCompactionStyleLevel"},
+    {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
+    {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
+    {kCompactionStyleNone, "kCompactionStyleNone"}};
+
+static std::map<CompactionPri, std::string> compaction_pri_to_string = {
+    {kByCompensatedSize, "kByCompensatedSize"},
+    {kOldestLargestSeqFirst, "kOldestLargestSeqFirst"},
+    {kOldestSmallestSeqFirst, "kOldestSmallestSeqFirst"},
+    {kMinOverlappingRatio, "kMinOverlappingRatio"}};
 
 #ifndef ROCKSDB_LITE
 
@@ -186,12 +199,14 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
     {"use_direct_reads",
      {offsetof(struct DBOptions, use_direct_reads), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},
+    {"use_direct_writes",
+     {offsetof(struct DBOptions, use_direct_writes), OptionType::kBoolean,
+      OptionVerificationType::kNormal, false, 0}},
     {"allow_2pc",
      {offsetof(struct DBOptions, allow_2pc), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},
     {"allow_os_buffer",
-     {offsetof(struct DBOptions, allow_os_buffer), OptionType::kBoolean,
-      OptionVerificationType::kNormal, false, 0}},
+     {0, OptionType::kBoolean, OptionVerificationType::kDeprecated, true, 0}},
     {"create_if_missing",
      {offsetof(struct DBOptions, create_if_missing), OptionType::kBoolean,
       OptionVerificationType::kNormal, false, 0}},
@@ -302,7 +317,8 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
       offsetof(struct MutableDBOptions, delayed_write_rate)}},
     {"delete_obsolete_files_period_micros",
      {offsetof(struct DBOptions, delete_obsolete_files_period_micros),
-      OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
+      OptionType::kUInt64T, OptionVerificationType::kNormal, true,
+      offsetof(struct MutableDBOptions, delete_obsolete_files_period_micros)}},
     {"max_manifest_file_size",
      {offsetof(struct DBOptions, max_manifest_file_size), OptionType::kUInt64T,
       OptionVerificationType::kNormal, false, 0}},
@@ -608,6 +624,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"index_block_restart_interval",
          {offsetof(struct BlockBasedTableOptions, index_block_restart_interval),
           OptionType::kInt, OptionVerificationType::kNormal, false, 0}},
+        {"index_per_partition",
+         {offsetof(struct BlockBasedTableOptions, index_per_partition),
+          OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
         {"filter_policy",
          {offsetof(struct BlockBasedTableOptions, filter_policy),
           OptionType::kFilterPolicy, OptionVerificationType::kByName, false,
@@ -670,7 +689,9 @@ static std::unordered_map<std::string, CompressionType>
 static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
     block_base_table_index_type_string_map = {
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
-        {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch}};
+        {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch},
+        {"kTwoLevelIndexSearch",
+         BlockBasedTableOptions::IndexType::kHashSearch}};
 
 static std::unordered_map<std::string, EncodingType> encoding_type_string_map =
     {{"kPlain", kPlain}, {"kPrefix", kPrefix}};

@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdlib>
+#include <functional>
 #include <string>
 
 #include "rocksdb/options.h"

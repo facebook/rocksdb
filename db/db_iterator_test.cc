@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <functional>
+
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -1642,7 +1644,7 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
   std::atomic<uint64_t> total_prev_found(0);
   std::atomic<uint64_t> total_bytes(0);
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   std::function<void()> reader_func_next = [&]() {
     Iterator* iter = db_->NewIterator(ReadOptions());
 

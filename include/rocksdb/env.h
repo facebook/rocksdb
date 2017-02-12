@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 #include <cstdarg>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -50,6 +51,7 @@ struct ThreadStatus;
 using std::unique_ptr;
 using std::shared_ptr;
 
+const size_t kDefaultPageSize = 4 * 1024;
 
 // Options while opening a file to read/write
 struct EnvOptions {
@@ -59,9 +61,6 @@ struct EnvOptions {
 
   // construct from Options
   explicit EnvOptions(const DBOptions& options);
-
-  // If true, then allow caching of data in environment buffers
-  bool use_os_buffer = true;
 
    // If true, then use mmap to read data
   bool use_mmap_reads = false;
@@ -200,6 +199,10 @@ class Env {
   // Store in *result the names of the children of the specified directory.
   // The names are relative to "dir".
   // Original contents of *results are dropped.
+  // Returns OK if "dir" exists and "*result" contains its children.
+  //         NotFound if "dir" does not exist, the calling process does not have
+  //                  permission to access "dir", or if "dir" is invalid.
+  //         IOError if an IO Error was encountered
   virtual Status GetChildren(const std::string& dir,
                              std::vector<std::string>* result) = 0;
 
@@ -209,6 +212,10 @@ class Env {
   // result.
   // The name attributes are relative to "dir".
   // Original contents of *results are dropped.
+  // Returns OK if "dir" exists and "*result" contains its children.
+  //         NotFound if "dir" does not exist, the calling process does not have
+  //                  permission to access "dir", or if "dir" is invalid.
+  //         IOError if an IO Error was encountered
   virtual Status GetChildrenFileAttributes(const std::string& dir,
                                            std::vector<FileAttributes>* result);
 
@@ -364,8 +371,8 @@ class Env {
   // OptimizeForManifestWrite will create a new EnvOptions object that is a copy
   // of the EnvOptions in the parameters, but is optimized for writing manifest
   // files. Default implementation returns the copy of the same object.
-  virtual EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options)
-      const;
+  virtual EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const;
 
   // Returns the status of all threads that belong to the current Env.
   virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
@@ -423,11 +430,26 @@ class SequentialFile {
   // REQUIRES: External synchronization
   virtual Status Skip(uint64_t n) = 0;
 
+  // Indicates the upper layers if the current SequentialFile implementation
+  // uses direct IO.
+  virtual bool use_direct_io() const { return false; }
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
   virtual Status InvalidateCache(size_t offset, size_t length) {
     return Status::NotSupported("InvalidateCache not supported.");
+  }
+
+  // Positioned Read for direct I/O
+  // If Direct I/O enabled, offset, n, and scratch should be properly aligned
+  virtual Status PositionedRead(uint64_t offset, size_t n, Slice* result,
+                                char* scratch) {
+    return Status::NotSupported();
   }
 };
 
@@ -446,6 +468,7 @@ class RandomAccessFile {
   // status.
   //
   // Safe for concurrent use by multiple threads.
+  // If Direct I/O enabled, offset, n, and scratch should be aligned properly.
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
 
@@ -483,6 +506,14 @@ class RandomAccessFile {
 
   virtual void Hint(AccessPattern pattern) {}
 
+  // Indicates the upper layers if the current RandomAccessFile implementation
+  // uses direct IO.
+  virtual bool use_direct_io() const { return false; }
+
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
+
   // Remove any kind of caching of data from the offset to offset+length
   // of this file. If the length is 0, then it refers to the end of file.
   // If the system is not caching the file contents, then this is a noop.
@@ -503,21 +534,6 @@ class WritableFile {
   }
   virtual ~WritableFile();
 
-  // Indicates if the class makes use of unbuffered I/O
-  // If false you must pass aligned buffer to Write()
-  virtual bool UseOSBuffer() const {
-    return true;
-  }
-
-  const size_t c_DefaultPageSize = 4 * 1024;
-
-  // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseOSBuffer()
-  // returns false
-  virtual size_t GetRequiredBufferAlignment() const {
-    return c_DefaultPageSize;
-  }
-
   // Append data to the end of the file
   // Note: A WriteabelFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
@@ -529,7 +545,7 @@ class WritableFile {
   // the sector. The implementation thus needs to also rewrite the last
   // partial sector.
   // Note: PositionAppend does not guarantee moving the file offset after the
-  // write. A WriteabelFile object must support either Append or
+  // write. A WritableFile object must support either Append or
   // PositionedAppend, so the users cannot mix the two.
   //
   // PositionedAppend() can only happen on the page/sector boundaries. For that
@@ -576,8 +592,11 @@ class WritableFile {
 
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
-  virtual bool UseDirectIO() const { return false; }
+  virtual bool use_direct_io() const { return false; }
 
+  // Use the returned alignment value to allocate
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
   /*
    * Change the priority in rate limiter if rate limiting is enabled.
    * If rate limiting is not enabled, this call has no effect.
@@ -686,20 +705,13 @@ class RandomRWFile {
   RandomRWFile() {}
   virtual ~RandomRWFile() {}
 
-  // Indicates if the class makes use of unbuffered I/O
+  // Indicates if the class makes use of direct I/O
   // If false you must pass aligned buffer to Write()
-  virtual bool UseOSBuffer() const {
-    return true;
-  }
-
-  const size_t c_DefaultPageSize = 4 * 1024;
+  virtual bool use_direct_io() const { return false; }
 
   // Use the returned alignment value to allocate
-  // aligned buffer for Write() when UseOSBuffer()
-  // returns false
-  virtual size_t GetRequiredBufferAlignment() const {
-    return c_DefaultPageSize;
-  }
+  // aligned buffer for Direct I/O
+  virtual size_t GetRequiredBufferAlignment() const { return kDefaultPageSize; }
 
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
   // should simply forward the call and do not enact read_ahead buffering or locking.
@@ -713,7 +725,7 @@ class RandomRWFile {
   virtual void EnableReadAhead() {}
 
   // Write bytes in `data` at  offset `offset`, Returns Status::OK() on success.
-  // Pass aligned buffer when UseOSBuffer() returns false.
+  // Pass aligned buffer when use_direct_io() returns true.
   virtual Status Write(uint64_t offset, const Slice& data) = 0;
 
   // Read up to `n` bytes starting from offset `offset` and store them in

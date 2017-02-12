@@ -5,9 +5,10 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/env_registry.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/mock_env.h"
 #include "util/testharness.h"
 
@@ -109,7 +110,7 @@ std::vector<Env*> GetCustomEnvs() {
     init = true;
     const char* uri = getenv("TEST_ENV_URI");
     if (uri != nullptr) {
-      custom_env = NewEnvFromUri(uri, &custom_env_guard);
+      custom_env = NewCustomObject<Env>(uri, &custom_env_guard);
     }
   }
 
@@ -202,6 +203,8 @@ TEST_P(EnvBasicTestWithParam, Basics) {
   ASSERT_EQ(Status::NotFound(), env_->FileExists(test_dir_ + "/g"));
   ASSERT_OK(env_->GetChildren(test_dir_, &children));
   ASSERT_EQ(0U, children.size());
+  ASSERT_TRUE(
+      env_->GetChildren(test_dir_ + "/non_existent", &children).IsNotFound());
 }
 
 TEST_P(EnvBasicTestWithParam, ReadWrite) {

@@ -11,7 +11,8 @@ if ! which $CLANG_FORMAT_DIFF &> /dev/null
 then
   echo "You didn't have clang-format-diff.py available in your computer!"
   echo "You can download it by running: "
-  echo "    curl http://goo.gl/iUW1u2"
+  echo "    curl --location http://goo.gl/iUW1u2 -o ${CLANG_FORMAT_DIFF}"
+  echo "and move ${CLANG_FORMAT_DIFF} to some directory within PATH=${PATH}"
   exit 128
 fi
 
@@ -50,14 +51,15 @@ fi
 set -e
 
 uncommitted_code=`git diff HEAD`
+LAST_MASTER=`git merge-base master HEAD`
 
 # If there's no uncommitted changes, we assume user are doing post-commit
-# format check, in which case we'll check the modified lines from latest commit.
-# Otherwise, we'll check format of the uncommitted code only.
+# format check, in which case we'll check the modified lines since last commit
+# from master. Otherwise, we'll check format of the uncommitted code only.
 if [ -z "$uncommitted_code" ]
 then
   # Check the format of last commit
-  diffs=$(git diff -U0 HEAD^ | $CLANG_FORMAT_DIFF -p 1)
+  diffs=$(git diff -U0 $LAST_MASTER^ | $CLANG_FORMAT_DIFF -p 1)
 else
   # Check the format of uncommitted lines,
   diffs=$(git diff -U0 HEAD | $CLANG_FORMAT_DIFF -p 1)
@@ -97,7 +99,12 @@ then
 fi
 
 # Do in-place format adjustment.
-git diff -U0 HEAD^ | $CLANG_FORMAT_DIFF -i -p 1
+if [ -z "$uncommitted_code" ]
+then
+  git diff -U0 $LAST_MASTER^ | $CLANG_FORMAT_DIFF -i -p 1
+else
+  git diff -U0 HEAD^ | $CLANG_FORMAT_DIFF -i -p 1
+fi
 echo "Files reformatted!"
 
 # Amend to last commit if user do the post-commit format check

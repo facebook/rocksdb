@@ -40,7 +40,7 @@
 #include "table/format.h"
 #include "table/get_context.h"
 #include "table/internal_iterator.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
 #include "table/table_reader.h"

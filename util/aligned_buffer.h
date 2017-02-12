@@ -24,7 +24,7 @@ inline size_t Roundup(size_t x, size_t y) {
 }
 
 // This class is to manage an aligned user
-// allocated buffer for unbuffered I/O purposes
+// allocated buffer for direct I/O purposes
 // though can be used for any purpose.
 class AlignedBuffer {
   size_t alignment_;
@@ -58,6 +58,14 @@ public:
 
   AlignedBuffer& operator=(const AlignedBuffer&) = delete;
 
+  static bool isAligned(const void* ptr, size_t alignment) {
+    return reinterpret_cast<uintptr_t>(ptr) % alignment == 0;
+  }
+
+  static bool isAligned(size_t n, size_t alignment) {
+    return n % alignment == 0;
+  }
+
   size_t Alignment() const {
     return alignment_;
   }
@@ -73,6 +81,8 @@ public:
   const char* BufferStart() const {
     return bufstart_;
   }
+
+  char* BufferStart() { return bufstart_; }
 
   void Clear() {
     cursize_ = 0;

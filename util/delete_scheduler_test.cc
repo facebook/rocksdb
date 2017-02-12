@@ -20,6 +20,8 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 
+#ifndef ROCKSDB_LITE
+
 namespace rocksdb {
 
 class DeleteSchedulerTest : public testing::Test {
@@ -181,7 +183,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 
     // Delete dummy files using 10 threads and measure time spent to empty trash
     std::atomic<int> thread_num(0);
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
     std::function<void()> delete_thread = [&]() {
       int idx = thread_num.fetch_add(1);
       int range_start = idx * num_files;
@@ -426,3 +428,10 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+int main(int argc, char** argv) {
+  printf("DeleteScheduler is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+#endif  // ROCKSDB_LITE

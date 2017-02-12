@@ -17,12 +17,41 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
 #include "rocksdb/compaction_filter.h"
-#include "util/log_buffer.h"
 
 namespace rocksdb {
 
 class CompactionIterator {
  public:
+  // A wrapper around Compaction. Has a much smaller interface, only what
+  // CompactionIterator uses. Tests can override it.
+  class CompactionProxy {
+   public:
+    explicit CompactionProxy(const Compaction* compaction)
+        : compaction_(compaction) {}
+
+    virtual ~CompactionProxy() = default;
+    virtual int level(size_t compaction_input_level = 0) const {
+      return compaction_->level();
+    }
+    virtual bool KeyNotExistsBeyondOutputLevel(
+        const Slice& user_key, std::vector<size_t>* level_ptrs) const {
+      return compaction_->KeyNotExistsBeyondOutputLevel(user_key, level_ptrs);
+    }
+    virtual bool bottommost_level() const {
+      return compaction_->bottommost_level();
+    }
+    virtual int number_levels() const { return compaction_->number_levels(); }
+    virtual Slice GetLargestUserKey() const {
+      return compaction_->GetLargestUserKey();
+    }
+
+   protected:
+    CompactionProxy() = default;
+
+   private:
+    const Compaction* compaction_;
+  };
+
   CompactionIterator(InternalIterator* input, const Comparator* cmp,
                      MergeHelper* merge_helper, SequenceNumber last_sequence,
                      std::vector<SequenceNumber>* snapshots,
@@ -31,7 +60,18 @@ class CompactionIterator {
                      RangeDelAggregator* range_del_agg,
                      const Compaction* compaction = nullptr,
                      const CompactionFilter* compaction_filter = nullptr,
-                     LogBuffer* log_buffer = nullptr);
+                     const std::atomic<bool>* shutting_down = nullptr);
+
+  // Constructor with custom CompactionProxy, used for tests.
+  CompactionIterator(InternalIterator* input, const Comparator* cmp,
+                     MergeHelper* merge_helper, SequenceNumber last_sequence,
+                     std::vector<SequenceNumber>* snapshots,
+                     SequenceNumber earliest_write_conflict_snapshot, Env* env,
+                     bool expect_valid_internal_key,
+                     RangeDelAggregator* range_del_agg,
+                     std::unique_ptr<CompactionProxy> compaction,
+                     const CompactionFilter* compaction_filter = nullptr,
+                     const std::atomic<bool>* shutting_down = nullptr);
 
   ~CompactionIterator();
 
@@ -82,9 +122,9 @@ class CompactionIterator {
   Env* env_;
   bool expect_valid_internal_key_;
   RangeDelAggregator* range_del_agg_;
-  const Compaction* compaction_;
+  std::unique_ptr<CompactionProxy> compaction_;
   const CompactionFilter* compaction_filter_;
-  LogBuffer* log_buffer_;
+  const std::atomic<bool>* shutting_down_;
   bool bottommost_level_;
   bool valid_ = false;
   bool visible_at_tip_;
@@ -130,6 +170,7 @@ class CompactionIterator {
   // merge operands and then releasing them after consuming them.
   PinnedIteratorsManager pinned_iters_mgr_;
   std::string compaction_filter_value_;
+  InternalKey compaction_filter_skip_until_;
   // "level_ptrs" holds indices that remember which file of an associated
   // level we were last checking during the last call to compaction->
   // KeyNotExistsBeyondOutputLevel(). This allows future calls to the function
@@ -138,5 +179,10 @@ class CompactionIterator {
   // is in or beyond the last file checked during the previous call
   std::vector<size_t> level_ptrs_;
   CompactionIterationStats iter_stats_;
+
+  bool IsShuttingDown() {
+    // This is a best-effort facility, so memory_order_relaxed is sufficient.
+    return shutting_down_ && shutting_down_->load(std::memory_order_relaxed);
+  }
 };
 }  // namespace rocksdb

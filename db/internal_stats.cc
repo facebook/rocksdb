@@ -221,6 +221,7 @@ static const std::string num_live_versions = "num-live-versions";
 static const std::string current_version_number =
     "current-super-version-number";
 static const std::string estimate_live_data_size = "estimate-live-data-size";
+static const std::string min_log_number_to_keep = "min-log-number-to-keep";
 static const std::string base_level = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string estimate_pending_comp_bytes =
@@ -285,6 +286,8 @@ const std::string DB::Properties::kCurrentSuperVersionNumber =
     rocksdb_prefix + current_version_number;
 const std::string DB::Properties::kEstimateLiveDataSize =
                       rocksdb_prefix + estimate_live_data_size;
+const std::string DB::Properties::kMinLogNumberToKeep =
+    rocksdb_prefix + min_log_number_to_keep;
 const std::string DB::Properties::kTotalSstFilesSize =
                       rocksdb_prefix + total_sst_files_size;
 const std::string DB::Properties::kBaseLevel = rocksdb_prefix + base_level;
@@ -368,6 +371,8 @@ const std::unordered_map<std::string, DBPropertyInfo>
           nullptr}},
         {DB::Properties::kEstimateLiveDataSize,
          {true, nullptr, &InternalStats::HandleEstimateLiveDataSize, nullptr}},
+        {DB::Properties::kMinLogNumberToKeep,
+         {false, nullptr, &InternalStats::HandleMinLogNumberToKeep, nullptr}},
         {DB::Properties::kBaseLevel,
          {false, nullptr, &InternalStats::HandleBaseLevel, nullptr}},
         {DB::Properties::kTotalSstFilesSize,
@@ -705,6 +710,12 @@ bool InternalStats::HandleEstimateLiveDataSize(uint64_t* value, DBImpl* db,
   return true;
 }
 
+bool InternalStats::HandleMinLogNumberToKeep(uint64_t* value, DBImpl* db,
+                                             Version* version) {
+  *value = db->MinLogNumberToKeep();
+  return true;
+}
+
 void InternalStats::DumpDBStats(std::string* value) {
   char buf[1000];
   // DB-level stats, only available from default column family
@@ -854,7 +865,7 @@ void InternalStats::DumpCFMapStats(std::map<std::string, double>* cf_stats) {
   }
 }
 
-int InternalStats::DumpCFMapStats(
+void InternalStats::DumpCFMapStats(
     std::map<int, std::map<LevelStatType, double>>* levels_stats,
     CompactionStats* compaction_stats_sum) {
   const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
@@ -914,11 +925,10 @@ int InternalStats::DumpCFMapStats(
   PrepareLevelStats(&sum_stats, total_files, total_files_being_compacted,
                     total_file_size, 0, w_amp, *compaction_stats_sum);
   (*levels_stats)[-1] = sum_stats;  //  -1 is for the Sum level
-  return num_levels_to_check;
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
-  char buf[1000];
+  char buf[2000];
   // Per-ColumnFamily stats
   PrintLevelStatsHeader(buf, sizeof(buf), cfd_->GetName());
   value->append(buf);
@@ -926,8 +936,8 @@ void InternalStats::DumpCFStats(std::string* value) {
   // Print stats for each level
   std::map<int, std::map<LevelStatType, double>> levels_stats;
   CompactionStats compaction_stats_sum(0);
-  int levels = DumpCFMapStats(&levels_stats, &compaction_stats_sum);
-  for (int l = 0; l < levels; ++l) {
+  DumpCFMapStats(&levels_stats, &compaction_stats_sum);
+  for (int l = 0; l < number_levels_; ++l) {
     if (levels_stats.find(l) != levels_stats.end()) {
       PrintLevelStats(buf, sizeof(buf), "L" + ToString(l), levels_stats[l]);
       value->append(buf);

@@ -14,7 +14,7 @@
 #include "port/likely.h"
 #include "util/thread_local.h"
 
-#if ROCKSDB_SUPPORT_THREAD_LOCAL
+#ifdef ROCKSDB_SUPPORT_THREAD_LOCAL
 #define STORAGE_DECL static __thread
 #else
 #define STORAGE_DECL static

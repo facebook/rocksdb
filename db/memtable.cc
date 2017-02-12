@@ -26,7 +26,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/internal_iterator.h"
 #include "table/iterator_wrapper.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/arena.h"
 #include "util/autovector.h"
 #include "util/coding.h"
@@ -390,16 +390,16 @@ port::RWMutex* MemTable::GetLock(const Slice& key) {
   return &locks_[hash(key) % locks_.size()];
 }
 
-uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
-                                   const Slice& end_ikey) {
+MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
+                                                   const Slice& end_ikey) {
   uint64_t entry_count = table_->ApproximateNumEntries(start_ikey, end_ikey);
   entry_count += range_del_table_->ApproximateNumEntries(start_ikey, end_ikey);
   if (entry_count == 0) {
-    return 0;
+    return {0, 0};
   }
   uint64_t n = num_entries_.load(std::memory_order_relaxed);
   if (n == 0) {
-    return 0;
+    return {0, 0};
   }
   if (entry_count > n) {
     // (range_del_)table_->ApproximateNumEntries() is just an estimate so it can
@@ -408,7 +408,7 @@ uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
     entry_count = n;
   }
   uint64_t data_size = data_size_.load(std::memory_order_relaxed);
-  return entry_count * (data_size / n);
+  return {entry_count * (data_size / n), entry_count};
 }
 
 void MemTable::Add(SequenceNumber s, ValueType type,
@@ -560,7 +560,7 @@ static bool SaveValue(void* arg, const char* entry) {
     ValueType type;
     UnPackSequenceAndType(tag, &s->seq, &type);
 
-    if ((type == kTypeValue || type == kTypeDeletion) &&
+    if ((type == kTypeValue || type == kTypeMerge) &&
         range_del_agg->ShouldDelete(Slice(key_ptr, key_length))) {
       type = kTypeRangeDeletion;
     }
@@ -717,29 +717,22 @@ void MemTable::Update(SequenceNumber seq,
       ValueType type;
       SequenceNumber unused;
       UnPackSequenceAndType(tag, &unused, &type);
-      switch (type) {
-        case kTypeValue: {
-          Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
-          uint32_t new_size = static_cast<uint32_t>(value.size());
+      if (type == kTypeValue) {
+        Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
+        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+        uint32_t new_size = static_cast<uint32_t>(value.size());
 
-          // Update value, if new value size  <= previous value size
-          if (new_size <= prev_size ) {
-            char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
-                                     new_size);
-            WriteLock wl(GetLock(lkey.user_key()));
-            memcpy(p, value.data(), value.size());
-            assert((unsigned)((p + value.size()) - entry) ==
-                   (unsigned)(VarintLength(key_length) + key_length +
-                              VarintLength(value.size()) + value.size()));
-            return;
-          }
+        // Update value, if new value size  <= previous value size
+        if (new_size <= prev_size ) {
+          char* p = EncodeVarint32(const_cast<char*>(key_ptr) + key_length,
+                                   new_size);
+          WriteLock wl(GetLock(lkey.user_key()));
+          memcpy(p, value.data(), value.size());
+          assert((unsigned)((p + value.size()) - entry) ==
+                 (unsigned)(VarintLength(key_length) + key_length +
+                            VarintLength(value.size()) + value.size()));
+          return;
         }
-        default:
-          // If the latest value is kTypeDeletion, kTypeMerge or kTypeLogData
-          // we don't have enough space for update inplace
-            Add(seq, kTypeValue, key, value);
-            return;
       }
     }
   }

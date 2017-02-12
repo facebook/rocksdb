@@ -31,6 +31,7 @@
 #include "rocksdb/utilities/stackable_db.h"
 #include "util/coding.h"
 #include "utilities/spatialdb/utils.h"
+#include "port/port.h"
 
 namespace rocksdb {
 namespace spatial {
@@ -603,7 +604,7 @@ class SpatialDBImpl : public SpatialDB {
     Status s;
     int threads_running = 0;
 
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
 
     for (auto cfh : column_families) {
       threads.emplace_back([&, cfh] {

@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/fault_injection_test_env.h"
 #include "util/options_helper.h"
@@ -86,7 +87,7 @@ TEST_F(DBWALTest, SyncWALNotBlockWrite) {
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread thread([&]() { ASSERT_OK(db_->SyncWAL()); });
+  rocksdb::port::Thread thread([&]() { ASSERT_OK(db_->SyncWAL()); });
 
   TEST_SYNC_POINT("DBWALTest::SyncWALNotBlockWrite:1");
   ASSERT_OK(Put("foo2", "bar2"));
@@ -118,7 +119,7 @@ TEST_F(DBWALTest, SyncWALNotWaitWrite) {
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread thread([&]() { ASSERT_OK(Put("foo2", "bar2")); });
+  rocksdb::port::Thread thread([&]() { ASSERT_OK(Put("foo2", "bar2")); });
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
   ASSERT_OK(db_->SyncWAL());
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");

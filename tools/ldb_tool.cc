@@ -29,15 +29,15 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
              " : Values are input/output as hex\n");
   ret.append("  --" + LDBCommand::ARG_HEX +
              " : Both keys and values are input/output as hex\n");
-  ret.append(
-      "  --" + LDBCommand::ARG_CF_NAME +
-      " : name of the column family to operate on. default: default column "
-      "family\n");
   ret.append("\n");
 
   ret.append(
       "The following optional parameters control the database "
       "internals:\n");
+  ret.append(
+      "  --" + LDBCommand::ARG_CF_NAME +
+      "=<string> : name of the column family to operate on. default: default "
+      "column family\n");
   ret.append("  --" + LDBCommand::ARG_TTL +
              " with 'put','get','scan','dump','query','batchput'"
              " : DB supports ttl and value is internally timestamp-suffixed\n");

@@ -16,11 +16,21 @@
 
 #pragma once
 
+#include "port/win/win_thread.h"
 #include <rocksdb/env.h>
 #include "util/threadpool_imp.h"
 
+#include <stdint.h>
+#include <Windows.h>
+
 #include <mutex>
 #include <vector>
+#include <string>
+
+
+#undef GetCurrentTime
+#undef DeleteFile
+#undef GetTickCount
 
 namespace rocksdb {
 namespace port {
@@ -64,7 +74,7 @@ private:
   Env*                     hosted_env_;
   mutable std::mutex       mu_;
   std::vector<ThreadPoolImpl> thread_pools_;
-  std::vector<std::thread> threads_to_join_;
+  std::vector<WindowsThread> threads_to_join_;
 
 };
 
@@ -89,8 +99,8 @@ public:
     const EnvOptions& options);
 
   virtual Status NewWritableFile(const std::string& fname,
-    std::unique_ptr<WritableFile>* result,
-    const EnvOptions& options);
+                                 std::unique_ptr<WritableFile>* result,
+                                 const EnvOptions& options);
 
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewRandomRWFile(const std::string& fname,
@@ -190,8 +200,8 @@ public:
     const EnvOptions& options) override;
 
   Status NewWritableFile(const std::string& fname,
-    std::unique_ptr<WritableFile>* result,
-    const EnvOptions& options) override;
+                         std::unique_ptr<WritableFile>* result,
+                         const EnvOptions& options) override;
 
   // The returned file will only be accessed by one thread at a time.
   Status NewRandomRWFile(const std::string& fname,
@@ -281,5 +291,5 @@ private:
   WinEnvThreads winenv_threads_;
 };
 
-}
-}
+} // namespace port
+} // namespace rocksdb

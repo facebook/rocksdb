@@ -64,6 +64,8 @@ class SimCacheImpl : public SimCache {
     return cache_->Lookup(key, stats);
   }
 
+  virtual bool Ref(Handle* handle) override { return cache_->Ref(handle); }
+
   virtual void Release(Handle* handle) override { cache_->Release(handle); }
 
   virtual void Erase(const Slice& key) override {
@@ -136,12 +138,22 @@ class SimCacheImpl : public SimCache {
     std::string res;
     res.append("SimCache MISSes: " + std::to_string(get_miss_counter()) + "\n");
     res.append("SimCache HITs:    " + std::to_string(get_hit_counter()) + "\n");
-    char buff[100];
+    char buff[350];
     auto lookups = get_miss_counter() + get_hit_counter();
     snprintf(buff, sizeof(buff), "SimCache HITRATE: %.2f%%\n",
              (lookups == 0 ? 0 : get_hit_counter() * 100.0f / lookups));
     res.append(buff);
     return res;
+  }
+
+  virtual std::string GetPrintableOptions() const override {
+    std::string ret;
+    ret.reserve(20000);
+    ret.append("    cache_options:\n");
+    ret.append(cache_->GetPrintableOptions());
+    ret.append("    sim_cache_options:\n");
+    ret.append(key_only_cache_->GetPrintableOptions());
+    return ret;
   }
 
  private:

@@ -486,6 +486,7 @@ class Repairer {
         if (empty) {
           empty = false;
           t->meta.smallest.DecodeFrom(key);
+          t->min_sequence = parsed.sequence;
         }
         t->meta.largest.DecodeFrom(key);
         if (parsed.sequence < t->min_sequence) {

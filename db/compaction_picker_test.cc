@@ -1177,6 +1177,50 @@ TEST_F(CompactionPickerTest, MaxCompactionBytesNotHit) {
   ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
 }
 
+TEST_F(CompactionPickerTest, IsTrivialMoveOn) {
+  mutable_cf_options_.max_bytes_for_level_base = 10000u;
+  mutable_cf_options_.max_compaction_bytes = 10001u;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  NewVersionStorage(6, kCompactionStyleLevel);
+  // A compaction should be triggered and pick file 2
+  Add(1, 1U, "100", "150", 3000U);
+  Add(1, 2U, "151", "200", 3001U);
+  Add(1, 3U, "201", "250", 3000U);
+  Add(1, 4U, "251", "300", 3000U);
+
+  Add(3, 5U, "120", "130", 7000U);
+  Add(3, 6U, "170", "180", 7000U);
+  Add(3, 5U, "220", "230", 7000U);
+  Add(3, 5U, "270", "280", 7000U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+    cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_TRUE(compaction->IsTrivialMove());
+}
+
+TEST_F(CompactionPickerTest, IsTrivialMoveOff) {
+  mutable_cf_options_.max_bytes_for_level_base = 1000000u;
+  mutable_cf_options_.max_compaction_bytes = 10000u;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  NewVersionStorage(6, kCompactionStyleLevel);
+  // A compaction should be triggered and pick all files from level 1
+  Add(1, 1U, "100", "150", 300000U, 0, 0);
+  Add(1, 2U, "150", "200", 300000U, 0, 0);
+  Add(1, 3U, "200", "250", 300000U, 0, 0);
+  Add(1, 4U, "250", "300", 300000U, 0, 0);
+
+  Add(3, 5U, "120", "130", 6000U);
+  Add(3, 6U, "140", "150", 6000U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+    cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_FALSE(compaction->IsTrivialMove());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

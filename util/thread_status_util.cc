@@ -11,7 +11,7 @@
 namespace rocksdb {
 
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 __thread ThreadStatusUpdater*
     ThreadStatusUtil::thread_updater_local_cache_ = nullptr;
 __thread bool ThreadStatusUtil::thread_updater_initialized_ = false;

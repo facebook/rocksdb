@@ -1,4 +1,5 @@
-# This cmake build is for Windows 64-bit only.
+# Prerequisites for Windows:
+#     This cmake build is for Windows 64-bit only.
 #
 # Prerequisites:
 #     You must have at least Visual Studio 2015 Update 3. Start the Developer Command Prompt window that is a part of Visual Studio installation.
@@ -24,6 +25,12 @@
 # 5. And release mode (/m[:<N>] is also supported)
 #        msbuild rocksdb.sln /p:Configuration=Release
 #
+# Linux:
+#
+# 1. Install a recent toolchain such as devtoolset-3 if you're on a older distro. C++11 required.
+# 2. mkdir build; cd build
+# 3. cmake ..
+# 4. make -j
 
 cmake_minimum_required(VERSION 2.6)
 project(rocksdb)
@@ -47,7 +54,7 @@ else()
     # FreeBSD has jemaloc as default malloc
     add_definitions(-DROCKSDB_JEMALLOC)
     set(WITH_JEMALLOC ON)
-  endif()  
+  endif()
   option(WITH_SNAPPY "build with SNAPPY" OFF)
   if(WITH_SNAPPY)
     find_package(snappy REQUIRED)
@@ -83,6 +90,21 @@ endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
+if (NOT WIN32)
+  execute_process(COMMAND
+      "./build_tools/version.sh" "full"
+      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+      OUTPUT_VARIABLE ROCKSDB_VERSION
+  )
+  string(STRIP "${ROCKSDB_VERSION}" ROCKSDB_VERSION)
+  execute_process(COMMAND
+      "./build_tools/version.sh" "major"
+      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+      OUTPUT_VARIABLE ROCKSDB_VERSION_MAJOR
+  )
+  string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
+endif()
+
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 add_library(build_version OBJECT ${BUILD_VERSION_CC})
@@ -96,7 +118,14 @@ else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wsign-compare -Wshadow -Wno-unused-parameter -Wno-unused-variable -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -momit-leaf-frame-pointer")
+  if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer")
+    include(CheckCXXCompilerFlag)
+    CHECK_CXX_COMPILER_FLAG("-momit-leaf-frame-pointer" HAVE_OMIT_LEAF_FRAME_POINTER)
+    if(HAVE_OMIT_LEAF_FRAME_POINTER)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -momit-leaf-frame-pointer")
+    endif()
+  endif()
 endif()
 
 option(FAIL_ON_WARNINGS "Treat compile warnings as errors" ON)
@@ -229,19 +258,9 @@ endif()
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(SYSTEM ${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
-
 find_package(Threads REQUIRED)
-if(WIN32)
-  set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
-else()
-  set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT})
-endif()
-
-set(ROCKSDB_LIBS rocksdblib${ARTIFACT_SUFFIX})
-set(LIBS ${ROCKSDB_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
-add_subdirectory(tools)
 
 # Main library source code
 
@@ -319,7 +338,7 @@ set(SOURCES
         table/full_filter_block.cc
         table/get_context.cc
         table/iterator.cc
-        table/merger.cc
+        table/merging_iterator.cc
         table/sst_file_writer.cc
         table/meta_blocks.cc
         table/plain_table_builder.cc
@@ -358,6 +377,7 @@ set(SOURCES
         util/histogram_windowing.cc
         util/instrumented_mutex.cc
         util/iostats_context.cc
+        
         util/lru_cache.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
@@ -399,8 +419,6 @@ set(SOURCES
         utilities/document/json_document.cc
         utilities/document/json_document_builder.cc
         utilities/env_mirror.cc
-        utilities/env_registry.cc
-        utilities/flashcache/flashcache.cc
         utilities/geodb/geodb_impl.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/lua/rocks_lua_compaction_filter.cc
@@ -444,12 +462,36 @@ if(WIN32)
     port/win/env_default.cc
     port/win/port_win.cc
     port/win/win_logger.cc
+    port/win/win_thread.cc
     port/win/xpress_win.cc)
 else()
   list(APPEND SOURCES
     port/port_posix.cc
     util/env_posix.cc
     util/io_posix.cc)
+endif()
+
+if(WIN32)
+  set(SYSTEM_LIBS ${SYSTEM_LIBS} Shlwapi.lib Rpcrt4.lib)
+  set(ROCKSDB_STATIC_LIB rocksdblib${ARTIFACT_SUFFIX})
+  set(ROCKSDB_IMPORT_LIB rocksdb${ARTIFACT_SUFFIX})
+  set(LIBS ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+else()
+  set(SYSTEM_LIBS ${CMAKE_THREAD_LIBS_INIT} rt)
+  set(ROCKSDB_STATIC_LIB rocksdb${ARTIFACT_SUFFIX})
+  set(ROCKSDB_SHARED_LIB rocksdb-shared)
+  set(ROCKSDB_IMPORT_LIB ${ROCKSDB_SHARED_LIB})
+  set(LIBS ${ROCKSDB_SHARED_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+
+  add_library(${ROCKSDB_SHARED_LIB} SHARED ${SOURCES})
+  target_link_libraries(${ROCKSDB_SHARED_LIB}
+    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
+                        LINKER_LANGUAGE CXX
+                        VERSION ${ROCKSDB_VERSION}
+                        SOVERSION ${ROCKSDB_VERSION_MAJOR}
+                        CXX_STANDARD 11
+                        OUTPUT_NAME "rocksdb")
 endif()
 
 option(WITH_LIBRADOS "Build with librados" OFF)
@@ -459,22 +501,22 @@ if(WITH_LIBRADOS)
   list(APPEND THIRDPARTY_LIBS rados)
 endif()
 
-add_library(rocksdblib${ARTIFACT_SUFFIX} STATIC ${SOURCES})
-target_link_libraries(rocksdblib${ARTIFACT_SUFFIX}
+add_library(${ROCKSDB_STATIC_LIB} STATIC ${SOURCES})
+target_link_libraries(${ROCKSDB_STATIC_LIB}
   ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 if(WIN32)
-  set_target_properties(rocksdblib${ARTIFACT_SUFFIX} PROPERTIES
-    COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib${ARTIFACT_SUFFIX}.pdb")
+  set_target_properties(${ROCKSDB_STATIC_LIB} PROPERTIES
+    COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_STATIC_LIB}.pdb")
 endif()
 
-add_library(rocksdb${ARTIFACT_SUFFIX} SHARED ${SOURCES})
-target_link_libraries(rocksdb${ARTIFACT_SUFFIX}
-  ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-
 if(WIN32)
-  set_target_properties(rocksdb${ARTIFACT_SUFFIX} PROPERTIES
-    COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb${ARTIFACT_SUFFIX}.pdb")
+  add_library(${ROCKSDB_IMPORT_LIB} SHARED ${SOURCES})
+  target_link_libraries(${ROCKSDB_IMPORT_LIB}
+    ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+  set_target_properties(${ROCKSDB_IMPORT_LIB} PROPERTIES
+    COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/${ROCKSDB_IMPORT_LIB}.pdb")
+else()
 endif()
 
 option(WITH_JNI "build with JNI" OFF)
@@ -503,6 +545,7 @@ set(TESTS
         db/db_iter_test.cc
         db/db_log_iter_test.cc
         db/db_memtable_test.cc
+        db/db_merge_operator_test.cc
         db/db_options_test.cc
         db/db_properties_test.cc
         db/db_table_properties_test.cc
@@ -587,7 +630,7 @@ set(TESTS
         utilities/date_tiered/date_tiered_test.cc
         utilities/document/document_db_test.cc
         utilities/document/json_document_test.cc
-        utilities/env_registry_test.cc
+        utilities/object_registry_test.cc
         utilities/geodb/geodb_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
@@ -621,7 +664,7 @@ foreach(sourcefile ${BENCHMARKS})
   get_filename_component(exename ${sourcefile} NAME_WE)
   add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile}
     $<TARGET_OBJECTS:testharness>)
-  target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS} gtest)
+  target_link_libraries(${exename}${ARTIFACT_SUFFIX} gtest ${LIBS})
 endforeach(sourcefile ${BENCHMARKS})
 
 # For test util library that is build only in DEBUG mode
@@ -659,7 +702,7 @@ foreach(sourcefile ${TEST_EXES})
       EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
       EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
       )
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} ${LIBS} gtest)
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX} gtest ${LIBS})
     if(NOT "${exename}" MATCHES "db_sanity_test")
       add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
       add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
@@ -679,7 +722,18 @@ foreach(sourcefile ${C_TEST_EXES})
       EXCLUDE_FROM_DEFAULT_BUILD_MINRELEASE 1
       EXCLUDE_FROM_DEFAULT_BUILD_RELWITHDEBINFO 1
       )
-    target_link_libraries(${exename}${ARTIFACT_SUFFIX} rocksdb${ARTIFACT_SUFFIX} testutillib${ARTIFACT_SUFFIX})
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${ROCKSDB_IMPORT_LIB} testutillib${ARTIFACT_SUFFIX})
     add_test(NAME ${exename} COMMAND ${exename}${ARTIFACT_SUFFIX})
     add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
 endforeach(sourcefile ${C_TEST_EXES})
+add_subdirectory(tools)
+
+# Installation and packaging for Linux
+if (NOT WIN32)
+install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib64)
+install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib64)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/rocksdb/"
+        COMPONENT devel
+        DESTINATION include/rocksdb)
+set(CMAKE_INSTALL_PREFIX /usr)
+endif()

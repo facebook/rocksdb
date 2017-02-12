@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "util/delete_scheduler.h"
 
 #include <thread>
@@ -32,7 +34,7 @@ DeleteScheduler::DeleteScheduler(Env* env, const std::string& trash_dir,
     bg_thread_.reset();
   } else {
     bg_thread_.reset(
-        new std::thread(&DeleteScheduler::BackgroundEmptyTrash, this));
+        new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
   }
 }
 
@@ -211,3 +213,5 @@ void DeleteScheduler::WaitForEmptyTrash() {
 }
 
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

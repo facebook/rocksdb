@@ -284,7 +284,7 @@ class ThreadedWriter : public Writer {
 
   const size_t io_size_ = 0;
   BoundedQueue<IO> q_;
-  std::vector<std::thread> threads_;
+  std::vector<port::Thread> threads_;
 };
 
 }  // namespace rocksdb

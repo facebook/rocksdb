@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <thread>
 // size_t printf formatting named in the manner of C99 standard formatting
 // strings such as PRIu64
 // in fact, we could use that one
@@ -90,7 +91,19 @@ class CondVar;
 
 class Mutex {
  public:
-  /* implicit */ Mutex(bool adaptive = false);
+// We want to give users opportunity to default all the mutexes to adaptive if
+// not specified otherwise. This enables a quick way to conduct various
+// performance related experiements.
+//
+// NB! Support for adaptive mutexes is turned on by definining
+// ROCKSDB_PTHREAD_ADAPTIVE_MUTEX during the compilation. If you use RocksDB
+// build environment then this happens automatically; otherwise it's up to the
+// consumer to define the identifier.
+#ifdef ROCKSDB_DEFAULT_TO_ADAPTIVE_MUTEX
+  explicit Mutex(bool adaptive = true);
+#else
+  explicit Mutex(bool adaptive = false);
+#endif
   ~Mutex();
 
   void Lock();
@@ -143,6 +156,8 @@ class CondVar {
   pthread_cond_t cv_;
   Mutex* mu_;
 };
+
+using Thread = std::thread;
 
 static inline void AsmVolatilePause() {
 #if defined(__i386__) || defined(__x86_64__)

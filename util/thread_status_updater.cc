@@ -11,7 +11,7 @@
 
 namespace rocksdb {
 
-#if ROCKSDB_USING_THREAD_STATUS
+#ifdef ROCKSDB_USING_THREAD_STATUS
 
 __thread ThreadStatusData* ThreadStatusUpdater::thread_status_data_ = nullptr;
 

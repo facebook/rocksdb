@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include "port/port.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
@@ -75,21 +76,27 @@ class BinaryHeap {
     data_.pop_back();
     if (!empty()) {
       downheap(get_root());
+    } else {
+      reset_root_cmp_cache();
     }
   }
 
   void swap(BinaryHeap &other) {
     std::swap(cmp_, other.cmp_);
     data_.swap(other.data_);
+    std::swap(root_cmp_cache_, other.root_cmp_cache_);
   }
 
   void clear() {
     data_.clear();
+    reset_root_cmp_cache();
   }
 
   bool empty() const {
     return data_.empty();
   }
+
+  void reset_root_cmp_cache() { root_cmp_cache_ = port::kMaxSizet; }
 
  private:
   static inline size_t get_root() { return 0; }
@@ -108,10 +115,13 @@ class BinaryHeap {
       index = parent;
     }
     data_[index] = std::move(v);
+    reset_root_cmp_cache();
   }
 
   void downheap(size_t index) {
     T v = std::move(data_[index]);
+
+    size_t picked_child = port::kMaxSizet;
     while (1) {
       const size_t left_child = get_left(index);
       if (get_left(index) >= data_.size()) {
@@ -119,9 +129,11 @@ class BinaryHeap {
       }
       const size_t right_child = left_child + 1;
       assert(right_child == get_right(index));
-      size_t picked_child = left_child;
-      if (right_child < data_.size() &&
-          cmp_(data_[left_child], data_[right_child])) {
+      picked_child = left_child;
+      if (index == 0 && root_cmp_cache_ < data_.size()) {
+        picked_child = root_cmp_cache_;
+      } else if (right_child < data_.size() &&
+                 cmp_(data_[left_child], data_[right_child])) {
         picked_child = right_child;
       }
       if (!cmp_(v, data_[picked_child])) {
@@ -130,11 +142,25 @@ class BinaryHeap {
       data_[index] = std::move(data_[picked_child]);
       index = picked_child;
     }
+
+    if (index == 0) {
+      // We did not change anything in the tree except for the value
+      // of the root node, left and right child did not change, we can
+      // cache that `picked_child` is the smallest child
+      // so next time we compare againist it directly
+      root_cmp_cache_ = picked_child;
+    } else {
+      // the tree changed, reset cache
+      reset_root_cmp_cache();
+    }
+
     data_[index] = std::move(v);
   }
 
   Compare cmp_;
   autovector<T> data_;
+  // Used to reduce number of cmp_ calls in downheap()
+  size_t root_cmp_cache_ = port::kMaxSizet;
 };
 
 }  // namespace rocksdb

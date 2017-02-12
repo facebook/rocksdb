@@ -116,9 +116,10 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"WAL_ttl_seconds", "43"},
       {"WAL_size_limit_MB", "44"},
       {"manifest_preallocation_size", "45"},
-      {"allow_os_buffer", "false"},
       {"allow_mmap_reads", "true"},
       {"allow_mmap_writes", "false"},
+      {"use_direct_reads", "false"},
+      {"use_direct_writes", "false"},
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
       {"stats_dump_period_sec", "46"},
@@ -231,9 +232,10 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.WAL_ttl_seconds, static_cast<uint64_t>(43));
   ASSERT_EQ(new_db_opt.WAL_size_limit_MB, static_cast<uint64_t>(44));
   ASSERT_EQ(new_db_opt.manifest_preallocation_size, 45U);
-  ASSERT_EQ(new_db_opt.allow_os_buffer, false);
   ASSERT_EQ(new_db_opt.allow_mmap_reads, true);
   ASSERT_EQ(new_db_opt.allow_mmap_writes, false);
+  ASSERT_EQ(new_db_opt.use_direct_reads, false);
+  ASSERT_EQ(new_db_opt.use_direct_writes, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.skip_log_error_on_recovery, false);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
@@ -1287,6 +1289,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_EQ(10 * 1048576, old_default_opts.max_bytes_for_level_base);
     ASSERT_EQ(5000, old_default_opts.max_open_files);
     ASSERT_EQ(-1, old_default_opts.base_background_compactions);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
     ASSERT_EQ(WALRecoveryMode::kTolerateCorruptedTailRecords,
               old_default_opts.wal_recovery_mode);
   }
@@ -1302,6 +1305,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_NE(10 * 1048576, old_default_opts.max_bytes_for_level_base);
     ASSERT_NE(4, old_default_opts.table_cache_numshardbits);
     ASSERT_EQ(5000, old_default_opts.max_open_files);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
   }
   {
     ColumnFamilyOptions old_default_cf_opts;
@@ -1327,6 +1331,16 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_NE(2 * 1048576, old_default_cf_opts.target_file_size_base);
     ASSERT_EQ(CompactionPri::kByCompensatedSize,
               old_default_cf_opts.compaction_pri);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(5, 1);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(5, 2);
+    ASSERT_EQ(16 * 1024U * 1024U, old_default_opts.delayed_write_rate);
   }
 
   Options small_opts;

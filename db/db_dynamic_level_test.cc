@@ -13,6 +13,7 @@
 #if !defined(ROCKSDB_LITE)
 
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 
 namespace rocksdb {
@@ -251,7 +252,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase2) {
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread thread([this] {
+  rocksdb::port::Thread thread([this] {
     TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:compact_range_start");
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     TEST_SYNC_POINT("DynamicLevelMaxBytesBase2:compact_range_finish");
@@ -406,7 +407,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBaseInc) {
   env_->SetBackgroundThreads(1, Env::HIGH);
 }
 
-TEST_F(DBTestDynamicLevel, MigrateToDynamicLevelMaxBytesBase) {
+TEST_F(DBTestDynamicLevel, DISABLED_MigrateToDynamicLevelMaxBytesBase) {
   Random rnd(301);
   const int kMaxKey = 2000;
 
@@ -462,7 +463,7 @@ TEST_F(DBTestDynamicLevel, MigrateToDynamicLevelMaxBytesBase) {
   compaction_finished = false;
   // Issue manual compaction in one thread and still verify DB state
   // in main thread.
-  std::thread t([&]() {
+  rocksdb::port::Thread t([&]() {
     CompactRangeOptions compact_options;
     compact_options.change_level = true;
     compact_options.target_level = options.num_levels - 1;

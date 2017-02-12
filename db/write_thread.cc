@@ -317,7 +317,7 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
 
   while (w != pg->last_writer) {
     // Writers that won't write don't get sequence allotment
-    if (!w->CallbackFailed()) {
+    if (!w->CallbackFailed() && w->ShouldWriteToMemtable()) {
       sequence += WriteBatchInternal::Count(w->batch);
     }
     w = w->link_newer;
@@ -333,7 +333,7 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
 
   auto* pg = w->parallel_group;
   if (!w->status.ok()) {
-    std::lock_guard<std::mutex> guard(w->StateMutex());
+    std::lock_guard<std::mutex> guard(pg->leader->StateMutex());
     pg->status = w->status;
   }
 

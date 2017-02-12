@@ -7,11 +7,16 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include "util/lru_cache.h"
 
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string>
 
 #include "util/mutexlock.h"
 
@@ -251,6 +256,16 @@ Cache::Handle* LRUCacheShard::Lookup(const Slice& key, uint32_t hash) {
   return reinterpret_cast<Cache::Handle*>(e);
 }
 
+bool LRUCacheShard::Ref(Cache::Handle* h) {
+  LRUHandle* handle = reinterpret_cast<LRUHandle*>(h);
+  MutexLock l(&mutex_);
+  if (handle->InCache() && handle->refs == 1) {
+    LRU_Remove(handle);
+  }
+  handle->refs++;
+  return true;
+}
+
 void LRUCacheShard::SetHighPriorityPoolRatio(double high_pri_pool_ratio) {
   MutexLock l(&mutex_);
   high_pri_pool_ratio_ = high_pri_pool_ratio;
@@ -408,6 +423,17 @@ size_t LRUCacheShard::GetPinnedUsage() const {
   return usage_ - lru_usage_;
 }
 
+std::string LRUCacheShard::GetPrintableOptions() const {
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+  {
+    MutexLock l(&mutex_);
+    snprintf(buffer, kBufferSize, "    high_pri_pool_ratio: %.3lf\n",
+             high_pri_pool_ratio_);
+  }
+  return std::string(buffer);
+}
+
 LRUCache::LRUCache(size_t capacity, int num_shard_bits,
                    bool strict_capacity_limit, double high_pri_pool_ratio)
     : ShardedCache(capacity, num_shard_bits, strict_capacity_limit) {
@@ -453,6 +479,9 @@ std::shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
   if (high_pri_pool_ratio < 0.0 || high_pri_pool_ratio > 1.0) {
     // invalid high_pri_pool_ratio
     return nullptr;
+  }
+  if (num_shard_bits < 0) {
+    num_shard_bits = GetDefaultCacheShardBits(capacity);
   }
   return std::make_shared<LRUCache>(capacity, num_shard_bits,
                                     strict_capacity_limit, high_pri_pool_ratio);

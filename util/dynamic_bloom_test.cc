@@ -15,13 +15,14 @@ int main() {
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include <gflags/gflags.h>
 #include <inttypes.h>
 #include <algorithm>
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <thread>
 #include <vector>
-#include <gflags/gflags.h>
 
 #include "dynamic_bloom.h"
 #include "port/port.h"
@@ -244,7 +245,7 @@ TEST_F(DynamicBloomTest, concurrent_with_perf) {
   uint32_t locality_limit = FLAGS_enable_perf ? 1 : 0;
 
   uint32_t num_threads = 4;
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
 
   for (uint32_t m = 1; m <= m_limit; ++m) {
     for (uint32_t locality = 0; locality <= locality_limit; ++locality) {
