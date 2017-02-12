@@ -33,8 +33,6 @@ namespace rocksdb {
      virtual void Logv(const InfoLogLevel log_level,
          const char* format, va_list ap);
 
-   protected:
-     JNIEnv* getJniEnv() const;
    private:
      JavaVM* m_jvm;
      jobject m_jLogger;

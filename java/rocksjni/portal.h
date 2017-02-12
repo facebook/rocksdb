@@ -12,6 +12,7 @@
 
 #include <jni.h>
 #include <functional>
+#include <iostream>
 #include <limits>
 #include <string>
 #include <vector>
@@ -848,6 +849,78 @@ class LoggerJni : public RocksDBNativeClass<
 
 class JniUtil {
  public:
+    /**
+     * Obtains a reference to the JNIEnv from
+     * the JVM
+     *
+     * If the current thread is not attached to the JavaVM
+     * then it will be attached so as to retrieve the JNIEnv
+     *
+     * If a thread is attached, it must later be manually
+     * released by calling JavaVM::DetachCurrentThread.
+     * This can be handled by always matching calls to this
+     * function with calls to {@link JniUtil::releaseJniEnv(JavaVM*, jboolean)}
+     *
+     * @param jvm (IN) A pointer to the JavaVM instance
+     * @param attached (OUT) A pointer to a boolean which
+     *     will be set to JNI_TRUE if we had to attach the thread
+     *
+     * @return A pointer to the JNIEnv or nullptr if a fatal error
+     *     occurs and the JNIEnv cannot be retrieved
+     */
+    static JNIEnv* getJniEnv(JavaVM* jvm, jboolean* attached) {
+      assert(jvm != nullptr);
+
+      JNIEnv *env;
+      const jint env_rs = jvm->GetEnv(reinterpret_cast<void**>(&env),
+          JNI_VERSION_1_2);
+
+      if(env_rs == JNI_OK) {
+        // current thread is already attached, return the JNIEnv
+        *attached = JNI_FALSE;
+        return env;
+      } else if(env_rs == JNI_EDETACHED) {
+        // current thread is not attached, attempt to attach
+        const jint rs_attach = jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
+        if(rs_attach == JNI_OK) {
+          *attached = JNI_TRUE;
+          return env;
+        } else {
+          // error, could not attach the thread
+          std::cerr << "JniUtil::getJinEnv - Fatal: could not attach current thread to JVM!" << std::endl;
+          return nullptr;
+        }
+      } else if(env_rs == JNI_EVERSION) {
+        // error, JDK does not support JNI_VERSION_1_2+
+        std::cerr << "JniUtil::getJinEnv - Fatal: JDK does not support JNI_VERSION_1_2" << std::endl;
+        return nullptr;
+      } else {
+        std::cerr << "JniUtil::getJinEnv - Fatal: Unknown error: env_rs=" << env_rs << std::endl;
+        return nullptr;
+      }
+    }
+
+    /**
+     * Counterpart to {@link JniUtil::getJniEnv(JavaVM*, jboolean*)}
+     *
+     * Detachess the current thread from the JVM if it was previously
+     * attached
+     *
+     * @param jvm (IN) A pointer to the JavaVM instance
+     * @param attached (IN) JNI_TRUE if we previously had to attach the thread
+     *     to the JavaVM to get the JNIEnv
+     */
+    static void releaseJniEnv(JavaVM* jvm, jboolean& attached) {
+      assert(jvm != nullptr);
+      if(attached == JNI_TRUE) {
+        const jint rs_detach = jvm->DetachCurrentThread();
+        assert(rs_detach == JNI_OK);
+        if(rs_detach != JNI_OK) {
+          std::cerr << "JniUtil::getJinEnv - Warn: Unable to detach current thread from JVM!" << std::endl;
+        }
+      }
+    }
+
     /*
      * Copies a jstring to a std::string
      * and releases the original jstring

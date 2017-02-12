@@ -50,17 +50,6 @@ LoggerJniCallback::LoggerJniCallback(
   m_jheader_level = env->NewGlobalRef(jheader_level);
 }
 
-/**
- * Get JNIEnv for current native thread
- */
-JNIEnv* LoggerJniCallback::getJniEnv() const {
-  JNIEnv *env;
-  jint rs __attribute__((unused)) =
-      m_jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
-  assert(rs == JNI_OK);
-  return env;
-}
-
 void LoggerJniCallback::Logv(const char* format, va_list ap) {
   // We implement this method because it is virtual but we don't
   // use it because we need to know about the log level.
@@ -99,7 +88,9 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
     const std::unique_ptr<char[]> msg = format_str(format, ap);
 
     // pass msg to java callback handler
-    JNIEnv* env = getJniEnv();
+    jboolean attached_thread = JNI_FALSE;
+    JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+    assert(env != nullptr);
 
     env->CallVoidMethod(
         m_jLogger,
@@ -107,7 +98,7 @@ void LoggerJniCallback::Logv(const InfoLogLevel log_level,
         jlog_level,
         env->NewStringUTF(msg.get()));
 
-    m_jvm->DetachCurrentThread();
+    JniUtil::releaseJniEnv(m_jvm, attached_thread);
   }
 }
 
@@ -128,7 +119,10 @@ std::unique_ptr<char[]> LoggerJniCallback::format_str(const char* format, va_lis
 }
 
 LoggerJniCallback::~LoggerJniCallback() {
-  JNIEnv* env = getJniEnv();
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  assert(env != nullptr);
+
   env->DeleteGlobalRef(m_jLogger);
 
   env->DeleteGlobalRef(m_jdebug_level);
@@ -138,7 +132,7 @@ LoggerJniCallback::~LoggerJniCallback() {
   env->DeleteGlobalRef(m_jfatal_level);
   env->DeleteGlobalRef(m_jheader_level);
 
-  m_jvm->DetachCurrentThread();
+  JniUtil::releaseJniEnv(m_jvm, attached_thread);
 }
 
 }  // namespace rocksdb
