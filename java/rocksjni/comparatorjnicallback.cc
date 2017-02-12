@@ -37,38 +37,29 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
     AbstractComparatorJni::getFindShortSuccessorMethodId(env);
 }
 
-/**
- * Attach/Get a JNIEnv for the current native thread
- */
-JNIEnv* BaseComparatorJniCallback::getJniEnv() const {
-  JNIEnv *env;
-  jint rs __attribute__((unused)) =
-      m_jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
-  assert(rs == JNI_OK);
-  return env;
-}
-
 const char* BaseComparatorJniCallback::Name() const {
   return m_name.c_str();
 }
 
 int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
-  JNIEnv* m_env = getJniEnv();
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  assert(env != nullptr);
 
   // TODO(adamretter): slice objects can potentially be cached using thread
   // local variables to avoid locking. Could make this configurable depending on
   // performance.
   mtx_compare->Lock();
 
-  AbstractSliceJni::setHandle(m_env, m_jSliceA, &a, JNI_FALSE);
-  AbstractSliceJni::setHandle(m_env, m_jSliceB, &b, JNI_FALSE);
+  AbstractSliceJni::setHandle(env, m_jSliceA, &a, JNI_FALSE);
+  AbstractSliceJni::setHandle(env, m_jSliceB, &b, JNI_FALSE);
   jint result =
-    m_env->CallIntMethod(m_jComparator, m_jCompareMethodId, m_jSliceA,
+    env->CallIntMethod(m_jComparator, m_jCompareMethodId, m_jSliceA,
       m_jSliceB);
 
   mtx_compare->Unlock();
 
-  m_jvm->DetachCurrentThread();
+  JniUtil::releaseJniEnv(m_jvm, attached_thread);
 
   return result;
 }
@@ -79,32 +70,34 @@ void BaseComparatorJniCallback::FindShortestSeparator(
     return;
   }
 
-  JNIEnv* m_env = getJniEnv();
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  assert(env != nullptr);
 
   const char* startUtf = start->c_str();
-  jstring jsStart = m_env->NewStringUTF(startUtf);
+  jstring jsStart = env->NewStringUTF(startUtf);
 
   // TODO(adamretter): slice object can potentially be cached using thread local
   // variable to avoid locking. Could make this configurable depending on
   // performance.
   mtx_findShortestSeparator->Lock();
 
-  AbstractSliceJni::setHandle(m_env, m_jSliceLimit, &limit, JNI_FALSE);
+  AbstractSliceJni::setHandle(env, m_jSliceLimit, &limit, JNI_FALSE);
   jstring jsResultStart =
-    (jstring)m_env->CallObjectMethod(m_jComparator,
+    (jstring)env->CallObjectMethod(m_jComparator,
       m_jFindShortestSeparatorMethodId, jsStart, m_jSliceLimit);
 
   mtx_findShortestSeparator->Unlock();
 
-  m_env->DeleteLocalRef(jsStart);
+  env->DeleteLocalRef(jsStart);
 
   if (jsResultStart != nullptr) {
     // update start with result
     *start =
-      JniUtil::copyString(m_env, jsResultStart);  // also releases jsResultStart
+      JniUtil::copyString(env, jsResultStart);  // also releases jsResultStart
   }
 
-  m_jvm->DetachCurrentThread();
+  JniUtil::releaseJniEnv(m_jvm, attached_thread);
 }
 
 void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
@@ -112,34 +105,35 @@ void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
     return;
   }
 
-  JNIEnv* m_env = getJniEnv();
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  assert(env != nullptr);
 
   const char* keyUtf = key->c_str();
-  jstring jsKey = m_env->NewStringUTF(keyUtf);
+  jstring jsKey = env->NewStringUTF(keyUtf);
 
   jstring jsResultKey =
-    (jstring)m_env->CallObjectMethod(m_jComparator,
+    (jstring)env->CallObjectMethod(m_jComparator,
       m_jFindShortSuccessorMethodId, jsKey);
 
-  m_env->DeleteLocalRef(jsKey);
+  env->DeleteLocalRef(jsKey);
 
   if (jsResultKey != nullptr) {
     // updates key with result, also releases jsResultKey.
-    *key = JniUtil::copyString(m_env, jsResultKey);
+    *key = JniUtil::copyString(env, jsResultKey);
   }
 
-  m_jvm->DetachCurrentThread();
+  JniUtil::releaseJniEnv(m_jvm, attached_thread);
 }
 
 BaseComparatorJniCallback::~BaseComparatorJniCallback() {
-  JNIEnv* m_env = getJniEnv();
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  assert(env != nullptr);
 
-  m_env->DeleteGlobalRef(m_jComparator);
+  env->DeleteGlobalRef(m_jComparator);
 
-  // Note: do not need to explicitly detach, as this function is effectively
-  // called from the Java class's disposeInternal method, and so already
-  // has an attached thread, getJniEnv above is just a no-op Attach to get
-  // the env jvm->DetachCurrentThread();
+  JniUtil::releaseJniEnv(m_jvm, attached_thread);
 }
 
 ComparatorJniCallback::ComparatorJniCallback(
@@ -152,10 +146,15 @@ ComparatorJniCallback::ComparatorJniCallback(
 }
 
 ComparatorJniCallback::~ComparatorJniCallback() {
-  JNIEnv* m_env = getJniEnv();
-  m_env->DeleteGlobalRef(m_jSliceA);
-  m_env->DeleteGlobalRef(m_jSliceB);
-  m_env->DeleteGlobalRef(m_jSliceLimit);
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  assert(env != nullptr);
+
+  env->DeleteGlobalRef(m_jSliceA);
+  env->DeleteGlobalRef(m_jSliceB);
+  env->DeleteGlobalRef(m_jSliceLimit);
+
+  JniUtil::releaseJniEnv(m_jvm, attached_thread);
 }
 
 DirectComparatorJniCallback::DirectComparatorJniCallback(
@@ -168,9 +167,14 @@ DirectComparatorJniCallback::DirectComparatorJniCallback(
 }
 
 DirectComparatorJniCallback::~DirectComparatorJniCallback() {
-  JNIEnv* m_env = getJniEnv();
-  m_env->DeleteGlobalRef(m_jSliceA);
-  m_env->DeleteGlobalRef(m_jSliceB);
-  m_env->DeleteGlobalRef(m_jSliceLimit);
+  jboolean attached_thread = JNI_FALSE;
+  JNIEnv* env = JniUtil::getJniEnv(m_jvm, &attached_thread);
+  assert(env != nullptr);
+
+  env->DeleteGlobalRef(m_jSliceA);
+  env->DeleteGlobalRef(m_jSliceB);
+  env->DeleteGlobalRef(m_jSliceLimit);
+
+  JniUtil::releaseJniEnv(m_jvm, attached_thread);
 }
 }  // namespace rocksdb
