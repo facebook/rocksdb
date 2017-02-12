@@ -9,7 +9,7 @@
 #include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-#include "aws/cloud_env_options.h"
+#include "rocksdb/cloud/cloud_env_options.h"
 
 #ifdef USE_AWS
 
@@ -46,15 +46,14 @@ class KinesisSystem;
 // is associated with a specific instance of AwsEnv. All AwsEnv internally share
 // Env::Posix() for sharing common resources like background threads, etc.
 //
-class AwsEnv : public Env {
+class AwsEnv : public CloudEnv {
  public:
   // A factory method for creating S3 envs
-  static  AwsEnv* NewAwsEnv(const std::string& bucket_prefix,
-                          const std::string& access_key_id,
-                          const std::string& secret_key,
-			  const std::string& region,
-			  const CloudEnvOptions& env_options,
-                          std::shared_ptr<Logger> info_log = nullptr);
+  static  Status NewAwsEnv(Env* env,
+		           const std::string& bucket_prefix,
+			   const CloudEnvOptions& env_options,
+                           std::shared_ptr<Logger> info_log,
+			   CloudEnv** cenv);
 
   virtual ~AwsEnv();
 
@@ -118,59 +117,59 @@ class AwsEnv : public Env {
 
   virtual void Schedule(void (*function)(void* arg), void* arg,
                         Priority pri = LOW, void* tag = nullptr, void (*unschedFunction)(void* arg) = 0) override {
-    posixEnv_->Schedule(function, arg, pri, tag, unschedFunction);
+    base_env_->Schedule(function, arg, pri, tag, unschedFunction);
   }
 
   virtual int UnSchedule(void* tag, Priority pri) override {
-    return posixEnv_->UnSchedule(tag, pri);
+    return base_env_->UnSchedule(tag, pri);
   }
 
   virtual void StartThread(void (*function)(void* arg), void* arg) override {
-    posixEnv_->StartThread(function, arg);
+    base_env_->StartThread(function, arg);
   }
 
-  virtual void WaitForJoin() override { posixEnv_->WaitForJoin(); }
+  virtual void WaitForJoin() override { base_env_->WaitForJoin(); }
 
   virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const
       override {
-    return posixEnv_->GetThreadPoolQueueLen(pri);
+    return base_env_->GetThreadPoolQueueLen(pri);
   }
 
   virtual Status GetTestDirectory(std::string* path) override {
-    return posixEnv_->GetTestDirectory(path);
+    return base_env_->GetTestDirectory(path);
   }
 
   virtual uint64_t NowMicros() override {
-    return posixEnv_->NowMicros();
+    return base_env_->NowMicros();
   }
 
   virtual void SleepForMicroseconds(int micros) override {
-    posixEnv_->SleepForMicroseconds(micros);
+    base_env_->SleepForMicroseconds(micros);
   }
 
   virtual Status GetHostName(char* name, uint64_t len) override {
-    return posixEnv_->GetHostName(name, len);
+    return base_env_->GetHostName(name, len);
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
-    return posixEnv_->GetCurrentTime(unix_time);
+    return base_env_->GetCurrentTime(unix_time);
   }
 
   virtual Status GetAbsolutePath(const std::string& db_path,
       std::string* output_path) override {
-    return posixEnv_->GetAbsolutePath(db_path, output_path);
+    return base_env_->GetAbsolutePath(db_path, output_path);
   }
 
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) override {
-    posixEnv_->SetBackgroundThreads(number, pri);
+    base_env_->SetBackgroundThreads(number, pri);
   }
 
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
-    posixEnv_->IncBackgroundThreadsIfNeeded(number, pri);
+    base_env_->IncBackgroundThreadsIfNeeded(number, pri);
   }
 
   virtual std::string TimeToString(uint64_t number) override {
-    return posixEnv_->TimeToString(number);
+    return base_env_->TimeToString(number);
   }
 
   static uint64_t gettid() {
@@ -183,11 +182,14 @@ class AwsEnv : public Env {
   }
 
   // get the posix env
-  Env* GetPosixEnv() const { return posixEnv_; }
+  Env* GetPosixEnv() const { return base_env_; }
 
   bool IsRunning() const { return running_; }
 
+  const CloudEnvOptions& GetCloudEnvOptions() { return cloud_env_options; }
+
   const std::string bucket_prefix_;
+
   std::shared_ptr<Logger> info_log_;    // informational messages
 
   // The S3 client
@@ -205,23 +207,20 @@ class AwsEnv : public Env {
   static Status GetTestCredentials(std::string* aws_access_key_id,
 		                   std::string* aws_secret_access_key,
 				   std::string* region);
+  // Starts the wal tailer
+  //
+  Status CreateTailer();
 
  private:
   //
   // The AWS credentials are specified to the constructor via
   // access_key_id and secret_key.
   //  
-  explicit AwsEnv(const std::string& bucket_prefix,
-		 const std::string& access_key_id,
-		 const std::string& secret_key,
-		 const std::string& region,
-		 const CloudEnvOptions& cloud_env_options,
-		 std::shared_ptr<Logger> info_log = nullptr);
+  explicit AwsEnv(Env* underlying_env,
+		  const std::string& bucket_prefix,
+		  const CloudEnvOptions& cloud_options,
+		  std::shared_ptr<Logger> info_log = nullptr);
 
-  Env*  posixEnv_;      // This object is derived from Env, but not from
-                        // posixEnv_. We have posixEnv as an encapsulated
-                        // object here so that we can use posix timers,
-                        // posix threads, etc.
   Status create_bucket_status_;
 
   // Background thread to tail stream
@@ -232,8 +231,7 @@ class AwsEnv : public Env {
 
   Aws::S3::Model::BucketLocationConstraint bucket_location_;
 
-  // Create bucket in S3
-  Status IsValid();
+  Status status();
 
   // Check if the specified pathname exists
   Status PathExistsInS3(const std::string& fname, bool isfile);
@@ -252,8 +250,11 @@ class AwsEnv : public Env {
   // 1. filename ends with a .sst is a sst file.
   // 2. filename ends with .log or starts with MANIFEST is a logfile
   // 3. filename starts with MANIFEST is a manifest file
+  // 3. filename starts with IDENTITY is a ID file
   void GetFileType(const std::string& fname,
-                   bool* sstFile, bool* logfile, bool* manifest = nullptr);
+                   bool* sstFile, bool* logfile,
+		   bool* manifest = nullptr,
+		   bool* identity = nullptr);
 
   // Return the list of children of the specified path
   Status GetChildrenFromS3(const std::string& path,
@@ -395,12 +396,12 @@ class AwsEnv : public Env {
     return 0;
   }
 
-  static AwsEnv* NewAwsEnv(const std::string& bucket_prefix,
-		         const std::string& access_key_id,
-		         const std::string& secret_key,
-			 const std::string& region,
-		         std::shared_ptr<Logger> info_log = nullptr) {
-      return nullptr;
+  static Status NewAwsEnv(Env* env,
+		          const std::string& bucket_prefix,
+			  const CloudEnvOptions& cloud_options,
+		          std::shared_ptr<Logger> info_log,
+			  CloudEnv** cenv) {
+      return s3_notsup;
   }
   static Status GetTestCredentials(std::string* aws_access_key_id,
 		                   std::string* aws_secret_access_key) {

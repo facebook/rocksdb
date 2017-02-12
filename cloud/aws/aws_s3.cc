@@ -10,8 +10,8 @@
 #include <iostream>
 #include <assert.h>
 
-#include "aws/aws_env.h"
-#include "cloud/aws_file.h"
+#include "cloud/aws/aws_env.h"
+#include "cloud/aws/aws_file.h"
 #include "util/string_util.h"
 #include "util/stderr_logger.h"
 
@@ -288,7 +288,7 @@ Status S3WritableFile::Close() {
     return st;
   }
   // If this is a manifest file, then upload to S3
-  // S3 to make it durable
+  // to make it durable. Do not delete local instance of MANIFEST.
   if (is_manifest_) {
     st = CopyManifestToS3();
     return st;
@@ -306,7 +306,7 @@ Status S3WritableFile::Close() {
 
   // upload sst file to S3
   assert(IsSstFile(fname_));
-  st = CopyToS3(s3_object_);
+  st = CopyToS3(env_, fname_, s3_bucket_, s3_object_);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[s3] S3WritableFile closing CopyToS3 failed on local file %s",
@@ -352,34 +352,31 @@ Status S3WritableFile::Sync() {
 //
 // Sync this file to the specified S3 object
 //
-Status S3WritableFile::CopyToS3(const Aws::String& s3_object) {
-
-  Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-      "[s3] S3WritableFile uploading file %s to S3.", fname_.c_str());
-  env_->info_log_->Flush();
+Status S3WritableFile::CopyToS3(
+    const AwsEnv* env,
+    const std::string& fname,
+    const Aws::String& s3_bucket,
+    const Aws::String& s3_object) {
 
   auto input_data = Aws::MakeShared<Aws::FStream>
-	                (s3_object_.c_str(), fname_.c_str(),
+	                (s3_object.c_str(), fname.c_str(),
 			 std::ios_base::in | std::ios_base::out);
 
-  // copy entire MANIFEST file into S3. Writes to an S3 object are atomic.
+  // Copy entire MANIFEST/IDENTITY/SST file into S3.
+  // Writes to an S3 object are atomic.
   Aws::S3::Model::PutObjectRequest put_request;
-  put_request.SetBucket(s3_bucket_);
+  put_request.SetBucket(s3_bucket);
   put_request.SetKey(s3_object);
   put_request.SetBody(input_data);
 
   Aws::S3::Model::PutObjectOutcome put_outcome =
-	    env_->s3client_->PutObject(put_request);
+	    env->s3client_->PutObject(put_request);
   bool isSuccess = put_outcome.IsSuccess();
   if (!isSuccess) {
     const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
                put_outcome.GetError();
     std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[s3] S3WritableFile error in uploading file %s durable to S3. %s",
-        fname_.c_str(), errmsg.c_str());
-    env_->info_log_->Flush();
-    return Status::IOError(fname_, errmsg);
+    return Status::IOError(fname, errmsg);
   }
   return Status::OK();
 }
@@ -399,12 +396,16 @@ Status S3WritableFile::CopyManifestToS3() {
 
     std::string manifest("MANIFEST");
     Aws::String s3_manifest = Aws::String(manifest.c_str(), manifest.size());
-    stat = CopyToS3(s3_manifest);
+    stat = CopyToS3(env_, fname_, s3_bucket_, s3_manifest);
  
     if (stat.ok()) {
       manifest_last_sync_time_ = now;
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[s3] S3WritableFile made manifest %s durable.", fname_.c_str());
+    } else {
+      Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
+          "[s3] S3WritableFile failed to make manifest %s durable. %s",
+	  fname_.c_str(), stat.ToString().c_str());
     }
   }
   return stat;

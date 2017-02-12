@@ -32,7 +32,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include "aws/aws_env.h"
+#include "cloud/aws/aws_env.h"
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "hdfs/env_hdfs.h"
@@ -877,18 +877,28 @@ enum RepFactory {
 
 // create Factory for creating S3 Envs
 #ifdef USE_AWS
-rocksdb::AwsEnv* CreateAwsEnv(const std::string& dbpath,
+rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
                             std::unique_ptr<rocksdb::Env>* result) {
   std::shared_ptr<rocksdb::Logger> info_log;
   info_log.reset(new rocksdb::StderrLogger(
 		     rocksdb::InfoLogLevel::DEBUG_LEVEL));
-  rocksdb::AwsEnv* s = rocksdb::AwsEnv::NewAwsEnv("dbbench",
-		                        FLAGS_aws_access_id,
-                                        FLAGS_aws_secret_key,
-					FLAGS_aws_region,
-					rocksdb::CloudEnvOptions(),
-					std::move(info_log));
-
+  rocksdb::CloudEnvOptions coptions;
+  coptions.credentials.access_key_id = FLAGS_aws_access_id;
+  coptions.credentials.secret_key = FLAGS_aws_secret_key;
+  coptions.region = FLAGS_aws_region;
+  rocksdb::CloudEnv* s;
+  rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
+		                        "dbbench",
+		                        coptions,
+					std::move(info_log),
+					&s);
+  assert(st.ok());
+  // If we are keeping wal in cloud storage, then tail it as well.
+  // so that our unit tests can run to completion.
+  if (!coptions.keep_local_log_files) {
+    rocksdb::AwsEnv* aws = static_cast<rocksdb::AwsEnv *>(s);
+    aws->CreateTailer();
+  }
   result->reset(s);
   return s;
 }

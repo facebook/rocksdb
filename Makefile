@@ -299,6 +299,7 @@ BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 EXPOBJECTS = $(EXP_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
+	db_cloud_test \
 	db_test \
 	db_test2 \
 	db_block_cache_test \
@@ -1296,6 +1297,9 @@ ldb_cmd_test: tools/ldb_cmd_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+db_cloud_test: cloud/db_cloud_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 iostats_context_test: util/iostats_context_test.o $(LIBOBJECTS) $(TESTHARNESS)

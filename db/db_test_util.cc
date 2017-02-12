@@ -56,22 +56,29 @@ DBTestBase::DBTestBase(const std::string path)
   info_log->SetInfoLogLevel(InfoLogLevel::DEBUG_LEVEL);
 
   // get AWS credentials
-  std::string aws_access_key_id;
-  std::string aws_secret_access_key;
-  std::string aws_region;
+  rocksdb::CloudEnvOptions coptions;
   Status st = AwsEnv::GetTestCredentials(
-                &aws_access_key_id, &aws_secret_access_key, &aws_region);
+                &coptions.credentials.access_key_id,
+		&coptions.credentials.secret_key,
+		&coptions.region);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
     assert(st.ok());
   } else {
-    s3_env_ = AwsEnv::NewAwsEnv("dbtest",
-			      aws_access_key_id,
-			      aws_secret_access_key,
-			      aws_region,
-			      rocksdb::CloudEnvOptions(),
-			      info_log);
-    assert(s3_env_);
+    CloudEnv* cenv;
+    st = AwsEnv::NewAwsEnv(Env::Default(),
+		           "dbtest",
+			   coptions,
+			   info_log,
+			   &cenv);
+    assert(st.ok() && cenv);
+    s3_env_ = cenv;
+    // If we are keeping wal in cloud storage, then tail it as well.
+    // so that our unit tests can run to completion.
+    if (!coptions.keep_local_log_files) {
+      AwsEnv* aws = static_cast<AwsEnv *>(s3_env_);
+      aws->CreateTailer();
+    }
   }
 #endif
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -433,6 +440,7 @@ Options DBTestBase::CurrentOptions(
     }
 #ifdef USE_AWS
     case kAwsEnv: {
+      assert(s3_env_);
       options.env = s3_env_;
       options.recycle_log_file_num = 0; // do not reuse log files
       options.allow_mmap_reads = false; // mmap is incompatible with S3

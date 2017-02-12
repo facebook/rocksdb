@@ -7,7 +7,7 @@
 #include <iostream>
 #include <fstream>
 #include "rocksdb/env.h"
-#include "aws/aws_env.h"
+#include "cloud/aws/aws_env.h"
 #include "rocksdb/status.h"
 
 #include <aws/core/Aws.h>
@@ -87,7 +87,6 @@ const std::string pathsep = "/";
 // types of rocksdb files
 const std::string sst = ".sst";
 const std::string log = ".log";
-const std::string manifest = "MANIFEST-";
 
 // Is this a sst file, i.e. ends in ".sst"
 inline bool IsSstFile(const std::string& pathname) {
@@ -123,6 +122,22 @@ bool IsManifestFile(const std::string& pathname) {
     fname = pathname;
   }
   if (fname.find("MANIFEST-") == 0) {
+    return true;
+  }
+  return false;
+}
+
+bool __attribute__ ((unused))
+IsIdentityFile(const std::string& pathname) {
+  // extract last component of the path
+  std::string fname;
+  size_t offset = pathname.find_last_of(pathsep);
+  if (offset != std::string::npos) {
+    fname = pathname.substr(offset + 1, pathname.size());
+  } else {
+    fname = pathname;
+  }
+  if (fname.find("IDENTITY") == 0) {
     return true;
   }
   return false;
@@ -265,7 +280,10 @@ class S3WritableFile: public WritableFile {
   virtual Status Close();
 
   virtual Status CopyManifestToS3();
-  virtual Status CopyToS3(const Aws::String& destination_object);
+  static Status CopyToS3(const AwsEnv* env,
+		         const std::string& fname,
+			 const Aws::String& s3_bucket,
+		         const Aws::String& destination_object);
 };
 
 // Creates a new file, appends data to a file or delete an existing file via

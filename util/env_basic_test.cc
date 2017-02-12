@@ -9,10 +9,10 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/env_registry.h"
-#include "aws/aws_env.h"
 #include "util/mock_env.h"
 #include "util/stderr_logger.h"
 #include "util/testharness.h"
+#include "cloud/aws/aws_env.h"
 
 namespace rocksdb {
 
@@ -111,12 +111,27 @@ Env* CreateAwsEnv(const std::string& dbpath,
     Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
     return nullptr;
   }
-  rocksdb::AwsEnv* s = rocksdb::AwsEnv::NewAwsEnv("dbtest",
-                                               aws_access_key_id,
-                                               aws_secret_access_key,
-					       aws_region,
-					       rocksdb::CloudEnvOptions(),
-                                               std::move(info_log));
+  rocksdb::CloudEnvOptions coptions;
+  coptions.credentials.access_key_id = aws_access_key_id;
+  coptions.credentials.secret_key = aws_secret_access_key;
+  coptions.region = aws_region;
+  rocksdb::CloudEnv* s;
+  st = rocksdb::AwsEnv::NewAwsEnv(Env::Default(),
+		                  "dbtest",
+				  coptions,
+                                  std::move(info_log),
+				  &s);
+  assert(st.ok());
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, info_log, st.ToString().c_str());
+    return nullptr;
+  }
+  // If we are keeping wal in cloud storage, then tail it as well.
+  // so that our unit tests can run to completion.
+  if (!coptions.keep_local_log_files) {
+    AwsEnv* aws = static_cast<AwsEnv *>(s);
+    aws->CreateTailer();
+  }
   result->reset(s);
   return new NormalizingEnvWrapper(s); // XXX when does this get freed?
 }

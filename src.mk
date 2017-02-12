@@ -102,10 +102,7 @@ LIB_SOURCES =                                                   \
   util/env.cc                                                   \
   util/env_chroot.cc                                            \
   util/env_hdfs.cc                                              \
-  cloud/aws_env.cc                                                  \
-  cloud/aws_s3.cc                                               \
-  cloud/aws_kinesis.cc                                          \
-  util/env_posix.cc                                            \
+  util/env_posix.cc                                             \
   util/event_logger.cc                                          \
   util/file_util.cc                                             \
   util/file_reader_writer.cc                                    \
@@ -189,6 +186,11 @@ LIB_SOURCES =                                                   \
   utilities/date_tiered/date_tiered_db_impl.cc                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
+  cloud/aws/aws_env.cc                                          \
+  cloud/aws/aws_s3.cc                                           \
+  cloud/aws/aws_kinesis.cc                                      \
+  cloud/db_cloud_impl.cc                                        \
+  cloud/db_cloud_env.cc                                         \
 
 TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \
@@ -215,6 +217,7 @@ TEST_LIB_SOURCES = \
 
 MAIN_SOURCES =                                                    \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
+  cloud/db_cloud_test.cc                                                \
   db/auto_roll_logger_test.cc                                           \
   db/column_family_test.cc                                              \
   db/compaction_job_test.cc                                             \

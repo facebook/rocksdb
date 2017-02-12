@@ -10,7 +10,7 @@ machine failures by integrations with cloud services like AWS-S3 and Google Clou
 Services. It allows a cost-effective way to utilize the rich variety of
 storage services (based on RAM, NvMe, SSD, Disk Cold Storage, etc) that are offered by
 most cloud providers. RocksDB-Cloud is developed and maintained by the engineering
-team at Rockset Inc. Start with https://github.com/rockset/rocksdb-cloud/tree/master/aws.
+team at Rockset Inc. Start with https://github.com/rockset/rocksdb-cloud/tree/master/could.
 
 RocksDB is developed and maintained by Facebook Database Engineering Team.
 It is built on earlier work on LevelDB by Sanjay Ghemawat (sanjay@google.com)

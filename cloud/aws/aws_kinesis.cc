@@ -8,8 +8,8 @@
 #include <iostream>
 #include <fstream>
 
-#include "aws/aws_env.h"
-#include "cloud/aws_file.h"
+#include "cloud/aws/aws_env.h"
+#include "cloud/aws/aws_file.h"
 #include "rocksdb/status.h"
 #include "util/string_util.h"
 #include "util/stderr_logger.h"
@@ -124,9 +124,9 @@ Status KinesisSystem::TailStream() {
       // remember last read seqno from stream
       shards_position_[0] = r.GetSequenceNumber();
     }
-    // If no records were read in last iteration, then sleep for 1 second
+    // If no records were read in last iteration, then sleep for 50 millis
     if (num_read == 0 && status_.ok()) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
   }
   return status_;

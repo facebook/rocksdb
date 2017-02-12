@@ -61,7 +61,7 @@
 #include "util/xfunc.h"
 #include "utilities/merge_operators.h"
 
-#include "aws/aws_env.h"
+#include "cloud/aws/aws_env.h"
 
 namespace rocksdb {
 
