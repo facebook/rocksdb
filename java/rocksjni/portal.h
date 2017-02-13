@@ -770,10 +770,24 @@ class WriteBatchWithIndexJni : public RocksDBNativeClass<
   }
 };
 
-class HistogramDataJni {
+// The portal class for org.rocksdb.HistogramData
+class HistogramDataJni : public JavaClass {
  public:
-  static jmethodID getConstructorMethodId(JNIEnv* env, jclass jclazz) {
-    static jmethodID mid = env->GetMethodID(jclazz, "<init>", "(DDDDD)V");
+  /**
+   * Get the Java Class org.rocksdb.HistogramData
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/HistogramData");
+  }
+
+  static jmethodID getConstructorMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(getJClass(env), "<init>", "(DDDDD)V");
     assert(mid != nullptr);
     return mid;
   }

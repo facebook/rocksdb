@@ -42,9 +42,10 @@ jobject Java_org_rocksdb_Statistics_getHistogramData0(
     &data);
 
   // Don't reuse class pointer
-  jclass jclazz = env->FindClass("org/rocksdb/HistogramData");
   jmethodID mid = rocksdb::HistogramDataJni::getConstructorMethodId(
-      env, jclazz);
-  return env->NewObject(jclazz, mid, data.median, data.percentile95,
-      data.percentile99, data.average, data.standard_deviation);
+      env);
+  return env->NewObject(
+      rocksdb::HistogramDataJni::getJClass(env),
+      mid, data.median, data.percentile95,data.percentile99, data.average,
+      data.standard_deviation);
 }
