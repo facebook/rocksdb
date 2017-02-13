@@ -92,11 +92,31 @@ template<class PTR, class DERIVED> class NativeRocksMutableObject
     return mid;
   }
 
-  // Pass the pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jobj, PTR ptr,
+  /**
+   * Sets the C++ object pointer handle in the Java object
+   *
+   * @param env A pointer to the Java environment
+   * @param jobj The Java object on which to set the pointer handle
+   * @param ptr The C++ object pointer
+   * @param java_owns_handle JNI_TRUE if ownership of the C++ object is
+   *     managed by the Java object
+   *
+   * @return true if a Java exception is pending, false otherwise
+   */
+  static bool setHandle(JNIEnv* env, jobject jobj, PTR ptr,
       jboolean java_owns_handle) {
-    env->CallVoidMethod(jobj, getSetNativeHandleMethod(env),
-      reinterpret_cast<jlong>(ptr), java_owns_handle);
+    assert(jobj != nullptr);
+    static jmethodID mid = getSetNativeHandleMethod(env);
+    if(mid == nullptr) {
+      return true;  // signal exception
+    }
+
+    env->CallVoidMethod(jobj, mid, reinterpret_cast<jlong>(ptr), java_owns_handle);
+    if(env->ExceptionCheck()) {
+      return true;  // signal exception
+    }
+
+    return false;
   }
 };
 
