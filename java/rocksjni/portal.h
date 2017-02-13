@@ -162,25 +162,72 @@ class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
 // The portal class for org.rocksdb.Status
 class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
  public:
-  // Get the java class id of org.rocksdb.Status.
+  /**
+   * Get the Java Class org.rocksdb.Status
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/Status");
   }
 
-  // Create a new org.rocksdb.Status with the same properties as the
-  // provided C++ rocksdb::Status object
+  /**
+   * Create a new Java org.rocksdb.Status object with the same properties as
+   * the provided C++ rocksdb::Status object
+   *
+   * @param env A pointer to the Java environment
+   * @param status The rocksdb::Status object
+   *
+   * @return A reference to a Java org.rocksdb.Status object, or nullptr
+   *     if an an exception occurs
+   */
   static jobject construct(JNIEnv* env, const Status& status) {
-    static jmethodID mid =
-        env->GetMethodID(getJClass(env), "<init>", "(BBLjava/lang/String;)V");
-    assert(mid != nullptr);
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
 
+    jmethodID mid =
+        env->GetMethodID(jclazz, "<init>", "(BBLjava/lang/String;)V");
+    if(mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    // convert the Status state for Java
     jstring jstate = nullptr;
     if (status.getState() != nullptr) {
       const char* const state = status.getState();
       jstate = env->NewStringUTF(state);
+      if(env->ExceptionCheck()) {
+        if(jstate != nullptr) {
+          env->DeleteLocalRef(jstate);
+        }
+        return nullptr;
+      }
     }
-    return env->NewObject(getJClass(env), mid, toJavaStatusCode(status.code()),
-                          toJavaStatusSubCode(status.subcode()), jstate);
+
+    jobject jstatus =
+        env->NewObject(jclazz, mid, toJavaStatusCode(status.code()),
+            toJavaStatusSubCode(status.subcode()), jstate);
+    if(env->ExceptionCheck()) {
+      // exception occurred
+      if(jstate != nullptr) {
+        env->DeleteLocalRef(jstate);
+      }
+      return nullptr;
+    }
+
+    if(jstate != nullptr) {
+      env->DeleteLocalRef(jstate);
+    }
+
+    return jstatus;
   }
 
   // Returns the equivalent org.rocksdb.Status.Code for the provided
