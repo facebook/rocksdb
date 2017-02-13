@@ -545,8 +545,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_flushes));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
-    options.setDisableDataSync(
-        (Boolean)flags_.get(Flag.disable_data_sync));
     options.setUseFsync(
         (Boolean)flags_.get(Flag.use_fsync));
     options.setWalDir(
@@ -1221,12 +1219,6 @@ public class DbBenchmark {
       }
     },
     sync(false,"Sync all writes to disk.") {
-      @Override public Object parseValue(String value) {
-        return parseBoolean(value);
-      }
-    },
-    disable_data_sync(false,"If true, do not wait until data is\n" +
-        "\tsynced to disk.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
       }

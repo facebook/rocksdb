@@ -2363,7 +2363,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     if (s.ok() && new_descriptor_log) {
       s = SetCurrentFile(
           env_, dbname_, pending_manifest_file_number_,
-          db_options_->disable_data_sync ? nullptr : db_directory);
+          db_directory);
     }
 
     if (s.ok()) {

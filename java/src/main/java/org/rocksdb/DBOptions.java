@@ -222,20 +222,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setDisableDataSync(
-      final boolean disableDataSync) {
-    assert(isOwningHandle());
-    setDisableDataSync(nativeHandle_, disableDataSync);
-    return this;
-  }
-
-  @Override
-  public boolean disableDataSync() {
-    assert(isOwningHandle());
-    return disableDataSync(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setUseFsync(
       final boolean useFsync) {
     assert(isOwningHandle());
@@ -680,8 +666,6 @@ public long delayedWriteRate(){
   private native long maxTotalWalSize(long handle);
   private native void createStatistics(long optHandle);
   private native long statisticsPtr(long optHandle);
-  private native void setDisableDataSync(long handle, boolean disableDataSync);
-  private native boolean disableDataSync(long handle);
   private native boolean useFsync(long handle);
   private native void setUseFsync(long handle, boolean useFsync);
   private native void setDbLogDir(long handle, String dbLogDir);

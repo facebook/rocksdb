@@ -948,14 +948,6 @@ struct DBOptions {
   // If non-null, then we should collect metrics about database operations
   std::shared_ptr<Statistics> statistics = nullptr;
 
-  // If true, then the contents of manifest and data files are not synced
-  // to stable storage. Their contents remain in the OS buffers till the
-  // OS decides to flush them. This option is good for bulk-loading
-  // of data. Once the bulk-loading is complete, please issue a
-  // sync to the OS to flush all dirty buffers to stable storage.
-  // Default: false
-  bool disableDataSync = false;
-
   // If true, then every store to stable storage will issue a fsync.
   // If false, then every store to stable storage will issue a fdatasync.
   // This parameter should be set to true while storing data to

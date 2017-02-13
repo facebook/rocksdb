@@ -313,7 +313,7 @@ Status FlushJob::WriteLevel0Table() {
         meta_.fd.GetFileSize(), s.ToString().c_str(),
         meta_.marked_for_compaction ? " (needs compaction)" : "");
 
-    if (!db_options_.disable_data_sync && output_file_directory_ != nullptr) {
+    if (output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }
     TEST_SYNC_POINT("FlushJob::WriteLevel0Table");

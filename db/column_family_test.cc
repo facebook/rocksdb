@@ -1148,7 +1148,6 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
@@ -1221,7 +1220,6 @@ TEST_F(ColumnFamilyTest, MultipleManualCompactions) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
@@ -1319,7 +1317,6 @@ TEST_F(ColumnFamilyTest, AutomaticAndManualCompactions) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1412,7 +1409,6 @@ TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1508,7 +1504,6 @@ TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1607,7 +1602,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1697,7 +1691,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1794,7 +1787,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticConflict) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1914,7 +1906,6 @@ TEST_F(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
