@@ -2013,15 +2013,32 @@ class JniUtil {
         jbyteArray jkey, jint jkey_len,
         jbyteArray jentry_value, jint jentry_value_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+      if(env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return;
+      }
+
       jbyte* value = env->GetByteArrayElements(jentry_value, nullptr);
+      if(env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        if(key != nullptr) {
+          env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+        }
+        return;
+      }
+
       rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
       rocksdb::Slice value_slice(reinterpret_cast<char*>(value),
           jentry_value_len);
 
       op(key_slice, value_slice);
 
-      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-      env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
+      if(value != nullptr) {
+        env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
+      }
+      if(key != nullptr) {
+        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      }
     }
 
     /*
@@ -2036,11 +2053,18 @@ class JniUtil {
         JNIEnv* env, jobject jobj,
         jbyteArray jkey, jint jkey_len) {
       jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+      if(env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return;
+      }
+
       rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
       op(key_slice);
 
-      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      if(key != nullptr) {
+        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      }
     }
 
     /*
@@ -2050,14 +2074,20 @@ class JniUtil {
     static jbyteArray v_op(
         std::function<rocksdb::Status(rocksdb::Slice, std::string*)> op,
         JNIEnv* env, jbyteArray jkey, jint jkey_len) {
-      jboolean isCopy;
-      jbyte* key = env->GetByteArrayElements(jkey, &isCopy);
+      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+      if(env->ExceptionCheck()) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
       rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
 
       std::string value;
       rocksdb::Status s = op(key_slice, &value);
 
-      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      if(key != nullptr) {
+        env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      }
 
       if (s.IsNotFound()) {
         return nullptr;
@@ -2066,12 +2096,25 @@ class JniUtil {
       if (s.ok()) {
         jbyteArray jret_value =
             env->NewByteArray(static_cast<jsize>(value.size()));
+        if(jret_value == nullptr) {
+          // exception thrown: OutOfMemoryError
+          return nullptr;
+        }
+
         env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
                                 reinterpret_cast<const jbyte*>(value.c_str()));
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          if(jret_value != nullptr) {
+            env->DeleteLocalRef(jret_value);
+          }
+          return nullptr;
+        }
+
         return jret_value;
       }
-      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
       return nullptr;
     }
 };
