@@ -299,45 +299,206 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
 class RocksDBExceptionJni :
     public JavaException<RocksDBExceptionJni> {
  public:
-  // Get the java class id of java.lang.IllegalArgumentException
+  /**
+   * Get the Java Class org.rocksdb.RocksDBException
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return JavaException::getJClass(env,
-        "org/rocksdb/RocksDBException");
+    return JavaException::getJClass(env, "org/rocksdb/RocksDBException");
   }
 
-  static void ThrowNew(JNIEnv* env, const std::string& msg) {
-    JavaException::ThrowNew(env, msg);
+  /**
+   * Create and throw a Java RocksDBException with the provided message
+   *
+   * @param env A pointer to the Java environment
+   * @param msg The message for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const std::string& msg) {
+    return JavaException::ThrowNew(env, msg);
   }
 
-  static void ThrowNew(JNIEnv* env, const Status& s) {
+  /**
+   * Create and throw a Java RocksDBException with the provided status
+   *
+   * If s.ok() == true, then this function will not throw any exception.
+   *
+   * @param env A pointer to the Java environment
+   * @param s The status for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const Status& s) {
+    assert(!s.ok());
     if (s.ok()) {
-      return;
+      return false;
     }
 
+    // get the RocksDBException class
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      std::cerr << "RocksDBExceptionJni::ThrowNew/class - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
+
+    // get the constructor of org.rocksdb.RocksDBException
+    jmethodID mid =
+        env->GetMethodID(jclazz, "<init>", "(Lorg/rocksdb/Status;)V");
+    if(mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      std::cerr << "RocksDBExceptionJni::ThrowNew/cstr - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
+
+    // get the Java status object
     jobject jstatus = StatusJni::construct(env, s);
+    if(jstatus == nullptr) {
+      // exception occcurred
+      std::cerr << "RocksDBExceptionJni::ThrowNew/StatusJni - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
 
-    // get the constructor id of org.rocksdb.RocksDBException
-    static jmethodID mid =
-        env->GetMethodID(getJClass(env), "<init>", "(Lorg/rocksdb/Status;)V");
-    assert(mid != nullptr);
+    // construct the RocksDBException
+    jthrowable rocksdb_exception = reinterpret_cast<jthrowable>(env->NewObject(jclazz, mid, jstatus));
+    if(env->ExceptionCheck()) {
+      if(jstatus != nullptr) {
+        env->DeleteLocalRef(jstatus);
+      }
+      if(rocksdb_exception != nullptr) {
+        env->DeleteLocalRef(rocksdb_exception);
+      }
+      std::cerr << "RocksDBExceptionJni::ThrowNew/NewObject - Error: unexpected exception!" << std::endl;
+      return true;
+    }
 
-    env->Throw((jthrowable)env->NewObject(getJClass(env), mid, jstatus));
+    // throw the RocksDBException
+    const jint rs = env->Throw(rocksdb_exception);
+    if(rs != JNI_OK) {
+      // exception could not be thrown
+      std::cerr << "RocksDBExceptionJni::ThrowNew - Fatal: could not throw exception!" << std::endl;
+      if(jstatus != nullptr) {
+        env->DeleteLocalRef(jstatus);
+      }
+      if(rocksdb_exception != nullptr) {
+        env->DeleteLocalRef(rocksdb_exception);
+      }
+      return env->ExceptionCheck();
+    }
+
+    if(jstatus != nullptr) {
+      env->DeleteLocalRef(jstatus);
+    }
+    if(rocksdb_exception != nullptr) {
+      env->DeleteLocalRef(rocksdb_exception);
+    }
+
+    return true;
   }
 
-  static void ThrowNew(JNIEnv* env, const std::string& msg, const Status& s) {
+  /**
+   * Create and throw a Java RocksDBException with the provided message
+   * and status
+   *
+   * If s.ok() == true, then this function will not throw any exception.
+   *
+   * @param env A pointer to the Java environment
+   * @param msg The message for the exception
+   * @param s The status for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const std::string& msg, const Status& s) {
+    assert(!s.ok());
     if (s.ok()) {
-      return;
+      return false;
+    }
+
+    // get the RocksDBException class
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      std::cerr << "RocksDBExceptionJni::ThrowNew/class - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
+
+    // get the constructor of org.rocksdb.RocksDBException
+    jmethodID mid =
+        env->GetMethodID(jclazz, "<init>", "(Ljava/lang/String;Lorg/rocksdb/Status;)V");
+    if(mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      std::cerr << "RocksDBExceptionJni::ThrowNew/cstr - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
     }
 
     jstring jmsg = env->NewStringUTF(msg.c_str());
+    if(jmsg == nullptr) {
+      // exception thrown: OutOfMemoryError
+      std::cerr << "RocksDBExceptionJni::ThrowNew/msg - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
+
+    // get the Java status object
     jobject jstatus = StatusJni::construct(env, s);
+    if(jstatus == nullptr) {
+      // exception occcurred
+      std::cerr << "RocksDBExceptionJni::ThrowNew/StatusJni - Error: unexpected exception!" << std::endl;
+      if(jmsg != nullptr) {
+        env->DeleteLocalRef(jmsg);
+      }
+      return env->ExceptionCheck();
+    }
 
-    // get the constructor id of org.rocksdb.RocksDBException
-    static jmethodID mid = env->GetMethodID(
-        getJClass(env), "<init>", "(Ljava/lang/String;Lorg/rocksdb/Status;)V");
-    assert(mid != nullptr);
+    // construct the RocksDBException
+    jthrowable rocksdb_exception = reinterpret_cast<jthrowable>(env->NewObject(jclazz, mid, jmsg, jstatus));
+    if(env->ExceptionCheck()) {
+      if(jstatus != nullptr) {
+        env->DeleteLocalRef(jstatus);
+      }
+      if(jmsg != nullptr) {
+        env->DeleteLocalRef(jmsg);
+      }
+      if(rocksdb_exception != nullptr) {
+        env->DeleteLocalRef(rocksdb_exception);
+      }
+      std::cerr << "RocksDBExceptionJni::ThrowNew/NewObject - Error: unexpected exception!" << std::endl;
+      return true;
+    }
 
-    env->Throw((jthrowable)env->NewObject(getJClass(env), mid, jmsg, jstatus));
+    // throw the RocksDBException
+    const jint rs = env->Throw(rocksdb_exception);
+    if(rs != JNI_OK) {
+      // exception could not be thrown
+      std::cerr << "RocksDBExceptionJni::ThrowNew - Fatal: could not throw exception!" << std::endl;
+      if(jstatus != nullptr) {
+        env->DeleteLocalRef(jstatus);
+      }
+      if(jmsg != nullptr) {
+        env->DeleteLocalRef(jmsg);
+      }
+      if(rocksdb_exception != nullptr) {
+        env->DeleteLocalRef(rocksdb_exception);
+      }
+      return env->ExceptionCheck();
+    }
+
+    if(jstatus != nullptr) {
+      env->DeleteLocalRef(jstatus);
+    }
+    if(jmsg != nullptr) {
+      env->DeleteLocalRef(jmsg);
+    }
+    if(rocksdb_exception != nullptr) {
+      env->DeleteLocalRef(rocksdb_exception);
+    }
+
+    return true;
   }
 };
 
