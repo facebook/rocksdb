@@ -41,11 +41,21 @@ jobject Java_org_rocksdb_Statistics_getHistogramData0(
   st->histogramData(static_cast<rocksdb::Histograms>(histogramType),
     &data);
 
-  // Don't reuse class pointer
+  jclass jclazz = rocksdb::HistogramDataJni::getJClass(env);
+  if(jclazz == nullptr) {
+    // exception occurred accessing class
+    return nullptr;
+  }
+
   jmethodID mid = rocksdb::HistogramDataJni::getConstructorMethodId(
       env);
+  if(mid == nullptr) {
+    // exception occurred accessing method
+    return nullptr;
+  }
+
   return env->NewObject(
-      rocksdb::HistogramDataJni::getJClass(env),
+      jclazz,
       mid, data.median, data.percentile95,data.percentile99, data.average,
       data.standard_deviation);
 }
