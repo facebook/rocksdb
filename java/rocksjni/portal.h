@@ -506,28 +506,44 @@ class RocksDBExceptionJni :
 class IllegalArgumentExceptionJni :
     public JavaException<IllegalArgumentExceptionJni> {
  public:
-  // Get the java class id of java.lang.IllegalArgumentException
+  /**
+   * Get the Java Class java.lang.IllegalArgumentException
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return JavaException::getJClass(env,
-        "java/lang/IllegalArgumentException");
+    return JavaException::getJClass(env, "java/lang/IllegalArgumentException");
   }
 
-  // Create and throw a IllegalArgumentException by converting the input
-  // Status.
-  //
-  // In case s.ok() is true, then this function will not throw any
-  // exception.
-  static void ThrowNew(JNIEnv* env, const Status& s) {
+  /**
+   * Create and throw a Java IllegalArgumentException with the provided status
+   *
+   * If s.ok() == true, then this function will not throw any exception.
+   *
+   * @param env A pointer to the Java environment
+   * @param s The status for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const Status& s) {
+    assert(!s.ok());
     if (s.ok()) {
-      return;
+      return false;
     }
-    jstring msg = env->NewStringUTF(s.ToString().c_str());
-    // get the constructor id of org.rocksdb.RocksDBException
-    static jmethodID mid =
-        env->GetMethodID(getJClass(env), "<init>", "(Ljava/lang/String;)V");
-    assert(mid != nullptr);
 
-    env->Throw((jthrowable)env->NewObject(getJClass(env), mid, msg));
+    // get the IllegalArgumentException class
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      std::cerr << "IllegalArgumentExceptionJni::ThrowNew/class - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
+
+    return JavaException::ThrowNew(env, s.ToString());
   }
 };
 
