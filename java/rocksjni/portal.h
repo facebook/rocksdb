@@ -42,10 +42,19 @@ inline Status check_if_jlong_fits_size_t(const jlong& jvalue) {
   return s;
 }
 
-// Native class template
-template<class PTR, class DERIVED> class RocksDBNativeClass {
+class JavaClass {
  public:
-  // Get the java class id
+  /**
+   * Gets and initializes a Java Class
+   *
+   * @param env A pointer to the Java environment
+   * @param jclazz_name The fully qualified JNI name of the Java Class
+   *     e.g. "java/lang/String"
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env, const char* jclazz_name) {
     jclass jclazz = env->FindClass(jclazz_name);
     assert(jclazz != nullptr);
@@ -53,14 +62,32 @@ template<class PTR, class DERIVED> class RocksDBNativeClass {
   }
 };
 
+// Native class template
+template<class PTR, class DERIVED> class RocksDBNativeClass : public JavaClass {
+};
+
 // Native class template for sub-classes of RocksMutableObject
 template<class PTR, class DERIVED> class NativeRocksMutableObject
     : public RocksDBNativeClass<PTR, DERIVED> {
  public:
 
+  /**
+   * Gets the Java Method ID for the
+   * RocksMutableObject#setNativeHandle(long, boolean) method
+   *
+   * @param env A pointer to the Java environment
+   * @return The Java Method ID or nullptr the RocksMutableObject class cannot
+   *     be accessed, or if one of the NoSuchMethodError,
+   *     ExceptionInInitializerError or OutOfMemoryError exceptions is thrown
+   */
   static jmethodID getSetNativeHandleMethod(JNIEnv* env) {
+    static jclass jclazz = DERIVED::getJClass(env);
+    if(jclazz == nullptr) {
+      return nullptr;
+    }
+
     static jmethodID mid = env->GetMethodID(
-        DERIVED::getJClass(env), "setNativeHandle", "(JZ)V");
+        jclazz, "setNativeHandle", "(JZ)V");
     assert(mid != nullptr);
     return mid;
   }
@@ -74,14 +101,8 @@ template<class PTR, class DERIVED> class NativeRocksMutableObject
 };
 
 // Java Exception template
-template<class DERIVED> class RocksDBJavaException {
+template<class DERIVED> class JavaException : public JavaClass {
  public:
-  // Get the java class id
-  static jclass getJClass(JNIEnv* env, const char* jclazz_name) {
-    jclass jclazz = env->FindClass(jclazz_name);
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
 
   // Create and throw a java exception with the provided message
   static void ThrowNew(JNIEnv* env, const std::string& msg) {
@@ -187,16 +208,16 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
 
 // The portal class for org.rocksdb.RocksDBException
 class RocksDBExceptionJni :
-    public RocksDBJavaException<RocksDBExceptionJni> {
+    public JavaException<RocksDBExceptionJni> {
  public:
   // Get the java class id of java.lang.IllegalArgumentException
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBJavaException::getJClass(env,
+    return JavaException::getJClass(env,
         "org/rocksdb/RocksDBException");
   }
 
   static void ThrowNew(JNIEnv* env, const std::string& msg) {
-    RocksDBJavaException::ThrowNew(env, msg);
+    JavaException::ThrowNew(env, msg);
   }
 
   static void ThrowNew(JNIEnv* env, const Status& s) {
@@ -233,11 +254,11 @@ class RocksDBExceptionJni :
 
 // The portal class for java.lang.IllegalArgumentException
 class IllegalArgumentExceptionJni :
-    public RocksDBJavaException<IllegalArgumentExceptionJni> {
+    public JavaException<IllegalArgumentExceptionJni> {
  public:
   // Get the java class id of java.lang.IllegalArgumentException
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBJavaException::getJClass(env,
+    return JavaException::getJClass(env,
         "java/lang/IllegalArgumentException");
   }
 
