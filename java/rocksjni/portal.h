@@ -570,24 +570,39 @@ class OptionsJni : public RocksDBNativeClass<
 class DBOptionsJni : public RocksDBNativeClass<
     rocksdb::DBOptions*, DBOptionsJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.DBOptions
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/DBOptions");
   }
 };
 
-class ColumnFamilyDescriptorJni {
+class ColumnFamilyDescriptorJni : public JavaClass {
  public:
-  // Get the java class id of org.rocksdb.ColumnFamilyDescriptor
-  static jclass getColumnFamilyDescriptorClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/ColumnFamilyDescriptor");
-    assert(jclazz != nullptr);
-    return jclazz;
+  /**
+   * Get the Java Class org.rocksdb.ColumnFamilyDescriptor
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/ColumnFamilyDescriptor");
   }
 
   // Get the java method id of columnFamilyName
   static jmethodID getColumnFamilyNameMethod(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
-        getColumnFamilyDescriptorClass(env),
+        getClass(env),
         "columnFamilyName", "()[B");
     assert(mid != nullptr);
     return mid;
@@ -596,7 +611,7 @@ class ColumnFamilyDescriptorJni {
   // Get the java method id of columnFamilyOptions
   static jmethodID getColumnFamilyOptionsMethod(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
-        getColumnFamilyDescriptorClass(env),
+        getClass(env),
         "columnFamilyOptions", "()Lorg/rocksdb/ColumnFamilyOptions;");
     assert(mid != nullptr);
     return mid;
@@ -607,6 +622,15 @@ class ColumnFamilyDescriptorJni {
 class ColumnFamilyOptionsJni : public RocksDBNativeClass<
     rocksdb::ColumnFamilyOptions*, ColumnFamilyOptionsJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.ColumnFamilyOptions
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
         "org/rocksdb/ColumnFamilyOptions");
@@ -617,9 +641,17 @@ class ColumnFamilyOptionsJni : public RocksDBNativeClass<
 class WriteOptionsJni : public RocksDBNativeClass<
     rocksdb::WriteOptions*, WriteOptionsJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.WriteOptions
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/WriteOptions");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/WriteOptions");
   }
 };
 
@@ -627,19 +659,35 @@ class WriteOptionsJni : public RocksDBNativeClass<
 class ReadOptionsJni : public RocksDBNativeClass<
     rocksdb::ReadOptions*, ReadOptionsJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.ReadOptions
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/ReadOptions");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/ReadOptions");
   }
 };
 
-// The portal class for org.rocksdb.ReadOptions
+// The portal class for org.rocksdb.WriteBatch
 class WriteBatchJni : public RocksDBNativeClass<
     rocksdb::WriteBatch*, WriteBatchJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.WriteBatch
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/WriteBatch");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/WriteBatch");
   }
 };
 
@@ -648,6 +696,15 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
     const rocksdb::WriteBatchHandlerJniCallback*,
     WriteBatchHandlerJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.WriteBatch.Handler
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
         "org/rocksdb/WriteBatch$Handler");
@@ -698,6 +755,15 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
 class WriteBatchWithIndexJni : public RocksDBNativeClass<
     rocksdb::WriteBatchWithIndex*, WriteBatchWithIndexJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.WriteBatchWithIndex
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
         "org/rocksdb/WriteBatch");
@@ -1045,31 +1111,45 @@ class ListJni : public JavaClass {
   }
 };
 
-class ByteJni {
+// The portal class for java.lang.Byte
+class ByteJni : public JavaClass {
  public:
-  // Get the java class id of java.lang.Byte.
-  static jclass getByteClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("java/lang/Byte");
-    assert(jclazz != nullptr);
-    return jclazz;
+  /**
+   * Get the Java Class java.lang.Byte
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/lang/Byte");
   }
 
   // Get the java method id of java.lang.Byte.byteValue.
   static jmethodID getByteValueMethod(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
-        getByteClass(env), "byteValue", "()B");
+        getJClass(env), "byteValue", "()B");
     assert(mid != nullptr);
     return mid;
   }
 };
 
-class BackupInfoJni {
+// The portal class for org.rocksdb.BackupInfo
+class BackupInfoJni : public JavaClass {
  public:
-  // Get the java class id of org.rocksdb.BackupInfo.
+  /**
+   * Get the Java Class org.rocksdb.BackupInfo
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/BackupInfo");
-    assert(jclazz != nullptr);
-    return jclazz;
+    return JavaClass::getJClass(env, "org/rocksdb/BackupInfo");
   }
 
   static jobject construct0(JNIEnv* env, uint32_t backup_id, int64_t timestamp,
@@ -1086,7 +1166,7 @@ class BackupInfoListJni {
  public:
   static jobject getBackupInfo(JNIEnv* env,
       std::vector<BackupInfo> backup_infos) {
-    jclass jclazz = env->FindClass("java/util/ArrayList");
+    jclass jclazz = rocksdb::ListJni::getArrayListClass(env);
     jmethodID mid = rocksdb::ListJni::getArrayListConstructorMethodId(
         env, jclazz);
     jobject jbackup_info_handle_list = env->NewObject(jclazz, mid,
@@ -1107,84 +1187,105 @@ class BackupInfoListJni {
   }
 };
 
-class WBWIRocksIteratorJni {
+// The portal class for org.rocksdb.WBWIRocksIterator
+class WBWIRocksIteratorJni : public JavaClass {
  public:
-    // Get the java class id of org.rocksdb.WBWIRocksIterator.
-    static jclass getJClass(JNIEnv* env) {
-      static jclass jclazz = env->FindClass("org/rocksdb/WBWIRocksIterator");
-      assert(jclazz != nullptr);
-      return jclazz;
-    }
+  /**
+   * Get the Java Class org.rocksdb.WBWIRocksIterator
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/WBWIRocksIterator");
+  }
 
-    static jfieldID getWriteEntryField(JNIEnv* env) {
-      static jfieldID fid =
-          env->GetFieldID(getJClass(env), "entry",
-          "Lorg/rocksdb/WBWIRocksIterator$WriteEntry;");
-      assert(fid != nullptr);
-      return fid;
-    }
+  static jfieldID getWriteEntryField(JNIEnv* env) {
+    static jfieldID fid =
+        env->GetFieldID(getJClass(env), "entry",
+        "Lorg/rocksdb/WBWIRocksIterator$WriteEntry;");
+    assert(fid != nullptr);
+    return fid;
+  }
 
-    static jobject getWriteEntry(JNIEnv* env, jobject jwbwi_rocks_iterator) {
-      jobject jwe =
-          env->GetObjectField(jwbwi_rocks_iterator, getWriteEntryField(env));
-      assert(jwe != nullptr);
-      return jwe;
-    }
+  static jobject getWriteEntry(JNIEnv* env, jobject jwbwi_rocks_iterator) {
+    jobject jwe =
+        env->GetObjectField(jwbwi_rocks_iterator, getWriteEntryField(env));
+    assert(jwe != nullptr);
+    return jwe;
+  }
 };
 
-class WriteTypeJni {
+// The portal class for org.rocksdb.WBWIRocksIterator.WriteType
+class WriteTypeJni : public JavaClass {
  public:
-    // Get the PUT enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    // Get the PUT enum field of WBWIRocksIterator.WriteType
     static jobject PUT(JNIEnv* env) {
       return getEnum(env, "PUT");
     }
 
-    // Get the MERGE enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    // Get the MERGE enum field of WBWIRocksIterator.WriteType
     static jobject MERGE(JNIEnv* env) {
       return getEnum(env, "MERGE");
     }
 
-    // Get the DELETE enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    // Get the DELETE enum field of WBWIRocksIterator.WriteType
     static jobject DELETE(JNIEnv* env) {
       return getEnum(env, "DELETE");
     }
 
-    // Get the LOG enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    // Get the LOG enum field of WBWIRocksIterator.WriteType
     static jobject LOG(JNIEnv* env) {
       return getEnum(env, "LOG");
     }
 
  private:
-    // Get the java class id of org.rocksdb.WBWIRocksIterator.WriteType.
-    static jclass getJClass(JNIEnv* env) {
-      jclass jclazz = env->FindClass("org/rocksdb/WBWIRocksIterator$WriteType");
-      assert(jclazz != nullptr);
-      return jclazz;
-    }
+  /**
+   * Get the Java Class org.rocksdb.WBWIRocksIterator.WriteType
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/WBWIRocksIterator$WriteType");
+  }
 
-    // Get an enum field of org.rocksdb.WBWIRocksIterator.WriteType
-    static jobject getEnum(JNIEnv* env, const char name[]) {
-      jclass jclazz = getJClass(env);
-      jfieldID jfid =
-          env->GetStaticFieldID(jclazz, name,
-          "Lorg/rocksdb/WBWIRocksIterator$WriteType;");
-      assert(jfid != nullptr);
-      return env->GetStaticObjectField(jclazz, jfid);
-    }
+  // Get an enum field of org.rocksdb.WBWIRocksIterator.WriteType
+  static jobject getEnum(JNIEnv* env, const char name[]) {
+    jclass jclazz = getJClass(env);
+    jfieldID jfid =
+        env->GetStaticFieldID(jclazz, name,
+            "Lorg/rocksdb/WBWIRocksIterator$WriteType;");
+    assert(jfid != nullptr);
+    return env->GetStaticObjectField(jclazz, jfid);
+  }
 };
 
-class WriteEntryJni {
+// The portal class for org.rocksdb.WBWIRocksIterator.WriteEntry
+class WriteEntryJni : public JavaClass {
  public:
-    // Get the java class id of org.rocksdb.WBWIRocksIterator.WriteEntry.
+  /**
+   * Get the Java Class org.rocksdb.WBWIRocksIterator.WriteEntry
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
     static jclass getJClass(JNIEnv* env) {
-      static jclass jclazz =
-          env->FindClass("org/rocksdb/WBWIRocksIterator$WriteEntry");
-      assert(jclazz != nullptr);
-      return jclazz;
+      return JavaClass::getJClass(env, "org/rocksdb/WBWIRocksIterator$WriteEntry");
     }
 };
 
-class InfoLogLevelJni {
+// The portal class for org.rocksdb.InfoLogLevel
+class InfoLogLevelJni : public JavaClass {
  public:
     // Get the DEBUG_LEVEL enum field of org.rocksdb.InfoLogLevel
     static jobject DEBUG_LEVEL(JNIEnv* env) {
@@ -1217,31 +1318,45 @@ class InfoLogLevelJni {
     }
 
  private:
-    // Get the java class id of org.rocksdb.InfoLogLevel
-    static jclass getJClass(JNIEnv* env) {
-      jclass jclazz = env->FindClass("org/rocksdb/InfoLogLevel");
-      assert(jclazz != nullptr);
-      return jclazz;
-    }
+  /**
+   * Get the Java Class org.rocksdb.InfoLogLevel
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "org/rocksdb/InfoLogLevel");
+  }
 
-    // Get an enum field of org.rocksdb.InfoLogLevel
-    static jobject getEnum(JNIEnv* env, const char name[]) {
-      jclass jclazz = getJClass(env);
-      jfieldID jfid =
-          env->GetStaticFieldID(jclazz, name,
-          "Lorg/rocksdb/InfoLogLevel;");
-      assert(jfid != nullptr);
-      return env->GetStaticObjectField(jclazz, jfid);
-    }
+  // Get an enum field of org.rocksdb.InfoLogLevel
+  static jobject getEnum(JNIEnv* env, const char name[]) {
+    jclass jclazz = getJClass(env);
+    jfieldID jfid =
+        env->GetStaticFieldID(jclazz, name,
+        "Lorg/rocksdb/InfoLogLevel;");
+    assert(jfid != nullptr);
+    return env->GetStaticObjectField(jclazz, jfid);
+  }
 };
 
 // The portal class for org.rocksdb.Logger
 class LoggerJni : public RocksDBNativeClass<
     std::shared_ptr<rocksdb::LoggerJniCallback>*, LoggerJni> {
  public:
+  /**
+   * Get the Java Class org/rocksdb/Logger
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/Logger");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/Logger");
   }
 
   // Get the java method `name` of org.rocksdb.Logger.
@@ -1254,6 +1369,7 @@ class LoggerJni : public RocksDBNativeClass<
   }
 };
 
+// various utility functions for working with RocksDB and JNI
 class JniUtil {
  public:
     /**
