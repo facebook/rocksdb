@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * Remove disableDataSync option.
+* Remove timeout_hint_us option from WriteOptions. The option has been deprecated and has no effect since 3.13.0.
 
 ## 5.2.0 (02/08/2017)
 ### Public API Change
