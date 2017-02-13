@@ -123,16 +123,30 @@ template<class PTR, class DERIVED> class NativeRocksMutableObject
 // Java Exception template
 template<class DERIVED> class JavaException : public JavaClass {
  public:
+  /**
+   * Create and throw a java exception with the provided message
+   *
+   * @param env A pointer to the Java environment
+   * @param msg The message for the exception
+   *
+   * @return true if an exception was thrown, false otherwise
+   */
+  static bool ThrowNew(JNIEnv* env, const std::string& msg) {
+    jclass jclazz = DERIVED::getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      std::cerr << "JavaException::ThrowNew - Error: unexpected exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
 
-  // Create and throw a java exception with the provided message
-  static void ThrowNew(JNIEnv* env, const std::string& msg) {
-    jstring jmsg = env->NewStringUTF(msg.c_str());
-    // get the constructor id of org.rocksdb.RocksDBException
-    static jmethodID mid = env->GetMethodID(
-        DERIVED::getJClass(env), "<init>", "(Ljava/lang/String;)V");
-    assert(mid != nullptr);
+    const jint rs = env->ThrowNew(jclazz, msg.c_str());
+    if(rs != JNI_OK) {
+      // exception could not be thrown
+      std::cerr << "JavaException::ThrowNew - Fatal: could not throw exception!" << std::endl;
+      return env->ExceptionCheck();
+    }
 
-    env->Throw((jthrowable)env->NewObject(DERIVED::getJClass(env), mid, jmsg));
+    return true;
   }
 };
 
