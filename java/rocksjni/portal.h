@@ -766,7 +766,7 @@ class WriteBatchWithIndexJni : public RocksDBNativeClass<
    */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/WriteBatch");
+        "org/rocksdb/WriteBatchWithIndex");
   }
 };
 
