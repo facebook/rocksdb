@@ -153,7 +153,15 @@ template<class DERIVED> class JavaException : public JavaClass {
 // The portal class for org.rocksdb.RocksDB
 class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
  public:
-  // Get the java class id of org.rocksdb.RocksDB.
+  /**
+   * Get the Java Class org.rocksdb.RocksDB
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksDB");
   }
@@ -367,6 +375,15 @@ class IllegalArgumentExceptionJni :
 class OptionsJni : public RocksDBNativeClass<
     rocksdb::Options*, OptionsJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.Options
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/Options");
   }
@@ -519,22 +536,40 @@ class HistogramDataJni {
   }
 };
 
-// The portal class for org.rocksdb.WriteBatchWithIndex
+// The portal class for org.rocksdb.BackupableDBOptions
 class BackupableDBOptionsJni : public RocksDBNativeClass<
     rocksdb::BackupableDBOptions*, BackupableDBOptionsJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.BackupableDBOptions
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
         "org/rocksdb/BackupableDBOptions");
   }
 };
 
+// The portal class for org.rocksdb.BackupEngine
 class BackupEngineJni : public RocksDBNativeClass<
     rocksdb::BackupEngine*, BackupEngineJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.BackupableEngine
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/BackupEngine");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/BackupEngine");
   }
 };
 
@@ -542,9 +577,17 @@ class BackupEngineJni : public RocksDBNativeClass<
 class IteratorJni : public RocksDBNativeClass<
     rocksdb::Iterator*, IteratorJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.RocksIterator
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/RocksIterator");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksIterator");
   }
 };
 
@@ -552,9 +595,17 @@ class IteratorJni : public RocksDBNativeClass<
 class FilterJni : public RocksDBNativeClass<
     std::shared_ptr<rocksdb::FilterPolicy>*, FilterJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.Filter
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/Filter");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/Filter");
   }
 };
 
@@ -562,6 +613,15 @@ class FilterJni : public RocksDBNativeClass<
 class ColumnFamilyHandleJni : public RocksDBNativeClass<
     rocksdb::ColumnFamilyHandle*, ColumnFamilyHandleJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.ColumnFamilyHandle
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
         "org/rocksdb/ColumnFamilyHandle");
@@ -572,9 +632,17 @@ class ColumnFamilyHandleJni : public RocksDBNativeClass<
 class FlushOptionsJni : public RocksDBNativeClass<
     rocksdb::FlushOptions*, FlushOptionsJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.FlushOptions
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/FlushOptions");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/FlushOptions");
   }
 };
 
@@ -582,9 +650,17 @@ class FlushOptionsJni : public RocksDBNativeClass<
 class ComparatorOptionsJni : public RocksDBNativeClass<
     rocksdb::ComparatorJniCallbackOptions*, ComparatorOptionsJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.ComparatorOptions
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/ComparatorOptions");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/ComparatorOptions");
   }
 };
 
@@ -593,6 +669,15 @@ class AbstractComparatorJni : public RocksDBNativeClass<
     const rocksdb::BaseComparatorJniCallback*,
     AbstractComparatorJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractComparator
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
         "org/rocksdb/AbstractComparator");
@@ -638,19 +723,35 @@ class AbstractComparatorJni : public RocksDBNativeClass<
 class AbstractSliceJni : public NativeRocksMutableObject<
     const rocksdb::Slice*, AbstractSliceJni> {
  public:
+  /**
+   * Get the Java Class org.rocksdb.AbstractSlice
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/AbstractSlice");
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/AbstractSlice");
   }
 };
 
-class SliceJni {
+// The portal class for org.rocksdb.Slice
+class SliceJni : public NativeRocksMutableObject<
+    const rocksdb::Slice*, AbstractSliceJni> {
  public:
-  // Get the java class id of org.rocksdb.Slice.
+  /**
+   * Get the Java Class org.rocksdb.Slice
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/Slice");
-    assert(jclazz != nullptr);
-    return jclazz;
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/Slice");
   }
 
   static jobject construct0(JNIEnv* env) {
@@ -660,13 +761,21 @@ class SliceJni {
   }
 };
 
-class DirectSliceJni {
+// The portal class for org.rocksdb.DirectSlice
+class DirectSliceJni : public NativeRocksMutableObject<
+    const rocksdb::Slice*, AbstractSliceJni> {
  public:
-  // Get the java class id of org.rocksdb.DirectSlice.
+  /**
+   * Get the Java Class org.rocksdb.DirectSlice
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/DirectSlice");
-    assert(jclazz != nullptr);
-    return jclazz;
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/DirectSlice");
   }
 
   static jobject construct0(JNIEnv* env) {
@@ -676,27 +785,46 @@ class DirectSliceJni {
   }
 };
 
-class ListJni {
+// The portal class for java.util.List
+class ListJni : public JavaClass {
  public:
-  // Get the java class id of java.util.List.
+  /**
+   * Get the Java Class java.util.List
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getListClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("java/util/List");
-    assert(jclazz != nullptr);
-    return jclazz;
+    return JavaClass::getJClass(env, "java/util/List");
   }
 
-  // Get the java class id of java.util.ArrayList.
+  /**
+   * Get the Java Class java.util.ArrayList
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getArrayListClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("java/util/ArrayList");
-    assert(jclazz != nullptr);
-    return jclazz;
+    return JavaClass::getJClass(env, "java/util/ArrayList");
   }
 
-  // Get the java class id of java.util.Iterator.
+  /**
+   * Get the Java Class java.util.Iterator
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
   static jclass getIteratorClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("java/util/Iterator");
-    assert(jclazz != nullptr);
-    return jclazz;
+    return JavaClass::getJClass(env, "java/util/Iterator");
   }
 
   // Get the java method id of java.util.List.iterator().
