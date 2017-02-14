@@ -2166,6 +2166,9 @@ void Java_org_rocksdb_Options_setMaxBytesForLevelMultiplierAdditional(
   for (jsize i = 0; i < len; i++) {
     opt->max_bytes_for_level_multiplier_additional.push_back(static_cast<int32_t>(additionals[i]));
   }
+
+  env->ReleaseIntArrayElements(jmax_bytes_for_level_multiplier_additional,
+      additionals, JNI_ABORT);
 }
 
 /*
