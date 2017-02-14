@@ -13,6 +13,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 
+#include <list>
 #include <map>
 #include <memory>
 #include <string>
@@ -53,6 +54,14 @@ extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
 
 typedef BlockBasedTableOptions::IndexType IndexType;
+class IndexBuilder;
+
+namespace {
+rocksdb::IndexBuilder* CreateIndexBuilder(
+    IndexType index_type, const InternalKeyComparator* comparator,
+    const SliceTransform* prefix_extractor, int index_block_restart_interval,
+    uint64_t index_per_partition);
+}
 
 // The interface for building index.
 // Instruction for adding a new concrete IndexBuilder:
@@ -101,7 +110,26 @@ class IndexBuilder {
   // may therefore perform any operation required for block finalization.
   //
   // REQUIRES: Finish() has not yet been called.
-  virtual Status Finish(IndexBlocks* index_blocks) = 0;
+  inline Status Finish(IndexBlocks* index_blocks) {
+    // Throw away the changes to last_partition_block_handle. It has no effect
+    // on the first call to Finish anyway.
+    BlockHandle last_partition_block_handle;
+    return Finish(index_blocks, last_partition_block_handle);
+  }
+
+  // This override of Finish can be utilized to build the 2nd level index in
+  // PartitionIndexBuilder.
+  //
+  // index_blocks will be filled with the resulting index data. If the return
+  // value is Status::InComplete() then it means that the index is partitioned
+  // and the callee should keep calling Finish until Status::OK() is returned.
+  // In that case, last_partition_block_handle is pointer to the block written
+  // with the result of the last call to Finish. This can be utilized to build
+  // the second level index pointing to each block of partitioned indexes. The
+  // last call to Finish() that returns Status::OK() populates index_blocks with
+  // the 2nd level index content.
+  virtual Status Finish(IndexBlocks* index_blocks,
+                        const BlockHandle& last_partition_block_handle) = 0;
 
   // Get the estimated size for index block.
   virtual size_t EstimatedSize() const = 0;
@@ -141,7 +169,9 @@ class ShortenedIndexBuilder : public IndexBuilder {
     index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
   }
 
-  virtual Status Finish(IndexBlocks* index_blocks) override {
+  virtual Status Finish(
+      IndexBlocks* index_blocks,
+      const BlockHandle& last_partition_block_handle) override {
     index_blocks->index_block_contents = index_block_builder_.Finish();
     return Status::OK();
   }
@@ -152,6 +182,108 @@ class ShortenedIndexBuilder : public IndexBuilder {
 
  private:
   BlockBuilder index_block_builder_;
+};
+
+/**
+ * IndexBuilder for two-level indexing. Internally it creates a new index for
+ * each partition and Finish then in order when Finish is called on it
+ * continiously until Status::OK() is returned.
+ *
+ * The format on the disk would be I I I I I I IP where I is block containing a
+ * partition of indexes built using ShortenedIndexBuilder and IP is a block
+ * containing a secondary index on the partitions, built using
+ * ShortenedIndexBuilder.
+ */
+class PartitionIndexBuilder : public IndexBuilder {
+ public:
+  explicit PartitionIndexBuilder(const InternalKeyComparator* comparator,
+                                 const SliceTransform* prefix_extractor,
+                                 const uint64_t index_per_partition,
+                                 int index_block_restart_interval)
+      : IndexBuilder(comparator),
+        prefix_extractor_(prefix_extractor),
+        index_block_builder_(index_block_restart_interval),
+        index_per_partition_(index_per_partition),
+        index_block_restart_interval_(index_block_restart_interval) {
+    sub_index_builder_ =
+        CreateIndexBuilder(sub_type_, comparator_, prefix_extractor_,
+                           index_block_restart_interval_, index_per_partition_);
+  }
+
+  virtual ~PartitionIndexBuilder() { delete sub_index_builder_; }
+
+  virtual void AddIndexEntry(std::string* last_key_in_current_block,
+                             const Slice* first_key_in_next_block,
+                             const BlockHandle& block_handle) override {
+    sub_index_builder_->AddIndexEntry(last_key_in_current_block,
+                                      first_key_in_next_block, block_handle);
+    num_indexes++;
+    if (UNLIKELY(first_key_in_next_block == nullptr)) {  // no more keys
+      entries_.push_back({std::string(*last_key_in_current_block),
+                          std::unique_ptr<IndexBuilder>(sub_index_builder_)});
+      sub_index_builder_ = nullptr;
+    } else if (num_indexes % index_per_partition_ == 0) {
+      entries_.push_back({std::string(*last_key_in_current_block),
+                          std::unique_ptr<IndexBuilder>(sub_index_builder_)});
+      sub_index_builder_ = CreateIndexBuilder(
+          sub_type_, comparator_, prefix_extractor_,
+          index_block_restart_interval_, index_per_partition_);
+    }
+  }
+
+  virtual Status Finish(
+      IndexBlocks* index_blocks,
+      const BlockHandle& last_partition_block_handle) override {
+    assert(!entries_.empty());
+    // It must be set to null after last key is added
+    assert(sub_index_builder_ == nullptr);
+    if (finishing == true) {
+      Entry& last_entry = entries_.front();
+      std::string handle_encoding;
+      last_partition_block_handle.EncodeTo(&handle_encoding);
+      index_block_builder_.Add(last_entry.key, handle_encoding);
+      entries_.pop_front();
+    }
+    // If there is no sub_index left, then return the 2nd level index.
+    if (UNLIKELY(entries_.empty())) {
+      index_blocks->index_block_contents = index_block_builder_.Finish();
+      return Status::OK();
+    } else {
+      // Finish the next partition index in line and Incomplete() to indicate we
+      // expect more calls to Finish
+      Entry& entry = entries_.front();
+      auto s = entry.value->Finish(index_blocks);
+      finishing = true;
+      return s.ok() ? Status::Incomplete() : s;
+    }
+  }
+
+  virtual size_t EstimatedSize() const override {
+    size_t total = 0;
+    for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+      total += it->value->EstimatedSize();
+    }
+    total += index_block_builder_.CurrentSizeEstimate();
+    total +=
+        sub_index_builder_ == nullptr ? 0 : sub_index_builder_->EstimatedSize();
+    return total;
+  }
+
+ private:
+  static const IndexType sub_type_ = BlockBasedTableOptions::kBinarySearch;
+  struct Entry {
+    std::string key;
+    std::unique_ptr<IndexBuilder> value;
+  };
+  std::list<Entry> entries_;  // list of partitioned indexes and their keys
+  const SliceTransform* prefix_extractor_;
+  BlockBuilder index_block_builder_;  // top-level index builder
+  IndexBuilder* sub_index_builder_;   // the active partition index builder
+  uint64_t index_per_partition_;
+  int index_block_restart_interval_;
+  uint64_t num_indexes = 0;
+  bool finishing =
+      false;  // true if Finish is called once but not complete yet.
 };
 
 // HashIndexBuilder contains a binary-searchable primary index and the
@@ -222,9 +354,11 @@ class HashIndexBuilder : public IndexBuilder {
     }
   }
 
-  virtual Status Finish(IndexBlocks* index_blocks) override {
+  virtual Status Finish(
+      IndexBlocks* index_blocks,
+      const BlockHandle& last_partition_block_handle) override {
     FlushPendingPrefix();
-    primary_index_builder_.Finish(index_blocks);
+    primary_index_builder_.Finish(index_blocks, last_partition_block_handle);
     index_blocks->meta_blocks.insert(
         {kHashIndexPrefixesBlock.c_str(), prefix_block_});
     index_blocks->meta_blocks.insert(
@@ -269,11 +403,12 @@ class HashIndexBuilder : public IndexBuilder {
 namespace {
 
 // Create a index builder based on its type.
-IndexBuilder* CreateIndexBuilder(IndexType type,
+IndexBuilder* CreateIndexBuilder(IndexType index_type,
                                  const InternalKeyComparator* comparator,
                                  const SliceTransform* prefix_extractor,
-                                 int index_block_restart_interval) {
-  switch (type) {
+                                 int index_block_restart_interval,
+                                 uint64_t index_per_partition) {
+  switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
       return new ShortenedIndexBuilder(comparator,
                                        index_block_restart_interval);
@@ -281,6 +416,11 @@ IndexBuilder* CreateIndexBuilder(IndexType type,
     case BlockBasedTableOptions::kHashSearch: {
       return new HashIndexBuilder(comparator, prefix_extractor,
                                   index_block_restart_interval);
+    }
+    case BlockBasedTableOptions::kTwoLevelIndexSearch: {
+      return new PartitionIndexBuilder(comparator, prefix_extractor,
+                                       index_per_partition,
+                                       index_block_restart_interval);
     }
     default: {
       assert(!"Do not recognize the index type ");
@@ -512,7 +652,8 @@ struct BlockBasedTableBuilder::Rep {
         index_builder(
             CreateIndexBuilder(table_options.index_type, &internal_comparator,
                                &this->internal_prefix_transform,
-                               table_options.index_block_restart_interval)),
+                               table_options.index_block_restart_interval,
+                               table_options.index_per_partition)),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
@@ -852,9 +993,14 @@ Status BlockBasedTableBuilder::Finish() {
   }
 
   IndexBuilder::IndexBlocks index_blocks;
-  auto s = r->index_builder->Finish(&index_blocks);
-  if (!s.ok()) {
-    return s;
+  auto index_builder_status = r->index_builder->Finish(&index_blocks);
+  if (index_builder_status.IsIncomplete()) {
+    // We we have more than one index partition then meta_blocks are not
+    // supported for the index. Currently meta_blocks are used only by
+    // HashIndexBuilder which is not multi-partition.
+    assert(index_blocks.meta_blocks.empty());
+  } else if (!index_builder_status.ok()) {
+    return index_builder_status;
   }
 
   // Write meta blocks and metaindex block with the following order.
@@ -956,8 +1102,21 @@ Status BlockBasedTableBuilder::Finish() {
     // flush the meta index block
     WriteRawBlock(meta_index_builder.Finish(), kNoCompression,
                   &metaindex_block_handle);
+
+    const bool is_data_block = true;
     WriteBlock(index_blocks.index_block_contents, &index_block_handle,
-               false /* is_data_block */);
+               !is_data_block);
+    // If there are more index partitions, finish them and write them out
+    Status& s = index_builder_status;
+    while (s.IsIncomplete()) {
+      s = r->index_builder->Finish(&index_blocks, index_block_handle);
+      if (!s.ok() && !s.IsIncomplete()) {
+        return s;
+      }
+      WriteBlock(index_blocks.index_block_contents, &index_block_handle,
+                 !is_data_block);
+      // The last index_block_handle will be for the partition index block
+    }
   }
 
   // Write footer

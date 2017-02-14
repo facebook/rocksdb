@@ -409,16 +409,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void disableDataSync() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setDisableDataSync(boolValue);
-      assertThat(opt.disableDataSync()).
-          isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void useFsync() {
     try (final Options opt = new Options()) {
       final boolean boolValue = rand.nextBoolean();

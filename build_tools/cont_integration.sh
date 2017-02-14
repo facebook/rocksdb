@@ -8,7 +8,7 @@
 # for a certain interval.
 #
 
-SRC_GIT_REPO=/data/git/rocksdb
+SRC_GIT_REPO=/data/git/rocksdb-public
 error=0
 
 function log {

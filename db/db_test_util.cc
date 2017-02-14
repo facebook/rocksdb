@@ -72,7 +72,12 @@ DBTestBase::~DBTestBase() {
   options.db_paths.emplace_back(dbname_ + "_2", 0);
   options.db_paths.emplace_back(dbname_ + "_3", 0);
   options.db_paths.emplace_back(dbname_ + "_4", 0);
-  EXPECT_OK(DestroyDB(dbname_, options));
+
+  if (getenv("KEEP_DB")) {
+    printf("DB is still at %s\n", dbname_.c_str());
+  } else {
+    EXPECT_OK(DestroyDB(dbname_, options));
+  }
   delete env_;
 }
 
@@ -345,6 +350,11 @@ Options DBTestBase::CurrentOptions(
     }
     case kBlockBasedTableWithWholeKeyHashIndex: {
       table_options.index_type = BlockBasedTableOptions::kHashSearch;
+      options.prefix_extractor.reset(NewNoopTransform());
+      break;
+    }
+    case kBlockBasedTableWithPartitionedIndex: {
+      table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
       options.prefix_extractor.reset(NewNoopTransform());
       break;
     }

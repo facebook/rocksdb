@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "util/crc32c.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -519,7 +520,7 @@ ThreadedWriter::ThreadedWriter(PersistentCacheTier* const cache,
                                const size_t qdepth, const size_t io_size)
     : Writer(cache), io_size_(io_size) {
   for (size_t i = 0; i < qdepth; ++i) {
-    std::thread th(&ThreadedWriter::ThreadMain, this);
+    port::Thread th(&ThreadedWriter::ThreadMain, this);
     threads_.push_back(std::move(th));
   }
 }

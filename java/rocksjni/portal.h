@@ -120,8 +120,8 @@ class StatusJni : public RocksDBNativeClass<rocksdb::Status*, StatusJni> {
 
     jstring jstate = nullptr;
     if (status.getState() != nullptr) {
-      std::string s(status.getState());
-      jstate = env->NewStringUTF(s.c_str());
+      const char* const state = status.getState();
+      jstate = env->NewStringUTF(state);
     }
     return env->NewObject(getJClass(env), mid, toJavaStatusCode(status.code()),
                           toJavaStatusSubCode(status.subcode()), jstate);

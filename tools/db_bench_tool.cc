@@ -47,7 +47,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/utilities/env_registry.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/options_util.h"
 #include "rocksdb/utilities/sim_cache.h"
@@ -72,7 +72,6 @@
 #include <io.h>  // open/close
 #endif
 
-namespace {
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
 using GFLAGS::SetUsageMessage;
@@ -362,6 +361,11 @@ DEFINE_int32(cache_numshardbits, 6,
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
 
+DEFINE_double(cache_high_pri_pool_ratio, 0.0,
+              "Ratio of block cache reserve for high pri blocks. "
+              "If > 0.0, we also enable "
+              "cache_index_and_filter_blocks_with_high_priority.");
+
 DEFINE_bool(use_clock_cache, false,
             "Replace default LRU block cache with clock cache.");
 
@@ -454,15 +458,13 @@ DEFINE_bool(verify_checksum, false, "Verify checksum for every block read"
             " from storage");
 
 DEFINE_bool(statistics, false, "Database statistics");
+DEFINE_string(statistics_string, "", "Serialized statistics string");
 static class std::shared_ptr<rocksdb::Statistics> dbstats;
 
 DEFINE_int64(writes, -1, "Number of write operations to do. If negative, do"
              " --num reads.");
 
 DEFINE_bool(sync, false, "Sync all writes to disk");
-
-DEFINE_bool(disable_data_sync, false, "If true, do not wait until data is"
-            " synced to disk.");
 
 DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
@@ -598,7 +600,7 @@ DEFINE_bool(use_stderr_info_logger, false,
 
 DEFINE_bool(use_blob_db, false, "Whether to use BlobDB. ");
 
-enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
+static enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
 
   if (!strcasecmp(ctype, "none"))
@@ -622,7 +624,7 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   return rocksdb::kSnappyCompression;  // default value
 }
 
-std::string ColumnFamilyName(size_t i) {
+static std::string ColumnFamilyName(size_t i) {
   if (i == 0) {
     return rocksdb::kDefaultColumnFamilyName;
   } else {
@@ -866,7 +868,7 @@ enum RepFactory {
   kCuckoo
 };
 
-enum RepFactory StringToRepFactory(const char* ctype) {
+static enum RepFactory StringToRepFactory(const char* ctype) {
   assert(ctype);
 
   if (!strcasecmp(ctype, "skip_list"))
@@ -934,7 +936,6 @@ static const bool FLAGS_deletepercent_dummy __attribute__((unused)) =
 static const bool FLAGS_table_cache_numshardbits_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_table_cache_numshardbits,
                           &ValidateTableCacheNumshardbits);
-}  // namespace
 
 namespace rocksdb {
 
@@ -1207,7 +1208,7 @@ class ReporterAgent {
       abort();
     }
 
-    reporting_thread_ = std::thread([&]() { SleepAndReport(); });
+    reporting_thread_ = port::Thread([&]() { SleepAndReport(); });
   }
 
   ~ReporterAgent() {
@@ -1267,7 +1268,7 @@ class ReporterAgent {
   std::atomic<int64_t> total_ops_done_;
   int64_t last_report_;
   const uint64_t report_interval_secs_;
-  std::thread reporting_thread_;
+  rocksdb::port::Thread reporting_thread_;
   std::mutex mutex_;
   // will notify on stop
   std::condition_variable stop_cv_;
@@ -1993,7 +1994,9 @@ class Benchmark {
       }
       return cache;
     } else {
-      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits);
+      return NewLRUCache((size_t)capacity, FLAGS_cache_numshardbits,
+                         false /*strict_capacity_limit*/,
+                         FLAGS_cache_high_pri_pool_ratio);
     }
   }
 
@@ -2779,7 +2782,6 @@ class Benchmark {
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.random_access_max_buffer_size = FLAGS_random_access_max_buffer_size;
     options.writable_file_max_buffer_size = FLAGS_writable_file_max_buffer_size;
-    options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
     options.num_levels = FLAGS_num_levels;
     options.target_file_size_base = FLAGS_target_file_size_base;
@@ -2884,6 +2886,10 @@ class Benchmark {
           FLAGS_cache_index_and_filter_blocks;
       block_based_options.pin_l0_filter_and_index_blocks_in_cache =
           FLAGS_pin_l0_filter_and_index_blocks_in_cache;
+      if (FLAGS_cache_high_pri_pool_ratio > 1e-6) {  // > 0.0 + eps
+        block_based_options.cache_index_and_filter_blocks_with_high_priority =
+            true;
+      }
       block_based_options.block_cache = cache_;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
@@ -3419,11 +3425,11 @@ class Benchmark {
             continue;
           }
         }
-        writes_ /= open_options_.max_bytes_for_level_multiplier;
+        writes_ /= static_cast<int64_t>(open_options_.max_bytes_for_level_multiplier);
       }
       for (size_t i = 0; i < num_db; i++) {
         if (sorted_runs[i].size() < num_levels - 1) {
-          fprintf(stderr, "n is too small to fill %lu levels\n", num_levels);
+          fprintf(stderr, "n is too small to fill %" ROCKSDB_PRIszt " levels\n", num_levels);
           exit(1);
         }
       }
@@ -3470,11 +3476,11 @@ class Benchmark {
           }
           num_files_at_level0[i] = meta.levels[0].files.size();
         }
-        writes_ *= static_cast<double>(100) / (ratio + 200);
+        writes_ =  static_cast<int64_t>(writes_* static_cast<double>(100) / (ratio + 200));
       }
       for (size_t i = 0; i < num_db; i++) {
         if (sorted_runs[i].size() < num_levels) {
-          fprintf(stderr, "n is too small to fill %lu levels\n", num_levels);
+          fprintf(stderr, "n is too small to fill %" ROCKSDB_PRIszt  " levels\n", num_levels);
           exit(1);
         }
       }
@@ -3583,7 +3589,7 @@ class Benchmark {
     for (size_t k = 0; k < num_db; k++) {
       auto db = db_list[k];
       fprintf(stdout,
-              "---------------------- DB %lu LSM ---------------------\n", k);
+              "---------------------- DB %" ROCKSDB_PRIszt " LSM ---------------------\n", k);
       db->GetColumnFamilyMetaData(&meta);
       for (auto& levelMeta : meta.levels) {
         if (levelMeta.files.empty()) {
@@ -4867,6 +4873,24 @@ int db_bench_tool(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
 
   FLAGS_compaction_style_e = (rocksdb::CompactionStyle) FLAGS_compaction_style;
+#ifndef ROCKSDB_LITE
+  if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {
+    fprintf(stderr,
+            "Cannot provide both --statistics and --statistics_string.\n");
+    exit(1);
+  }
+  if (!FLAGS_statistics_string.empty()) {
+    std::unique_ptr<Statistics> custom_stats_guard;
+    dbstats.reset(NewCustomObject<Statistics>(FLAGS_statistics_string,
+                                              &custom_stats_guard));
+    custom_stats_guard.release();
+    if (dbstats == nullptr) {
+      fprintf(stderr, "No Statistics registered matching string: %s\n",
+              FLAGS_statistics_string.c_str());
+      exit(1);
+    }
+  }
+#endif  // ROCKSDB_LITE
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
   }
@@ -4892,7 +4916,7 @@ int db_bench_tool(int argc, char** argv) {
     fprintf(stderr, "Cannot provide both --hdfs and --env_uri.\n");
     exit(1);
   } else if (!FLAGS_env_uri.empty()) {
-    FLAGS_env = NewEnvFromUri(FLAGS_env_uri, &custom_env_guard);
+    FLAGS_env = NewCustomObject<Env>(FLAGS_env_uri, &custom_env_guard);
     if (FLAGS_env == nullptr) {
       fprintf(stderr, "No Env registered for URI: %s\n", FLAGS_env_uri.c_str());
       exit(1);

@@ -540,6 +540,8 @@ class Version {
     return next_;
   }
 
+  int TEST_refs() const { return refs_; }
+
   VersionStorageInfo* storage_info() { return &storage_info_; }
 
   VersionSet* version_set() { return vset_; }

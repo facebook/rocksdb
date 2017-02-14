@@ -100,7 +100,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"paranoid_checks", "true"},
       {"max_open_files", "32"},
       {"max_total_wal_size", "33"},
-      {"disable_data_sync", "false"},
       {"use_fsync", "true"},
       {"db_log_dir", "/db_log_dir"},
       {"wal_dir", "/wal_dir"},
@@ -215,7 +214,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.paranoid_checks, true);
   ASSERT_EQ(new_db_opt.max_open_files, 32);
   ASSERT_EQ(new_db_opt.max_total_wal_size, static_cast<uint64_t>(33));
-  ASSERT_EQ(new_db_opt.disableDataSync, false);
   ASSERT_EQ(new_db_opt.use_fsync, true);
   ASSERT_EQ(new_db_opt.db_log_dir, "/db_log_dir");
   ASSERT_EQ(new_db_opt.wal_dir, "/wal_dir");
@@ -1289,6 +1287,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_EQ(10 * 1048576, old_default_opts.max_bytes_for_level_base);
     ASSERT_EQ(5000, old_default_opts.max_open_files);
     ASSERT_EQ(-1, old_default_opts.base_background_compactions);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
     ASSERT_EQ(WALRecoveryMode::kTolerateCorruptedTailRecords,
               old_default_opts.wal_recovery_mode);
   }
@@ -1304,6 +1303,7 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_NE(10 * 1048576, old_default_opts.max_bytes_for_level_base);
     ASSERT_NE(4, old_default_opts.table_cache_numshardbits);
     ASSERT_EQ(5000, old_default_opts.max_open_files);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
   }
   {
     ColumnFamilyOptions old_default_cf_opts;
@@ -1329,6 +1329,16 @@ TEST_F(OptionsParserTest, DifferentDefault) {
     ASSERT_NE(2 * 1048576, old_default_cf_opts.target_file_size_base);
     ASSERT_EQ(CompactionPri::kByCompensatedSize,
               old_default_cf_opts.compaction_pri);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(5, 1);
+    ASSERT_EQ(2 * 1024U * 1024U, old_default_opts.delayed_write_rate);
+  }
+  {
+    Options old_default_opts;
+    old_default_opts.OldDefaults(5, 2);
+    ASSERT_EQ(16 * 1024U * 1024U, old_default_opts.delayed_write_rate);
   }
 
   Options small_opts;

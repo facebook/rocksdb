@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "db/version_edit.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
@@ -96,10 +96,12 @@ Status ExternalSstFileIngestionJob::Prepare(
       status = env_->LinkFile(path_outside_db, path_inside_db);
       if (status.IsNotSupported()) {
         // Original file is on a different FS, use copy instead of hard linking
-        status = CopyFile(env_, path_outside_db, path_inside_db, 0);
+        status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                          db_options_.use_fsync);
       }
     } else {
-      status = CopyFile(env_, path_outside_db, path_inside_db, 0);
+      status = CopyFile(env_, path_outside_db, path_inside_db, 0,
+                        db_options_.use_fsync);
     }
     TEST_SYNC_POINT("DBImpl::AddFile:FileCopied");
     if (!status.ok()) {
@@ -304,8 +306,16 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
     if (file_to_ingest->global_seqno_offset == 0) {
       return Status::Corruption("Was not able to find file global seqno field");
     }
+  } else if (file_to_ingest->version == 1) {
+    // SST file V1 should not have global seqno field
+    assert(seqno_iter == uprops.end());
+    if (ingestion_options_.allow_blocking_flush ||
+            ingestion_options_.allow_global_seqno) {
+      return Status::InvalidArgument(
+            "External SST file V1 does not support global seqno");
+    }
   } else {
-    return Status::InvalidArgument("external file version is not supported");
+    return Status::InvalidArgument("External file version is not supported");
   }
   // Get number of entries in table
   file_to_ingest->num_entries = props->num_entries;

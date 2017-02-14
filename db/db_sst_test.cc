@@ -613,7 +613,7 @@ TEST_F(DBSSTTest, OpenDBWithInfiniteMaxOpenFiles) {
     }
     Close();
 
-    // Reopening the DB will load all exisitng files
+    // Reopening the DB will load all existing files
     Reopen(options);
     ASSERT_EQ("12,0,12", FilesPerLevel(0));
     std::vector<std::vector<FileMetaData>> files;

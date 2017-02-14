@@ -317,7 +317,7 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
 
   while (w != pg->last_writer) {
     // Writers that won't write don't get sequence allotment
-    if (!w->CallbackFailed()) {
+    if (!w->CallbackFailed() && w->ShouldWriteToMemtable()) {
       sequence += WriteBatchInternal::Count(w->batch);
     }
     w = w->link_newer;

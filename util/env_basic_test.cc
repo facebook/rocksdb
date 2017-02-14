@@ -8,7 +8,7 @@
 #include <algorithm>
 
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/env_registry.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/mock_env.h"
 #include "util/testharness.h"
 
@@ -110,7 +110,7 @@ std::vector<Env*> GetCustomEnvs() {
     init = true;
     const char* uri = getenv("TEST_ENV_URI");
     if (uri != nullptr) {
-      custom_env = NewEnvFromUri(uri, &custom_env_guard);
+      custom_env = NewCustomObject<Env>(uri, &custom_env_guard);
     }
   }
 

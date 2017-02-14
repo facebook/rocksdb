@@ -243,35 +243,6 @@ public interface DBOptionsInterface {
   Statistics statisticsPtr();
 
   /**
-   * <p>If true, then the contents of manifest and data files are
-   * not synced to stable storage. Their contents remain in the
-   * OS buffers till theOS decides to flush them.</p>
-   *
-   * <p>This option is good for bulk-loading of data.</p>
-   *
-   * <p>Once the bulk-loading is complete, please issue a sync to
-   * the OS to flush all dirty buffers to stable storage.</p>
-   *
-   * <p>Default: false</p>
-   *
-   * @param disableDataSync a boolean flag to specify whether to
-   *     disable data sync.
-   * @return the instance of the current Object.
-   */
-  Object setDisableDataSync(boolean disableDataSync);
-
-  /**
-   * If true, then the contents of data files are not synced
-   * to stable storage. Their contents remain in the OS buffers till the
-   * OS decides to flush them. This option is good for bulk-loading
-   * of data. Once the bulk-loading is complete, please issue a
-   * sync to the OS to flush all dirty buffers to stable storage.
-   *
-   * @return if true, then data-sync is disabled.
-   */
-  boolean disableDataSync();
-
-  /**
    * <p>If true, then every store to stable storage will issue a fsync.</p>
    * <p>If false, then every store to stable storage will issue a fdatasync.
    * This parameter should be set to true while storing data to

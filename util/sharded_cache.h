@@ -29,6 +29,7 @@ class CacheShard {
                         void (*deleter)(const Slice& key, void* value),
                         Cache::Handle** handle, Cache::Priority priority) = 0;
   virtual Cache::Handle* Lookup(const Slice& key, uint32_t hash) = 0;
+  virtual bool Ref(Cache::Handle* handle) = 0;
   virtual void Release(Cache::Handle* handle) = 0;
   virtual void Erase(const Slice& key, uint32_t hash) = 0;
   virtual void SetCapacity(size_t capacity) = 0;
@@ -63,6 +64,7 @@ class ShardedCache : public Cache {
                         void (*deleter)(const Slice& key, void* value),
                         Handle** handle, Priority priority) override;
   virtual Handle* Lookup(const Slice& key, Statistics* stats) override;
+  virtual bool Ref(Handle* handle) override;
   virtual void Release(Handle* handle) override;
   virtual void Erase(const Slice& key) override;
   virtual uint64_t NewId() override;
@@ -75,6 +77,8 @@ class ShardedCache : public Cache {
                                       bool thread_safe) override;
   virtual void EraseUnRefEntries() override;
   virtual std::string GetPrintableOptions() const override;
+
+  int GetNumShardBits() const { return num_shard_bits_; }
 
  private:
   static inline uint32_t HashSlice(const Slice& s) {
@@ -92,5 +96,7 @@ class ShardedCache : public Cache {
   bool strict_capacity_limit_;
   std::atomic<uint64_t> last_id_;
 };
+
+extern int GetDefaultCacheShardBits(size_t capacity);
 
 }  // namespace rocksdb

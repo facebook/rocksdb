@@ -8,6 +8,7 @@
 #endif
 
 #include <cstdio>
+#include <cstdlib>
 
 #ifndef ROCKSDB_LITE
 #ifdef GFLAGS

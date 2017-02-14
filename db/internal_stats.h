@@ -273,7 +273,7 @@ class InternalStats {
  private:
   void DumpDBStats(std::string* value);
   void DumpCFMapStats(std::map<std::string, double>* cf_stats);
-  int DumpCFMapStats(
+  void DumpCFMapStats(
       std::map<int, std::map<LevelStatType, double>>* level_stats,
       CompactionStats* compaction_stats_sum);
   void DumpCFStats(std::string* value);
@@ -401,6 +401,7 @@ class InternalStats {
                                      Version* version);
   bool HandleEstimateLiveDataSize(uint64_t* value, DBImpl* db,
                                   Version* version);
+  bool HandleMinLogNumberToKeep(uint64_t* value, DBImpl* db, Version* version);
 
   // Total number of background errors encountered. Every time a flush task
   // or compaction task fails, this counter is incremented. The failure can

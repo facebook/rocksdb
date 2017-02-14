@@ -51,10 +51,14 @@ void VerifyRangeDels(const std::vector<RangeTombstone>& range_dels,
       parsed_key.user_key = expected_point.begin;
       parsed_key.sequence = expected_point.seq;
       parsed_key.type = kTypeValue;
-      ASSERT_FALSE(range_del_agg.ShouldDelete(parsed_key));
+      ASSERT_FALSE(range_del_agg.ShouldDelete(
+          parsed_key,
+          RangeDelAggregator::RangePositioningMode::kForwardTraversal));
       if (parsed_key.sequence > 0) {
         --parsed_key.sequence;
-        ASSERT_TRUE(range_del_agg.ShouldDelete(parsed_key));
+        ASSERT_TRUE(range_del_agg.ShouldDelete(
+            parsed_key,
+            RangeDelAggregator::RangePositioningMode::kForwardTraversal));
       }
     }
   }

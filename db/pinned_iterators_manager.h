@@ -16,7 +16,7 @@ namespace rocksdb {
 // PinnedIteratorsManager will be notified whenever we need to pin an Iterator
 // and it will be responsible for deleting pinned Iterators when they are
 // not needed anymore.
-class PinnedIteratorsManager {
+class PinnedIteratorsManager : public Cleanable {
  public:
   PinnedIteratorsManager() : pinning_enabled(false) {}
   ~PinnedIteratorsManager() {
@@ -59,16 +59,16 @@ class PinnedIteratorsManager {
 
     // Remove duplicate pointers
     std::sort(pinned_ptrs_.begin(), pinned_ptrs_.end());
-    std::unique(pinned_ptrs_.begin(), pinned_ptrs_.end());
+    auto unique_end = std::unique(pinned_ptrs_.begin(), pinned_ptrs_.end());
 
-    for (size_t i = 0; i < pinned_ptrs_.size(); i++) {
-      assert(i == 0 || pinned_ptrs_[i].first != pinned_ptrs_[i - 1].first);
-
-      void* ptr = pinned_ptrs_[i].first;
-      ReleaseFunction release_func = pinned_ptrs_[i].second;
+    for (auto i = pinned_ptrs_.begin(); i != unique_end; ++i) {
+      void* ptr = i->first;
+      ReleaseFunction release_func = i->second;
       release_func(ptr);
     }
     pinned_ptrs_.clear();
+    // Also do cleanups from the base Cleanable
+    Cleanable::Reset();
   }
 
  private:

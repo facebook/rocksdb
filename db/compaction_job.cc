@@ -45,7 +45,7 @@
 #include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
@@ -264,7 +264,7 @@ void CompactionJob::AggregateStatistics() {
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const ImmutableDBOptions& db_options,
     const EnvOptions& env_options, VersionSet* versions,
-    std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+    const std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     InstrumentedMutex* db_mutex, Status* db_bg_error,
     std::vector<SequenceNumber> existing_snapshots,
@@ -522,7 +522,7 @@ Status CompactionJob::Run() {
   const uint64_t start_micros = env_->NowMicros();
 
   // Launch a thread for each of subcompactions 1...num_threads-1
-  std::vector<std::thread> thread_pool;
+  std::vector<port::Thread> thread_pool;
   thread_pool.reserve(num_threads - 1);
   for (size_t i = 1; i < compact_->sub_compact_states.size(); i++) {
     thread_pool.emplace_back(&CompactionJob::ProcessKeyValueCompaction, this,
@@ -538,7 +538,7 @@ Status CompactionJob::Run() {
     thread.join();
   }
 
-  if (output_directory_ && !db_options_.disable_data_sync) {
+  if (output_directory_) {
     output_directory_->Fsync();
   }
 
@@ -724,7 +724,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       mutable_cf_options->min_partial_merge_operands,
       false /* internal key corruption is expected */,
       existing_snapshots_.empty() ? 0 : existing_snapshots_.back(),
-      compact_->compaction->level(), db_options_.statistics.get());
+      compact_->compaction->level(), db_options_.statistics.get(),
+      shutting_down_);
 
   TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
 
@@ -742,9 +743,18 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   sub_compact->c_iter.reset(new CompactionIterator(
       input.get(), cfd->user_comparator(), &merge, versions_->LastSequence(),
       &existing_snapshots_, earliest_write_conflict_snapshot_, env_, false,
-      range_del_agg.get(), sub_compact->compaction, compaction_filter));
+      range_del_agg.get(), sub_compact->compaction, compaction_filter,
+      shutting_down_));
   auto c_iter = sub_compact->c_iter.get();
   c_iter->SeekToFirst();
+  if (c_iter->Valid() &&
+      sub_compact->compaction->output_level() != 0) {
+    // ShouldStopBefore() maintains state based on keys processed so far. The
+    // compaction loop always calls it on the "next" key, thus won't tell it the
+    // first key. So we do that here.
+    sub_compact->ShouldStopBefore(
+      c_iter->key(), sub_compact->current_output_file_size);
+  }
   const auto& c_iter_stats = c_iter->iter_stats();
   auto sample_begin_offset_iter = sample_begin_offsets.cbegin();
   // data_begin_offset and compression_dict are only valid while generating
@@ -753,10 +763,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   std::string compression_dict;
   compression_dict.reserve(cfd->ioptions()->compression_opts.max_dict_bytes);
 
-  // TODO(noetzli): check whether we could check !shutting_down_->... only
-  // only occasionally (see diff D42687)
-  while (status.ok() && !shutting_down_->load(std::memory_order_acquire) &&
-         !cfd->IsDropped() && c_iter->Valid()) {
+  while (status.ok() && !cfd->IsDropped() && c_iter->Valid()) {
     // Invariant: c_iter.status() is guaranteed to be OK if c_iter->Valid()
     // returns true.
     const Slice& key = c_iter->key();
@@ -767,21 +774,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
     if (end != nullptr &&
         cfd->user_comparator()->Compare(c_iter->user_key(), *end) >= 0) {
       break;
-    } else if (sub_compact->compaction->output_level() != 0 &&
-               sub_compact->ShouldStopBefore(
-                   key, sub_compact->current_output_file_size) &&
-               sub_compact->builder != nullptr) {
-      CompactionIterationStats range_del_out_stats;
-      status =
-          FinishCompactionOutputFile(input->status(), sub_compact,
-                                     range_del_agg.get(), &range_del_out_stats);
-      RecordDroppedKeys(range_del_out_stats,
-                        &sub_compact->compaction_job_stats);
-      if (!status.ok()) {
-        break;
-      }
     }
-
     if (c_iter_stats.num_input_records % kRecordStatsEvery ==
         kRecordStatsEvery - 1) {
       RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
@@ -853,17 +846,37 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
       }
     }
 
-    // Close output file if it is big enough
+    // Close output file if it is big enough. Two possibilities determine it's
+    // time to close it: (1) the current key should be this file's last key, (2)
+    // the next key should not be in this file.
+    //
     // TODO(aekmekji): determine if file should be closed earlier than this
     // during subcompactions (i.e. if output size, estimated by input size, is
     // going to be 1.2MB and max_output_file_size = 1MB, prefer to have 0.6MB
     // and 0.6MB instead of 1MB and 0.2MB)
+    bool output_file_ended = false;
+    Status input_status;
     if (sub_compact->compaction->output_level() != 0 &&
         sub_compact->current_output_file_size >=
             sub_compact->compaction->max_output_file_size()) {
-      Status input_status = input->status();
-      c_iter->Next();
-
+      // (1) this key terminates the file. For historical reasons, the iterator
+      // status before advancing will be given to FinishCompactionOutputFile().
+      input_status = input->status();
+      output_file_ended = true;
+    }
+    c_iter->Next();
+    if (!output_file_ended && c_iter->Valid() &&
+        sub_compact->compaction->output_level() != 0 &&
+        sub_compact->ShouldStopBefore(
+          c_iter->key(), sub_compact->current_output_file_size) &&
+        sub_compact->builder != nullptr) {
+      // (2) this key belongs to the next file. For historical reasons, the
+      // iterator status after advancing will be given to
+      // FinishCompactionOutputFile().
+      input_status = input->status();
+      output_file_ended = true;
+    }
+    if (output_file_ended) {
       const Slice* next_key = nullptr;
       if (c_iter->Valid()) {
         next_key = &c_iter->key();
@@ -879,8 +892,6 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
         // files.
         sub_compact->compression_dict = std::move(compression_dict);
       }
-    } else {
-      c_iter->Next();
     }
   }
 
@@ -903,26 +914,35 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   RecordDroppedKeys(c_iter_stats, &sub_compact->compaction_job_stats);
   RecordCompactionIOStats();
 
-  if (status.ok() &&
-      (shutting_down_->load(std::memory_order_acquire) || cfd->IsDropped())) {
+  if (status.ok() && (shutting_down_->load(std::memory_order_relaxed) ||
+                      cfd->IsDropped())) {
     status = Status::ShutdownInProgress(
         "Database shutdown or Column family drop during compaction");
   }
+  if (status.ok()) {
+    status = input->status();
+  }
+  if (status.ok()) {
+    status = c_iter->status();
+  }
+
   if (status.ok() && sub_compact->builder == nullptr &&
       sub_compact->outputs.size() == 0 &&
       range_del_agg->ShouldAddTombstones(bottommost_level_)) {
     // handle subcompaction containing only range deletions
     status = OpenCompactionOutputFile(sub_compact);
   }
-  if (status.ok() && sub_compact->builder != nullptr) {
+
+  // Call FinishCompactionOutputFile() even if status is not ok: it needs to
+  // close the output file.
+  if (sub_compact->builder != nullptr) {
     CompactionIterationStats range_del_out_stats;
-    status =
-        FinishCompactionOutputFile(input->status(), sub_compact,
-                                   range_del_agg.get(), &range_del_out_stats);
+    Status s = FinishCompactionOutputFile(
+        status, sub_compact, range_del_agg.get(), &range_del_out_stats);
+    if (status.ok()) {
+      status = s;
+    }
     RecordDroppedKeys(range_del_out_stats, &sub_compact->compaction_job_stats);
-  }
-  if (status.ok()) {
-    status = input->status();
   }
 
   if (measure_io_stats_) {
@@ -1039,7 +1059,7 @@ Status CompactionJob::FinishCompactionOutputFile(
   sub_compact->total_bytes += current_bytes;
 
   // Finish and check for file errors
-  if (s.ok() && !db_options_.disable_data_sync) {
+  if (s.ok()) {
     StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
     s = sub_compact->outfile->Sync(db_options_.use_fsync);
   }

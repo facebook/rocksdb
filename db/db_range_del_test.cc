@@ -112,6 +112,81 @@ TEST_F(DBRangeDelTest, CompactionOutputFilesExactlyFilled) {
   db_->ReleaseSnapshot(snapshot);
 }
 
+TEST_F(DBRangeDelTest, MaxCompactionBytesCutsOutputFiles) {
+  // Ensures range deletion spanning multiple compaction output files that are
+  // cut by max_compaction_bytes will have non-overlapping key-ranges.
+  // https://github.com/facebook/rocksdb/issues/1778
+  const int kNumFiles = 2, kNumPerFile = 1 << 8, kBytesPerVal = 1 << 12;
+  Options opts = CurrentOptions();
+  opts.comparator = test::Uint64Comparator();
+  opts.disable_auto_compactions = true;
+  opts.level0_file_num_compaction_trigger = kNumFiles;
+  opts.max_compaction_bytes = kNumPerFile * kBytesPerVal;
+  opts.memtable_factory.reset(new SpecialSkipListFactory(kNumPerFile));
+  // Want max_compaction_bytes to trigger the end of compaction output file, not
+  // target_file_size_base, so make the latter much bigger
+  opts.target_file_size_base = 100 * opts.max_compaction_bytes;
+  Reopen(opts);
+
+  // snapshot protects range tombstone from dropping due to becoming obsolete.
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // It spans the whole key-range, thus will be included in all output files
+  ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                             GetNumericStr(0),
+                             GetNumericStr(kNumFiles * kNumPerFile - 1)));
+  Random rnd(301);
+  for (int i = 0; i < kNumFiles; ++i) {
+    std::vector<std::string> values;
+    // Write 1MB (256 values, each 4K)
+    for (int j = 0; j < kNumPerFile; j++) {
+      values.push_back(RandomString(&rnd, kBytesPerVal));
+      ASSERT_OK(Put(GetNumericStr(kNumPerFile * i + j), values[j]));
+    }
+    // extra entry to trigger SpecialSkipListFactory's flush
+    ASSERT_OK(Put(GetNumericStr(kNumPerFile), ""));
+    dbfull()->TEST_WaitForFlushMemTable();
+    ASSERT_EQ(i + 1, NumTableFilesAtLevel(0));
+  }
+
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                              true /* disallow_trivial_move */);
+  ASSERT_EQ(0, NumTableFilesAtLevel(0));
+  ASSERT_GE(NumTableFilesAtLevel(1), 2);
+
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
+
+  for (size_t i = 0; i < files[1].size() - 1; ++i) {
+    ASSERT_TRUE(InternalKeyComparator(opts.comparator)
+                    .Compare(files[1][i].largest, files[1][i + 1].smallest) <
+                0);
+  }
+  db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBRangeDelTest, SentinelsOmittedFromOutputFile) {
+  // Regression test for bug where sentinel range deletions (i.e., ones with
+  // sequence number of zero) were included in output files.
+  // snapshot protects range tombstone from dropping due to becoming obsolete.
+  const Snapshot* snapshot = db_->GetSnapshot();
+
+  // gaps between ranges creates sentinels in our internal representation
+  std::vector<std::pair<std::string, std::string>> range_dels = {{"a", "b"}, {"c", "d"}, {"e", "f"}};
+  for (const auto& range_del : range_dels) {
+    ASSERT_OK(db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                               range_del.first, range_del.second));
+  }
+  ASSERT_OK(db_->Flush(FlushOptions()));
+  ASSERT_EQ(1, NumTableFilesAtLevel(0));
+
+  std::vector<std::vector<FileMetaData>> files;
+  dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
+  ASSERT_GT(files[0][0].smallest_seqno, 0);
+
+  db_->ReleaseSnapshot(snapshot);
+}
+
 TEST_F(DBRangeDelTest, FlushRangeDelsSameStartKey) {
   db_->Put(WriteOptions(), "b1", "val");
   ASSERT_OK(
@@ -428,7 +503,80 @@ TEST_F(DBRangeDelTest, ObsoleteTombstoneCleanup) {
 
   db_->ReleaseSnapshot(snapshot);
 }
-#endif  // ROCKSDB_LITE
+
+TEST_F(DBRangeDelTest, TableEvictedDuringScan) {
+  // The RangeDelAggregator holds pointers into range deletion blocks created by
+  // table readers. This test ensures the aggregator can still access those
+  // blocks even if it outlives the table readers that created them.
+  //
+  // DBIter always keeps readers open for L0 files. So, in order to test
+  // aggregator outliving reader, we need to have deletions in L1 files, which
+  // are opened/closed on-demand during the scan. This is accomplished by
+  // setting kNumRanges > level0_stop_writes_trigger, which prevents deletions
+  // from all lingering in L0 (there is at most one range deletion per L0 file).
+  //
+  // The first L1 file will contain a range deletion since its begin key is 0.
+  // SeekToFirst() references that table's reader and adds its range tombstone
+  // to the aggregator. Upon advancing beyond that table's key-range via Next(),
+  // the table reader will be unreferenced by the iterator. Since we manually
+  // call Evict() on all readers before the full scan, this unreference causes
+  // the reader's refcount to drop to zero and thus be destroyed.
+  //
+  // When it is destroyed, we do not remove its range deletions from the
+  // aggregator. So, subsequent calls to Next() must be able to use these
+  // deletions to decide whether a key is covered. This will work as long as
+  // the aggregator properly references the range deletion block.
+  const int kNum = 25, kRangeBegin = 0, kRangeEnd = 7, kNumRanges = 5;
+  Options opts = CurrentOptions();
+  opts.comparator = test::Uint64Comparator();
+  opts.level0_file_num_compaction_trigger = 4;
+  opts.level0_stop_writes_trigger = 4;
+  opts.memtable_factory.reset(new SpecialSkipListFactory(1));
+  opts.num_levels = 2;
+  BlockBasedTableOptions bbto;
+  bbto.cache_index_and_filter_blocks = true;
+  bbto.block_cache = NewLRUCache(8 << 20);
+  opts.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(opts);
+
+  // Hold a snapshot so range deletions can't become obsolete during compaction
+  // to bottommost level (i.e., L1).
+  const Snapshot* snapshot = db_->GetSnapshot();
+  for (int i = 0; i < kNum; ++i) {
+    db_->Put(WriteOptions(), GetNumericStr(i), "val");
+    if (i > 0) {
+      dbfull()->TEST_WaitForFlushMemTable();
+    }
+    if (i >= kNum / 2 && i < kNum / 2 + kNumRanges) {
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(),
+                       GetNumericStr(kRangeBegin), GetNumericStr(kRangeEnd));
+    }
+  }
+  // Must be > 1 so the first L1 file can be closed before scan finishes
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_GT(NumTableFilesAtLevel(1), 1);
+  std::vector<uint64_t> file_numbers = ListTableFiles(env_, dbname_);
+
+  ReadOptions read_opts;
+  auto* iter = db_->NewIterator(read_opts);
+  int expected = kRangeEnd;
+  iter->SeekToFirst();
+  for (auto file_number : file_numbers) {
+    // This puts table caches in the state of being externally referenced only
+    // so they are destroyed immediately upon iterator unreferencing.
+    TableCache::Evict(dbfull()->TEST_table_cache(), file_number);
+  }
+  for (; iter->Valid(); iter->Next()) {
+    ASSERT_EQ(GetNumericStr(expected), iter->key());
+    ++expected;
+    // Keep clearing block cache's LRU so range deletion block can be freed as
+    // soon as its refcount drops to zero.
+    bbto.block_cache->EraseUnRefEntries();
+  }
+  ASSERT_EQ(kNum, expected);
+  delete iter;
+  db_->ReleaseSnapshot(snapshot);
+}
 
 TEST_F(DBRangeDelTest, GetCoveredKeyFromMutableMemtable) {
   db_->Put(WriteOptions(), "key", "val");
@@ -473,6 +621,36 @@ TEST_F(DBRangeDelTest, GetCoveredKeyFromSst) {
   std::string value;
   ASSERT_TRUE(db_->Get(read_opts, "key", &value).IsNotFound());
   db_->ReleaseSnapshot(snapshot);
+}
+
+TEST_F(DBRangeDelTest, GetCoveredMergeOperandFromMemtable) {
+  const int kNumMergeOps = 10;
+  Options opts = CurrentOptions();
+  opts.merge_operator = MergeOperators::CreateUInt64AddOperator();
+  Reopen(opts);
+
+  for (int i = 0; i < kNumMergeOps; ++i) {
+    std::string val;
+    PutFixed64(&val, i);
+    db_->Merge(WriteOptions(), "key", val);
+    if (i == kNumMergeOps / 2) {
+      // deletes [0, 5]
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "key",
+                       "key_");
+    }
+  }
+
+  ReadOptions read_opts;
+  std::string expected, actual;
+  ASSERT_OK(db_->Get(read_opts, "key", &actual));
+  PutFixed64(&expected, 30);  // 6+7+8+9
+  ASSERT_EQ(expected, actual);
+
+  expected.clear();
+  read_opts.ignore_range_deletions = true;
+  ASSERT_OK(db_->Get(read_opts, "key", &actual));
+  PutFixed64(&expected, 45);  // 0+1+2+...+9
+  ASSERT_EQ(expected, actual);
 }
 
 TEST_F(DBRangeDelTest, GetIgnoresRangeDeletions) {
@@ -602,6 +780,34 @@ TEST_F(DBRangeDelTest, IteratorIgnoresRangeDeletions) {
   delete iter;
   db_->ReleaseSnapshot(snapshot);
 }
+
+TEST_F(DBRangeDelTest, TailingIteratorRangeTombstoneUnsupported) {
+  db_->Put(WriteOptions(), "key", "val");
+  // snapshot prevents key from being deleted during flush
+  const Snapshot* snapshot = db_->GetSnapshot();
+  ASSERT_OK(
+      db_->DeleteRange(WriteOptions(), db_->DefaultColumnFamily(), "a", "z"));
+
+  // iterations check unsupported in memtable, l0, and then l1
+  for (int i = 0; i < 3; ++i) {
+    ReadOptions read_opts;
+    read_opts.tailing = true;
+    auto* iter = db_->NewIterator(read_opts);
+    if (i == 2) {
+      // For L1+, iterators over files are created on-demand, so need seek
+      iter->SeekToFirst();
+    }
+    ASSERT_TRUE(iter->status().IsNotSupported());
+    delete iter;
+    if (i == 0) {
+      ASSERT_OK(db_->Flush(FlushOptions()));
+    } else if (i == 1) {
+      MoveFilesToLevel(1);
+    }
+  }
+  db_->ReleaseSnapshot(snapshot);
+}
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
 

@@ -594,6 +594,7 @@ class DBTestBase : public testing::Test {
     kLevelSubcompactions = 31,
     kUniversalSubcompactions = 32,
     kBlockBasedTableWithIndexRestartInterval = 33,
+    kBlockBasedTableWithPartitionedIndex = 34,
   };
   int option_config_;
 
@@ -833,10 +834,10 @@ class DBTestBase : public testing::Test {
 
   std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path);
 
-  void VerifyDBFromMap(std::map<std::string, std::string> true_data,
-                       size_t* total_reads_res = nullptr,
-                       bool tailing_iter = false,
-                       std::map<std::string, Status> status = {});
+  void VerifyDBFromMap(
+      std::map<std::string, std::string> true_data,
+      size_t* total_reads_res = nullptr, bool tailing_iter = false,
+      std::map<std::string, Status> status = std::map<std::string, Status>());
 
   void VerifyDBInternal(
       std::vector<std::pair<std::string, std::string>> true_data);

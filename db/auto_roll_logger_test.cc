@@ -271,7 +271,7 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
   AutoRollLogger* auto_roll_logger =
       dynamic_cast<AutoRollLogger*>(logger.get());
   ASSERT_TRUE(auto_roll_logger);
-  std::thread flush_thread;
+  rocksdb::port::Thread flush_thread;
 
   // Notes:
   // (1) Need to pin the old logger before beginning the roll, as rolling grabs
@@ -293,7 +293,7 @@ TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
        {"AutoRollLogger::Flush:PinnedLogger", "PosixLogger::Flush:Begin2"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  flush_thread = std::thread([&]() { auto_roll_logger->Flush(); });
+  flush_thread = port::Thread ([&]() { auto_roll_logger->Flush(); });
   TEST_SYNC_POINT(
       "AutoRollLoggerTest::LogFlushWhileRolling:PreRollAndPostThreadInit");
   RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,

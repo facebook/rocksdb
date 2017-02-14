@@ -16,6 +16,7 @@
 #include <vector>
 #include "util/clock_cache.h"
 #include "util/coding.h"
+#include "util/lru_cache.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 
@@ -73,6 +74,17 @@ class CacheTest : public testing::TestWithParam<std::string> {
   }
 
   ~CacheTest() {
+  }
+
+  std::shared_ptr<Cache> NewCache(size_t capacity) {
+    auto type = GetParam();
+    if (type == kLRU) {
+      return NewLRUCache(capacity);
+    }
+    if (type == kClock) {
+      return NewClockCache(capacity);
+    }
+    return nullptr;
   }
 
   std::shared_ptr<Cache> NewCache(size_t capacity, int num_shard_bits,
@@ -301,6 +313,32 @@ TEST_P(CacheTest, EvictionPolicy) {
   }
   ASSERT_EQ(101, Lookup(100));
   ASSERT_EQ(-1, Lookup(200));
+}
+
+TEST_P(CacheTest, ExternalRefPinsEntries) {
+  Insert(100, 101);
+  Cache::Handle* h = cache_->Lookup(EncodeKey(100));
+  ASSERT_TRUE(cache_->Ref(h));
+  ASSERT_EQ(101, DecodeValue(cache_->Value(h)));
+  ASSERT_EQ(1U, cache_->GetUsage());
+
+  for (int i = 0; i < 3; ++i) {
+    if (i > 0) {
+      // First release (i == 1) corresponds to Ref(), second release (i == 2)
+      // corresponds to Lookup(). Then, since all external refs are released,
+      // the below insertions should push out the cache entry.
+      cache_->Release(h);
+    }
+    // double cache size because the usage bit in block cache prevents 100 from
+    // being evicted in the first kCacheSize iterations
+    for (int j = 0; j < 2 * kCacheSize + 100; j++) {
+      Insert(1000 + j, 2000 + j);
+    }
+    if (i < 2) {
+      ASSERT_EQ(101, Lookup(100));
+    }
+  }
+  ASSERT_EQ(-1, Lookup(100));
 }
 
 TEST_P(CacheTest, EvictionPolicyRef) {
@@ -600,6 +638,22 @@ TEST_P(CacheTest, ApplyToAllCacheEntiresTest) {
   std::sort(inserted.begin(), inserted.end());
   std::sort(callback_state.begin(), callback_state.end());
   ASSERT_TRUE(inserted == callback_state);
+}
+
+TEST_P(CacheTest, DefaultShardBits) {
+  // test1: set the flag to false. Insert more keys than capacity. See if they
+  // all go through.
+  std::shared_ptr<Cache> cache = NewCache(16 * 1024L * 1024L);
+  ShardedCache* sc = dynamic_cast<ShardedCache*>(cache.get());
+  ASSERT_EQ(5, sc->GetNumShardBits());
+
+  cache = NewLRUCache(511 * 1024L, -1, true);
+  sc = dynamic_cast<ShardedCache*>(cache.get());
+  ASSERT_EQ(0, sc->GetNumShardBits());
+
+  cache = NewLRUCache(1024L * 1024L * 1024L, -1, true);
+  sc = dynamic_cast<ShardedCache*>(cache.get());
+  ASSERT_EQ(6, sc->GetNumShardBits());
 }
 
 #ifdef SUPPORT_CLOCK_CACHE

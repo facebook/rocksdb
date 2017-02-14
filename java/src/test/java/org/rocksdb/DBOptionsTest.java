@@ -126,15 +126,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void disableDataSync() {
-    try(final DBOptions opt = new DBOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setDisableDataSync(boolValue);
-      assertThat(opt.disableDataSync()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void useFsync() {
     try(final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();

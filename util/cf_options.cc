@@ -55,7 +55,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       bloom_locality(cf_options.bloom_locality),
       purge_redundant_kvs_while_flush(
           cf_options.purge_redundant_kvs_while_flush),
-      disable_data_sync(db_options.disable_data_sync),
       use_fsync(db_options.use_fsync),
       compression_per_level(cf_options.compression_per_level),
       bottommost_compression(cf_options.bottommost_compression),

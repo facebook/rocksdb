@@ -58,6 +58,11 @@ Cache::Handle* ShardedCache::Lookup(const Slice& key, Statistics* stats) {
   return GetShard(Shard(hash))->Lookup(key, hash);
 }
 
+bool ShardedCache::Ref(Handle* handle) {
+  uint32_t hash = GetHash(handle);
+  return GetShard(Shard(hash))->Ref(handle);
+}
+
 void ShardedCache::Release(Handle* handle) {
   uint32_t hash = GetHash(handle);
   GetShard(Shard(hash))->Release(handle);
@@ -139,6 +144,18 @@ std::string ShardedCache::GetPrintableOptions() const {
   }
   ret.append(GetShard(0)->GetPrintableOptions());
   return ret;
+}
+int GetDefaultCacheShardBits(size_t capacity) {
+  int num_shard_bits = 0;
+  size_t min_shard_size = 512L * 1024L;  // Every shard is at least 512KB.
+  size_t num_shards = capacity / min_shard_size;
+  while (num_shards >>= 1) {
+    if (++num_shard_bits >= 6) {
+      // No more than 6.
+      return num_shard_bits;
+    }
+  }
+  return num_shard_bits;
 }
 
 }  // namespace rocksdb

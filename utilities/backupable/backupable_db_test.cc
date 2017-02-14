@@ -112,8 +112,6 @@ class DummyDB : public StackableDB {
     }
 
     virtual uint64_t SizeFileBytes() const override {
-      // backupabledb should not need this method
-      EXPECT_TRUE(false);
       return 0;
     }
 
@@ -1328,7 +1326,7 @@ TEST_F(BackupableDBTest, ChangeManifestDuringBackupCreation) {
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread flush_thread{[this]() { ASSERT_OK(db_->Flush(FlushOptions())); }};
+  rocksdb::port::Thread flush_thread{[this]() { ASSERT_OK(db_->Flush(FlushOptions())); }};
 
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
 

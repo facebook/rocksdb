@@ -31,6 +31,7 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "memtable/hash_linklist_rep.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
@@ -196,6 +197,19 @@ TEST_F(DBTest, MemEnvTest) {
   delete db;
 }
 #endif  // ROCKSDB_LITE
+
+TEST_F(DBTest, OpenWhenOpen) {
+  Options options = CurrentOptions();
+  options.env = env_;
+  rocksdb::DB* db2 = nullptr;
+  rocksdb::Status s = DB::Open(options, dbname_, &db2);
+
+  ASSERT_EQ(Status::Code::kIOError, s.code());
+  ASSERT_EQ(Status::SubCode::kNone, s.subcode());
+  ASSERT_TRUE(strstr(s.getState(), "lock ") != nullptr);
+
+  delete db2;
+}
 
 TEST_F(DBTest, WriteEmptyBatch) {
   Options options = CurrentOptions();
@@ -813,7 +827,6 @@ TEST_F(DBTest, GetPicksCorrectFile) {
 TEST_F(DBTest, GetEncountersEmptyLevel) {
   do {
     Options options = CurrentOptions();
-    options.disableDataSync = true;
     CreateAndReopenWithCF({"pikachu"}, options);
     // Arrange for the following to happen:
     //   * sstable A in level 0
@@ -985,7 +998,7 @@ TEST_F(DBTest, FlushSchedule) {
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 120 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
 
   std::atomic<int> thread_num(0);
   // each column family will have 5 thread, each thread generating 2 memtables.
@@ -1394,17 +1407,19 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   std::string start = Key(50);
   std::string end = Key(60);
   Range r(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  uint8_t include_both = DB::SizeApproximationFlags::INCLUDE_FILES |
+                         DB::SizeApproximationFlags::INCLUDE_MEMTABLES;
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
   ASSERT_LT(size, 204800);
   // Zero if not including mem table
-  db_->GetApproximateSizes(&r, 1, &size, false);
+  db_->GetApproximateSizes(&r, 1, &size);
   ASSERT_EQ(size, 0);
 
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   for (int i = 0; i < N; i++) {
@@ -1414,13 +1429,13 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(500);
   end = Key(600);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(100);
   end = Key(1020);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
 
   options.max_write_buffer_number = 8;
@@ -1443,28 +1458,28 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(100);
   end = Key(300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_GT(size, 6000);
 
   start = Key(2100);
   end = Key(2300);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size, true);
+  db_->GetApproximateSizes(&r, 1, &size, include_both);
   ASSERT_EQ(size, 0);
 
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
   uint64_t size_with_mt, size_without_mt;
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, true);
+  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
   ASSERT_GT(size_with_mt, 6000);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt, false);
+  db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_EQ(size_without_mt, 0);
 
   Flush();
@@ -1476,10 +1491,63 @@ TEST_F(DBTest, ApproximateSizesMemTable) {
   start = Key(1050);
   end = Key(1080);
   r = Range(start, end);
-  db_->GetApproximateSizes(&r, 1, &size_with_mt, true);
-  db_->GetApproximateSizes(&r, 1, &size_without_mt, false);
+  db_->GetApproximateSizes(&r, 1, &size_with_mt, include_both);
+  db_->GetApproximateSizes(&r, 1, &size_without_mt);
   ASSERT_GT(size_with_mt, size_without_mt);
   ASSERT_GT(size_without_mt, 6000);
+}
+
+TEST_F(DBTest, GetApproximateMemTableStats) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 100000000;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  const int N = 128;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+
+  uint64_t count;
+  uint64_t size;
+
+  std::string start = Key(50);
+  std::string end = Key(60);
+  Range r(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_GT(count, 0);
+  ASSERT_LE(count, N);
+  ASSERT_GT(size, 6000);
+  ASSERT_LT(size, 204800);
+
+  start = Key(500);
+  end = Key(600);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_EQ(count, 0);
+  ASSERT_EQ(size, 0);
+
+  Flush();
+
+  start = Key(50);
+  end = Key(60);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_EQ(count, 0);
+  ASSERT_EQ(size, 0);
+
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(1000 + i), RandomString(&rnd, 1024)));
+  }
+
+  start = Key(100);
+  end = Key(1020);
+  r = Range(start, end);
+  db_->GetApproximateMemTableStats(r, &count, &size);
+  ASSERT_GT(count, 20);
+  ASSERT_GT(size, 6000);
 }
 
 TEST_F(DBTest, ApproximateSizes) {
@@ -2800,10 +2868,19 @@ class ModelDB : public DB {
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   bool include_memtable) override {
+                                   uint8_t include_flags
+                                   = INCLUDE_FILES) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
+  }
+  using DB::GetApproximateMemTableStats;
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) override {
+    *count = 0;
+    *size = 0;
   }
   using DB::CompactRange;
   virtual Status CompactRange(const CompactRangeOptions& options,
@@ -3479,7 +3556,7 @@ TEST_F(DBTest, SanitizeNumThreads) {
 }
 
 TEST_F(DBTest, WriteSingleThreadEntry) {
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   dbfull()->TEST_LockMutex();
   auto w = dbfull()->TEST_BeginWrite();
   threads.emplace_back([&] { Put("a", "b"); });
@@ -3493,31 +3570,6 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
 
   for (auto& t : threads) {
     t.join();
-  }
-}
-
-TEST_F(DBTest, DisableDataSyncTest) {
-  env_->sync_counter_.store(0);
-  // iter 0 -- no sync
-  // iter 1 -- sync
-  for (int iter = 0; iter < 2; ++iter) {
-    Options options = CurrentOptions();
-    options.disableDataSync = iter == 0;
-    options.create_if_missing = true;
-    options.num_levels = 10;
-    options.env = env_;
-    Reopen(options);
-    CreateAndReopenWithCF({"pikachu"}, options);
-
-    MakeTables(10, "a", "z");
-    Compact("a", "z");
-
-    if (iter == 0) {
-      ASSERT_EQ(env_->sync_counter_.load(), 0);
-    } else {
-      ASSERT_GT(env_->sync_counter_.load(), 0);
-    }
-    Destroy(options);
   }
 }
 
@@ -5357,7 +5409,7 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     }
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-    std::vector<std::thread> threads;
+    std::vector<port::Thread> threads;
     threads.emplace_back([&]() { Compact("a", "z"); });
 
     TEST_SYNC_POINT("DBTest::FlushesInParallelWithCompactRange:1");
@@ -5763,7 +5815,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   options.write_buffer_size = 100000;  // Small write buffer
   Reopen(options);
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   std::atomic<bool> done(false);
   db_->PauseBackgroundWork();
   threads.emplace_back([&]() {

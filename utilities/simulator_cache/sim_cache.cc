@@ -64,6 +64,8 @@ class SimCacheImpl : public SimCache {
     return cache_->Lookup(key, stats);
   }
 
+  virtual bool Ref(Handle* handle) override { return cache_->Ref(handle); }
+
   virtual void Release(Handle* handle) override { cache_->Release(handle); }
 
   virtual void Erase(const Slice& key) override {
