@@ -44,7 +44,9 @@ jlong Java_org_rocksdb_EnvOptions_newEnvOptions(JNIEnv *env, jclass jcls) {
  */
 void Java_org_rocksdb_EnvOptions_disposeInternal(JNIEnv *env, jobject jobj,
                                                  jlong jhandle) {
-  delete reinterpret_cast<rocksdb::EnvOptions *>(jhandle);
+  auto* eo = reinterpret_cast<rocksdb::EnvOptions *>(jhandle);
+  assert(eo != nullptr);
+  delete eo;
 }
 
 /*

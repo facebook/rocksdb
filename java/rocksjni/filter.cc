@@ -39,7 +39,6 @@ jlong Java_org_rocksdb_BloomFilter_createNewBloomFilter(
  */
 void Java_org_rocksdb_Filter_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-
   std::shared_ptr<rocksdb::FilterPolicy> *handle =
       reinterpret_cast<std::shared_ptr<rocksdb::FilterPolicy> *>(jhandle);
   handle->reset();
