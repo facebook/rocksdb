@@ -132,6 +132,10 @@ class HdfsEnv : public Env {
     posixEnv->SleepForMicroseconds(micros);
   }
 
+  virtual void SleepForNanoseconds(int nanos) {
+    posixEnv->SleepForNanoseconds(nanos);
+  }
+
   virtual Status GetHostName(char* name, uint64_t len) {
     return posixEnv->GetHostName(name, len);
   }
@@ -343,6 +347,8 @@ class HdfsEnv : public Env {
   virtual uint64_t NowMicros() override { return 0; }
 
   virtual void SleepForMicroseconds(int micros) override {}
+
+  virtual void SleepForNanoseconds(int nanos) override {};
 
   virtual Status GetHostName(char* name, uint64_t len) override {
     return notsup;

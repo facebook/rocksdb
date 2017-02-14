@@ -67,7 +67,7 @@ class GenericRateLimiter : public RateLimiter {
 
   const int64_t kMinRefillBytesPerPeriod = 100;
 
-  const int64_t refill_period_us_;
+  const int64_t refill_period_ns_;
   // This variable can be changed dynamically.
   std::atomic<int64_t> refill_bytes_per_period_;
   Env* const env_;
@@ -79,7 +79,7 @@ class GenericRateLimiter : public RateLimiter {
   int64_t total_requests_[Env::IO_TOTAL];
   int64_t total_bytes_through_[Env::IO_TOTAL];
   int64_t available_bytes_;
-  int64_t next_refill_us_;
+  int64_t next_refill_ns_;
 
   int32_t fairness_;
   Random rnd_;

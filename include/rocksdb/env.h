@@ -334,6 +334,9 @@ class Env {
   // Sleep/delay the thread for the perscribed number of micro-seconds.
   virtual void SleepForMicroseconds(int micros) = 0;
 
+  // Sleep/delay the thread for the perscribed number of nano-seconds.
+  virtual void SleepForNanoseconds(int nanos) = 0;
+
   // Get the current host name.
   virtual Status GetHostName(char* name, uint64_t len) = 0;
 
@@ -985,6 +988,11 @@ class EnvWrapper : public Env {
   void SleepForMicroseconds(int micros) override {
     target_->SleepForMicroseconds(micros);
   }
+
+  void SleepForNanoseconds(int nanos) override {
+    target_->SleepForNanoseconds(nanos);
+  }
+
   Status GetHostName(char* name, uint64_t len) override {
     return target_->GetHostName(name, len);
   }

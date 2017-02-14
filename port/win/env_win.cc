@@ -872,6 +872,10 @@ void  WinEnvThreads::SleepForMicroseconds(int micros) {
   std::this_thread::sleep_for(std::chrono::microseconds(micros));
 }
 
+void WinEnvThreads::SleepForNanoseconds(int nanos) {
+  std::this_thread::sleep_for(std::chrono::nanoseconds(nanos));
+}
+
 void WinEnvThreads::SetBackgroundThreads(int num, Env::Priority pri) {
   assert(pri >= Env::Priority::LOW && pri <= Env::Priority::HIGH);
   thread_pools_[pri].SetBackgroundThreads(num);
@@ -1047,6 +1051,10 @@ uint64_t WinEnv::GetThreadID() const {
 
 void WinEnv::SleepForMicroseconds(int micros) {
   return winenv_threads_.SleepForMicroseconds(micros);
+}
+
+void WinEnv::SleepForNanoseconds(int nanos) {
+  return winenv_threads_.SleepForNanoseconds(nanos);
 }
 
 // Allow increasing the number of worker threads.
