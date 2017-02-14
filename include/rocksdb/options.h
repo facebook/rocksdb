@@ -842,6 +842,15 @@ struct DBOptions {
   //
   // Dynamically changeable through SetDBOptions() API.
   bool avoid_flush_during_shutdown = false;
+
+  // By default CompactionIterator will try to zero out sequence numbers
+  // when it can for better compression. Only disable it when you intend
+  // to ingest behind (IngestExternalFile() skipping keys that already exist),
+  // as this feature depends on existing files not having 0 sequence numbers.
+  //
+  // DEFAULT: true
+  // Immutable.
+  bool use_seqno_zero_out = true;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1121,6 +1130,17 @@ struct IngestExternalFileOptions {
   // If set to false and the file key range overlaps with the memtable key range
   // (memtable flush required), IngestExternalFile will fail.
   bool allow_blocking_flush = true;
+  // Set to true if you would like duplicate keys in the file being ingested
+  // to be skipped rather than overwriting existing data under that key.
+  // Usecase: back-fill of some historical data in the database without
+  // over-writing existing newer version of data.
+  // This option could only be used with the following constrains:
+  //  - DB must have been running with use_seqno_zero_out=false since the
+  //    dawn of time;
+  // -  Close the DB and re-open with one more level in the tree, with
+  //    use_seqno_zero_out=false & disable_auto_compactions=true.
+  // All files will be ingested at the bottommost level with seqno=0.
+  bool ingest_behind = false;
 };
 
 }  // namespace rocksdb

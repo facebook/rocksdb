@@ -17,6 +17,7 @@
 #include "db/pinned_iterators_manager.h"
 #include "db/range_del_aggregator.h"
 #include "rocksdb/compaction_filter.h"
+#include "util/cf_options.h"
 
 namespace rocksdb {
 
@@ -43,6 +44,9 @@ class CompactionIterator {
     virtual int number_levels() const { return compaction_->number_levels(); }
     virtual Slice GetLargestUserKey() const {
       return compaction_->GetLargestUserKey();
+    }
+    virtual bool use_seqno_zero_out() const {
+      return compaction_->immutable_cf_options()->use_seqno_zero_out;
     }
 
    protected:
