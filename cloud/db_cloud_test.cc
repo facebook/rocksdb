@@ -1,6 +1,4 @@
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
+// Copyright (c) 2017 Rockset
 
 #ifndef ROCKSDB_LITE
 
@@ -82,14 +80,10 @@ class CloudTest : public testing::Test {
     CloudEnv* cenv;
     DBCloud* clone_db;
 
-    CloudEnvOptions copt = cloud_env_options_;
-    copt.keep_local_sst_files = true;
-    copt.keep_local_log_files = true;
-
     // Create new AWS env
     ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
 			          cloud_storage_bucket_prefix_,
-		                  copt,
+		                  cloud_env_options_,
 				  options_.info_log,
 				  &cenv));
 
