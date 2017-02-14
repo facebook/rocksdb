@@ -531,10 +531,10 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
         GetAllSSTFiles(&total_sst_files_size);
         reached_max_space_on_flush++;
         // low limit for size calculated using sst files
-        ASSERT_GE(total_sst_files_size, limit_mb_cb * 1024 * 1024); 
+        ASSERT_GE(total_sst_files_size, limit_mb_cb * 1024 * 1024);
         // clear error to ensure compaction callback is called
         *bg_error = Status::OK();
-        estimate_multiplier ++; // used in the main loop assert
+        estimate_multiplier++;  // used in the main loop assert
       });
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
