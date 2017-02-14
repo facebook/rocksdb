@@ -411,6 +411,18 @@ Status ExternalSstFileIngestionJob::AssignLevelAndSeqnoForIngestedFile(
 
   int target_level = 0;
   auto* vstorage = cfd_->current()->storage_info();
+
+  // Always go to last level, fail if it's not empty
+  if (ingestion_options_.ingest_behind) {
+    int lvl = cfd_->NumberLevels() - 1;
+    if (vstorage->NumLevelFiles(lvl) > 0) {
+      return Status::InvalidArgument(
+        "Can't ingest_behind file to non-empty bottommost level!");
+    }
+    file_to_ingest->picked_level = lvl;
+    return Status::OK();
+  }
+
   for (int lvl = 0; lvl < cfd_->NumberLevels(); lvl++) {
     if (lvl > 0 && lvl < vstorage->base_level()) {
       continue;

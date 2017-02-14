@@ -2614,6 +2614,20 @@ Status DBImpl::IngestExternalFile(
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
+  // Ingest should immediately fail if ingest_behind is requested, but
+  // db is open with sequence zero-out turned on, or auto compactions
+  // are not disabled, want to check conditions separately
+  if (ingestion_options.ingest_behind) {
+    if (immutable_db_options_.use_seqno_zero_out) {
+      return Status::InvalidArgument(
+        "Can't ingest_behind file in DB with use_seqno_zero_out=true");
+    }
+    if (!cfd->GetLatestMutableCFOptions()->disable_auto_compactions) {
+      return Status::InvalidArgument(
+        "Can't ingest_behind file in DB with disable_auto_compactions=false");
+    }
+  }
+
   ExternalSstFileIngestionJob ingestion_job(env_, versions_.get(), cfd,
                                             immutable_db_options_, env_options_,
                                             &snapshots_, ingestion_options);
