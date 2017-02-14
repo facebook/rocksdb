@@ -388,7 +388,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       "Shutdown: canceling all background work");
 
   if (!shutting_down_.load(std::memory_order_acquire) &&
-      has_unpersisted_data_ &&
+      has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped() && !cfd->mem()->IsEmpty()) {
@@ -4036,8 +4036,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
 
-  bool skip_memtable =
-      (read_options.read_tier == kPersistedTier && has_unpersisted_data_);
+  bool skip_memtable = (read_options.read_tier == kPersistedTier &&
+                        has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
     if (sv->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
@@ -4142,7 +4142,8 @@ std::vector<Status> DBImpl::MultiGet(
     auto mgd = mgd_iter->second;
     auto super_version = mgd->super_version;
     bool skip_memtable =
-        (read_options.read_tier == kPersistedTier && has_unpersisted_data_);
+        (read_options.read_tier == kPersistedTier &&
+         has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
       if (super_version->mem->Get(lkey, value, &s, &merge_context,
@@ -4875,7 +4876,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     if (write_options.disableWAL) {
-      has_unpersisted_data_ = true;
+      has_unpersisted_data_.store(true, std::memory_order_relaxed);
     }
 
     uint64_t log_size = 0;
