@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <ratio>
 #include "rocksdb/env.h"
 
 namespace rocksdb {
@@ -56,7 +57,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   }
   // The frequency to get time inside DB mutex is less than one per refill
   // interval.
-  auto time_now = env->NowMicros();
+  auto time_now = NowMicrosMonotonic(env);
 
   uint64_t sleep_debt = 0;
   uint64_t time_since_last_refill = 0;
@@ -101,6 +102,10 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
       sleep_debt;
   last_refill_time_ = time_now + sleep_amount;
   return sleep_amount;
+}
+
+uint64_t WriteController::NowMicrosMonotonic(Env* env) {
+    return env->NowNanos() / std::milli::den;
 }
 
 StopWriteToken::~StopWriteToken() {
