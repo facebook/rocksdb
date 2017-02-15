@@ -439,7 +439,7 @@ Status ExternalSstFileIngestionJob::AssignLevelForIngestedFile(
 
 Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     IngestedFileInfo* file_to_ingest, SequenceNumber seqno) {
-  if (file_to_ingest->original_seqno == seqno) {
+  if (file_to_ingest->original_seqno == seqno || file_to_ingest->version == 1) {
     // This file already have the correct global seqno
     return Status::OK();
   } else if (!ingestion_options_.allow_global_seqno) {
