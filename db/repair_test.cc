@@ -275,7 +275,7 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
   }
 }
 
-#endif  //ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

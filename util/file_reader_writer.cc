@@ -42,7 +42,7 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
                    std::min(tmp.size() - offset_advance, n));
     }
     *result = Slice(scratch, r);
-#endif // !ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
   } else {
     s = file_->Read(n, result, scratch);
   }
@@ -57,7 +57,7 @@ Status SequentialFileReader::Skip(uint64_t n) {
     offset_ += n;
     return Status::OK();
   }
-#endif // !ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
   return file_->Skip(n);
 }
 
@@ -87,7 +87,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                             std::min(tmp.size() - offset_advance, n));
       }
       *result = Slice(scratch, r);
-#endif // !ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
     } else {
       s = file_->Read(offset, n, result, scratch);
     }
@@ -214,7 +214,7 @@ Status WritableFileWriter::Flush() {
     if (direct_io_) {
 #ifndef ROCKSDB_LITE
       s = WriteDirect();
-#endif // !ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
     } else {
       s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
     }
@@ -423,8 +423,7 @@ Status WritableFileWriter::WriteDirect() {
   }
   return s;
 }
-#endif // !ROCKSDB_LITE
-
+#endif  // !ROCKSDB_LITE
 
 namespace {
 class ReadaheadRandomAccessFile : public RandomAccessFile {

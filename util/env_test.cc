@@ -89,11 +89,12 @@ class EnvPosixTest : public testing::Test {
  public:
   Env* env_;
   bool direct_io_;
-  EnvPosixTest() : env_(Env::Default()), direct_io_(false) { }
+  EnvPosixTest() : env_(Env::Default()), direct_io_(false) {}
 };
 
-class EnvPosixTestWithParam : public EnvPosixTest,
-                              public ::testing::WithParamInterface<std::pair<Env*, bool>> {
+class EnvPosixTestWithParam
+    : public EnvPosixTest,
+      public ::testing::WithParamInterface<std::pair<Env*, bool>> {
  public:
   EnvPosixTestWithParam() {
     std::pair<Env*, bool> param_pair = GetParam();
@@ -721,7 +722,7 @@ TEST_P(EnvPosixTestWithParam, PositionedAppend) {
 
 // Only works in linux platforms
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
-    // Create file.
+  // Create file.
   if (env_ == Env::Default()) {
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = direct_io_;

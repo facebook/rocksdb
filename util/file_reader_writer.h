@@ -172,7 +172,7 @@ class WritableFileWriter {
   // DMA such as in Direct I/O mode
 #ifndef ROCKSDB_LITE
   Status WriteDirect();
-#endif // !ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);
