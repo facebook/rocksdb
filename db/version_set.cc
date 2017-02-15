@@ -1699,96 +1699,10 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
   if (file_index) {
     *file_index = -1;
   }
-  const Comparator* user_cmp = user_comparator_;
   if (begin != nullptr && end != nullptr && level > 0) {
     GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
                                           hint_index, file_index,
                                           true /* within_interval */);
-    return;
-  }
-
-  const FdWithKeyRange* files = level_files_brief_[level].files;
-  size_t num_files = level_files_brief_[level].num_files;
-  std::vector<size_t> indices(num_files);
-  for (size_t i = 0; i < num_files; i++) {
-    indices[i] = i;
-  }
-  sort(indices.begin(), indices.end(), [&files, user_cmp](size_t i, size_t j) {
-    return user_cmp->Compare(ExtractUserKey(files[i].smallest_key),
-                             ExtractUserKey(files[j].smallest_key)) < 0;
-  });
-  std::vector<std::pair<Slice, Slice>> overlapping_range_list;
-  std::vector<std::vector<size_t>> files_in_range_list;
-  for (size_t i = 0; i < num_files; i++) {
-    const FdWithKeyRange* f = &(files[indices[i]]);
-    const Slice file_start = ExtractUserKey(f->smallest_key);
-    const Slice file_limit = ExtractUserKey(f->largest_key);
-    if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
-      // "f" is completely before specified range; skip it
-    } else if (end != nullptr && user_cmp->Compare(file_start, user_end) > 0) {
-      // "f" is completely after specified range; break the loop
-      break;
-    } else {
-      if (overlapping_range_list.empty() ||
-          user_cmp->Compare(file_start, overlapping_range_list.back().second) >
-              0) {
-        overlapping_range_list.push_back(
-            std::pair<Slice, Slice>(file_start, file_limit));
-        files_in_range_list.push_back({indices[i]});
-      } else {
-        files_in_range_list.back().push_back(indices[i]);
-        if (user_cmp->Compare(file_limit,
-                              overlapping_range_list.back().second) > 0) {
-          overlapping_range_list.back().second = file_limit;
-        }
-      }
-    }
-  }
-  assert(overlapping_range_list.size() == files_in_range_list.size());
-  size_t startIndex = 0, endIndex = overlapping_range_list.size() - 1;
-  size_t left = startIndex;
-  size_t right = endIndex;
-  // find leftmost boundary
-  if (begin != nullptr) {
-    while (left < right) {
-      size_t mid = left + (right - left) / 2;
-      if (user_cmp->Compare(overlapping_range_list[mid].first, user_begin) <
-          0) {
-        left = mid + 1;
-      } else {
-        right = mid;
-      }
-    }
-    if (user_cmp->Compare(overlapping_range_list[left].first, user_begin) < 0) {
-      return;
-    }
-    startIndex = left;
-  }
-  // find rightmost boundary
-  if (end != nullptr) {
-    while (left < right) {
-      size_t mid = right - (right - left) / 2;
-      if (user_cmp->Compare(overlapping_range_list[mid].second, user_end) > 0) {
-        right = mid - 1;
-      } else {
-        left = mid;
-      }
-    }
-    if (user_cmp->Compare(overlapping_range_list[right].second, user_end) > 0) {
-      return;
-    }
-    endIndex = right;
-  }
-  if (startIndex > endIndex) {
-    return;
-  }
-  for (size_t i = startIndex; i <= endIndex; i++) {
-    for (auto index : files_in_range_list[i]) {
-      inputs->push_back(files_[level][index]);
-      if (file_index) {
-        *file_index = static_cast<int>(index);
-      }
-    }
   }
 }
 
