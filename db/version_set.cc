@@ -1639,7 +1639,8 @@ void VersionStorageInfo::GetOverlappingInputs(
   }
   const Comparator* user_cmp = user_comparator_;
   if (begin != nullptr && end != nullptr && level > 0) {
-    GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs, hint_index, file_index);
+    GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
+                                          hint_index, file_index);
     return;
   }
 
@@ -1701,7 +1702,8 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
   const Comparator* user_cmp = user_comparator_;
   if (begin != nullptr && end != nullptr && level > 0) {
     GetOverlappingInputsRangeBinarySearch(level, user_begin, user_end, inputs,
-                                     hint_index, file_index, true /* within_interval */);
+                                          hint_index, file_index,
+                                          true /* within_interval */);
     return;
   }
 
@@ -1712,8 +1714,9 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
     indices[i] = i;
   }
   sort(indices.begin(), indices.end(), [&files, user_cmp](size_t i, size_t j) {
-      return user_cmp->Compare(ExtractUserKey(files[i].smallest_key), ExtractUserKey(files[j].smallest_key)) < 0;
-    });
+    return user_cmp->Compare(ExtractUserKey(files[i].smallest_key),
+                             ExtractUserKey(files[j].smallest_key)) < 0;
+  });
   std::vector<std::pair<Slice, Slice>> overlapping_range_list;
   std::vector<std::vector<size_t>> files_in_range_list;
   for (size_t i = 0; i < num_files; i++) {
@@ -1729,7 +1732,8 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
       if (overlapping_range_list.empty() ||
           user_cmp->Compare(file_start, overlapping_range_list.back().second) >
               0) {
-        overlapping_range_list.push_back(std::pair<Slice,Slice>(file_start, file_limit));
+        overlapping_range_list.push_back(
+            std::pair<Slice, Slice>(file_start, file_limit));
         files_in_range_list.push_back({indices[i]});
       } else {
         files_in_range_list.back().push_back(indices[i]);
@@ -1748,7 +1752,8 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
   if (begin != nullptr) {
     while (left < right) {
       size_t mid = left + (right - left) / 2;
-      if (user_cmp->Compare(overlapping_range_list[mid].first, user_begin) < 0) {
+      if (user_cmp->Compare(overlapping_range_list[mid].first, user_begin) <
+          0) {
         left = mid + 1;
       } else {
         right = mid;
@@ -1778,7 +1783,7 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
     return;
   }
   for (size_t i = startIndex; i <= endIndex; i++) {
-    for (auto index: files_in_range_list[i]) {
+    for (auto index : files_in_range_list[i]) {
       inputs->push_back(files_[level][index]);
       if (file_index) {
         *file_index = static_cast<int>(index);
@@ -1786,7 +1791,6 @@ void VersionStorageInfo::GetCleanInputsWithinInterval(
     }
   }
 }
-
 
 // Store in "*inputs" all files in "level" that overlap [begin,end]
 // Employ binary search to find at least one file that overlaps the
@@ -1819,10 +1823,12 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     const Slice file_start = ExtractUserKey(f->smallest_key);
     const Slice file_limit = ExtractUserKey(f->largest_key);
     if ((!within_interval && user_cmp->Compare(file_limit, user_begin) < 0) ||
-        (within_interval && user_cmp->Compare(file_start, user_begin) < 0)){
+        (within_interval && user_cmp->Compare(file_start, user_begin) < 0)) {
       min = mid + 1;
-    } else if ((!within_interval && user_cmp->Compare(user_end, file_start) < 0)
-               || (within_interval && user_cmp->Compare(user_end, file_limit) < 0)) {
+    } else if ((!within_interval &&
+                user_cmp->Compare(user_end, file_start) < 0) ||
+               (within_interval &&
+                user_cmp->Compare(user_end, file_limit) < 0)) {
       max = mid - 1;
     } else {
       foundOverlap = true;
@@ -1841,9 +1847,11 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
 
   int startIndex, endIndex;
   if (within_interval) {
-    ExtendFileRangeWithinInterval(level, user_begin, user_end, mid, &startIndex, &endIndex);
+    ExtendFileRangeWithinInterval(level, user_begin, user_end, mid, &startIndex,
+                                  &endIndex);
   } else {
-    ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid, &startIndex, &endIndex);
+    ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid,
+                                       &startIndex, &endIndex);
   }
   assert(endIndex >= startIndex);
   // insert overlapping files into vector
@@ -1927,16 +1935,17 @@ void VersionStorageInfo::ExtendFileRangeWithinInterval(
     const FdWithKeyRange* f = &files[midIndex];
     const Slice fstart = ExtractUserKey(f->smallest_key);
     const Slice flimit = ExtractUserKey(f->largest_key);
-    assert(user_cmp->Compare(fstart, user_begin) >= 0 && user_cmp->Compare(flimit, user_end) <= 0);
+    assert(user_cmp->Compare(fstart, user_begin) >= 0 &&
+           user_cmp->Compare(flimit, user_end) <= 0);
   }
 #endif
-  ExtendFileRangeOverlappingInterval(level, user_begin, user_end, midIndex, startIndex, endIndex);
+  ExtendFileRangeOverlappingInterval(level, user_begin, user_end, midIndex,
+                                     startIndex, endIndex);
   int left = *startIndex;
   int right = *endIndex;
   // shrink from left to right
   while (left <= right) {
-    const Slice& first_key_in_range = ExtractUserKey(
-      files[left].smallest_key);
+    const Slice& first_key_in_range = ExtractUserKey(files[left].smallest_key);
     if (user_cmp->Compare(first_key_in_range, user_begin) < 0) {
       left++;
       continue;
@@ -1945,7 +1954,8 @@ void VersionStorageInfo::ExtendFileRangeWithinInterval(
       const Slice& last_key_before =
           ExtractUserKey(files[left - 1].largest_key);
       if (user_cmp->Equal(first_key_in_range, last_key_before)) {
-        // The first user key in range overlaps with the previous file's last key
+        // The first user key in range overlaps with the previous file's last
+        // key
         left++;
         continue;
       }
@@ -1954,15 +1964,15 @@ void VersionStorageInfo::ExtendFileRangeWithinInterval(
   }
   // shrink from right to left
   while (left <= right) {
-    const Slice last_key_in_range = ExtractUserKey(
-      files[right].largest_key);
+    const Slice last_key_in_range = ExtractUserKey(files[right].largest_key);
     if (user_cmp->Compare(last_key_in_range, user_end) > 0) {
       right--;
       continue;
     }
-    if (right < static_cast<int>(level_files_brief_[level].num_files) - 1) {  // If not the last file
-      const Slice first_key_after = ExtractUserKey(
-        files[right + 1].smallest_key);
+    if (right < static_cast<int>(level_files_brief_[level].num_files) -
+                    1) {  // If not the last file
+      const Slice first_key_after =
+          ExtractUserKey(files[right + 1].smallest_key);
       if (user_cmp->Equal(last_key_in_range, first_key_after)) {
         // The last user key in range overlaps with the next file's first key
         right--;

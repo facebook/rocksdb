@@ -1146,7 +1146,6 @@ Compaction* LevelCompactionPicker::PickCompaction(
     return nullptr;
   }
 
-
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
   auto c = new Compaction(
