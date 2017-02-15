@@ -1759,37 +1759,37 @@ void VersionStorageInfo::GetOverlappingInputsRangeBinarySearch(
     *file_index = mid;
   }
 
-  int startIndex, endIndex;
+  int start_index, end_index;
   if (within_interval) {
-    ExtendFileRangeWithinInterval(level, user_begin, user_end, mid, &startIndex,
-                                  &endIndex);
+    ExtendFileRangeWithinInterval(level, user_begin, user_end, mid, &start_index,
+                                  &end_index);
   } else {
     ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid,
-                                       &startIndex, &endIndex);
+                                       &start_index, &end_index);
   }
-  assert(endIndex >= startIndex);
+  assert(end_index >= start_index);
   // insert overlapping files into vector
-  for (int i = startIndex; i <= endIndex; i++) {
+  for (int i = start_index; i <= end_index; i++) {
     inputs->push_back(files_[level][i]);
   }
 }
 
-// Store in *startIndex and *endIndex the range of all files in
+// Store in *start_index and *end_index the range of all files in
 // "level" that overlap [begin,end]
-// The midIndex specifies the index of at least one file that
+// The mid_index specifies the index of at least one file that
 // overlaps the specified range. From that file, iterate backward
 // and forward to find all overlapping files.
 // Use FileLevel in searching, make it faster
 void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
     int level, const Slice& user_begin, const Slice& user_end,
-    unsigned int midIndex, int* startIndex, int* endIndex) const {
+    unsigned int mid_index, int* start_index, int* end_index) const {
   const Comparator* user_cmp = user_comparator_;
   const FdWithKeyRange* files = level_files_brief_[level].files;
 #ifndef NDEBUG
   {
-    // assert that the file at midIndex overlaps with the range
-    assert(midIndex < level_files_brief_[level].num_files);
-    const FdWithKeyRange* f = &files[midIndex];
+    // assert that the file at mid_index overlaps with the range
+    assert(mid_index < level_files_brief_[level].num_files);
+    const FdWithKeyRange* f = &files[mid_index];
     const Slice fstart = ExtractUserKey(f->smallest_key);
     const Slice flimit = ExtractUserKey(f->largest_key);
     if (user_cmp->Compare(fstart, user_begin) >= 0) {
@@ -1799,64 +1799,64 @@ void VersionStorageInfo::ExtendFileRangeOverlappingInterval(
     }
   }
 #endif
-  *startIndex = midIndex + 1;
-  *endIndex = midIndex;
+  *start_index = mid_index + 1;
+  *end_index = mid_index;
   int count __attribute__((unused)) = 0;
 
   // check backwards from 'mid' to lower indices
-  for (int i = midIndex; i >= 0 ; i--) {
+  for (int i = mid_index; i >= 0 ; i--) {
     const FdWithKeyRange* f = &files[i];
     const Slice file_limit = ExtractUserKey(f->largest_key);
     if (user_cmp->Compare(file_limit, user_begin) >= 0) {
-      *startIndex = i;
+      *start_index = i;
       assert((count++, true));
     } else {
       break;
     }
   }
   // check forward from 'mid+1' to higher indices
-  for (unsigned int i = midIndex+1;
+  for (unsigned int i = mid_index+1;
        i < level_files_brief_[level].num_files; i++) {
     const FdWithKeyRange* f = &files[i];
     const Slice file_start = ExtractUserKey(f->smallest_key);
     if (user_cmp->Compare(file_start, user_end) <= 0) {
       assert((count++, true));
-      *endIndex = i;
+      *end_index = i;
     } else {
       break;
     }
   }
-  assert(count == *endIndex - *startIndex + 1);
+  assert(count == *end_index - *start_index + 1);
 }
 
-// Store in *startIndex and *endIndex the clean range of all files in
+// Store in *start_index and *end_index the clean range of all files in
 // "level" within [begin,end]
-// The midIndex specifies the index of at least one file within
+// The mid_index specifies the index of at least one file within
 // the specified range. From that file, iterate backward
 // and forward to find all overlapping files and then "shrink" to
 // the clean range required.
 // Use FileLevel in searching, make it faster
 void VersionStorageInfo::ExtendFileRangeWithinInterval(
     int level, const Slice& user_begin, const Slice& user_end,
-    unsigned int midIndex, int* startIndex, int* endIndex) const {
+    unsigned int mid_index, int* start_index, int* end_index) const {
   assert(level != 0);
   const Comparator* user_cmp = user_comparator_;
   const FdWithKeyRange* files = level_files_brief_[level].files;
 #ifndef NDEBUG
   {
-    // assert that the file at midIndex is within the range
-    assert(midIndex < level_files_brief_[level].num_files);
-    const FdWithKeyRange* f = &files[midIndex];
+    // assert that the file at mid_index is within the range
+    assert(mid_index < level_files_brief_[level].num_files);
+    const FdWithKeyRange* f = &files[mid_index];
     const Slice fstart = ExtractUserKey(f->smallest_key);
     const Slice flimit = ExtractUserKey(f->largest_key);
     assert(user_cmp->Compare(fstart, user_begin) >= 0 &&
            user_cmp->Compare(flimit, user_end) <= 0);
   }
 #endif
-  ExtendFileRangeOverlappingInterval(level, user_begin, user_end, midIndex,
-                                     startIndex, endIndex);
-  int left = *startIndex;
-  int right = *endIndex;
+  ExtendFileRangeOverlappingInterval(level, user_begin, user_end, mid_index,
+                                     start_index, end_index);
+  int left = *start_index;
+  int right = *end_index;
   // shrink from left to right
   while (left <= right) {
     const Slice& first_key_in_range = ExtractUserKey(files[left].smallest_key);
@@ -1896,8 +1896,8 @@ void VersionStorageInfo::ExtendFileRangeWithinInterval(
     break;
   }
 
-  *startIndex = left;
-  *endIndex = right;
+  *start_index = left;
+  *end_index = right;
 }
 
 uint64_t VersionStorageInfo::NumLevelBytes(int level) const {
