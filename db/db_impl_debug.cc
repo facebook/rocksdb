@@ -19,9 +19,10 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
 }
 
-void DBImpl::TEST_MaybeFlushColumnFamilies() {
+void DBImpl::TEST_HandleWALFull() {
+  WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
-  MaybeFlushColumnFamilies();
+  HandleWALFull(&write_context);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "db/write_callback.h"
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
@@ -80,7 +81,7 @@ class WriteThread {
     WriteBatch* batch;
     bool sync;
     bool no_slowdown;
-    bool disableWAL;
+    bool disable_wal;
     bool disable_memtable;
     uint64_t log_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
@@ -101,12 +102,29 @@ class WriteThread {
         : batch(nullptr),
           sync(false),
           no_slowdown(false),
-          disableWAL(false),
+          disable_wal(false),
           disable_memtable(false),
           log_used(0),
           log_ref(0),
           in_batch_group(false),
           callback(nullptr),
+          made_waitable(false),
+          state(STATE_INIT),
+          parallel_group(nullptr),
+          link_older(nullptr),
+          link_newer(nullptr) {}
+
+    Writer(const WriteOptions& write_options, WriteBatch* _batch,
+           WriteCallback* _callback, uint64_t _log_ref, bool _disable_memtable)
+        : batch(_batch),
+          sync(write_options.sync),
+          no_slowdown(write_options.no_slowdown),
+          disable_wal(write_options.disableWAL),
+          disable_memtable(_disable_memtable),
+          log_used(0),
+          log_ref(_log_ref),
+          in_batch_group(false),
+          callback(_callback),
           made_waitable(false),
           state(STATE_INIT),
           parallel_group(nullptr),
@@ -166,7 +184,7 @@ class WriteThread {
       return !CallbackFailed() && !disable_memtable;
     }
 
-    bool ShouldWriteToWAL() { return !CallbackFailed() && !disableWAL; }
+    bool ShouldWriteToWAL() { return !CallbackFailed() && !disable_wal; }
 
     // No other mutexes may be acquired while holding StateMutex(), it is
     // always last in the order
