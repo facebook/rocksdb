@@ -70,6 +70,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.RestoreOptions
         org.rocksdb.RocksDB
         org.rocksdb.RocksEnv
+        org.rocksdb.RocksHdfsEnv
         org.rocksdb.RocksIterator
         org.rocksdb.RocksMemEnv
         org.rocksdb.SkipListMemTableConfig

@@ -8,8 +8,10 @@
 
 #include "include/org_rocksdb_Env.h"
 #include "include/org_rocksdb_RocksEnv.h"
+#include "include/org_rocksdb_RocksHdfsEnv.h"
 #include "include/org_rocksdb_RocksMemEnv.h"
 #include "rocksdb/env.h"
+#include "rocksdb/status.h"
 
 /*
  * Class:     org_rocksdb_Env
@@ -74,6 +76,36 @@ jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
  * Signature: (J)V
  */
 void Java_org_rocksdb_RocksMemEnv_disposeInternal(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  delete reinterpret_cast<rocksdb::Env*>(jhandle);
+}
+
+/*
+ * Class:     org_rocksdb_RocksHdfsEnv
+ * Method:    createHdfsEnv
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_RocksHdfsEnv_createHdfsEnv(
+    JNIEnv* env, jclass jclazz, jstring fsname) {
+  const char *fsNameNative = env->GetStringUTFChars(fsname, NULL);
+  rocksdb::Env* pHdfsEnv = nullptr;
+  rocksdb::Env** ppHdfsEnv = &pHdfsEnv;
+  rocksdb::Status s = rocksdb::NewHdfsEnv(ppHdfsEnv,
+    std::string(fsNameNative));
+  jlong handle = 0;
+  if (s.ok()) {
+    handle = reinterpret_cast<jlong>(*ppHdfsEnv);
+  }
+  env->ReleaseStringUTFChars(fsname, fsNameNative);
+  return handle;
+}
+
+/*
+ * Class:     org_rocksdb_RocksMemEnv
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksHdfsEnv_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   delete reinterpret_cast<rocksdb::Env*>(jhandle);
 }
