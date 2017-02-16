@@ -12,7 +12,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <algorithm>
-#include <fstream>
 #if defined(OS_LINUX)
 #include <linux/fs.h>
 #endif
@@ -48,16 +47,7 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 }
 
 #ifdef OS_LINUX
-
-#endif
-
-/*
- * DirectIOHelper
- */
-#ifndef NDEBUG
 namespace {
-#ifdef OS_LINUX
-const size_t kPageSize = sysconf(_SC_PAGESIZE);
 size_t GetLogicalBufferSize(int fd) {
   struct stat buf;
   int result = fstat(fd, &buf);
@@ -100,19 +90,34 @@ size_t GetLogicalBufferSize(int fd) {
     device_dir = device_dir.substr(0, parent_end);
   }
   std::string fname = device_dir + "/queue/logical_block_size";
-  std::ifstream infile(fname);
-  if (!infile.good()) {
+  FILE* fp;
+  char* line = nullptr;
+  size_t len;
+  fp = fopen(fname.c_str(), "r");
+  if (fp == nullptr || getline(&line, &len, fp) == -1) {
     return kDefaultPageSize;
   }
-  std::string file_contents((std::istreambuf_iterator<char>(infile)),
-                            std::istreambuf_iterator<char>());
   size_t size;
-  sscanf(file_contents.c_str(), "%zu", &size);
+  sscanf(line, "%zu", &size);
+  fclose(fp);
+  if (line) {
+    free(line);
+  }
   if (size == 0 || (size & (size - 1)) != 0) {
     return kDefaultPageSize;
   }
   return size;
 }
+}
+#endif  //  namespace
+
+/*
+ * DirectIOHelper
+ */
+#ifndef NDEBUG
+namespace {
+#ifdef OS_LINUX
+const size_t kPageSize = sysconf(_SC_PAGESIZE);
 #else
 const size_t kPageSize = 4 * 1024;
 #endif
