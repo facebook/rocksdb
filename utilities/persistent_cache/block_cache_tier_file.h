@@ -21,6 +21,7 @@
 
 #include "port/port.h"
 #include "util/crc32c.h"
+#include "util/file_reader_writer.h"
 #include "util/mutexlock.h"
 
 // The io code path of persistent cache uses pipelined architecture
@@ -157,7 +158,7 @@ class RandomAccessCacheFile : public BlockCacheFile {
   bool Read(const LBA& lba, Slice* key, Slice* block, char* scratch) override;
 
  private:
-  std::unique_ptr<RandomAccessFile> file_;
+  std::unique_ptr<RandomAccessFileReader> freader_;
 
  protected:
   bool OpenImpl(const bool enable_direct_reads);
