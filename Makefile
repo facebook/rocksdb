@@ -437,7 +437,6 @@ TESTS = \
 	column_aware_encoding_test \
 	compact_files_test \
 	optimistic_transaction_test \
-	write_callback_test \
 	heap_test \
 	compact_on_deletion_collector_test \
 	compaction_job_stats_test \

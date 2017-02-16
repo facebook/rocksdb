@@ -49,32 +49,72 @@ class WriteThread {
     // the leader to STATE_COMPLETED.
     STATE_GROUP_LEADER = 2,
 
+    STATE_WAL_WRITER = 4,
+
+    STATE_MEMTABLE_WRITER = 8,
+
     // A Writer that has returned as a follower in a parallel group.
     // It should apply its batch to the memtable and then call
     // CompleteParallelWorker.  When someone calls ExitAsBatchGroupLeader
     // or EarlyExitParallelGroup this state will get transitioned to
     // STATE_COMPLETED.
-    STATE_PARALLEL_FOLLOWER = 4,
+    STATE_PARALLEL_FOLLOWER = 16,
 
     // A follower whose writes have been applied, or a parallel leader
     // whose followers have all finished their work.  This is a terminal
     // state.
-    STATE_COMPLETED = 8,
+    STATE_COMPLETED = 32,
 
     // A state indicating that the thread may be waiting using StateMutex()
     // and StateCondVar()
-    STATE_LOCKED_WAITING = 16,
+    STATE_LOCKED_WAITING = 64,
   };
 
   struct Writer;
 
-  struct ParallelGroup {
-    Writer* leader;
-    Writer* last_writer;
+  struct WriteGroup {
+    Writer* leader = nullptr;
+    Writer* last_writer = nullptr;
     SequenceNumber last_sequence;
     // before running goes to zero, status needs leader->StateMutex()
     Status status;
     std::atomic<uint32_t> running;
+    size_t size = 0;
+
+    struct Iterator {
+      Writer* writer;
+      Writer* last_writer;
+
+      explicit Iterator(Writer* w, Writer* last)
+          : writer(w), last_writer(last) {}
+
+      Writer* operator*() const { return writer; }
+
+      Iterator& operator++() {
+        assert(writer != nullptr);
+        if (writer == last_writer) {
+          writer = nullptr;
+        } else {
+          writer = writer->link_newer;
+        }
+        return *this;
+      }
+
+      bool operator!=(const Iterator& other) const {
+        return writer != other.writer;
+      }
+    };
+
+    Iterator begin() const { return Iterator(leader, last_writer); }
+    Iterator end() const { return Iterator(nullptr, nullptr); }
+
+    autovector<Writer*> ToVector() {
+      autovector<Writer*> v;
+      for (auto w : *this) {
+        v.push_back(w);
+      }
+      return v;
+    }
   };
 
   // Information kept for every waiting writer.
@@ -86,11 +126,10 @@ class WriteThread {
     bool disable_memtable;
     uint64_t log_used;  // log number that this batch was inserted into
     uint64_t log_ref;   // log number that memtable insert should reference
-    bool in_batch_group;
     WriteCallback* callback;
     bool made_waitable;          // records lazy construction of mutex and cv
     std::atomic<uint8_t> state;  // write under StateMutex() or pre-link
-    ParallelGroup* parallel_group;
+    WriteGroup* write_group;
     SequenceNumber sequence;  // the sequence number to use for the first key
     Status status;            // status of memtable inserter
     Status callback_status;   // status returned by callback->Callback()
@@ -107,11 +146,10 @@ class WriteThread {
           disable_memtable(false),
           log_used(0),
           log_ref(0),
-          in_batch_group(false),
           callback(nullptr),
           made_waitable(false),
           state(STATE_INIT),
-          parallel_group(nullptr),
+          write_group(nullptr),
           link_older(nullptr),
           link_newer(nullptr) {}
 
@@ -124,11 +162,10 @@ class WriteThread {
           disable_memtable(_disable_memtable),
           log_used(0),
           log_ref(_log_ref),
-          in_batch_group(false),
           callback(_callback),
           made_waitable(false),
           state(STATE_INIT),
-          parallel_group(nullptr),
+          write_group(nullptr),
           link_older(nullptr),
           link_newer(nullptr) {}
 
@@ -161,7 +198,7 @@ class WriteThread {
     Status FinalStatus() {
       if (!status.ok()) {
         // a non-ok memtable write status takes presidence
-        assert(callback == nullptr || callback_status.ok());
+        // assert(callback == nullptr || callback_status.ok());
         return status;
       } else if (!callback_status.ok()) {
         // if the callback failed then that is the status we want
@@ -182,10 +219,12 @@ class WriteThread {
     }
 
     bool ShouldWriteToMemtable() {
-      return !CallbackFailed() && !disable_memtable;
+      return status.ok() && !CallbackFailed() && !disable_memtable;
     }
 
-    bool ShouldWriteToWAL() { return !CallbackFailed() && !disable_wal; }
+    bool ShouldWriteToWAL() {
+      return status.ok() && !CallbackFailed() && !disable_wal;
+    }
 
     // No other mutexes may be acquired while holding StateMutex(), it is
     // always last in the order
@@ -270,21 +309,19 @@ class WriteThreadImpl : public WriteThread {
   // Constructs a write batch group led by leader, which should be a
   // Writer passed to JoinBatchGroup on the current thread.
   //
-  // Writer* leader:         Writer that is STATE_GROUP_LEADER
-  // Writer** last_writer:   Out-param that identifies the last follower
-  // autovector<WriteBatch*>* write_batch_group: Out-param of group members
-  // returns:                Total batch group byte size
-  size_t EnterAsBatchGroupLeader(
-      Writer* leader, Writer** last_writer,
-      autovector<WriteThread::Writer*>* write_batch_group);
+  // Writer* leader:          Writer that is STATE_GROUP_LEADER
+  // WriteGroup* write_group: Out-param of group members
+  // returns:                 Total batch group byte size
+  size_t EnterAsBatchGroupLeader(Writer* leader, WriteGroup* write_group);
 
   // Causes JoinBatchGroup to return STATE_PARALLEL_FOLLOWER for all of the
   // non-leader members of this write batch group.  Sets Writer::sequence
   // before waking them up.
   //
-  // ParallalGroup* pg:       Extra state used to coordinate the parallel add
-  // SequenceNumber sequence: Starting sequence number to assign to Writer-s
-  void LaunchParallelFollowers(ParallelGroup* pg, SequenceNumber sequence);
+  // WriteGroup* write_group: Extra state used to coordinate the parallel add
+  // SequenceNumber sequence:    Starting sequence number to assign to Writer-s
+  void LaunchParallelFollowers(WriteGroup& write_group,
+                               SequenceNumber sequence);
 
   // Reports the completion of w's batch to the parallel group leader, and
   // waits for the rest of the parallel batch to complete.  Returns true
@@ -299,11 +336,9 @@ class WriteThreadImpl : public WriteThread {
   // Unlinks the Writer-s in a batch group, wakes up the non-leaders,
   // and wakes up the next leader (if any).
   //
-  // Writer* leader:         From EnterAsBatchGroupLeader
-  // Writer* last_writer:    Value of out-param of EnterAsBatchGroupLeader
-  // Status status:          Status of write operation
-  void ExitAsBatchGroupLeader(Writer* leader, Writer* last_writer,
-                              Status status);
+  // WriteGroup* write_group: the write group
+  // Status status:           Status of write operation
+  void ExitAsBatchGroupLeader(WriteGroup& write_group, Status status);
 
   virtual void EnterUnbatched(Writer* w, InstrumentedMutex* mu) override;
 

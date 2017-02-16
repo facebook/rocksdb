@@ -53,6 +53,7 @@ LIB_SOURCES =                                                   \
   db/write_batch.cc                                             \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
+  db/write_pipeline.cc                                          \
   db/write_thread.cc                                            \
   env/env.cc                                                    \
   env/env_chroot.cc                                             \
