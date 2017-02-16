@@ -24,6 +24,7 @@ namespace rocksdb {
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s;
   if (use_direct_io()) {
+#ifndef ROCKSDB_LITE
     size_t offset = offset_.fetch_add(n);
     size_t alignment = file_->GetRequiredBufferAlignment();
     size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
@@ -41,6 +42,7 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
                    std::min(tmp.size() - offset_advance, n));
     }
     *result = Slice(scratch, r);
+#endif  // !ROCKSDB_LITE
   } else {
     s = file_->Read(n, result, scratch);
   }
@@ -48,37 +50,15 @@ Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   return s;
 }
 
-Status SequentialFileReader::DirectRead(size_t n, Slice* result,
-                                        char* scratch) {
-  size_t offset = offset_.fetch_add(n);
-  size_t alignment = file_->GetRequiredBufferAlignment();
-  size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
-  size_t offset_advance = offset - aligned_offset;
-  size_t size = Roundup(offset + n, alignment) - aligned_offset;
-  AlignedBuffer buf;
-  buf.Alignment(alignment);
-  buf.AllocateNewBuffer(size);
-  Slice tmp;
-  Status s =
-      file_->PositionedRead(aligned_offset, size, &tmp, buf.BufferStart());
-  if (s.ok()) {
-    buf.Size(tmp.size());
-    size_t r = buf.Read(scratch, offset_advance,
-                        tmp.size() <= offset_advance
-                            ? 0
-                            : std::min(tmp.size() - offset_advance, n));
-    *result = Slice(scratch, r);
-  }
-  return s;
-}
 
 Status SequentialFileReader::Skip(uint64_t n) {
+#ifndef ROCKSDB_LITE
   if (use_direct_io()) {
     offset_ += n;
     return Status::OK();
-  } else {
-    return file_->Skip(n);
   }
+#endif  // !ROCKSDB_LITE
+  return file_->Skip(n);
 }
 
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
@@ -90,6 +70,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                  (stats_ != nullptr) ? &elapsed : nullptr);
     IOSTATS_TIMER_GUARD(read_nanos);
     if (use_direct_io()) {
+#ifndef ROCKSDB_LITE
       size_t alignment = file_->GetRequiredBufferAlignment();
       size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
       size_t offset_advance = offset - aligned_offset;
@@ -106,6 +87,7 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                             std::min(tmp.size() - offset_advance, n));
       }
       *result = Slice(scratch, r);
+#endif  // !ROCKSDB_LITE
     } else {
       s = file_->Read(offset, n, result, scratch);
     }
@@ -113,28 +95,6 @@ Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
   }
   if (stats_ != nullptr && file_read_hist_ != nullptr) {
     file_read_hist_->Add(elapsed);
-  }
-  return s;
-}
-
-Status RandomAccessFileReader::DirectRead(uint64_t offset, size_t n,
-                                          Slice* result, char* scratch) const {
-  size_t alignment = file_->GetRequiredBufferAlignment();
-  size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
-  size_t offset_advance = offset - aligned_offset;
-  size_t size = Roundup(offset + n, alignment) - aligned_offset;
-  AlignedBuffer buf;
-  buf.Alignment(alignment);
-  buf.AllocateNewBuffer(size);
-  Slice tmp;
-  Status s = file_->Read(aligned_offset, size, &tmp, buf.BufferStart());
-  if (s.ok()) {
-    buf.Size(tmp.size());
-    size_t r = buf.Read(scratch, offset_advance,
-                        tmp.size() <= offset_advance
-                            ? 0
-                            : std::min(tmp.size() - offset_advance, n));
-    *result = Slice(scratch, r);
   }
   return s;
 }
@@ -252,7 +212,9 @@ Status WritableFileWriter::Flush() {
 
   if (buf_.CurrentSize() > 0) {
     if (direct_io_) {
+#ifndef ROCKSDB_LITE
       s = WriteDirect();
+#endif  // !ROCKSDB_LITE
     } else {
       s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
     }
@@ -401,6 +363,7 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 // whole number of pages to be written again on the next flush because we can
 // only write on aligned
 // offsets.
+#ifndef ROCKSDB_LITE
 Status WritableFileWriter::WriteDirect() {
   Status s;
 
@@ -460,7 +423,7 @@ Status WritableFileWriter::WriteDirect() {
   }
   return s;
 }
-
+#endif  // !ROCKSDB_LITE
 
 namespace {
 class ReadaheadRandomAccessFile : public RandomAccessFile {

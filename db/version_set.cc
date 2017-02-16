@@ -2361,9 +2361,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // If we just created a new descriptor file, install it by writing a
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
-      s = SetCurrentFile(
-          env_, dbname_, pending_manifest_file_number_,
-          db_directory);
+      s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
+                         db_directory);
     }
 
     if (s.ok()) {

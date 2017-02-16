@@ -170,7 +170,9 @@ class WritableFileWriter {
  private:
   // Used when os buffering is OFF and we are writing
   // DMA such as in Direct I/O mode
+#ifndef ROCKSDB_LITE
   Status WriteDirect();
+#endif  // !ROCKSDB_LITE
   // Normal write
   Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(uint64_t offset, uint64_t nbytes);

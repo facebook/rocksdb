@@ -19,6 +19,7 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 class RepairTest : public DBTestBase {
  public:
   RepairTest() : DBTestBase("/repair_test") {}
@@ -273,6 +274,8 @@ TEST_F(RepairTest, RepairColumnFamilyOptions) {
     }
   }
 }
+
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
