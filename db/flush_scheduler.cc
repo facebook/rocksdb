@@ -49,6 +49,7 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
 
 #ifndef NDEBUG
     {
+      std::lock_guard<std::mutex> lock(checking_mutex_);
       auto iter = checking_set_.find(cfd);
       assert(iter != checking_set_.end());
       checking_set_.erase(iter);
@@ -69,7 +70,7 @@ ColumnFamilyData* FlushScheduler::TakeNextColumnFamily() {
 
 bool FlushScheduler::Empty() {
   auto rv = head_.load(std::memory_order_relaxed) == nullptr;
-  assert(rv == checking_set_.empty());
+  // assert(rv == checking_set_.empty());
   return rv;
 }
 

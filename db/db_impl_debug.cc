@@ -22,9 +22,14 @@ uint64_t DBImpl::TEST_GetLevel0TotalSize() {
 }
 
 void DBImpl::TEST_HandleWALFull() {
+  InstrumentedMutexLock l(&mutex_);
+  HandleWALFull();
+}
+
+Status DBImpl::TEST_ScheduleFlushes() {
   WriteContext write_context;
   InstrumentedMutexLock l(&mutex_);
-  HandleWALFull(&write_context);
+  return ScheduleFlushes(&write_context);
 }
 
 int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
@@ -130,13 +135,13 @@ void DBImpl::TEST_UnlockMutex() {
 
 void* DBImpl::TEST_BeginWrite() {
   auto w = new WriteThread::Writer();
-  write_thread_.EnterUnbatched(w, &mutex_);
+  write_thread_->EnterUnbatched(w, &mutex_);
   return reinterpret_cast<void*>(w);
 }
 
 void DBImpl::TEST_EndWrite(void* w) {
   auto writer = reinterpret_cast<WriteThread::Writer*>(w);
-  write_thread_.ExitUnbatched(writer);
+  write_thread_->ExitUnbatched(writer);
   delete writer;
 }
 

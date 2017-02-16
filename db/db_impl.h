@@ -34,6 +34,7 @@
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
+#include "db/write_pipeline.h"
 #include "db/write_thread.h"
 #include "memtable_list.h"
 #include "monitoring/instrumented_mutex.h"
@@ -331,6 +332,8 @@ class DBImpl : public DB {
                            bool disallow_trivial_move = false);
 
   void TEST_HandleWALFull();
+
+  Status TEST_ScheduleFlushes();
 
   bool TEST_UnableToFlushOldestLog() {
     return unable_to_flush_oldest_log_;
@@ -725,16 +728,16 @@ class DBImpl : public DB {
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
   // REQUIRES: mutex locked
-  Status HandleWALFull(WriteContext* write_context);
+  void HandleWALFull();
 
   // REQUIRES: mutex locked
-  Status HandleWriteBufferFull(WriteContext* write_context);
+  void HandleWriteBufferFull();
 
   // REQUIRES: mutex locked
-  Status PreprocessWrite(const WriteOptions& write_options, bool need_log_sync,
-                         bool* logs_getting_syned, WriteContext* write_context);
+  Status PreprocessWrite(const WriteOptions& write_options, bool* need_log_sync,
+                         WriteContext* write_context);
 
-  Status WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+  Status WriteToWAL(const WriteThread::WriteGroup& write_group,
                     log::Writer* log_writer, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber sequence);
 
@@ -924,7 +927,7 @@ class DBImpl : public DB {
 
   WriteBufferManager* write_buffer_manager_;
 
-  WriteThreadImpl write_thread_;
+  std::unique_ptr<WriteThread> write_thread_;
 
   WriteBatch tmp_batch_;
 

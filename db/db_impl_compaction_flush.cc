@@ -905,7 +905,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     WriteThread::Writer w;
     if (!writes_stopped) {
-      write_thread_.EnterUnbatched(&w, &mutex_);
+      write_thread_->EnterUnbatched(&w, &mutex_);
     }
 
     // SwitchMemtable() will release and reacquire mutex
@@ -913,7 +913,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     s = SwitchMemtable(cfd, &context);
 
     if (!writes_stopped) {
-      write_thread_.ExitUnbatched(&w);
+      write_thread_->ExitUnbatched(&w);
     }
 
     cfd->imm()->FlushRequested();

@@ -242,14 +242,13 @@ void WriteThreadImpl::JoinBatchGroup(Writer* w) {
   }
 }
 
-size_t WriteThreadImpl::EnterAsBatchGroupLeader(
-    Writer* leader, WriteThread::Writer** last_writer,
-    autovector<WriteThread::Writer*>* write_batch_group) {
+size_t WriteThreadImpl::EnterAsBatchGroupLeader(Writer* leader,
+                                                WriteGroup* write_group) {
   assert(leader->link_older == nullptr);
   assert(leader->batch != nullptr);
+  assert(write_group != nullptr);
 
   size_t size = WriteBatchInternal::ByteSize(leader->batch);
-  write_batch_group->push_back(leader);
 
   // Allow the group to grow up to a maximum size, but if the
   // original write is small, limit the growth so we do not slow
@@ -259,8 +258,9 @@ size_t WriteThreadImpl::EnterAsBatchGroupLeader(
     max_size = size + (128 << 10);
   }
 
-  *last_writer = leader;
-
+  write_group->leader = leader;
+  write_group->last_writer = leader;
+  write_group->size = 1;
   Writer* newest_writer = newest_writer_.load(std::memory_order_acquire);
 
   // This is safe regardless of any db mutex status of the caller. Previous
@@ -311,35 +311,27 @@ size_t WriteThreadImpl::EnterAsBatchGroupLeader(
     }
 
     size += batch_size;
-    write_batch_group->push_back(w);
-    w->in_batch_group = true;
-    *last_writer = w;
+    write_group->last_writer = w;
+    write_group->size++;
   }
   return size;
 }
 
-void WriteThreadImpl::LaunchParallelFollowers(ParallelGroup* pg,
+void WriteThreadImpl::LaunchParallelFollowers(WriteGroup& write_group,
                                               SequenceNumber sequence) {
   // EnterAsBatchGroupLeader already created the links from leader to
   // newer writers in the group
-
-  pg->leader->parallel_group = pg;
-
-  Writer* w = pg->leader;
-  w->sequence = sequence;
-
   // Initialize and wake up the others
-  while (w != pg->last_writer) {
-    // Writers that won't write don't get sequence allotment
+  for (auto w : write_group) {
+    w->sequence = sequence;  // sequence number for the first key in the batch
+    w->write_group = &write_group;
     if (!w->CallbackFailed() && w->ShouldWriteToMemtable()) {
       // There is a sequence number of each written key
       sequence += WriteBatchInternal::Count(w->batch);
     }
-    w = w->link_newer;
-
-    w->sequence = sequence;  // sequence number for the first key in the batch
-    w->parallel_group = pg;
-    SetState(w, STATE_PARALLEL_FOLLOWER);
+    if (w != write_group.leader) {
+      SetState(w, STATE_PARALLEL_FOLLOWER);
+    }
   }
 }
 
@@ -347,36 +339,37 @@ void WriteThreadImpl::LaunchParallelFollowers(ParallelGroup* pg,
 bool WriteThreadImpl::CompleteParallelWorker(Writer* w) {
   static AdaptationContext ctx("CompleteParallelWorker");
 
-  auto* pg = w->parallel_group;
+  auto* write_group = w->write_group;
   if (!w->status.ok()) {
-    std::lock_guard<std::mutex> guard(pg->leader->StateMutex());
-    pg->status = w->status;
+    std::lock_guard<std::mutex> guard(write_group->leader->StateMutex());
+    write_group->status = w->status;
   }
 
-  if (pg->running.load(std::memory_order_acquire) > 1 && pg->running-- > 1) {
+  if (write_group->running-- > 1) {
     // we're not the last one
     AwaitState(w, STATE_COMPLETED, &ctx);
     return false;
   }
   // else we're the last parallel worker and should perform exit duties.
-  w->status = pg->status;
+  w->status = write_group->status;
   return true;
 }
 
 void WriteThreadImpl::ExitAsBatchGroupFollower(Writer* w) {
-  auto* pg = w->parallel_group;
+  auto* write_group = w->write_group;
 
   assert(w->state == STATE_PARALLEL_FOLLOWER);
-  assert(pg->status.ok());
-  ExitAsBatchGroupLeader(pg->leader, pg->last_writer, pg->status);
+  assert(write_group->status.ok());
+  ExitAsBatchGroupLeader(*write_group, write_group->status);
   assert(w->status.ok());
   assert(w->state == STATE_COMPLETED);
-  SetState(pg->leader, STATE_COMPLETED);
+  SetState(write_group->leader, STATE_COMPLETED);
 }
 
-void WriteThreadImpl::ExitAsBatchGroupLeader(Writer* leader,
-                                             Writer* last_writer,
+void WriteThreadImpl::ExitAsBatchGroupLeader(WriteGroup& write_group,
                                              Status status) {
+  Writer* leader = write_group.leader;
+  Writer* last_writer = write_group.last_writer;
   assert(leader->link_older == nullptr);
 
   Writer* head = newest_writer_.load(std::memory_order_acquire);
@@ -439,8 +432,10 @@ void WriteThreadImpl::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
 }
 
 void WriteThreadImpl::ExitUnbatched(Writer* w) {
-  Status dummy_status;
-  ExitAsBatchGroupLeader(w, w, dummy_status);
+  WriteGroup write_group;
+  write_group.leader = w;
+  write_group.last_writer = w;
+  ExitAsBatchGroupLeader(write_group, Status::OK());
 }
 
 }  // namespace rocksdb
