@@ -6542,10 +6542,15 @@ Status DBImpl::IngestExternalFile(
                                             immutable_db_options_, env_options_,
                                             &snapshots_, ingestion_options);
 
-  // Make sure that bg cleanup wont delete the files that we are ingesting
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
+    if (!bg_error_.ok()) {
+      // Don't ingest files when there is a bg_error
+      return bg_error_;
+    }
+
+    // Make sure that bg cleanup wont delete the files that we are ingesting
     pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
   }
 
