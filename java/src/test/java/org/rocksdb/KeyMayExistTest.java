@@ -43,21 +43,21 @@ public class KeyMayExistTest {
             isEqualTo(2);
         db.put("key".getBytes(), "value".getBytes());
         // Test without column family
-        StringBuffer retValue = new StringBuffer();
+        StringBuilder retValue = new StringBuilder();
         boolean exists = db.keyMayExist("key".getBytes(), retValue);
         assertThat(exists).isTrue();
         assertThat(retValue.toString()).isEqualTo("value");
 
         // Test without column family but with readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
-          retValue = new StringBuffer();
+          retValue = new StringBuilder();
           exists = db.keyMayExist(readOptions, "key".getBytes(), retValue);
           assertThat(exists).isTrue();
           assertThat(retValue.toString()).isEqualTo("value");
         }
 
         // Test with column family
-        retValue = new StringBuffer();
+        retValue = new StringBuilder();
         exists = db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(),
             retValue);
         assertThat(exists).isTrue();
@@ -65,7 +65,7 @@ public class KeyMayExistTest {
 
         // Test with column family and readOptions
         try (final ReadOptions readOptions = new ReadOptions()) {
-          retValue = new StringBuffer();
+          retValue = new StringBuilder();
           exists = db.keyMayExist(readOptions,
               columnFamilyHandleList.get(0), "key".getBytes(),
               retValue);

@@ -1402,6 +1402,37 @@ class ByteJni : public JavaClass {
   }
 
   /**
+   * Get the Java Class byte[]
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getArrayJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "[B");
+  }
+
+  /**
+   * Creates a new 2-dimensional Java Byte Array byte[][]
+   *
+   * @param env A pointer to the Java environment
+   * @param len The size of the first dimension
+   *
+   * @return A reference to the Java byte[][] or nullptr if an exception occurs
+   */
+  static jobjectArray new2dByteArray(JNIEnv* env, const jsize len) {
+    jclass clazz = getArrayJClass(env);
+    if(clazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    return env->NewObjectArray(len, clazz, nullptr);
+  }
+
+  /**
    * Get the Java Method: Byte#byteValue
    *
    * @param env A pointer to the Java environment
@@ -1419,6 +1450,80 @@ class ByteJni : public JavaClass {
     static jmethodID mid = env->GetMethodID(clazz, "byteValue", "()B");
     assert(mid != nullptr);
     return mid;
+  }
+};
+
+// The portal class for java.lang.StringBuilder
+class StringBuilderJni : public JavaClass {
+  public:
+  /**
+   * Get the Java Class java.lang.StringBuilder
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env, "java/lang/StringBuilder");
+  }
+
+  /**
+   * Get the Java Method: StringBuilder#append
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Method ID or nullptr if the class or method id could not
+   *     be retieved
+   */
+  static jmethodID getListAddMethodId(JNIEnv* env) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    static jmethodID mid =
+        env->GetMethodID(jclazz, "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  /**
+   * Appends a C-style string to a StringBuilder
+   *
+   * @param env A pointer to the Java environment
+   * @param jstring_builder Reference to a java.lang.StringBuilder
+   * @param c_str A C-style string to append to the StringBuilder
+   *
+   * @return A reference to the updated StringBuilder, or a nullptr if
+   *     an exception occurs
+   */
+  static jobject append(JNIEnv* env, jobject jstring_builder,
+      const char* c_str) {
+    jmethodID mid = getListAddMethodId(env);
+    if(mid == nullptr) {
+      // exception occurred accessing class or method
+      return nullptr;
+    }
+
+    jstring new_value_str = env->NewStringUTF(c_str);
+    if(new_value_str == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jresult_string_builder =
+        env->CallObjectMethod(jstring_builder, mid, new_value_str);
+    if(env->ExceptionCheck()) {
+      // exception occurred
+      env->DeleteLocalRef(new_value_str);
+      return nullptr;
+    }
+
+    return jresult_string_builder;
   }
 };
 
@@ -1965,6 +2070,65 @@ class JniUtil {
     }
 
     /**
+     * Copies a Java String[] to a C++ std::vector<std::string>
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jss (IN) The Java String array to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
+     *     exception occurs
+     *
+     * @return A std::vector<std:string> containing copies of the Java strings
+     */
+    static std::vector<std::string> copyStrings(JNIEnv* env,
+        jobjectArray jss, jboolean* has_exception) {
+          return rocksdb::JniUtil::copyStrings(env, jss,
+              env->GetArrayLength(jss), has_exception);
+    }
+
+    /**
+     * Copies a Java String[] to a C++ std::vector<std::string>
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jss (IN) The Java String array to copy
+     * @param jss_len (IN) The length of the Java String array to copy
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError or ArrayIndexOutOfBoundsException
+     *     exception occurs
+     *
+     * @return A std::vector<std:string> containing copies of the Java strings
+     */
+    static std::vector<std::string> copyStrings(JNIEnv* env,
+        jobjectArray jss, const jsize jss_len, jboolean* has_exception) {
+      std::vector<std::string> strs;
+      for (jsize i = 0; i < jss_len; i++) {
+        jobject js = env->GetObjectArrayElement(jss, i);
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          *has_exception = JNI_TRUE;
+          return strs;
+        }
+
+        jstring jstr = static_cast<jstring>(js);
+        const char* str = env->GetStringUTFChars(jstr, nullptr);
+        if(str == nullptr) {
+          // exception thrown: OutOfMemoryError
+          env->DeleteLocalRef(js);
+          *has_exception = JNI_TRUE;
+          return strs;
+        }
+
+        strs.push_back(std::string(str));
+
+        env->ReleaseStringUTFChars(jstr, str);
+        env->DeleteLocalRef(js);
+      }
+
+      *has_exception = JNI_FALSE;
+      return strs;
+    }
+
+    /**
      * Copies a jstring to a std::string
      * and releases the original jstring
      *
@@ -1981,7 +2145,7 @@ class JniUtil {
      */
     static std::string copyString(JNIEnv* env, jstring js,
         jboolean* has_exception) {
-      const char *utf = env->GetStringUTFChars(js, NULL);
+      const char *utf = env->GetStringUTFChars(js, nullptr);
       if(utf == nullptr) {
         // exception thrown: OutOfMemoryError
         env->ExceptionCheck();
@@ -1998,6 +2162,174 @@ class JniUtil {
       env->ReleaseStringUTFChars(js, utf);
       *has_exception = JNI_FALSE;
       return name;
+    }
+
+    /**
+     * Copies bytes from a std::string to a jByteArray
+     *
+     * @param env A pointer to the java environment
+     * @param bytes The bytes to copy
+     *
+     * @return the Java byte[] or nullptr if an exception occurs
+     */
+    static jbyteArray copyBytes(JNIEnv* env, std::string bytes) {
+      const jsize jlen = static_cast<jsize>(bytes.size());
+
+      jbyteArray jbytes = env->NewByteArray(jlen);
+      if(jbytes == nullptr) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      env->SetByteArrayRegion(jbytes, 0, jlen,
+        reinterpret_cast<const jbyte*>(bytes.c_str()));
+      if(env->ExceptionCheck()) {
+        // exception thrown: ArrayIndexOutOfBoundsException
+        env->DeleteLocalRef(jbytes);
+        return nullptr;
+      }
+
+      return jbytes;
+    }
+
+    /**
+     * Given a Java byte[][] which is an array of java.lang.Strings
+     * where each String is a byte[], the passed function `string_fn`
+     * will be called on each String, the result is the collected by
+     * calling the passed function `collector_fn`
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jbyte_strings (IN) A Java array of Strings expressed as bytes
+     * @param string_fn (IN) A transform function to call for each String
+     * @param collector_fn (IN) A collector which is called for the result
+     *     of each `string_fn`
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an ArrayIndexOutOfBoundsException or OutOfMemoryError
+     *     exception occurs
+     */
+    template <typename T> static void byteStrings(JNIEnv* env,
+        jobjectArray jbyte_strings,
+        std::function<T(const char*, const size_t)> string_fn,
+        std::function<void(size_t, T)> collector_fn,
+        jboolean *has_exception) {
+      const jsize jlen = env->GetArrayLength(jbyte_strings);
+
+      for(jsize i = 0; i < jlen; i++) {
+        jobject jbyte_string_obj = env->GetObjectArrayElement(jbyte_strings, i);
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          *has_exception = JNI_TRUE;  // signal error
+          return;
+        }
+
+        jbyteArray jbyte_string_ary =
+            reinterpret_cast<jbyteArray>(jbyte_string_obj);
+        T result = byteString(env, jbyte_string_ary, string_fn, has_exception);
+
+        env->DeleteLocalRef(jbyte_string_obj);
+
+        if(*has_exception == JNI_TRUE) {
+          // exception thrown: OutOfMemoryError
+          return;
+        }
+
+        collector_fn(i, result);
+      }
+
+      *has_exception = JNI_FALSE;
+    }
+
+    /**
+     * Given a Java String which is expressed as a Java Byte Array byte[],
+     * the passed function `string_fn` will be called on the String
+     * and the result returned
+     *
+     * @param env (IN) A pointer to the java environment
+     * @param jbyte_string_ary (IN) A Java String expressed in bytes
+     * @param string_fn (IN) A transform function to call on the String
+     * @param has_exception (OUT) will be set to JNI_TRUE
+     *     if an OutOfMemoryError exception occurs
+     */
+    template <typename T> static T byteString(JNIEnv* env,
+        jbyteArray jbyte_string_ary,
+        std::function<T(const char*, const size_t)> string_fn,
+        jboolean* has_exception) {
+      const jsize jbyte_string_len = env->GetArrayLength(jbyte_string_ary);
+      jbyte* jbyte_string =
+          env->GetByteArrayElements(jbyte_string_ary, nullptr);
+      if(jbyte_string == nullptr) {
+        // exception thrown: OutOfMemoryError
+        *has_exception = JNI_TRUE;
+        return nullptr;  // signal error
+      }
+
+      T result =
+          string_fn(reinterpret_cast<char *>(jbyte_string), jbyte_string_len);
+
+      env->ReleaseByteArrayElements(jbyte_string_ary, jbyte_string, JNI_ABORT);
+
+      *has_exception = JNI_FALSE;
+      return result;
+    }
+
+    /**
+     * Converts a std::vector<string> to a Java byte[][] where each Java String
+     * is expressed as a Java Byte Array byte[].
+     *
+     * @param env A pointer to the java environment
+     * @param strings A vector of Strings
+     *
+     * @return A Java array of Strings expressed as bytes
+     */
+    static jobjectArray stringsBytes(JNIEnv* env, std::vector<std::string> strings) {
+      jclass jcls_ba = ByteJni::getArrayJClass(env);
+      if(jcls_ba == nullptr) {
+        // exception occurred
+        return nullptr;
+      }
+
+      const jsize len = static_cast<jsize>(strings.size());
+
+      jobjectArray jbyte_strings = env->NewObjectArray(len, jcls_ba, nullptr);
+      if(jbyte_strings == nullptr) {
+        // exception thrown: OutOfMemoryError
+        return nullptr;
+      }
+
+      for (jsize i = 0; i < len; i++) {
+        std::string *str = &strings[i];
+        const jsize str_len = static_cast<jsize>(str->size());
+
+        jbyteArray jbyte_string_ary = env->NewByteArray(str_len);
+        if(jbyte_string_ary == nullptr) {
+          // exception thrown: OutOfMemoryError
+          env->DeleteLocalRef(jbyte_strings);
+          return nullptr;
+        }
+
+        env->SetByteArrayRegion(
+          jbyte_string_ary, 0, str_len,
+          reinterpret_cast<const jbyte*>(str->c_str()));
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          env->DeleteLocalRef(jbyte_string_ary);
+          env->DeleteLocalRef(jbyte_strings);
+          return nullptr;
+        }
+
+        env->SetObjectArrayElement(jbyte_strings, i, jbyte_string_ary);
+        if(env->ExceptionCheck()) {
+          // exception thrown: ArrayIndexOutOfBoundsException
+          // or ArrayStoreException
+          env->DeleteLocalRef(jbyte_string_ary);
+          env->DeleteLocalRef(jbyte_strings);
+          return nullptr;
+        }
+
+        env->DeleteLocalRef(jbyte_string_ary);
+      }
+
+      return jbyte_strings;
     }
 
     /*
