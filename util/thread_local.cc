@@ -40,8 +40,8 @@ class StaticMeta;
 struct ThreadData {
   explicit ThreadData(ThreadLocalPtr::StaticMeta* _inst) : entries(), inst(_inst) {}
   std::vector<Entry> entries;
-  ThreadData* next;
-  ThreadData* prev;
+  ThreadData* next = nullptr;
+  ThreadData* prev = nullptr;
   ThreadLocalPtr::StaticMeta* inst;
 };
 

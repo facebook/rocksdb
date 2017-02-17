@@ -153,7 +153,7 @@ class CompactionJob {
 
   EventLogger* event_logger_;
 
-  bool bottommost_level_;
+  bool bottommost_level_ = false;
   bool paranoid_file_checks_;
   bool measure_io_stats_;
   // Stores the Slices that designate the boundaries for each subcompaction

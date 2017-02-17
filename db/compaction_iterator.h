@@ -155,8 +155,8 @@ class CompactionIterator {
   // the underlying iterator during NextFromInput()).
   IterKey current_key_;
   Slice current_user_key_;
-  SequenceNumber current_user_key_sequence_;
-  SequenceNumber current_user_key_snapshot_;
+  SequenceNumber current_user_key_sequence_ = kMaxSequenceNumber;
+  SequenceNumber current_user_key_snapshot_ = 0;
 
   // True if the iterator has already returned a record for the current key.
   bool has_outputted_key_ = false;

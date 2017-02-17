@@ -527,7 +527,7 @@ extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
 struct RangeTombstone {
   Slice start_key_;
   Slice end_key_;
-  SequenceNumber seq_;
+  SequenceNumber seq_ = kMaxSequenceNumber;
   RangeTombstone() = default;
   RangeTombstone(Slice sk, Slice ek, SequenceNumber sn)
       : start_key_(sk), end_key_(ek), seq_(sn) {}
