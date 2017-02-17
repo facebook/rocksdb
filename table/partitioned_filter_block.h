@@ -33,6 +33,11 @@ namespace rocksdb {
  */
 class PartitionIndexBuilder : public IndexBuilder, public FullFilterBlockBuilder {
  public:
+static PartitionIndexBuilder* CreateIndexBuilder(
+    const rocksdb::InternalKeyComparator* comparator,
+    const SliceTransform* prefix_extractor, int index_block_restart_interval,
+    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
+
   explicit PartitionIndexBuilder(const InternalKeyComparator* comparator,
                                  const SliceTransform* prefix_extractor,
                                  const uint64_t index_per_partition,
@@ -111,10 +116,10 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
 
   virtual bool IsBlockBased() override { return false; }
   virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
-                           const bool no_io = false) override;
+                           const bool no_io = false, const Slice* const const_ikey_ptr = nullptr) override;
   virtual bool PrefixMayMatch(const Slice& prefix,
                               uint64_t block_offset = kNotValid,
-                              const bool no_io = false) override;
+                              const bool no_io = false, const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
  private:
@@ -122,8 +127,9 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
   std::unique_ptr<Block> idx_on_fltr_blk_;
   const Comparator& comparator_;
   const BlockBasedTable* table_;
+  Slice GetFilterPartitionHandle(const Slice& entry);
   BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
-      const Slice& entry, const bool no_io);
+      Slice* handle, const bool no_io);
 };
 
 }  // namespace rocksdb

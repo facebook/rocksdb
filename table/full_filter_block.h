@@ -92,10 +92,10 @@ class FullFilterBlockReader : public FilterBlockReader {
 
   virtual bool IsBlockBased() override { return false; }
   virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
-                           const bool no_io = false) override;
+                           const bool no_io = false, const Slice* const const_ikey_ptr = nullptr) override;
   virtual bool PrefixMayMatch(const Slice& prefix,
                               uint64_t block_offset = kNotValid,
-                              const bool no_io = false) override;
+                              const bool no_io = false, const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
  private:

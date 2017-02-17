@@ -55,6 +55,7 @@ class IndexBuilder {
 static IndexBuilder* CreateIndexBuilder(
     BlockBasedTableOptions::IndexType index_type,
     const rocksdb::InternalKeyComparator* comparator,
+    const SliceTransform* slice_transform, 
     const SliceTransform* prefix_extractor, int index_block_restart_interval,
     uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
 

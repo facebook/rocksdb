@@ -182,7 +182,8 @@ class PartitionIndexReader : public IndexReader {
     return NewTwoLevelIterator(
         new BlockBasedTable::BlockEntryIteratorState(table_, ReadOptions(),
                                                      false),
-        index_block_->NewIterator(comparator_, iter, true));
+        index_block_->NewIterator(comparator_, nullptr, true));
+        //TODO: Update TwoLevelIterator to be able to make use of on-stack BlockIter while the state is on heap
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -1480,15 +1481,16 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
     return true;
   }
   Slice user_key = ExtractUserKey(internal_key);
+  const Slice* const const_ikey_ptr = &internal_key;
   if (filter->whole_key_filtering()) {
-    return filter->KeyMayMatch(user_key, kNotValid, no_io);
+    return filter->KeyMayMatch(user_key, kNotValid, no_io, const_ikey_ptr);
   }
   if (!read_options.total_order_seek && rep_->ioptions.prefix_extractor &&
       rep_->table_properties->prefix_extractor_name.compare(
           rep_->ioptions.prefix_extractor->Name()) == 0 &&
       rep_->ioptions.prefix_extractor->InDomain(user_key) &&
       !filter->PrefixMayMatch(
-          rep_->ioptions.prefix_extractor->Transform(user_key))) {
+          rep_->ioptions.prefix_extractor->Transform(user_key), kNotValid, false, const_ikey_ptr)) {
     return false;
   }
   return true;
@@ -1513,7 +1515,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
     auto iiter = NewIndexIterator(read_options, &iiter_on_stack);
     std::unique_ptr<InternalIterator> iiter_unique_ptr;
     if (iiter != &iiter_on_stack) {
-      iiter_unique_ptr = std::unique_ptr<InternalIterator>(iiter);
+      iiter_unique_ptr.reset(iiter);
     }
 
     PinnedIteratorsManager* pinned_iters_mgr = get_context->pinned_iters_mgr();
@@ -1521,6 +1523,7 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
+
       Slice handle_value = iiter->value();
 
       BlockHandle handle;
@@ -1570,6 +1573,10 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
           // Pin blocks as long as we are merging
           biter.DelegateCleanupsTo(pinned_iters_mgr);
         }
+      }
+      if (done) {
+        // Avoid the extra Next which is expensive in two-level indexes
+        break;
       }
     }
     if (s.ok()) {

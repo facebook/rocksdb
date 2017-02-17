@@ -74,7 +74,7 @@ FullFilterBlockReader::FullFilterBlockReader(
 }
 
 bool FullFilterBlockReader::KeyMayMatch(const Slice& key, uint64_t block_offset,
-                                        const bool no_io) {
+                                        const bool no_io, const Slice* const const_ikey_ptr) {
   assert(block_offset == kNotValid);
   if (!whole_key_filtering_) {
     return true;
@@ -84,7 +84,7 @@ bool FullFilterBlockReader::KeyMayMatch(const Slice& key, uint64_t block_offset,
 
 bool FullFilterBlockReader::PrefixMayMatch(const Slice& prefix,
                                            uint64_t block_offset,
-                                           const bool no_io) {
+                                           const bool no_io, const Slice* const const_ikey_ptr) {
   assert(block_offset == kNotValid);
   if (!prefix_extractor_) {
     return true;

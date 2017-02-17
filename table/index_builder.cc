@@ -46,6 +46,7 @@ namespace rocksdb {
 // Create a index builder based on its type.
 IndexBuilder* IndexBuilder::CreateIndexBuilder(BlockBasedTableOptions::IndexType index_type,
                                  const InternalKeyComparator* comparator,
+                                 const SliceTransform* slice_transform,
                                  const SliceTransform* prefix_extractor,
                                  int index_block_restart_interval,
                                  uint64_t index_per_partition,
@@ -56,10 +57,30 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(BlockBasedTableOptions::IndexType
                                        index_block_restart_interval);
     }
     case BlockBasedTableOptions::kHashSearch: {
-      return new HashIndexBuilder(comparator, prefix_extractor,
+      return new HashIndexBuilder(comparator, slice_transform,
                                   index_block_restart_interval);
     }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
+      return PartitionIndexBuilder::CreateIndexBuilder(
+          comparator, prefix_extractor, index_block_restart_interval,
+          index_per_partition, table_opt);
+    }
+    default: {
+      assert(!"Do not recognize the index type ");
+      return nullptr;
+    }
+  }
+  // impossible.
+  assert(false);
+  return nullptr;
+}
+
+PartitionIndexBuilder* PartitionIndexBuilder::CreateIndexBuilder(
+                                 const InternalKeyComparator* comparator,
+                                 const SliceTransform* prefix_extractor,
+                                 int index_block_restart_interval,
+                                 uint64_t index_per_partition,
+                                 const BlockBasedTableOptions& table_opt) {
       class DummyFilterBitsBuilder : public FilterBitsBuilder {
         public:
           virtual void AddKey(const Slice& key) { assert(0); }
@@ -75,13 +96,4 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(BlockBasedTableOptions::IndexType
           index_block_restart_interval, table_opt.whole_key_filtering,
           filter_bits_builder, table_opt);
     }
-    default: {
-      assert(!"Do not recognize the index type ");
-      return nullptr;
-    }
-  }
-  // impossible.
-  assert(false);
-  return nullptr;
-}
 }

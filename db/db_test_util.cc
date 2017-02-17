@@ -397,6 +397,8 @@ Options DBTestBase::CurrentOptions(
 
   if (options_override.filter_policy) {
     table_options.filter_policy = options_override.filter_policy;
+    table_options.partition_filters = options_override.partition_filters;
+    table_options.index_per_partition = options_override.index_per_partition;
   }
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));

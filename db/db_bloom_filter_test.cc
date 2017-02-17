@@ -21,16 +21,21 @@ class DBBloomFilterTest : public DBTestBase {
 };
 
 class DBBloomFilterTestWithParam : public DBTestBase,
-                                   public testing::WithParamInterface<bool> {
+  public testing::WithParamInterface<std::tuple<bool, bool>> {
+      //                             public testing::WithParamInterface<bool> {
  protected:
   bool use_block_based_filter_;
+  bool partition_filters_;
 
  public:
   DBBloomFilterTestWithParam() : DBTestBase("/db_bloom_filter_tests") {}
 
   ~DBBloomFilterTestWithParam() {}
 
-  void SetUp() override { use_block_based_filter_ = GetParam(); }
+  void SetUp() override {
+    use_block_based_filter_ = std::get<0>(GetParam());
+    partition_filters_ = std::get<1>(GetParam());
+  }
 };
 
 // KeyMayExist can lead to a few false positives, but not false negatives.
@@ -43,7 +48,15 @@ TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
     anon::OptionsOverride options_override;
     options_override.filter_policy.reset(
         NewBloomFilterPolicy(20, use_block_based_filter_));
+    options_override.partition_filters = partition_filters_;
+    options_override.index_per_partition = 2;
     Options options = CurrentOptions(options_override);
+    printf("---- a test\n");
+    if (partition_filters_ && static_cast<BlockBasedTableOptions*>(options.table_factory->GetOptions())->index_type != BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      // In the current implementation partitioned filters depend on partitioned indexes
+      printf("---- skip\n");
+      continue;
+    }
     options.statistics = rocksdb::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -301,6 +314,11 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     table_options.no_block_cache = true;
     table_options.filter_policy.reset(
         NewBloomFilterPolicy(10, use_block_based_filter_));
+    table_options.partition_filters = partition_filters_;
+    if (partition_filters_) {
+      table_options.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+    }
+    table_options.index_per_partition = 2;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -327,7 +345,12 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     int reads = env_->random_read_counter_.Read();
     fprintf(stderr, "%d present => %d reads\n", N, reads);
     ASSERT_GE(reads, N);
-    ASSERT_LE(reads, N + 2 * N / 100);
+    if (partition_filters_) {
+      // Without block cache, we read an extra partition filter per each level*read and a partition index per each read
+      ASSERT_LE(reads,  4 * N + 2 * N / 100);
+    } else {
+      ASSERT_LE(reads, N + 2 * N / 100);
+    }
 
     // Lookup present keys.  Should rarely read from either sstable.
     env_->random_read_counter_.Reset();
@@ -336,7 +359,12 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
     }
     reads = env_->random_read_counter_.Read();
     fprintf(stderr, "%d missing => %d reads\n", N, reads);
+    if (partition_filters_) {
+      // With partitioned filter we read one extra filter per level per each missed read.
+    ASSERT_LE(reads, 2 * N + 3 * N / 100);
+    } else {
     ASSERT_LE(reads, 3 * N / 100);
+    }
 
     env_->delay_sstable_sync_.store(false, std::memory_order_release);
     Close();
@@ -344,7 +372,9 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
 }
 
 INSTANTIATE_TEST_CASE_P(DBBloomFilterTestWithParam, DBBloomFilterTestWithParam,
-                        ::testing::Bool());
+                        ::testing::Values(std::make_tuple(true, false),
+                                          std::make_tuple(false, true),
+                                          std::make_tuple(false, false)));
 
 TEST_F(DBBloomFilterTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {

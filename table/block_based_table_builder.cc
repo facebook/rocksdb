@@ -247,7 +247,8 @@ struct BlockBasedTableBuilder::Rep {
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
-  std::unique_ptr<FilterBlockBuilder> filter_block;
+  std::unique_ptr<FilterBlockBuilder> filter_block_gc;
+  FilterBlockBuilder* filter_block;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
 
@@ -278,25 +279,43 @@ struct BlockBasedTableBuilder::Rep {
                    table_options.use_delta_encoding),
         range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
         internal_prefix_transform(_ioptions.prefix_extractor),
-        index_builder(IndexBuilder::CreateIndexBuilder(
-            table_options.index_type, &internal_comparator,
-            &this->internal_prefix_transform,
-            table_options.index_block_restart_interval,
-            table_options.index_per_partition, table_options)),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
-        filter_block(
-            skip_filters
-                ? nullptr
-                : table_opt.partition_filters
-                      ? (PartitionIndexBuilder*)index_builder.get()
-                      : CreateFilterBlockBuilder(_ioptions, table_options)),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name) {
+
+    PartitionIndexBuilder* part_index_builder = nullptr;
+    if (table_options.index_type ==
+        BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      part_index_builder = PartitionIndexBuilder::CreateIndexBuilder(
+          &internal_comparator,
+          _ioptions.prefix_extractor,
+          table_options.index_block_restart_interval,
+          table_options.index_per_partition, table_options);
+      index_builder.reset(part_index_builder);
+    } else {
+      index_builder.reset(IndexBuilder::CreateIndexBuilder(
+          table_options.index_type, &internal_comparator,
+          &this->internal_prefix_transform,
+          _ioptions.prefix_extractor,
+          table_options.index_block_restart_interval,
+          table_options.index_per_partition, table_options));
+    }
+    filter_block = nullptr;
+    if (!skip_filters) {
+      if (table_opt.partition_filters) {
+        assert(part_index_builder != nullptr);
+        filter_block = part_index_builder;
+      } else {
+        filter_block = CreateFilterBlockBuilder(_ioptions, table_options);
+        filter_block_gc.reset(filter_block);
+      }
+    }
+
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
       table_properties_collectors.emplace_back(
           collector_factories->CreateIntTblPropCollector(column_family_id));
@@ -633,8 +652,7 @@ Status BlockBasedTableBuilder::Finish() {
         WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
       } else {  // index on filter partitions
         assert(s.ok());
-        const bool is_data_block = true;
-        WriteBlock(filter_content, &filter_block_handle, !is_data_block);
+        WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
       }
     }
   }
