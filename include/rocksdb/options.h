@@ -1121,10 +1121,12 @@ struct DBOptions {
 
   // Use O_DIRECT for reading file
   // Default: false
+  // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
 
   // Use O_DIRECT for writing file
   // Default: false
+  // Not supported in ROCKSDB_LITE mode!
   bool use_direct_writes = false;
 
   // If false, fallocate() calls are bypassed

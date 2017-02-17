@@ -998,8 +998,7 @@ class DBImpl : public DB {
   // A flag indicating whether the current rocksdb database has any
   // data that is not yet persisted into either WAL or SST file.
   // Used when disableWAL is true.
-  bool has_unpersisted_data_;
-
+  std::atomic<bool> has_unpersisted_data_;
 
   // if an attempt was made to flush all column families that
   // the oldest log depends on but uncommited data in the oldest

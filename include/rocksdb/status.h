@@ -70,6 +70,7 @@ class Status {
     kLockLimit = 3,
     kNoSpace = 4,
     kDeadlock = 5,
+    kStaleFile = 6,
     kMaxSubCode
   };
 

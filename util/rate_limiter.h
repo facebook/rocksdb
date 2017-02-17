@@ -61,6 +61,9 @@ class GenericRateLimiter : public RateLimiter {
  private:
   void Refill();
   int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec);
+  uint64_t NowMicrosMonotonic(Env* env) {
+    return env->NowNanos() / std::milli::den;
+  }
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;

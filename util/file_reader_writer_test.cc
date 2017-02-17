@@ -85,6 +85,7 @@ TEST_F(WritableFileWriterTest, RangeSync) {
   writer->Close();
 }
 
+#ifndef ROCKSDB_LITE
 TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   class FakeWF : public WritableFile {
    public:
@@ -124,6 +125,7 @@ TEST_F(WritableFileWriterTest, AppendStatusReturn) {
   dynamic_cast<FakeWF*>(writer->writable_file())->SetIOError(true);
   ASSERT_NOK(writer->Append(std::string(2 * kMb, 'b')));
 }
+#endif
 
 }  // namespace rocksdb
 

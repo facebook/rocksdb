@@ -74,7 +74,9 @@ TEST_F(DBFlushTest, SyncFail) {
   TEST_SYNC_POINT("DBFlushTest::SyncFail:2");
   fault_injection_env->SetFilesystemActive(true);
   dbfull()->TEST_WaitForFlushMemTable();
+#ifndef ROCKSDB_LITE
   ASSERT_EQ("", FilesPerLevel());  // flush failed.
+#endif                             // ROCKSDB_LITE
   // Flush job should release ref count to current version.
   ASSERT_EQ(refs_before, cfd->current()->TEST_refs());
   Destroy(options);
