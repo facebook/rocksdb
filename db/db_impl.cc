@@ -6545,7 +6545,7 @@ Status DBImpl::IngestExternalFile(
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
-    if (UNLIKELY(!bg_error_.ok())) {
+    if (!bg_error_.ok()) {
       // Don't ingest files when there is a bg_error
       return bg_error_;
     }
