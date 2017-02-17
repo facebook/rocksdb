@@ -599,6 +599,7 @@ class DBTestBase : public testing::Test {
     kUniversalSubcompactions = 32,
     kBlockBasedTableWithIndexRestartInterval = 33,
     kBlockBasedTableWithPartitionedIndex = 34,
+    kPartitionedFilterWithNewTableReaderForCompactions = 35,
   };
   int option_config_;
 

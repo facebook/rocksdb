@@ -206,7 +206,7 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
     if (UNLIKELY(!filter_partition.value)) {
       return true;
     }
-    auto res = filter_partition.value->PrefixMayMatch(prefix, no_io);
+    auto res = filter_partition.value->PrefixMayMatch(prefix, kNotValid, no_io);
     filter_partition.Release(table_->rep_->table_options.block_cache.get());
     return res;
   }

@@ -179,9 +179,11 @@ class PartitionIndexReader : public IndexReader {
   // return a two-level iterator: first level is on the partition index
   virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
                                         bool dont_care = true) override {
+    // Filters are already checked before seeking the index
+    const bool skip_filters = true;
     return NewTwoLevelIterator(
         new BlockBasedTable::BlockEntryIteratorState(table_, ReadOptions(),
-                                                     false),
+                                                     skip_filters),
         index_block_->NewIterator(comparator_, nullptr, true));
         //TODO: Update TwoLevelIterator to be able to make use of on-stack BlockIter while the state is on heap
   }
@@ -1366,11 +1368,13 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
   Status s;
 
   // First, try check with full filter
-  auto filter_entry = GetFilter(true /* no io */);
+  const bool no_io = true;
+  auto filter_entry = GetFilter(no_io);
   FilterBlockReader* filter = filter_entry.value;
   if (filter != nullptr) {
     if (!filter->IsBlockBased()) {
-      may_match = filter->PrefixMayMatch(prefix);
+      const Slice* const const_ikey_ptr = &internal_key;
+      may_match = filter->PrefixMayMatch(prefix, kNotValid, no_io, const_ikey_ptr);
     } else {
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();

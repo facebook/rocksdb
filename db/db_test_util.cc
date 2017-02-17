@@ -198,6 +198,8 @@ bool DBTestBase::ChangeFilterOptions() {
     option_config_ = kFilter;
   } else if (option_config_ == kFilter) {
     option_config_ = kFullFilterWithNewTableReaderForCompactions;
+  } else if (option_config_ == kFullFilterWithNewTableReaderForCompactions) {
+    option_config_ = kPartitionedFilterWithNewTableReaderForCompactions;
   } else {
     return false;
   }
@@ -293,6 +295,14 @@ Options DBTestBase::CurrentOptions(
       break;
     case kFullFilterWithNewTableReaderForCompactions:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+      options.new_table_reader_for_compaction_inputs = true;
+      options.compaction_readahead_size = 10 * 1024 * 1024;
+      break;
+    case kPartitionedFilterWithNewTableReaderForCompactions:
+      table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+      table_options.partition_filters = true;
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       options.new_table_reader_for_compaction_inputs = true;
       options.compaction_readahead_size = 10 * 1024 * 1024;
       break;

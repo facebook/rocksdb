@@ -51,10 +51,8 @@ TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
     options_override.partition_filters = partition_filters_;
     options_override.index_per_partition = 2;
     Options options = CurrentOptions(options_override);
-    printf("---- a test\n");
     if (partition_filters_ && static_cast<BlockBasedTableOptions*>(options.table_factory->GetOptions())->index_type != BlockBasedTableOptions::kTwoLevelIndexSearch) {
       // In the current implementation partitioned filters depend on partitioned indexes
-      printf("---- skip\n");
       continue;
     }
     options.statistics = rocksdb::CreateDBStatistics();
@@ -115,11 +113,16 @@ TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
 }
 
 TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
+  for (bool partition_filters: {true, false}) {
   Options options = last_options_;
   options.prefix_extractor.reset(NewFixedPrefixTransform(8));
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  if (partition_filters) {
+  bbto.partition_filters = true;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  }
   bbto.whole_key_filtering = false;
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyAndReopen(options);
@@ -152,9 +155,11 @@ TEST_F(DBBloomFilterTest, GetFilterByPrefixBloom) {
   ro.total_order_seek = true;
   ASSERT_TRUE(db_->Get(ro, "foobarbar", &value).IsNotFound());
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+  }
 }
 
 TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
+  for (bool partition_filters: {true, false}) {
   Options options = last_options_;
   options.prefix_extractor.reset(NewFixedPrefixTransform(3));
   options.statistics = rocksdb::CreateDBStatistics();
@@ -162,6 +167,10 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
   bbto.whole_key_filtering = false;
+  if (partition_filters) {
+  bbto.partition_filters = true;
+  bbto.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  }
   options.table_factory.reset(NewBlockBasedTableFactory(bbto));
   DestroyAndReopen(options);
 
@@ -301,6 +310,7 @@ TEST_F(DBBloomFilterTest, WholeKeyFilterProp) {
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
   ASSERT_EQ("bar", Get("barfoo"));
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
+  }
 }
 
 TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
@@ -431,14 +441,33 @@ TEST_F(DBBloomFilterTest, BloomFilterCompatibility) {
     ASSERT_EQ(Key(i), Get(1, Key(i)));
   }
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+
+  // Check db with partitioned full filter
+  table_options.partition_filters = true;
+  table_options.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+
+  // Check if they can be found
+  for (int i = 0; i < maxKey; i++) {
+    ASSERT_EQ(Key(i), Get(1, Key(i)));
+  }
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
 }
 
 TEST_F(DBBloomFilterTest, BloomFilterReverseCompatibility) {
+  for (bool partition_filters: {true, false}) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions table_options;
+  if (partition_filters) {
+  table_options.partition_filters = true;
+  table_options.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+  }
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  DestroyAndReopen(options);
 
   // Create with full filter
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -460,6 +489,7 @@ TEST_F(DBBloomFilterTest, BloomFilterReverseCompatibility) {
     ASSERT_EQ(Key(i), Get(1, Key(i)));
   }
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+  }
 }
 
 namespace {
@@ -616,11 +646,12 @@ TEST_F(DBBloomFilterTest, PrefixExtractorBlockFilter) {
 #ifndef ROCKSDB_LITE
 class BloomStatsTestWithParam
     : public DBBloomFilterTest,
-      public testing::WithParamInterface<std::tuple<bool, bool>> {
+      public testing::WithParamInterface<std::tuple<bool, bool, bool>> {
  public:
   BloomStatsTestWithParam() {
     use_block_table_ = std::get<0>(GetParam());
     use_block_based_builder_ = std::get<1>(GetParam());
+    partition_filters_ = std::get<2>(GetParam());
 
     options_.create_if_missing = true;
     options_.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(4));
@@ -629,10 +660,16 @@ class BloomStatsTestWithParam
     if (use_block_table_) {
       BlockBasedTableOptions table_options;
       table_options.hash_index_allow_collision = false;
+      if (partition_filters_) {
+        assert(!use_block_based_builder_);
+        table_options.partition_filters = partition_filters_;
+        table_options.index_type = BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
+      }
       table_options.filter_policy.reset(
           NewBloomFilterPolicy(10, use_block_based_builder_));
       options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
     } else {
+      assert(!partition_filters_); // not supported in plain table
       PlainTableOptions table_options;
       options_.table_factory.reset(NewPlainTableFactory(table_options));
     }
@@ -652,6 +689,7 @@ class BloomStatsTestWithParam
 
   bool use_block_table_;
   bool use_block_based_builder_;
+  bool partition_filters_;
   Options options_;
 };
 
@@ -746,25 +784,43 @@ TEST_P(BloomStatsTestWithParam, BloomStatsTestWithIter) {
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value1, iter->value().ToString());
-  ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
+  if (partition_filters_) {
+    ASSERT_EQ(0, perf_context.bloom_sst_hit_count); // no_io
+    ASSERT_EQ(0, perf_context.bloom_sst_miss_count); // no_io
+  } else {
+    ASSERT_EQ(1, perf_context.bloom_sst_hit_count);
+  }
 
   iter->Seek(key3);
   ASSERT_OK(iter->status());
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(value3, iter->value().ToString());
-  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+  if (partition_filters_) {
+    ASSERT_EQ(0, perf_context.bloom_sst_hit_count); // no_io
+    ASSERT_EQ(0, perf_context.bloom_sst_miss_count); // no_io
+  } else {
+    ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+  }
 
   iter->Seek(key2);
   ASSERT_OK(iter->status());
-  ASSERT_TRUE(!iter->Valid());
-  ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
-  ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+  if (partition_filters_) {
+    // iter is still valid since filter did not reject the key2
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(0, perf_context.bloom_sst_hit_count); // no_io
+    ASSERT_EQ(0, perf_context.bloom_sst_miss_count); // no_io
+  } else {
+    ASSERT_TRUE(!iter->Valid());
+    ASSERT_EQ(1, perf_context.bloom_sst_miss_count);
+    ASSERT_EQ(2, perf_context.bloom_sst_hit_count);
+  }
 }
 
 INSTANTIATE_TEST_CASE_P(BloomStatsTestWithParam, BloomStatsTestWithParam,
-                        ::testing::Values(std::make_tuple(true, true),
-                                          std::make_tuple(true, false),
-                                          std::make_tuple(false, false)));
+                        ::testing::Values(std::make_tuple(true, true, false),
+                                          std::make_tuple(true, false, false),
+                                          std::make_tuple(true, false, true),
+                                          std::make_tuple(false, false, false)));
 
 namespace {
 void PrefixScanInit(DBBloomFilterTest* dbtest) {
