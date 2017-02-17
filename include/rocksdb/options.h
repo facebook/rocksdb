@@ -1579,9 +1579,6 @@ struct WriteOptions {
   // and the write may got lost after a crash.
   bool disableWAL;
 
-  // The option is deprecated. It's not used anymore.
-  uint64_t timeout_hint_us;
-
   // If true and if user is trying to write to column families that don't exist
   // (they were dropped),  ignore the write (don't return an error). If there
   // are multiple writes in a WriteBatch, other writes will succeed.
@@ -1595,7 +1592,6 @@ struct WriteOptions {
   WriteOptions()
       : sync(false),
         disableWAL(false),
-        timeout_hint_us(0),
         ignore_missing_column_families(false),
         no_slowdown(false) {}
 };

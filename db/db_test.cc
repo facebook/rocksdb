@@ -3363,15 +3363,6 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
 }
 #endif  // ROCKSDB_LITE
 
-// verify that we correctly deprecated timeout_hint_us
-TEST_F(DBTest, SimpleWriteTimeoutTest) {
-  WriteOptions write_opt;
-  write_opt.timeout_hint_us = 0;
-  ASSERT_OK(Put(Key(1), Key(1) + std::string(100, 'v'), write_opt));
-  write_opt.timeout_hint_us = 10;
-  ASSERT_NOK(Put(Key(1), Key(1) + std::string(100, 'v'), write_opt));
-}
-
 #ifndef ROCKSDB_LITE
 /*
  * This test is not reliable enough as it heavily depends on disk behavior.

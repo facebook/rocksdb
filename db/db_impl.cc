@@ -4647,9 +4647,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
-  if (write_options.timeout_hint_us != 0) {
-    return Status::InvalidArgument("timeout_hint_us is deprecated");
-  }
 
   Status status;
 
