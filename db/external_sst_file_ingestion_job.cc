@@ -309,6 +309,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   } else if (file_to_ingest->version == 1) {
     // SST file V1 should not have global seqno field
     assert(seqno_iter == uprops.end());
+    file_to_ingest->original_seqno = 0;
     if (ingestion_options_.allow_blocking_flush ||
             ingestion_options_.allow_global_seqno) {
       return Status::InvalidArgument(
@@ -439,7 +440,7 @@ Status ExternalSstFileIngestionJob::AssignLevelForIngestedFile(
 
 Status ExternalSstFileIngestionJob::AssignGlobalSeqnoForIngestedFile(
     IngestedFileInfo* file_to_ingest, SequenceNumber seqno) {
-  if (file_to_ingest->original_seqno == seqno || file_to_ingest->version == 1) {
+  if (file_to_ingest->original_seqno == seqno) {
     // This file already have the correct global seqno
     return Status::OK();
   } else if (!ingestion_options_.allow_global_seqno) {
