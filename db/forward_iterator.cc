@@ -619,8 +619,8 @@ void ForwardIterator::RenewIterators() {
 
   mutable_iter_ = svnew->mem->NewIterator(read_options_, &arena_);
   svnew->imm->AddIterators(read_options_, &imm_iters_, &arena_);
-  RangeDelAggregator range_del_agg(
-      InternalKeyComparator(cfd_->internal_comparator()), {} /* snapshots */);
+  InternalKeyComparator icmp(cfd_->internal_comparator());
+  RangeDelAggregator range_del_agg(icmp, {} /* snapshots */);
   if (!read_options_.ignore_range_deletions) {
     std::unique_ptr<InternalIterator> range_del_iter(
         svnew->mem->NewRangeTombstoneIterator(read_options_));
