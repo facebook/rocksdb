@@ -5126,8 +5126,6 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
              : mutable_db_options_.max_total_wal_size;
 }
 
-static const int kMaxStallSleepMicros = 100000;
-
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::DelayWrite(uint64_t num_bytes,
