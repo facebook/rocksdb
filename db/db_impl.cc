@@ -5126,6 +5126,8 @@ uint64_t DBImpl::GetMaxTotalWalSize() const {
              : mutable_db_options_.max_total_wal_size;
 }
 
+static const int kMaxStallSleepMicros = 100000;
+
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::DelayWrite(uint64_t num_bytes,
@@ -5139,12 +5141,20 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       if (write_options.no_slowdown) {
         return Status::Incomplete();
       }
-      mutex_.Unlock();
       delayed = true;
-      TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
-      // hopefully we don't have to sleep more than 2 billion microseconds
-      env_->SleepForMicroseconds(static_cast<int>(delay));
-      mutex_.Lock();
+
+      // We will delay the write until the wall clock reach stall_end or
+      // we don't have any flushes or compactions running in the bg
+      uint64_t stall_end = sw.start_time() + delay;
+      while (bg_flush_scheduled_ > 0 || bg_compaction_scheduled_ > 0) {
+        uint64_t now = env_->NowMicros();
+        if (now >= stall_end) {
+          break;
+        }
+
+        TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
+        bg_cv_.TimedWait(static_cast<int>(stall_end - now));
+      }
     }
 
     while (bg_error_.ok() && write_controller_.IsStopped()) {
