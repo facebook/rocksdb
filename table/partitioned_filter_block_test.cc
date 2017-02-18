@@ -16,7 +16,7 @@ namespace rocksdb {
 
   typedef PartitionIndexBuilder PartitionedFilterBlockBuilder;
 
-  std::map<uint64_t, std::unique_ptr<FilterBlockReader>> slices;
+  std::map<uint64_t, Slice> slices;
 
   class PartitionedFilterBlockTest : public testing::Test {
     public:
@@ -24,9 +24,12 @@ namespace rocksdb {
       InternalKeyComparator icomp = InternalKeyComparator(BytewiseComparator());
 
       PartitionedFilterBlockTest() {
+        cache_ = NewLRUCache(1, 1, false);
+        table_options_.block_cache = cache_;
         table_options_.filter_policy.reset(NewBloomFilterPolicy(10, false));
       }
 
+      std::shared_ptr<Cache> cache_;
       ~PartitionedFilterBlockTest() {}
 
       const std::string keys[4] = {"afoo", "bar", "box", "hello"};
@@ -35,7 +38,7 @@ namespace rocksdb {
       int last_offset = 10;
       BlockHandle Write(Slice& slice) {
         BlockHandle bh(last_offset + 1, slice.size());
-        slices[bh.offset()] = std::unique_ptr<FilterBlockReader>(new FullFilterBlockReader(nullptr, true, BlockContents(slice, false, kNoCompression), table_options_.filter_policy->GetFilterBitsReader(slice), nullptr));
+        slices[bh.offset()] = slice;
         last_offset += bh.size();
         return bh;
       }
@@ -56,34 +59,38 @@ namespace rocksdb {
           slice = builder->Finish(bh, &status);
           bh = Write(slice);
         } while (status.IsIncomplete());
-        std::unique_ptr<TableReader> table;
         const Options options;
         const ImmutableCFOptions ioptions(options);
         const EnvOptions env_options;
-        const BlockBasedTableOptions table_options;
         //BlockBasedTable::Open(ioptions, env_options, table_options, icomp, std::unique_ptr<rocksdb::RandomAccessFileReader>(), 0L, table, false, false, 0);
-        BlockBasedTable::Open(ioptions, env_options, table_options, icomp, std::unique_ptr<rocksdb::RandomAccessFileReader>(), 0L, &table, false, false, 0);
+        std::unique_ptr<BlockBasedTable> table(new BlockBasedTable(new BlockBasedTable::Rep(ioptions, env_options, table_options_, icomp, false)));
         auto reader = new PartitionedFilterBlockReader(
             nullptr, true, BlockContents(slice, false, kNoCompression), nullptr,
-            nullptr, *icomp.user_comparator(), dynamic_cast<BlockBasedTable*>(table.get()));
+            nullptr, *icomp.user_comparator(), table.get());
         return reader;
       }
 
       void VerifyReader(PartitionedFilterBlockBuilder* builder, bool empty = false) {
         std::unique_ptr<PartitionedFilterBlockReader> reader(NewReader(builder));
         // Querying added keys
+        const bool no_io = true;
         for (auto key: keys) {
-          ASSERT_TRUE(reader->KeyMayMatch(key));
+          const Slice ikey = Slice(*InternalKey(key, 0, ValueType::kTypeValue).rep());
+          ASSERT_TRUE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey));
         }
+        {
         // querying a key twice
-        ASSERT_TRUE(reader->KeyMayMatch(keys[0]));
+        const Slice ikey = Slice(*InternalKey(keys[0], 0, ValueType::kTypeValue).rep());
+        ASSERT_TRUE(reader->KeyMayMatch(keys[0], kNotValid, !no_io, &ikey));
+        }
         // querying missing keys
         for (auto key: missing_keys) {
+          const Slice ikey = Slice(*InternalKey(key, 0, ValueType::kTypeValue).rep());
           if (empty) {
-            ASSERT_TRUE(reader->KeyMayMatch(key));
+            ASSERT_TRUE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey));
           } else {
             // assuming a good hash function
-            ASSERT_FALSE(reader->KeyMayMatch(key));
+            ASSERT_FALSE(reader->KeyMayMatch(key, kNotValid, !no_io, &ikey));
           }
         }
       }
@@ -190,11 +197,20 @@ namespace rocksdb {
   }
 
   // A Mock of BlockBasedTable
-  // The only two engaged methods are GetFilter and Open. The rest are noop.
+  // The only three engaged methods are GetFilter, ReadFilter, and Open. The rest are noop.
   BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
       const BlockHandle& bh, const bool is_a_filter_partition,
       bool no_io) const {
-    return BlockBasedTable::CachableEntry<FilterBlockReader>(slices[bh.offset()].get(), nullptr);
+    Slice slice = slices[bh.offset()];
+        auto obj = new FullFilterBlockReader(nullptr, true, BlockContents(slice, false, kNoCompression), rep_->table_options.filter_policy->GetFilterBitsReader(slice), nullptr);
+    return {obj, nullptr};
+  }
+
+  FilterBlockReader* BlockBasedTable::ReadFilter(
+      const BlockHandle& bh, const bool is_a_filter_partition) const {
+    assert(0);
+    return nullptr;
+    //return slices[bh.offset()].get();
   }
 
   Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
