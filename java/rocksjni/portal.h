@@ -1994,6 +1994,61 @@ class LoggerJni : public RocksDBNativeClass<
   }
 };
 
+// The portal class for org.rocksdb.TransactionLogIterator.BatchResult
+class BatchResultJni : public JavaClass {
+  public:
+  /**
+   * Get the Java Class org.rocksdb.TransactionLogIterator.BatchResult
+   *
+   * @param env A pointer to the Java environment
+   *
+   * @return The Java Class or nullptr if one of the
+   *     ClassFormatError, ClassCircularityError, NoClassDefFoundError,
+   *     OutOfMemoryError or ExceptionInInitializerError exceptions is thrown
+   */
+  static jclass getJClass(JNIEnv* env) {
+    return JavaClass::getJClass(env,
+        "org/rocksdb/TransactionLogIterator$BatchResult");
+  }
+
+  /**
+   * Create a new Java org.rocksdb.TransactionLogIterator.BatchResult object
+   * with the same properties as the provided C++ rocksdb::BatchResult object
+   *
+   * @param env A pointer to the Java environment
+   * @param batch_result The rocksdb::BatchResult object
+   *
+   * @return A reference to a Java
+   *     org.rocksdb.TransactionLogIterator.BatchResult object,
+   *     or nullptr if an an exception occurs
+   */
+  static jobject construct(JNIEnv* env,
+      rocksdb::BatchResult& batch_result) {
+    jclass jclazz = getJClass(env);
+    if(jclazz == nullptr) {
+      // exception occurred accessing class
+      return nullptr;
+    }
+
+    jmethodID mid = env->GetMethodID(
+      jclazz, "<init>", "(JJ)V");
+    if(mid == nullptr) {
+      // exception thrown: NoSuchMethodException or OutOfMemoryError
+      return nullptr;
+    }
+
+    jobject jbatch_result = env->NewObject(jclazz, mid,
+      batch_result.sequence, batch_result.writeBatchPtr.get());
+    if(jbatch_result == nullptr) {
+      // exception thrown: InstantiationException or OutOfMemoryError
+      return nullptr;
+    }
+
+    batch_result.writeBatchPtr.release();
+    return jbatch_result;
+  }
+};
+
 // various utility functions for working with RocksDB and JNI
 class JniUtil {
  public:
