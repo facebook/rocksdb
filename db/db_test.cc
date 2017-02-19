@@ -4831,6 +4831,15 @@ TEST_F(DBTest, DelayedWriteRate) {
 
   CreateAndReopenWithCF({"pikachu"}, options);
 
+  uint64_t total_delay = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DelayWrite:Sleep", [&](void* arg) {
+        uint64_t delay = *(static_cast<uint64_t*>(arg));
+        total_delay += delay;
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+
   // Block compactions
   test::SleepingBackgroundTask sleeping_task_low;
   env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
@@ -4867,10 +4876,8 @@ TEST_F(DBTest, DelayedWriteRate) {
                                      kIncSlowdownRatio * kIncSlowdownRatio);
   }
   // Estimate the total sleep time fall into the rough range.
-  ASSERT_GT(env_->addon_time_.load(),
-            static_cast<int64_t>(estimated_sleep_time / 2));
-  ASSERT_LT(env_->addon_time_.load(),
-            static_cast<int64_t>(estimated_sleep_time * 2));
+  ASSERT_GT(total_delay, static_cast<int64_t>(estimated_sleep_time / 2));
+  ASSERT_LT(total_delay, static_cast<int64_t>(estimated_sleep_time * 2));
 
   env_->no_slowdown_ = false;
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();

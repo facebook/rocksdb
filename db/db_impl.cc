@@ -5139,7 +5139,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
       if (write_options.no_slowdown) {
         return Status::Incomplete();
       }
-      delayed = true;
+      TEST_SYNC_POINT_CALLBACK("DBImpl::DelayWrite:Sleep", &delay);
 
       // We will delay the write until the wall clock reach stall_end or
       // we don't have any flushes or compactions running in the bg
@@ -5150,7 +5150,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
           break;
         }
 
-        TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
+        delayed = true;
         bg_cv_.TimedWait(static_cast<int>(stall_end - now));
       }
     }
