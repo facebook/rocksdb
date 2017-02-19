@@ -165,6 +165,27 @@ Status AwsEnv::NewSequentialFile(const std::string& fname,
   assert(status().ok());
   *result = nullptr;
 
+  // If we are a clone, then we read first from local storage and then from
+  // cloud storage.
+  if (is_clone_) {
+    Status st = base_env_->NewSequentialFile(fname, result, options);
+    if (!st.ok()) {
+      // read from S3
+      S3ReadableFile* f = new S3ReadableFile(this, fname);
+      st = f->status();
+      if (!st.ok()) {
+        delete f;
+	return st;
+      }
+      result->reset(dynamic_cast<SequentialFile*>(f));
+
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[aws] NewRandomAccessFile file %s %s",
+          fname.c_str(), "ok");
+    }
+    return st;
+  }
+
   // Get file type
   bool logfile;
   bool sstfile;
@@ -220,6 +241,26 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
   assert(status().ok());
   *result = nullptr;
 
+  // If we are a clone, then we read first from local storage and then from
+  // cloud storage.
+  if (is_clone_) {
+    Status st = base_env_->NewRandomAccessFile(fname, result, options);
+    if (st.IsNotFound()) {
+      // read from S3
+      S3ReadableFile* f = new S3ReadableFile(this, fname);
+      if (!f->status().ok()) {
+        st = f->status();
+        delete f;
+      }
+      result->reset(dynamic_cast<RandomAccessFile*>(f));
+
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] NewRandomAccessFile file %s %s",
+          fname.c_str(), "ok");
+    }
+    return st;
+  }
+
   // Get file type
   bool logfile;
   bool sstfile;
@@ -273,14 +314,15 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
                                 unique_ptr<WritableFile>* result,
                                 const EnvOptions& options) {
   assert(status().ok());
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[aws] NewWritableFile src '%s'",
-      fname.c_str());
 
   // If we are a clone, then we write only to local storage
   if (is_clone_) {
     return base_env_->NewWritableFile(fname, result, options);
   }
+
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[aws] NewWritableFile src '%s'",
+      fname.c_str());
 
   // Get file type
   bool logfile;
@@ -360,15 +402,15 @@ class S3Directory : public Directory {
 //
 Status AwsEnv::NewDirectory(const std::string& name,
                            unique_ptr<Directory>* result) {
-  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[aws] NewDirectory name '%s'",
-      name.c_str());
   assert(status().ok());
 
   // If we are a clone, then we write only to local storage
   if (is_clone_) {
     return base_env_->NewDirectory(name, result);
   }
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[aws] NewDirectory name '%s'",
+      name.c_str());
 
   result->reset(nullptr);
   assert(!IsSstFile(name));
@@ -500,7 +542,7 @@ Status AwsEnv::PathExistsInS3(const std::string& fname, bool isfile) {
 // Return the names of all children of the specified path from S3
 //
 Status AwsEnv::GetChildrenFromS3(const std::string& path,
-                          std::vector<std::string>* result) {
+                                 std::vector<std::string>* result) {
   assert(status().ok());
   // The bucket name
   Aws::String bucket = GetBucket(bucket_prefix_);
@@ -546,7 +588,6 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
         loop = false;
 	break;
       }
-      assert(IsSstFile(keystr));
       result->push_back(keystr);
     }
 
@@ -558,6 +599,37 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
     marker = res.GetNextMarker();
   }
   return Status::OK();
+}
+
+//
+// Deletes all the objects in our bucket.
+//
+Status AwsEnv::EmptyBucket() {
+  std::vector<std::string> results;
+  Aws::String bucket = GetBucket(bucket_prefix_);
+
+  // Get all the objects in the  bucket
+  Status st = GetChildrenFromS3("", &results);
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+        "[s3] EmptyBucket unable to find objects in bucket %s %s",
+        bucket.c_str(), st.ToString().c_str());
+    return st;
+  }
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[s3] EmptyBucket fetched %d objects in bucket %s",
+      results.size(), bucket.c_str());
+
+  // Delete all objects from bucket
+  for (auto path: results) {
+    st = DeletePathInS3(path);
+    if (!st.ok()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] EmptyBucket Unable to delete %s in bucket %s %s",
+          path.c_str(), bucket.c_str(), st.ToString().c_str());
+    }
+  }
+  return st;
 }
 
 Status AwsEnv::GetChildren(const std::string& path,
@@ -824,7 +896,7 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
 
   if (is_clone_) {
     Status ret = base_env_->GetFileSize(fname, size);
-    if (ret.IsNotFound()) {
+    if (!ret.ok()) {
       ret = GetFileInfoInS3(fname, size, nullptr);
     }
     return ret;
@@ -1020,8 +1092,9 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
   assert(idfile);
 
   // The target bucket name and object name
+  std::string identity_file = "IDENTITY";
   Aws::String bucket = GetBucket(bucket_prefix_);
-  Aws::String object(target.c_str(), target.size());
+  Aws::String object(identity_file.c_str(), identity_file.size());
 
   // Upload ID file to  S3
   Status st = S3WritableFile::CopyToS3(this, src, bucket,  object);

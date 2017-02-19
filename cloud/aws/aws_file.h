@@ -86,15 +86,17 @@ const std::string pathsep = "/";
 
 // types of rocksdb files
 const std::string sst = ".sst";
+const std::string ldb = ".ldb";
 const std::string log = ".log";
 
-// Is this a sst file, i.e. ends in ".sst"
+// Is this a sst file, i.e. ends in ".sst" or ".ldb"
 inline bool IsSstFile(const std::string& pathname) {
   if (pathname.size() < sst.size()) {
     return false;
   }
   const char* ptr = pathname.c_str() + pathname.size() - sst.size();
-  if (memcmp(ptr, sst.c_str(), sst.size()) == 0) {
+  if ((memcmp(ptr, sst.c_str(), sst.size()) == 0) ||
+      (memcmp(ptr, ldb.c_str(), ldb.size()) == 0)) {
     return true;
   }
   return false;
@@ -121,7 +123,7 @@ bool IsManifestFile(const std::string& pathname) {
   } else {
     fname = pathname;
   }
-  if (fname.find("MANIFEST-") == 0) {
+  if (fname.find("MANIFEST") == 0) {
     return true;
   }
   return false;
@@ -143,7 +145,7 @@ IsIdentityFile(const std::string& pathname) {
   return false;
 }
 
-// A log file has ".log" suffix or starts with 'MANIFEST-"
+// A log file has ".log" suffix or starts with 'MANIFEST"
 inline bool IsLogFile(const std::string& pathname) {
   return IsWalFile(pathname) || IsManifestFile(pathname);
 }
@@ -279,11 +281,16 @@ class S3WritableFile: public WritableFile {
 
   virtual Status Close();
 
-  virtual Status CopyManifestToS3();
+  virtual Status CopyManifestToS3(bool force = false);
   static Status CopyToS3(const AwsEnv* env,
 		         const std::string& fname,
 			 const Aws::String& s3_bucket,
 		         const Aws::String& destination_object);
+  static Status CopyFromS3(AwsEnv* env,
+		         const std::string& source_object,
+			 const std::string& destination_pathname,
+			 uint64_t size = 0, // entire file
+			 bool do_sync = 1); // sync
 };
 
 // Creates a new file, appends data to a file or delete an existing file via

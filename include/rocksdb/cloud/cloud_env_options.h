@@ -87,13 +87,17 @@ class CloudEnv : public Env {
   void ClearClone() { is_clone_ = false; }
   bool IsClone() { return is_clone_; }
 
+  // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
+
+  // Empties all contents of the associated cloud storage bucket.
+  virtual Status EmptyBucket() = 0;
 
   // Create a new AWS env.
   static Status NewAwsEnv(Env* base_env, const std::string& cloud_storage,
-		         const CloudEnvOptions& env_options,
-			 std::shared_ptr<Logger> logger,
-			 CloudEnv** cenv);
+		          const CloudEnvOptions& env_options,
+			  std::shared_ptr<Logger> logger,
+			  CloudEnv** cenv);
 
  protected:
   // The type of cloud service aws google azure, etc

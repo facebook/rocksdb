@@ -11,23 +11,6 @@
 
 namespace rocksdb {
 
-namespace {
-
-//
-// Create appropriate files in the clone dir
-//
-Status SanitizeCloneDirectory(const Options& options,
-		              const std::string & dbname,
-			      bool readonly) {
-  CloudEnv* cenv = static_cast<CloudEnv *>(options.env);
-  if (cenv->GetCloudType() != CloudType::kAws) {
-    return Status::InvalidArgument("SanitizeCloneDirectory: Invalid Type");
-  }
-  // TODO
-  return Status::OK();
-}
-
-} // namespace unnamed
 
 DBCloudImpl::DBCloudImpl(DB* db) :
 	DBCloud(db),
@@ -79,20 +62,306 @@ Status DBCloud::OpenClone(
     DBCloud** dbptr,
     bool read_only) {
 
-  Status st = SanitizeCloneDirectory(options, dbname, read_only);
+  // Mark env instance as serving a clone.
+  CloudEnv* cenv = static_cast<CloudEnv *>(options.env);
+  cenv->SetClone();
+
+  Status st = DBCloudImpl::SanitizeCloneDirectory(options, dbname, read_only);
   if (!st.ok()) {
     return st;
   }
 
   st = DBCloud::Open(options, dbname, column_families,
 		     handles, dbptr, read_only);
-
-  if (st.ok()) {
-    // Mark env instance as serving a clone.
-    CloudEnv* cenv = static_cast<CloudEnv *>(options.env);
-    cenv->SetClone();
-  }
   return st;
+}
+
+//
+// Read the contents of the file (upto 64 K) into a memory buffer
+//
+Status DBCloudImpl::ReadFileIntoString(Env* env,
+		const std::string& filename,
+		std::string* id) {
+  const EnvOptions soptions;
+  unique_ptr<SequentialFile> file;
+  Status s;
+  {
+    s = env->NewSequentialFile(filename, &file, soptions);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  char buffer[64*1024];
+
+  uint64_t file_size;
+  s = env->GetFileSize(filename, &file_size);
+  if (!s.ok()) {
+    return s;
+  }
+  if (file_size > sizeof(buffer)) {
+    return Status::IOError("DBCloudImpl::ReadFileIntoString"
+		           " Insufficient buffer size");
+  }
+  Slice slice;
+  s = file->Read(static_cast<size_t>(file_size), &slice, buffer);
+  if (!s.ok()) {
+    return s;
+  }
+  id->assign(slice.ToString());
+  return s;
+}
+
+//
+// Shall we re-initialize the clone dir?
+//
+Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
+		             const Options& options,
+		             const std::string& clone_dir,
+			     bool* do_reinit) {
+  // assume that directory does needs reinitialization
+  *do_reinit = true;
+
+  // get local env
+  Env* env = cenv->GetBaseEnv();
+
+  // Does the local directory exist
+  unique_ptr<Directory> dir;
+  Status st = env->NewDirectory(clone_dir, &dir);
+
+  // If directory does not exist, then re-initialize
+  if (!st.ok()) {
+    return Status::OK();
+  }
+
+  // Check that the DB ID fie exists in clonedir
+  std::string idfilename = clone_dir + "/" + "/IDENTITY";
+  st = env->FileExists(idfilename);
+  if (!st.ok()) {
+    return Status::OK();
+  }
+  // Read DBID file from clone dir
+  std::string local_dbid;
+  st = ReadFileIntoString(env, idfilename, &local_dbid);
+  if (!st.ok()) {
+    return Status::OK();
+  }
+
+  // Fetch DBID from source cloud bucket
+  std::string cloud_dbid;
+  st = ReadFileIntoString(cenv, "IDENTITY", &cloud_dbid);
+  if (!st.ok()) {
+    return Status::OK();
+  }
+
+  // The local DBID = "CLOUD-DBID" + "rockset" + UUID
+  std::string prefix = cloud_dbid + "rockset";
+  size_t pos = local_dbid.find(prefix);
+  if (pos == std::string::npos || pos != 0) {
+    std::string err = "[db_cloud_impl] NeedsReinitialization: "
+	              "Local dbid is " + local_dbid +
+	              " but cloud dbid is " + cloud_dbid;
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log, err.c_str());
+    return Status::OK();
+  }
+
+  //
+  // The DBID of the clone matches that of the source_bucket.
+  // We do not need any re-initialization of local dir.
+  //
+  *do_reinit = false;
+  return Status::OK();
+}
+
+
+//
+// Create appropriate files in the clone dir
+//
+Status DBCloudImpl::SanitizeCloneDirectory(const Options& options,
+		              const std::string & clone_name,
+			      bool readonly) {
+  EnvOptions soptions;
+
+  CloudEnv* cenv = static_cast<CloudEnv *>(options.env);
+  if (cenv->GetCloudType() != CloudType::kAws) {
+    return Status::InvalidArgument("SanitizeCloneDirectory: Invalid Type");
+  }
+  // acquire the local env
+  Env* env = cenv->GetBaseEnv();
+
+  // Shall we reinitialize the clone dir?
+  bool do_reinit = true;
+  Status st = DBCloudImpl::NeedsReinitialization(cenv,
+		             options, clone_name,
+			     &do_reinit);
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+	"[db_cloud_impl] SanitizeCloneDirectory error inspecting dir %s %s",
+	clone_name.c_str(), st.ToString().c_str());
+    return st;
+  }
+
+  if (!do_reinit) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+	"[db_cloud_impl] SanitizeCloneDirectory local clone %s is good",
+	clone_name.c_str());
+    return Status::OK();
+  }
+
+  // Delete all local files
+  std::vector<Env::FileAttributes> result;
+  st = env->GetChildrenFileAttributes(clone_name, &result);
+  if (!st.ok() && !st.IsNotFound()) {
+    return st;
+  }
+  for (auto file : result) {
+    if (file.name == "." || file.name == "..") {
+      continue;
+    }
+    std::string pathname = clone_name + "/" + file.name;
+    st = env->DeleteFile(pathname);
+    if (!st.ok()) {
+      return st;
+    }
+  }
+
+  // If directory does not exist, create it
+  if (!st.ok() && st.IsNotFound()) {
+    if (readonly) {
+      return st;
+    }
+    st = env->CreateDirIfMissing(clone_name);
+  }
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+	"[db_cloud_impl] SanitizeCloneDirectory error opening dir %s %s",
+	clone_name.c_str(), st.ToString().c_str());
+    return st;
+  }
+  // download MANIFEST
+  std::string manifestfile = "MANIFEST-000000";
+  st = DBCloudImpl::CopyFile(cenv, env,
+		             "MANIFEST", clone_name + "/" + manifestfile);
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+	"[db_cloud_impl] Unable to download MANIFEST file to %s %s",
+	clone_name.c_str(), st.ToString().c_str());
+    return st;
+  } else {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+	"[db_cloud_impl] Download cloud MANIFEST file to %s %s",
+	clone_name.c_str(), st.ToString().c_str());
+  }
+
+  // fetch dbid from cloud storage
+  std::string cloud_dbid;
+  st = ReadFileIntoString(cenv, "IDENTITY", &cloud_dbid);
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+	"[db_cloud_impl] Unable to read dbid from cloud storage %s",
+	st.ToString().c_str());
+    return st;
+  }
+  Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      "[db_cloud_impl] Extracted dbid from cloud storage %s %s",
+       cloud_dbid.c_str(), st.ToString().c_str());
+
+  // write new dbid to IDENTITY file
+  {
+    // create new dbid
+    std::string new_dbid = cloud_dbid + "rockset" + env->GenerateUniqueId();
+
+    unique_ptr<WritableFile> destfile;
+    st = env->NewWritableFile(clone_name + "/" + "IDENTITY",
+		              &destfile, soptions);
+    if (!st.ok()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Unable to create local IDENTITY file to %s %s",
+          clone_name.c_str(), st.ToString().c_str());
+      return st;
+    }
+    st = destfile->Append(Slice(new_dbid));
+    if (!st.ok()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Unable to write local IDENTITY file to %s %s",
+          clone_name.c_str(), st.ToString().c_str());
+      return st;
+    }
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        "[db_cloud_impl] Write dbid %s to local IDENTITY file %s %s",
+        new_dbid.c_str(), clone_name.c_str(), st.ToString().c_str());
+  }
+  // create CURRENT file to point to the manifest
+  {
+    unique_ptr<WritableFile> destfile;
+    st = env->NewWritableFile(clone_name + "/" +"CURRENT",
+		              &destfile, soptions);
+    if (!st.ok()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Unable to create local CURRENT file to %s %s",
+          clone_name.c_str(), st.ToString().c_str());
+      return st;
+    }
+    manifestfile += "\n";   // CURRENT file needs a newline
+    st = destfile->Append(Slice(manifestfile));
+    if (!st.ok()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Unable to write local IDENTITY file to %s %s",
+          clone_name.c_str(), st.ToString().c_str());
+      return st;
+    }
+  }
+  return Status::OK();
+}
+
+//
+// Copy file
+//
+Status DBCloudImpl::CopyFile(
+    Env* src_env,
+    Env* dest_env,
+    const std::string& srcname,
+    const std::string& destname,
+    uint64_t size,
+    bool do_sync) {
+
+  const EnvOptions soptions;
+  unique_ptr<SequentialFile> srcfile;
+  Status s = src_env->NewSequentialFile(srcname, &srcfile, soptions);
+  if (!s.ok()) {
+    return s;
+  }
+
+  // If size, is not specified, copy the entire object.
+  if (size == 0) {
+    s = src_env->GetFileSize(srcname, &size);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  unique_ptr<WritableFile> destfile;
+  s = dest_env->NewWritableFile(destname, &destfile, soptions);
+
+  // copy 64K at a time
+  char buffer[64 * 1024];
+  Slice slice;
+  while (size > 0 && s.ok()) {
+    size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
+    s = srcfile->Read(bytes_to_read, &slice, buffer);
+    if (s.ok()) {
+      if (slice.size() == 0) {
+        return Status::Corruption("file too small");
+      }
+      s = destfile->Append(slice);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+    size -= slice.size();
+  }
+  if (s.ok() && do_sync) {
+    s = destfile->Sync();
+  }
+  return s;
 }
 
 }  // namespace rocksdb

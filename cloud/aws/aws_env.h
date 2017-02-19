@@ -181,6 +181,8 @@ class AwsEnv : public CloudEnv {
     return AwsEnv::gettid();
   }
 
+  virtual Status EmptyBucket() override;
+
   // get the posix env
   Env* GetPosixEnv() const { return base_env_; }
 
@@ -394,6 +396,10 @@ class AwsEnv : public Env {
 
   virtual uint64_t GetThreadID() const override {
     return 0;
+  }
+
+  virtual Status EmptyBucket() {
+      return s3_notsup;
   }
 
   static Status NewAwsEnv(Env* env,

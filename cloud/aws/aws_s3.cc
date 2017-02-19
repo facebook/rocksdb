@@ -26,7 +26,8 @@ S3ReadableFile::S3ReadableFile(AwsEnv* env, const std::string& fname,
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[s3] S3ReadableFile opening file %s",
         fname_.c_str());
-    assert(!is_file_ || IsSstFile(fname));
+    assert(!is_file_ || IsSstFile(fname) || IsManifestFile(fname) ||
+           IsIdentityFile(fname));
     s3_bucket_ = GetBucket(env_->bucket_prefix_);
     s3_object_ = Aws::String(fname_.c_str(), fname_.size());
 
@@ -58,7 +59,7 @@ Status S3ReadableFile::Read(size_t n, Slice* result, char* scratch) {
 
 // random access, read data from specified offset in file
 Status S3ReadableFile::Read(uint64_t offset, size_t n, Slice* result,
-                                    char* scratch) const {
+                            char* scratch) const {
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3ReadableFile reading %s at offset %ld size %ld",
       fname_.c_str(), offset, n);
@@ -272,6 +273,7 @@ S3WritableFile::S3WritableFile(AwsEnv* env,
 }
 
 S3WritableFile::~S3WritableFile() {
+  temp_file_->Close();
 }
 
 Status S3WritableFile::Close() {
@@ -290,7 +292,7 @@ Status S3WritableFile::Close() {
   // If this is a manifest file, then upload to S3
   // to make it durable. Do not delete local instance of MANIFEST.
   if (is_manifest_) {
-    st = CopyManifestToS3();
+    st = CopyManifestToS3(true);
     return st;
   }
 
@@ -382,14 +384,65 @@ Status S3WritableFile::CopyToS3(
 }
 
 //
+// Copy S3 object to specified file
+//
+Status S3WritableFile::CopyFromS3(
+    AwsEnv* env,
+    const std::string& source_object,
+    const std::string& destination_pathname,
+    uint64_t size,
+    bool do_sync) {
+
+  std::unique_ptr<S3ReadableFile> src_reader(
+		     new S3ReadableFile(env, source_object, true));
+  if (!src_reader) {
+    return Status::IOError("S3WritableFile::CopyFromS3 error");
+  }
+
+  // If size, is not specified, copy the entire object.
+  if (size == 0) {
+    size = src_reader->GetSize();
+  }
+
+  const EnvOptions soptions;
+  Status s;
+  unique_ptr<WritableFile> destfile;
+  Env* localenv = env->GetBaseEnv();
+  s = localenv->NewWritableFile(destination_pathname, &destfile, soptions);
+
+  // copy 64K at a time
+  char buffer[64 * 1024];
+  Slice slice;
+  while (size > 0 && s.ok()) {
+    size_t bytes_to_read = std::min(sizeof(buffer), static_cast<size_t>(size));
+    s = src_reader->Read(bytes_to_read, &slice, buffer);
+    if (s.ok()) {
+      if (slice.size() == 0) {
+        return Status::Corruption("file too small");
+      }
+      s = destfile->Append(slice);
+    }
+    if (!s.ok()) {
+      return s;
+    }
+    size -= slice.size();
+  }
+  if (s.ok() && do_sync) {
+    s = destfile->Sync();
+  }
+  return s;
+}
+
+//
 // Copy this file to a object named MANIFEST in S3
 //
-Status S3WritableFile::CopyManifestToS3() {
+Status S3WritableFile::CopyManifestToS3(bool force) {
   Status stat;
 
   uint64_t now = env_->NowMicros();
   if (is_manifest_ &&
-      (manifest_last_sync_time_ + manifest_durable_periodicity_millis_ < now)) {
+      (force ||
+       (manifest_last_sync_time_ + manifest_durable_periodicity_millis_ < now))) {
 
     // Upload manifest file only if it has not been uploaded in the last
     // manifest_durable_periodicity_millis_  milliseconds.
