@@ -26,8 +26,11 @@
  */
 jlong Java_org_rocksdb_AbstractSlice_createNewSliceFromString(
     JNIEnv * env, jclass jcls, jstring jstr) {
-  const auto* str = env->GetStringUTFChars(jstr, NULL);
+  const auto* str = env->GetStringUTFChars(jstr, nullptr);
   const size_t len = strlen(str);
+
+  // NOTE: buf will be deleted in the Java_org_rocksdb_Slice_disposeInternalBuf method
+  // TODO(AR) pretty sure this method has a memory leak for org.rocksdb.DirectSlice as buf[] is never deleted
   char* buf = new char[len + 1];
   memcpy(buf, str, len);
   buf[len] = 0;
@@ -121,10 +124,12 @@ jlong Java_org_rocksdb_Slice_createNewSlice0(
 
   const jsize dataSize = env->GetArrayLength(data);
   const int len = dataSize - offset;
-  jbyte* ptrData = new jbyte[len];
-  env->GetByteArrayRegion(data, offset, len, ptrData);
 
-  const auto* slice = new rocksdb::Slice((const char*)ptrData, len);
+  // NOTE: buf will be deleted in the Java_org_rocksdb_Slice_disposeInternalBuf method
+  jbyte* buf = new jbyte[len];
+  env->GetByteArrayRegion(data, offset, len, buf);
+
+  const auto* slice = new rocksdb::Slice((const char*)buf, len);
   return reinterpret_cast<jlong>(slice);
 }
 
@@ -138,13 +143,12 @@ jlong Java_org_rocksdb_Slice_createNewSlice1(
 
   const int len = env->GetArrayLength(data) + 1;
 
-  jboolean isCopy;
-  jbyte* ptrData = env->GetByteArrayElements(data, &isCopy);
+  jbyte* ptrData = env->GetByteArrayElements(data, nullptr);
 
-  // NOTE: buf will be deleted in the org.rocksdb.Slice#dispose method
+  // NOTE: buf will be deleted in the Java_org_rocksdb_Slice_disposeInternalBuf method
   char* buf = new char[len];
   memcpy(buf, ptrData, len - 1);
-  buf[len-1]='\0';
+  buf[len-1] = '\0';
 
   const auto* slice =
       new rocksdb::Slice(buf, len - 1);
