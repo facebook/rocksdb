@@ -1008,6 +1008,15 @@ class DBImpl : public DB {
   // log is fully commited.
   bool unable_to_flush_oldest_log_;
 
+
+  // if an attempt was made to flush all column families that
+  // the oldest log depends on but uncommited data in the oldest
+  // log prevents the log from being released.
+  // We must attempt to free the dependent memtables again
+  // at a later time after the transaction in the oldest
+  // log is fully commited.
+  bool unable_to_flush_oldest_log_;
+
   static const int KEEP_LOG_FILE_NUM = 1000;
   // MSVC version 1800 still does not have constexpr for ::max()
   static const uint64_t kNoTimeOut = port::kMaxUint64;
