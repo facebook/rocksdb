@@ -19,6 +19,13 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   public final static DirectSlice NONE = new DirectSlice();
 
   /**
+   * Indicates whether we have to free the memory pointed to by the Slice
+   */
+  private final boolean internalBuffer;
+  private volatile boolean cleared = false;
+  private volatile long internalBufferOffset = 0;
+
+  /**
    * Called from JNI to construct a new Java DirectSlice
    * without an underlying C++ object set
    * at creation time.
@@ -32,6 +39,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   DirectSlice() {
     super();
+    this.internalBuffer = false;
   }
 
   /**
@@ -43,6 +51,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public DirectSlice(final String str) {
     super(createNewSliceFromString(str));
+    this.internalBuffer = true;
   }
 
   /**
@@ -55,6 +64,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public DirectSlice(final ByteBuffer data, final int length) {
     super(createNewDirectSlice0(ensureDirect(data), length));
+    this.internalBuffer = false;
   }
 
   /**
@@ -66,6 +76,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public DirectSlice(final ByteBuffer data) {
     super(createNewDirectSlice1(ensureDirect(data)));
+    this.internalBuffer = false;
   }
 
   private static ByteBuffer ensureDirect(final ByteBuffer data) {
@@ -91,7 +102,8 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * Clears the backing slice
    */
   public void clear() {
-    clear0(getNativeHandle());
+    clear0(getNativeHandle(), !cleared && internalBuffer, internalBufferOffset);
+    cleared = true;
   }
 
   /**
@@ -103,6 +115,16 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public void removePrefix(final int n) {
     removePrefix0(getNativeHandle(), n);
+    this.internalBufferOffset += n;
+  }
+
+  @Override
+  protected void disposeInternal() {
+    final long nativeHandle = getNativeHandle();
+    if(!cleared && internalBuffer) {
+      disposeInternalBuf(nativeHandle, internalBufferOffset);
+    }
+    disposeInternal(nativeHandle);
   }
 
   private native static long createNewDirectSlice0(final ByteBuffer data,
@@ -110,6 +132,9 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   private native static long createNewDirectSlice1(final ByteBuffer data);
   @Override protected final native ByteBuffer data0(long handle);
   private native byte get0(long handle, int offset);
-  private native void clear0(long handle);
+  private native void clear0(long handle, boolean internalBuffer,
+      long internalBufferOffset);
   private native void removePrefix0(long handle, int length);
+  private native void disposeInternalBuf(final long handle,
+      long internalBufferOffset);
 }

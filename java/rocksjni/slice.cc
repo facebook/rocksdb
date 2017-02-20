@@ -34,8 +34,9 @@ jlong Java_org_rocksdb_AbstractSlice_createNewSliceFromString(
 
   const size_t len = strlen(str);
 
-  // NOTE: buf will be deleted in the Java_org_rocksdb_Slice_disposeInternalBuf method
-  // TODO(AR) pretty sure this method has a memory leak for org.rocksdb.DirectSlice as buf[] is never deleted
+  // NOTE: buf will be deleted in the
+  // Java_org_rocksdb_Slice_disposeInternalBuf or
+  // or Java_org_rocksdb_DirectSlice_disposeInternalBuf methods
   char* buf = new char[len + 1];
   memcpy(buf, str, len);
   buf[len] = 0;
@@ -281,12 +282,16 @@ jbyte Java_org_rocksdb_DirectSlice_get0(
 /*
  * Class:     org_rocksdb_DirectSlice
  * Method:    clear0
- * Signature: (J)V
+ * Signature: (JZJ)V
  */
 void Java_org_rocksdb_DirectSlice_clear0(
-    JNIEnv* env, jobject jobj, jlong handle) {
+    JNIEnv* env, jobject jobj, jlong handle,
+    jboolean shouldRelease, jlong internalBufferOffset) {
   auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
-  delete [] slice->data_;
+  if(shouldRelease == JNI_TRUE) {
+    const char* buf = slice->data_ - internalBufferOffset;
+    delete [] buf;
+  }
   slice->clear();
 }
 
@@ -299,6 +304,18 @@ void Java_org_rocksdb_DirectSlice_removePrefix0(
     JNIEnv* env, jobject jobj, jlong handle, jint length) {
   auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
   slice->remove_prefix(length);
+}
+
+/*
+ * Class:     org_rocksdb_DirectSlice
+ * Method:    disposeInternalBuf
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DirectSlice_disposeInternalBuf(
+    JNIEnv* env, jobject jobj, jlong handle, jlong internalBufferOffset) {
+  const auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
+  const char* buf = slice->data_ - internalBufferOffset;
+  delete [] buf;
 }
 
 // </editor-fold>
