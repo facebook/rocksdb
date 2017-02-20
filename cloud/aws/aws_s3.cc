@@ -447,7 +447,7 @@ Status S3WritableFile::CopyManifestToS3(bool force) {
     // Upload manifest file only if it has not been uploaded in the last
     // manifest_durable_periodicity_millis_  milliseconds.
 
-    std::string manifest("MANIFEST");
+    std::string manifest = dirname(fname_) + "/MANIFEST";
     Aws::String s3_manifest = Aws::String(manifest.c_str(), manifest.size());
     stat = CopyToS3(env_, fname_, s3_bucket_, s3_manifest);
  

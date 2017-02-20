@@ -187,11 +187,14 @@ struct MatchPathSeparator {
   bool operator() (char ch) const { return ch == '/'; }
 };
 inline std::string basename(std::string const& pathname) {
-  return std::string(std::find_if(pathname.rbegin(), pathname.rend(),
-				MatchPathSeparator() ).base(),
-				pathname.end());
+  return std::string(std::find_if
+                       (pathname.rbegin(), pathname.rend(), MatchPathSeparator()).base(),
+                       pathname.end());
 }
-
+inline std::string dirname(std::string const& pathname) {
+  return std::string(pathname.begin(),
+		     std::find_if(pathname.rbegin(), pathname.rend(), MatchPathSeparator()).base());
+}
 }  // namespace
 
 namespace rocksdb {

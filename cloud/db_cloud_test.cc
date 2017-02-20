@@ -10,6 +10,7 @@
 #include "util/testharness.h"
 #include "util/logging.h"
 #include "cloud/aws/aws_env.h"
+#include "aws/aws_file.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -20,7 +21,7 @@ class CloudTest : public testing::Test {
  public:
   CloudTest() {
     dbname_ = test::TmpDir() + "/db_cloud";
-    cloud_storage_bucket_prefix_ = AwsEnv::GetTestBucketSuffix();
+    cloud_storage_bucket_prefix_ = "db_cloud." + AwsEnv::GetTestBucketSuffix();
     options_.create_if_missing = true;
     db_ = nullptr;
     aenv_ = nullptr;
@@ -44,7 +45,7 @@ class CloudTest : public testing::Test {
 				  options_.info_log,
 				  &aenv_));
     // delete all pre-existing contents from the bucket
-    aenv_->EmptyBucket();
+    ASSERT_OK(aenv_->EmptyBucket());
     delete aenv_;
     aenv_ = nullptr;
   }

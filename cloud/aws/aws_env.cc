@@ -1091,11 +1091,11 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
   }
   // Only ID file should come here
   assert(idfile);
+  assert(basename(target) == "IDENTITY");
 
   // The target bucket name and object name
-  std::string identity_file = "IDENTITY";
   Aws::String bucket = GetBucket(bucket_prefix_);
-  Aws::String object(identity_file.c_str(), identity_file.size());
+  Aws::String object(target.c_str(), target.size());
 
   // Upload ID file to  S3
   Status st = S3WritableFile::CopyToS3(this, src, bucket,  object);
