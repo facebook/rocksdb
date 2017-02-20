@@ -54,7 +54,7 @@ public class DirectSliceTest {
     }
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = IllegalArgumentException.class)
   public void directSliceInitWithoutDirectAllocation() {
     final byte[] data = "Some text".getBytes();
     final ByteBuffer buffer = ByteBuffer.wrap(data);
@@ -63,7 +63,7 @@ public class DirectSliceTest {
     }
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = IllegalArgumentException.class)
   public void directSlicePrefixInitWithoutDirectAllocation() {
     final byte[] data = "Some text".getBytes();
     final ByteBuffer buffer = ByteBuffer.wrap(data);

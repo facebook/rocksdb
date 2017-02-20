@@ -80,9 +80,9 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   }
 
   private static ByteBuffer ensureDirect(final ByteBuffer data) {
-    // TODO(AR) consider throwing a checked exception, as if it's not direct
-    // this can SIGSEGV
-    assert(data.isDirect());
+    if(!data.isDirect()) {
+      throw new IllegalArgumentException("The ByteBuffer must be direct");
+    }
     return data;
   }
 
