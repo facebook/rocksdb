@@ -26,11 +26,11 @@ addons:
     - zlib1g-dev
 env:
   # Run all tests before db_block_cache_test (db_test, db_test2)
-  - JOB_NAME=unittests USE_AWS=1 TRAVIS_BUILD_DIR=travis-build ROCKSDBTESTS_END=db_block_cache_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build ROCKSDBTESTS_END=db_block_cache_test
   # Run all tests starting from db_block_cache_test (db_block_cache_test, ..., plain_table_db_test)
-  - JOB_NAME=unittests USE_AWS=1 TRAVIS_BUILD_DIR=travis-build ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test
   # Run all tests starting from db_block_cache_test (comparator_db_test, ...)
-  - JOB_NAME=unittests USE_AWS=1 TRAVIS_BUILD_DIR=travis-build ROCKSDBTESTS_START=comparator_db_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build ROCKSDBTESTS_START=comparator_db_test
 
 branches:
   only:
@@ -38,13 +38,17 @@ branches:
   - staging
 
 before_install:
-  - mkdir $TRAVIS_BUILD_DIR
+  - mkdir $BUILD_DIR
+
+cache:
+  directories:
+  - $BUILD_DIR/aws
 
 install:
   # install AWWS CPP SDK
-  - mkdir $TRAVIS_BUILD_DIR/aws
-  - pushd $TRAVIS_BUILD_DIR/aws
-  - git clone https://github.com/aws/aws-sdk-cpp.git
+  - mkdir $BUILD_DIR/aws || true
+  - pushd $BUILD_DIR/aws
+  - git clone https://github.com/aws/aws-sdk-cpp.git || true
   - pushd aws-sdk-cpp/ && git checkout tags/1.0.69 && popd
   - cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_ONLY="s3;kinesis" aws-sdk-cpp/
   - make -j 8
@@ -58,7 +62,7 @@ before_script:
 
 script:
   - ${CXX} --version
-  - OPT=-DTRAVIS V=1 make -j 8 check_some
+  #- OPT=-DTRAVIS V=1 make -j 8 check_some
 
 notifications:
   slack:
@@ -66,3 +70,4 @@ notifications:
       secure: p6EX9WiIlPAdfdjJdluiOr41rXE2egjaRQQKPrBIMKUmwLs8iPWl0bkUJrlozvcuF5k2ed4pJ8vyAFpYwezMp+g691tZdHirrlzR/6HY4ZpsLKBlDbV6alREgFVr7ptA2+C9KnILIDaqJyiCxhPrnzKbXjuf78m95VNZnH5o7XlY/yfphHFBlsRltu9iFWRixCI1kx5Ch8eIIhYs7n22S1mJlcBrjsaCIVugnXiztaUlgdmwDBiT1LWfWbHwfUegaZWkygoPRiVmz3Xd61oJlssyKoEic74MPUXysLm4dovj+yg+YHEZr4JVlATUs1/FlJIhKDL53WnefXvYlA7hiPnUxzaJKbqSopqKMGY9c4YgyHaOzMb7EkzD8t8F2LidUC/I0dXah02wS+UDe/NSAOJ5ExPfEILsneMeZAWEHi6z4rXK0GNEZntUZrhmFLYVIB+eK98DGNOQDnVRZX7dI+70D+P4EAGbzDfy2/VIKrwgn7Ui2m0fofmpgp23KTATAdG8zKT8rvl487QNBIzxaIUAcVXGRSeNMrF3d2BynsNEGsHzxoWRcm5UDWwvPr/nu/KAAGur3r61Zc45OcsP+pGndDmEva41sg+Xg39dwWwl5PVAfRXp5ZsPlFNCtP6VWjb+wVKQa+aZAadl/n4BDN4+PonBqgd3zRZcgcs6kXw=
     on_success: always
     on_failure: always
+
