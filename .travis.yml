@@ -62,7 +62,10 @@ before_script:
 
 script:
   - ${CXX} --version
-  #- OPT=-DTRAVIS V=1 make -j 8 check_some
+  - OPT=-DTRAVIS J=200% V=1 make -j 8 check_some
+
+after_failure:
+  - for logfile in $(ls -1rt `find /tmp/rocks* -name LOG` | tail -4); do echo "**************************"; echo "Dumping LOG file: $logfile"; echo "**************************"; cat $logfile ; done
 
 notifications:
   slack:
