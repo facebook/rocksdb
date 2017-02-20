@@ -37,12 +37,12 @@ branches:
   - master
   - staging
 
-before_install:
-  - mkdir $BUILD_DIR
-
 cache:
   directories:
   - $BUILD_DIR/aws
+
+before_install:
+  - mkdir $BUILD_DIR || true
 
 install:
   # install AWWS CPP SDK
