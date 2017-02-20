@@ -26,11 +26,11 @@ addons:
     - zlib1g-dev
 env:
   # Run all tests before db_block_cache_test (db_test, db_test2)
-  - JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test USE_AWS=1 TRAVIS_BUILD_DIR=travis-build
+  - JOB_NAME=unittests USE_AWS=1 TRAVIS_BUILD_DIR=travis-build ROCKSDBTESTS_END=db_block_cache_test
   # Run all tests starting from db_block_cache_test (db_block_cache_test, ..., plain_table_db_test)
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test USE_AWS=1 TRAVIS_BUILD_DIR=travis-build
+  - JOB_NAME=unittests USE_AWS=1 TRAVIS_BUILD_DIR=travis-build ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test
   # Run all tests starting from db_block_cache_test (comparator_db_test, ...)
-  - JOB_NAME=unittests ROCKSDBTESTS_START=comparator_db_test USE_AWS=1 TRAVIS_BUILD_DIR=travis-build
+  - JOB_NAME=unittests USE_AWS=1 TRAVIS_BUILD_DIR=travis-build ROCKSDBTESTS_START=comparator_db_test
 
 branches:
   only:
@@ -45,8 +45,9 @@ install:
   - mkdir $TRAVIS_BUILD_DIR/aws
   - pushd $TRAVIS_BUILD_DIR/aws
   - git clone https://github.com/aws/aws-sdk-cpp.git
+  - pushd aws-sdk-cpp/ && git checkout tags/1.0.69 && popd
   - cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_ONLY="s3;kinesis" aws-sdk-cpp/
-  - make
+  - make -j 8
   - sudo make install
   - sudo ldconfig
   - popd
@@ -57,9 +58,7 @@ before_script:
 
 script:
   - ${CXX} --version
-  - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j4 check_some; fi
-  - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
-  - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
+  - OPT=-DTRAVIS V=1 make -j 8 check_some
 
 notifications:
   slack:

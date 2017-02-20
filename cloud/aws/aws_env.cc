@@ -17,7 +17,7 @@ namespace rocksdb {
 //
 // The AWS credentials are specified to the constructor via
 // access_key_id and secret_key.
-//  
+//
 AwsEnv::AwsEnv(Env* underlying_env,
 	       const std::string& bucket_prefix,
 	       const CloudEnvOptions& _cloud_env_options,
@@ -136,7 +136,7 @@ Status AwsEnv::CheckOption(const EnvOptions& options) {
   return Status::OK();
 }
 
-// 
+//
 // find out whether this is an sst file or a log file.
 //
 void AwsEnv::GetFileType(const std::string& fname,
@@ -1084,18 +1084,20 @@ Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
 		                  std::string* aws_secret_access_key,
 				  std::string* region) {
   Status st;
-  if (getenv("aws_access_key_id") == nullptr ||
-      getenv("aws_secret_access_key") == nullptr) {
+  if (getenv("AWS_ACCESS_KEY_ID") == nullptr ||
+      getenv("AWS_SECRET_ACCESS_KEY") == nullptr) {
     std::string msg = "Skipping AWS tests. "
                       "AWS credentials should be set "
-                      "using environment varaibles aws_access_key_id and "
-                      "aws_secret_access_key";
+                      "using environment varaibles AWS_ACCESS_KEY_ID and "
+                      "AWS_SECRET_ACCESS_KEY";
     return Status::IOError(msg);
   }
-  aws_access_key_id->assign(getenv("aws_access_key_id"));
-  aws_secret_access_key->assign(getenv("aws_secret_access_key"));
-  if (getenv("aws_region") != nullptr) {
-    region->assign(getenv("aws_region"));
+  aws_access_key_id->assign(getenv("AWS_ACCESS_KEY_ID"));
+  aws_secret_access_key->assign(getenv("AWS_SECRET_ACCESS_KEY"));
+  if (getenv("AWS_DEFAULT_REGION") != nullptr) {
+    region->assign(getenv("AWS_DEFAULT_REGION"));
+  } else {
+    region->assign("us-west-2");
   }
   return st;
 }
@@ -1124,7 +1126,7 @@ Status KinesisSystem::Retry(Env* env, RetryType func) {
       break;
     }
   }
-  return stat;  
+  return stat;
 }
 
 }  // namespace rocksdb

@@ -150,13 +150,13 @@ inline bool IsLogFile(const std::string& pathname) {
 
 // Get my bucket name
 inline Aws::String GetBucket(const std::string& bucket_prefix) {
-  std::string dd = "rockset." + bucket_prefix;
+  std::string dd = "rockset.test." + bucket_prefix;
   return Aws::String(dd.c_str(), dd.size());
 }
 
 // Get my stream name
 inline Aws::String GetStreamName(const std::string& bucket_prefix) {
-  std::string dd = "rockset." + bucket_prefix;
+  std::string dd = "rockset.test." + bucket_prefix;
   return Aws::String(dd.c_str(), dd.size());
 }
 
