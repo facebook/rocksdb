@@ -2,6 +2,7 @@
 //
 #include <iostream>
 #include <fstream>
+#include <unistd.h>
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 #include "util/string_util.h"
@@ -1173,6 +1174,19 @@ Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
     region->assign("us-west-2");
   }
   return st;
+}
+
+//
+// Create a test bucket suffix. This is used for unit tests only.
+//
+std::string AwsEnv::GetTestBucketSuffix() {
+  char* bname = getenv("AWS_BUCKET_NAME");
+  if (!bname) {
+    return std::to_string(geteuid());
+  }
+  std::string name;
+  name.assign(bname);
+  return name;
 }
 
 //

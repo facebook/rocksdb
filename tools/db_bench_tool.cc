@@ -888,10 +888,10 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
   coptions.region = FLAGS_aws_region;
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
-		                        "dbbench",
-		                        coptions,
-					std::move(info_log),
-					&s);
+		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
+		         coptions,
+			 std::move(info_log),
+			 &s);
   assert(st.ok());
   // If we are keeping wal in cloud storage, then tail it as well.
   // so that our unit tests can run to completion.

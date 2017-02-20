@@ -209,6 +209,11 @@ class AwsEnv : public CloudEnv {
   static Status GetTestCredentials(std::string* aws_access_key_id,
 		                   std::string* aws_secret_access_key,
 				   std::string* region);
+
+  // Create a specific bucketname suffix so that all unit tests can
+  // use a single bucket.
+  static std::string GetTestBucketSuffix();
+
   // Starts the wal tailer
   //
   Status CreateTailer();

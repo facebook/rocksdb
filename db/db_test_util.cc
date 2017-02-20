@@ -67,7 +67,7 @@ DBTestBase::DBTestBase(const std::string path)
   } else {
     CloudEnv* cenv;
     st = AwsEnv::NewAwsEnv(Env::Default(),
-		           "dbtest",
+		           "dbtest." + AwsEnv::GetTestBucketSuffix(),
 			   coptions,
 			   info_log,
 			   &cenv);
