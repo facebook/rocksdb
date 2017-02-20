@@ -198,13 +198,14 @@ jbyteArray Java_org_rocksdb_Slice_data0(
 /*
  * Class:     org_rocksdb_Slice
  * Method:    clear0
- * Signature: (JZ)V
+ * Signature: (JZJ)V
  */
 void Java_org_rocksdb_Slice_clear0(
-    JNIEnv * env, jobject jobj, jlong handle, jboolean shouldRelease) {
+    JNIEnv * env, jobject jobj, jlong handle, jboolean shouldRelease,
+    jlong internalBufferOffset) {
   auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
   if(shouldRelease == JNI_TRUE) {
-    const char* buf = slice->data_;
+    const char* buf = slice->data_ - internalBufferOffset;
     delete [] buf;
   }
   slice->clear();
@@ -212,13 +213,25 @@ void Java_org_rocksdb_Slice_clear0(
 
 /*
  * Class:     org_rocksdb_Slice
+ * Method:    removePrefix0
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Slice_removePrefix0(
+    JNIEnv * env, jobject jobj, jlong handle, jint length) {
+  auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
+  slice->remove_prefix(length);
+}
+
+/*
+ * Class:     org_rocksdb_Slice
  * Method:    disposeInternalBuf
- * Signature: (J)V
+ * Signature: (JJ)V
  */
 void Java_org_rocksdb_Slice_disposeInternalBuf(
-    JNIEnv * env, jobject jobj, jlong handle) {
+    JNIEnv * env, jobject jobj, jlong handle, jlong internalBufferOffset) {
   const auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
-  delete [] slice->data_;
+  const char* buf = slice->data_ - internalBufferOffset;
+  delete [] buf;
 }
 
 // </editor-fold>

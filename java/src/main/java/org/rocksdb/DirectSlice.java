@@ -104,13 +104,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
     cleared = true;
   }
 
-  /**
-   * Drops the specified {@code n}
-   * number of bytes from the start
-   * of the backing slice
-   *
-   * @param n The number of bytes to drop
-   */
+  @Override
   public void removePrefix(final int n) {
     removePrefix0(getNativeHandle(), n);
     this.internalBufferOffset += n;

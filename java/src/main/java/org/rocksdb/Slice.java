@@ -19,6 +19,7 @@ public class Slice extends AbstractSlice<byte[]> {
    * Indicates whether we have to free the memory pointed to by the Slice
    */
   private volatile boolean cleared;
+  private volatile long internalBufferOffset = 0;
 
   /**
    * <p>Called from JNI to construct a new Java Slice
@@ -33,6 +34,7 @@ public class Slice extends AbstractSlice<byte[]> {
    * Slice objects through this, they are not creating underlying C++ Slice
    * objects, and so there is nothing to free (dispose) from Java.</p>
    */
+  @SuppressWarnings("unused")
   private Slice() {
     super();
   }
@@ -70,8 +72,14 @@ public class Slice extends AbstractSlice<byte[]> {
 
   @Override
   public void clear() {
-    clear0(getNativeHandle(), !cleared);
+    clear0(getNativeHandle(), !cleared, internalBufferOffset);
     cleared = true;
+  }
+
+  @Override
+  public void removePrefix(final int n) {
+    removePrefix0(getNativeHandle(), n);
+    this.internalBufferOffset += n;
   }
 
   /**
@@ -87,7 +95,7 @@ public class Slice extends AbstractSlice<byte[]> {
   protected void disposeInternal() {
     final long nativeHandle = getNativeHandle();
     if(!cleared) {
-      disposeInternalBuf(nativeHandle);
+      disposeInternalBuf(nativeHandle, internalBufferOffset);
     }
     super.disposeInternal(nativeHandle);
   }
@@ -96,6 +104,9 @@ public class Slice extends AbstractSlice<byte[]> {
   private native static long createNewSlice0(final byte[] data,
       final int length);
   private native static long createNewSlice1(final byte[] data);
-  private native void clear0(long handle, boolean internalBuffer);
-  private native void disposeInternalBuf(final long handle);
+  private native void clear0(long handle, boolean internalBuffer,
+      long internalBufferOffset);
+  private native void removePrefix0(long handle, int length);
+  private native void disposeInternalBuf(final long handle,
+      long internalBufferOffset);
 }

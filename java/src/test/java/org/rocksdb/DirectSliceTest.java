@@ -81,4 +81,13 @@ public class DirectSliceTest {
       directSlice.clear();  // make sure we don't double-free
     }
   }
+
+  @Test
+  public void directSliceRemovePrefix() {
+    try(final DirectSlice directSlice = new DirectSlice("abc")) {
+      assertThat(directSlice.toString()).isEqualTo("abc");
+      directSlice.removePrefix(1);
+      assertThat(directSlice.toString()).isEqualTo("bc");
+    }
+  }
 }
