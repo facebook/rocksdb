@@ -825,6 +825,12 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
     return nullptr;
   }
 
+  // TODO(AR) it is not clear to me why EnsureLocalCapacity is needed for the
+  //     loop as we cleanup references with env->DeleteLocalRef(jentry_value);
+  if (env->EnsureLocalCapacity(static_cast<jint>(s.size())) != 0) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
   // add to the jresults
   for (std::vector<rocksdb::Status>::size_type i = 0; i != s.size(); i++) {
     if (s[i].ok()) {
@@ -835,7 +841,7 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
         // exception thrown: OutOfMemoryError
         return nullptr;
       }
-      
+
       env->SetByteArrayRegion(jentry_value, 0, static_cast<jsize>(jvalue_len),
           reinterpret_cast<const jbyte*>(value->c_str()));
       if(env->ExceptionCheck()) {
