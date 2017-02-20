@@ -197,6 +197,21 @@ jbyteArray Java_org_rocksdb_Slice_data0(
 
 /*
  * Class:     org_rocksdb_Slice
+ * Method:    clear0
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Slice_clear0(
+    JNIEnv * env, jobject jobj, jlong handle, jboolean shouldRelease) {
+  auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
+  if(shouldRelease == JNI_TRUE) {
+    const char* buf = slice->data_;
+    delete [] buf;
+  }
+  slice->clear();
+}
+
+/*
+ * Class:     org_rocksdb_Slice
  * Method:    disposeInternalBuf
  * Signature: (J)V
  */

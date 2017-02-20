@@ -94,13 +94,11 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    *
    * @return the requested byte
    */
-  public byte get(int offset) {
+  public byte get(final int offset) {
     return get0(getNativeHandle(), offset);
   }
 
-  /**
-   * Clears the backing slice
-   */
+  @Override
   public void clear() {
     clear0(getNativeHandle(), !cleared && internalBuffer, internalBufferOffset);
     cleared = true;

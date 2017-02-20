@@ -14,6 +14,12 @@ package org.rocksdb;
  * values consider using {@link org.rocksdb.DirectSlice}</p>
  */
 public class Slice extends AbstractSlice<byte[]> {
+
+  /**
+   * Indicates whether we have to free the memory pointed to by the Slice
+   */
+  private volatile boolean cleared;
+
   /**
    * <p>Called from JNI to construct a new Java Slice
    * without an underlying C++ object set
@@ -62,6 +68,12 @@ public class Slice extends AbstractSlice<byte[]> {
     super(createNewSlice1(data));
   }
 
+  @Override
+  public void clear() {
+    clear0(getNativeHandle(), !cleared);
+    cleared = true;
+  }
+
   /**
    * <p>Deletes underlying C++ slice pointer
    * and any buffered data.</p>
@@ -74,7 +86,9 @@ public class Slice extends AbstractSlice<byte[]> {
   @Override
   protected void disposeInternal() {
     final long nativeHandle = getNativeHandle();
-    disposeInternalBuf(nativeHandle);
+    if(!cleared) {
+      disposeInternalBuf(nativeHandle);
+    }
     super.disposeInternal(nativeHandle);
   }
 
@@ -82,5 +96,6 @@ public class Slice extends AbstractSlice<byte[]> {
   private native static long createNewSlice0(final byte[] data,
       final int length);
   private native static long createNewSlice1(final byte[] data);
+  private native void clear0(long handle, boolean internalBuffer);
   private native void disposeInternalBuf(final long handle);
 }

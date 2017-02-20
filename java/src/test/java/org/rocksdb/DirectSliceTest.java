@@ -71,4 +71,14 @@ public class DirectSliceTest {
       //no-op
     }
   }
+
+  @Test
+  public void directSliceClear() {
+    try(final DirectSlice directSlice = new DirectSlice("abc")) {
+      assertThat(directSlice.toString()).isEqualTo("abc");
+      directSlice.clear();
+      assertThat(directSlice.toString()).isEmpty();
+      directSlice.clear();  // make sure we don't double-free
+    }
+  }
 }

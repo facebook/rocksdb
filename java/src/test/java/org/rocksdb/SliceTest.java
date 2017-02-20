@@ -33,6 +33,16 @@ public class SliceTest {
   }
 
   @Test
+  public void sliceClear() {
+    try (final Slice slice = new Slice("abc")) {
+      assertThat(slice.toString()).isEqualTo("abc");
+      slice.clear();
+      assertThat(slice.toString()).isEmpty();
+      slice.clear();  // make sure we don't double-free
+    }
+  }
+
+  @Test
   public void sliceEquals() {
     try (final Slice slice = new Slice("abc");
          final Slice slice2 = new Slice("abc")) {
