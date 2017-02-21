@@ -395,6 +395,46 @@ class WriteBatchHandlerJni : public RocksDBNativeClass<
     assert(mid != nullptr);
     return mid;
   }
+
+  // Get the java method `singleDelete` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getSingleDeleteMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "singleDelete", "([B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `put` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getPutCFMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "put", "(I[B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `merge` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getMergeCFMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "merge", "(I[B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `delete` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getDeleteCFMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "delete", "(I[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `singleDelete` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getSingleDeleteCFMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "singleDelete", "(I[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
 };
 
 // The portal class for org.rocksdb.WriteBatchWithIndex

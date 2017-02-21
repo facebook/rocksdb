@@ -118,6 +118,12 @@ public class WriteBatch extends AbstractWriteBatch {
     public abstract void delete(byte[] key);
     public abstract void logData(byte[] blob);
 
+    public void singleDelete(byte[] key) {}
+    public void singleDelete(int columnFamilyID, byte[] key) {}
+    public void put(int columnFamilyID, byte[] key, byte[] value) {}
+    public void merge(int columnFamilyID, byte[] key, byte[] value) {}
+    public void delete(int columnFamilyID, byte[] key) {}
+
     /**
      * shouldContinue is called by the underlying iterator
      * WriteBatch::Iterate. If it returns false,
