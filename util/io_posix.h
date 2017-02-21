@@ -98,9 +98,9 @@ class PosixWritableFile : public WritableFile {
                              const EnvOptions& options);
   virtual ~PosixWritableFile();
 
-  // Means Close() will properly take care of truncate
-  // and it does not need any additional information
-  virtual Status Truncate(uint64_t size) override { return Status::OK(); }
+  // Need to implement this so the file is truncated correctly
+  // with direct I/O
+  virtual Status Truncate(uint64_t size) override;
   virtual Status Close() override;
   virtual Status Append(const Slice& data) override;
   virtual Status PositionedAppend(const Slice& data, uint64_t offset) override;
