@@ -504,22 +504,16 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(
       results[0] = 0x0;
   }
 
-  // TODO(AR) do we leak buf and value_buf?
+  // TODO(AR) do we leak key_slice and value_slice?
 
-  //set the pointer to the key slice
-  char* key_buf = new char[we.key.size()];
-  memcpy(key_buf, we.key.data(), we.key.size());
-  auto* key_slice = new rocksdb::Slice(key_buf, we.key.size());
+  auto* key_slice = new rocksdb::Slice(we.key.data(), we.key.size());
   results[1] = reinterpret_cast<jlong>(key_slice);
-
-  //set the pointer to the value slice
-  if (we.type == rocksdb::kDeleteRecord || we.type == rocksdb::kLogDataRecord) {
+  if (we.type == rocksdb::kDeleteRecord
+      || we.type == rocksdb::kLogDataRecord) {
     // set native handle of value slice to null if no value available
     results[2] = 0;
   } else {
-    char* value_buf = new char[we.value.size()];
-    memcpy(value_buf, we.value.data(), we.value.size());
-    auto* value_slice = new rocksdb::Slice(value_buf, we.value.size());
+    auto* value_slice = new rocksdb::Slice(we.value.data(), we.value.size());
     results[2] = reinterpret_cast<jlong>(value_slice);
   }
 
@@ -528,13 +522,9 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(
     // exception thrown: OutOfMemoryError
     if(results[2] != 0) {
       auto* value_slice = reinterpret_cast<rocksdb::Slice*>(results[2]);
-      const char* value_buf = value_slice->data_;
       delete value_slice;
-      delete [] value_buf;
     }
     delete key_slice;
-    delete [] key_buf;
-
     return nullptr;
   }
 
@@ -544,13 +534,9 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(
     env->DeleteLocalRef(jresults);
     if(results[2] != 0) {
       auto* value_slice = reinterpret_cast<rocksdb::Slice*>(results[2]);
-      const char* value_buf = value_slice->data_;
       delete value_slice;
-      delete [] value_buf;
     }
     delete key_slice;
-    delete [] key_buf;
-
     return nullptr;
   }
 
