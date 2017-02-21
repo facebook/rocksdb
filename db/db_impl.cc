@@ -4737,7 +4737,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (UNLIKELY(!single_column_family_mode_ &&
                total_log_size_ > GetMaxTotalWalSize())) {
     MaybeFlushColumnFamilies();
-  } else if (UNLIKELY(write_buffer_manager_->ShouldFlush())) {
+  }
+  if (UNLIKELY(write_buffer_manager_->ShouldFlush())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
     // thread is writing to another DB with the same write buffer, they may also
