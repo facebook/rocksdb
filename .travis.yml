@@ -2,11 +2,9 @@ sudo: false
 dist: trusty
 language: cpp
 os:
-  - linux
   - osx
 compiler:
   - clang
-  - gcc
 jdk:
   - oraclejdk7
 cache:
@@ -18,16 +16,8 @@ addons:
       sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
       packages: ['clang-3.6' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev']
 env:
-  # Run all tests before db_block_cache_test (db_test, db_test2)
-  - JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test
   # Run all tests starting from db_block_cache_test (db_block_cache_test, ..., plain_table_db_test)
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test
-  # Run all tests starting from db_block_cache_test (comparator_db_test, ...)
-  - JOB_NAME=unittests ROCKSDBTESTS_START=comparator_db_test
-  # Run java tests
-  - JOB_NAME=java_test
-  # Build ROCKSDB_LITE
-  - JOB_NAME=lite_build
+  - JOB_NAME=unittests TEST_TMPDIR=/dev/shm ROCKSDBTESTS_START=external_sst_file_test ROCKSDBTESTS_END=db_tailing_iter_test
 
 matrix:
   exclude:

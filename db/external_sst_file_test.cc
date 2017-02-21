@@ -1153,6 +1153,7 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
 }
 
 TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
+  std::cout << "---- path " << dbname_ << std::endl;
   Options options = CurrentOptions();
   options.disable_auto_compactions = false;
   options.level0_file_num_compaction_trigger = 2;
