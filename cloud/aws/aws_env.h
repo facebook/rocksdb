@@ -266,6 +266,12 @@ class AwsEnv : public CloudEnv {
   // Return the list of children of the specified path
   Status GetChildrenFromS3(const std::string& path,
 		           std::vector<std::string>* result);
+
+  // Saves and retrieves the dbid->dirname mapping in S3
+  Status SaveDbidInS3(const std::string& dbid,
+		      const std::string& dirname);
+  Status GetPathForDbidInS3(const std::string& dbid,
+		            std::string *dirname);
 };
 
 }  // namespace rocksdb
@@ -404,6 +410,16 @@ class AwsEnv : public Env {
   }
 
   virtual Status EmptyBucket() {
+      return s3_notsup;
+  }
+
+  virtual Status SaveDbidInS3(const std::string& dbid,
+		              const std::string& dirname) {
+      return s3_notsup;
+  }
+
+  virtual Status GetPathForDbidInS3(const std::string& dbid,
+		                    std::string *dirname) {
       return s3_notsup;
   }
 

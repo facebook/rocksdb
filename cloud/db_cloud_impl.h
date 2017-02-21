@@ -24,16 +24,15 @@ class DBCloudImpl : public DBCloud {
 
   virtual ~DBCloudImpl();
 
-
+  // Get the contents of the specified file into a string
+  static Status ReadFileIntoString(Env* env,
+		                   const std::string& pathname,
+				   std::string* id);
  protected:
   // The CloudEnv used by this open instance.
   CloudEnv* cenv_;
 
  private:
-  // Get the contents of the specified file into a string
-  static Status ReadFileIntoString(Env* env,
-		                   const std::string& pathname,
-				   std::string* id);
 
   // Does the clone dir need to be re-initialized?
   static Status NeedsReinitialization(CloudEnv* cenv,

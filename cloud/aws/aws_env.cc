@@ -12,6 +12,7 @@
 #ifdef USE_AWS
 
 #include "cloud/aws/aws_file.h"
+#include "cloud/db_cloud_impl.h"
 
 namespace rocksdb {
 
@@ -1097,8 +1098,19 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
   Aws::String bucket = GetBucket(bucket_prefix_);
   Aws::String object(target.c_str(), target.size());
 
+  // Read id into string
+  std::string dbid;
+  Status st = DBCloudImpl::ReadFileIntoString(base_env_, src, &dbid);
+
   // Upload ID file to  S3
-  Status st = S3WritableFile::CopyToS3(this, src, bucket,  object);
+  if (st.ok()) {
+    st = S3WritableFile::CopyToS3(this, src, bucket,  object);
+  }
+
+  // Save mapping from ID to dirname
+  if (st.ok()) {
+    st = SaveDbidInS3(dbid, dirname(target));
+  }
 
   // Do the rename on local filesystem too
   if (st.ok()) {
@@ -1109,6 +1121,111 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
       src.c_str(), target.c_str(), st.ToString().c_str());
   return st;
 }
+
+//
+// All db in a bucket are stored in path /.rockset/dbid/<dbid>
+// The value of the object is the pathname where the db resides.
+//
+Status AwsEnv::SaveDbidInS3(const std::string& dbid,
+		            const std::string& dirname) {
+  assert(status().ok());
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[s3] SaveDbid dbid %s dir '%s'",
+       dbid.c_str(), dirname.c_str());
+
+  std::string dbidkey = "/.rockset/dbid/" + dbid;
+  Aws::String bucket = GetBucket(bucket_prefix_);
+  Aws::String key = Aws::String(dbidkey.c_str(), dbidkey.size());
+
+  std::string dirname_tag = "dirname";
+  Aws::String dir = Aws::String(dirname_tag.c_str(), dirname_tag.size());
+
+  Aws::Map<Aws::String, Aws::String> metadata;
+  metadata[dir] = Aws::String(dirname.c_str(), dirname.size());
+
+  // create request
+  Aws::S3::Model::PutObjectRequest put_request;
+  put_request.SetBucket(bucket);
+  put_request.SetKey(key);
+  put_request.SetMetadata(metadata);
+
+  Aws::S3::Model::PutObjectOutcome put_outcome =
+	    s3client_->PutObject(put_request);
+  bool isSuccess = put_outcome.IsSuccess();
+  if (!isSuccess) {
+    const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
+	      put_outcome.GetError();
+    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+        "[s3] Bucket %s SaveDbid error in saving dbid %s dirname %s %s",
+        bucket.c_str(), dbid.c_str(), dirname.c_str(), errmsg.c_str());
+    return Status::IOError(dirname, errmsg.c_str());
+  }
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[s3] Bucket %s SaveDbid dbid %s dirname %s %s",
+      bucket.c_str(), dbid.c_str(), dirname.c_str(), "ok");
+  return Status::OK();
+};
+
+//
+// Given a dbid, retrieves its pathname.
+//
+Status AwsEnv::GetPathForDbidInS3(const std::string& dbid,
+		                  std::string *dirname) {
+  std::string dbidkey = "/.rockset/dbid/" + dbid;
+  Aws::String bucket = GetBucket(bucket_prefix_);
+  Aws::String key = Aws::String(dbidkey.c_str(), dbidkey.size());
+
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[s3] Bucket %s GetPathForDbidInS3 dbid %s",
+      bucket.c_str(), dbid.c_str());
+
+  // set up S3 request to read the head
+  Aws::S3::Model::HeadObjectRequest request;
+  request.SetBucket(bucket);
+  request.SetKey(key);
+
+  Aws::S3::Model::HeadObjectOutcome outcome =
+	    s3client_->HeadObject(request);
+  bool isSuccess = outcome.IsSuccess();
+  if (!isSuccess) {
+    const Aws::Client::AWSError<Aws::S3::S3Errors>& error = outcome.GetError();
+    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+    Aws::S3::S3Errors s3err = error.GetErrorType();
+
+    if (s3err == Aws::S3::S3Errors::NO_SUCH_BUCKET ||
+        s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
+        s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
+	errmsg.find("Response code: 404") != std::string::npos) {
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] %s GetPathForDbidInS3 error not-existent dbid %s %s",
+          bucket.c_str(), dbid.c_str(), errmsg.c_str());
+      return Status::NotFound(dbid, errmsg.c_str());
+    }
+    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+        "[s3] %s GetPathForDbidInS3 error dbid %s %s",
+        bucket.c_str(), dbid.c_str(), errmsg.c_str());
+    return Status::IOError(dbid, errmsg.c_str());
+  }
+  const Aws::S3::Model::HeadObjectResult& res = outcome.GetResult();
+  const Aws::Map<Aws::String, Aws::String> metadata = res.GetMetadata();
+
+  // Find "dirname" metadata that stores the pathname of the db 
+  std::string dirname_tag = "dirname";
+  Aws::String dir = Aws::String(dirname_tag.c_str(), dirname_tag.size());
+  auto it = metadata.find(dir);
+  Status st;
+  if (it != metadata.end()) {
+    Aws::String as = it->second;
+    dirname->assign(as.c_str(), as.size());
+  } else {
+    st = Status::NotFound("GetPathForDbidInS3");
+  }
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[s3] %s GetPathForDbidInS3 error dbid %s %s",
+      bucket.c_str(), dbid.c_str(), st.ToString().c_str());
+  return st;
+};
 
 Status AwsEnv::LockFile(const std::string& fname, FileLock** lock) {
   // there isn's a very good way to atomically check and create
