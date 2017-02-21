@@ -504,7 +504,7 @@ jlongArray Java_org_rocksdb_WBWIRocksIterator_entry1(
       results[0] = 0x0;
   }
 
-  // TODO(AR) do we leak key_slice and value_slice?
+  // key_slice and value_slice will be freed by org.rocksdb.DirectSlice#close
 
   auto* key_slice = new rocksdb::Slice(we.key.data(), we.key.size());
   results[1] = reinterpret_cast<jlong>(key_slice);
