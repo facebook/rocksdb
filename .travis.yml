@@ -17,7 +17,7 @@ addons:
       packages: ['clang-3.6' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev']
 env:
   # Run all tests starting from db_block_cache_test (db_block_cache_test, ..., plain_table_db_test)
-  - JOB_NAME=unittests TEST_TMPDIR=/dev/shm ROCKSDBTESTS_START=external_sst_file_test ROCKSDBTESTS_END=db_tailing_iter_test
+  - JOB_NAME=unittests MEM_ENV=true ROCKSDBTESTS_START=external_sst_file_test ROCKSDBTESTS_END=db_tailing_iter_test
 
 matrix:
   exclude:

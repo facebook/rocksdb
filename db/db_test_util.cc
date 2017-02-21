@@ -72,6 +72,7 @@ DBTestBase::~DBTestBase() {
   options.db_paths.emplace_back(dbname_ + "_2", 0);
   options.db_paths.emplace_back(dbname_ + "_3", 0);
   options.db_paths.emplace_back(dbname_ + "_4", 0);
+  options.env = env_;
 
   if (getenv("KEEP_DB")) {
     printf("DB is still at %s\n", dbname_.c_str());
