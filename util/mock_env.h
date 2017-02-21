@@ -35,6 +35,15 @@ class MockEnv : public EnvWrapper {
                                      unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& soptions) override;
 
+  virtual Status NewRandomRWFile(const std::string& fname,
+                                 unique_ptr<RandomRWFile>* result,
+                                 const EnvOptions& options) override;
+
+  virtual Status ReuseWritableFile(const std::string& fname,
+                                   const std::string& old_fname,
+                                   unique_ptr<WritableFile>* result,
+                                   const EnvOptions& options) override;
+
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
                                  const EnvOptions& env_options) override;

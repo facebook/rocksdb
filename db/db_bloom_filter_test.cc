@@ -606,6 +606,7 @@ class BloomStatsTestWithParam
       PlainTableOptions table_options;
       options_.table_factory.reset(NewPlainTableFactory(table_options));
     }
+    options_.env = env_;
 
     perf_context.Reset();
     DestroyAndReopen(options_);
