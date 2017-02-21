@@ -65,7 +65,9 @@ script:
   - OPT=-DTRAVIS J=200% V=1 make -j 8 check_some
 
 after_failure:
-  - for logfile in $(ls -1rt `find /tmp/rocks* -name LOG` | tail -4); do echo "**************************"; echo "Dumping LOG file: $logfile"; echo "**************************"; cat $logfile ; done
+  - export ALL_LOG_FILES=$(find /tmp/rocks* -name LOG)
+  - export RECENT_LOG_FILES=$(ls -1rt $ALL_LOG_FILES | tail -4)
+  - grep -e '[[:print:]*]' $RECENT_LOG_FILES
 
 notifications:
   slack:
