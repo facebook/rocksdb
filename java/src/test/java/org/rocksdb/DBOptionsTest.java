@@ -405,8 +405,8 @@ public class DBOptionsTest {
   @Test
   public void rateLimiter() {
     try(final DBOptions options = new DBOptions();
-        final DBOptions anotherOptions = new DBOptions()) {
-      final RateLimiter rateLimiter = new RateLimiter(1000, 100 * 1000, 1);
+        final DBOptions anotherOptions = new DBOptions();
+        final RateLimiter rateLimiter = new RateLimiter(1000, 100 * 1000, 1)) {
       options.setRateLimiter(rateLimiter);
       // Test with parameter initialization
       anotherOptions.setRateLimiter(

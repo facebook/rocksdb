@@ -91,6 +91,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
         org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptionsTest\
 	org.rocksdb.PlainTableConfigTest\
+	org.rocksdb.RateLimiterTest\
 	org.rocksdb.ReadOnlyTest\
 	org.rocksdb.ReadOptionsTest\
 	org.rocksdb.RocksDBTest\
