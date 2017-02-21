@@ -287,21 +287,18 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name) {
-
     PartitionIndexBuilder* part_index_builder = nullptr;
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
       part_index_builder = PartitionIndexBuilder::CreateIndexBuilder(
-          &internal_comparator,
-          _ioptions.prefix_extractor,
+          &internal_comparator, _ioptions.prefix_extractor,
           table_options.index_block_restart_interval,
           table_options.index_per_partition, table_options);
       index_builder.reset(part_index_builder);
     } else {
       index_builder.reset(IndexBuilder::CreateIndexBuilder(
           table_options.index_type, &internal_comparator,
-          &this->internal_prefix_transform,
-          _ioptions.prefix_extractor,
+          &this->internal_prefix_transform, _ioptions.prefix_extractor,
           table_options.index_block_restart_interval,
           table_options.index_per_partition, table_options));
     }

@@ -144,41 +144,44 @@ class BlockBasedTable : public TableReader {
   bool TEST_filter_block_preloaded() const;
   bool TEST_index_reader_preloaded() const;
 
-// IndexReader is the interface that provide the functionality for index access.
-class IndexReader {
- public:
-  explicit IndexReader(const Comparator* comparator, Statistics* stats)
-      : comparator_(comparator), statistics_(stats) {}
+  // IndexReader is the interface that provide the functionality for index
+  // access.
+  class IndexReader {
+   public:
+    explicit IndexReader(const Comparator* comparator, Statistics* stats)
+        : comparator_(comparator), statistics_(stats) {}
 
-  virtual ~IndexReader() {}
+    virtual ~IndexReader() {}
 
-  // Create an iterator for index access.
-  // If iter is null then a new object is created on heap and the callee will
-  // have the ownership. If a non-null iter is passed in it will be used, and
-  // the returned value is either the same as iter or a new on-heap object that
-  // wrapps the passed iter. In the latter case the return value would point to
-  // a different object then iter and the callee has the ownership of the
-  // returned object.
-  virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
-                                        bool total_order_seek = true) = 0;
+    // Create an iterator for index access.
+    // If iter is null then a new object is created on heap and the callee will
+    // have the ownership. If a non-null iter is passed in it will be used, and
+    // the returned value is either the same as iter or a new on-heap object
+    // that
+    // wrapps the passed iter. In the latter case the return value would point
+    // to
+    // a different object then iter and the callee has the ownership of the
+    // returned object.
+    virtual InternalIterator* NewIterator(BlockIter* iter = nullptr,
+                                          bool total_order_seek = true) = 0;
 
-  // The size of the index.
-  virtual size_t size() const = 0;
-  // Memory usage of the index block
-  virtual size_t usable_size() const = 0;
-  // return the statistics pointer
-  virtual Statistics* statistics() const { return statistics_; }
-  // Report an approximation of how much memory has been used other than memory
-  // that was allocated in block cache.
-  virtual size_t ApproximateMemoryUsage() const = 0;
+    // The size of the index.
+    virtual size_t size() const = 0;
+    // Memory usage of the index block
+    virtual size_t usable_size() const = 0;
+    // return the statistics pointer
+    virtual Statistics* statistics() const { return statistics_; }
+    // Report an approximation of how much memory has been used other than
+    // memory
+    // that was allocated in block cache.
+    virtual size_t ApproximateMemoryUsage() const = 0;
 
- protected:
-  const Comparator* comparator_;
+   protected:
+    const Comparator* comparator_;
 
- private:
-  Statistics* statistics_;
-};
-
+   private:
+    Statistics* statistics_;
+  };
 
   static Slice GetCacheKey(const char* cache_key_prefix,
                            size_t cache_key_prefix_size,
@@ -441,6 +444,5 @@ struct BlockBasedTable::Rep {
   // and every key have it's own seqno.
   SequenceNumber global_seqno;
 };
-
 
 }  // namespace rocksdb

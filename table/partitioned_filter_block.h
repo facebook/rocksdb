@@ -10,10 +10,10 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "db/dbformat.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "db/dbformat.h"
 #include "util/hash.h"
 
 #include "table/filter_block.h"
@@ -31,12 +31,13 @@ namespace rocksdb {
  * containing a secondary index on the partitions, built using
  * ShortenedIndexBuilder.
  */
-class PartitionIndexBuilder : public IndexBuilder, public FullFilterBlockBuilder {
+class PartitionIndexBuilder : public IndexBuilder,
+                              public FullFilterBlockBuilder {
  public:
-static PartitionIndexBuilder* CreateIndexBuilder(
-    const rocksdb::InternalKeyComparator* comparator,
-    const SliceTransform* prefix_extractor, int index_block_restart_interval,
-    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
+  static PartitionIndexBuilder* CreateIndexBuilder(
+      const rocksdb::InternalKeyComparator* comparator,
+      const SliceTransform* prefix_extractor, int index_block_restart_interval,
+      uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
 
   explicit PartitionIndexBuilder(const InternalKeyComparator* comparator,
                                  const SliceTransform* prefix_extractor,
@@ -60,11 +61,12 @@ static PartitionIndexBuilder* CreateIndexBuilder(
 
   void AddKey(const Slice& key) override;
 
-  virtual Slice Finish(
-      const BlockHandle& last_partition_block_handle, Status* status) override;
+  virtual Slice Finish(const BlockHandle& last_partition_block_handle,
+                       Status* status) override;
 
  private:
-  static const BlockBasedTableOptions::IndexType sub_type_ = BlockBasedTableOptions::kBinarySearch;
+  static const BlockBasedTableOptions::IndexType sub_type_ =
+      BlockBasedTableOptions::kBinarySearch;
   struct Entry {
     std::string key;
     std::unique_ptr<IndexBuilder> value;
@@ -115,11 +117,14 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
                                         const BlockBasedTable* table);
 
   virtual bool IsBlockBased() override { return false; }
-  virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
-                           const bool no_io = false, const Slice* const const_ikey_ptr = nullptr) override;
-  virtual bool PrefixMayMatch(const Slice& prefix,
-                              uint64_t block_offset = kNotValid,
-                              const bool no_io = false, const Slice* const const_ikey_ptr = nullptr) override;
+  virtual bool KeyMayMatch(
+      const Slice& key, uint64_t block_offset = kNotValid,
+      const bool no_io = false,
+      const Slice* const const_ikey_ptr = nullptr) override;
+  virtual bool PrefixMayMatch(
+      const Slice& prefix, uint64_t block_offset = kNotValid,
+      const bool no_io = false,
+      const Slice* const const_ikey_ptr = nullptr) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
  private:

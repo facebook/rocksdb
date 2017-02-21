@@ -22,21 +22,21 @@
 #include "rocksdb/table.h"
 
 #include "table/block.h"
+#include "table/block_based_filter_block.h"
+#include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
-#include "table/block_based_filter_block.h"
-#include "table/block_based_table_factory.h"
-#include "table/full_filter_block.h"
 #include "table/format.h"
+#include "table/full_filter_block.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 
-#include "util/string_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 #include "util/xxhash.h"
 
 namespace rocksdb {
@@ -52,12 +52,12 @@ namespace rocksdb {
 // design that just works.
 class IndexBuilder {
  public:
-static IndexBuilder* CreateIndexBuilder(
-    BlockBasedTableOptions::IndexType index_type,
-    const rocksdb::InternalKeyComparator* comparator,
-    const SliceTransform* slice_transform, 
-    const SliceTransform* prefix_extractor, int index_block_restart_interval,
-    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
+  static IndexBuilder* CreateIndexBuilder(
+      BlockBasedTableOptions::IndexType index_type,
+      const rocksdb::InternalKeyComparator* comparator,
+      const SliceTransform* slice_transform,
+      const SliceTransform* prefix_extractor, int index_block_restart_interval,
+      uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -177,15 +177,18 @@ class ShortenedIndexBuilder : public IndexBuilder {
 //  - a metablock contains the metadata of the prefixes, including prefix size,
 //    restart index and number of block it spans. The format looks like:
 //
-// +-----------------+---------------------------+---------------------+ <=prefix 1
+// +-----------------+---------------------------+---------------------+
+// <=prefix 1
 // | length: 4 bytes | restart interval: 4 bytes | num-blocks: 4 bytes |
-// +-----------------+---------------------------+---------------------+ <=prefix 2
+// +-----------------+---------------------------+---------------------+
+// <=prefix 2
 // | length: 4 bytes | restart interval: 4 bytes | num-blocks: 4 bytes |
 // +-----------------+---------------------------+---------------------+
 // |                                                                   |
 // | ....                                                              |
 // |                                                                   |
-// +-----------------+---------------------------+---------------------+ <=prefix n
+// +-----------------+---------------------------+---------------------+
+// <=prefix n
 // | length: 4 bytes | restart interval: 4 bytes | num-blocks: 4 bytes |
 // +-----------------+---------------------------+---------------------+
 //
@@ -206,7 +209,7 @@ class HashIndexBuilder : public IndexBuilder {
                              const BlockHandle& block_handle) override {
     ++current_restart_index_;
     primary_index_builder_.AddIndexEntry(last_key_in_current_block,
-                                        first_key_in_next_block, block_handle);
+                                         first_key_in_next_block, block_handle);
   }
 
   virtual void OnKeyAdded(const Slice& key) override {
@@ -280,7 +283,6 @@ class HashIndexBuilder : public IndexBuilder {
 
   uint64_t current_restart_index_ = 0;
 };
-
 }
 
 /*

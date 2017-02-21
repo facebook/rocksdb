@@ -63,7 +63,6 @@ BlockBasedTable::~BlockBasedTable() {
   delete rep_;
 }
 
-
 namespace {
 // Read the block identified by "handle" from "file".
 // The only relevant option is options.verify_checksums for now.
@@ -185,7 +184,8 @@ class PartitionIndexReader : public IndexReader {
         new BlockBasedTable::BlockEntryIteratorState(table_, ReadOptions(),
                                                      skip_filters),
         index_block_->NewIterator(comparator_, nullptr, true));
-        //TODO: Update TwoLevelIterator to be able to make use of on-stack BlockIter while the state is on heap
+    // TODO: Update TwoLevelIterator to be able to make use of on-stack
+    // BlockIter while the state is on heap
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -1374,7 +1374,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
   if (filter != nullptr) {
     if (!filter->IsBlockBased()) {
       const Slice* const const_ikey_ptr = &internal_key;
-      may_match = filter->PrefixMayMatch(prefix, kNotValid, no_io, const_ikey_ptr);
+      may_match =
+          filter->PrefixMayMatch(prefix, kNotValid, no_io, const_ikey_ptr);
     } else {
       InternalKey internal_key_prefix(prefix, kMaxSequenceNumber, kTypeValue);
       auto internal_prefix = internal_key_prefix.Encode();
@@ -1494,7 +1495,8 @@ bool BlockBasedTable::FullFilterKeyMayMatch(const ReadOptions& read_options,
           rep_->ioptions.prefix_extractor->Name()) == 0 &&
       rep_->ioptions.prefix_extractor->InDomain(user_key) &&
       !filter->PrefixMayMatch(
-          rep_->ioptions.prefix_extractor->Transform(user_key), kNotValid, false, const_ikey_ptr)) {
+          rep_->ioptions.prefix_extractor->Transform(user_key), kNotValid,
+          false, const_ikey_ptr)) {
     return false;
   }
   return true;
@@ -1527,7 +1529,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
 
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
-
       Slice handle_value = iiter->value();
 
       BlockHandle handle;
