@@ -188,7 +188,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setMergeOperator(final MergeOperator mergeOperator) {
-    setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
+    setMergeOperator(nativeHandle_, mergeOperator.nativeHandle_);
     return this;
   }
 

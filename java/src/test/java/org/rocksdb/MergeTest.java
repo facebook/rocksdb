@@ -89,11 +89,10 @@ public class MergeTest {
   @Test
   public void operatorOption()
       throws InterruptedException, RocksDBException {
-    final StringAppendOperator stringAppendOperator =
-        new StringAppendOperator();
-    try (final Options opt = new Options()
-        .setCreateIfMissing(true)
-        .setMergeOperator(stringAppendOperator);
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options opt = new Options()
+            .setCreateIfMissing(true)
+            .setMergeOperator(stringAppendOperator);
          final RocksDB db = RocksDB.open(opt,
              dbFolder.getRoot().getAbsolutePath())) {
       // Writing aa under key
@@ -112,10 +111,9 @@ public class MergeTest {
   @Test
   public void cFOperatorOption()
       throws InterruptedException, RocksDBException {
-    final StringAppendOperator stringAppendOperator =
-        new StringAppendOperator();
-    try (final ColumnFamilyOptions cfOpt1 = new ColumnFamilyOptions()
-        .setMergeOperator(stringAppendOperator);
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final ColumnFamilyOptions cfOpt1 = new ColumnFamilyOptions()
+             .setMergeOperator(stringAppendOperator);
          final ColumnFamilyOptions cfOpt2 = new ColumnFamilyOptions()
              .setMergeOperator(stringAppendOperator)
     ) {
@@ -175,41 +173,42 @@ public class MergeTest {
   @Test
   public void operatorGcBehaviour()
       throws RocksDBException {
-    final StringAppendOperator stringAppendOperator
-        = new StringAppendOperator();
-    try (final Options opt = new Options()
-        .setCreateIfMissing(true)
-        .setMergeOperator(stringAppendOperator);
-         final RocksDB db = RocksDB.open(opt,
-             dbFolder.getRoot().getAbsolutePath())) {
-      //no-op
-    }
-
-    // test reuse
-    try (final Options opt = new Options()
-        .setMergeOperator(stringAppendOperator);
-         final RocksDB db = RocksDB.open(opt,
-             dbFolder.getRoot().getAbsolutePath())) {
-      //no-op
-    }
-
-    // test param init
-    try (final Options opt = new Options()
-        .setMergeOperator(new StringAppendOperator());
-         final RocksDB db = RocksDB.open(opt,
-             dbFolder.getRoot().getAbsolutePath())) {
-      //no-op
-    }
-
-    // test replace one with another merge operator instance
-    try (final Options opt = new Options()
-        .setMergeOperator(stringAppendOperator)) {
-      final StringAppendOperator newStringAppendOperator
-          = new StringAppendOperator();
-      opt.setMergeOperator(newStringAppendOperator);
-      try (final RocksDB db = RocksDB.open(opt,
-          dbFolder.getRoot().getAbsolutePath())) {
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator()) {
+      try (final Options opt = new Options()
+              .setCreateIfMissing(true)
+              .setMergeOperator(stringAppendOperator);
+           final RocksDB db = RocksDB.open(opt,
+                   dbFolder.getRoot().getAbsolutePath())) {
         //no-op
+      }
+
+
+      // test reuse
+      try (final Options opt = new Options()
+              .setMergeOperator(stringAppendOperator);
+           final RocksDB db = RocksDB.open(opt,
+                   dbFolder.getRoot().getAbsolutePath())) {
+        //no-op
+      }
+
+      // test param init
+      try (final StringAppendOperator stringAppendOperator2 = new StringAppendOperator();
+           final Options opt = new Options()
+              .setMergeOperator(stringAppendOperator2);
+           final RocksDB db = RocksDB.open(opt,
+                   dbFolder.getRoot().getAbsolutePath())) {
+        //no-op
+      }
+
+      // test replace one with another merge operator instance
+      try (final Options opt = new Options()
+              .setMergeOperator(stringAppendOperator);
+           final StringAppendOperator newStringAppendOperator = new StringAppendOperator()) {
+        opt.setMergeOperator(newStringAppendOperator);
+        try (final RocksDB db = RocksDB.open(opt,
+                dbFolder.getRoot().getAbsolutePath())) {
+          //no-op
+        }
       }
     }
   }
