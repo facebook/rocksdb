@@ -290,7 +290,8 @@ jlong Java_org_rocksdb_EnvOptions_writableFileMaxBufferSize(JNIEnv *env,
 void Java_org_rocksdb_EnvOptions_setRateLimiter(JNIEnv *env, jobject jobj,
                                                 jlong jhandle,
                                                 jlong rl_handle) {
-  auto *rate_limiter = reinterpret_cast<rocksdb::RateLimiter *>(rl_handle);
-  auto *env_opt = reinterpret_cast<rocksdb::EnvOptions *>(jhandle);
-  env_opt->rate_limiter = rate_limiter;
+  auto* sptr_rate_limiter =
+      reinterpret_cast<std::shared_ptr<rocksdb::RateLimiter> *>(rl_handle);
+  auto* env_opt = reinterpret_cast<rocksdb::EnvOptions *>(jhandle);
+  env_opt->rate_limiter = sptr_rate_limiter->get();
 }

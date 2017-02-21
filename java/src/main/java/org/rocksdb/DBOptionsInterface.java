@@ -123,18 +123,6 @@ public interface DBOptionsInterface {
    * priority than compaction. Rate limiting is disabled if nullptr.
    * Default: nullptr
    *
-   * @param config rate limiter config.
-   * @return the instance of the current Object.
-   * @deprecated See: {@link #setRateLimiter(RateLimiter)}.
-   */
-  @Deprecated
-  Object setRateLimiterConfig(RateLimiterConfig config);
-
-  /**
-   * Use to control write rate of flush and compaction. Flush has higher
-   * priority than compaction. Rate limiting is disabled if nullptr.
-   * Default: nullptr
-   *
    * @param rateLimiter {@link org.rocksdb.RateLimiter} instance.
    * @return the instance of the current Object.
    *

@@ -694,17 +694,6 @@ void Java_org_rocksdb_Options_setMemTableFactory(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setOldRateLimiter
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_Options_setOldRateLimiter(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->rate_limiter.reset(
-      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setRateLimiter
  * Signature: (JJ)V
  */
@@ -3715,17 +3704,6 @@ void Java_org_rocksdb_DBOptions_setParanoidChecks(
 jboolean Java_org_rocksdb_DBOptions_paranoidChecks(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->paranoid_checks;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setOldRateLimiter
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_DBOptions_setOldRateLimiter(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->rate_limiter.reset(
-      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
 }
 
 /*

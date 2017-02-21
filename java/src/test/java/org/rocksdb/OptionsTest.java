@@ -784,20 +784,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void rateLimiterConfig() {
-    try (final Options options = new Options();
-         final Options anotherOptions = new Options()) {
-      final RateLimiterConfig rateLimiterConfig =
-          new GenericRateLimiterConfig(1000, 100 * 1000, 1);
-      options.setRateLimiterConfig(rateLimiterConfig);
-      // Test with parameter initialization
-
-      anotherOptions.setRateLimiterConfig(
-          new GenericRateLimiterConfig(1000));
-    }
-  }
-
-  @Test
   public void rateLimiter() {
     try (final Options options = new Options();
          final Options anotherOptions = new Options();
@@ -825,7 +811,6 @@ public class OptionsTest {
       options.useCappedPrefixExtractor(10);
     }
   }
-
 
   @Test
   public void shouldTestMemTableFactoryName()

@@ -684,13 +684,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setRateLimiterConfig(final RateLimiterConfig config) {
-    rateLimiterConfig_ = config;
-    setOldRateLimiter(nativeHandle_, config.newRateLimiterHandle());
-    return this;
-  }
-
-  @Override
   public Options setRateLimiter(final RateLimiter rateLimiter) {
     assert(isOwningHandle());
     rateLimiter_ = rateLimiter;
@@ -1227,9 +1220,6 @@ public class Options extends RocksObject
   private native void setParanoidChecks(
       long handle, boolean paranoidChecks);
   private native boolean paranoidChecks(long handle);
-  @Deprecated
-  private native void setOldRateLimiter(long handle,
-      long rateLimiterHandle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
   private native void setLogger(long handle,
@@ -1467,7 +1457,6 @@ public class Options extends RocksObject
   Env env_;
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;
-  RateLimiterConfig rateLimiterConfig_;
   RateLimiter rateLimiter_;
   AbstractComparator<? extends AbstractSlice<?>> comparator_;
 }

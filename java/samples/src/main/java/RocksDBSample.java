@@ -30,7 +30,8 @@ public class RocksDBSample {
     try (final Options options = new Options();
          final Filter bloomFilter = new BloomFilter(10);
          final ReadOptions readOptions = new ReadOptions()
-             .setFillCache(false)) {
+             .setFillCache(false);
+         final RateLimiter rateLimiter = new RateLimiter(10000000,10000, 10)) {
 
       try (final RocksDB db = RocksDB.open(options, db_path_not_found)) {
         assert (false);
@@ -84,9 +85,7 @@ public class RocksDBSample {
       options.setAllowMmapReads(true);
       assert (options.tableFactoryName().equals("PlainTable"));
 
-      options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000,
-          10000, 10));
-      options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000));
+      options.setRateLimiter(rateLimiter);
 
       final BlockBasedTableConfig table_options = new BlockBasedTableConfig();
       table_options.setBlockCacheSize(64 * SizeUnit.KB)
