@@ -32,16 +32,13 @@ jlong Java_org_rocksdb_GenericRateLimiterConfig_newRateLimiterHandle(
 jlong Java_org_rocksdb_RateLimiter_newRateLimiterHandle(
     JNIEnv* env, jclass jclazz, jlong jrate_bytes_per_second,
     jlong jrefill_period_micros, jint jfairness) {
-  auto* rate_limiter = rocksdb::NewGenericRateLimiter(
-      static_cast<int64_t>(jrate_bytes_per_second),
-      static_cast<int64_t>(jrefill_period_micros),
-      static_cast<int32_t>(jfairness));
+  auto * sptr_rate_limiter =
+      new std::shared_ptr<rocksdb::RateLimiter>(rocksdb::NewGenericRateLimiter(
+          static_cast<int64_t>(jrate_bytes_per_second),
+          static_cast<int64_t>(jrefill_period_micros),
+          static_cast<int32_t>(jfairness)));
 
-  std::shared_ptr<rocksdb::RateLimiter> *ptr_sptr_rate_limiter =
-    new std::shared_ptr<rocksdb::RateLimiter>;
-  *ptr_sptr_rate_limiter = std::shared_ptr<rocksdb::RateLimiter>(rate_limiter);
-
-  return reinterpret_cast<jlong>(ptr_sptr_rate_limiter);
+  return reinterpret_cast<jlong>(sptr_rate_limiter);
 }
 
 /*
@@ -51,10 +48,9 @@ jlong Java_org_rocksdb_RateLimiter_newRateLimiterHandle(
  */
 void Java_org_rocksdb_RateLimiter_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  std::shared_ptr<rocksdb::RateLimiter> *handle =
+  auto* handle =
       reinterpret_cast<std::shared_ptr<rocksdb::RateLimiter> *>(jhandle);
-  handle->reset();
-  delete handle;
+  delete handle;  // delete std::shared_ptr
 }
 
 /*
