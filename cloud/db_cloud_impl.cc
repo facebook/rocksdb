@@ -56,7 +56,9 @@ Status DBCloud::Open(
 }
 
 Status DBCloud::OpenClone(
-    const Options& options, const std::string& dbname,
+    const Options& options,
+    const std::string& src_dbid, 
+    const std::string& clone_dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles,
     DBCloud** dbptr,
@@ -66,12 +68,13 @@ Status DBCloud::OpenClone(
   CloudEnv* cenv = static_cast<CloudEnv *>(options.env);
   cenv->SetClone();
 
-  Status st = DBCloudImpl::SanitizeCloneDirectory(options, dbname, read_only);
+  Status st = DBCloudImpl::SanitizeCloneDirectory(options, src_dbid,
+		             clone_dbname, read_only);
   if (!st.ok()) {
     return st;
   }
 
-  st = DBCloud::Open(options, dbname, column_families,
+  st = DBCloud::Open(options, clone_dbname, column_families,
 		     handles, dbptr, read_only);
   return st;
 }
@@ -116,6 +119,7 @@ Status DBCloudImpl::ReadFileIntoString(Env* env,
 //
 Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 		             const Options& options,
+		             const std::string& src_dbid,
 		             const std::string& clone_dir,
 			     bool* do_reinit) {
   // assume that directory does needs reinitialization
@@ -177,7 +181,8 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 // Create appropriate files in the clone dir
 //
 Status DBCloudImpl::SanitizeCloneDirectory(const Options& options,
-		              const std::string & clone_name,
+		              const std::string& src_dbid,
+		              const std::string& clone_name,
 			      bool readonly) {
   EnvOptions soptions;
 
@@ -191,7 +196,7 @@ Status DBCloudImpl::SanitizeCloneDirectory(const Options& options,
   // Shall we reinitialize the clone dir?
   bool do_reinit = true;
   Status st = DBCloudImpl::NeedsReinitialization(cenv,
-		             options, clone_name,
+		             options, src_dbid, clone_name,
 			     &do_reinit);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,

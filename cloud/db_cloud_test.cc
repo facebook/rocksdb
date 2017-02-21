@@ -10,6 +10,7 @@
 #include "util/testharness.h"
 #include "util/logging.h"
 #include "cloud/aws/aws_env.h"
+#include "cloud/db_cloud_impl.h"
 #include "aws/aws_file.h"
 #ifndef OS_WIN
 #include <unistd.h>
@@ -79,6 +80,9 @@ class CloudTest : public testing::Test {
     ASSERT_OK(DBCloud::Open(options_, dbname_,
 			    column_families, &handles,
 			    &db_));
+    ASSERT_OK(DBCloudImpl::ReadFileIntoString(Env::Default(),
+	                         dbname_ + "/IDENTITY", &dbid_));
+
     // Delete the handle for the default column family because the DBImpl
     // always holds a reference to it.
     ASSERT_TRUE(handles.size() > 0);
@@ -117,7 +121,7 @@ class CloudTest : public testing::Test {
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cfopt));
     std::vector<ColumnFamilyHandle*> handles;
 
-    ASSERT_OK(DBCloud::OpenClone(options_, cname,
+    ASSERT_OK(DBCloud::OpenClone(options_, dbid_, cname,
 			        column_families, &handles,
 			        &clone_db));
     cloud_db->reset(clone_db);
@@ -145,6 +149,7 @@ class CloudTest : public testing::Test {
   std::string dbname_;
   std::string cloud_storage_bucket_prefix_;
   CloudEnvOptions cloud_env_options_;
+  std::string dbid_;
   DBCloud* db_;
   CloudEnv* aenv_;
 };

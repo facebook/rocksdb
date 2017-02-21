@@ -33,7 +33,9 @@ class DBCloud : public StackableDB {
   // All new kv updates are written to local files only, no newly created
   // sst files are uploaded to cloud storage.
   static Status OpenClone(
-		     const Options& options, const std::string& dbname,
+		     const Options& options,
+		     const std::string& dbid,    // the source database
+		     const std::string& dbname,  // the clone directory
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
                      DBCloud** dbptr,

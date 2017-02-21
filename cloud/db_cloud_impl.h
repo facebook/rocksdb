@@ -37,10 +37,12 @@ class DBCloudImpl : public DBCloud {
   // Does the clone dir need to be re-initialized?
   static Status NeedsReinitialization(CloudEnv* cenv,
                                       const Options& options,
+                                      const std::string& src_dbid,
                                       const std::string& clone_dir,
                                       bool* do_reinit);
 
   static Status SanitizeCloneDirectory(const Options& options,
+		                       const std::string& src_dbid,
 		                       const std::string& clone_name,
 		                       bool readonly);
 
