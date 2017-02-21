@@ -21,7 +21,7 @@ class CloudTest : public testing::Test {
  public:
   CloudTest() {
     dbname_ = test::TmpDir() + "/db_cloud";
-    cloud_storage_bucket_prefix_ = "db_cloud." + AwsEnv::GetTestBucketSuffix();
+    cloud_storage_bucket_prefix_ = "dbcloud." + AwsEnv::GetTestBucketSuffix();
     options_.create_if_missing = true;
     db_ = nullptr;
     aenv_ = nullptr;
