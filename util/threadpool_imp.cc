@@ -29,9 +29,9 @@
 
 namespace rocksdb {
 
-void ThreadPoolImpl::PthreadCall(const char* label, int result) {
-  if (result != 0) {
-    fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
+void ThreadPoolImpl::PthreadCall(const char* label, std::error_code result) {
+  if (result.value() != 0) {
+    fprintf(stderr, "pthread %s: %s\n", label, strerror(result.value()));
     abort();
   }
 }
@@ -121,7 +121,7 @@ private:
 
 inline
 ThreadPoolImpl::Impl::Impl()
-    : 
+    :
       low_io_priority_(false),
       priority_(Env::LOW),
       env_(nullptr),
@@ -365,7 +365,7 @@ int ThreadPoolImpl::Impl::UnSchedule(void* arg) {
   return count;
 }
 
-ThreadPoolImpl::ThreadPoolImpl() : 
+ThreadPoolImpl::ThreadPoolImpl() :
   impl_(new Impl()) {
 }
 
