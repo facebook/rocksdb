@@ -83,9 +83,17 @@ class CloudEnv : public Env {
   const CloudType& GetCloudType() { return cloud_type_; }
 
   // Mark the db associated with this env as a clone
-  void SetClone() { is_clone_ = true; }
+  Status SetClone(const std::string& src_dbid);
   void ClearClone() { is_clone_ = false; }
   bool IsClone() { return is_clone_; }
+
+  // Mark the env so that all requests are satisfied directly and
+  // only from cloud storage.
+  void SetCloudDirect() { is_cloud_direct_ = true; }
+  void ClearCloudDirect() { is_cloud_direct_ = false; }
+
+  // Map a clonepathname to a pathname in the src db
+  std::string MapClonePathToSrcPath(const std::string& fname);
 
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
@@ -93,18 +101,33 @@ class CloudEnv : public Env {
   // Empties all contents of the associated cloud storage bucket.
   virtual Status EmptyBucket() = 0;
 
+  // Saves and retrieves the dbid->dirname mapping in cloud storage
+  virtual Status SaveDbid(const std::string& dbid,
+		          const std::string& dirname) = 0;
+  virtual Status GetPathForDbid(const std::string& dbid,
+		                std::string *dirname) = 0;
+
   // Create a new AWS env.
   static Status NewAwsEnv(Env* base_env, const std::string& cloud_storage,
 		          const CloudEnvOptions& env_options,
 			  std::shared_ptr<Logger> logger,
 			  CloudEnv** cenv);
-
  protected:
   // The type of cloud service aws google azure, etc
   CloudType cloud_type_;
 
-  // Is the db associated with this env a clone?
+  // If set, all requests are satisfied directly from the cloud
+  bool is_cloud_direct_;
+
+  // If set, then sst files are fetched from either the dbdir or
+  // from src_dbid_.
   bool is_clone_;
+
+  // The dbid of the source database that is cloned
+  std::string src_dbid_;
+
+  // The pathname of the source database that is cloned
+  std::string src_dbdir_;
 
   // The underlying env
   Env* base_env_;

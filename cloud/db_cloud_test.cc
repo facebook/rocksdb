@@ -53,7 +53,7 @@ class CloudTest : public testing::Test {
 
   virtual ~CloudTest() {
     CloseDB();
-    // XXX DestroyDB(dbname_, Options());
+    DestroyDB(dbname_, Options());
   }
 
   // Open database via the cloud interface
@@ -80,8 +80,7 @@ class CloudTest : public testing::Test {
     ASSERT_OK(DBCloud::Open(options_, dbname_,
 			    column_families, &handles,
 			    &db_));
-    ASSERT_OK(DBCloudImpl::ReadFileIntoString(Env::Default(),
-	                         dbname_ + "/IDENTITY", &dbid_));
+    ASSERT_OK(db_->GetDbIdentity(dbid_));
 
     // Delete the handle for the default column family because the DBImpl
     // always holds a reference to it.
@@ -122,8 +121,8 @@ class CloudTest : public testing::Test {
     std::vector<ColumnFamilyHandle*> handles;
 
     ASSERT_OK(DBCloud::OpenClone(options_, dbid_, cname,
-			        column_families, &handles,
-			        &clone_db));
+			         column_families, &handles,
+			         &clone_db));
     cloud_db->reset(clone_db);
 
     // Delete the handle for the default column family because the DBImpl
@@ -193,11 +192,11 @@ TEST_F(CloudTest, BasicClone) {
   // Create and Open clone
   std::unique_ptr<CloudEnv> cloud_env;
   std::unique_ptr<DBCloud> cloud_db;
-  //CloneDB("clone1", &cloud_db, &cloud_env);
-  //Status stax = cloud_db->Get(ReadOptions(), "Hello", &value);
+  CloneDB("clone1", &cloud_db, &cloud_env);
+  Status stax = cloud_db->Get(ReadOptions(), "Hello", &value);
 
-  //ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
-  //ASSERT_TRUE(value.compare("World") == 0);
+  ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+  ASSERT_TRUE(value.compare("World") == 0);
 }
 
 } //  namespace rocksdb

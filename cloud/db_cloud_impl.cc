@@ -66,13 +66,19 @@ Status DBCloud::OpenClone(
 
   // Mark env instance as serving a clone.
   CloudEnv* cenv = static_cast<CloudEnv *>(options.env);
-  cenv->SetClone();
+
+  // Make the cloud env always fetch data from the cloud
+  cenv->SetCloudDirect();
 
   Status st = DBCloudImpl::SanitizeCloneDirectory(options, src_dbid,
 		             clone_dbname, read_only);
   if (!st.ok()) {
     return st;
   }
+
+  // Mark the env to act as a clone env from now on.
+  cenv->ClearCloudDirect();
+  cenv->SetClone(src_dbid);
 
   st = DBCloud::Open(options, clone_dbname, column_families,
 		     handles, dbptr, read_only);
@@ -150,20 +156,13 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
     return Status::OK();
   }
 
-  // Fetch DBID from source cloud bucket
-  std::string cloud_dbid;
-  st = ReadFileIntoString(cenv, "IDENTITY", &cloud_dbid);
-  if (!st.ok()) {
-    return Status::OK();
-  }
-
-  // The local DBID = "CLOUD-DBID" + "rockset" + UUID
-  std::string prefix = cloud_dbid + "rockset";
+  // The local DBID = "SRC-DBID" + "rockset" + UUID
+  std::string prefix = src_dbid + "rockset";
   size_t pos = local_dbid.find(prefix);
   if (pos == std::string::npos || pos != 0) {
     std::string err = "[db_cloud_impl] NeedsReinitialization: "
 	              "Local dbid is " + local_dbid +
-	              " but cloud dbid is " + cloud_dbid;
+	              " but src dbid is " + src_dbid;
     Log(InfoLogLevel::DEBUG_LEVEL, options.info_log, err.c_str());
     return Status::OK();
   }
@@ -242,38 +241,38 @@ Status DBCloudImpl::SanitizeCloneDirectory(const Options& options,
 	clone_name.c_str(), st.ToString().c_str());
     return st;
   }
-  // download MANIFEST
-  std::string manifestfile = "MANIFEST-000000";
-  st = DBCloudImpl::CopyFile(cenv, env,
-		             "MANIFEST", clone_name + "/" + manifestfile);
+
+  // find the directory of the src_db
+  std::string srcdb_dir;
+  st = cenv->GetPathForDbid(src_dbid, &srcdb_dir);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-	"[db_cloud_impl] Unable to download MANIFEST file to %s %s",
-	clone_name.c_str(), st.ToString().c_str());
+	"[db_cloud_impl] Clone %s Unable to find src dbdir for dbid %s %s",
+	clone_name.c_str(), src_dbid.c_str(), st.ToString().c_str());
+    return st;
+  }
+
+  // download MANIFEST
+  std::string manifestfile = "MANIFEST-000000";
+  std::string src_manifestfile = srcdb_dir + "/MANIFEST";
+  st = DBCloudImpl::CopyFile(cenv, env,
+		             src_manifestfile,
+			     clone_name + "/" + manifestfile);
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+	"[db_cloud_impl] Unable to download MANIFEST file from %s to %s %s",
+	src_manifestfile.c_str(), clone_name.c_str(), st.ToString().c_str());
     return st;
   } else {
     Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-	"[db_cloud_impl] Download cloud MANIFEST file to %s %s",
-	clone_name.c_str(), st.ToString().c_str());
+	"[db_cloud_impl] Download cloud MANIFEST file from % to %s %s",
+	src_manifestfile.c_str(), clone_name.c_str(), st.ToString().c_str());
   }
-
-  // fetch dbid from cloud storage
-  std::string cloud_dbid;
-  st = ReadFileIntoString(cenv, "IDENTITY", &cloud_dbid);
-  if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-	"[db_cloud_impl] Unable to read dbid from cloud storage %s",
-	st.ToString().c_str());
-    return st;
-  }
-  Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-      "[db_cloud_impl] Extracted dbid from cloud storage %s %s",
-       cloud_dbid.c_str(), st.ToString().c_str());
 
   // write new dbid to IDENTITY file
   {
     // create new dbid
-    std::string new_dbid = cloud_dbid + "rockset" + env->GenerateUniqueId();
+    std::string new_dbid = src_dbid + "rockset" + env->GenerateUniqueId();
 
     unique_ptr<WritableFile> destfile;
     st = env->NewWritableFile(clone_name + "/" + "IDENTITY",
