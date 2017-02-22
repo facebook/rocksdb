@@ -8,6 +8,7 @@
 #include <fstream>
 #include "rocksdb/env.h"
 #include "cloud/aws/aws_env.h"
+#include "cloud/filename.h"
 #include "rocksdb/status.h"
 
 #include <aws/core/Aws.h>
@@ -162,39 +163,6 @@ inline Aws::String GetStreamName(const std::string& bucket_prefix) {
   return Aws::String(dd.c_str(), dd.size());
 }
 
-// trim from start
-static std::string& ltrim(std::string& s) {
-    s.erase(s.begin(),
-            std::find_if(s.begin(), s.end(),
-                         std::not1(std::ptr_fun<int, int>(std::isspace))));
-    return s;
-}
-
-// trim from end
-static std::string& rtrim(std::string& s) {
-    s.erase(std::find_if(s.rbegin(), s.rend(),
-                         std::not1(std::ptr_fun<int, int>(std::isspace)))
-                    .base(),
-            s.end());
-    return s;
-}
-
-// trim from both ends
-inline std::string& trim(std::string& s) { return ltrim(rtrim(s)); }
-
-// Extract basename from a full pathname
-struct MatchPathSeparator {
-  bool operator() (char ch) const { return ch == '/'; }
-};
-inline std::string basename(std::string const& pathname) {
-  return std::string(std::find_if
-                       (pathname.rbegin(), pathname.rend(), MatchPathSeparator()).base(),
-                       pathname.end());
-}
-inline std::string dirname(std::string const& pathname) {
-  return std::string(pathname.begin(),
-		     std::find_if(pathname.rbegin(), pathname.rend(), MatchPathSeparator()).base());
-}
 }  // namespace
 
 namespace rocksdb {

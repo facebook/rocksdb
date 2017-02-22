@@ -11,7 +11,6 @@
 #include "util/logging.h"
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
-#include "aws/aws_file.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif

@@ -6,8 +6,8 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "cloud/aws/aws_env.h"
-#include "cloud/aws/aws_file.h"
 #include "cloud/db_cloud_impl.h"
+#include "cloud/filename.h"
 
 namespace rocksdb {
 
