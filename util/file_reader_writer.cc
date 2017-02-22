@@ -543,6 +543,10 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return file_->InvalidateCache(offset, length);
   }
 
+  virtual bool use_direct_io() const override {
+    return file_->use_direct_io();
+  }
+
  private:
   std::unique_ptr<RandomAccessFile> file_;
   size_t               readahead_size_;
