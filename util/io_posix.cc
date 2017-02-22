@@ -106,8 +106,8 @@ size_t GetLogicalBufferSize(int fd) {
   }
   return size;
 }
-}
-#endif  //  namespace
+} //  namespace
+#endif
 
 /*
  * DirectIOHelper
