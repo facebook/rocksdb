@@ -196,6 +196,9 @@ class TestEnv : public EnvWrapper {
 
   virtual Status DeleteFile(const std::string& fname) override {
     MutexLock l(&mutex_);
+    if (fail_delete_files_) {
+      return Status::IOError();
+    }
     EXPECT_GT(limit_delete_files_, 0U);
     limit_delete_files_--;
     return EnvWrapper::DeleteFile(fname);
@@ -222,6 +225,11 @@ class TestEnv : public EnvWrapper {
   void SetLimitDeleteFiles(uint64_t limit) {
     MutexLock l(&mutex_);
     limit_delete_files_ = limit;
+  }
+
+  void SetDeleteFileFailure(bool fail) {
+    MutexLock l(&mutex_);
+    fail_delete_files_ = fail;
   }
 
   void SetDummySequentialFile(bool dummy_sequential_file) {
@@ -286,6 +294,7 @@ class TestEnv : public EnvWrapper {
   std::vector<std::string> filenames_for_mocked_attrs_;
   uint64_t limit_written_files_ = 1000000;
   uint64_t limit_delete_files_ = 1000000;
+  bool fail_delete_files_ = false;
 
   bool get_children_failure_ = false;
   bool create_dir_if_missing_failure_ = false;
@@ -921,6 +930,32 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   CloseDBAndBackupEngine();
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
+}
+
+TEST_F(BackupableDBTest, InterruptCreationTest) {
+  // Interrupt backup creation by failing new writes and failing cleanup of the
+  // partial state. Then verify a subsequent backup can still succeed.
+  const int keys_iteration = 5000;
+  Random rnd(6);
+
+  OpenDBAndBackupEngine(true /* destroy_old_data */);
+  FillDB(db_.get(), 0, keys_iteration);
+  test_backup_env_->SetLimitWrittenFiles(2);
+  test_backup_env_->SetDeleteFileFailure(true);
+  // should fail creation
+  ASSERT_FALSE(
+      backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)).ok());
+  CloseDBAndBackupEngine();
+  // should also fail cleanup so the tmp directory stays behind
+  ASSERT_OK(backup_chroot_env_->FileExists(backupdir_ + "/private/1.tmp/"));
+
+  OpenDBAndBackupEngine(false /* destroy_old_data */);
+  test_backup_env_->SetLimitWrittenFiles(1000000);
+  test_backup_env_->SetDeleteFileFailure(false);
+  ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
+  // latest backup should have all the keys
+  CloseDBAndBackupEngine();
+  AssertBackupConsistency(0, 0, keys_iteration);
 }
 
 inline std::string OptionsPath(std::string ret, int backupID) {
