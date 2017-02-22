@@ -32,6 +32,7 @@ set(JNI_NATIVE_SOURCES
         rocksjni/writebatchhandlerjnicallback.cc
         rocksjni/write_batch_with_index.cc
         rocksjni/write_batch_test.cc
+        rocksjni/rocksdb_exception_test.cc
 )
 
 set(NATIVE_JAVA_CLASSES
@@ -88,6 +89,7 @@ set(NATIVE_JAVA_CLASSES
         org.rocksdb.WBWIRocksIterator
         org.rocksdb.WriteBatchTest
         org.rocksdb.WriteBatchTestInternalHelper
+        org.rocksdb.RocksDBExceptionTest
 )
 
 include_directories($ENV{JAVA_HOME}/include)
@@ -111,9 +113,17 @@ if(NOT EXISTS ${JAVA_TEST_LIBDIR})
   file(MAKE_DIRECTORY mkdir ${JAVA_TEST_LIBDIR})
 endif()
 
+if (DEFINED CUSTOM_REPO_URL)
+  set(SEARCH_REPO_URL ${CUSTOM_REPO_URL}/)
+  set(CENTRAL_REPO_URL ${CUSTOM_REPO_URL}/)
+else ()
+  set(SEARCH_REPO_URL "http://search.maven.org/remotecontent?filepath=")
+  set(CENTRAL_REPO_URL "http://central.maven.org/maven2/")
+endif()
+
 if(NOT EXISTS ${JAVA_JUNIT_JAR})
   message("Downloading ${JAVA_JUNIT_JAR}")
-  file(DOWNLOAD http://search.maven.org/remotecontent?filepath=junit/junit/4.12/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${SEARCH_REPO_URL}junit/junit/4.12/junit-4.12.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_JUNIT_JAR}")
@@ -122,7 +132,7 @@ if(NOT EXISTS ${JAVA_JUNIT_JAR})
 endif()
 if(NOT EXISTS ${JAVA_HAMCR_JAR})
   message("Downloading ${JAVA_HAMCR_JAR}")
-  file(DOWNLOAD http://search.maven.org/remotecontent?filepath=org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${SEARCH_REPO_URL}org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_HAMCR_JAR}")
@@ -131,7 +141,7 @@ if(NOT EXISTS ${JAVA_HAMCR_JAR})
 endif()
 if(NOT EXISTS ${JAVA_MOCKITO_JAR})
   message("Downloading ${JAVA_MOCKITO_JAR}")
-  file(DOWNLOAD http://search.maven.org/remotecontent?filepath=org/mockito/mockito-all/1.10.19/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${SEARCH_REPO_URL}org/mockito/mockito-all/1.10.19/mockito-all-1.10.19.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_MOCKITO_JAR}")
@@ -140,7 +150,7 @@ if(NOT EXISTS ${JAVA_MOCKITO_JAR})
 endif()
 if(NOT EXISTS ${JAVA_CGLIB_JAR})
   message("Downloading ${JAVA_CGLIB_JAR}")
-  file(DOWNLOAD http://search.maven.org/remotecontent?filepath=cglib/cglib/2.2.2/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${SEARCH_REPO_URL}cglib/cglib/2.2.2/cglib-2.2.2.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_CGLIB_JAR}")
@@ -149,7 +159,7 @@ if(NOT EXISTS ${JAVA_CGLIB_JAR})
 endif()
 if(NOT EXISTS ${JAVA_ASSERTJ_JAR})
   message("Downloading ${JAVA_ASSERTJ_JAR}")
-  file(DOWNLOAD http://central.maven.org/maven2/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
+  file(DOWNLOAD ${CENTRAL_REPO_URL}org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar ${JAVA_TMP_JAR} STATUS downloadStatus)
   list(GET downloadStatus 0 error_code)
   if(NOT error_code EQUAL 0)
     message(FATAL_ERROR "Failed downloading ${JAVA_ASSERTJ_JAR}")

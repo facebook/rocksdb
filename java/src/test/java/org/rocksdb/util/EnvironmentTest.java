@@ -1,4 +1,4 @@
-// Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
@@ -70,15 +70,16 @@ public class EnvironmentTest {
         isEqualTo("librocksdbjni-linux32.so");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
         isEqualTo("librocksdbjni.so");
+  }
+
+  @Test(expected = UnsupportedOperationException.class)
+  public void aix32() {
     // AIX
     setEnvironmentClassFields("aix", "32");
     assertThat(Environment.isWindows()).isFalse();
     assertThat(Environment.getJniLibraryExtension()).
         isEqualTo(".so");
-    assertThat(Environment.getJniLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni-linux32.so");
-    assertThat(Environment.getSharedLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni.so");
+    Environment.getJniLibraryFileName("rocksdb");
   }
 
   @Test
@@ -88,7 +89,7 @@ public class EnvironmentTest {
     assertThat(Environment.getJniLibraryExtension()).
         isEqualTo(".so");
     assertThat(Environment.getJniLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni-linux64.so");
+        isEqualTo("librocksdbjni-linuxAMD64.so");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
         isEqualTo("librocksdbjni.so");
     // UNIX
@@ -97,7 +98,7 @@ public class EnvironmentTest {
     assertThat(Environment.getJniLibraryExtension()).
         isEqualTo(".so");
     assertThat(Environment.getJniLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni-linux64.so");
+        isEqualTo("librocksdbjni-linuxAMD64.so");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
         isEqualTo("librocksdbjni.so");
     // AIX
@@ -106,7 +107,7 @@ public class EnvironmentTest {
     assertThat(Environment.getJniLibraryExtension()).
         isEqualTo(".so");
     assertThat(Environment.getJniLibraryFileName("rocksdb")).
-        isEqualTo("librocksdbjni-linux64.so");
+        isEqualTo("librocksdbjni-aix64.so");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
         isEqualTo("librocksdbjni.so");
   }
@@ -124,15 +125,21 @@ public class EnvironmentTest {
     assertThat(Environment.getJniLibraryExtension()).
       isEqualTo(".dll");
     assertThat(Environment.getJniLibraryFileName("rocksdb")).
-      isEqualTo("librocksdbjni-win64.dll");
+      isEqualTo("librocksdbjni-windowsAMD64.dll");
     assertThat(Environment.getSharedLibraryFileName("rocksdb")).
       isEqualTo("librocksdbjni.dll");
   }
 
-  @Test(expected = UnsupportedOperationException.class)
+  @Test
   public void win32(){
     setEnvironmentClassFields("win", "32");
-    Environment.getJniLibraryFileName("rocksdb");
+    assertThat(Environment.isWindows()).isTrue();
+    assertThat(Environment.getJniLibraryExtension()).
+      isEqualTo(".dll");
+    assertThat(Environment.getJniLibraryFileName("rocksdb")).
+      isEqualTo("librocksdbjni-windows32.dll");
+    assertThat(Environment.getSharedLibraryFileName("rocksdb")).
+      isEqualTo("librocksdbjni.dll");
   }
 
   private void setEnvironmentClassFields(String osName,

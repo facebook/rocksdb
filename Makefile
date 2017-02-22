@@ -14,7 +14,18 @@ CFLAGS += ${EXTRA_CFLAGS}
 CXXFLAGS += ${EXTRA_CXXFLAGS}
 LDFLAGS += $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)
-ARFLAGS = rs
+ARFLAGS = ${EXTRA_ARFLAGS} rs
+STRIPFLAGS = -S -x
+
+# 3rd party libraries
+LIBZ_VERSION?=1.2.11
+LIBZ_DOWNLOAD_BASE?=http://zlib.net
+BZIP2_VERSION?=1.0.6
+BZIP2_DOWNLOAD_BASE?=http://www.bzip.org/${BZIP2_VERSION}
+SNAPPY_VERSION?=1.1.3
+SNAPPY_DOWNLOAD_BASE?=https://github.com/google/snappy/releases/download/1.1.3/${SNAPPY_VERSION}
+LZ4_VERSION?=r127
+LZ4_DOWNLOAD_BASE?=https://codeload.github.com/Cyan4973/lz4/tar.gz/${LZ4_VERSION}
 
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
@@ -154,12 +165,19 @@ missing_make_config_paths := $(shell				\
 $(foreach path, $(missing_make_config_paths), \
 	$(warning Warning: $(path) dont exist))
 
-ifneq ($(PLATFORM), IOS)
+ifeq ($(PLATFORM), OS_AIX)
+# no debug info
+else ifneq ($(PLATFORM), IOS)
 CFLAGS += -g
 CXXFLAGS += -g
 else
 # no debug info for IOS, that will make our library big
 OPT += -DNDEBUG
+endif
+
+ifeq ($(PLATFORM), OS_AIX)
+ARFLAGS = -X64 rs
+STRIPFLAGS = -X64 -x
 endif
 
 ifeq ($(PLATFORM), OS_SOLARIS)
@@ -194,6 +212,11 @@ ifdef COMPILE_WITH_TSAN
 	LUA_PATH =
 endif
 
+# AIX doesn't work with -pg
+ifeq ($(PLATFORM), OS_AIX)
+	PROFILING_FLAGS =
+endif
+
 # USAN doesn't work well with jemalloc. If we're compiling with USAN, we should use regular malloc.
 ifdef COMPILE_WITH_UBSAN
 	DISABLE_JEMALLOC=1
@@ -214,8 +237,14 @@ endif
 
 export GTEST_THROW_ON_FAILURE=1 GTEST_HAS_EXCEPTIONS=1
 GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
-PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
-PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
+# AIX: pre-defined system headers are surrounded by an extern "C" block
+ifeq ($(PLATFORM), OS_AIX)
+	PLATFORM_CCFLAGS += -I$(GTEST_DIR)
+	PLATFORM_CXXFLAGS += -I$(GTEST_DIR)
+else
+	PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
+	PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
+endif
 
 # This (the first rule) must depend on "all".
 default: all
@@ -559,7 +588,8 @@ ifneq (,$(filter check parallel_check,$(MAKECMDGOALS)),)
 # and create a randomly-named rocksdb.XXXX directory therein.
 # We'll use that directory in the "make check" rules.
 ifeq ($(TMPD),)
-TMPD := $(shell f=/dev/shm; test -k $$f || f=/tmp;			\
+TMPDIR := $(shell echo $${TMPDIR:-/tmp})
+TMPD := $(shell f=/dev/shm; test -k $$f || f=$(TMPDIR);     \
   perl -le 'use File::Temp "tempdir";'					\
     -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
 endif
@@ -711,9 +741,11 @@ check: all
 	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
+ifneq ($(PLATFORM), OS_AIX)
 ifeq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	python tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
+endif
 endif
 
 # TODO add ldb_tests
@@ -1368,6 +1400,7 @@ ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linu
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadoc.jar
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
+EXTRACT_SOURCES = tar xvzf TAR_GZ
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
@@ -1388,43 +1421,47 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
 endif
+ifeq ($(PLATFORM), OS_AIX)
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/aix
+	ROCKSDBJNILIB = librocksdbjni-aix.so
+	EXTRACT_SOURCES = gunzip < TAR_GZ | tar xvf -
+endif
 
 libz.a:
-	-rm -rf zlib-1.2.8
-	curl -O -L http://zlib.net/zlib-1.2.8.tar.gz
-	tar xvzf zlib-1.2.8.tar.gz
-	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
-	cp zlib-1.2.8/libz.a .
+	-rm -rf zlib-$(LIBZ_VERSION)
+	curl -O -L $(LIBZ_DOWNLOAD_BASE)/zlib-$(LIBZ_VERSION).tar.gz
+	$(EXTRACT_SOURCES:TAR_GZ=zlib-$(LIBZ_VERSION).tar.gz)
+	cd zlib-$(LIBZ_VERSION) && CFLAGS='-fPIC ${EXTRA_CFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --static && make
+	cp zlib-$(LIBZ_VERSION)/libz.a .
 
 libbz2.a:
-	-rm -rf bzip2-1.0.6
-	curl -O -L http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
-	tar xvzf bzip2-1.0.6.tar.gz
-	cd bzip2-1.0.6 && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
-	cp bzip2-1.0.6/libbz2.a .
+	-rm -rf bzip2-${BZIP2_VERSION}
+	curl -O -L $(BZIP2_DOWNLOAD_BASE)/bzip2-${BZIP2_VERSION}.tar.gz
+	$(EXTRACT_SOURCES:TAR_GZ=bzip2-${BZIP2_VERSION}.tar.gz)
+	cd bzip2-${BZIP2_VERSION} && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64 ${EXTRA_CFLAGS}' AR='ar ${EXTRA_ARFLAGS}'
+	cp bzip2-${BZIP2_VERSION}/libbz2.a .
 
 libsnappy.a:
-	-rm -rf snappy-1.1.3
-	curl -O -L https://github.com/google/snappy/releases/download/1.1.3/snappy-1.1.3.tar.gz
-	tar xvzf snappy-1.1.3.tar.gz
-	cd snappy-1.1.3 && ./configure --with-pic --enable-static
-	cd snappy-1.1.3 && make
-	cp snappy-1.1.3/.libs/libsnappy.a .
+	-rm -rf snappy-${SNAPPY_VERSION}
+	curl -O -L ${SNAPPY_DOWNLOAD_BASE}/snappy-${SNAPPY_VERSION}.tar.gz
+	$(EXTRACT_SOURCES:TAR_GZ=snappy-${SNAPPY_VERSION}.tar.gz)
+	cd snappy-${SNAPPY_VERSION} && CFLAGS='${EXTRA_CFLAGS}' CXXFLAGS='${EXTRA_CXXFLAGS}' LDFLAGS='${EXTRA_LDFLAGS}' ./configure --with-pic --enable-static --disable-shared
+	cd snappy-${SNAPPY_VERSION} && make libsnappy.la
+	cp snappy-${SNAPPY_VERSION}/.libs/libsnappy.a .
 
 liblz4.a:
-	   -rm -rf lz4-r127
-	   curl -O -L https://codeload.github.com/Cyan4973/lz4/tar.gz/r127
-	   mv r127 lz4-r127.tar.gz
-	   tar xvzf lz4-r127.tar.gz
-	   cd lz4-r127/lib && make CFLAGS='-fPIC' all
-	   cp lz4-r127/lib/liblz4.a .
+	-rm -rf lz4-${LZ4_VERSION}
+	curl -O -L ${LZ4_DOWNLOAD_BASE}/lz4-${LZ4_VERSION}.tar.gz
+	$(EXTRACT_SOURCES:TAR_GZ=lz4-${LZ4_VERSION}.tar.gz)
+	cd lz4-${LZ4_VERSION}/lib && make CFLAGS='-fPIC ${EXTRA_CFLAGS}' all
+	cp lz4-${LZ4_VERSION}/lib/liblz4.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
 java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
-JAVA_STATIC_INCLUDES = -I./zlib-1.2.8 -I./bzip2-1.0.6 -I./snappy-1.1.3 -I./lz4-r127/lib
+JAVA_STATIC_INCLUDES = -I./zlib-$(LIBZ_VERSION) -I./bzip2-1.0.6 -I./snappy-1.1.3 -I./lz4-r127/lib
 
 $(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
@@ -1436,7 +1473,7 @@ rocksdbjavastatic: $(java_static_libobjects)
 	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
 	  $(java_static_libobjects) $(COVERAGEFLAGS) \
 	  libz.a libbz2.a libsnappy.a liblz4.a $(JAVA_STATIC_LDFLAGS)
-	cd java/target;strip -S -x $(ROCKSDBJNILIB)
+	cd java/target;strip $(STRIPFLAGS) $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class

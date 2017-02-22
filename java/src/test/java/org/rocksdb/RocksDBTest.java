@@ -53,7 +53,7 @@ public class RocksDBTest {
       } catch (final RocksDBException e) {
         assertThat(e.getStatus().getCode()).isEqualTo(Status.Code.IOError);
         assertThat(e.getStatus().getSubCode()).isEqualTo(Status.SubCode.None);
-        assertThat(e.getStatus().getState()).startsWith("lock ");
+        assertThat(e.getStatus().getState()).contains("lock ");
       }
     }
   }

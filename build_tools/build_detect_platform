@@ -132,6 +132,13 @@ case "$TARGET_OS" in
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
         # PORT_FILES=port/sunos/sunos_specific.cc
         ;;
+    AIX)
+        PLATFORM=OS_AIX
+        CC=gcc
+        COMMON_FLAGS="$COMMON_FLAGS -maix64 -pthread -fno-builtin-memcmp -D_REENTRANT -DOS_AIX"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -pthread -lpthread -lrt -maix64 -static-libstdc++ -static-libgcc"
+        # PORT_FILES=port/aix/aix_specific.cc
+        ;;
     FreeBSD)
         PLATFORM=OS_FREEBSD
         COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_FREEBSD"
