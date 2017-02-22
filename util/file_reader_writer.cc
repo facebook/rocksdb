@@ -522,6 +522,10 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     return file_->InvalidateCache(offset, length);
   }
 
+  virtual bool use_direct_io() const override {
+    return file_->use_direct_io();
+  }
+
  private:
   bool TryReadFromCache_(uint64_t offset, size_t n, size_t* cached_len,
                          char* scratch) const {
