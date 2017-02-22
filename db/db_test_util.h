@@ -231,7 +231,7 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
-      Status PositionedAppend(const Slice& data, uint64_t offset) {
+      Status PositionedAppend(const Slice& data, uint64_t offset) override {
         if (env_->table_write_callback_) {
           (*env_->table_write_callback_)();
         }
