@@ -46,11 +46,13 @@ Status CloudEnv::SetClone(const std::string& src_dbid) {
 // Maps a pathname from the clone to the corresponding file in src db
 //
 std::string CloudEnv::MapClonePathToSrcPath(const std::string& fname) {
+#ifdef USE_AWS
   assert(is_clone_);
   return src_dbdir_ + "/" + basename(fname);  
+#else
+  return "MapClonePathToSrcPath not available";
+#endif
 }
-
-
 
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE
