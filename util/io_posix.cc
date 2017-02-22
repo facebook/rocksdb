@@ -92,15 +92,13 @@ size_t GetLogicalBufferSize(int fd) {
   std::string fname = device_dir + "/queue/logical_block_size";
   FILE* fp;
   char* line = nullptr;
-  size_t len;
+  size_t len = 0, size = 0;
   fp = fopen(fname.c_str(), "r");
-  if (fp == nullptr || getline(&line, &len, fp) == -1) {
-    return kDefaultPageSize;
+  if (fp != nullptr && getline(&line, &len, fp) != -1) {
+    sscanf(line, "%zu", &size);
+    fclose(fp);
   }
-  size_t size;
-  sscanf(line, "%zu", &size);
-  fclose(fp);
-  if (line) {
+  if (line != nullptr) {
     free(line);
   }
   if (size == 0 || (size & (size - 1)) != 0) {
