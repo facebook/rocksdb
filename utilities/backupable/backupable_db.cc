@@ -1410,13 +1410,14 @@ Status BackupEngineImpl::InsertPathnameToSizeBytes(
   Status status = env->FileExists(dir);
   if (status.ok()) {
     status = env->GetChildrenFileAttributes(dir, &files_attrs);
+  } else if (status.IsNotFound()) {
+    // Insert no entries can be considered success
+    status = Status::OK();
   }
-  if (status.ok()) {
-    const bool slash_needed = dir.empty() || dir.back() != '/';
-    for (const auto& file_attrs : files_attrs) {
-      result->emplace(dir + (slash_needed ? "/" : "") + file_attrs.name,
-                      file_attrs.size_bytes);
-    }
+  const bool slash_needed = dir.empty() || dir.back() != '/';
+  for (const auto& file_attrs : files_attrs) {
+    result->emplace(dir + (slash_needed ? "/" : "") + file_attrs.name,
+                    file_attrs.size_bytes);
   }
   return status;
 }
