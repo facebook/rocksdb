@@ -2277,6 +2277,27 @@ TEST_F(DBTest2, GetRaceFlush2) {
   t1.join();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+TEST_F(DBTest2, DirectIO) {
+  if (!IsDirectIOSupported()) {
+    return;
+  }
+  Options options = CurrentOptions();
+  options.use_direct_reads = options.use_direct_writes = true;
+  options.allow_mmap_reads = options.allow_mmap_writes = false;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put(Key(0), "a"));
+  ASSERT_OK(Put(Key(5), "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(10), "a"));
+  ASSERT_OK(Put(Key(15), "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  Reopen(options);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
