@@ -1407,16 +1407,18 @@ Status BackupEngineImpl::InsertPathnameToSizeBytes(
     std::unordered_map<std::string, uint64_t>* result) {
   assert(result != nullptr);
   std::vector<Env::FileAttributes> files_attrs;
-  Status status = env->GetChildrenFileAttributes(dir, &files_attrs);
-  if (!status.ok()) {
-    return status;
+  Status status = env->FileExists(dir);
+  if (status.ok()) {
+    status = env->GetChildrenFileAttributes(dir, &files_attrs);
   }
-  const bool slash_needed = dir.empty() || dir.back() != '/';
-  for (const auto& file_attrs : files_attrs) {
-    result->emplace(dir + (slash_needed ? "/" : "") + file_attrs.name,
-                    file_attrs.size_bytes);
+  if (status.ok()) {
+    const bool slash_needed = dir.empty() || dir.back() != '/';
+    for (const auto& file_attrs : files_attrs) {
+      result->emplace(dir + (slash_needed ? "/" : "") + file_attrs.name,
+                      file_attrs.size_bytes);
+    }
   }
-  return Status::OK();
+  return status;
 }
 
 Status BackupEngineImpl::GarbageCollect() {
