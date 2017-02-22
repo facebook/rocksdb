@@ -3,6 +3,8 @@
 ### Public API Change
 * Remove disableDataSync option.
 * Remove timeout_hint_us option from WriteOptions. The option has been deprecated and has no effect since 3.13.0.
+* Remove option min_partial_merge_operands. Partial merge operands will always be merged in flush or compaction if there are more than one.
+* Remove option verify_checksums_in_compaction. Compaction will always verify checksum.
 
 ## 5.2.0 (02/08/2017)
 ### Public API Change

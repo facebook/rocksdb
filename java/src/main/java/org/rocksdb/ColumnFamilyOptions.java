@@ -474,19 +474,6 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setVerifyChecksumsInCompaction(
-      final boolean verifyChecksumsInCompaction) {
-    setVerifyChecksumsInCompaction(
-        nativeHandle_, verifyChecksumsInCompaction);
-    return this;
-  }
-
-  @Override
-  public boolean verifyChecksumsInCompaction() {
-    return verifyChecksumsInCompaction(nativeHandle_);
-  }
-
-  @Override
   public ColumnFamilyOptions setMaxSequentialSkipInIterations(
       final long maxSequentialSkipInIterations) {
     setMaxSequentialSkipInIterations(nativeHandle_,
@@ -584,18 +571,6 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public long maxSuccessiveMerges() {
     return maxSuccessiveMerges(nativeHandle_);
-  }
-
-  @Override
-  public ColumnFamilyOptions setMinPartialMergeOperands(
-      final int minPartialMergeOperands) {
-    setMinPartialMergeOperands(nativeHandle_, minPartialMergeOperands);
-    return this;
-  }
-
-  @Override
-  public int minPartialMergeOperands() {
-    return minPartialMergeOperands(nativeHandle_);
   }
 
   @Override
@@ -802,9 +777,6 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setPurgeRedundantKvsWhileFlush(
       long handle, boolean purgeRedundantKvsWhileFlush);
   private native boolean purgeRedundantKvsWhileFlush(long handle);
-  private native void setVerifyChecksumsInCompaction(
-      long handle, boolean verifyChecksumsInCompaction);
-  private native boolean verifyChecksumsInCompaction(long handle);
   private native void setMaxSequentialSkipInIterations(
       long handle, long maxSequentialSkipInIterations);
   private native long maxSequentialSkipInIterations(long handle);
@@ -829,9 +801,6 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, long maxSuccessiveMerges)
       throws IllegalArgumentException;
   private native long maxSuccessiveMerges(long handle);
-  private native void setMinPartialMergeOperands(
-      long handle, int minPartialMergeOperands);
-  private native int minPartialMergeOperands(long handle);
   private native void setOptimizeFiltersForHits(long handle,
       boolean optimizeFiltersForHits);
   private native boolean optimizeFiltersForHits(long handle);

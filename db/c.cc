@@ -1824,11 +1824,6 @@ void rocksdb_options_set_enable_write_thread_adaptive_yield(
   opt->rep.enable_write_thread_adaptive_yield = v;
 }
 
-void rocksdb_options_set_verify_checksums_in_compaction(
-    rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.verify_checksums_in_compaction = v;
-}
-
 void rocksdb_options_set_max_sequential_skip_in_iterations(
     rocksdb_options_t* opt, uint64_t v) {
   opt->rep.max_sequential_skip_in_iterations = v;
@@ -1978,11 +1973,6 @@ void rocksdb_options_set_plain_table_factory(
 void rocksdb_options_set_max_successive_merges(
     rocksdb_options_t* opt, size_t v) {
   opt->rep.max_successive_merges = v;
-}
-
-void rocksdb_options_set_min_partial_merge_operands(
-    rocksdb_options_t* opt, uint32_t v) {
-  opt->rep.min_partial_merge_operands = v;
 }
 
 void rocksdb_options_set_bloom_locality(

@@ -122,7 +122,6 @@ Status BuildTable(
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
                       ioptions.merge_operator, nullptr, ioptions.info_log,
-                      mutable_cf_options.min_partial_merge_operands,
                       true /* internal key corruption is not ok */,
                       snapshots.empty() ? 0 : snapshots.back());
 

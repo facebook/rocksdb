@@ -86,7 +86,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
       compaction_style(options.compaction_style),
       compaction_pri(options.compaction_pri),
-      verify_checksums_in_compaction(options.verify_checksums_in_compaction),
       compaction_options_universal(options.compaction_options_universal),
       compaction_options_fifo(options.compaction_options_fifo),
       max_sequential_skip_in_iterations(
@@ -105,7 +104,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.memtable_insert_with_hint_prefix_extractor),
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
-      min_partial_merge_operands(options.min_partial_merge_operands),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       paranoid_file_checks(options.paranoid_file_checks),
       force_consistency_checks(options.force_consistency_checks),
@@ -283,8 +281,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         rate_limit_delay_max_milliseconds);
     Header(log, "               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Header(log, "          Options.verify_checksums_in_compaction: %d",
-        verify_checksums_in_compaction);
 
     const auto& it_compaction_style =
         compaction_style_to_string.find(compaction_style);
@@ -336,8 +332,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Header(log,
          "                Options.inplace_update_num_locks: %" ROCKSDB_PRIszt,
          inplace_update_num_locks);
-    Header(log, "              Options.min_partial_merge_operands: %u",
-        min_partial_merge_operands);
     // TODO: easier config for bloom (maybe based on avg key/value size)
     Header(log, "              Options.memtable_prefix_bloom_size_ratio: %f",
            memtable_prefix_bloom_size_ratio);
