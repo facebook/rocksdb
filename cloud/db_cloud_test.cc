@@ -189,14 +189,47 @@ TEST_F(CloudTest, BasicClone) {
   CloseDB();
   value.clear();
 
-  // Create and Open clone
-  std::unique_ptr<CloudEnv> cloud_env;
-  std::unique_ptr<DBCloud> cloud_db;
-  CloneDB("clone1", &cloud_db, &cloud_env);
-  Status stax = cloud_db->Get(ReadOptions(), "Hello", &value);
+  {
+    // Create and Open clone
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    CloneDB("clone1", &cloud_db, &cloud_env);
 
-  ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
-  ASSERT_TRUE(value.compare("World") == 0);
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("World") == 0);
+
+    // Open master and write one more kv to it
+    OpenDB();
+    ASSERT_OK(db_->Put(WriteOptions(), "Dhruba", "Borthakur"));
+
+    // check that the newly written kv exists
+    value.clear();
+    ASSERT_OK(db_->Get(ReadOptions(), "Dhruba", &value));
+    ASSERT_TRUE(value.compare("Borthakur") == 0);
+
+    // check that the earlier kv exists too
+    value.clear();
+    ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("World") == 0);
+    CloseDB();
+
+    // Assert  that clone1 cannot see the second kv
+    ASSERT_TRUE(cloud_db->Get(ReadOptions(), "Dhruba", &value).IsNotFound());
+  }
+  {
+    // Create another clone
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DBCloud> cloud_db;
+    CloneDB("clone2", &cloud_db, &cloud_env);
+
+    // check that both the kvs appear in the clone
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("World") == 0);
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Dhruba", &value));
+    ASSERT_TRUE(value.compare("Borthakur") == 0);
+  }
 }
 
 } //  namespace rocksdb
