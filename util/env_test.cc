@@ -48,6 +48,12 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 
+#ifdef OS_LINUX
+static const size_t kPageSize = sysconf(_SC_PAGESIZE);
+#else
+static const size_t kPageSize = 4 * 1024;
+#endif
+
 namespace rocksdb {
 
 static const int kDelayMicros = 100000;
@@ -67,12 +73,12 @@ struct Deleter {
 std::unique_ptr<char, Deleter> NewAligned(const size_t size, const char ch) {
   char* ptr = nullptr;
 #ifdef OS_WIN
-  if (!(ptr = reinterpret_cast<char*>(_aligned_malloc(size, 4 * 1024)))) {
+  if (!(ptr = reinterpret_cast<char*>(_aligned_malloc(size, kPageSize)))) {
     return std::unique_ptr<char, Deleter>(nullptr, Deleter(_aligned_free));
   }
   std::unique_ptr<char, Deleter> uptr(ptr, Deleter(_aligned_free));
 #else
-  if (posix_memalign(reinterpret_cast<void**>(&ptr), 4 * 1024, size) != 0) {
+  if (posix_memalign(reinterpret_cast<void**>(&ptr), kPageSize, size) != 0) {
     return std::unique_ptr<char, Deleter>(nullptr, Deleter(free));
   }
   std::unique_ptr<char, Deleter> uptr(ptr, Deleter(free));
