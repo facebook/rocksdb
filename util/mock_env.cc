@@ -236,13 +236,9 @@ class MockRandomAccessFile : public RandomAccessFile {
 
 class MockRandomRWFile : public RandomRWFile {
  public:
-  explicit MockRandomRWFile(MemFile* file) : file_(file) {
-    file_->Ref();
-  }
+  explicit MockRandomRWFile(MemFile* file) : file_(file) { file_->Ref(); }
 
-  ~MockRandomRWFile() {
-    file_->Unref();
-  }
+  ~MockRandomRWFile() { file_->Unref(); }
 
   virtual Status Write(uint64_t offset, const Slice& data) override {
     return file_->Write(offset, data);
@@ -288,6 +284,7 @@ class MockWritableFile : public WritableFile {
     return Status::OK();
   }
   virtual Status Truncate(uint64_t size) override {
+    file_->Truncate(size);
     return Status::OK();
   }
   virtual Status Close() override { return file_->Fsync(); }
@@ -480,8 +477,8 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
 }
 
 Status MockEnv::NewRandomRWFile(const std::string& fname,
-                                       unique_ptr<RandomRWFile>* result,
-                                       const EnvOptions& soptions) {
+                                unique_ptr<RandomRWFile>* result,
+                                const EnvOptions& soptions) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) == file_map_.end()) {
@@ -497,9 +494,9 @@ Status MockEnv::NewRandomRWFile(const std::string& fname,
 }
 
 Status MockEnv::ReuseWritableFile(const std::string& fname,
-                                   const std::string& old_fname,
-                                   unique_ptr<WritableFile>* result,
-                                   const EnvOptions& options) {
+                                  const std::string& old_fname,
+                                  unique_ptr<WritableFile>* result,
+                                  const EnvOptions& options) {
   auto s = RenameFile(old_fname, fname);
   if (!s.ok()) {
     return s;
@@ -667,7 +664,7 @@ Status MockEnv::LinkFile(const std::string& src, const std::string& dest) {
 
   DeleteFileInternal(t);
   file_map_[t] = file_map_[s];
-  file_map_[t]->Ref(); // Otherwise it might get deleted when noone uses s
+  file_map_[t]->Ref();  // Otherwise it might get deleted when noone uses s
   return Status::OK();
 }
 

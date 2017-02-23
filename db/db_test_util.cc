@@ -61,7 +61,6 @@ DBTestBase::DBTestBase(const std::string path)
   db_ = nullptr;
   Reopen(options);
   Random::GetTLSInstance()->Reset(0xdeadbeef);
-  printf("======dbnane %s\n", dbname_.c_str());
 }
 
 DBTestBase::~DBTestBase() {

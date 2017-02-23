@@ -25,6 +25,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
   Options options;
   options.disable_auto_compactions = true;
   options.max_background_flushes = 2;
+  options.env = env_;
   Reopen(options);
   FlushOptions no_wait;
   no_wait.wait = false;
@@ -50,7 +51,7 @@ TEST_F(DBFlushTest, FlushWhileWritingManifest) {
 
 TEST_F(DBFlushTest, SyncFail) {
   std::unique_ptr<FaultInjectionTestEnv> fault_injection_env(
-      new FaultInjectionTestEnv(Env::Default()));
+      new FaultInjectionTestEnv(env_));
   Options options;
   options.disable_auto_compactions = true;
   options.env = fault_injection_env.get();

@@ -756,7 +756,8 @@ class RecoveryTestHelper {
   // Manuall corrupt the specified WAL
   static void CorruptWAL(DBWALTest* test, const Options& options,
                          const double off, const double len,
-                         const int wal_file_id, const bool trunc = false) {
+                         const int wal_file_id, MockEnv* mem_env,
+                         const bool trunc = false) {
     Env* env = options.env;
     std::string fname = LogFileName(test->dbname_, wal_file_id);
     uint64_t size;
@@ -771,31 +772,33 @@ class RecoveryTestHelper {
     test->Close();
 #endif
     if (trunc) {
-      ASSERT_EQ(0, truncate(fname.c_str(), static_cast<int64_t>(size * off)));
+      if (mem_env != nullptr) {  // then env is a wrapper on mem_env
+        auto s = mem_env->Truncate(fname, static_cast<size_t>(size * off));
+        ASSERT_TRUE(s.ok());
+      } else {
+        ASSERT_EQ(0, truncate(fname.c_str(), static_cast<int64_t>(size * off)));
+      }
     } else {
       InduceCorruption(fname, static_cast<size_t>(size * off),
-                       static_cast<size_t>(size * len));
+                       static_cast<size_t>(size * len), env);
     }
   }
 
   // Overwrite data with 'a' from offset for length len
   static void InduceCorruption(const std::string& filename, size_t offset,
-                               size_t len) {
+                               size_t len, Env* env) {
     ASSERT_GT(len, 0U);
 
-    int fd = open(filename.c_str(), O_RDWR);
-
-    // On windows long is 32-bit
-    ASSERT_LE(offset, std::numeric_limits<long>::max());
-
-    ASSERT_GT(fd, 0);
-    ASSERT_EQ(offset, lseek(fd, static_cast<long>(offset), SEEK_SET));
-
+    unique_ptr<RandomRWFile> file;
+    EnvOptions env_options;
+    auto s = env->NewRandomRWFile(filename, &file, env_options);
+    ASSERT_TRUE(s.ok());
     void* buf = alloca(len);
     memset(buf, 'a', len);
-    ASSERT_EQ(len, write(fd, buf, static_cast<unsigned int>(len)));
-
-    close(fd);
+    // On windows long is 32-bit
+    ASSERT_LE(offset, std::numeric_limits<long>::max());
+    Slice slice((const char*)buf, len);
+    file->Write(offset, slice);
   }
 };
 
@@ -815,7 +818,7 @@ TEST_F(DBWALTest, kTolerateCorruptedTailRecords) {
         const size_t row_count = RecoveryTestHelper::FillData(this, &options);
         // test checksum failure or parsing
         RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                       /*len%=*/.1, /*wal=*/j, trunc);
+                                       /*len%=*/.1, /*wal=*/j, mem_env_, trunc);
 
         if (trunc) {
           options.wal_recovery_mode =
@@ -861,7 +864,7 @@ TEST_F(DBWALTest, kAbsoluteConsistency) {
         RecoveryTestHelper::FillData(this, &options);
         // corrupt the wal
         RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                       /*len%=*/.1, j, trunc);
+                                       /*len%=*/.1, j, mem_env_, trunc);
         // verify
         options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
         options.create_if_missing = false;
@@ -889,7 +892,7 @@ TEST_F(DBWALTest, kPointInTimeRecovery) {
 
         // Corrupt the wal
         RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                       /*len%=*/.1, j, trunc);
+                                       /*len%=*/.1, j, mem_env_, trunc);
 
         // Verify
         options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
@@ -938,7 +941,7 @@ TEST_F(DBWALTest, kSkipAnyCorruptedRecords) {
 
         // Corrupt the WAL
         RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                       /*len%=*/.1, j, trunc);
+                                       /*len%=*/.1, j, mem_env_, trunc);
 
         // Verify behavior
         options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
@@ -1160,7 +1163,8 @@ TEST_F(DBWALTest, RecoverFromCorruptedWALWithoutFlush) {
           // Create corrupted WAL
           RecoveryTestHelper::FillData(this, &options);
           RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
-                                         /*len%=*/.1, /*wal=*/j, trunc);
+                                         /*len%=*/.1, /*wal=*/j, mem_env_,
+                                         trunc);
           // Skip the test if DB won't open.
           if (!TryReopen(options).ok()) {
             ASSERT_TRUE(options.wal_recovery_mode ==
