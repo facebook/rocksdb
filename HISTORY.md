@@ -13,6 +13,7 @@
 ### New Features
 * Added new overloaded function GetApproximateSizes that allows to specify if memtable stats should be computed only without computing SST files' stats approximations.
 * Added new function GetApproximateMemTableStats that approximates both number of records and size of memtables.
+* (Experimental) Two-level indexing that partition the index and creates a 2nd level index on the partitions. The feature can be enabled by setting kTwoLevelIndexSearch as IndexType and configuring index_per_partition.
 
 ### Bug Fixes
 * RangeSync() should work if ROCKSDB_FALLOCATE_PRESENT is not set
