@@ -7,9 +7,7 @@
 #include <time.h>
 #include <iostream>
 #include "port/sys_time.h"
-#include "rocksdb/env.h"
-#include "rocksdb/status.h"
-#include "rocksdb/cloud/cloud_env_options.h"
+#include "cloud/cloud_env_impl.h"
 
 #ifdef USE_AWS
 
@@ -46,7 +44,7 @@ class KinesisSystem;
 // is associated with a specific instance of AwsEnv. All AwsEnv internally share
 // Env::Posix() for sharing common resources like background threads, etc.
 //
-class AwsEnv : public CloudEnv {
+class AwsEnv : public CloudEnvImpl {
  public:
   // A factory method for creating S3 envs
   static  Status NewAwsEnv(Env* env,
@@ -70,6 +68,10 @@ class AwsEnv : public CloudEnv {
   static constexpr const char* default_region = "us-west-2";
 
   virtual Status NewSequentialFile(const std::string& fname,
+                                   std::unique_ptr<SequentialFile>* result,
+                                   const EnvOptions& options) override;
+
+  virtual Status NewSequentialFileCloud(const std::string& fname,
                                    std::unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override;
 
@@ -223,6 +225,8 @@ class AwsEnv : public CloudEnv {
 		  const std::string& dirname) override;
   Status GetPathForDbid(const std::string& dbid,
 		        std::string *dirname) override;
+  Status GetDbidList(DbidList* dblist) override;
+  Status DeleteDbid(const std::string& dbid) override;
 
  private:
   //
@@ -234,6 +238,13 @@ class AwsEnv : public CloudEnv {
 		  const CloudEnvOptions& cloud_options,
 		  std::shared_ptr<Logger> info_log = nullptr);
 
+  // The pathname that contains a list of all db's inside a bucket.
+  static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
+
+  Status NewSequentialFileInternal(const std::string& fname,
+		                   unique_ptr<SequentialFile>* result,
+		                   const EnvOptions& options,
+                                   bool is_cloud_direct);
   Status create_bucket_status_;
 
   // Background thread to tail stream
@@ -272,6 +283,10 @@ class AwsEnv : public CloudEnv {
   // Return the list of children of the specified path
   Status GetChildrenFromS3(const std::string& path,
 		           std::vector<std::string>* result);
+
+  // Save IDENTITY file to S3. Update dbid registry.
+  Status SaveIdentitytoS3(const std::string& localfile,
+		          const std::string& target_idfile);
 };
 
 }  // namespace rocksdb
@@ -424,6 +439,12 @@ class AwsEnv : public CloudEnv {
 
   virtual Status GetPathForDbid(const std::string& dbid,
 		                std::string *dirname) override {
+      return s3_notsup;
+  }
+  virtual Status GetDbidList(DbidList* dblist) override {
+      return s3_notsup;
+  }
+  virtual Status DeleteDbid(const std::string& dbid) override {
       return s3_notsup;
   }
 

@@ -55,48 +55,49 @@ class CloudEnvOptions {
   // Default:  1 minute
   uint64_t manifest_durable_periodicity_millis;
 
+  // If set, all operations are directly on the cloud storage.
+  // Default:  false
+  bool is_cloud_direct;
+
   CloudEnvOptions(CloudType _cloud_type = CloudType::kAws,
 		  bool _keep_local_sst_files = false,
 		  bool _keep_local_log_files = true,
-		  uint64_t _manifest_durable_periodicity_millis = 60 * 1000)
+		  uint64_t _manifest_durable_periodicity_millis = 60 * 1000,
+		  bool _is_cloud_direct = false)
     : cloud_type(_cloud_type),
       keep_local_sst_files(_keep_local_sst_files),
       keep_local_log_files(_keep_local_log_files),
-      manifest_durable_periodicity_millis(_manifest_durable_periodicity_millis) {
+      manifest_durable_periodicity_millis(_manifest_durable_periodicity_millis),
+      is_cloud_direct(_is_cloud_direct) {
 
         assert(manifest_durable_periodicity_millis == 0 ||
 	       keep_local_log_files == true);
   }
 };
 
+typedef std::map<std::string, std::string> DbidList;
+
 //
 // The Cloud environment
 //
 class CloudEnv : public Env {
  public:
-  // Constructor
-  CloudEnv(CloudType type, Env* base_env);
-
-  virtual ~CloudEnv();
-
-  // Returns the cloud_type
-  const CloudType& GetCloudType() { return cloud_type_; }
 
   // Mark the db associated with this env as a clone
-  Status SetClone(const std::string& src_dbid);
-  void ClearClone() { is_clone_ = false; }
-  bool IsClone() { return is_clone_; }
+  virtual Status SetClone(const std::string& src_dbid) = 0;
+  virtual void ClearClone() = 0;
+  virtual bool IsClone() = 0;
 
   // Mark the env so that all requests are satisfied directly and
   // only from cloud storage.
-  void SetCloudDirect() { is_cloud_direct_ = true; }
-  void ClearCloudDirect() { is_cloud_direct_ = false; }
+  virtual void SetCloudDirect() = 0;
+  virtual void ClearCloudDirect() = 0;
 
   // Map a clonepathname to a pathname in the src db
-  std::string MapClonePathToSrcPath(const std::string& fname);
+  virtual std::string MapClonePathToSrcPath(const std::string& fname) = 0;
 
   // Returns the underlying env
-  Env* GetBaseEnv() { return base_env_; }
+  virtual Env* GetBaseEnv() = 0;
 
   // Empties all contents of the associated cloud storage bucket.
   virtual Status EmptyBucket() = 0;
@@ -106,31 +107,14 @@ class CloudEnv : public Env {
 		          const std::string& dirname) = 0;
   virtual Status GetPathForDbid(const std::string& dbid,
 		                std::string *dirname) = 0;
+  virtual Status GetDbidList(DbidList* dblist) = 0;
+  virtual Status DeleteDbid(const std::string& dbid) = 0;
 
   // Create a new AWS env.
   static Status NewAwsEnv(Env* base_env, const std::string& cloud_storage,
 		          const CloudEnvOptions& env_options,
 			  std::shared_ptr<Logger> logger,
 			  CloudEnv** cenv);
- protected:
-  // The type of cloud service aws google azure, etc
-  CloudType cloud_type_;
-
-  // If set, all requests are satisfied directly from the cloud
-  bool is_cloud_direct_;
-
-  // If set, then sst files are fetched from either the dbdir or
-  // from src_dbid_.
-  bool is_clone_;
-
-  // The dbid of the source database that is cloned
-  std::string src_dbid_;
-
-  // The pathname of the source database that is cloned
-  std::string src_dbdir_;
-
-  // The underlying env
-  Env* base_env_;
 };
 
 } // namespace

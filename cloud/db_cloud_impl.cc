@@ -38,7 +38,7 @@ Status DBCloud::Open(
   }
 
   // Store pointer to env, just for sanity check
-  CloudEnv* cenv = static_cast<CloudEnv *>(options.env);
+  CloudEnvImpl* cenv = static_cast<CloudEnvImpl *>(options.env);
   assert(cenv->GetCloudType() == CloudType::kAws);
 
   if (read_only) {
@@ -185,7 +185,7 @@ Status DBCloudImpl::SanitizeCloneDirectory(const Options& options,
 			      bool readonly) {
   EnvOptions soptions;
 
-  CloudEnv* cenv = static_cast<CloudEnv *>(options.env);
+  CloudEnvImpl* cenv = static_cast<CloudEnvImpl *>(options.env);
   if (cenv->GetCloudType() != CloudType::kAws) {
     return Status::InvalidArgument("SanitizeCloneDirectory: Invalid Type");
   }

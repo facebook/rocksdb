@@ -24,7 +24,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
 	       const std::string& bucket_prefix,
 	       const CloudEnvOptions& _cloud_env_options,
 	       std::shared_ptr<Logger> info_log)
-  : CloudEnv(CloudType::kAws, underlying_env),
+  : CloudEnvImpl(CloudType::kAws, underlying_env),
     bucket_prefix_(bucket_prefix),
     info_log_(info_log),
     cloud_env_options(_cloud_env_options),
@@ -160,15 +160,30 @@ void AwsEnv::GetFileType(const std::string& fname,
   }
 }
 
+// Ability to read a file directly from cloud storage
+Status AwsEnv::NewSequentialFileCloud(const std::string& fname,
+                                      unique_ptr<SequentialFile>* result,
+                                      const EnvOptions& options) {
+  return NewSequentialFileInternal(fname, result, options, true);
+}
+
 // open a file for sequential reading
 Status AwsEnv::NewSequentialFile(const std::string& fname,
-                                unique_ptr<SequentialFile>* result,
-                                const EnvOptions& options) {
+                             unique_ptr<SequentialFile>* result,
+                             const EnvOptions& options) {
+  return NewSequentialFileInternal(fname, result, options, false);
+}
+
+// open a file for sequential reading
+Status AwsEnv::NewSequentialFileInternal(const std::string& fname,
+                             unique_ptr<SequentialFile>* result,
+                             const EnvOptions& options,
+			     bool is_cloud_direct) {
   assert(status().ok());
   *result = nullptr;
   Status st;
 
-  if (is_cloud_direct_) {
+  if (is_cloud_direct_ || is_cloud_direct) {
     // If we are cloud_direct, then  read only from cloud
     S3ReadableFile* f = new S3ReadableFile(this, fname);
     st = f->status();
@@ -1161,24 +1176,8 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
   assert(idfile);
   assert(basename(target) == "IDENTITY");
 
-  // The target bucket name and object name
-  Aws::String bucket = GetBucket(bucket_prefix_);
-  Aws::String object(target.c_str(), target.size());
-
-  // Read id into string
-  std::string dbid;
-  Status st = DBCloudImpl::ReadFileIntoString(base_env_, src, &dbid);
-  dbid = trim(dbid);
-
-  // Upload ID file to  S3
-  if (st.ok()) {
-    st = S3WritableFile::CopyToS3(this, src, bucket,  object);
-  }
-
-  // Save mapping from ID to dirname
-  if (st.ok()) {
-    st = SaveDbid(dbid, dirname(target));
-  }
+  // Save Identity to S3
+  Status st = SaveIdentitytoS3(src, target);
 
   // Do the rename on local filesystem too
   if (st.ok()) {
@@ -1187,6 +1186,32 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] RenameFile src %s target %s: %s",
       src.c_str(), target.c_str(), st.ToString().c_str());
+  return st;
+}
+
+//
+// Copy my IDENTITY file to cloud storage. Update dbid registry.
+//
+Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
+                                const std::string& idfile) {
+  assert(basename(idfile) == "IDENTITY");
+  Aws::String bucket = GetBucket(bucket_prefix_);
+
+  // Read id into string
+  std::string dbid;
+  Status st = DBCloudImpl::ReadFileIntoString(base_env_, localfile, &dbid);
+  dbid = trim(dbid);
+
+  // Upload ID file to  S3
+  if (st.ok()) {
+    Aws::String target(idfile.c_str(), idfile.size());
+    st = S3WritableFile::CopyToS3(this, localfile, bucket,  target);
+  }
+
+  // Save mapping from ID to dirname
+  if (st.ok()) {
+    st = SaveDbid(dbid, dirname(idfile));
+  }
   return st;
 }
 
@@ -1201,7 +1226,7 @@ Status AwsEnv::SaveDbid(const std::string& dbid,
       "[s3] SaveDbid dbid %s dir '%s'",
        dbid.c_str(), dirname.c_str());
 
-  std::string dbidkey = "/.rockset/dbid/" + dbid;
+  std::string dbidkey = dbid_registry_ + dbid;
   Aws::String bucket = GetBucket(bucket_prefix_);
   Aws::String key = Aws::String(dbidkey.c_str(), dbidkey.size());
 
@@ -1240,7 +1265,7 @@ Status AwsEnv::SaveDbid(const std::string& dbid,
 //
 Status AwsEnv::GetPathForDbid(const std::string& dbid,
 		              std::string *dirname) {
-  std::string dbidkey = "/.rockset/dbid/" + dbid;
+  std::string dbidkey = dbid_registry_ + dbid;
   Aws::String bucket = GetBucket(bucket_prefix_);
   Aws::String key = Aws::String(dbidkey.c_str(), dbidkey.size());
 
@@ -1294,6 +1319,52 @@ Status AwsEnv::GetPathForDbid(const std::string& dbid,
       bucket.c_str(), dbid.c_str(), st.ToString().c_str());
   return st;
 };
+
+//
+// Retrieves the list of all registered dbids and their paths
+//
+Status AwsEnv::GetDbidList(DbidList* dblist) {
+  Aws::String bucket = GetBucket(bucket_prefix_);
+
+  // fetch the list all all dbids
+  std::vector<std::string> dbid_list;
+  Status st = GetChildrenFromS3(dbid_registry_, &dbid_list);
+  if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+        "[s3] %s GetDbidList error in GetChildrenFromS3 %s",
+	bucket.c_str(), st.ToString().c_str());
+    return st;
+  }
+  // for each dbid, fetch the db directory where the db data should reside
+  for (auto dbid: dbid_list) {
+    std::string dirname;
+    st = GetPathForDbid(dbid, &dirname);
+    if (!st.ok()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] %s GetDbidList error in GetPathForDbid(%s) %s",
+  	  bucket.c_str(), dbid.c_str(), st.ToString().c_str());
+      return st;
+    }
+    // insert item into result set
+    (*dblist)[dbid] = dirname;
+  }
+  return st;
+}
+
+//
+// Deletes the specified dbid from the registry
+//
+Status AwsEnv::DeleteDbid(const std::string& dbid) {
+  Aws::String bucket = GetBucket(bucket_prefix_);
+
+  // fetch the list all all dbids
+  std::string dbidkey = dbid_registry_ + dbid;
+  Status st = DeletePathInS3(dbidkey);
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[s3] %s DeleteDbid DeleteDbid(%s) %s",
+      bucket.c_str(), dbid.c_str(), st.ToString().c_str());
+  return st;
+}
 
 Status AwsEnv::LockFile(const std::string& fname, FileLock** lock) {
   // there isn's a very good way to atomically check and create

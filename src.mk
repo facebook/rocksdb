@@ -190,7 +190,8 @@ LIB_SOURCES =                                                   \
   cloud/aws/aws_s3.cc                                           \
   cloud/aws/aws_kinesis.cc                                      \
   cloud/db_cloud_impl.cc                                        \
-  cloud/db_cloud_env.cc                                         \
+  cloud/cloud_env.cc                                            \
+  cloud/purge.cc                                                \
 
 TOOL_LIB_SOURCES = \
   tools/ldb_cmd.cc                                               \

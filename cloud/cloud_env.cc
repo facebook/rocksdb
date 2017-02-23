@@ -11,14 +11,22 @@
 
 namespace rocksdb {
 
-CloudEnv::CloudEnv(CloudType type, Env* base_env) :
+CloudEnvImpl::CloudEnvImpl(CloudType type, Env* base_env) :
   cloud_type_(type),
   is_cloud_direct_(false),
   is_clone_(false),
-  base_env_(base_env) {
+  base_env_(base_env),
+  purger_is_running_(true) {
 }
 
-CloudEnv::~CloudEnv() {
+CloudEnvImpl::~CloudEnvImpl() {
+  // tell the purger to stop
+  purger_is_running_ = false;
+
+  // wait for the purger to stop
+  if (purge_thread_.joinable()) {
+    purge_thread_.join();
+  }
 }
 
 Status CloudEnv::NewAwsEnv(Env* base_env,
@@ -27,14 +35,23 @@ Status CloudEnv::NewAwsEnv(Env* base_env,
 			   std::shared_ptr<Logger> logger,
 			   CloudEnv** cenv) {
 
-  return AwsEnv::NewAwsEnv(base_env, cloud_storage,
-			   options, logger, cenv);
+  Status st = AwsEnv::NewAwsEnv(base_env, cloud_storage,
+			        options, logger, cenv);
+  if (st.ok()) {
+    // store a copy of the logger
+    CloudEnvImpl* cloud = static_cast<CloudEnvImpl *>(*cenv);
+    cloud->info_log_ = logger;
+
+    // start the purge thread
+    cloud->purge_thread_ = std::thread([cloud] { cloud->Purger(); });
+  }
+  return st;
 }
 
 //
 // Marks this env as a clone env
 //
-Status CloudEnv::SetClone(const std::string& src_dbid) {
+Status CloudEnvImpl::SetClone(const std::string& src_dbid) {
   is_clone_ = true;
   src_dbid_ = src_dbid;
 
@@ -45,7 +62,7 @@ Status CloudEnv::SetClone(const std::string& src_dbid) {
 //
 // Maps a pathname from the clone to the corresponding file in src db
 //
-std::string CloudEnv::MapClonePathToSrcPath(const std::string& fname) {
+std::string CloudEnvImpl::MapClonePathToSrcPath(const std::string& fname) {
 #ifdef USE_AWS
   assert(is_clone_);
   return src_dbdir_ + "/" + basename(fname);  

@@ -231,6 +231,31 @@ TEST_F(CloudTest, BasicClone) {
   }
 }
 
+//
+// verify that dbid registry is appropriately handled
+//
+TEST_F(CloudTest, DbidRegistry) {
+
+  // Put one key-value
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_TRUE(value.compare("World") == 0);
+
+  // Assert that there is one db in the registry
+  while (true) {
+    DbidList dbs;
+    ASSERT_OK(aenv_->GetDbidList(&dbs));
+    if (dbs.size() == 0) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  CloseDB();
+}
+
 } //  namespace rocksdb
 
 // A black-box test for the cloud wrapper around rocksdb
