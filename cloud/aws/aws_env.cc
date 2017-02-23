@@ -1365,7 +1365,7 @@ Status AwsEnv::GetTestCredentials(std::string* aws_access_key_id,
 // Create a test bucket suffix. This is used for unit tests only.
 //
 std::string AwsEnv::GetTestBucketSuffix() {
-  char* bname = getenv("AWS_BUCKET_NAME");
+  char* bname = getenv("ROCKSDB_CLOUD_TEST_BUCKET_NAME");
   if (!bname) {
     return std::to_string(geteuid());
   }
