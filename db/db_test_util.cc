@@ -229,9 +229,6 @@ Options DBTestBase::CurrentOptions(
     const anon::OptionsOverride& options_override) {
   // this redundant copy is to minimize code change w/o having lint error.
   Options options = defaultOptions;
-  XFUNC_TEST("", "dbtest_options", inplace_options1, GetXFTestOptions,
-             reinterpret_cast<Options*>(&options),
-             options_override.skip_policy);
   BlockBasedTableOptions table_options;
   bool set_block_based_table_factory = true;
   switch (option_config_) {

@@ -61,7 +61,6 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/thread_status_util.h"
-#include "util/xfunc.h"
 #include "utilities/merge_operators.h"
 
 #if !defined(IOS_CROSS_COMPILE)

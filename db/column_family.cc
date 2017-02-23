@@ -32,7 +32,6 @@
 #include "util/compression.h"
 #include "util/options_helper.h"
 #include "util/thread_status_util.h"
-#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -182,14 +181,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   } else if (result.memtable_prefix_bloom_size_ratio < 0) {
     result.memtable_prefix_bloom_size_ratio = 0;
   }
-  XFUNC_TEST("memtablelist_history", "transaction_xftest_SanitizeOptions",
-             xf_transaction_set_memtable_history1,
-             xf_transaction_set_memtable_history,
-             &result.max_write_buffer_number_to_maintain);
-  XFUNC_TEST("memtablelist_history_clear", "transaction_xftest_SanitizeOptions",
-             xf_transaction_clear_memtable_history1,
-             xf_transaction_clear_memtable_history,
-             &result.max_write_buffer_number_to_maintain);
 
   if (!result.prefix_extractor) {
     assert(result.memtable_factory);

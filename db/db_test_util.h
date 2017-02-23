@@ -58,7 +58,6 @@
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/xfunc.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -119,6 +118,8 @@ struct OptionsOverride {
 };
 
 }  // namespace anon
+
+enum SkipPolicy { kSkipNone = 0, kSkipNoSnapshot = 1, kSkipNoPrefix = 2 };
 
 // A hacky skip list mem table that triggers flush after number of entries.
 class SpecialMemTableRep : public MemTableRep {

@@ -25,7 +25,6 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
-#include "util/xfunc.h"
 
 namespace rocksdb {
 class CheckpointTest : public testing::Test {

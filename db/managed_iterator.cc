@@ -15,12 +15,10 @@
 #include "db/db_impl.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
-#include "db/xfunc_test_points.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "table/merging_iterator.h"
-#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -42,8 +40,6 @@ class MILock {
   }
   ~MILock() {
     this->mu_->unlock();
-    XFUNC_TEST("managed_xftest_release", "managed_unlock", managed_unlock1,
-               xf_manage_release, mi_);
   }
   ManagedIterator* GetManagedIterator() { return mi_; }
 
@@ -84,8 +80,6 @@ ManagedIterator::ManagedIterator(DBImpl* db, const ReadOptions& read_options,
   }
   cfh_.SetCFD(cfd);
   mutable_iter_ = unique_ptr<Iterator>(db->NewIterator(read_options_, &cfh_));
-  XFUNC_TEST("managed_xftest_dropold", "managed_create", xf_managed_create1,
-             xf_manage_create, this);
 }
 
 ManagedIterator::~ManagedIterator() {
@@ -261,8 +255,6 @@ bool ManagedIterator::TryLock() { return in_use_.try_lock(); }
 
 void ManagedIterator::UnLock() {
   in_use_.unlock();
-  XFUNC_TEST("managed_xftest_release", "managed_unlock", managed_unlock1,
-             xf_manage_release, this);
 }
 
 }  // namespace rocksdb
