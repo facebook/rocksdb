@@ -46,9 +46,9 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #endif
 }
 
-#ifdef OS_LINUX
 namespace {
-size_t GetLogicalBufferSize(int fd) {
+size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
+#ifdef OS_LINUX
   struct stat buf;
   int result = fstat(fd, &buf);
   if (result == -1) {
@@ -102,13 +102,13 @@ size_t GetLogicalBufferSize(int fd) {
     free(line);
     fclose(fp);
   }
-  if (size == 0 || (size & (size - 1)) != 0) {
-    return kDefaultPageSize;
+  if (size != 0 && (size & (size - 1)) == 0) {
+    return size;
   }
-  return size;
+#endif
+  return kDefaultPageSize;
 }
 } //  namespace
-#endif
 
 /*
  * DirectIOHelper
@@ -141,10 +141,7 @@ PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
       file_(file),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(kDefaultPageSize) {
-#ifdef OS_LINUX
-  logical_sector_size_ = GetLogicalBufferSize(fd_);
-#endif
+      logical_sector_size_(GetLogicalBufferSize(fd_)) {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
 }
 
@@ -300,10 +297,7 @@ PosixRandomAccessFile::PosixRandomAccessFile(const std::string& fname, int fd,
     : filename_(fname),
       fd_(fd),
       use_direct_io_(options.use_direct_reads),
-      logical_sector_size_(kDefaultPageSize) {
-#ifdef OS_LINUX
-  logical_sector_size_ = GetLogicalBufferSize(fd_);
-#endif
+      logical_sector_size_(GetLogicalBufferSize(fd_)) {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
   assert(!options.use_mmap_reads || sizeof(void*) < 8);
 }
@@ -675,10 +669,7 @@ PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
       use_direct_io_(options.use_direct_writes),
       fd_(fd),
       filesize_(0),
-      logical_sector_size_(kDefaultPageSize) {
-#ifdef OS_LINUX
-  logical_sector_size_ = GetLogicalBufferSize(fd_);
-#endif
+      logical_sector_size_(GetLogicalBufferSize(fd_)) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   allow_fallocate_ = options.allow_fallocate;
   fallocate_with_keep_size_ = options.fallocate_with_keep_size;
