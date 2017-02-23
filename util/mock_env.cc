@@ -116,6 +116,17 @@ class MemFile {
     return Status::OK();
   }
 
+  Status Write(uint64_t offset, const Slice& data) {
+    MutexLock lock(&mutex_);
+    if (offset + data.size() > data_.size()) {
+      data_.resize(offset + data.size());
+    }
+    data_.replace(offset, data.size(), data.data(), data.size());
+    size_ = data_.size();
+    modified_time_ = Now();
+    return Status::OK();
+  }
+
   Status Append(const Slice& data) {
     MutexLock lock(&mutex_);
     data_.append(data.data(), data.size());
@@ -218,6 +229,35 @@ class MockRandomAccessFile : public RandomAccessFile {
                       char* scratch) const override {
     return file_->Read(offset, n, result, scratch);
   }
+
+ private:
+  MemFile* file_;
+};
+
+class MockRandomRWFile : public RandomRWFile {
+ public:
+  explicit MockRandomRWFile(MemFile* file) : file_(file) {
+    file_->Ref();
+  }
+
+  ~MockRandomRWFile() {
+    file_->Unref();
+  }
+
+  virtual Status Write(uint64_t offset, const Slice& data) override {
+    return file_->Write(offset, data);
+  }
+
+  virtual Status Read(uint64_t offset, size_t n, Slice* result,
+                      char* scratch) const {
+    return file_->Read(offset, n, result, scratch);
+  }
+
+  virtual Status Close() override { return file_->Fsync(); }
+
+  virtual Status Flush() override { return Status::OK(); }
+
+  virtual Status Sync() override { return file_->Fsync(); }
 
  private:
   MemFile* file_;
@@ -439,6 +479,35 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
   return Status::OK();
 }
 
+Status MockEnv::NewRandomRWFile(const std::string& fname,
+                                       unique_ptr<RandomRWFile>* result,
+                                       const EnvOptions& soptions) {
+  auto fn = NormalizePath(fname);
+  MutexLock lock(&mutex_);
+  if (file_map_.find(fn) == file_map_.end()) {
+    *result = NULL;
+    return Status::IOError(fn, "File not found");
+  }
+  auto* f = file_map_[fn];
+  if (f->is_lock_file()) {
+    return Status::InvalidArgument(fn, "Cannot open a lock file.");
+  }
+  result->reset(new MockRandomRWFile(f));
+  return Status::OK();
+}
+
+Status MockEnv::ReuseWritableFile(const std::string& fname,
+                                   const std::string& old_fname,
+                                   unique_ptr<WritableFile>* result,
+                                   const EnvOptions& options) {
+  auto s = RenameFile(old_fname, fname);
+  if (!s.ok()) {
+    return s;
+  }
+  result->reset();
+  return NewWritableFile(fname, result, options);
+}
+
 Status MockEnv::NewWritableFile(const std::string& fname,
                                 unique_ptr<WritableFile>* result,
                                 const EnvOptions& env_options) {
@@ -598,6 +667,7 @@ Status MockEnv::LinkFile(const std::string& src, const std::string& dest) {
 
   DeleteFileInternal(t);
   file_map_[t] = file_map_[s];
+  file_map_[t]->Ref(); // Otherwise it might get deleted when noone uses s
   return Status::OK();
 }
 
