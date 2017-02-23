@@ -31,6 +31,7 @@
 namespace rocksdb {
 namespace port {
 
+#if defined(_MSC_VER)
 void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   using namespace std::chrono;
 
@@ -43,6 +44,7 @@ void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   tv->tv_usec = static_cast<long>(usNow.count() -
       duration_cast<microseconds>(secNow).count());
 }
+#endif
 
 Mutex::~Mutex() {}
 
