@@ -189,10 +189,7 @@ Status SstFileWriter::Finish(ExternalSstFileInfo* file_info) {
     if (s.ok()) {
       s = r->file_writer->Close();
     }
-  } else {
-    r->builder->Abandon();
   }
-
   if (!s.ok()) {
     r->ioptions.env->DeleteFile(r->file_info.file_path);
   }
