@@ -620,7 +620,7 @@ int main(int argc, char** argv) {
 
   rocksdb::InternalKeyComparator internal_key_comp(
       rocksdb::BytewiseComparator());
-  rocksdb::MemTable::KeyComparator key_comp(internal_key_comp);
+  rocksdb::MemTableRep::KeyComparator key_comp(internal_key_comp);
   rocksdb::Arena arena;
   rocksdb::WriteBufferManager wb(FLAGS_write_buffer_size);
   rocksdb::MemTableAllocator memtable_allocator(&arena, &wb);

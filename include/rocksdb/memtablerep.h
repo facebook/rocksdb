@@ -43,6 +43,7 @@
 namespace rocksdb {
 
 class Arena;
+class InternalKeyComparator;
 class MemTableAllocator;
 class LookupKey;
 class Slice;
@@ -57,15 +58,19 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
+    KeyComparator(const InternalKeyComparator& cmp);
+
     // Compare a and b. Return a negative value if a is less than b, 0 if they
     // are equal, and a positive value if a is greater than b
-    virtual int operator()(const char* prefix_len_key1,
-                           const char* prefix_len_key2) const = 0;
+    int operator()(const char* prefix_len_key1,
+                   const char* prefix_len_key2) const;
 
-    virtual int operator()(const char* prefix_len_key,
-                           const Slice& key) const = 0;
+    int operator()(const char* prefix_len_key, const Slice& key) const;
 
-    virtual ~KeyComparator() { }
+    const InternalKeyComparator& comparator() const;
+
+   private:
+    const InternalKeyComparator& comparator_;
   };
 
   explicit MemTableRep(MemTableAllocator* allocator) : allocator_(allocator) {}
