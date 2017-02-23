@@ -1529,13 +1529,6 @@ commit_prereq: build_tools/rocksdb-lego-determinator \
 	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite unit_non_shm
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 
-xfunc:
-	for xftest in $(XFUNC_TESTS); do \
-		echo "===== Running xftest $$xftest"; \
-		make check ROCKSDB_XFUNC_TEST="$$xftest" tests-regexp="DBTest" ;\
-	done
-
-
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
 # ---------------------------------------------------------------------------

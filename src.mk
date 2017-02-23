@@ -49,7 +49,6 @@ LIB_SOURCES =                                                   \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
   db/write_thread.cc                                            \
-  db/xfunc_test_points.cc                                       \
   memtable/hash_cuckoo_rep.cc                                   \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -142,7 +141,6 @@ LIB_SOURCES =                                                   \
   util/thread_status_util_debug.cc                              \
   util/threadpool_imp.cc                                        \
   util/transaction_test_util.cc                                 \
-  util/xfunc.cc                                                 \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_db.cc                                  \
@@ -359,18 +357,3 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \
   java/rocksjni/write_batch_with_index.cc
-
-# Currently, we do not generate dependencies for
-# java/rocksjni/write_batch_test.cc, because its dependent,
-# java/include/org_rocksdb_WriteBatch.h is generated.
-# TODO/FIXME: fix the above.  Otherwise, the current rules would fail:
-#   java/rocksjni/write_batch_test.cc:13:44: fatal error: include/org_rocksdb_WriteBatch.h: No such file or directory
-#    #include "include/org_rocksdb_WriteBatch.h"
-
-# These are the xfunc tests run :
-XFUNC_TESTS =                                                   \
-  "managed_new"                                                 \
-  "managed_xftest_dropold"                                      \
-  "managed_xftest_release"                                      \
-  "inplace_lock_test"                                           \
-  "transaction"

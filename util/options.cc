@@ -33,7 +33,6 @@
 #include "util/db_options.h"
 #include "util/options_helper.h"
 #include "util/statistics.h"
-#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -567,8 +566,6 @@ ReadOptions::ReadOptions()
       background_purge_on_iterator_cleanup(false),
       readahead_size(0),
       ignore_range_deletions(false) {
-  XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
-             reinterpret_cast<ReadOptions*>(this));
 }
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
@@ -585,8 +582,6 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       background_purge_on_iterator_cleanup(false),
       readahead_size(0),
       ignore_range_deletions(false) {
-  XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
-             reinterpret_cast<ReadOptions*>(this));
 }
 
 }  // namespace rocksdb

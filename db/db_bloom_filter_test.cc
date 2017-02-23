@@ -788,8 +788,6 @@ void PrefixScanInit(DBBloomFilterTest* dbtest) {
 }  // namespace
 
 TEST_F(DBBloomFilterTest, PrefixScan) {
-  XFUNC_TEST("", "dbtest_prefix", prefix_skip1, XFuncPoint::SetSkip,
-             kSkipNoPrefix);
   while (ChangeFilterOptions()) {
     int count;
     Slice prefix;
@@ -836,7 +834,6 @@ TEST_F(DBBloomFilterTest, PrefixScan) {
     ASSERT_EQ(env_->random_read_counter_.Read(), 2);
     Close();
   }  // end of while
-  XFUNC_TEST("", "dbtest_prefix", prefix_skip1, XFuncPoint::SetSkip, 0);
 }
 
 TEST_F(DBBloomFilterTest, OptimizeFiltersForHits) {

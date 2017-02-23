@@ -314,7 +314,6 @@ set(SOURCES
         db/write_batch_base.cc
         db/write_controller.cc
         db/write_thread.cc
-        db/xfunc_test_points.cc
         memtable/hash_cuckoo_rep.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -408,7 +407,6 @@ set(SOURCES
         util/thread_status_util.cc
         util/thread_status_util_debug.cc
         util/transaction_test_util.cc
-        util/xfunc.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
