@@ -615,13 +615,6 @@ struct ColumnFamilyOptions {
   // Default: kByCompensatedSize
   CompactionPri compaction_pri = kByCompensatedSize;
 
-  // If true, compaction will verify checksum on every read that happens
-  // as part of compaction
-  //
-  // Default: true
-  //
-  // Dynamically changeable through SetOptions() API
-  bool verify_checksums_in_compaction = true;
 
   // The options needed to support Universal Style compactions
   CompactionOptionsUniversal compaction_options_universal;
@@ -797,15 +790,6 @@ struct ColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   size_t max_successive_merges = 0;
-
-  // The number of partial merge operands to accumulate before partial
-  // merge will be performed. Partial merge will not be called
-  // if the list of values to merge is less than min_partial_merge_operands.
-  //
-  // If min_partial_merge_operands < 2, then it will be treated as 2.
-  //
-  // Default: 2
-  uint32_t min_partial_merge_operands = 2;
 
   // This flag specifies that the implementation should optimize the filters
   // mainly for cases where keys are found rather than also optimize for keys

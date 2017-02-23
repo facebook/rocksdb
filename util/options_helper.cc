@@ -163,17 +163,12 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
   }
 
-  cf_opts.verify_checksums_in_compaction =
-      mutable_cf_options.verify_checksums_in_compaction;
-
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =
       mutable_cf_options.max_sequential_skip_in_iterations;
   cf_opts.paranoid_file_checks = mutable_cf_options.paranoid_file_checks;
   cf_opts.report_bg_io_stats = mutable_cf_options.report_bg_io_stats;
   cf_opts.compression = mutable_cf_options.compression;
-  cf_opts.min_partial_merge_operands =
-      mutable_cf_options.min_partial_merge_operands;
 
   cf_opts.table_factory = options.table_factory;
   // TODO(yhchiang): find some way to handle the following derived options

@@ -21,13 +21,11 @@ public class MutableColumnFamilyOptionsTest {
             .setWriteBufferSize(10)
             .setInplaceUpdateNumLocks(5)
             .setDisableAutoCompactions(true)
-            .setVerifyChecksumsInCompaction(false)
             .setParanoidFileChecks(true);
 
     assertThat(builder.writeBufferSize()).isEqualTo(10);
     assertThat(builder.inplaceUpdateNumLocks()).isEqualTo(5);
     assertThat(builder.disableAutoCompactions()).isEqualTo(true);
-    assertThat(builder.verifyChecksumsInCompaction()).isEqualTo(false);
     assertThat(builder.paranoidFileChecks()).isEqualTo(true);
   }
 
@@ -66,21 +64,18 @@ public class MutableColumnFamilyOptionsTest {
         .setWriteBufferSize(10)
         .setInplaceUpdateNumLocks(5)
         .setDisableAutoCompactions(true)
-        .setVerifyChecksumsInCompaction(false)
         .setParanoidFileChecks(true)
         .build()
         .toString();
 
     assertThat(str).isEqualTo("write_buffer_size=10;inplace_update_num_locks=5;"
-        + "disable_auto_compactions=true;verify_checksums_in_compaction=false;"
-        + "paranoid_file_checks=true");
+        + "disable_auto_compactions=true;paranoid_file_checks=true");
   }
 
   @Test
   public void mutableColumnFamilyOptions_parse() {
     final String str = "write_buffer_size=10;inplace_update_num_locks=5;"
-        + "disable_auto_compactions=true;verify_checksums_in_compaction=false;"
-        + "paranoid_file_checks=true";
+        + "disable_auto_compactions=true;paranoid_file_checks=true";
 
     final MutableColumnFamilyOptionsBuilder builder =
         MutableColumnFamilyOptions.parse(str);
@@ -88,7 +83,6 @@ public class MutableColumnFamilyOptionsTest {
     assertThat(builder.writeBufferSize()).isEqualTo(10);
     assertThat(builder.inplaceUpdateNumLocks()).isEqualTo(5);
     assertThat(builder.disableAutoCompactions()).isEqualTo(true);
-    assertThat(builder.verifyChecksumsInCompaction()).isEqualTo(false);
     assertThat(builder.paranoidFileChecks()).isEqualTo(true);
   }
 }

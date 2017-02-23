@@ -4691,12 +4691,6 @@ TEST_F(DBTest, DynamicMiscOptions) {
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
   ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
-  // Test min_partial_merge_operands
-  ASSERT_OK(
-      dbfull()->SetOptions(handles_[1], {{"min_partial_merge_operands", "4"}}));
-  ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
-                                                     &mutable_cf_options));
-  ASSERT_EQ(4, mutable_cf_options.min_partial_merge_operands);
   // Test compression
   // sanity check
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kNoCompression"}}));

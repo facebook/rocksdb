@@ -700,9 +700,6 @@ extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_enable_write_thread_adaptive_yield(rocksdb_options_t*,
                                                        unsigned char);
 extern ROCKSDB_LIBRARY_API void
-rocksdb_options_set_verify_checksums_in_compaction(rocksdb_options_t*,
-                                                   unsigned char);
-extern ROCKSDB_LIBRARY_API void
 rocksdb_options_set_max_sequential_skip_in_iterations(rocksdb_options_t*,
                                                       uint64_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_disable_auto_compactions(
@@ -735,8 +732,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_huge_page_size(
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_successive_merges(
     rocksdb_options_t*, size_t);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_min_partial_merge_operands(
-    rocksdb_options_t*, uint32_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_bloom_locality(
     rocksdb_options_t*, uint32_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_inplace_update_support(

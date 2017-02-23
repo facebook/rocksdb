@@ -145,13 +145,11 @@ struct MutableCFOptions {
         max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
         max_bytes_for_level_multiplier_additional(
             options.max_bytes_for_level_multiplier_additional),
-        verify_checksums_in_compaction(options.verify_checksums_in_compaction),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
-        compression(options.compression),
-        min_partial_merge_operands(options.min_partial_merge_operands) {
+        compression(options.compression) {
     RefreshDerivedOptions(options.num_levels, options.compaction_style);
   }
 
@@ -174,12 +172,10 @@ struct MutableCFOptions {
         target_file_size_multiplier(0),
         max_bytes_for_level_base(0),
         max_bytes_for_level_multiplier(0),
-        verify_checksums_in_compaction(false),
         max_sequential_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
-        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
-        min_partial_merge_operands(2) {}
+        compression(Snappy_Supported() ? kSnappyCompression : kNoCompression) {}
 
   // Must be called after any change to MutableCFOptions
   void RefreshDerivedOptions(int num_levels, CompactionStyle compaction_style);
@@ -222,14 +218,12 @@ struct MutableCFOptions {
   uint64_t max_bytes_for_level_base;
   double max_bytes_for_level_multiplier;
   std::vector<int> max_bytes_for_level_multiplier_additional;
-  bool verify_checksums_in_compaction;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;
-  uint32_t min_partial_merge_operands;
 
   // Derived options
   // Per-level target file size.

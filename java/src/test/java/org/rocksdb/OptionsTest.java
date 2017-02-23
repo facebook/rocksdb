@@ -261,15 +261,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void verifyChecksumsInCompaction() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setVerifyChecksumsInCompaction(boolValue);
-      assertThat(opt.verifyChecksumsInCompaction()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void maxSequentialSkipInIterations() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -329,15 +320,6 @@ public class OptionsTest {
       final long longValue = rand.nextLong();
       opt.setMaxSuccessiveMerges(longValue);
       assertThat(opt.maxSuccessiveMerges()).isEqualTo(longValue);
-    }
-  }
-
-  @Test
-  public void minPartialMergeOperands() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setMinPartialMergeOperands(intValue);
-      assertThat(opt.minPartialMergeOperands()).isEqualTo(intValue);
     }
   }
 

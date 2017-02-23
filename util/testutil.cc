@@ -303,7 +303,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
   cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
-  cf_opt->verify_checksums_in_compaction = rnd->Uniform(2);
   cf_opt->force_consistency_checks = rnd->Uniform(2);
 
   // double options
@@ -339,7 +338,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
 
   // uint32_t options
   cf_opt->bloom_locality = rnd->Uniform(10000);
-  cf_opt->min_partial_merge_operands = rnd->Uniform(10000);
   cf_opt->max_bytes_for_level_base = rnd->Uniform(10000);
 
   // uint64_t options

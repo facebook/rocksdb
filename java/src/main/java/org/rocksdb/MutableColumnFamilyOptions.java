@@ -148,8 +148,7 @@ public class MutableColumnFamilyOptions {
     target_file_size_multiplier(ValueType.INT),
     max_bytes_for_level_base(ValueType.LONG),
     max_bytes_for_level_multiplier(ValueType.INT),
-    max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY),
-    verify_checksums_in_compaction(ValueType.BOOLEAN);
+    max_bytes_for_level_multiplier_additional(ValueType.INT_ARRAY);
 
     private final ValueType valueType;
     CompactionOption(final ValueType valueType) {
@@ -864,18 +863,6 @@ public class MutableColumnFamilyOptions {
     public int[] maxBytesForLevelMultiplierAdditional() {
       return getIntArray(
           CompactionOption.max_bytes_for_level_multiplier_additional);
-    }
-
-    @Override
-    public MutableColumnFamilyOptionsBuilder setVerifyChecksumsInCompaction(
-        final boolean verifyChecksumsInCompaction) {
-      return setBoolean(CompactionOption.verify_checksums_in_compaction,
-          verifyChecksumsInCompaction);
-    }
-
-    @Override
-    public boolean verifyChecksumsInCompaction() {
-      return getBoolean(CompactionOption.verify_checksums_in_compaction);
     }
 
     @Override

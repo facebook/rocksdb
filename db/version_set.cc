@@ -3431,8 +3431,7 @@ InternalIterator* VersionSet::MakeInputIterator(
     const Compaction* c, RangeDelAggregator* range_del_agg) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
-  read_options.verify_checksums =
-    c->mutable_cf_options()->verify_checksums_in_compaction;
+  read_options.verify_checksums = true;
   read_options.fill_cache = false;
   if (c->ShouldFormSubcompactions()) {
     read_options.total_order_seek = true;

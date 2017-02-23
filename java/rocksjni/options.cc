@@ -1709,30 +1709,6 @@ void Java_org_rocksdb_Options_setPurgeRedundantKvsWhileFlush(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    verifyChecksumsInCompaction
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_verifyChecksumsInCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(
-      jhandle)->verify_checksums_in_compaction;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setVerifyChecksumsInCompaction
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setVerifyChecksumsInCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jboolean jverify_checksums_in_compaction) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->verify_checksums_in_compaction =
-          static_cast<bool>(jverify_checksums_in_compaction);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    maxSequentialSkipInIterations
  * Signature: (J)J
  */
@@ -1880,30 +1856,6 @@ void Java_org_rocksdb_Options_setMaxSuccessiveMerges(
   } else {
     rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    minPartialMergeOperands
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_minPartialMergeOperands(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(
-      jhandle)->min_partial_merge_operands;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setMinPartialMergeOperands
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setMinPartialMergeOperands(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmin_partial_merge_operands) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->min_partial_merge_operands =
-          static_cast<int32_t>(jmin_partial_merge_operands);
 }
 
 /*
@@ -3015,30 +2967,6 @@ void Java_org_rocksdb_ColumnFamilyOptions_setPurgeRedundantKvsWhileFlush(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    verifyChecksumsInCompaction
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_ColumnFamilyOptions_verifyChecksumsInCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->verify_checksums_in_compaction;
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setVerifyChecksumsInCompaction
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_ColumnFamilyOptions_setVerifyChecksumsInCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jboolean jverify_checksums_in_compaction) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->verify_checksums_in_compaction =
-          static_cast<bool>(jverify_checksums_in_compaction);
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    maxSequentialSkipInIterations
  * Signature: (J)J
  */
@@ -3187,30 +3115,6 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxSuccessiveMerges(
   } else {
     rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    minPartialMergeOperands
- * Signature: (J)I
- */
-jint Java_org_rocksdb_ColumnFamilyOptions_minPartialMergeOperands(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->min_partial_merge_operands;
-}
-
-/*
- * Class:     org_rocksdb_ColumnFamilyOptions
- * Method:    setMinPartialMergeOperands
- * Signature: (JI)V
- */
-void Java_org_rocksdb_ColumnFamilyOptions_setMinPartialMergeOperands(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jmin_partial_merge_operands) {
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-      jhandle)->min_partial_merge_operands =
-          static_cast<int32_t>(jmin_partial_merge_operands);
 }
 
 /*

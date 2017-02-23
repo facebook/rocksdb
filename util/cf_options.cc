@@ -158,8 +158,6 @@ void MutableCFOptions::Dump(Logger* log) const {
   }
 
   Log(log, "max_bytes_for_level_multiplier_additional: %s", result.c_str());
-  Log(log, "           verify_checksums_in_compaction: %d",
-      verify_checksums_in_compaction);
   Log(log, "        max_sequential_skip_in_iterations: %" PRIu64,
       max_sequential_skip_in_iterations);
   Log(log, "                     paranoid_file_checks: %d",
@@ -167,8 +165,6 @@ void MutableCFOptions::Dump(Logger* log) const {
   Log(log, "                       report_bg_io_stats: %d", report_bg_io_stats);
   Log(log, "                              compression: %d",
       static_cast<int>(compression));
-  Log(log, "               min_partial_merge_operands: %" PRIu32,
-      min_partial_merge_operands);
 }
 
 }  // namespace rocksdb
