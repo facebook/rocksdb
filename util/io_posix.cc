@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #ifdef ROCKSDB_LIB_IO_POSIX
-
 #include "util/io_posix.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -47,20 +46,84 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #endif
 }
 
+namespace {
+size_t GetLogicalBufferSize(int __attribute__((__unused__)) fd) {
+#ifdef OS_LINUX
+  struct stat buf;
+  int result = fstat(fd, &buf);
+  if (result == -1) {
+    return kDefaultPageSize;
+  }
+  if (major(buf.st_dev) == 0) {
+    // Unnamed devices (e.g. non-device mounts), reserved as null device number.
+    // These don't have an entry in /sys/dev/block/. Return a sensible default.
+    return kDefaultPageSize;
+  }
+
+  // Reading queue/logical_block_size does not require special permissions.
+  const int kBufferSize = 100;
+  char path[kBufferSize];
+  char real_path[PATH_MAX + 1];
+  snprintf(path, kBufferSize, "/sys/dev/block/%u:%u", major(buf.st_dev),
+           minor(buf.st_dev));
+  if (realpath(path, real_path) == nullptr) {
+    return kDefaultPageSize;
+  }
+  std::string device_dir(real_path);
+  if (!device_dir.empty() && device_dir.back() == '/') {
+    device_dir.pop_back();
+  }
+  // NOTE: sda3 does not have a `queue/` subdir, only the parent sda has it.
+  // $ ls -al '/sys/dev/block/8:3'
+  // lrwxrwxrwx. 1 root root 0 Jun 26 01:38 /sys/dev/block/8:3 ->
+  // ../../block/sda/sda3
+  size_t parent_end = device_dir.rfind('/', device_dir.length() - 1);
+  if (parent_end == std::string::npos) {
+    return kDefaultPageSize;
+  }
+  size_t parent_begin = device_dir.rfind('/', parent_end - 1);
+  if (parent_begin == std::string::npos) {
+    return kDefaultPageSize;
+  }
+  if (device_dir.substr(parent_begin + 1, parent_end - parent_begin - 1) !=
+      "block") {
+    device_dir = device_dir.substr(0, parent_end);
+  }
+  std::string fname = device_dir + "/queue/logical_block_size";
+  FILE* fp;
+  size_t size = 0;
+  fp = fopen(fname.c_str(), "r");
+  if (fp != nullptr) {
+    char* line = nullptr;
+    size_t len = 0;
+    if (getline(&line, &len, fp) != -1) {
+      sscanf(line, "%zu", &size);
+    }
+    free(line);
+    fclose(fp);
+  }
+  if (size != 0 && (size & (size - 1)) == 0) {
+    return size;
+  }
+#endif
+  return kDefaultPageSize;
+}
+} //  namespace
+
 /*
  * DirectIOHelper
  */
 #ifndef NDEBUG
 namespace {
-const size_t kSectorSize = 512;
 #ifdef OS_LINUX
 const size_t kPageSize = sysconf(_SC_PAGESIZE);
 #else
 const size_t kPageSize = 4 * 1024;
 #endif
 
-
-bool IsSectorAligned(const size_t off) { return off % kSectorSize == 0; }
+bool IsSectorAligned(const size_t off, size_t sector_size) {
+  return off % sector_size == 0;
+}
 
 static bool IsPageAligned(const void* ptr) {
   return uintptr_t(ptr) % (kPageSize) == 0;
@@ -77,7 +140,8 @@ PosixSequentialFile::PosixSequentialFile(const std::string& fname, FILE* file,
     : filename_(fname),
       file_(file),
       fd_(fd),
-      use_direct_io_(options.use_direct_reads) {
+      use_direct_io_(options.use_direct_reads),
+      logical_sector_size_(GetLogicalBufferSize(fd_)) {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
 }
 
@@ -230,7 +294,10 @@ size_t PosixHelper::GetUniqueIdFromFile(int fd, char* id, size_t max_size) {
  */
 PosixRandomAccessFile::PosixRandomAccessFile(const std::string& fname, int fd,
                                              const EnvOptions& options)
-    : filename_(fname), fd_(fd), use_direct_io_(options.use_direct_reads) {
+    : filename_(fname),
+      fd_(fd),
+      use_direct_io_(options.use_direct_reads),
+      logical_sector_size_(GetLogicalBufferSize(fd_)) {
   assert(!options.use_direct_reads || !options.use_mmap_reads);
   assert(!options.use_mmap_reads || sizeof(void*) < 8);
 }
@@ -601,7 +668,8 @@ PosixWritableFile::PosixWritableFile(const std::string& fname, int fd,
     : filename_(fname),
       use_direct_io_(options.use_direct_writes),
       fd_(fd),
-      filesize_(0) {
+      filesize_(0),
+      logical_sector_size_(GetLogicalBufferSize(fd_)) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   allow_fallocate_ = options.allow_fallocate;
   fallocate_with_keep_size_ = options.fallocate_with_keep_size;
@@ -616,7 +684,9 @@ PosixWritableFile::~PosixWritableFile() {
 }
 
 Status PosixWritableFile::Append(const Slice& data) {
-  assert(!use_direct_io() || (IsSectorAligned(data.size()) && IsPageAligned(data.data())));
+  assert(!use_direct_io() ||
+         (IsSectorAligned(data.size(), GetRequiredBufferAlignment()) &&
+          IsPageAligned(data.data())));
   const char* src = data.data();
   size_t left = data.size();
   while (left != 0) {
@@ -635,8 +705,10 @@ Status PosixWritableFile::Append(const Slice& data) {
 }
 
 Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
-  assert(use_direct_io() && IsSectorAligned(offset) &&
-         IsSectorAligned(data.size()) && IsPageAligned(data.data()));
+  assert(use_direct_io() &&
+         IsSectorAligned(offset, GetRequiredBufferAlignment()) &&
+         IsSectorAligned(data.size(), GetRequiredBufferAlignment()) &&
+         IsPageAligned(data.data()));
   assert(offset <= std::numeric_limits<off_t>::max());
   const char* src = data.data();
   size_t left = data.size();

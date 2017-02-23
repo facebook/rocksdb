@@ -690,40 +690,39 @@ class IoctlFriendlyTmpdir {
   std::string dir_;
 };
 
-TEST_P(EnvPosixTestWithParam, PositionedAppend) {
-  if (direct_io_ && env_ == Env::Default()) {
-    unique_ptr<WritableFile> writable_file;
-    EnvOptions options;
-    options.use_direct_writes = direct_io_;
-    options.use_mmap_writes = false;
-    IoctlFriendlyTmpdir ift;
-    ASSERT_OK(
-        env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
 
-    const size_t kBlockSize = 512;
-    const size_t kPageSize = 4096;
-    const size_t kDataSize = kPageSize;
-    // Write a page worth of 'a'
-    auto data_ptr = NewAligned(kDataSize, 'a');
-    Slice data_a(data_ptr.get(), kDataSize);
-    ASSERT_OK(writable_file->PositionedAppend(data_a, 0U));
-    // Write a page worth of 'b' right after the first sector
-    data_ptr = NewAligned(kDataSize, 'b');
-    Slice data_b(data_ptr.get(), kDataSize);
-    ASSERT_OK(writable_file->PositionedAppend(data_b, kBlockSize));
-    ASSERT_OK(writable_file->Close());
-    // The file now has 1 sector worth of a followed by a page worth of b
+TEST_F(EnvPosixTest, PositionedAppend) {
+  unique_ptr<WritableFile> writable_file;
 
-    // Verify the above
-    unique_ptr<SequentialFile> seq_file;
-    ASSERT_OK(env_->NewSequentialFile(ift.name() + "/f", &seq_file, options));
-    char scratch[kPageSize * 2];
-    Slice result;
-    ASSERT_OK(seq_file->Read(sizeof(scratch), &result, scratch));
-    ASSERT_EQ(kPageSize + kBlockSize, result.size());
-    ASSERT_EQ('a', result[kBlockSize - 1]);
-    ASSERT_EQ('b', result[kBlockSize]);
-  }
+  EnvOptions options;
+  options.use_direct_writes = true;
+  options.use_mmap_writes = false;
+  IoctlFriendlyTmpdir ift;
+  ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
+
+  const size_t kBlockSize = 4096;
+  const size_t kPageSize = 4096;
+  const size_t kDataSize = kPageSize;
+  // Write a page worth of 'a'
+  auto data_ptr = NewAligned(kDataSize, 'a');
+  Slice data_a(data_ptr.get(), kDataSize);
+  ASSERT_OK(writable_file->PositionedAppend(data_a, 0U));
+  // Write a page worth of 'b' right after the first sector
+  data_ptr = NewAligned(kDataSize, 'b');
+  Slice data_b(data_ptr.get(), kDataSize);
+  ASSERT_OK(writable_file->PositionedAppend(data_b, kBlockSize));
+  ASSERT_OK(writable_file->Close());
+  // The file now has 1 sector worth of a followed by a page worth of b
+
+  // Verify the above
+  unique_ptr<SequentialFile> seq_file;
+  ASSERT_OK(env_->NewSequentialFile(ift.name() + "/f", &seq_file, options));
+  char scratch[kPageSize * 2];
+  Slice result;
+  ASSERT_OK(seq_file->Read(sizeof(scratch), &result, scratch));
+  ASSERT_EQ(kPageSize + kBlockSize, result.size());
+  ASSERT_EQ('a', result[kBlockSize - 1]);
+  ASSERT_EQ('b', result[kBlockSize]);
 }
 
 // Only works in linux platforms
@@ -1155,7 +1154,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
     ASSERT_EQ(last_allocated_block, 0UL);
 
     // Small write should preallocate one block
-    size_t kStrSize = 512;
+    size_t kStrSize = 4096;
     auto data = NewAligned(kStrSize, 'A');
     Slice str(data.get(), kStrSize);
     srcfile->PrepareWrite(srcfile->GetFileSize(), kStrSize);
@@ -1212,7 +1211,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       auto buf_ptr = NewAligned(data.size(), 'T');
       Slice buf(buf_ptr.get(), data.size());
       file->Append(buf);
-      data.append(std::string(512, 'T'));
+      data.append(std::string(4096, 'T'));
     }
 
     std::vector<Env::FileAttributes> file_attrs;
@@ -1229,7 +1228,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       ASSERT_TRUE(file_attrs_iter != file_attrs.end());
       uint64_t size;
       ASSERT_OK(env_->GetFileSize(path, &size));
-      ASSERT_EQ(size, 512 * i);
+      ASSERT_EQ(size, 4096 * i);
       ASSERT_EQ(size, file_attrs_iter->size_bytes);
     }
   rocksdb::SyncPoint::GetInstance()->ClearTrace();

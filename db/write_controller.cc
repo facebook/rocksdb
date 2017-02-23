@@ -105,7 +105,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
 }
 
 uint64_t WriteController::NowMicrosMonotonic(Env* env) {
-    return env->NowNanos() / std::milli::den;
+  return env->NowNanos() / std::milli::den;
 }
 
 StopWriteToken::~StopWriteToken() {
