@@ -709,9 +709,18 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   Log(options_.info_log, "Started the backup process -- creating backup %u",
       new_backup_id);
 
-  // create temporary private dir
-  s = backup_env_->CreateDir(
-      GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)));
+  auto private_tmp_dir = GetAbsolutePath(GetPrivateFileRel(new_backup_id, true));
+  s = backup_env_->FileExists(private_tmp_dir);
+  if (s.ok()) {
+    // maybe last backup failed and left partial state behind, clean it up
+    s = GarbageCollect();
+  } else if (s.IsNotFound()) {
+    // normal case, the new backup's private dir doesn't exist yet
+    s = Status::OK();
+  }
+  if (s.ok()) {
+    s = backup_env_->CreateDir(private_tmp_dir);
+  }
 
   RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
   if (rate_limiter) {
