@@ -12,6 +12,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <memory>
 #include <string>
 
 #include "rocksdb/comparator.h"
@@ -205,7 +206,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
  private:
   struct Rep;
-  Rep* rep;
+  std::unique_ptr<Rep> rep;
 };
 
 }  // namespace rocksdb
