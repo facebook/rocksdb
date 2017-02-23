@@ -110,6 +110,8 @@ DEFINE_int32(ttl, -1,
 DEFINE_int32(value_size_mult, 8,
              "Size of value will be this number times rand_int(1,3) bytes");
 
+DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
+
 DEFINE_bool(verify_before_write, false, "Verify before write");
 
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
@@ -269,6 +271,15 @@ DEFINE_bool(verify_checksum, false,
 
 DEFINE_bool(mmap_read, rocksdb::EnvOptions().use_mmap_reads,
             "Allow reads to occur via mmap-ing files");
+
+DEFINE_bool(mmap_write, rocksdb::EnvOptions().use_mmap_writes,
+            "Allow writes to occur via mmap-ing files");
+
+DEFINE_bool(use_direct_reads, rocksdb::EnvOptions().use_direct_reads,
+            "Use O_DIRECT for reading data");
+
+DEFINE_bool(use_direct_writes, rocksdb::EnvOptions().use_direct_writes,
+            "Use O_DIRECT for writing data");
 
 // Database statistics
 static std::shared_ptr<rocksdb::Statistics> dbstats;
@@ -2141,7 +2152,11 @@ class StressTest {
     options_.statistics = dbstats;
     options_.env = FLAGS_env;
     options_.use_fsync = FLAGS_use_fsync;
+    options_.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options_.allow_mmap_reads = FLAGS_mmap_read;
+    options_.allow_mmap_writes = FLAGS_mmap_write;
+    options_.use_direct_reads = FLAGS_use_direct_reads;
+    options_.use_direct_writes = FLAGS_use_direct_writes;
     options_.target_file_size_base = FLAGS_target_file_size_base;
     options_.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
     options_.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
