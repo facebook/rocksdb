@@ -128,8 +128,8 @@ case "$TARGET_OS" in
         ;;
     SunOS)
         PLATFORM=OS_SOLARIS
-        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_SOLARIS"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_SOLARIS -m64"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt -static-libstdc++ -static-libgcc -m64"
         # PORT_FILES=port/sunos/sunos_specific.cc
         ;;
     AIX)
@@ -434,7 +434,7 @@ elif test -z "$PORTABLE"; then
     COMMON_FLAGS="$COMMON_FLAGS -mcpu=$POWER -mtune=$POWER "
   elif test -n "`echo $TARGET_ARCHITECTURE | grep ^s390x`"; then
     COMMON_FLAGS="$COMMON_FLAGS -march=z10 "
-  else
+  elif [ "$TARGET_OS" != AIX ] && [ "$TARGET_OS" != SunOS ]; then
     COMMON_FLAGS="$COMMON_FLAGS -march=native "
   fi
 fi
