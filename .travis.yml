@@ -18,12 +18,11 @@ addons:
       sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
       packages: ['clang-3.6' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev']
 env:
-  # Run all tests before db_block_cache_test (db_test, db_test2)
-  - JOB_NAME=unittests ROCKSDBTESTS_END=db_block_cache_test
-  # Run all tests starting from db_block_cache_test (db_block_cache_test, ..., plain_table_db_test)
-  - JOB_NAME=unittests ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test
-  # Run all tests starting from db_block_cache_test (comparator_db_test, ...)
-  - JOB_NAME=unittests ROCKSDBTESTS_START=comparator_db_test
+  - TEST_GROUP=platform_dependent1
+  - TEST_GROUP=platform_dependent2
+  - TEST_GROUP=platform_dependent3
+  - TEST_GROUP=1
+  - TEST_GROUP=2
   # Run java tests
   - JOB_NAME=java_test
   # Build ROCKSDB_LITE
@@ -33,6 +32,10 @@ matrix:
   exclude:
   - os: osx
     compiler: gcc
+  - os: osx
+    env: TEST_GROUP=1
+  - os: osx
+    env: TEST_GROUP=2
 
 before_script:
   - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'clang++' ]]; then CXX=clang++-3.6; fi
@@ -43,7 +46,11 @@ before_script:
 
 script:
   - ${CXX} --version
-  - if [[ "${JOB_NAME}" == 'unittests' ]]; then OPT=-DTRAVIS V=1 make -j4 check_some; fi
+  - if [[ "${TEST_GROUP}" == 'platform_dependent1' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=external_sst_file_test make -j4 check_some; fi
+  - if [[ "${TEST_GROUP}" == 'platform_dependent2' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=external_sst_file_test ROCKSDBTESTS_END=checkpoint_test make -j4 check_some; fi
+  - if [[ "${TEST_GROUP}" == 'platform_dependent3' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=checkpoint_test ROCKSDBTESTS_END=db_block_cache_test make -j4 check_some; fi
+  - if [[ "${TEST_GROUP}" == '1' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test make -j4 check_some; fi
+  - if [[ "${TEST_GROUP}" == '2' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=comparator_db_test make -j4 check_some; fi
   - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
   - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
 notifications:
