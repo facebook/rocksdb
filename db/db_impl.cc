@@ -265,10 +265,12 @@ static Status ValidateOptions(
         "then direct I/O reads (use_direct_reads) must be disabled. ");
   }
 
-  if (db_options.allow_mmap_writes && db_options.use_direct_writes) {
+  if (db_options.allow_mmap_writes &&
+      (db_options.use_direct_writes || db_options.use_direct_wal_writes)) {
     return Status::NotSupported(
         "If memory mapped writes (allow_mmap_writes) are enabled "
-        "then direct I/O writes (use_direct_writes) must be disabled. ");
+        "then direct I/O writes (use_direct_writes and use_direct_wal_writes) "
+	"must be disabled. ");
   }
 
   if (db_options.keep_log_file_num == 0) {

@@ -71,8 +71,11 @@ struct EnvOptions {
   // If true, then use O_DIRECT for reading data
   bool use_direct_reads = false;
 
-  // If true, then use O_DIRECT for writing data
+  // If true, then use O_DIRECT for writing data to non-WAL files
   bool use_direct_writes = false;
+
+  // If true, then use O_DIRECT for writing data to WAL files
+  bool use_direct_wal_writes = false;
 
   // If false, fallocate() calls are bypassed
   bool allow_fallocate = true;

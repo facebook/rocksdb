@@ -12,6 +12,8 @@
 #include <atomic>
 #include <string>
 #include "rocksdb/env.h"
+#include <sys/param.h>   // for roundup() macro
+#include "db/log_format.h"
 
 // For non linux platform, the following macros are used only as place
 // holder.
@@ -130,6 +132,34 @@ class PosixWritableFile : public WritableFile {
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif
+};
+
+class WALWritableFile : public WritableFile {
+ private:
+  static const int bufsz_ = 524288;
+ protected:
+  const std::string filename_;
+  int fd_;
+  bool dirty_;
+  size_t len_;
+  off_t off_;
+  char cache_buf_[bufsz_ + 4096];
+  char *cache_;
+
+ public:
+  explicit WALWritableFile(const std::string& fname, int fd,
+                           const EnvOptions& options);
+  virtual ~WALWritableFile();
+
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+  virtual Status Allocate(uint64_t offset, uint64_t len) override;
+#endif
+  virtual Status Truncate(uint64_t size) override;
+  virtual Status Close() override;
+  virtual Status Append(const Slice& data) override;
+  virtual Status Sync() override;
+  virtual Status Flush() override;
+  virtual uint64_t GetFileSize() override;
 };
 
 // mmap() based random-access

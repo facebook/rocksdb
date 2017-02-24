@@ -54,6 +54,7 @@
 #include "util/thread_local.h"
 #include "util/thread_status_updater.h"
 #include "util/threadpool_imp.h"
+#include "db/filename.h"
 
 #if !defined(TMPFS_MAGIC)
 #define TMPFS_MAGIC 0x01021994
@@ -258,8 +259,16 @@ class PosixEnv : public Env {
     Status s;
     int fd = -1;
     int flags = O_CREAT | O_TRUNC;
+    bool use_direct = false;
+    if (!options.use_mmap_writes) {
+      if (IsLogFile(fname)) {
+        use_direct = options.use_direct_wal_writes;
+      } else {
+        use_direct = options.use_direct_writes;
+      }
+    }
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
-    if (options.use_direct_writes && !options.use_mmap_writes) {
+    if (use_direct) {
       // Note: we should avoid O_APPEND here due to ta the following bug:
       // POSIX requires that opening a file with the O_APPEND flag should
       // have no affect on the location at which pwrite() writes data.
@@ -305,7 +314,7 @@ class PosixEnv : public Env {
     }
     if (options.use_mmap_writes && !forceMmapOff_) {
       result->reset(new PosixMmapFile(fname, fd, page_size_, options));
-    } else if (options.use_direct_writes && !options.use_mmap_writes) {
+    } else if (use_direct) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
         close(fd);
@@ -313,7 +322,11 @@ class PosixEnv : public Env {
         return s;
       }
 #endif
-      result->reset(new PosixWritableFile(fname, fd, options));
+      if (IsLogFile(fname)) {
+        result->reset(new WALWritableFile(fname, fd, options));
+      } else {
+        result->reset(new PosixWritableFile(fname, fd, options));
+      }
     } else {
       // disable mmap writes
       EnvOptions no_mmap_writes_options = options;
@@ -333,7 +346,15 @@ class PosixEnv : public Env {
 
     int flags = 0;
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
-    if (options.use_direct_writes && !options.use_mmap_writes) {
+    bool use_direct = false;
+    if (!options.use_mmap_writes) {
+      if (IsLogFile(fname)) {
+        use_direct = options.use_direct_wal_writes;
+      } else {
+        use_direct = options.use_direct_writes;
+      }
+    }
+    if (use_direct) {
 #ifdef ROCKSDB_LITE
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
 #endif  // !ROCKSDB_LITE
@@ -391,7 +412,11 @@ class PosixEnv : public Env {
       // disable mmap writes
       EnvOptions no_mmap_writes_options = options;
       no_mmap_writes_options.use_mmap_writes = false;
-      result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+      if (IsLogFile(fname)) {
+        result->reset(new WALWritableFile(fname, fd, no_mmap_writes_options));
+      } else {
+        result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
+      }
     }
     return s;
 
@@ -767,12 +792,12 @@ class PosixEnv : public Env {
                                  const DBOptions& db_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
-    optimized.use_direct_writes = false;
+    optimized.use_direct_writes = db_options.use_direct_wal_writes;
     optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
     // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
     // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
     // test and make this false
-    optimized.fallocate_with_keep_size = true;
+    optimized.fallocate_with_keep_size = !db_options.use_direct_wal_writes;
     return optimized;
   }
 

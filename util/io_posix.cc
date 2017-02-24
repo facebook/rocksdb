@@ -835,6 +835,158 @@ size_t PosixWritableFile::GetUniqueId(char* id, size_t max_size) const {
 #endif
 
 /*
+ * WALWritableFile
+ */
+WALWritableFile::WALWritableFile(const std::string& fname, int fd,
+                                 const EnvOptions& options)
+  : filename_(fname),
+    fd_(fd),
+    dirty_(false),
+    len_(0),
+    off_(0),
+    cache_(reinterpret_cast<char*>(roundup(reinterpret_cast<uintptr_t>(cache_buf_), 4096))) {
+}
+
+WALWritableFile::~WALWritableFile() {
+  if (fd_ >= 0) {
+    Close();
+  }
+}
+
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+Status WALWritableFile::Allocate(uint64_t offset, uint64_t len) {
+  assert(offset <= std::numeric_limits<off_t>::max());
+  assert(len <= std::numeric_limits<off_t>::max());
+  TEST_KILL_RANDOM("PosixWritableFile::Allocate:0", rocksdb_kill_odds);
+  IOSTATS_TIMER_GUARD(allocate_nanos);
+  int alloc_status = 0;
+  while (len != 0) {
+    static char zeros[1024 * 1024] __attribute__ ((aligned (4096)));
+    ssize_t nbytes = std::min(len, sizeof(zeros));
+    ssize_t done = pwrite(fd_, zeros, nbytes, static_cast<off_t>(offset));
+    if (done < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return IOError(filename_, errno);
+    }
+    len -= done;
+    offset += done;
+  }
+  if (fsync(fd_)) {
+    IOError("fsync failed, ignoring...", errno);
+  }
+  if (alloc_status == 0) {
+    return Status::OK();
+  } else {
+    return IOError(filename_, errno);
+  }
+}
+#endif
+
+Status WALWritableFile::Truncate(uint64_t size)
+{
+  if (ftruncate(fd_, size)) {
+    return IOError(filename_, errno);
+  }
+  if (fsync(fd_)) {
+    return IOError(filename_, errno);
+  }
+  return Status::OK();
+}
+
+Status WALWritableFile::Close()
+{
+  Status s;
+  if (dirty_) {
+    s = Sync();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  if (ftruncate(fd_, off_ + len_)) {
+    return IOError(filename_, errno);
+  }
+  if (fsync(fd_)) {
+    return IOError(filename_, errno);
+  }
+  close(fd_);
+  fd_ = -1;
+  return Status::OK();
+}
+
+Status WALWritableFile::Append(const Slice& data)
+{
+  const char *src = data.data();
+  size_t left = data.size();
+
+  // make sure our writes don't cross rocksdb block boundaries,
+  // since we can't be guaranteed the entire write makes it out
+  // in one piece and in order.
+  if (len_ + left > bufsz_) {
+    Status s = Sync();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  memcpy(cache_ + len_, src, left);
+  len_ += left;
+  dirty_ = true;
+  return Status::OK();
+}
+
+Status WALWritableFile::Flush() { return Status::OK(); }
+
+Status WALWritableFile::Sync()
+{
+  static const int sector_size = 512;
+  const char* src = cache_;
+  size_t left = roundup(len_, sector_size);
+  size_t remainder = len_ % sector_size;
+  off_t offset = off_;
+
+  if (!dirty_) {
+    return Status::OK();
+  }
+  if (left != len_) {
+    // zero out the tail
+    memset(cache_ + len_, 0, left - len_);
+  }
+  while (left != 0) {
+    ssize_t done = pwrite(fd_, src, left, offset);
+    if (done < 0) {
+      // error while writing to file
+      if (errno == EINTR) {
+        // write was interrupted, try again.
+        continue;
+      }
+      return IOError(filename_, errno);
+    }
+
+    // Wrote `done` bytes
+    left -= done;
+    offset += done;
+    src += done;
+  }
+  fdatasync(fd_);
+  off_ = offset;
+
+  // shift what's left back to the front of the buffer
+  if (remainder) {
+    memmove(cache_, cache_ + len_ - remainder, remainder);
+    off_ -= sector_size;
+  }
+  len_ = remainder;
+  dirty_ = false;
+  return Status::OK();
+}
+
+uint64_t WALWritableFile::GetFileSize()
+{
+  return off_ + len_;
+}
+
+/*
  * PosixRandomRWFile
  */
 

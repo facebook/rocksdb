@@ -46,6 +46,10 @@ enum FileType {
 // "dbname".
 extern std::string LogFileName(const std::string& dbname, uint64_t number);
 
+static bool inline IsLogFile(const std::string& fname) {
+  return fname.rfind(".log") != std::string::npos;
+}
+
 static const std::string ARCHIVAL_DIR = "archive";
 
 extern std::string ArchivalDirectory(const std::string& dbname);
