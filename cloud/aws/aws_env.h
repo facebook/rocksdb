@@ -298,14 +298,14 @@ namespace rocksdb {
 
 static const Status s3_notsup;
 
-class AwsEnv : public CloudEnv {
+class AwsEnv : public CloudEnvImpl {
 
  public:
   explicit AwsEnv(Env* underlying_env,
 		  const std::string& bucket_prefix,
 		  const CloudEnvOptions& cloud_options,
 		  std::shared_ptr<Logger> info_log = nullptr) :
-	  CloudEnv(CloudType::kAws, underlying_env) {
+	  CloudEnvImpl(CloudType::kAws, underlying_env) {
     fprintf(stderr, "You have not build rocksdb with AWS support\n");
     fprintf(stderr, "Please see cloud/README.md for details\n");
     abort();
