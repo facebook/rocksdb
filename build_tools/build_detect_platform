@@ -135,7 +135,7 @@ case "$TARGET_OS" in
     AIX)
         PLATFORM=OS_AIX
         CC=gcc
-        COMMON_FLAGS="$COMMON_FLAGS -maix64 -pthread -fno-builtin-memcmp -D_REENTRANT -DOS_AIX"
+        COMMON_FLAGS="$COMMON_FLAGS -maix64 -pthread -fno-builtin-memcmp -D_REENTRANT -DOS_AIX -D__STDC_FORMAT_MACROS"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -pthread -lpthread -lrt -maix64 -static-libstdc++ -static-libgcc"
         # PORT_FILES=port/aix/aix_specific.cc
         ;;

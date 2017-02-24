@@ -5,7 +5,9 @@
 
 #include "db/external_sst_file_ingestion_job.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #include <inttypes.h>
 #include <algorithm>

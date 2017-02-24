@@ -23,7 +23,6 @@
 #include "table/scoped_arena_iterator.h"
 #include "util/cf_options.h"
 #include "util/logging.h"
-#include "util/testharness.h"
 
 /*
  * Class:     org_rocksdb_WriteBatchTest
