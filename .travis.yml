@@ -25,6 +25,8 @@ addons:
     - libsnappy-dev
     - zlib1g-dev
 env:
+  # Run dbtest tests without AWS env
+  - JOB_NAME=unittests BUILD_DIR=travis-build ROCKSDBTESTS_START=db_test ROCKSDBTESTS_END=db_test
   # Run all tests before db_block_cache_test (db_test, db_test2)
   - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build ROCKSDBTESTS_END=db_block_cache_test
   # Run all tests starting from db_block_cache_test (db_block_cache_test, ..., plain_table_db_test)
