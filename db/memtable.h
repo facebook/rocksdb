@@ -329,7 +329,7 @@ class MemTable {
   port::RWMutex* GetLock(const Slice& key);
 
   const InternalKeyComparator& GetInternalKeyComparator() const {
-    return comparator_.comparator();
+    return dynamic_cast<const InternalKeyComparator&>(comparator_.comparator());
   }
 
   const MemTableOptions* GetMemTableOptions() const { return &moptions_; }

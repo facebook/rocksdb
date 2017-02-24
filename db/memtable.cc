@@ -57,28 +57,6 @@ MemTableOptions::MemTableOptions(const ImmutableCFOptions& ioptions,
       merge_operator(ioptions.merge_operator),
       info_log(ioptions.info_log) {}
 
-MemTableRep::KeyComparator::KeyComparator(const InternalKeyComparator& cmp)
-    : comparator_(cmp) {}
-
-int MemTableRep::KeyComparator::operator()(const char* prefix_len_key1,
-                                           const char* prefix_len_key2) const {
-  // Internal keys are encoded as length-prefixed strings.
-  Slice k1 = GetLengthPrefixedSlice(prefix_len_key1);
-  Slice k2 = GetLengthPrefixedSlice(prefix_len_key2);
-  return comparator_.Compare(k1, k2);
-}
-
-int MemTableRep::KeyComparator::operator()(const char* prefix_len_key,
-                                           const Slice& key) const {
-  // Internal keys are encoded as length-prefixed strings.
-  Slice a = GetLengthPrefixedSlice(prefix_len_key);
-  return comparator_.Compare(a, key);
-}
-
-const InternalKeyComparator& MemTableRep::KeyComparator::comparator() const {
-  return comparator_;
-}
-
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
@@ -716,7 +694,7 @@ void MemTable::Update(SequenceNumber seq,
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-    if (comparator_.comparator().user_comparator()->Equal(
+    if (GetInternalKeyComparator().user_comparator()->Equal(
             Slice(key_ptr, key_length - 8), lkey.user_key())) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
@@ -770,7 +748,7 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-    if (comparator_.comparator().user_comparator()->Equal(
+    if (GetInternalKeyComparator().user_comparator()->Equal(
             Slice(key_ptr, key_length - 8), lkey.user_key())) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
@@ -841,7 +819,7 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-    if (!comparator_.comparator().user_comparator()->Equal(
+    if (!GetInternalKeyComparator().user_comparator()->Equal(
             Slice(iter_key_ptr, key_length - 8), key.user_key())) {
       break;
     }
