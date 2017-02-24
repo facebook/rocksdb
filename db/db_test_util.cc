@@ -191,6 +191,36 @@ bool DBTestBase::ChangeCompactOptions() {
   }
 }
 
+// Switch between different WAL settings
+bool DBTestBase::ChangeWalOptions() {
+  if (option_config_ == kDefault) {
+    option_config_ = kDBLogDir;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    Destroy(options);
+    options.create_if_missing = true;
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kDBLogDir) {
+    option_config_ = kWalDirAndMmapReads;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    Destroy(options);
+    options.create_if_missing = true;
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kWalDirAndMmapReads) {
+    option_config_ = kRecycleLogFiles;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    Destroy(options);
+    TryReopen(options);
+    return true;
+  } else {
+    return false;
+  }
+}
+
 // Switch between different filter policy
 // Jump from kDefault to kFilter to kFullFilter
 bool DBTestBase::ChangeFilterOptions() {
