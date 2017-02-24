@@ -36,15 +36,12 @@
 
 namespace rocksdb {
 
-AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions()
-    : table_factory(
-          std::shared_ptr<TableFactory>(new BlockBasedTableFactory())) {
+AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions() {
   assert(memtable_factory.get() != nullptr);
 }
 
 AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
-    : prefix_extractor(options.prefix_extractor),
-      max_write_buffer_number(options.max_write_buffer_number),
+    : max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
           options.min_write_buffer_number_to_merge),
       max_write_buffer_number_to_maintain(
@@ -82,7 +79,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       max_sequential_skip_in_iterations(
           options.max_sequential_skip_in_iterations),
       memtable_factory(options.memtable_factory),
-      table_factory(options.table_factory),
       table_properties_collector_factories(
           options.table_properties_collector_factories),
       max_successive_merges(options.max_successive_merges),
@@ -98,7 +94,9 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
 }
 
 ColumnFamilyOptions::ColumnFamilyOptions()
-    : compression(Snappy_Supported() ? kSnappyCompression : kNoCompression) {}
+    : compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+      table_factory(
+          std::shared_ptr<TableFactory>(new BlockBasedTableFactory())) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     : AdvancedColumnFamilyOptions(options),
@@ -112,8 +110,10 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       compression_opts(options.compression_opts),
       level0_file_num_compaction_trigger(
           options.level0_file_num_compaction_trigger),
+      prefix_extractor(options.prefix_extractor),
       max_bytes_for_level_base(options.max_bytes_for_level_base),
-      disable_auto_compactions(options.disable_auto_compactions) {}
+      disable_auto_compactions(options.disable_auto_compactions),
+      table_factory(options.table_factory) {}
 
 DBOptions::DBOptions() {}
 

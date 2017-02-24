@@ -222,6 +222,22 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int level0_file_num_compaction_trigger = 4;
 
+  // If non-nullptr, use the specified function to determine the
+  // prefixes for keys.  These prefixes will be placed in the filter.
+  // Depending on the workload, this can reduce the number of read-IOP
+  // cost for scans when a prefix is passed via ReadOptions to
+  // db.NewIterator().  For prefix filtering to work properly,
+  // "prefix_extractor" and "comparator" must be such that the following
+  // properties hold:
+  //
+  // 1) key.starts_with(prefix(key))
+  // 2) Compare(prefix(key), key) <= 0.
+  // 3) If Compare(k1, k2) <= 0, then Compare(prefix(k1), prefix(k2)) <= 0
+  // 4) prefix(prefix(key)) == prefix(key)
+  //
+  // Default: nullptr
+  std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
+
   // Control maximum total data size for a level.
   // max_bytes_for_level_base is the max total for level-1.
   // Maximum number of bytes for level L can be calculated as
@@ -241,6 +257,12 @@ struct ColumnFamilyOptions : public AdvancedColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   bool disable_auto_compactions = false;
+
+  // This is a factory that provides TableFactory objects.
+  // Default: a block-based table factory that provides a default
+  // implementation of TableBuilder and TableReader with default
+  // BlockBasedTableOptions.
+  std::shared_ptr<TableFactory> table_factory;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();

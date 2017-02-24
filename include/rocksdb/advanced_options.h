@@ -97,22 +97,6 @@ enum UpdateStatus {    // Return status For inplace update callback
 
 
 struct AdvancedColumnFamilyOptions {
-  // If non-nullptr, use the specified function to determine the
-  // prefixes for keys.  These prefixes will be placed in the filter.
-  // Depending on the workload, this can reduce the number of read-IOP
-  // cost for scans when a prefix is passed via ReadOptions to
-  // db.NewIterator().  For prefix filtering to work properly,
-  // "prefix_extractor" and "comparator" must be such that the following
-  // properties hold:
-  //
-  // 1) key.starts_with(prefix(key))
-  // 2) Compare(prefix(key), key) <= 0.
-  // 3) If Compare(k1, k2) <= 0, then Compare(prefix(k1), prefix(k2)) <= 0
-  // 4) prefix(prefix(key)) == prefix(key)
-  //
-  // Default: nullptr
-  std::shared_ptr<const SliceTransform> prefix_extractor = nullptr;
-
   // The maximum number of write buffers that are built up in memory.
   // The default and the minimum number is 2, so that when 1 write buffer
   // is being flushed to storage, new writes can continue to the other
@@ -475,12 +459,6 @@ struct AdvancedColumnFamilyOptions {
   // MemTableRep.
   std::shared_ptr<MemTableRepFactory> memtable_factory =
       std::shared_ptr<SkipListFactory>(new SkipListFactory);
-
-  // This is a factory that provides TableFactory objects.
-  // Default: a block-based table factory that provides a default
-  // implementation of TableBuilder and TableReader with default
-  // BlockBasedTableOptions.
-  std::shared_ptr<TableFactory> table_factory;
 
   // Block-based table related options are moved to BlockBasedTableOptions.
   // Related options that were originally here but now moved include:
