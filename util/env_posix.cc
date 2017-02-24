@@ -154,7 +154,7 @@ class PosixEnv : public Env {
     FILE* file = nullptr;
 
     if (options.use_direct_reads && !options.use_mmap_reads) {
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
 #endif
     }
@@ -198,7 +198,7 @@ class PosixEnv : public Env {
     int fd;
     int flags = O_RDONLY;
     if (options.use_direct_reads && !options.use_mmap_reads) {
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
       TEST_SYNC_POINT_CALLBACK("NewRandomAccessFile:O_DIRECT", &flags);
 #endif
@@ -260,7 +260,7 @@ class PosixEnv : public Env {
       // offset.
       // More info here: https://linux.die.net/man/2/pwrite
       flags |= O_WRONLY;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
@@ -301,6 +301,12 @@ class PosixEnv : public Env {
         s = IOError(fname, errno);
         return s;
       }
+#elif defined(OS_SOLARIS)
+      if (directio(fd, DIRECTIO_ON) == -1) {
+        close(fd);
+        s = IOError(fname, errno);
+        return s;
+      }
 #endif
       result->reset(new PosixWritableFile(fname, fd, options));
     } else {
@@ -324,7 +330,7 @@ class PosixEnv : public Env {
     // Direct IO mode with O_DIRECT flag or F_NOCAHCE (MAC OSX)
     if (options.use_direct_writes && !options.use_mmap_writes) {
       flags |= O_WRONLY;
-#ifndef OS_MACOSX
+#if !defined(OS_MACOSX) && !defined(OS_SOLARIS)
       flags |= O_DIRECT;
 #endif
       TEST_SYNC_POINT_CALLBACK("NewWritableFile:O_DIRECT", &flags);
@@ -367,6 +373,12 @@ class PosixEnv : public Env {
     } else if (options.use_direct_writes && !options.use_mmap_writes) {
 #ifdef OS_MACOSX
       if (fcntl(fd, F_NOCACHE, 1) == -1) {
+        close(fd);
+        s = IOError(fname, errno);
+        return s;
+      }
+#elif defined(OS_SOLARIS)
+      if (directio(fd, DIRECTIO_ON) == -1) {
         close(fd);
         s = IOError(fname, errno);
         return s;

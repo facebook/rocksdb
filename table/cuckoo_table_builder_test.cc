@@ -66,8 +66,8 @@ class CuckooBuilderTest : public testing::Test {
     ASSERT_EQ(expected_unused_bucket.substr(0,
           props->fixed_key_len), unused_key);
 
-    uint32_t value_len_found =
-      *reinterpret_cast<const uint32_t*>(props->user_collected_properties[
+    uint64_t value_len_found =
+      *reinterpret_cast<const uint64_t*>(props->user_collected_properties[
                 CuckooTablePropertyNames::kValueLength].data());
     ASSERT_EQ(values.empty() ? 0 : values[0].size(), value_len_found);
     ASSERT_EQ(props->raw_value_size, values.size()*value_len_found);

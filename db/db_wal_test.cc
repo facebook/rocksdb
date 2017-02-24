@@ -790,7 +790,8 @@ class RecoveryTestHelper {
     ASSERT_GT(fd, 0);
     ASSERT_EQ(offset, lseek(fd, static_cast<long>(offset), SEEK_SET));
 
-    void* buf = alloca(len);
+    std::auto_ptr<char> bufGuard(new char[len]);
+    void *buf = bufGuard.get();
     memset(buf, 'a', len);
     ASSERT_EQ(len, write(fd, buf, static_cast<unsigned int>(len)));
 
