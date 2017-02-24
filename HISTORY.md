@@ -22,7 +22,7 @@
 * RangeSync() should work if ROCKSDB_FALLOCATE_PRESENT is not set
 * Fix wrong results in a data race case in Get()
 * Some fixes related to 2PC.
-* Fix bugs of truncating file and readahead alignment in direct I/O mode
+* Fix bugs of data corruption in direct I/O
 
 ## 5.1.0 (01/13/2017)
 * Support dynamically change `delete_obsolete_files_period_micros` option via SetDBOptions().
