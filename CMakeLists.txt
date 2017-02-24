@@ -48,6 +48,7 @@ else()
     # but don't add "add_definitions(-DROCKSDB_JEMALLOC)"
     # because it'll include explicit jmalloc files
     # WITH_JEMALLOC allows the use of certain jemalloc functions
+    # add_definitions(-DROCKSDB_JEMALLOC)
     set(WITH_JEMALLOC ON)
   endif()  
   option(WITH_SNAPPY "build with SNAPPY" OFF)
