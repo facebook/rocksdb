@@ -303,6 +303,7 @@ TESTS = \
 	db_test \
 	db_test2 \
 	external_sst_file_test \
+	external_sst_file_basic_test \
 	auto_roll_logger_test \
 	bloom_test \
 	dynamic_bloom_test \
@@ -1021,6 +1022,9 @@ db_range_del_test: db/db_range_del_test.o db/db_test_util.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 external_sst_file_test: db/external_sst_file_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
