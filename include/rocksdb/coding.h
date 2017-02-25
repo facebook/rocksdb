@@ -4,12 +4,15 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
 
-#include "port/port.h"
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
 
-// Uitility methods used by RocksDB internal for encoding data. We have them
+namespace port {
+  extern const bool kLittleEndian;
+}
+
+// Uitility function used by RocksDB internal for encoding data. We have them
 // in public header only to make them able to be inlined by compiler.
 
 // Internal routine for use by fallback path of GetVarint32Ptr
@@ -39,6 +42,33 @@ inline Slice GetLengthPrefixedSlice(const char* data) {
   // unsigned char is 7 bits, uint32_t is 32 bits, need 5 unsigned char
   auto p = GetVarint32Ptr(data, data + 5 /* limit */, &len);
   return Slice(p, len);
+}
+
+inline uint32_t DecodeFixed32(const char* ptr) {
+  if (port::kLittleEndian) {
+    // Load the raw bytes
+    uint32_t result;
+    memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
+    return result;
+  } else {
+    return ((static_cast<uint32_t>(static_cast<unsigned char>(ptr[0])))
+        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[1])) << 8)
+        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[2])) << 16)
+        | (static_cast<uint32_t>(static_cast<unsigned char>(ptr[3])) << 24));
+  }
+}
+
+inline uint64_t DecodeFixed64(const char* ptr) {
+  if (port::kLittleEndian) {
+    // Load the raw bytes
+    uint64_t result;
+    memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
+    return result;
+  } else {
+    uint64_t lo = DecodeFixed32(ptr);
+    uint64_t hi = DecodeFixed32(ptr + 4);
+    return (hi << 32) | lo;
+  }
 }
 
 }  // namespace rocksdb

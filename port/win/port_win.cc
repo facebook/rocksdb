@@ -31,6 +31,8 @@
 namespace rocksdb {
 namespace port {
 
+const bool kLittleEndian = true;
+
 void gettimeofday(struct timeval* tv, struct timezone* /* tz */) {
   using namespace std::chrono;
 

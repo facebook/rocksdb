@@ -41,12 +41,11 @@
 #include <stdlib.h>
 
 #include "rocksdb/coding.h"
-#include "rocksdb/comparator.h"
+#include "rocksdb/internal_comparator.h"
 
 namespace rocksdb {
 
 class Arena;
-class InternalKeyComparator;
 class MemTableAllocator;
 class LookupKey;
 class Slice;
@@ -61,7 +60,7 @@ class MemTableRep {
   // concatenated with values.
   class KeyComparator {
    public:
-    KeyComparator(const Comparator& cmp) : comparator_(cmp) {}
+    KeyComparator(const InternalKeyComparator& cmp) : comparator_(cmp) {}
 
     // Compare a and b. Return a negative value if a is less than b, 0 if they
     // are equal, and a positive value if a is greater than b
@@ -79,10 +78,10 @@ class MemTableRep {
       return comparator_.Compare(a, key);
     }
 
-    const Comparator& comparator() const { return comparator_; }
+    const InternalKeyComparator& comparator() const { return comparator_; }
 
    private:
-    const Comparator& comparator_;
+    const InternalKeyComparator comparator_;
   };
 
   explicit MemTableRep(MemTableAllocator* allocator) : allocator_(allocator) {}

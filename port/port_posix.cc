@@ -26,6 +26,8 @@
 namespace rocksdb {
 namespace port {
 
+const bool kLittleEndian = (__BYTE_ORDER == __LITTLE_ENDIAN);
+
 static int PthreadCall(const char* label, int result) {
   if (result != 0 && result != ETIMEDOUT) {
     fprintf(stderr, "pthread %s: %s\n", label, strerror(result));

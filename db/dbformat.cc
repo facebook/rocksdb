@@ -16,7 +16,6 @@
 #include <stdio.h>
 #include "port/port.h"
 #include "util/coding.h"
-#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -63,39 +62,9 @@ std::string ParsedInternalKey::DebugString(bool hex) const {
   return result;
 }
 
-std::string InternalKey::DebugString(bool hex) const {
-  std::string result;
-  ParsedInternalKey parsed;
-  if (ParseInternalKey(rep_, &parsed)) {
-    result = parsed.DebugString(hex);
-  } else {
-    result = "(bad)";
-    result.append(EscapeString(rep_));
-  }
-  return result;
-}
-
-const char* InternalKeyComparator::Name() const {
-  return name_.c_str();
-}
-
-int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
-  // Order by:
-  //    increasing user key (according to user-supplied comparator)
-  //    decreasing sequence number
-  //    decreasing type (though sequence# should be enough to disambiguate)
-  int r = user_comparator_->Compare(ExtractUserKey(akey), ExtractUserKey(bkey));
-  PERF_COUNTER_ADD(user_key_comparison_count, 1);
-  if (r == 0) {
-    const uint64_t anum = DecodeFixed64(akey.data() + akey.size() - 8);
-    const uint64_t bnum = DecodeFixed64(bkey.data() + bkey.size() - 8);
-    if (anum > bnum) {
-      r = -1;
-    } else if (anum < bnum) {
-      r = +1;
-    }
-  }
-  return r;
+int InternalKeyComparator::Compare(
+    const InternalKey& a, const InternalKey& b) const {
+  return Compare(a.Encode(), b.Encode());
 }
 
 int InternalKeyComparator::Compare(const ParsedInternalKey& a,
@@ -152,6 +121,19 @@ void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
     key->swap(tmp);
   }
 }
+
+std::string InternalKey::DebugString(bool hex) const {
+  std::string result;
+  ParsedInternalKey parsed;
+  if (ParseInternalKey(rep_, &parsed)) {
+    result = parsed.DebugString(hex);
+  } else {
+    result = "(bad)";
+    result.append(EscapeString(rep_));
+  }
+  return result;
+}
+
 
 LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s) {
   size_t usize = _user_key.size();
