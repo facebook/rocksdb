@@ -30,12 +30,17 @@ CloudEnvImpl::~CloudEnvImpl() {
 }
 
 Status CloudEnv::NewAwsEnv(Env* base_env,
-		           const std::string& cloud_storage,
+		           const std::string& src_cloud_storage,
+                           const std::string& src_cloud_object_prefix,
+                           const std::string& dest_cloud_storage,
+                           const std::string& dest_cloud_object_prefix,
 	                   const CloudEnvOptions& options,
 			   std::shared_ptr<Logger> logger,
 			   CloudEnv** cenv) {
 
-  Status st = AwsEnv::NewAwsEnv(base_env, cloud_storage,
+  Status st = AwsEnv::NewAwsEnv(base_env,
+		                src_cloud_storage, src_cloud_object_prefix,
+				dest_cloud_storage, dest_cloud_object_prefix,
 			        options, logger, cenv);
   if (st.ok()) {
     // store a copy of the logger
@@ -58,17 +63,6 @@ Status CloudEnvImpl::SetClone(const std::string& src_dbid) {
   // Map the src dbid to a pathname of the src db
   // src db dir
   return GetPathForDbid(src_dbid, &src_dbdir_);
-}
-//
-// Maps a pathname from the clone to the corresponding file in src db
-//
-std::string CloudEnvImpl::MapClonePathToSrcPath(const std::string& fname) {
-#ifdef USE_AWS
-  assert(is_clone_);
-  return src_dbdir_ + "/" + basename(fname);  
-#else
-  return "MapClonePathToSrcPath not available";
-#endif
 }
 
 }  // namespace rocksdb

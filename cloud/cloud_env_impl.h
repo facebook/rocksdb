@@ -37,9 +37,6 @@ class CloudEnvImpl : public CloudEnv {
   void SetCloudDirect() { is_cloud_direct_ = true; }
   void ClearCloudDirect() { is_cloud_direct_ = false; }
 
-  // Map a clonepathname to a pathname in the src db
-  std::string MapClonePathToSrcPath(const std::string& fname);
-
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
 

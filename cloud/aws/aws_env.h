@@ -48,7 +48,10 @@ class AwsEnv : public CloudEnvImpl {
  public:
   // A factory method for creating S3 envs
   static  Status NewAwsEnv(Env* env,
-		           const std::string& bucket_prefix,
+		           const std::string& src_cloud_storage,
+		           const std::string& src_cloud_object_prefix,
+			   const std::string& dest_cloud_storage,
+			   const std::string& dest_cloud_object_prefix,
 			   const CloudEnvOptions& env_options,
                            std::shared_ptr<Logger> info_log,
 			   CloudEnv** cenv);
@@ -190,9 +193,12 @@ class AwsEnv : public CloudEnvImpl {
 
   bool IsRunning() const { return running_; }
 
-  const CloudEnvOptions& GetCloudEnvOptions() { return cloud_env_options; }
+  const std::string& GetSrcBucketPrefix() { return src_bucket_prefix_; }
+  const std::string& GetSrcObjectPrefix() { return src_object_prefix_; }
+  const std::string& GetDestBucketPrefix() { return dest_bucket_prefix_; }
+  const std::string& GetDestObjectPrefix() { return dest_object_prefix_; }
 
-  const std::string bucket_prefix_;
+  const CloudEnvOptions& GetCloudEnvOptions() { return cloud_env_options; }
 
   std::shared_ptr<Logger> info_log_;    // informational messages
 
@@ -234,7 +240,10 @@ class AwsEnv : public CloudEnvImpl {
   // access_key_id and secret_key.
   //  
   explicit AwsEnv(Env* underlying_env,
-		  const std::string& bucket_prefix,
+                  const std::string& src_bucket_prefix,
+                  const std::string& src_object_prefix,
+                  const std::string& dest_bucket_prefix,
+                  const std::string& dest_object_prefix,
 		  const CloudEnvOptions& cloud_options,
 		  std::shared_ptr<Logger> info_log = nullptr);
 
@@ -245,6 +254,12 @@ class AwsEnv : public CloudEnvImpl {
 		                   unique_ptr<SequentialFile>* result,
 		                   const EnvOptions& options,
                                    bool is_cloud_direct);
+
+  const std::string src_bucket_prefix_;
+  const std::string src_object_prefix_;
+  const std::string dest_bucket_prefix_;
+  const std::string dest_object_prefix_;
+
   Status create_bucket_status_;
 
   // Background thread to tail stream
@@ -287,6 +302,9 @@ class AwsEnv : public CloudEnvImpl {
   // Save IDENTITY file to S3. Update dbid registry.
   Status SaveIdentitytoS3(const std::string& localfile,
 		          const std::string& target_idfile);
+
+  // Converts a local pathname to an object name in the src bucket
+  std::string srcname(const std::string& localname);
 };
 
 }  // namespace rocksdb
@@ -449,7 +467,10 @@ class AwsEnv : public CloudEnvImpl {
   }
 
   static Status NewAwsEnv(Env* env,
-		          const std::string& bucket_prefix,
+		          const std::string& src_cloud_storage,
+		          const std::string& src_cloud_object_prefix,
+			  const std::string& dest_cloud_storage,
+			  const std::string& dest_cloud_object_prefix,
 			  const CloudEnvOptions& cloud_options,
 		          std::shared_ptr<Logger> info_log,
 			  CloudEnv** cenv) {

@@ -25,7 +25,7 @@ KinesisSystem::KinesisSystem(AwsEnv* env, std::shared_ptr<Logger> info_log)
   random = trim(random);
 
   // temporary directory for cache
-  cache_dir_ = "/tmp/ROCKSET" + pathsep + env_->bucket_prefix_ +
+  cache_dir_ = "/tmp/ROCKSET" + pathsep + env_->GetSrcBucketPrefix() +
 	       pathsep + random + pathsep;
 
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
@@ -33,17 +33,17 @@ KinesisSystem::KinesisSystem(AwsEnv* env, std::shared_ptr<Logger> info_log)
       topic_.c_str(), cache_dir_.c_str());
 
   // initialize stream name
-  topic_ = GetStreamName(env_->bucket_prefix_);
+  topic_ = GetStreamName(env_->GetSrcBucketPrefix());
 
   // create /tmp/ROCKSET/bucket_prefix/xxxx
   status_ = env_->GetPosixEnv()->CreateDirIfMissing("/tmp/ROCKSET");
   if (status_.ok()) {
     status_ = env_->GetPosixEnv()->CreateDirIfMissing("/tmp/ROCKSET/" +
-		            env_->bucket_prefix_);
+		            env_->GetSrcBucketPrefix());
   }
   if (status_.ok()) {
     status_ = env_->GetPosixEnv()->CreateDirIfMissing("/tmp/ROCKSET/" +
-		            env_->bucket_prefix_ + pathsep +  random +
+		            env_->GetSrcBucketPrefix() + pathsep +  random +
 			    pathsep);
   }
 }
@@ -304,7 +304,7 @@ Status KinesisSystem::InitializeShards() {
   // Keep looking for about 10 seconds, in case the stream was newly created
   // and is being initialized.
   Status st = WaitForStreamReady(env_, info_log_, env_->kinesis_client_,
-		                 env_->bucket_prefix_);
+		                 env_->GetSrcBucketPrefix());
   if (!st.ok()) {
     return st;
   }
@@ -472,7 +472,7 @@ KinesisWritableFile::KinesisWritableFile(AwsEnv* env,
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[kinesis] WritableFile opened file %s",
 	fname_.c_str());
-    topic_ = GetStreamName(env_->bucket_prefix_);
+    topic_ = GetStreamName(env_->GetSrcBucketPrefix());
 }
 
 KinesisWritableFile::~KinesisWritableFile() {

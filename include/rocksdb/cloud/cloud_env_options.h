@@ -93,9 +93,6 @@ class CloudEnv : public Env {
   virtual void SetCloudDirect() = 0;
   virtual void ClearCloudDirect() = 0;
 
-  // Map a clonepathname to a pathname in the src db
-  virtual std::string MapClonePathToSrcPath(const std::string& fname) = 0;
-
   // Returns the underlying env
   virtual Env* GetBaseEnv() = 0;
 
@@ -110,8 +107,28 @@ class CloudEnv : public Env {
   virtual Status GetDbidList(DbidList* dblist) = 0;
   virtual Status DeleteDbid(const std::string& dbid) = 0;
 
+  // Returns the prefix of the bucket and the 
+  // object-path prefix for all objects inside the bucket.
+  virtual const std::string& GetSrcBucketPrefix()  = 0;
+  virtual const std::string& GetSrcObjectPrefix()  = 0;
+  virtual const std::string& GetDestBucketPrefix()  = 0;
+  virtual const std::string& GetDestObjectPrefix() = 0;
+
   // Create a new AWS env.
-  static Status NewAwsEnv(Env* base_env, const std::string& cloud_storage,
+  // src_bucket_name: bucket name suffix where db data is read from
+  // src_object_prefix: all db objects in source bucket are prepended with this 
+  // dest_bucket_name: bucket name suffix where db data is written to
+  // dest_object_prefix: all db objects in destination bucket are prepended with this 
+  //
+  // If src_bucket_name is empty, then the associated db does not read any
+  // data from cloud storage.
+  // If dest_bucket_name is empty, then the associated db does not write any
+  // data to cloud storage.
+  static Status NewAwsEnv(Env* base_env,
+		          const std::string& src_bucket_name,
+		          const std::string& src_object_prefix,
+		          const std::string& dest_bucket_name,
+		          const std::string& dest_object_prefix,
 		          const CloudEnvOptions& env_options,
 			  std::shared_ptr<Logger> logger,
 			  CloudEnv** cenv);

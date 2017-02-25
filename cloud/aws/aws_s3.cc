@@ -28,7 +28,7 @@ S3ReadableFile::S3ReadableFile(AwsEnv* env, const std::string& fname,
         fname_.c_str());
     assert(!is_file_ || IsSstFile(fname) || IsManifestFile(fname) ||
            IsIdentityFile(fname));
-    s3_bucket_ = GetBucket(env_->bucket_prefix_);
+    s3_bucket_ = GetBucket(env_->GetSrcBucketPrefix());
     s3_object_ = Aws::String(fname_.c_str(), fname_.size());
 
     // fetch file size from S3
@@ -241,11 +241,12 @@ Status S3WritableFile::CreateBucketInS3(std::shared_ptr<Aws::S3::S3Client> clien
 }
 
 S3WritableFile::S3WritableFile(AwsEnv* env,
-		 const std::string& fname,
+		 const std::string& local_fname,
+		 const std::string& cloud_fname,
 		 const EnvOptions& options,
 		 const CloudEnvOptions cloud_env_options)
       : env_(env),
-	fname_(fname),
+	fname_(local_fname),
 	manifest_durable_periodicity_millis_(
 	  cloud_env_options.manifest_durable_periodicity_millis),
         manifest_last_sync_time_(0) {
@@ -256,7 +257,7 @@ S3WritableFile::S3WritableFile(AwsEnv* env,
     assert(IsSstFile(fname_) || IsManifestFile(fname_));
 
     // Is this a manifest file?
-    is_manifest_ = IsManifestFile(fname);
+    is_manifest_ = IsManifestFile(fname_);
 
     // Create a temporary file using the posixEnv. This file will be deleted
     // when the file is closed.
@@ -267,8 +268,8 @@ S3WritableFile::S3WritableFile(AwsEnv* env,
         fname_.c_str(), s.ToString().c_str());
       status_ = s;
     }
-    s3_bucket_ = GetBucket(env_->bucket_prefix_);
-    s3_object_ = Aws::String(fname_.c_str(), fname_.size());
+    s3_bucket_ = GetBucket(env_->GetSrcBucketPrefix());
+    s3_object_ = Aws::String(cloud_fname.c_str(), cloud_fname.size());
     env_->info_log_->Flush();
 }
 
@@ -446,10 +447,7 @@ Status S3WritableFile::CopyManifestToS3(bool force) {
 
     // Upload manifest file only if it has not been uploaded in the last
     // manifest_durable_periodicity_millis_  milliseconds.
-
-    std::string manifest = dirname(fname_) + "/MANIFEST";
-    Aws::String s3_manifest = Aws::String(manifest.c_str(), manifest.size());
-    stat = CopyToS3(env_, fname_, s3_bucket_, s3_manifest);
+    stat = CopyToS3(env_, fname_, s3_bucket_, s3_object_);
  
     if (stat.ok()) {
       manifest_last_sync_time_ = now;

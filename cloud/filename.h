@@ -42,4 +42,13 @@ inline std::string dirname(std::string const& pathname) {
   return std::string(pathname.begin(),
 		     std::find_if(pathname.rbegin(), pathname.rend(), MatchPathSeparator()).base());
 }
+
+// If the last char of the string is the specified character, then remove it.
+inline std::string& rtrim_if(std::string& s, char c) {
+  if (s.length() > 0 && s[s.length()-1] == c) {
+    s.erase(s.begin() + s.size() - 1);
+  }
+  return s;
+}
+
 }

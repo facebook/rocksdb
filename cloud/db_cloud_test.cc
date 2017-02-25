@@ -21,7 +21,8 @@ class CloudTest : public testing::Test {
  public:
   CloudTest() {
     dbname_ = test::TmpDir() + "/db_cloud";
-    cloud_storage_bucket_prefix_ = "dbcloud." + AwsEnv::GetTestBucketSuffix();
+    src_bucket_prefix_ = "dbcloud." + AwsEnv::GetTestBucketSuffix();
+    src_object_prefix_ = dbname_;
     options_.create_if_missing = true;
     db_ = nullptr;
     aenv_ = nullptr;
@@ -40,7 +41,10 @@ class CloudTest : public testing::Test {
     ASSERT_TRUE(!aenv_);
     // create a dummy aws env 
     ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
-			          cloud_storage_bucket_prefix_,
+			          src_bucket_prefix_,
+			          src_object_prefix_,
+			          dest_bucket_prefix_,
+			          dest_object_prefix_,
 		                  cloud_env_options_,
 				  options_.info_log,
 				  &aenv_));
@@ -62,7 +66,10 @@ class CloudTest : public testing::Test {
 
     // Create new AWS env
     ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
-			          cloud_storage_bucket_prefix_,
+			          src_bucket_prefix_,
+			          src_object_prefix_,
+			          dest_bucket_prefix_,
+			          dest_object_prefix_,
 		                  cloud_env_options_,
 				  options_.info_log,
 				  &aenv_));
@@ -100,7 +107,10 @@ class CloudTest : public testing::Test {
 
     // Create new AWS env
     ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
-			          cloud_storage_bucket_prefix_,
+			          src_bucket_prefix_,
+			          src_object_prefix_,
+			          dest_bucket_prefix_,
+			          dest_object_prefix_,
 		                  cloud_env_options_,
 				  options_.info_log,
 				  &cenv));
@@ -145,7 +155,10 @@ class CloudTest : public testing::Test {
  protected:
   Options options_;
   std::string dbname_;
-  std::string cloud_storage_bucket_prefix_;
+  std::string src_bucket_prefix_;
+  std::string src_object_prefix_;
+  std::string dest_bucket_prefix_;
+  std::string dest_object_prefix_;
   CloudEnvOptions cloud_env_options_;
   std::string dbid_;
   DBCloud* db_;

@@ -8,6 +8,7 @@
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
 #include "db/auto_roll_logger.h"
+#include "cloud/filename.h"
 
 namespace rocksdb {
 
@@ -250,6 +251,25 @@ Status DBCloudImpl::SanitizeCloneDirectory(const Options& options,
 	"[db_cloud_impl] Clone %s Unable to find src dbdir for dbid %s %s",
 	clone_name.c_str(), src_dbid.c_str(), st.ToString().c_str());
     return st;
+  }
+
+  // verify that the path recorded in the dbid registry is the same as the
+  // one specified by the app
+  if (srcdb_dir != cenv->GetSrcObjectPrefix()) {
+    // trim trailing / and then compare
+    std::string s = srcdb_dir;
+    std::string c = cenv->GetSrcObjectPrefix();
+    s = trim(s);
+    c = trim(c);
+    s = rtrim_if(s, '/');
+    c = rtrim_if(c, '/');
+    if (s != c) {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] dbid %d registered path %s env-specified path %s",
+	  src_dbid.c_str(), srcdb_dir.c_str(), cenv->GetSrcObjectPrefix().c_str());
+      return Status::InvalidArgument(
+             "src prefix bucket " + cenv->GetSrcObjectPrefix());
+    }
   }
 
   // download MANIFEST

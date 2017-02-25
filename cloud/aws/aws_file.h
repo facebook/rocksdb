@@ -227,7 +227,8 @@ class S3WritableFile: public WritableFile {
 		const Aws::S3::Model::BucketLocationConstraint& location);
 
   S3WritableFile(AwsEnv* env,
-		 const std::string& fname,
+		 const std::string& local_fname,
+		 const std::string& cloud_fname,
 		 const EnvOptions& options,
 		 const CloudEnvOptions cloud_env_options);
 

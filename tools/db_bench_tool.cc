@@ -889,6 +889,9 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
   rocksdb::CloudEnv* s;
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
 		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
+			 "", // src object prefix
+			 "", // destination bucket name
+			 "", // destination object prefix
 		         coptions,
 			 std::move(info_log),
 			 &s);

@@ -118,6 +118,9 @@ Env* CreateAwsEnv(const std::string& dbpath,
   rocksdb::CloudEnv* s;
   st = rocksdb::AwsEnv::NewAwsEnv(Env::Default(),
 		                  "envtest." + AwsEnv::GetTestBucketSuffix(),
+				  "",
+				  "",
+				  "",
 				  coptions,
                                   std::move(info_log),
 				  &s);
