@@ -2918,6 +2918,7 @@ class Benchmark {
       block_based_options.format_version = 2;
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       if (FLAGS_read_cache_path != "") {
+#ifndef ROCKSDB_LITE
         Status rc_status;
 
         // Read cache need to be provided with a the Logger, we will put all
@@ -2949,6 +2950,11 @@ class Benchmark {
                   rc_status.ToString().c_str());
           exit(1);
         }
+#else
+        fprintf(stderr, "Read cache is not supported in LITE\n");
+        exit(1);
+
+#endif
       }
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
