@@ -30,7 +30,7 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # * DEBUG_LEVEL=2; this is the ultimate debug mode. It will compile rocksdb
 # without any optimizations. To compile with level 2, issue `make dbg`
 # * DEBUG_LEVEL=1; debug level 1 enables all assertions and debug code, but
-# compiles rocksdb with -O2 optimizations. this is the default debug level.
+# compiles rocksdb with -O3 optimizations. this is the default debug level.
 # `make all` or `make <binary_target>` compile RocksDB with debug level 1.
 # We use this debug level when developing RocksDB.
 # * DEBUG_LEVEL=0; this is the debug level we use for release. If you're
@@ -86,9 +86,9 @@ ifeq ($(MAKECMDGOALS),rocksdbjavastaticpublish)
 	DEBUG_LEVEL=0
 endif
 
-# compile with -O2 if debug level is not 2
+# compile with -O3 if debug level is not 2
 ifneq ($(DEBUG_LEVEL), 2)
-OPT += -O2 -fno-omit-frame-pointer
+OPT += -O3 -fno-omit-frame-pointer
 # Skip for archs that don't support -momit-leaf-frame-pointer
 ifeq (,$(shell $(CXX) -fsyntax-only -momit-leaf-frame-pointer -xc /dev/null 2>&1))
 OPT += -momit-leaf-frame-pointer
