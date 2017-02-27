@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #pragma once
 #include <string>
 #include "rocksdb/env.h"
@@ -79,3 +81,5 @@ class SstFileWriter {
   Rep* rep_;
 };
 }  // namespace rocksdb
+
+#endif  // !ROCKSDB_LITE

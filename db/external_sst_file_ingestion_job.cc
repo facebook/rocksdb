@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "db/external_sst_file_ingestion_job.h"
 
 #define __STDC_FORMAT_MACROS
@@ -525,3 +527,5 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 }
 
 }  // namespace rocksdb
+
+#endif  // !ROCKSDB_LITE
