@@ -4,6 +4,8 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
 
+#ifndef ROCKSDB_LITE
+
 #ifndef  OS_WIN
 #include <unistd.h>
 #endif // ! OS_WIN
@@ -149,3 +151,5 @@ class BlockCacheTier : public PersistentCacheTier {
 };
 
 }  // namespace rocksdb
+
+#endif
