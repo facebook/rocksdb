@@ -5,6 +5,7 @@
 namespace rocksdb {
 
 enum CloudType : unsigned char {
+  kNone = 0x0,            // Not really a cloud env
   kAws = 0x1,             // AWS
   kGoogle = 0x2,          // Google
   kAzure = 0x3,           // Microsoft Azure

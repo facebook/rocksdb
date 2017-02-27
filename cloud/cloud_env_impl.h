@@ -73,4 +73,5 @@ class CloudEnvImpl : public CloudEnv {
   Status PurgeObsoleteFiles();
   Status PurgeObsoleteDbid();
 };
-}
+
+}  // namespace rocksdb

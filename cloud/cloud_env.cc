@@ -8,8 +8,13 @@
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
 #include "cloud/filename.h"
+#include "cloud/cloud_env_impl.h"
+#include "cloud/cloud_env_wrapper.h"
 
 namespace rocksdb {
+
+CloudEnvWrapper::~CloudEnvWrapper() {
+}
 
 CloudEnvImpl::CloudEnvImpl(CloudType type, Env* base_env) :
   cloud_type_(type),
@@ -37,6 +42,12 @@ Status CloudEnv::NewAwsEnv(Env* base_env,
 	                   const CloudEnvOptions& options,
 			   std::shared_ptr<Logger> logger,
 			   CloudEnv** cenv) {
+
+  // If the src bucket is not specified, then this is a pass-through cloud env.
+  if (src_cloud_storage.empty() && dest_cloud_storage.empty()) {
+    *cenv = new CloudEnvWrapper(base_env);
+    return Status::OK();
+  }
 
   Status st = AwsEnv::NewAwsEnv(base_env,
 		                src_cloud_storage, src_cloud_object_prefix,
