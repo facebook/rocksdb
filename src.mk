@@ -218,6 +218,7 @@ MAIN_SOURCES =                                                    \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
   db/dbformat_test.cc                                                   \
+  db/db_basic_test.cc                                                   \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
   db/db_block_cache_test.cc                                             \
