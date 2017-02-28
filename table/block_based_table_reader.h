@@ -201,9 +201,10 @@ class BlockBasedTable : public TableReader {
   bool compaction_optimized_;
 
   // input_iter: if it is not null, update this one and return it as Iterator
-  static InternalIterator* NewDataBlockIterator(
-      Rep* rep, const ReadOptions& ro, const Slice& index_value,
-      BlockIter* input_iter = nullptr);
+  static InternalIterator* NewDataBlockIterator(Rep* rep, const ReadOptions& ro,
+                                                const Slice& index_value,
+                                                BlockIter* input_iter = nullptr,
+                                                bool is_user_data = true);
   // If block cache enabled (compressed or uncompressed), looks for the block
   // identified by handle in (1) uncompressed cache, (2) compressed cache, and
   // then (3) file. If found, inserts into the cache(s) that were searched
@@ -213,9 +214,11 @@ class BlockBasedTable : public TableReader {
   // @param block_entry value is set to the uncompressed block if found. If
   //    in uncompressed block cache, also sets cache_handle to reference that
   //    block.
-  static Status MaybeLoadDataBlockToCache(
-      Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
-      Slice compression_dict, CachableEntry<Block>* block_entry);
+  static Status MaybeLoadDataBlockToCache(Rep* rep, const ReadOptions& ro,
+                                          const BlockHandle& handle,
+                                          Slice compression_dict,
+                                          CachableEntry<Block>* block_entry,
+                                          bool is_user_data = true);
 
   // For the following two functions:
   // if `no_io == true`, we will not try to read filter/index from sst file
@@ -250,7 +253,8 @@ class BlockBasedTable : public TableReader {
       Cache* block_cache, Cache* block_cache_compressed,
       const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
       BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
-      const Slice& compression_dict, size_t read_amp_bytes_per_bit);
+      const Slice& compression_dict, size_t read_amp_bytes_per_bit,
+      bool is_user_data = true);
 
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
@@ -267,7 +271,8 @@ class BlockBasedTable : public TableReader {
       Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
       CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
-      const Slice& compression_dict, size_t read_amp_bytes_per_bit);
+      const Slice& compression_dict, size_t read_amp_bytes_per_bit,
+      bool is_user_data = true);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -326,7 +331,8 @@ class BlockBasedTable : public TableReader {
 class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
  public:
   BlockEntryIteratorState(BlockBasedTable* table,
-                          const ReadOptions& read_options, bool skip_filters);
+                          const ReadOptions& read_options, bool skip_filters,
+                          bool is_user_data = true);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
   bool PrefixMayMatch(const Slice& internal_key) override;
 
@@ -335,6 +341,7 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   BlockBasedTable* table_;
   const ReadOptions read_options_;
   bool skip_filters_;
+  bool is_user_data_;
 };
 
 // CachableEntry represents the entries that *may* be fetched from block cache.

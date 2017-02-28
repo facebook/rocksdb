@@ -68,9 +68,8 @@ class PartitionedFilterBlockTest : public testing::Test {
     // BlockBasedTable::Open(ioptions, env_options, table_options, icomp,
     // std::unique_ptr<rocksdb::RandomAccessFileReader>(), 0L, table, false,
     // false, 0);
-    table.reset(
-        new BlockBasedTable(new BlockBasedTable::Rep(
-            ioptions, env_options, table_options_, icomp, false)));
+    table.reset(new BlockBasedTable(new BlockBasedTable::Rep(
+        ioptions, env_options, table_options_, icomp, false)));
     auto reader = new PartitionedFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression), nullptr,
         nullptr, *icomp.user_comparator(), table.get());
