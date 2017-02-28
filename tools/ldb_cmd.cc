@@ -2591,15 +2591,17 @@ void RepairCommand::DoCommand() {
 const std::string BackupableCommand::ARG_NUM_THREADS = "num_threads";
 const std::string BackupableCommand::ARG_BACKUP_ENV_URI = "backup_env_uri";
 const std::string BackupableCommand::ARG_BACKUP_DIR = "backup_dir";
+const std::string BackupableCommand::ARG_STDERR_LOG_LEVEL = "stderr_log_level";
 
 BackupableCommand::BackupableCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
     : LDBCommand(options, flags, false /* is_read_only */,
-                 BuildCmdLineOptions(
-                     {ARG_BACKUP_ENV_URI, ARG_BACKUP_DIR, ARG_NUM_THREADS})),
-      num_threads_(1) {
+                 BuildCmdLineOptions({ARG_BACKUP_ENV_URI, ARG_BACKUP_DIR,
+                                      ARG_NUM_THREADS, ARG_STDERR_LOG_LEVEL})),
+      num_threads_(1),
+      stderr_log_level_(InfoLogLevel::NUM_INFO_LOG_LEVELS) {
   auto itr = options.find(ARG_NUM_THREADS);
   if (itr != options.end()) {
     num_threads_ = std::stoi(itr->second);
@@ -2615,6 +2617,19 @@ BackupableCommand::BackupableCommand(
   } else {
     backup_dir_ = itr->second;
   }
+
+  itr = options.find(ARG_STDERR_LOG_LEVEL);
+  if (itr != options.end()) {
+    int stderr_log_level = std::stoi(itr->second);
+    if (stderr_log_level < 0 ||
+        stderr_log_level >= InfoLogLevel::NUM_INFO_LOG_LEVELS) {
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_STDERR_LOG_LEVEL + " must be >= 0 and < " +
+          std::to_string(InfoLogLevel::NUM_INFO_LOG_LEVELS) + ".");
+    } else {
+      stderr_log_level_ = static_cast<InfoLogLevel>(stderr_log_level);
+    }
+  }
 }
 
 void BackupableCommand::Help(const std::string& name, std::string& ret) {
@@ -2623,6 +2638,7 @@ void BackupableCommand::Help(const std::string& name, std::string& ret) {
   ret.append(" [--" + ARG_BACKUP_ENV_URI + "] ");
   ret.append(" [--" + ARG_BACKUP_DIR + "] ");
   ret.append(" [--" + ARG_NUM_THREADS + "] ");
+  ret.append(" [--" + ARG_STDERR_LOG_LEVEL + "=<int (InfoLogLevel)>] ");
   ret.append("\n");
 }
 
@@ -2649,6 +2665,9 @@ void BackupCommand::DoCommand() {
   Env* custom_env = NewCustomObject<Env>(backup_env_uri_, &custom_env_guard);
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
+  if (stderr_log_level_ != InfoLogLevel::NUM_INFO_LOG_LEVELS) {
+    backup_options.info_log = new StderrLogger(stderr_log_level_);
+  }
   backup_options.max_background_operations = num_threads_;
   status = BackupEngine::Open(Env::Default(), backup_options, &backup_engine);
   if (status.ok()) {
@@ -2685,6 +2704,9 @@ void RestoreCommand::DoCommand() {
   Status status;
   {
     BackupableDBOptions opts(backup_dir_, custom_env);
+    if (stderr_log_level_ != InfoLogLevel::NUM_INFO_LOG_LEVELS) {
+      opts.info_log = new StderrLogger(stderr_log_level_);
+    }
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;
     status = BackupEngineReadOnly::Open(Env::Default(), opts,
