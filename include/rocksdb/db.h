@@ -23,6 +23,7 @@
 #include "rocksdb/snapshot.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/thread_status.h"
+#include "rocksdb/trace_reader_writer.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/types.h"
 #include "rocksdb/version.h"
@@ -975,6 +976,20 @@ class DB {
       const IngestExternalFileOptions& options) {
     return IngestExternalFile(DefaultColumnFamily(), external_files, options);
   }
+
+  // StartTrace/EndTrace the major workload of the DB
+  virtual Status  StartTrace(
+      std::unique_ptr<TraceWriter>&& trace_writer) = 0;
+  virtual Status StartTrace(const std::string& trace_filename) = 0;
+  virtual Status EndTrace() = 0;
+
+  // StartReplay will replay the trace to the DB opened by trace_reader
+  virtual Status StartReplay(std::vector<ColumnFamilyHandle*>& handles,
+                             std::unique_ptr<TraceReader>&& trace_reader,
+                             bool no_wait = false) = 0;
+  virtual Status StartReplay(std::vector<ColumnFamilyHandle*>& handles,
+                             const std::string& trace_filename,
+                             bool no_wait = false) = 0;
 
   // AddFile() is deprecated, please use IngestExternalFile()
   ROCKSDB_DEPRECATED_FUNC virtual Status AddFile(
