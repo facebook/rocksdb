@@ -128,7 +128,7 @@ inline bool DynamicBloom::MayContain(const Slice& key) const {
 inline void DynamicBloom::Prefetch(uint32_t h) {
   if (kNumBlocks != 0) {
     uint32_t b = ((h >> 11 | (h << 21)) % kNumBlocks) * (CACHE_LINE_SIZE * 8);
-    PREFETCH(&(data_[b]), 0, 3);
+    PREFETCH(&(data_[b / 8]), 0, 3);
   }
 }
 
