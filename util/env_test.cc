@@ -722,7 +722,7 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   ASSERT_EQ('a', result[kBlockSize - 1]);
   ASSERT_EQ('b', result[kBlockSize]);
 }
-#endif // !ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
 
 // Only works in linux platforms
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
