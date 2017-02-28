@@ -42,7 +42,11 @@ jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter(JNIEnv *env, jclass jcls,
  */
 void Java_org_rocksdb_SstFileWriter_open(JNIEnv *env, jobject jobj,
                                          jlong jhandle, jstring jfile_path) {
-  const char *file_path = env->GetStringUTFChars(jfile_path, NULL);
+  const char *file_path = env->GetStringUTFChars(jfile_path, nullptr);
+  if(file_path == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
   rocksdb::Status s =
       reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Open(file_path);
   env->ReleaseStringUTFChars(jfile_path, file_path);
@@ -62,8 +66,9 @@ void Java_org_rocksdb_SstFileWriter_add(JNIEnv *env, jobject jobj,
                                         jlong jvalue_handle) {
   auto *key_slice = reinterpret_cast<rocksdb::Slice *>(jkey_handle);
   auto *value_slice = reinterpret_cast<rocksdb::Slice *>(jvalue_handle);
-  rocksdb::Status s = reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Add(
-      *key_slice, *value_slice);
+  rocksdb::Status s =
+      reinterpret_cast<rocksdb::SstFileWriter *>(jhandle)->Add(*key_slice,
+          *value_slice);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

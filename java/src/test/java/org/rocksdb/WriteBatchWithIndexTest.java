@@ -192,16 +192,16 @@ public class WriteBatchWithIndexTest {
       final ByteBuffer buffer = ByteBuffer.allocateDirect(zeroByteValue.length);
       buffer.put(zeroByteValue);
 
-      WBWIRocksIterator.WriteEntry[] expected = {
+      final WBWIRocksIterator.WriteEntry expected =
           new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
               new DirectSlice(buffer, zeroByteValue.length),
-              new DirectSlice(buffer, zeroByteValue.length))
-      };
+              new DirectSlice(buffer, zeroByteValue.length));
 
       try (final WBWIRocksIterator it = wbwi.newIterator()) {
         it.seekToFirst();
-        assertThat(it.entry().equals(expected[0])).isTrue();
-        assertThat(it.entry().hashCode() == expected[0].hashCode()).isTrue();
+        final WBWIRocksIterator.WriteEntry actual = it.entry();
+        assertThat(actual.equals(expected)).isTrue();
+        assertThat(it.entry().hashCode() == expected.hashCode()).isTrue();
       }
     }
   }

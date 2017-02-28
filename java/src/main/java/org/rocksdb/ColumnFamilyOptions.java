@@ -143,7 +143,7 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setMergeOperator(
       final MergeOperator mergeOperator) {
-    setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
+    setMergeOperator(nativeHandle_, mergeOperator.nativeHandle_);
     return this;
   }
 

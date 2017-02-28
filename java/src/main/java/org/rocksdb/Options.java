@@ -188,7 +188,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setMergeOperator(final MergeOperator mergeOperator) {
-    setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
+    setMergeOperator(nativeHandle_, mergeOperator.nativeHandle_);
     return this;
   }
 
@@ -680,13 +680,6 @@ public class Options extends RocksObject
   public Options setMemTableConfig(final MemTableConfig config) {
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
-    return this;
-  }
-
-  @Override
-  public Options setRateLimiterConfig(final RateLimiterConfig config) {
-    rateLimiterConfig_ = config;
-    setOldRateLimiter(nativeHandle_, config.newRateLimiterHandle());
     return this;
   }
 
@@ -1202,9 +1195,6 @@ public class Options extends RocksObject
   private native void setParanoidChecks(
       long handle, boolean paranoidChecks);
   private native boolean paranoidChecks(long handle);
-  @Deprecated
-  private native void setOldRateLimiter(long handle,
-      long rateLimiterHandle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
   private native void setLogger(long handle,
@@ -1436,7 +1426,6 @@ public class Options extends RocksObject
   Env env_;
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;
-  RateLimiterConfig rateLimiterConfig_;
   RateLimiter rateLimiter_;
   AbstractComparator<? extends AbstractSlice<?>> comparator_;
 }

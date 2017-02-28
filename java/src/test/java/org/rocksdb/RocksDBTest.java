@@ -73,8 +73,10 @@ public class RocksDBTest {
 
   @Test
   public void write() throws RocksDBException {
-    try (final Options options = new Options().setMergeOperator(
-        new StringAppendOperator()).setCreateIfMissing(true);
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options options = new Options()
+             .setMergeOperator(stringAppendOperator)
+             .setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath());
          final WriteOptions opts = new WriteOptions()) {
@@ -182,9 +184,10 @@ public class RocksDBTest {
 
   @Test
   public void merge() throws RocksDBException {
-    try (final Options opt = new Options()
-        .setCreateIfMissing(true)
-        .setMergeOperator(new StringAppendOperator());
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options opt = new Options()
+            .setCreateIfMissing(true)
+            .setMergeOperator(stringAppendOperator);
          final WriteOptions wOpt = new WriteOptions();
          final RocksDB db = RocksDB.open(opt,
              dbFolder.getRoot().getAbsolutePath())

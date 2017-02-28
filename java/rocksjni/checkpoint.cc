@@ -22,7 +22,7 @@
  */
 jlong Java_org_rocksdb_Checkpoint_newCheckpoint(JNIEnv* env,
     jclass jclazz, jlong jdb_handle) {
-  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   rocksdb::Checkpoint* checkpoint;
   rocksdb::Checkpoint::Create(db, &checkpoint);
   return reinterpret_cast<jlong>(checkpoint);
@@ -35,8 +35,8 @@ jlong Java_org_rocksdb_Checkpoint_newCheckpoint(JNIEnv* env,
  */
 void Java_org_rocksdb_Checkpoint_disposeInternal(JNIEnv* env, jobject jobj,
     jlong jhandle) {
-  auto checkpoint = reinterpret_cast<rocksdb::Checkpoint*>(jhandle);
-  assert(checkpoint);
+  auto* checkpoint = reinterpret_cast<rocksdb::Checkpoint*>(jhandle);
+  assert(checkpoint != nullptr);
   delete checkpoint;
 }
 
@@ -48,13 +48,20 @@ void Java_org_rocksdb_Checkpoint_disposeInternal(JNIEnv* env, jobject jobj,
 void Java_org_rocksdb_Checkpoint_createCheckpoint(
     JNIEnv* env, jobject jobj, jlong jcheckpoint_handle,
     jstring jcheckpoint_path) {
-  auto checkpoint = reinterpret_cast<rocksdb::Checkpoint*>(
-      jcheckpoint_handle);
   const char* checkpoint_path = env->GetStringUTFChars(
       jcheckpoint_path, 0);
+  if(checkpoint_path == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  auto* checkpoint = reinterpret_cast<rocksdb::Checkpoint*>(
+      jcheckpoint_handle);
   rocksdb::Status s = checkpoint->CreateCheckpoint(
       checkpoint_path);
+  
   env->ReleaseStringUTFChars(jcheckpoint_path, checkpoint_path);
+  
   if (!s.ok()) {
       rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

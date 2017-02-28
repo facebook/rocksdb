@@ -49,6 +49,10 @@ public class MutableColumnFamilyOptions {
    * For int[] values, each int should be separated by a comma, e.g.
    *
    * key1=value1;intArrayKey1=1,2,3
+   *
+   * @param str The string representation of the mutable column family options
+   *
+   * @return A builder for the mutable column family options
    */
   public static MutableColumnFamilyOptionsBuilder parse(final String str) {
     Objects.requireNonNull(str);

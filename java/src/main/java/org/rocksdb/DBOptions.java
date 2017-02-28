@@ -135,15 +135,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setRateLimiterConfig(
-      final RateLimiterConfig config) {
-    assert(isOwningHandle());
-    rateLimiterConfig_ = config;
-    setOldRateLimiter(nativeHandle_, config.newRateLimiterHandle());
-    return this;
-  }
-
-  @Override
   public DBOptions setRateLimiter(final RateLimiter rateLimiter) {
     assert(isOwningHandle());
     rateLimiter_ = rateLimiter;
@@ -650,9 +641,6 @@ public long delayedWriteRate(){
   private native void setParanoidChecks(
       long handle, boolean paranoidChecks);
   private native boolean paranoidChecks(long handle);
-  @Deprecated
-  private native void setOldRateLimiter(long handle,
-      long rateLimiterHandle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
   private native void setLogger(long handle,
@@ -750,6 +738,5 @@ public long delayedWriteRate(){
   private native long delayedWriteRate(long handle);
 
   int numShardBits_;
-  RateLimiterConfig rateLimiterConfig_;
   RateLimiter rateLimiter_;
 }

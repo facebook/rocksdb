@@ -21,9 +21,8 @@
  */
 jlong Java_org_rocksdb_Statistics_getTickerCount0(
     JNIEnv* env, jobject jobj, jint tickerType, jlong handle) {
-  auto st = reinterpret_cast<rocksdb::Statistics*>(handle);
+  auto* st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);
-
   return st->getTickerCount(static_cast<rocksdb::Tickers>(tickerType));
 }
 
@@ -34,17 +33,28 @@ jlong Java_org_rocksdb_Statistics_getTickerCount0(
  */
 jobject Java_org_rocksdb_Statistics_getHistogramData0(
     JNIEnv* env, jobject jobj, jint histogramType, jlong handle) {
-  auto st = reinterpret_cast<rocksdb::Statistics*>(handle);
+  auto* st = reinterpret_cast<rocksdb::Statistics*>(handle);
   assert(st != nullptr);
 
   rocksdb::HistogramData data;
   st->histogramData(static_cast<rocksdb::Histograms>(histogramType),
     &data);
 
-  // Don't reuse class pointer
-  jclass jclazz = env->FindClass("org/rocksdb/HistogramData");
+  jclass jclazz = rocksdb::HistogramDataJni::getJClass(env);
+  if(jclazz == nullptr) {
+    // exception occurred accessing class
+    return nullptr;
+  }
+
   jmethodID mid = rocksdb::HistogramDataJni::getConstructorMethodId(
-      env, jclazz);
-  return env->NewObject(jclazz, mid, data.median, data.percentile95,
-      data.percentile99, data.average, data.standard_deviation);
+      env);
+  if(mid == nullptr) {
+    // exception occurred accessing method
+    return nullptr;
+  }
+
+  return env->NewObject(
+      jclazz,
+      mid, data.median, data.percentile95,data.percentile99, data.average,
+      data.standard_deviation);
 }

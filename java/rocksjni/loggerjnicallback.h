@@ -10,6 +10,7 @@
 #define JAVA_ROCKSJNI_LOGGERJNICALLBACK_H_
 
 #include <jni.h>
+#include <memory>
 #include <string>
 #include "port/port.h"
 #include "rocksdb/env.h"
@@ -32,8 +33,6 @@ namespace rocksdb {
      virtual void Logv(const InfoLogLevel log_level,
          const char* format, va_list ap);
 
-   protected:
-     JNIEnv* getJniEnv() const;
    private:
      JavaVM* m_jvm;
      jobject m_jLogger;
@@ -44,6 +43,7 @@ namespace rocksdb {
      jobject m_jerror_level;
      jobject m_jfatal_level;
      jobject m_jheader_level;
+     std::unique_ptr<char[]> format_str(const char* format, va_list ap) const;
   };
 }  // namespace rocksdb
 

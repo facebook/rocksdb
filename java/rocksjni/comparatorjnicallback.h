@@ -61,7 +61,6 @@ class BaseComparatorJniCallback : public Comparator {
     port::Mutex* mtx_compare;
     // used for synchronisation in findShortestSeparator method
     port::Mutex* mtx_findShortestSeparator;
-    JavaVM* m_jvm;
     jobject m_jComparator;
     std::string m_name;
     jmethodID m_jCompareMethodId;
@@ -69,7 +68,7 @@ class BaseComparatorJniCallback : public Comparator {
     jmethodID m_jFindShortSuccessorMethodId;
 
  protected:
-    JNIEnv* getJniEnv() const;
+    JavaVM* m_jvm;
     jobject m_jSliceA;
     jobject m_jSliceB;
     jobject m_jSliceLimit;

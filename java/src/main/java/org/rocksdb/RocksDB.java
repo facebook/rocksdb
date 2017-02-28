@@ -520,11 +520,11 @@ public class RocksDB extends RocksObject {
    * to make this lighter weight is to avoid doing any IOs.
    *
    * @param key byte array of a key to search for
-   * @param value StringBuffer instance which is a out parameter if a value is
+   * @param value StringBuilder instance which is a out parameter if a value is
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
-  public boolean keyMayExist(final byte[] key, final StringBuffer value) {
+  public boolean keyMayExist(final byte[] key, final StringBuilder value) {
     return keyMayExist(nativeHandle_, key, 0, key.length, value);
   }
 
@@ -537,12 +537,12 @@ public class RocksDB extends RocksObject {
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
-   * @param value StringBuffer instance which is a out parameter if a value is
+   * @param value StringBuilder instance which is a out parameter if a value is
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ColumnFamilyHandle columnFamilyHandle,
-      final byte[] key, final StringBuffer value) {
+      final byte[] key, final StringBuilder value) {
     return keyMayExist(nativeHandle_, key, 0, key.length,
         columnFamilyHandle.nativeHandle_, value);
   }
@@ -556,12 +556,12 @@ public class RocksDB extends RocksObject {
    *
    * @param readOptions {@link ReadOptions} instance
    * @param key byte array of a key to search for
-   * @param value StringBuffer instance which is a out parameter if a value is
+   * @param value StringBuilder instance which is a out parameter if a value is
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ReadOptions readOptions,
-      final byte[] key, final StringBuffer value) {
+      final byte[] key, final StringBuilder value) {
     return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
         key, 0, key.length, value);
   }
@@ -576,13 +576,13 @@ public class RocksDB extends RocksObject {
    * @param readOptions {@link ReadOptions} instance
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
-   * @param value StringBuffer instance which is a out parameter if a value is
+   * @param value StringBuilder instance which is a out parameter if a value is
    *    found in block-cache.
    * @return boolean value indicating if key does not exist or might exist.
    */
   public boolean keyMayExist(final ReadOptions readOptions,
       final ColumnFamilyHandle columnFamilyHandle, final byte[] key,
-      final StringBuffer value) {
+      final StringBuilder value) {
     return keyMayExist(nativeHandle_, readOptions.nativeHandle_,
         key, 0, key.length, columnFamilyHandle.nativeHandle_,
         value);
@@ -684,6 +684,9 @@ public class RocksDB extends RocksObject {
         key, 0, key.length, value, 0, value.length,
         columnFamilyHandle.nativeHandle_);
   }
+
+  // TODO(AR) we should improve the #get() API, returning -1 (RocksDB.NOT_FOUND) is not very nice
+  // when we could communicate better status into, also the C++ code show that -2 could be returned
 
   /**
    * Get the value associated with the specified key within column family*
@@ -1917,6 +1920,8 @@ public class RocksDB extends RocksObject {
    * This function will wait until all currently running background processes
    * finish. After it returns, no background process will be run until
    * {@link #continueBackgroundWork()} is called
+   *
+   * @throws RocksDBException If an error occurs when pausing background work
    */
   public void pauseBackgroundWork() throws RocksDBException {
     pauseBackgroundWork(nativeHandle_);
@@ -1925,6 +1930,8 @@ public class RocksDB extends RocksObject {
   /**
    * Resumes backround work which was suspended by
    * previously calling {@link #pauseBackgroundWork()}
+   *
+   * @throws RocksDBException If an error occurs when resuming background work
    */
   public void continueBackgroundWork() throws RocksDBException {
     continueBackgroundWork(nativeHandle_);
@@ -2182,17 +2189,17 @@ public class RocksDB extends RocksObject {
       long wbwiHandle) throws RocksDBException;
   protected native boolean keyMayExist(final long handle, final byte[] key,
       final int keyOffset, final int keyLength,
-      final StringBuffer stringBuffer);
+      final StringBuilder stringBuilder);
   protected native boolean keyMayExist(final long handle, final byte[] key,
       final int keyOffset, final int keyLength, final long cfHandle,
-      final StringBuffer stringBuffer);
+      final StringBuilder stringBuilder);
   protected native boolean keyMayExist(final long handle,
       final long optionsHandle, final byte[] key, final int keyOffset,
-      final int keyLength, final StringBuffer stringBuffer);
+      final int keyLength, final StringBuilder stringBuilder);
   protected native boolean keyMayExist(final long handle,
       final long optionsHandle, final byte[] key, final int keyOffset,
       final int keyLength, final long cfHandle,
-      final StringBuffer stringBuffer);
+      final StringBuilder stringBuilder);
   protected native void merge(long handle, byte[] key, int keyOffset,
       int keyLength, byte[] value, int valueOffset, int valueLength)
       throws RocksDBException;

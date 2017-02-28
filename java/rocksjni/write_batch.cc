@@ -30,8 +30,7 @@
  */
 jlong Java_org_rocksdb_WriteBatch_newWriteBatch(
     JNIEnv* env, jclass jcls, jint jreserved_bytes) {
-  rocksdb::WriteBatch* wb = new rocksdb::WriteBatch(
-      static_cast<size_t>(jreserved_bytes));
+  auto* wb = new rocksdb::WriteBatch(static_cast<size_t>(jreserved_bytes));
   return reinterpret_cast<jlong>(wb);
 }
 
@@ -244,7 +243,9 @@ void Java_org_rocksdb_WriteBatch_iterate(
  */
 void Java_org_rocksdb_WriteBatch_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  delete reinterpret_cast<rocksdb::WriteBatch*>(handle);
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(handle);
+  assert(wb != nullptr);
+  delete wb;
 }
 
 /*
@@ -254,9 +255,8 @@ void Java_org_rocksdb_WriteBatch_disposeInternal(
  */
 jlong Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(
     JNIEnv* env, jobject jobj) {
-  const rocksdb::WriteBatchHandlerJniCallback* h =
-    new rocksdb::WriteBatchHandlerJniCallback(env, jobj);
-  return reinterpret_cast<jlong>(h);
+  auto* wbjnic = new rocksdb::WriteBatchHandlerJniCallback(env, jobj);
+  return reinterpret_cast<jlong>(wbjnic);
 }
 
 /*
@@ -266,5 +266,8 @@ jlong Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(
  */
 void Java_org_rocksdb_WriteBatch_00024Handler_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  delete reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(handle);
+  auto* wbjnic =
+      reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(handle);
+  assert(wbjnic != nullptr);
+  delete wbjnic;
 }

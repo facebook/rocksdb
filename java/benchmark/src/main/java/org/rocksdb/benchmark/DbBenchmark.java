@@ -572,7 +572,7 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.num_levels));
     options.setTargetFileSizeBase(
         (Integer)flags_.get(Flag.target_file_size_base));
-    options.setTargetFileSizeMultiplier((Double) flags_.get(Flag.target_file_size_multiplier));
+    options.setTargetFileSizeMultiplier((Integer)flags_.get(Flag.target_file_size_multiplier));
     options.setMaxBytesForLevelBase(
         (Integer)flags_.get(Flag.max_bytes_for_level_base));
     options.setMaxBytesForLevelMultiplier((Double) flags_.get(Flag.max_bytes_for_level_multiplier));
@@ -588,12 +588,10 @@ public class DbBenchmark {
         (Double)flags_.get(Flag.hard_rate_limit));
     options.setRateLimitDelayMaxMilliseconds(
         (Integer)flags_.get(Flag.rate_limit_delay_max_milliseconds));
-    options.setMaxGrandparentOverlapFactor(
-        (Integer)flags_.get(Flag.max_grandparent_overlap_factor));
+    options.setMaxCompactionBytes(
+        (Long) flags_.get(Flag.max_compaction_bytes));
     options.setDisableAutoCompactions(
         (Boolean)flags_.get(Flag.disable_auto_compactions));
-    options.setSourceCompactionFactor(
-        (Integer)flags_.get(Flag.source_compaction_factor));
     options.setMaxSuccessiveMerges(
         (Integer)flags_.get(Flag.max_successive_merges));
     options.setWalTtlSeconds((Long)flags_.get(Flag.wal_ttl_seconds));
@@ -978,7 +976,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    write_buffer_size(4 * SizeUnit.MB,
+    write_buffer_size(4L * SizeUnit.MB,
         "Number of bytes to buffer in memtable before compacting\n" +
         "\t(initialized to default value by 'main'.)") {
       @Override public Object parseValue(String value) {
@@ -1056,7 +1054,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    numdistinct(1000,
+    numdistinct(1000L,
         "Number of distinct keys to use. Used in RandomWithVerify to\n" +
         "\tread/write on fewer keys so that gets are more likely to find the\n" +
         "\tkey and puts are more likely to update the same key.") {
@@ -1064,7 +1062,7 @@ public class DbBenchmark {
         return Long.parseLong(value);
       }
     },
-    merge_keys(-1,
+    merge_keys(-1L,
         "Number of distinct keys to use for MergeRandom and\n" +
         "\tReadRandomMergeRandom.\n" +
         "\tIf negative, there will be FLAGS_num keys.") {
@@ -1169,7 +1167,7 @@ public class DbBenchmark {
         return Long.parseLong(value);
       }
     },
-    compressed_cache_size(-1,
+    compressed_cache_size(-1L,
         "Number of bytes to use as a cache of compressed data.") {
       @Override public Object parseValue(String value) {
         return Long.parseLong(value);
@@ -1188,7 +1186,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    memtable_bloom_size_ratio(0, "Ratio of memtable used by the bloom filter.\n"
+    memtable_bloom_size_ratio(0.0d, "Ratio of memtable used by the bloom filter.\n"
             + "\t0 means no bloom filter.") {
       @Override public Object parseValue(String value) {
         return Double.parseDouble(value);
@@ -1212,7 +1210,7 @@ public class DbBenchmark {
         return parseBoolean(value);
       }
     },
-    writes(-1,"Number of write operations to do. If negative, do\n" +
+    writes(-1L, "Number of write operations to do. If negative, do\n" +
         "\t--num reads.") {
       @Override public Object parseValue(String value) {
         return Long.parseLong(value);
@@ -1255,7 +1253,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    max_bytes_for_level_multiplier(10,
+    max_bytes_for_level_multiplier(10.0d,
         "A multiplier to compute max bytes for level-N (N >= 2)") {
       @Override public Object parseValue(String value) {
         return Double.parseDouble(value);
@@ -1337,7 +1335,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    stats_interval(0,"Stats are reported every N operations when\n" +
+    stats_interval(0L, "Stats are reported every N operations when\n" +
         "\tthis is greater than zero. When 0 the interval grows over time.") {
       @Override public Object parseValue(String value) {
         return Long.parseLong(value);
@@ -1354,12 +1352,12 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    soft_rate_limit(0.0,"") {
+    soft_rate_limit(0.0d,"") {
       @Override public Object parseValue(String value) {
         return Double.parseDouble(value);
       }
     },
-    hard_rate_limit(0.0,"When not equal to 0 this make threads\n" +
+    hard_rate_limit(0.0d,"When not equal to 0 this make threads\n" +
         "\tsleep at each stats reporting interval until the compaction\n" +
         "\tscore for all levels is less than or equal to this value.") {
       @Override public Object parseValue(String value) {
@@ -1373,11 +1371,10 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    max_grandparent_overlap_factor(10,"Control maximum bytes of\n" +
-        "\toverlaps in grandparent (i.e., level+2) before we stop building a\n" +
-        "\tsingle file in a level->level+1 compaction.") {
+    max_compaction_bytes(0L, "Limit number of bytes in one compaction to be lower than this\n" +
+            "\threshold. But it's not guaranteed.") {
       @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
+        return Long.parseLong(value);
       }
     },
     readonly(false,"Run read only benchmarks.") {
@@ -1388,13 +1385,6 @@ public class DbBenchmark {
     disable_auto_compactions(false,"Do not auto trigger compactions.") {
       @Override public Object parseValue(String value) {
         return parseBoolean(value);
-      }
-    },
-    source_compaction_factor(1,"Cap the size of data in level-K for\n" +
-        "\ta compaction run that compacts Level-K with Level-(K+1) (for\n" +
-        "\tK >= 1)") {
-      @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
       }
     },
     wal_ttl_seconds(0L,"Set the TTL for the WAL Files in seconds.") {

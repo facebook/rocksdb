@@ -22,7 +22,7 @@
  */
 jlong Java_org_rocksdb_RestoreOptions_newRestoreOptions(JNIEnv* env,
     jclass jcls, jboolean keep_log_files) {
-  auto ropt = new rocksdb::RestoreOptions(keep_log_files);
+  auto* ropt = new rocksdb::RestoreOptions(keep_log_files);
   return reinterpret_cast<jlong>(ropt);
 }
 
@@ -33,7 +33,7 @@ jlong Java_org_rocksdb_RestoreOptions_newRestoreOptions(JNIEnv* env,
  */
 void Java_org_rocksdb_RestoreOptions_disposeInternal(JNIEnv* env, jobject jobj,
     jlong jhandle) {
-  auto ropt = reinterpret_cast<rocksdb::RestoreOptions*>(jhandle);
+  auto* ropt = reinterpret_cast<rocksdb::RestoreOptions*>(jhandle);
   assert(ropt);
   delete ropt;
 }

@@ -101,8 +101,18 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   delete mem->Unref();
 
   jbyteArray jstate = env->NewByteArray(static_cast<jsize>(state.size()));
+  if(jstate == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
+
   env->SetByteArrayRegion(jstate, 0, static_cast<jsize>(state.size()),
                           reinterpret_cast<const jbyte*>(state.c_str()));
+  if(env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    env->DeleteLocalRef(jstate);
+    return nullptr;
+  }
 
   return jstate;
 }

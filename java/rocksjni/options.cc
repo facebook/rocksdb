@@ -39,7 +39,7 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_Options_newOptions__(JNIEnv* env, jclass jcls) {
-  rocksdb::Options* op = new rocksdb::Options();
+  auto* op = new rocksdb::Options();
   return reinterpret_cast<jlong>(op);
 }
 
@@ -53,7 +53,7 @@ jlong Java_org_rocksdb_Options_newOptions__JJ(JNIEnv* env, jclass jcls,
   auto* dbOpt = reinterpret_cast<const rocksdb::DBOptions*>(jdboptions);
   auto* cfOpt = reinterpret_cast<const rocksdb::ColumnFamilyOptions*>(
       jcfoptions);
-  rocksdb::Options* op = new rocksdb::Options(*dbOpt, *cfOpt);
+  auto* op = new rocksdb::Options(*dbOpt, *cfOpt);
   return reinterpret_cast<jlong>(op);
 }
 
@@ -64,7 +64,9 @@ jlong Java_org_rocksdb_Options_newOptions__JJ(JNIEnv* env, jclass jcls,
  */
 void Java_org_rocksdb_Options_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  delete reinterpret_cast<rocksdb::Options*>(handle);
+  auto* op = reinterpret_cast<rocksdb::Options*>(handle);
+  assert(op != nullptr);
+  delete op;
 }
 
 /*
@@ -157,10 +159,16 @@ void Java_org_rocksdb_Options_setComparatorHandle__JJ(
  */
 void Java_org_rocksdb_Options_setMergeOperatorName(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jop_name) {
-  auto options = reinterpret_cast<rocksdb::Options*>(jhandle);
-  const char* op_name = env->GetStringUTFChars(jop_name, 0);
+  const char* op_name = env->GetStringUTFChars(jop_name, nullptr);
+  if(op_name == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
   options->merge_operator = rocksdb::MergeOperators::CreateFromStringId(
         op_name);
+
   env->ReleaseStringUTFChars(jop_name, op_name);
 }
 
@@ -231,7 +239,7 @@ void Java_org_rocksdb_Options_createStatistics(
  */
 jlong Java_org_rocksdb_Options_statisticsPtr(
     JNIEnv* env, jobject jobj, jlong jOptHandle) {
-  auto st = reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics.get();
+  auto* st = reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics.get();
   return reinterpret_cast<jlong>(st);
 }
 
@@ -381,7 +389,11 @@ jstring Java_org_rocksdb_Options_dbLogDir(
  */
 void Java_org_rocksdb_Options_setDbLogDir(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jdb_log_dir) {
-  const char* log_dir = env->GetStringUTFChars(jdb_log_dir, 0);
+  const char* log_dir = env->GetStringUTFChars(jdb_log_dir, nullptr);
+  if(log_dir == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
   reinterpret_cast<rocksdb::Options*>(jhandle)->db_log_dir.assign(log_dir);
   env->ReleaseStringUTFChars(jdb_log_dir, log_dir);
 }
@@ -404,7 +416,11 @@ jstring Java_org_rocksdb_Options_walDir(
  */
 void Java_org_rocksdb_Options_setWalDir(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jwal_dir) {
-  const char* wal_dir = env->GetStringUTFChars(jwal_dir, 0);
+  const char* wal_dir = env->GetStringUTFChars(jwal_dir, nullptr);
+  if(wal_dir == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
   reinterpret_cast<rocksdb::Options*>(jhandle)->wal_dir.assign(wal_dir);
   env->ReleaseStringUTFChars(jwal_dir, wal_dir);
 }
@@ -494,8 +510,7 @@ void Java_org_rocksdb_Options_setMaxSubcompactions(
  */
 jint Java_org_rocksdb_Options_maxSubcompactions(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)
-      ->max_subcompactions;
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->max_subcompactions;
 }
 
 /*
@@ -641,7 +656,7 @@ jlong Java_org_rocksdb_Options_maxManifestFileSize(
  */
 jstring Java_org_rocksdb_Options_memTableFactoryName(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  auto opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
   rocksdb::MemTableRepFactory* tf = opt->memtable_factory.get();
 
   // Should never be nullptr.
@@ -675,17 +690,6 @@ void Java_org_rocksdb_Options_setMemTableFactory(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jfactory_handle) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->memtable_factory.reset(
       reinterpret_cast<rocksdb::MemTableRepFactory*>(jfactory_handle));
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setOldRateLimiter
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_Options_setOldRateLimiter(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->rate_limiter.reset(
-      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
 }
 
 /*
@@ -1144,7 +1148,7 @@ jlong Java_org_rocksdb_Options_writeThreadSlowYieldUsec(
  */
 jstring Java_org_rocksdb_Options_tableFactoryName(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  auto opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
   rocksdb::TableFactory* tf = opt->table_factory.get();
 
   // Should never be nullptr.
@@ -1224,46 +1228,78 @@ jbyte Java_org_rocksdb_Options_compressionType(
   return reinterpret_cast<rocksdb::Options*>(jhandle)->compression;
 }
 
-/*
- * Helper method to convert a Java list to a CompressionType
- * vector.
+/**
+ * Helper method to convert a Java byte array of compression levels
+ * to a C++ vector of rocksdb::CompressionType
+ *
+ * @param env A pointer to the Java environment
+ * @param jcompression_levels A reference to a java byte array
+ *     where each byte indicates a compression level
+ *
+ * @return A unique_ptr to the vector, or unique_ptr(nullptr) if a JNI exception occurs
  */
-std::vector<rocksdb::CompressionType> rocksdb_compression_vector_helper(
-    JNIEnv* env, jbyteArray jcompressionLevels) {
-  std::vector<rocksdb::CompressionType> compressionLevels;
-
-  jsize len = env->GetArrayLength(jcompressionLevels);
-  jbyte* jcompressionLevel = env->GetByteArrayElements(jcompressionLevels,
-    NULL);
-  for(int i = 0; i < len; i++) {
-    jbyte jcl;
-    jcl = jcompressionLevel[i];
-    compressionLevels.push_back(static_cast<rocksdb::CompressionType>(jcl));
+std::unique_ptr<std::vector<rocksdb::CompressionType>> rocksdb_compression_vector_helper(
+    JNIEnv* env, jbyteArray jcompression_levels) {
+  jsize len = env->GetArrayLength(jcompression_levels);
+  jbyte* jcompression_level =
+      env->GetByteArrayElements(jcompression_levels, nullptr);
+  if(jcompression_level == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return std::unique_ptr<std::vector<rocksdb::CompressionType>>();
   }
-  env->ReleaseByteArrayElements(jcompressionLevels, jcompressionLevel,
+
+  auto* compression_levels = new std::vector<rocksdb::CompressionType>();
+  std::unique_ptr<std::vector<rocksdb::CompressionType>> uptr_compression_levels(compression_levels);
+
+  for(jsize i = 0; i < len; i++) {
+    jbyte jcl = jcompression_level[i];
+    compression_levels->push_back(static_cast<rocksdb::CompressionType>(jcl));
+  }
+
+  env->ReleaseByteArrayElements(jcompression_levels, jcompression_level,
       JNI_ABORT);
 
-  return compressionLevels;
+  return uptr_compression_levels;
 }
 
-/*
- * Helper method to convert a CompressionType vector to a Java
- * List.
+/**
+ * Helper method to convert a C++ vector of rocksdb::CompressionType
+ * to a Java byte array of compression levels
+ *
+ * @param env A pointer to the Java environment
+ * @param jcompression_levels A reference to a java byte array
+ *     where each byte indicates a compression level
+ *
+ * @return A jbytearray or nullptr if an exception occurs
  */
 jbyteArray rocksdb_compression_list_helper(JNIEnv* env,
-    std::vector<rocksdb::CompressionType> compressionLevels) {
-  std::unique_ptr<jbyte[]> jbuf =
-      std::unique_ptr<jbyte[]>(new jbyte[compressionLevels.size()]);
-  for (std::vector<rocksdb::CompressionType>::size_type i = 0;
-        i != compressionLevels.size(); i++) {
-      jbuf[i] = compressionLevels[i];
+    std::vector<rocksdb::CompressionType> compression_levels) {
+  const size_t len = compression_levels.size();
+  jbyte* jbuf = new jbyte[len];
+
+  for (size_t i = 0; i < len; i++) {
+      jbuf[i] = compression_levels[i];
   }
+
   // insert in java array
-  jbyteArray jcompressionLevels = env->NewByteArray(
-      static_cast<jsize>(compressionLevels.size()));
-  env->SetByteArrayRegion(jcompressionLevels, 0,
-      static_cast<jsize>(compressionLevels.size()), jbuf.get());
-  return jcompressionLevels;
+  jbyteArray jcompression_levels = env->NewByteArray(static_cast<jsize>(len));
+  if(jcompression_levels == nullptr) {
+      // exception thrown: OutOfMemoryError
+      delete [] jbuf;
+      return nullptr;
+  }
+  env->SetByteArrayRegion(jcompression_levels, 0, static_cast<jsize>(len),
+      jbuf);
+  if(env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(jcompression_levels);
+      delete [] jbuf;
+      return nullptr;
+  }
+
+  delete [] jbuf;
+
+  return jcompression_levels;
 }
 
 /*
@@ -1274,10 +1310,14 @@ jbyteArray rocksdb_compression_list_helper(JNIEnv* env,
 void Java_org_rocksdb_Options_setCompressionPerLevel(
     JNIEnv* env, jobject jobj, jlong jhandle,
     jbyteArray jcompressionLevels) {
-  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
-  std::vector<rocksdb::CompressionType> compressionLevels =
+  auto uptr_compression_levels =
       rocksdb_compression_vector_helper(env, jcompressionLevels);
-  options->compression_per_level = compressionLevels;
+  if(!uptr_compression_levels) {
+    // exception occurred
+    return;
+  }
+  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
+  options->compression_per_level = *(uptr_compression_levels.get());
 }
 
 /*
@@ -1946,7 +1986,6 @@ jlong Java_org_rocksdb_Options_memtableHugePageSize(
 void Java_org_rocksdb_Options_setMemtableHugePageSize(
     JNIEnv* env, jobject jobj, jlong jhandle,
     jlong jmemtable_huge_page_size) {
-
   rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(
       jmemtable_huge_page_size);
   if (s.ok()) {
@@ -2083,8 +2122,9 @@ void Java_org_rocksdb_Options_setLevel0StopWritesTrigger(
  */
 jintArray Java_org_rocksdb_Options_maxBytesForLevelMultiplierAdditional(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  auto mbflma = reinterpret_cast<rocksdb::Options*>(
-      jhandle)->max_bytes_for_level_multiplier_additional;
+  auto mbflma =
+      reinterpret_cast<rocksdb::Options*>(jhandle)->
+          max_bytes_for_level_multiplier_additional;
 
   const size_t size = mbflma.size();
 
@@ -2095,7 +2135,19 @@ jintArray Java_org_rocksdb_Options_maxBytesForLevelMultiplierAdditional(
 
   jsize jlen = static_cast<jsize>(size);
   jintArray result = env->NewIntArray(jlen);
+  if(result == nullptr) {
+      // exception thrown: OutOfMemoryError
+      delete [] additionals;
+      return nullptr;
+  }
+
   env->SetIntArrayRegion(result, 0, jlen, additionals);
+  if(env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(result);
+      delete [] additionals;
+      return nullptr;
+  }
 
   delete [] additionals;
 
@@ -2112,12 +2164,20 @@ void Java_org_rocksdb_Options_setMaxBytesForLevelMultiplierAdditional(
     jintArray jmax_bytes_for_level_multiplier_additional) {
   jsize len = env->GetArrayLength(jmax_bytes_for_level_multiplier_additional);
   jint *additionals =
-      env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, 0);
+      env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, nullptr);
+  if(additionals == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
   auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
   opt->max_bytes_for_level_multiplier_additional.clear();
   for (jsize i = 0; i < len; i++) {
     opt->max_bytes_for_level_multiplier_additional.push_back(static_cast<int32_t>(additionals[i]));
   }
+
+  env->ReleaseIntArrayElements(jmax_bytes_for_level_multiplier_additional,
+      additionals, JNI_ABORT);
 }
 
 /*
@@ -2153,7 +2213,7 @@ void Java_org_rocksdb_Options_setParanoidFileChecks(
  */
 jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
     JNIEnv* env, jclass jcls) {
-  rocksdb::ColumnFamilyOptions* op = new rocksdb::ColumnFamilyOptions();
+  auto* op = new rocksdb::ColumnFamilyOptions();
   return reinterpret_cast<jlong>(op);
 }
 
@@ -2164,14 +2224,20 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
  */
 jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps(
     JNIEnv* env, jclass jclazz, jstring jopt_string) {
-  jlong ret_value = 0;
-  rocksdb::ColumnFamilyOptions* cf_options =
-      new rocksdb::ColumnFamilyOptions();
-  const char* opt_string = env->GetStringUTFChars(jopt_string, 0);
+  const char* opt_string = env->GetStringUTFChars(jopt_string, nullptr);
+  if(opt_string == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+
+  auto* cf_options = new rocksdb::ColumnFamilyOptions();
   rocksdb::Status status = rocksdb::GetColumnFamilyOptionsFromString(
       rocksdb::ColumnFamilyOptions(), opt_string, cf_options);
+
   env->ReleaseStringUTFChars(jopt_string, opt_string);
+
   // Check if ColumnFamilyOptions creation was possible.
+  jlong ret_value = 0;
   if (status.ok()) {
     ret_value = reinterpret_cast<jlong>(cf_options);
   } else {
@@ -2189,7 +2255,9 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps(
  */
 void Java_org_rocksdb_ColumnFamilyOptions_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  delete reinterpret_cast<rocksdb::ColumnFamilyOptions*>(handle);
+  auto* cfo = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(handle);
+  assert(cfo != nullptr);
+  delete cfo;
 }
 
 /*
@@ -2265,10 +2333,15 @@ void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJ(
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setMergeOperatorName(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jop_name) {
-  auto options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
-  const char* op_name = env->GetStringUTFChars(jop_name, 0);
-  options->merge_operator = rocksdb::MergeOperators::CreateFromStringId(
-        op_name);
+  auto* options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  const char* op_name = env->GetStringUTFChars(jop_name, nullptr);
+  if(op_name == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
+  options->merge_operator =
+      rocksdb::MergeOperators::CreateFromStringId(op_name);
   env->ReleaseStringUTFChars(jop_name, op_name);
 }
 
@@ -2364,7 +2437,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMemTableFactory(
  */
 jstring Java_org_rocksdb_ColumnFamilyOptions_memTableFactoryName(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  auto opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  auto* opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
   rocksdb::MemTableRepFactory* tf = opt->memtable_factory.get();
 
   // Should never be nullptr.
@@ -2418,7 +2491,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setTableFactory(
  */
 jstring Java_org_rocksdb_ColumnFamilyOptions_tableFactoryName(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  auto opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  auto* opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
   rocksdb::TableFactory* tf = opt->table_factory.get();
 
   // Should never be nullptr.
@@ -2508,9 +2581,13 @@ void Java_org_rocksdb_ColumnFamilyOptions_setCompressionPerLevel(
     JNIEnv* env, jobject jobj, jlong jhandle,
     jbyteArray jcompressionLevels) {
   auto* options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
-  std::vector<rocksdb::CompressionType> compressionLevels =
+  auto uptr_compression_levels =
       rocksdb_compression_vector_helper(env, jcompressionLevels);
-  options->compression_per_level = compressionLevels;
+  if(!uptr_compression_levels) {
+      // exception occurred
+      return;
+  }
+  options->compression_per_level = *(uptr_compression_levels.get());
 }
 
 /*
@@ -2520,9 +2597,9 @@ void Java_org_rocksdb_ColumnFamilyOptions_setCompressionPerLevel(
  */
 jbyteArray Java_org_rocksdb_ColumnFamilyOptions_compressionPerLevel(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  auto* options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  auto* cf_options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
   return rocksdb_compression_list_helper(env,
-      options->compression_per_level);
+      cf_options->compression_per_level);
 }
 
 /*
@@ -2668,7 +2745,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setLevelZeroStopWritesTrigger(
  */
 jint Java_org_rocksdb_ColumnFamilyOptions_maxMemCompactionLevel(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return 0;
+  return 0; // deprecated and intentionally not implemented, see the Java code
 }
 
 /*
@@ -2677,7 +2754,9 @@ jint Java_org_rocksdb_ColumnFamilyOptions_maxMemCompactionLevel(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setMaxMemCompactionLevel(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_mem_compaction_level) {}
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_mem_compaction_level) {
+  // deprecated and intentionally not implemented, see the Java code
+}
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
@@ -3308,9 +3387,19 @@ jintArray Java_org_rocksdb_ColumnFamilyOptions_maxBytesForLevelMultiplierAdditio
   }
 
   jsize jlen = static_cast<jsize>(size);
-  jintArray result;
-  result = env->NewIntArray(jlen);
+  jintArray result = env->NewIntArray(jlen);
+  if(result == nullptr) {
+    // exception thrown: OutOfMemoryError
+    delete [] additionals;
+    return nullptr;
+  }
   env->SetIntArrayRegion(result, 0, jlen, additionals);
+  if(env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(result);
+      delete [] additionals;
+      return nullptr;
+  }
 
   delete [] additionals;
 
@@ -3328,11 +3417,19 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelMultiplierAdditiona
   jsize len = env->GetArrayLength(jmax_bytes_for_level_multiplier_additional);
   jint *additionals =
       env->GetIntArrayElements(jmax_bytes_for_level_multiplier_additional, 0);
+  if(additionals == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
   auto* cf_opt = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
   cf_opt->max_bytes_for_level_multiplier_additional.clear();
   for (jsize i = 0; i < len; i++) {
     cf_opt->max_bytes_for_level_multiplier_additional.push_back(static_cast<int32_t>(additionals[i]));
   }
+
+  env->ReleaseIntArrayElements(jmax_bytes_for_level_multiplier_additional,
+      additionals, JNI_ABORT);
 }
 
 /*
@@ -3369,7 +3466,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setParanoidFileChecks(
  */
 jlong Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* env,
     jclass jcls) {
-  rocksdb::DBOptions* dbop = new rocksdb::DBOptions();
+  auto* dbop = new rocksdb::DBOptions();
   return reinterpret_cast<jlong>(dbop);
 }
 
@@ -3380,14 +3477,20 @@ jlong Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* env,
  */
 jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps(
     JNIEnv* env, jclass jclazz, jstring jopt_string) {
-  jlong ret_value = 0;
-  rocksdb::DBOptions* db_options =
-      new rocksdb::DBOptions();
-  const char* opt_string = env->GetStringUTFChars(jopt_string, 0);
+  const char* opt_string = env->GetStringUTFChars(jopt_string, nullptr);
+  if(opt_string == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+
+  auto* db_options = new rocksdb::DBOptions();
   rocksdb::Status status = rocksdb::GetDBOptionsFromString(
       rocksdb::DBOptions(), opt_string, db_options);
+
   env->ReleaseStringUTFChars(jopt_string, opt_string);
+
   // Check if DBOptions creation was possible.
+  jlong ret_value = 0;
   if (status.ok()) {
     ret_value = reinterpret_cast<jlong>(db_options);
   } else {
@@ -3405,7 +3508,9 @@ jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps(
  */
 void Java_org_rocksdb_DBOptions_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  delete reinterpret_cast<rocksdb::DBOptions*>(handle);
+  auto* dbo = reinterpret_cast<rocksdb::DBOptions*>(handle);
+  assert(dbo != nullptr);
+  delete dbo;
 }
 
 /*
@@ -3503,17 +3608,6 @@ void Java_org_rocksdb_DBOptions_setParanoidChecks(
 jboolean Java_org_rocksdb_DBOptions_paranoidChecks(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->paranoid_checks;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setOldRateLimiter
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_DBOptions_setOldRateLimiter(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->rate_limiter.reset(
-      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
 }
 
 /*
@@ -3626,7 +3720,7 @@ void Java_org_rocksdb_DBOptions_createStatistics(
  */
 jlong Java_org_rocksdb_DBOptions_statisticsPtr(
     JNIEnv* env, jobject jobj, jlong jOptHandle) {
-  auto st = reinterpret_cast<rocksdb::DBOptions*>(jOptHandle)->
+  auto* st = reinterpret_cast<rocksdb::DBOptions*>(jOptHandle)->
       statistics.get();
   return reinterpret_cast<jlong>(st);
 }
@@ -3659,7 +3753,12 @@ jboolean Java_org_rocksdb_DBOptions_useFsync(
  */
 void Java_org_rocksdb_DBOptions_setDbLogDir(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jdb_log_dir) {
-  const char* log_dir = env->GetStringUTFChars(jdb_log_dir, 0);
+  const char* log_dir = env->GetStringUTFChars(jdb_log_dir, nullptr);
+  if(log_dir == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
   reinterpret_cast<rocksdb::DBOptions*>(jhandle)->db_log_dir.assign(log_dir);
   env->ReleaseStringUTFChars(jdb_log_dir, log_dir);
 }
@@ -4307,19 +4406,17 @@ jlong Java_org_rocksdb_DBOptions_writeThreadSlowYieldUsec(
 }
 
 void Java_org_rocksdb_DBOptions_setDelayedWriteRate(
-  JNIEnv* env, jobject jobj, jlong jhandle, jlong delay_write_rate){
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong delay_write_rate) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->delayed_write_rate =
+      static_cast<int64_t>(delay_write_rate);
+}
 
-    reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
-        delayed_write_rate = static_cast<int64_t>(delay_write_rate);
+jlong Java_org_rocksdb_DBOptions_delayedWriteRate(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      delayed_write_rate;
+}
 
-  }
-
-  jlong Java_org_rocksdb_DBOptions_delayedWriteRate(
-    JNIEnv* env, jobject jobj, jlong jhandle){
-
-      return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
-          delayed_write_rate;
-    }
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::WriteOptions
 
@@ -4330,7 +4427,7 @@ void Java_org_rocksdb_DBOptions_setDelayedWriteRate(
  */
 jlong Java_org_rocksdb_WriteOptions_newWriteOptions(
     JNIEnv* env, jclass jcls) {
-  rocksdb::WriteOptions* op = new rocksdb::WriteOptions();
+  auto* op = new rocksdb::WriteOptions();
   return reinterpret_cast<jlong>(op);
 }
 
@@ -4341,7 +4438,8 @@ jlong Java_org_rocksdb_WriteOptions_newWriteOptions(
  */
 void Java_org_rocksdb_WriteOptions_disposeInternal(
     JNIEnv* env, jobject jwrite_options, jlong jhandle) {
-  auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(jhandle);
+  auto* write_options = reinterpret_cast<rocksdb::WriteOptions*>(jhandle);
+  assert(write_options != nullptr);
   delete write_options;
 }
 
@@ -4395,8 +4493,8 @@ jboolean Java_org_rocksdb_WriteOptions_disableWAL(
  */
 jlong Java_org_rocksdb_ReadOptions_newReadOptions(
     JNIEnv* env, jclass jcls) {
-  auto read_opt = new rocksdb::ReadOptions();
-  return reinterpret_cast<jlong>(read_opt);
+  auto* read_options = new rocksdb::ReadOptions();
+  return reinterpret_cast<jlong>(read_options);
 }
 
 /*
@@ -4406,7 +4504,9 @@ jlong Java_org_rocksdb_ReadOptions_newReadOptions(
  */
 void Java_org_rocksdb_ReadOptions_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  delete reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  auto* read_options = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  assert(read_options != nullptr);
+  delete read_options;
 }
 
 /*
@@ -4613,7 +4713,7 @@ void Java_org_rocksdb_ReadOptions_setReadTier(
  */
 jlong Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
     JNIEnv* env, jclass jcls) {
-  auto comparator_opt = new rocksdb::ComparatorJniCallbackOptions();
+  auto* comparator_opt = new rocksdb::ComparatorJniCallbackOptions();
   return reinterpret_cast<jlong>(comparator_opt);
 }
 
@@ -4646,7 +4746,10 @@ void Java_org_rocksdb_ComparatorOptions_setUseAdaptiveMutex(
  */
 void Java_org_rocksdb_ComparatorOptions_disposeInternal(
     JNIEnv * env, jobject jobj, jlong jhandle) {
-  delete reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
+  auto* comparator_opt =
+      reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
+  assert(comparator_opt != nullptr);
+  delete comparator_opt;
 }
 
 /////////////////////////////////////////////////////////////////////
@@ -4659,7 +4762,7 @@ void Java_org_rocksdb_ComparatorOptions_disposeInternal(
  */
 jlong Java_org_rocksdb_FlushOptions_newFlushOptions(
     JNIEnv* env, jclass jcls) {
-  auto flush_opt = new rocksdb::FlushOptions();
+  auto* flush_opt = new rocksdb::FlushOptions();
   return reinterpret_cast<jlong>(flush_opt);
 }
 
@@ -4692,5 +4795,7 @@ jboolean Java_org_rocksdb_FlushOptions_waitForFlush(
  */
 void Java_org_rocksdb_FlushOptions_disposeInternal(
     JNIEnv * env, jobject jobj, jlong jhandle) {
-  delete reinterpret_cast<rocksdb::FlushOptions*>(jhandle);
+  auto* flush_opt = reinterpret_cast<rocksdb::FlushOptions*>(jhandle);
+  assert(flush_opt != nullptr);
+  delete flush_opt;
 }

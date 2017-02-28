@@ -389,24 +389,10 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void rateLimiterConfig() {
-    try(final DBOptions options = new DBOptions();
-        final DBOptions anotherOptions = new DBOptions()) {
-      final RateLimiterConfig rateLimiterConfig =
-          new GenericRateLimiterConfig(1000, 100 * 1000, 1);
-      options.setRateLimiterConfig(rateLimiterConfig);
-      // Test with parameter initialization
-
-      anotherOptions.setRateLimiterConfig(
-          new GenericRateLimiterConfig(1000));
-    }
-  }
-
-  @Test
   public void rateLimiter() {
     try(final DBOptions options = new DBOptions();
-        final DBOptions anotherOptions = new DBOptions()) {
-      final RateLimiter rateLimiter = new RateLimiter(1000, 100 * 1000, 1);
+        final DBOptions anotherOptions = new DBOptions();
+        final RateLimiter rateLimiter = new RateLimiter(1000, 100 * 1000, 1)) {
       options.setRateLimiter(rateLimiter);
       // Test with parameter initialization
       anotherOptions.setRateLimiter(
