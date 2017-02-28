@@ -160,8 +160,6 @@ class ManifestDumpCommand : public LDBCommand {
   static void Help(std::string& ret);
   virtual void DoCommand() override;
 
-  virtual bool NoDBOpen() override { return true; }
-
  private:
   bool verbose_;
   bool json_;
@@ -463,48 +461,42 @@ class RepairCommand : public LDBCommand {
   static void Help(std::string& ret);
 };
 
-class BackupCommand : public LDBCommand {
+class BackupableCommand : public LDBCommand {
  public:
-  static std::string Name() { return "backup"; }
+  BackupableCommand(const std::vector<std::string>& params,
+                    const std::map<std::string, std::string>& options,
+                    const std::vector<std::string>& flags);
 
-  BackupCommand(const std::vector<std::string>& params,
-                const std::map<std::string, std::string>& options,
-                const std::vector<std::string>& flags);
-
-  virtual void DoCommand() override;
-
-  static void Help(std::string& ret);
-
- private:
-  std::string test_cluster_;
-  std::string test_path_;
-  int thread_num_;
-
-  static const std::string ARG_BACKUP_DIR;
-  static const std::string ARG_BACKUP_ENV;
-  static const std::string ARG_THREAD;
-};
-
-class RestoreCommand : public LDBCommand {
- public:
-  static std::string Name() { return "restore"; }
-
-  RestoreCommand(const std::vector<std::string>& params,
-                 const std::map<std::string, std::string>& options,
-                 const std::vector<std::string>& flags);
-
-  virtual void DoCommand() override;
-  virtual bool NoDBOpen() override { return true; }
-
-  static void Help(std::string& ret);
-
- private:
+ protected:
+  static void Help(const std::string& name, std::string& ret);
   std::string backup_env_uri_;
   std::string backup_dir_;
   int num_threads_;
 
+ private:
   static const std::string ARG_BACKUP_DIR;
   static const std::string ARG_BACKUP_ENV_URI;
   static const std::string ARG_NUM_THREADS;
+};
+
+class BackupCommand : public BackupableCommand {
+ public:
+  static std::string Name() { return "backup"; }
+  BackupCommand(const std::vector<std::string>& params,
+                const std::map<std::string, std::string>& options,
+                const std::vector<std::string>& flags);
+  virtual void DoCommand() override;
+  static void Help(std::string& ret);
+};
+
+class RestoreCommand : public BackupableCommand {
+ public:
+  static std::string Name() { return "restore"; }
+  RestoreCommand(const std::vector<std::string>& params,
+                 const std::map<std::string, std::string>& options,
+                 const std::vector<std::string>& flags);
+  virtual void DoCommand() override;
+  virtual bool NoDBOpen() override { return true; }
+  static void Help(std::string& ret);
 };
 }  // namespace rocksdb
