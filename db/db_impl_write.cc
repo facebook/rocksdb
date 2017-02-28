@@ -318,6 +318,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   if (status.ok()) {
     status = w.FinalStatus();
+    std::lock_guard<std::mutex> lock(trace_mutex_);
+    if (tracer_ != nullptr) {
+      tracer_->Write(my_batch);
+    }
   }
   return status;
 }

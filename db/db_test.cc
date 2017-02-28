@@ -2447,6 +2447,27 @@ class ModelDB : public DB {
   virtual void GetColumnFamilyMetaData(
       ColumnFamilyHandle* column_family,
       ColumnFamilyMetaData* metadata) override {}
+
+  virtual Status StartTrace(
+      std::unique_ptr<TraceWriter>&& trace_writer) override {
+    return Status::NotSupported("Not supported in Model DB");
+  }
+  virtual Status StartTrace(const std::string& trace_filename) override {
+    return Status::NotSupported("Not supported in Model DB");
+  }
+  virtual Status EndTrace() override {
+    return Status::NotSupported("Not supported in Model DB");
+  }
+  virtual Status StartReplay(std::vector<ColumnFamilyHandle*>& handles,
+                             std::unique_ptr<TraceReader>&& trace_reader,
+                             bool no_wait) override {
+    return Status::NotSupported("Not supported in Model DB");
+  };
+  virtual Status StartReplay(std::vector<ColumnFamilyHandle*>& handles,
+                             const std::string& trace_filename,
+                             bool no_wait) override {
+    return Status::NotSupported("Not supported in Model DB");
+  };
 #endif  // ROCKSDB_LITE
 
   virtual Status GetDbIdentity(std::string& identity) const override {

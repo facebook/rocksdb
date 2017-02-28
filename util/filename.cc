@@ -136,6 +136,12 @@ void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
   }
 }
 
+std::string TraceFileName(const std::string& dbname, const std::string& time) {
+  char buf[100];
+  snprintf(buf, sizeof(buf), "/%s", time.c_str());
+  return dbname + buf;
+}
+
 std::string DescriptorFileName(const std::string& dbname, uint64_t number) {
   assert(number > 0);
   char buf[100];

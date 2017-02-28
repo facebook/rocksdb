@@ -793,7 +793,7 @@ class PosixEnv : public Env {
     char* p = &dummy[0];
     localtime_r(&seconds, &t);
     snprintf(p, maxsize,
-             "%04d/%02d/%02d-%02d:%02d:%02d ",
+             "%04d-%02d-%02d-%02d:%02d:%02d ",
              t.tm_year + 1900,
              t.tm_mon + 1,
              t.tm_mday,
