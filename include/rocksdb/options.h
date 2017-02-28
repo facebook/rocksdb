@@ -514,6 +514,7 @@ struct DBOptions {
   // If specified with non-zero value, log file will be rolled
   // if it has been active longer than `log_file_time_to_roll`.
   // Default: 0 (disabled)
+  // Not supported in ROCKSDB_LITE mode!
   size_t log_file_time_to_roll = 0;
 
   // Maximal info log files to be kept.

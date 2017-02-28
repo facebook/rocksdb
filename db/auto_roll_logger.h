@@ -18,6 +18,7 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 // Rolls the log file by size and/or time
 class AutoRollLogger : public Logger {
  public:
@@ -120,6 +121,7 @@ class AutoRollLogger : public Logger {
   uint64_t call_NowMicros_every_N_records_;
   mutable port::Mutex mutex_;
 };
+#endif  // !ROCKSDB_LITE
 
 // Facade to craete logger automatically
 Status CreateLoggerFromOptions(const std::string& dbname,

@@ -269,7 +269,7 @@ class PosixEnv : public Env {
       // More info here: https://linux.die.net/man/2/pwrite
 #ifdef ROCKSDB_LITE
       return Status::IOError(fname, "Direct I/O not supported in RocksDB lite");
-#endif  // !ROCKSDB_LITE
+#endif  // ROCKSDB_LITE
       flags |= O_WRONLY;
 #ifndef OS_MACOSX
       flags |= O_DIRECT;

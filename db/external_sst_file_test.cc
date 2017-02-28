@@ -3,8 +3,9 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include <functional>
+#ifndef ROCKSDB_LITE
 
+#include <functional>
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -13,7 +14,6 @@
 
 namespace rocksdb {
 
-#ifndef ROCKSDB_LITE
 class ExternalSSTFileTest : public DBTestBase {
  public:
   ExternalSSTFileTest() : DBTestBase("/external_sst_file_test") {
@@ -1986,8 +1986,6 @@ TEST_F(ExternalSSTFileTest, FadviseTrigger) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-#endif  // ROCKSDB_LITE
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
@@ -1995,3 +1993,15 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr,
+          "SKIPPED as External SST File Writer and Ingestion are not supported "
+          "in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

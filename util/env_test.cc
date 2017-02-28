@@ -690,16 +690,14 @@ class IoctlFriendlyTmpdir {
   std::string dir_;
 };
 
-
+#ifndef ROCKSDB_LITE
 TEST_F(EnvPosixTest, PositionedAppend) {
   unique_ptr<WritableFile> writable_file;
-
   EnvOptions options;
   options.use_direct_writes = true;
   options.use_mmap_writes = false;
   IoctlFriendlyTmpdir ift;
   ASSERT_OK(env_->NewWritableFile(ift.name() + "/f", &writable_file, options));
-
   const size_t kBlockSize = 4096;
   const size_t kPageSize = 4096;
   const size_t kDataSize = kPageSize;
@@ -724,6 +722,7 @@ TEST_F(EnvPosixTest, PositionedAppend) {
   ASSERT_EQ('a', result[kBlockSize - 1]);
   ASSERT_EQ('b', result[kBlockSize]);
 }
+#endif  // !ROCKSDB_LITE
 
 // Only works in linux platforms
 TEST_P(EnvPosixTestWithParam, RandomAccessUniqueID) {
