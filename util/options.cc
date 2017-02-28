@@ -36,63 +36,16 @@
 
 namespace rocksdb {
 
-ColumnFamilyOptions::ColumnFamilyOptions()
-    : compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
-      table_factory(
-          std::shared_ptr<TableFactory>(new BlockBasedTableFactory())) {
+AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions() {
   assert(memtable_factory.get() != nullptr);
 }
 
-ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
-    : comparator(options.comparator),
-      merge_operator(options.merge_operator),
-      compaction_filter(options.compaction_filter),
-      compaction_filter_factory(options.compaction_filter_factory),
-      write_buffer_size(options.write_buffer_size),
-      max_write_buffer_number(options.max_write_buffer_number),
+AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
+    : max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
           options.min_write_buffer_number_to_merge),
       max_write_buffer_number_to_maintain(
           options.max_write_buffer_number_to_maintain),
-      compression(options.compression),
-      compression_per_level(options.compression_per_level),
-      bottommost_compression(options.bottommost_compression),
-      compression_opts(options.compression_opts),
-      prefix_extractor(options.prefix_extractor),
-      num_levels(options.num_levels),
-      level0_file_num_compaction_trigger(
-          options.level0_file_num_compaction_trigger),
-      level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
-      level0_stop_writes_trigger(options.level0_stop_writes_trigger),
-      target_file_size_base(options.target_file_size_base),
-      target_file_size_multiplier(options.target_file_size_multiplier),
-      max_bytes_for_level_base(options.max_bytes_for_level_base),
-      level_compaction_dynamic_level_bytes(
-          options.level_compaction_dynamic_level_bytes),
-      max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
-      max_bytes_for_level_multiplier_additional(
-          options.max_bytes_for_level_multiplier_additional),
-      max_compaction_bytes(options.max_compaction_bytes),
-      soft_rate_limit(options.soft_rate_limit),
-      soft_pending_compaction_bytes_limit(
-          options.soft_pending_compaction_bytes_limit),
-      hard_pending_compaction_bytes_limit(
-          options.hard_pending_compaction_bytes_limit),
-      rate_limit_delay_max_milliseconds(
-          options.rate_limit_delay_max_milliseconds),
-      arena_block_size(options.arena_block_size),
-      disable_auto_compactions(options.disable_auto_compactions),
-      purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
-      compaction_style(options.compaction_style),
-      compaction_pri(options.compaction_pri),
-      compaction_options_universal(options.compaction_options_universal),
-      compaction_options_fifo(options.compaction_options_fifo),
-      max_sequential_skip_in_iterations(
-          options.max_sequential_skip_in_iterations),
-      memtable_factory(options.memtable_factory),
-      table_factory(options.table_factory),
-      table_properties_collector_factories(
-          options.table_properties_collector_factories),
       inplace_update_support(options.inplace_update_support),
       inplace_update_num_locks(options.inplace_update_num_locks),
       inplace_callback(options.inplace_callback),
@@ -102,6 +55,32 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       memtable_insert_with_hint_prefix_extractor(
           options.memtable_insert_with_hint_prefix_extractor),
       bloom_locality(options.bloom_locality),
+      arena_block_size(options.arena_block_size),
+      compression_per_level(options.compression_per_level),
+      num_levels(options.num_levels),
+      level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
+      level0_stop_writes_trigger(options.level0_stop_writes_trigger),
+      target_file_size_base(options.target_file_size_base),
+      target_file_size_multiplier(options.target_file_size_multiplier),
+      level_compaction_dynamic_level_bytes(
+          options.level_compaction_dynamic_level_bytes),
+      max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
+      max_bytes_for_level_multiplier_additional(
+          options.max_bytes_for_level_multiplier_additional),
+      max_compaction_bytes(options.max_compaction_bytes),
+      soft_pending_compaction_bytes_limit(
+          options.soft_pending_compaction_bytes_limit),
+      hard_pending_compaction_bytes_limit(
+          options.hard_pending_compaction_bytes_limit),
+      compaction_style(options.compaction_style),
+      compaction_pri(options.compaction_pri),
+      compaction_options_universal(options.compaction_options_universal),
+      compaction_options_fifo(options.compaction_options_fifo),
+      max_sequential_skip_in_iterations(
+          options.max_sequential_skip_in_iterations),
+      memtable_factory(options.memtable_factory),
+      table_properties_collector_factories(
+          options.table_properties_collector_factories),
       max_successive_merges(options.max_successive_merges),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       paranoid_file_checks(options.paranoid_file_checks),
@@ -113,6 +92,28 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
     max_bytes_for_level_multiplier_additional.resize(num_levels, 1);
   }
 }
+
+ColumnFamilyOptions::ColumnFamilyOptions()
+    : compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
+      table_factory(
+          std::shared_ptr<TableFactory>(new BlockBasedTableFactory())) {}
+
+ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
+    : AdvancedColumnFamilyOptions(options),
+      comparator(options.comparator),
+      merge_operator(options.merge_operator),
+      compaction_filter(options.compaction_filter),
+      compaction_filter_factory(options.compaction_filter_factory),
+      write_buffer_size(options.write_buffer_size),
+      compression(options.compression),
+      bottommost_compression(options.bottommost_compression),
+      compression_opts(options.compression_opts),
+      level0_file_num_compaction_trigger(
+          options.level0_file_num_compaction_trigger),
+      prefix_extractor(options.prefix_extractor),
+      max_bytes_for_level_base(options.max_bytes_for_level_base),
+      disable_auto_compactions(options.disable_auto_compactions),
+      table_factory(options.table_factory) {}
 
 DBOptions::DBOptions() {}
 
