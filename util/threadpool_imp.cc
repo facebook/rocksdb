@@ -24,6 +24,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <mutex>
+#include <stdlib.h>
 #include <thread>
 #include <vector>
 
