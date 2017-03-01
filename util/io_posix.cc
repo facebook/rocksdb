@@ -873,9 +873,11 @@ Status PosixRandomRWFile::Close() {
 PosixDirectory::~PosixDirectory() { close(fd_); }
 
 Status PosixDirectory::Fsync() {
+#ifndef OS_AIX
   if (fsync(fd_) == -1) {
     return IOError("directory", errno);
   }
+#endif
   return Status::OK();
 }
 }  // namespace rocksdb
