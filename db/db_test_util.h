@@ -671,8 +671,11 @@ class DBTestBase : public testing::Test {
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions(int skip_mask = kNoSkip);
 
-  // Switch between different compaction styles (we have only 2 now).
+  // Switch between different compaction styles.
   bool ChangeCompactOptions();
+
+  // Switch between different WAL-realted options.
+  bool ChangeWalOptions();
 
   // Switch between different filter policy
   // Jump from kDefault to kFilter to kFullFilter
