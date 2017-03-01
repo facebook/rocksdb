@@ -77,6 +77,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"arena_block_size", "22"},
       {"disable_auto_compactions", "true"},
       {"compaction_style", "kCompactionStyleLevel"},
+      {"compaction_pri", "kOldestSmallestSeqFirst"},
       {"verify_checksums_in_compaction", "false"},
       {"compaction_options_fifo", "23"},
       {"max_sequential_skip_in_iterations", "24"},
@@ -174,6 +175,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
+  ASSERT_EQ(new_cf_opt.compaction_pri, kOldestSmallestSeqFirst);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
             static_cast<uint64_t>(23));
   ASSERT_EQ(new_cf_opt.max_sequential_skip_in_iterations,
