@@ -300,9 +300,7 @@ EXPOBJECTS = $(EXP_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
 	db_basic_test \
-	db_test \
 	db_test2 \
-	external_sst_file_test \
 	external_sst_file_basic_test \
 	auto_roll_logger_test \
 	bloom_test \
@@ -320,6 +318,7 @@ TESTS = \
 	iostats_context_test \
 	db_wal_test \
 	db_block_cache_test \
+	db_test \
 	db_bloom_filter_test \
 	db_iter_test \
 	db_log_iter_test \
@@ -371,6 +370,7 @@ TESTS = \
 	reduce_levels_test \
 	plain_table_db_test \
 	comparator_db_test \
+	external_sst_file_test \
 	prefix_test \
 	skiplist_test \
 	stringappend_test \
