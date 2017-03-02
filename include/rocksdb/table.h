@@ -163,20 +163,6 @@ struct BlockBasedTableOptions {
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
 
-  // If true, block will not be explicitly flushed to disk during building
-  // a SstTable. Instead, buffer in WritableFileWriter will take
-  // care of the flushing when it is full.
-  //
-  // This option helps a lot when direct I/O writes
-  // (use_direct_writes = true) is used, since it avoids small
-  // direct disk write.
-  //
-  // User may also adjust writable_file_max_buffer_size to optimize disk I/O
-  // size.
-  //
-  // Default: false
-  bool skip_table_builder_flush = false;
-
   // Verify that decompressing the compressed block gives back the input. This
   // is a verification mode that we use to detect bugs in compression
   // algorithms.
