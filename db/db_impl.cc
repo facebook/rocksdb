@@ -198,7 +198,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   }
 
   if (result.use_direct_reads && result.compaction_readahead_size == 0) {
-    result.compaction_readahead_size = 1024 * 1024 * 10;
+    result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
   if (result.compaction_readahead_size > 0) {
