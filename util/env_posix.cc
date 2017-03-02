@@ -303,9 +303,11 @@ class PosixEnv : public Env {
       }
 #elif defined(OS_SOLARIS)
       if (directio(fd, DIRECTIO_ON) == -1) {
-        close(fd);
-        s = IOError(fname, errno);
-        return s;
+        if (errno != ENOTTY) { // ZFS filesystems don't support DIRECTIO_ON
+          close(fd);
+          s = IOError(fname, errno);
+          return s;
+        }
       }
 #endif
       result->reset(new PosixWritableFile(fname, fd, options));
@@ -379,9 +381,11 @@ class PosixEnv : public Env {
       }
 #elif defined(OS_SOLARIS)
       if (directio(fd, DIRECTIO_ON) == -1) {
-        close(fd);
-        s = IOError(fname, errno);
-        return s;
+        if (errno != ENOTTY) { // ZFS filesystems don't support DIRECTIO_ON
+          close(fd);
+          s = IOError(fname, errno);
+          return s;
+        }
       }
 #endif
       result->reset(new PosixWritableFile(fname, fd, options));
