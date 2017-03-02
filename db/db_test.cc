@@ -2781,6 +2781,7 @@ TEST_F(DBTest, RateLimitingTest) {
   options.compression = kNoCompression;
   options.create_if_missing = true;
   options.env = env_;
+  options.statistics = rocksdb::CreateDBStatistics();
   options.IncreaseParallelism(4);
   DestroyAndReopen(options);
 
@@ -2797,6 +2798,9 @@ TEST_F(DBTest, RateLimitingTest) {
   }
   uint64_t elapsed = env_->NowMicros() - start;
   double raw_rate = env_->bytes_written_ * 1000000.0 / elapsed;
+  uint64_t rate_limiter_drains =
+      TestGetTickerCount(options, NUMBER_RATE_LIMITER_DRAINS);
+  ASSERT_EQ(0, rate_limiter_drains);
   Close();
 
   // # rate limiting with 0.7 x threshold
@@ -2812,8 +2816,15 @@ TEST_F(DBTest, RateLimitingTest) {
         Put(RandomString(&rnd, 32), RandomString(&rnd, (1 << 10) + 1), wo));
   }
   elapsed = env_->NowMicros() - start;
+  rate_limiter_drains =
+      TestGetTickerCount(options, NUMBER_RATE_LIMITER_DRAINS) -
+      rate_limiter_drains;
   Close();
   ASSERT_EQ(options.rate_limiter->GetTotalBytesThrough(), env_->bytes_written_);
+  // Most intervals should've been drained (interval time is 100ms, elapsed is
+  // micros)
+  ASSERT_GT(rate_limiter_drains, elapsed / 100000 / 2);
+  ASSERT_LE(rate_limiter_drains, elapsed / 100000);
   double ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.7\n", ratio);
   ASSERT_TRUE(ratio < 0.8);
@@ -2831,8 +2842,15 @@ TEST_F(DBTest, RateLimitingTest) {
         Put(RandomString(&rnd, 32), RandomString(&rnd, (1 << 10) + 1), wo));
   }
   elapsed = env_->NowMicros() - start;
+  rate_limiter_drains =
+      TestGetTickerCount(options, NUMBER_RATE_LIMITER_DRAINS) -
+      rate_limiter_drains;
   Close();
   ASSERT_EQ(options.rate_limiter->GetTotalBytesThrough(), env_->bytes_written_);
+  // Most intervals should've been drained (interval time is 100ms, elapsed is
+  // micros)
+  ASSERT_GT(rate_limiter_drains, elapsed / 100000 / 2);
+  ASSERT_LE(rate_limiter_drains, elapsed / 100000);
   ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.5\n", ratio);
   ASSERT_LT(ratio, 0.6);
