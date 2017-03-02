@@ -150,7 +150,7 @@ Cache::Handle* GetEntryFromCache(Cache* block_cache, const Slice& key,
 }  // namespace
 
 // Index that allows binary search lookup in a two-level index structure.
-class PartitionIndexReader : public IndexReader {
+class PartitionIndexReader : public IndexReader, public Cleanable {
  public:
   // Read the partition index from the file and create an instance for
   // `PartitionIndexReader`.
@@ -160,7 +160,8 @@ class PartitionIndexReader : public IndexReader {
                        const Footer& footer, const BlockHandle& index_handle,
                        const ImmutableCFOptions& ioptions,
                        const Comparator* comparator, IndexReader** index_reader,
-                       const PersistentCacheOptions& cache_options) {
+                       const PersistentCacheOptions& cache_options,
+                       const int level) {
     std::unique_ptr<Block> index_block;
     auto s = ReadBlockFromFile(
         file, footer, ReadOptions(), index_handle, &index_block, ioptions,
@@ -168,8 +169,9 @@ class PartitionIndexReader : public IndexReader {
         kDisableGlobalSequenceNumber, 0 /* read_amp_bytes_per_bit */);
 
     if (s.ok()) {
-      *index_reader = new PartitionIndexReader(
-          table, comparator, std::move(index_block), ioptions.statistics);
+      *index_reader =
+          new PartitionIndexReader(table, comparator, std::move(index_block),
+                                   ioptions.statistics, level);
     }
 
     return s;
@@ -181,11 +183,21 @@ class PartitionIndexReader : public IndexReader {
     // Filters are already checked before seeking the index
     const bool skip_filters = true;
     const bool is_index = true;
+    Cleanable* block_cache_cleaner = nullptr;
+    const bool pin_cached_indexes =
+        level_ == 0 &&
+        table_->rep_->table_options.pin_l0_filter_and_index_blocks_in_cache;
+    if (pin_cached_indexes) {
+      // Keep partition indexes into the cache as long as the partition index
+      // reader object is alive
+      block_cache_cleaner = this;
+    }
     return NewTwoLevelIterator(
-        new BlockBasedTable::BlockEntryIteratorState(table_, ReadOptions(),
-                                                     skip_filters, is_index),
+        new BlockBasedTable::BlockEntryIteratorState(
+            table_, ReadOptions(), skip_filters, is_index, block_cache_cleaner),
         index_block_->NewIterator(comparator_, nullptr, true));
-    // TODO: Update TwoLevelIterator to be able to make use of on-stack
+    // TODO(myabandeh): Update TwoLevelIterator to be able to make use of
+    // on-stack
     // BlockIter while the state is on heap
   }
 
@@ -201,14 +213,17 @@ class PartitionIndexReader : public IndexReader {
 
  private:
   PartitionIndexReader(BlockBasedTable* table, const Comparator* comparator,
-                       std::unique_ptr<Block>&& index_block, Statistics* stats)
+                       std::unique_ptr<Block>&& index_block, Statistics* stats,
+                       const int level)
       : IndexReader(comparator, stats),
         table_(table),
-        index_block_(std::move(index_block)) {
+        index_block_(std::move(index_block)),
+        level_(level) {
     assert(index_block_ != nullptr);
   }
   BlockBasedTable* table_;
   std::unique_ptr<Block> index_block_;
+  int level_;
 };
 
 // Index that allows binary search lookup for the first key of each block.
@@ -717,6 +732,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         if (rep->table_options.pin_l0_filter_and_index_blocks_in_cache &&
             level == 0) {
           rep->filter_entry = filter_entry;
+          rep->filter_entry.value->SetLevel(level);
         } else {
           filter_entry.Release(table_options.block_cache.get());
         }
@@ -727,7 +743,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     // pre-load these blocks, which will kept in member variables in Rep
     // and with a same life-time as this table object.
     IndexReader* index_reader = nullptr;
-    s = new_table->CreateIndexReader(&index_reader, meta_iter.get());
+    s = new_table->CreateIndexReader(&index_reader, meta_iter.get(), level);
 
     if (s.ok()) {
       rep->index_reader.reset(index_reader);
@@ -737,6 +753,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         const bool is_a_filter_partition = true;
         rep->filter.reset(
             new_table->ReadFilter(rep->filter_handle, !is_a_filter_partition));
+        rep->filter->SetLevel(level);
       }
     } else {
       delete index_reader;
@@ -1344,19 +1361,25 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
 
 BlockBasedTable::BlockEntryIteratorState::BlockEntryIteratorState(
     BlockBasedTable* table, const ReadOptions& read_options, bool skip_filters,
-    bool is_index)
+    bool is_index, Cleanable* block_cache_cleaner)
     : TwoLevelIteratorState(table->rep_->ioptions.prefix_extractor != nullptr),
       table_(table),
       read_options_(read_options),
       skip_filters_(skip_filters),
-      is_index_(is_index) {}
+      is_index_(is_index),
+      block_cache_cleaner_(block_cache_cleaner) {}
 
 InternalIterator*
 BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
     const Slice& index_value) {
   // Return a block iterator on the index partition
-  return NewDataBlockIterator(table_->rep_, read_options_, index_value, nullptr,
-                              is_index_);
+  auto iter = NewDataBlockIterator(table_->rep_, read_options_, index_value,
+                                   nullptr, is_index_);
+  if (block_cache_cleaner_) {
+    // Keep the data into cache until the cleaner cleansup
+    iter->DelegateCleanupsTo(block_cache_cleaner_);
+  }
+  return iter;
 }
 
 bool BlockBasedTable::BlockEntryIteratorState::PrefixMayMatch(
@@ -1710,7 +1733,8 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
 //  4. internal_comparator
 //  5. index_type
 Status BlockBasedTable::CreateIndexReader(
-    IndexReader** index_reader, InternalIterator* preloaded_meta_index_iter) {
+    IndexReader** index_reader, InternalIterator* preloaded_meta_index_iter,
+    int level) {
   // Some old version of block-based tables don't have index type present in
   // table properties. If that's the case we can safely use the kBinarySearch.
   auto index_type_on_file = BlockBasedTableOptions::kBinarySearch;
@@ -1739,7 +1763,7 @@ Status BlockBasedTable::CreateIndexReader(
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
       return PartitionIndexReader::Create(
           this, file, footer, footer.index_handle(), rep_->ioptions, comparator,
-          index_reader, rep_->persistent_cache_options);
+          index_reader, rep_->persistent_cache_options, level);
     }
     case BlockBasedTableOptions::kBinarySearch: {
       return BinarySearchIndexReader::Create(

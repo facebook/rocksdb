@@ -108,6 +108,9 @@ class FilterBlockReader {
 
   bool whole_key_filtering() const { return whole_key_filtering_; }
 
+  inline int GetLevel() const { return level_; };
+  inline void SetLevel(int level) { level_ = level; };
+
   // convert this object to a human readable form
   virtual std::string ToString() const {
     std::string error_msg("Unsupported filter \n");
@@ -123,6 +126,7 @@ class FilterBlockReader {
   void operator=(const FilterBlockReader&);
   size_t size_;
   Statistics* statistics_;
+  int level_ = -1;
 };
 
 }  // namespace rocksdb

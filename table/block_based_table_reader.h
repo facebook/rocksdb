@@ -193,6 +193,8 @@ class BlockBasedTable : public TableReader {
 
   class BlockEntryIteratorState;
 
+  friend class PartitionIndexReader;
+
  protected:
   template <class TValue>
   struct CachableEntry;
@@ -292,7 +294,8 @@ class BlockBasedTable : public TableReader {
   // helps avoid re-reading meta index block if caller already created one.
   Status CreateIndexReader(
       IndexReader** index_reader,
-      InternalIterator* preloaded_meta_index_iter = nullptr);
+      InternalIterator* preloaded_meta_index_iter = nullptr,
+      const int level = -1);
 
   bool FullFilterKeyMayMatch(const ReadOptions& read_options,
                              FilterBlockReader* filter, const Slice& user_key,
@@ -333,7 +336,8 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
  public:
   BlockEntryIteratorState(BlockBasedTable* table,
                           const ReadOptions& read_options, bool skip_filters,
-                          bool is_user_data = true);
+                          bool is_user_data = true,
+                          Cleanable* block_cache_cleaner = nullptr);
   InternalIterator* NewSecondaryIterator(const Slice& index_value) override;
   bool PrefixMayMatch(const Slice& internal_key) override;
 
@@ -344,6 +348,7 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   bool skip_filters_;
   // true if the 2nd level iterator is on indexes instead of on user data.
   bool is_index_;
+  Cleanable* block_cache_cleaner_;
 };
 
 // CachableEntry represents the entries that *may* be fetched from block cache.

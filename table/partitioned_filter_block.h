@@ -60,6 +60,7 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
                                         Statistics* stats,
                                         const Comparator& comparator,
                                         const BlockBasedTable* table);
+  virtual ~PartitionedFilterBlockReader();
 
   virtual bool IsBlockBased() override { return false; }
   virtual bool KeyMayMatch(
@@ -79,7 +80,9 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
   const BlockBasedTable* table_;
   Slice GetFilterPartitionHandle(const Slice& entry);
   BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
-      Slice* handle, const bool no_io);
+      Slice* handle, const bool no_io, bool* cached);
+  std::map<uint64_t, FilterBlockReader*> filter_cache;
+  std::vector<Cache::Handle*> handle_list;
 };
 
 }  // namespace rocksdb

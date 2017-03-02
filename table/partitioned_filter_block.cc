@@ -88,6 +88,12 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
   idx_on_fltr_blk_->NewIterator(&comparator_, &iter, true);
 };
 
+PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
+  for (auto it = handle_list.begin(); it != handle_list.end(); ++it) {
+    table_->rep_->table_options.block_cache.get()->Release(*it);
+  }
+}
+
 bool PartitionedFilterBlockReader::KeyMayMatch(
     const Slice& key, uint64_t block_offset, const bool no_io,
     const Slice* const const_ikey_ptr) {
@@ -105,11 +111,15 @@ bool PartitionedFilterBlockReader::KeyMayMatch(
   if (UNLIKELY(filter_handle.size() == 0)) {  // key is out of range
     return false;
   }
-  auto filter_partition = GetFilterPartition(&filter_handle, no_io);
+  bool cached = false;
+  auto filter_partition = GetFilterPartition(&filter_handle, no_io, &cached);
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
   auto res = filter_partition.value->KeyMayMatch(key, block_offset, no_io);
+  if (cached) {
+    return res;
+  }
   if (LIKELY(filter_partition.IsSet())) {
     filter_partition.Release(table_->rep_->table_options.block_cache.get());
   } else {
@@ -133,12 +143,20 @@ bool PartitionedFilterBlockReader::PrefixMayMatch(
   if (UNLIKELY(filter_handle.size() == 0)) {  // prefix is out of range
     return false;
   }
-  auto filter_partition = GetFilterPartition(&filter_handle, no_io);
+  bool cached = false;
+  auto filter_partition = GetFilterPartition(&filter_handle, no_io, &cached);
   if (UNLIKELY(!filter_partition.value)) {
     return true;
   }
   auto res = filter_partition.value->PrefixMayMatch(prefix, kNotValid, no_io);
-  filter_partition.Release(table_->rep_->table_options.block_cache.get());
+  if (cached) {
+    return res;
+  }
+  if (LIKELY(filter_partition.IsSet())) {
+    filter_partition.Release(table_->rep_->table_options.block_cache.get());
+  } else {
+    delete filter_partition.value;
+  }
   return res;
 }
 
@@ -157,14 +175,33 @@ Slice PartitionedFilterBlockReader::GetFilterPartitionHandle(
 
 BlockBasedTable::CachableEntry<FilterBlockReader>
 PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
-                                                 const bool no_io) {
+                                                 const bool no_io,
+                                                 bool* cached) {
   BlockHandle fltr_blk_handle;
   auto s = fltr_blk_handle.DecodeFrom(handle_value);
   assert(s.ok());
   const bool is_a_filter_partition = true;
   auto block_cache = table_->rep_->table_options.block_cache.get();
   if (LIKELY(block_cache != nullptr)) {
-    return table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
+    bool pin_cached_filters =
+        GetLevel() == 0 &&
+        table_->rep_->table_options.pin_l0_filter_and_index_blocks_in_cache;
+    if (pin_cached_filters) {
+      auto iter = filter_cache.find(fltr_blk_handle.offset());
+      if (iter != filter_cache.end()) {
+        RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
+        *cached = true;
+        return {iter->second, nullptr};
+      }
+    }
+    auto filter =
+        table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
+    if (pin_cached_filters && filter.IsSet()) {
+      filter_cache[fltr_blk_handle.offset()] = filter.value;
+      handle_list.push_back(filter.cache_handle);
+      *cached = true;
+    }
+    return filter;
   } else {
     auto filter = table_->ReadFilter(fltr_blk_handle, is_a_filter_partition);
     return {filter, nullptr};
