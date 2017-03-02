@@ -89,6 +89,7 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
 };
 
 PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
+  ReadLock rl(&mu);
   for (auto it = handle_list.begin(); it != handle_list.end(); ++it) {
     table_->rep_->table_options.block_cache.get()->Release(*it);
   }
@@ -187,6 +188,7 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
         GetLevel() == 0 &&
         table_->rep_->table_options.pin_l0_filter_and_index_blocks_in_cache;
     if (pin_cached_filters) {
+      ReadLock rl(&mu);
       auto iter = filter_cache.find(fltr_blk_handle.offset());
       if (iter != filter_cache.end()) {
         RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
@@ -197,6 +199,7 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
     auto filter =
         table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
     if (pin_cached_filters && filter.IsSet()) {
+      WriteLock wl(&mu);
       filter_cache[fltr_blk_handle.offset()] = filter.value;
       handle_list.push_back(filter.cache_handle);
       *cached = true;

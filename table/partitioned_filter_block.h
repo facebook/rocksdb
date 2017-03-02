@@ -83,6 +83,7 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
       Slice* handle, const bool no_io, bool* cached);
   std::map<uint64_t, FilterBlockReader*> filter_cache;
   std::vector<Cache::Handle*> handle_list;
+  port::RWMutex mu;
 };
 
 }  // namespace rocksdb

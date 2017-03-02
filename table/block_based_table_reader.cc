@@ -753,7 +753,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         const bool is_a_filter_partition = true;
         rep->filter.reset(
             new_table->ReadFilter(rep->filter_handle, !is_a_filter_partition));
-        rep->filter->SetLevel(level);
+        if (rep->filter.get()) {
+          rep->filter->SetLevel(level);
+        }
       }
     } else {
       delete index_reader;
@@ -1232,23 +1234,29 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
   return iter;
 }
 
-// Convert an index iterator value (i.e., an encoded BlockHandle)
-// into an iterator over the contents of the corresponding block.
-// If input_iter is null, new a iterator
-// If input_iter is not null, update this iter and return it
 InternalIterator* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
     BlockIter* input_iter, bool is_index) {
-  PERF_TIMER_GUARD(new_table_block_iter_nanos);
-
-  const bool no_io = (ro.read_tier == kBlockCacheTier);
-  Cache* block_cache = rep->table_options.block_cache.get();
-  CachableEntry<Block> block;
   BlockHandle handle;
   Slice input = index_value;
   // We intentionally allow extra stuff in index_value so that we
   // can add more features in the future.
   Status s = handle.DecodeFrom(&input);
+  return NewDataBlockIterator(rep, ro, handle, input_iter, is_index, s);
+}
+
+// Convert an index iterator value (i.e., an encoded BlockHandle)
+// into an iterator over the contents of the corresponding block.
+// If input_iter is null, new a iterator
+// If input_iter is not null, update this iter and return it
+InternalIterator* BlockBasedTable::NewDataBlockIterator(
+    Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
+    BlockIter* input_iter, bool is_index, Status s) {
+  PERF_TIMER_GUARD(new_table_block_iter_nanos);
+
+  const bool no_io = (ro.read_tier == kBlockCacheTier);
+  Cache* block_cache = rep->table_options.block_cache.get();
+  CachableEntry<Block> block;
   Slice compression_dict;
   if (s.ok()) {
     if (rep->compression_dict_block) {
@@ -1373,9 +1381,22 @@ InternalIterator*
 BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
     const Slice& index_value) {
   // Return a block iterator on the index partition
-  auto iter = NewDataBlockIterator(table_->rep_, read_options_, index_value,
-                                   nullptr, is_index_);
+  BlockHandle handle;
+  Slice input = index_value;
+  Status s = handle.DecodeFrom(&input);
+  auto iter = NewDataBlockIterator(table_->rep_, read_options_, handle, nullptr,
+                                   is_index_, s);
   if (block_cache_cleaner_) {
+    uint64_t offset = handle.offset();
+    {
+      ReadLock rl(&cleaner_mu);
+      if (cleaner_set.find(offset) != cleaner_set.end()) {
+        // already have a refernce to the block cache objects
+        return iter;
+      }
+    }
+    WriteLock wl(&cleaner_mu);
+    cleaner_set.insert(offset);
     // Keep the data into cache until the cleaner cleansup
     iter->DelegateCleanupsTo(block_cache_cleaner_);
   }
