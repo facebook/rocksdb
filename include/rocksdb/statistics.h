@@ -216,6 +216,9 @@ enum Tickers : uint32_t {
   READ_AMP_ESTIMATE_USEFUL_BYTES,  // Estimate of total bytes actually used.
   READ_AMP_TOTAL_READ_BYTES,       // Total size of loaded data blocks.
 
+  // Number of refill intervals where rate limiter's bytes are fully consumed.
+  NUMBER_RATE_LIMITER_DRAINS,
+
   TICKER_ENUM_MAX
 };
 
@@ -318,6 +321,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {ROW_CACHE_MISS, "rocksdb.row.cache.miss"},
     {READ_AMP_ESTIMATE_USEFUL_BYTES, "rocksdb.read.amp.estimate.useful.bytes"},
     {READ_AMP_TOTAL_READ_BYTES, "rocksdb.read.amp.total.read.bytes"},
+    {NUMBER_RATE_LIMITER_DRAINS, "rocksdb.number.rate_limiter.drains"},
 };
 
 /**
