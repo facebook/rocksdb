@@ -490,12 +490,16 @@ DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
 DEFINE_int32(num_levels, 7, "The total number of levels");
 
-DEFINE_int64(target_file_size_base, 2 * 1048576, "Target file size at level-1");
+DEFINE_int64(target_file_size_base, rocksdb::Options().target_file_size_base,
+             "Target file size at level-1");
 
-DEFINE_int32(target_file_size_multiplier, 1,
+DEFINE_int32(target_file_size_multiplier,
+             rocksdb::Options().target_file_size_multiplier,
              "A multiplier to compute target level-N file size (N >= 2)");
 
-DEFINE_uint64(max_bytes_for_level_base,  10 * 1048576, "Max bytes for level-1");
+DEFINE_uint64(max_bytes_for_level_base,
+              rocksdb::Options().max_bytes_for_level_base,
+              "Max bytes for level-1");
 
 DEFINE_bool(level_compaction_dynamic_level_bytes, false,
             "Whether level size base is dynamic");
