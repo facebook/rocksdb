@@ -930,7 +930,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
     // Create file.
     {
       unique_ptr<WritableFile> wfile;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_writes) {
         soptions.use_direct_writes = false;
       }
@@ -946,7 +946,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<RandomAccessFile> file;
       auto scratch = NewAligned(kSectorSize, 0);
       Slice result;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_reads) {
         soptions.use_direct_reads = false;
       }
@@ -963,7 +963,7 @@ TEST_P(EnvPosixTestWithParam, InvalidateCache) {
       unique_ptr<SequentialFile> file;
       auto scratch = NewAligned(kSectorSize, 0);
       Slice result;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_reads) {
         soptions.use_direct_reads = false;
       }
@@ -1110,7 +1110,7 @@ TEST_P(EnvPosixTestWithParam, Preallocation) {
     unique_ptr<WritableFile> srcfile;
     EnvOptions soptions;
     soptions.use_direct_reads = soptions.use_direct_writes = directio;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
     if (soptions.use_direct_writes) {
       rocksdb::SyncPoint::GetInstance()->SetCallBack(
           "NewWritableFile:O_DIRECT", [&](void* arg) {
@@ -1174,7 +1174,7 @@ TEST_P(EnvPosixTestWithParam, ConsistentChildrenAttributes) {
       oss << test::TmpDir(env_) << "/testfile_" << i;
       const std::string path = oss.str();
       unique_ptr<WritableFile> file;
-#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS)
+#if !defined(OS_MACOSX) && !defined(OS_WIN) && !defined(OS_SOLARIS) && !defined(OS_AIX)
       if (soptions.use_direct_writes) {
         rocksdb::SyncPoint::GetInstance()->SetCallBack(
             "NewWritableFile:O_DIRECT", [&](void* arg) {
