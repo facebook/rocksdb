@@ -530,6 +530,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<CompactionStyle>(
           compaction_style_string_map, value,
           reinterpret_cast<CompactionStyle*>(opt_address));
+    case OptionType::kCompactionPri:
+      return ParseEnum<CompactionPri>(
+          compaction_pri_string_map, value,
+          reinterpret_cast<CompactionPri*>(opt_address));
     case OptionType::kCompressionType:
       return ParseEnum<CompressionType>(
           compression_type_string_map, value,
@@ -611,6 +615,10 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<CompactionStyle>(
           compaction_style_string_map,
           *(reinterpret_cast<const CompactionStyle*>(opt_address)), value);
+    case OptionType::kCompactionPri:
+      return SerializeEnum<CompactionPri>(
+          compaction_pri_string_map,
+          *(reinterpret_cast<const CompactionPri*>(opt_address)), value);
     case OptionType::kCompressionType:
       return SerializeEnum<CompressionType>(
           compression_type_string_map,
