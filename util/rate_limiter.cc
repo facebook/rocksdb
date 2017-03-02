@@ -10,6 +10,7 @@
 #include "util/rate_limiter.h"
 #include "port/port.h"
 #include "rocksdb/env.h"
+#include "util/statistics.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -70,7 +71,8 @@ void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
       std::memory_order_relaxed);
 }
 
-void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
+void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri,
+                                 Statistics* stats) {
   assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
   TEST_SYNC_POINT("GenericRateLimiter::Request");
   MutexLock g(&request_mutex_);
@@ -113,6 +115,7 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
         timedout = true;
       } else {
         int64_t wait_until = env_->NowMicros() + delta;
+        RecordTick(stats, NUMBER_RATE_LIMITER_DRAINS);
         timedout = r.cv.TimedWait(wait_until);
       }
     } else {

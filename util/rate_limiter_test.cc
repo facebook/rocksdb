@@ -55,9 +55,10 @@ TEST_F(RateLimiterTest, Rate) {
     while (thread_env->NowMicros() < until) {
       for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst) + 1); ++i) {
         arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
-                              Env::IO_HIGH);
+                              Env::IO_HIGH, nullptr /* stats */);
       }
-      arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1, Env::IO_LOW);
+      arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1, Env::IO_LOW,
+                            nullptr /* stats */);
     }
   };
 
@@ -110,7 +111,7 @@ TEST_F(RateLimiterTest, LimitChangeTest) {
 
   auto writer = [](void* p) {
     auto* arg = static_cast<Arg*>(p);
-    arg->limiter->Request(arg->request_size, arg->pri);
+    arg->limiter->Request(arg->request_size, arg->pri, nullptr /* stats */);
   };
 
   for (uint32_t i = 1; i <= 16; i <<= 1) {

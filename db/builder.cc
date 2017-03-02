@@ -112,7 +112,8 @@ Status BuildTable(
       }
       file->SetIOPriority(io_priority);
 
-      file_writer.reset(new WritableFileWriter(std::move(file), env_options));
+      file_writer.reset(new WritableFileWriter(std::move(file), env_options,
+                                               ioptions.statistics));
 
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
