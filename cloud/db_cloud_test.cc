@@ -49,7 +49,7 @@ class CloudTest : public testing::Test {
 				  options_.info_log,
 				  &aenv_));
     // delete all pre-existing contents from the bucket
-    ASSERT_OK(aenv_->EmptyBucket());
+    ASSERT_OK(aenv_->EmptyBucket(src_bucket_prefix_));
     delete aenv_;
     aenv_ = nullptr;
   }
@@ -68,8 +68,8 @@ class CloudTest : public testing::Test {
     ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
 			          src_bucket_prefix_,
 			          src_object_prefix_,
-			          dest_bucket_prefix_,
-			          dest_object_prefix_,
+			          src_bucket_prefix_,
+			          src_object_prefix_,
 		                  cloud_env_options_,
 				  options_.info_log,
 				  &aenv_));
@@ -96,14 +96,14 @@ class CloudTest : public testing::Test {
 
   // Creates and Opens a clone
   void CloneDB(const std::string& clone_name,
-	       std::unique_ptr<DBCloud>* cloud_db,
+	       std::unique_ptr<DB>* cloud_db,
 	       std::unique_ptr<CloudEnv>* cloud_env) {
 
     // The local directory where the clone resides
     std::string cname = test::TmpDir() + "/" + clone_name;
 
     CloudEnv* cenv;
-    DBCloud* clone_db;
+    DB* clone_db;
 
     // Create new AWS env
     ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
@@ -129,9 +129,9 @@ class CloudTest : public testing::Test {
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cfopt));
     std::vector<ColumnFamilyHandle*> handles;
 
-    ASSERT_OK(DBCloud::OpenClone(options_, dbid_, cname,
-			         column_families, &handles,
-			         &clone_db));
+    ASSERT_OK(DBCloud::Open(options_, cname,
+			    column_families, &handles,
+			    &clone_db));
     cloud_db->reset(clone_db);
 
     // Delete the handle for the default column family because the DBImpl
@@ -161,7 +161,7 @@ class CloudTest : public testing::Test {
   std::string dest_object_prefix_;
   CloudEnvOptions cloud_env_options_;
   std::string dbid_;
-  DBCloud* db_;
+  DB* db_;
   CloudEnv* aenv_;
 };
 
@@ -204,7 +204,7 @@ TEST_F(CloudTest, BasicClone) {
   {
     // Create and Open clone
     std::unique_ptr<CloudEnv> cloud_env;
-    std::unique_ptr<DBCloud> cloud_db;
+    std::unique_ptr<DB> cloud_db;
     CloneDB("clone1", &cloud_db, &cloud_env);
 
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
@@ -231,7 +231,7 @@ TEST_F(CloudTest, BasicClone) {
   {
     // Create another clone
     std::unique_ptr<CloudEnv> cloud_env;
-    std::unique_ptr<DBCloud> cloud_db;
+    std::unique_ptr<DB> cloud_db;
     CloneDB("clone2", &cloud_db, &cloud_env);
 
     // check that both the kvs appear in the clone
@@ -259,7 +259,7 @@ TEST_F(CloudTest, DbidRegistry) {
   // Assert that there is one db in the registry
   while (true) {
     DbidList dbs;
-    ASSERT_OK(aenv_->GetDbidList(&dbs));
+    ASSERT_OK(aenv_->GetDbidList(src_bucket_prefix_, &dbs));
     if (dbs.size() == 0) {
       break;
     }

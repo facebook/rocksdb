@@ -22,20 +22,28 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   virtual ~CloudEnvWrapper();
 
-  virtual Status EmptyBucket() {
+  virtual Status EmptyBucket(const std::string& bucket) {
+    return notsup_;
+  }
+  virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
+		   const std::string& fname, unique_ptr<SequentialFile>* result,
+		   const EnvOptions& options) {
     return notsup_;
   }
   virtual Status SaveDbid(const std::string& dbid,
 		          const std::string& dirname) {
     return notsup_;
   }
-  virtual Status GetPathForDbid(const std::string& dbid, std::string *dirname) {
+  virtual Status GetPathForDbid(const std::string& bucket_prefix,
+		                const std::string& dbid, std::string *dirname) {
     return notsup_;
   }
-  virtual Status GetDbidList(DbidList* dblist) {
+  virtual Status GetDbidList(const std::string& bucket_prefix,
+		             DbidList* dblist) {
     return notsup_;
   }
-  virtual Status DeleteDbid(const std::string& dbid) {
+  virtual Status DeleteDbid(const std::string& bucket_prefix,
+		            const std::string& dbid) {
     return notsup_;
   }
 

@@ -34,27 +34,23 @@ class DBCloudImpl : public DBCloud {
 
  private:
 
-  // Does the clone dir need to be re-initialized?
+  // Does the dir need to be re-initialized?
   static Status NeedsReinitialization(CloudEnv* cenv,
                                       const Options& options,
-                                      const std::string& src_dbid,
                                       const std::string& clone_dir,
                                       bool* do_reinit);
 
-  static Status SanitizeCloneDirectory(const Options& options,
-		                       const std::string& src_dbid,
-		                       const std::string& clone_name,
-		                       bool readonly);
+  static Status SanitizeDirectory(const Options& options,
+		                  const std::string& clone_name,
+		                  bool readonly);
 
-  // copies a file from one place to another
-  static Status CopyFile(Env* src_env,
+  // copies a file from the cloud
+  static Status CopyFile(CloudEnv* src_env,
 		         Env* dest_env,
+			 const std::string& bucket_prefix,
 			 const std::string& srcname,
 			 const std::string& destname,
-			 uint64_t size = 0,
 			 bool do_sync = true);
-	  
-
 };
 
 }

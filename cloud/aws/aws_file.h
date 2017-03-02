@@ -170,7 +170,9 @@ namespace rocksdb {
 class S3ReadableFile : virtual public SequentialFile,
                          virtual public RandomAccessFile {
  public:
-  S3ReadableFile(AwsEnv* env, const std::string& fname,
+  S3ReadableFile(AwsEnv* env,
+		 const std::string& bucket_prefix,
+		 const std::string& fname,
 		 bool is_file = true);
   virtual ~S3ReadableFile();
 
@@ -228,6 +230,7 @@ class S3WritableFile: public WritableFile {
 
   S3WritableFile(AwsEnv* env,
 		 const std::string& local_fname,
+		 const std::string& bucket_prefix,
 		 const std::string& cloud_fname,
 		 const EnvOptions& options,
 		 const CloudEnvOptions cloud_env_options);
@@ -259,6 +262,7 @@ class S3WritableFile: public WritableFile {
 			 const Aws::String& s3_bucket,
 		         const Aws::String& destination_object);
   static Status CopyFromS3(AwsEnv* env,
+		         const std::string& bucket_prefix,
 		         const std::string& source_object,
 			 const std::string& destination_pathname,
 			 uint64_t size = 0, // entire file

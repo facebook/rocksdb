@@ -56,20 +56,14 @@ class CloudEnvOptions {
   // Default:  1 minute
   uint64_t manifest_durable_periodicity_millis;
 
-  // If set, all operations are directly on the cloud storage.
-  // Default:  false
-  bool is_cloud_direct;
-
   CloudEnvOptions(CloudType _cloud_type = CloudType::kAws,
 		  bool _keep_local_sst_files = false,
 		  bool _keep_local_log_files = true,
-		  uint64_t _manifest_durable_periodicity_millis = 60 * 1000,
-		  bool _is_cloud_direct = false)
+		  uint64_t _manifest_durable_periodicity_millis = 60 * 1000)
     : cloud_type(_cloud_type),
       keep_local_sst_files(_keep_local_sst_files),
       keep_local_log_files(_keep_local_log_files),
-      manifest_durable_periodicity_millis(_manifest_durable_periodicity_millis),
-      is_cloud_direct(_is_cloud_direct) {
+      manifest_durable_periodicity_millis(_manifest_durable_periodicity_millis) {
 
         assert(manifest_durable_periodicity_millis == 0 ||
 	       keep_local_log_files == true);
@@ -84,34 +78,40 @@ typedef std::map<std::string, std::string> DbidList;
 class CloudEnv : public Env {
  public:
 
-  // Mark the db associated with this env as a clone
-  virtual Status SetClone(const std::string& src_dbid) = 0;
-  virtual void ClearClone() = 0;
-  virtual bool IsClone() = 0;
-
-  // Mark the env so that all requests are satisfied directly and
-  // only from cloud storage.
-  virtual void SetCloudDirect() = 0;
-  virtual void ClearCloudDirect() = 0;
-
   // Returns the underlying env
   virtual Env* GetBaseEnv() = 0;
 
   // Empties all contents of the associated cloud storage bucket.
-  virtual Status EmptyBucket() = 0;
+  virtual Status EmptyBucket(const std::string& bucket_prefix) = 0;
+
+  // Reads a file from the cloud
+  virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
+		  const std::string& fname,
+		  unique_ptr<SequentialFile>* result,
+		  const EnvOptions& options) = 0;
 
   // Saves and retrieves the dbid->dirname mapping in cloud storage
   virtual Status SaveDbid(const std::string& dbid,
 		          const std::string& dirname) = 0;
-  virtual Status GetPathForDbid(const std::string& dbid,
+  virtual Status GetPathForDbid(const std::string& bucket_prefix,
+		                const std::string& dbid,
 		                std::string *dirname) = 0;
-  virtual Status GetDbidList(DbidList* dblist) = 0;
-  virtual Status DeleteDbid(const std::string& dbid) = 0;
+  virtual Status GetDbidList(const std::string& bucket_prefix,
+		             DbidList* dblist) = 0;
+  virtual Status DeleteDbid(const std::string& bucket_prefix,
+		            const std::string& dbid) = 0;
 
-  // Returns the prefix of the bucket and the 
-  // object-path prefix for all objects inside the bucket.
+  // The SrcBucketPrefix identifies the cloud storage bucket and
+  // GetSrcObjectPrefix specifies the path inside that bucket
+  // where data files reside. The specified bucket is used in
+  // a readonly mode by the associated DBCloud instance.
   virtual const std::string& GetSrcBucketPrefix()  = 0;
   virtual const std::string& GetSrcObjectPrefix()  = 0;
+
+  // The DestBucketPrefix identifies the cloud storage bucket and
+  // GetDestObjectPrefix specifies the path inside that bucket
+  // where data files reside. The associated DBCloud instance
+  // writes newly created files to this bucket.
   virtual const std::string& GetDestBucketPrefix()  = 0;
   virtual const std::string& GetDestObjectPrefix() = 0;
 

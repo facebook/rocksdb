@@ -20,22 +20,8 @@ class CloudEnvImpl : public CloudEnv {
 
   virtual ~CloudEnvImpl();
 
-  // Ability to read a file directly from cloud storage
-  virtual Status NewSequentialFileCloud(const std::string& fname,
-		                        unique_ptr<SequentialFile>* result,
-					const EnvOptions& options) = 0;
   // Returns the cloud_type
   const CloudType& GetCloudType() { return cloud_type_; }
-
-  // Mark the db associated with this env as a clone
-  Status SetClone(const std::string& src_dbid);
-  void ClearClone() { is_clone_ = false; }
-  bool IsClone() { return is_clone_; }
-
-  // Mark the env so that all requests are satisfied directly and
-  // only from cloud storage.
-  void SetCloudDirect() { is_cloud_direct_ = true; }
-  void ClearCloudDirect() { is_cloud_direct_ = false; }
 
   // Returns the underlying env
   Env* GetBaseEnv() { return base_env_; }
@@ -43,13 +29,6 @@ class CloudEnvImpl : public CloudEnv {
  protected:
   // The type of cloud service aws google azure, etc
   CloudType cloud_type_;
-
-  // If set, all requests are satisfied directly from the cloud
-  bool is_cloud_direct_;
-
-  // If set, then sst files are fetched from either the dbdir or
-  // from src_dbid_.
-  bool is_clone_;
 
   // The dbid of the source database that is cloned
   std::string src_dbid_;

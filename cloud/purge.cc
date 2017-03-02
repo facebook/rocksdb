@@ -41,7 +41,7 @@ Status CloudEnvImpl::PurgeObsoleteFiles() {
 Status CloudEnvImpl::PurgeObsoleteDbid() {
   // fetch list of all registered dbids
   DbidList dbid_list;
-  Status st = GetDbidList(&dbid_list);
+  Status st = GetDbidList(GetDestBucketPrefix(), &dbid_list);
 
   // loop though all dbids. If the pathname does not exist in the bucket, then
   // delete this dbid from the registry.
@@ -50,14 +50,15 @@ Status CloudEnvImpl::PurgeObsoleteDbid() {
 
       std::unique_ptr<SequentialFile> result;
       std::string path = iter->second + "/MANIFEST";
-      st = NewSequentialFileCloud(path, &result, EnvOptions());
+      st = NewSequentialFileCloud(GetDestBucketPrefix(), path, &result,
+		                  EnvOptions());
       if (st.ok() || !st.IsNotFound()) {
         // data for this dbid possibly exists, leave it alone.
 	continue;
       }
       // this dbid can be cleaned up
 
-      st = DeleteDbid(iter->first);
+      st = DeleteDbid(GetDestBucketPrefix(), iter->first);
       Log(InfoLogLevel::WARN_LEVEL, info_log_,
           "[pg] dbid %s non-existent dbpath %s %s",  
           iter->first.c_str(), iter->second.c_str(),

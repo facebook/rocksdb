@@ -890,7 +890,7 @@ rocksdb::Env* CreateAwsEnv(const std::string& dbpath,
   rocksdb::Status st = rocksdb::AwsEnv::NewAwsEnv(rocksdb::Env::Default(),
 		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
 			 "", // src object prefix
-			 "", // destination bucket name
+		         "dbbench." + rocksdb::AwsEnv::GetTestBucketSuffix(),
 			 "", // destination object prefix
 		         coptions,
 			 std::move(info_log),

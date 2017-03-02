@@ -34,7 +34,15 @@ AwsEnv::AwsEnv(Env* underlying_env,
     src_object_prefix_(src_object_prefix),
     dest_bucket_prefix_(dest_bucket_prefix),
     dest_object_prefix_(dest_object_prefix),
-    running_(true) {
+    running_(true),
+    has_src_bucket_(false),
+    has_dest_bucket_(false),
+    has_two_unique_buckets_(false) {
+
+  src_bucket_prefix_ = trim(src_bucket_prefix_);
+  src_object_prefix_ = trim(src_object_prefix_);
+  dest_bucket_prefix_ = trim(dest_bucket_prefix_);
+  dest_object_prefix_ = trim(dest_object_prefix_);
 
   base_env_ = underlying_env;
   Aws::InitAPI(Aws::SDKOptions());
@@ -61,8 +69,24 @@ AwsEnv::AwsEnv(Env* underlying_env,
 
   s3client_ = std::make_shared<Aws::S3::S3Client>(creds, config);
 
-  create_bucket_status_ = S3WritableFile::CreateBucketInS3(
-		             s3client_, GetSrcBucketPrefix(), bucket_location_);
+  if (!GetSrcBucketPrefix().empty()) {
+    has_src_bucket_ = true;
+  }
+  if (!GetDestBucketPrefix().empty()) {
+    has_dest_bucket_ = true;
+  }
+
+  // Do we have two unique buckets?
+  if (has_src_bucket_ && has_dest_bucket_ &&
+      GetSrcBucketPrefix() != GetDestBucketPrefix()) {
+    has_two_unique_buckets_ = true;
+  }
+
+  // create dest bucket if specified
+  if (has_dest_bucket_ ) {
+    create_bucket_status_ = S3WritableFile::CreateBucketInS3(
+		             s3client_, GetDestBucketPrefix(), bucket_location_);
+  }
   if (!create_bucket_status_.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log,
         "[aws] NewAwsEnv Unable to  create bucket %s",
@@ -78,7 +102,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
     }
 
     // Create Kinesis stream and wait for it to be ready
-    if (create_bucket_status_.ok() && !is_clone_) {
+    if (create_bucket_status_.ok()) {
       create_bucket_status_ = KinesisSystem::CreateStream(
 		              this,
 		              info_log_,
@@ -91,7 +115,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
       }
     }
     // create tailer object
-    if (create_bucket_status_.ok() && is_clone_) {
+    if (create_bucket_status_.ok()) {
       create_bucket_status_ = CreateTailer();
     }
   }
@@ -167,66 +191,37 @@ void AwsEnv::GetFileType(const std::string& fname,
 }
 
 // Ability to read a file directly from cloud storage
-Status AwsEnv::NewSequentialFileCloud(const std::string& fname,
+Status AwsEnv::NewSequentialFileCloud(const std::string& bucket_prefix,
+		                      const std::string& fname,
                                       unique_ptr<SequentialFile>* result,
-                                      const EnvOptions& options) {
-  return NewSequentialFileInternal(fname, result, options, true);
+				      const EnvOptions& options) {
+  assert(status().ok());
+  *result = nullptr;
+
+  S3ReadableFile* f = new S3ReadableFile(this, bucket_prefix, fname);
+  Status st = f->status();
+  if (!st.ok()) {
+    delete f;
+  } else {
+    result->reset(dynamic_cast<SequentialFile*>(f));
+  }
+  return st;
 }
 
 // open a file for sequential reading
 Status AwsEnv::NewSequentialFile(const std::string& fname,
                              unique_ptr<SequentialFile>* result,
                              const EnvOptions& options) {
-  return NewSequentialFileInternal(fname, result, options, false);
-}
-
-// open a file for sequential reading
-Status AwsEnv::NewSequentialFileInternal(const std::string& fname,
-                             unique_ptr<SequentialFile>* result,
-                             const EnvOptions& options,
-			     bool is_cloud_direct) {
   assert(status().ok());
   *result = nullptr;
   Status st;
 
-  if (is_cloud_direct_ || is_cloud_direct) {
-    // If we are cloud_direct, then  read only from cloud
-    S3ReadableFile* f = new S3ReadableFile(this, fname);
-    st = f->status();
-    if (!st.ok()) {
-      delete f;
-    } else {
-      result->reset(dynamic_cast<SequentialFile*>(f));
-    }
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[aws] NewSequentialFile file %s %s",
-        fname.c_str(), st.ToString().c_str());
-    return st;
-
-  } else if (is_clone_) {
-    // If we are a clone, then we read first from local storage and then from
-    // cloud storage.
-    st = base_env_->NewSequentialFile(fname, result, options);
-    if (!st.ok()) {
-      // read from S3
-      S3ReadableFile* f = new S3ReadableFile(this, srcname(fname));
-      st = f->status();
-      if (!st.ok()) {
-        delete f;
-      } else {
-        result->reset(dynamic_cast<SequentialFile*>(f));
-      }
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[aws] NewSequentialFile file %s %s",
-          fname.c_str(), st.ToString().c_str());
-    }
-    return st;
-  }
-
   // Get file type
   bool logfile;
   bool sstfile;
-  GetFileType(fname, &sstfile, &logfile);
+  bool manifest;
+  bool identity;
+  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
 
   st = CheckOption(options);
   if (!st.ok()) {
@@ -235,21 +230,38 @@ Status AwsEnv::NewSequentialFileInternal(const std::string& fname,
         fname.c_str(), st.ToString().c_str());
     return st;
   }
-  if (sstfile && !cloud_env_options.keep_local_sst_files) {
-    // read from S3
-    S3ReadableFile* f = new S3ReadableFile(this, srcname(fname));
-    st = f->status();
+
+  if (sstfile || manifest || identity) {
+
+    // We read first from local storage and then from cloud storage.
+    st = base_env_->NewSequentialFile(fname, result, options);
+
     if (!st.ok()) {
-      delete f;
-    } else {
-      result->reset(dynamic_cast<SequentialFile*>(f));
+      S3ReadableFile* f = nullptr;
+      if (!st.ok() && has_dest_bucket_) {    // read from destination S3
+        f = new S3ReadableFile(this, GetDestBucketPrefix(),
+                 destname(fname));
+        st = f->status();
+      }
+      if (!st.ok() && has_src_bucket_) {    // read from src bucket
+        delete f;
+        f = new S3ReadableFile(this, GetSrcBucketPrefix(),
+		               srcname(fname));
+        st = f->status();
+      }
+      if (st.ok()) {
+        result->reset(dynamic_cast<SequentialFile*>(f));
+      } else {
+        delete f;
+      }
     }
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[s3] NewSequentialFile file %s %s",
-        fname.c_str(), st.ToString().c_str());
+          "[aws] NewSequentialFile file %s %s",
+          fname.c_str(), st.ToString().c_str());
     return st;
 
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
+
     // read from Kinesis
     assert(tailer_->status().ok());
 
@@ -264,11 +276,10 @@ Status AwsEnv::NewSequentialFileInternal(const std::string& fname,
                     return base_env_->NewSequentialFile(pathname, result, options);
                     };
     return KinesisSystem::Retry(this, lambda);
-  } else {
-    // This is neither a sst file or a log file. Read from default env.
-    return base_env_->NewSequentialFile(fname, result, options);
   }
-  return Status::OK();
+
+  // This is neither a sst file or a log file. Read from default env.
+  return base_env_->NewSequentialFile(fname, result, options);
 }
 
 // open a file for random reading
@@ -279,45 +290,12 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
   *result = nullptr;
   Status st;
 
-  if (is_cloud_direct_) {
-    // read only from cloud storage
-    S3ReadableFile* f = new S3ReadableFile(this, fname);
-    st = f->status();
-    if (!st.ok()) {
-      delete f;
-    } else {
-      result->reset(dynamic_cast<RandomAccessFile*>(f));
-    }
-
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[s3] NewRandomAccessFile file %s %s",
-        fname.c_str(), st.ToString().c_str());
-    return st;
-
-  } else if (is_clone_) {
-    // If we are a clone, then we read first from local storage and then from
-    // cloud storage.
-    st = base_env_->NewRandomAccessFile(fname, result, options);
-    if (!st.ok()) {
-      // read from S3
-      S3ReadableFile* f = new S3ReadableFile(this, srcname(fname));
-      st = f->status();
-      if (!st.ok()) {
-        delete f;
-      } else {
-        result->reset(dynamic_cast<RandomAccessFile*>(f));
-      }
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[s3] NewRandomAccessFile file %s %s",
-          fname.c_str(), st.ToString().c_str());
-    }
-    return st;
-  }
-
   // Get file type
   bool logfile;
   bool sstfile;
-  GetFileType(fname, &sstfile, &logfile);
+  bool manifest;
+  bool identity;
+  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
 
   // Validate options
   st = CheckOption(options);
@@ -327,19 +305,35 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
         fname.c_str(), st.ToString().c_str());
     return st;
   }
-  if (sstfile && !cloud_env_options.keep_local_sst_files) {
-    // read from S3
-    S3ReadableFile* f = new S3ReadableFile(this, srcname(fname));
-    st = f->status();
+
+  if (sstfile || manifest || identity) {
+
+    // Read from local storage and then from cloud storage.
+    st = base_env_->NewRandomAccessFile(fname, result, options);
+
     if (!st.ok()) {
-      delete f;
-    } else {
-      result->reset(dynamic_cast<RandomAccessFile*>(f));
+      S3ReadableFile* f = nullptr;
+      if (!st.ok() && has_dest_bucket_) {
+        // read from dest S3
+        f = new S3ReadableFile(this, GetDestBucketPrefix(), destname(fname));
+        st = f->status();
+      }
+      if (!st.ok() && has_src_bucket_) {
+        delete f;
+        f = new S3ReadableFile(this, GetSrcBucketPrefix(), srcname(fname));
+        st = f->status();
+      }
+      if (!st.ok()) {
+        delete f;
+      } else {
+        result->reset(dynamic_cast<RandomAccessFile*>(f));
+      }
     }
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
         "[s3] NewRandomAccessFile file %s %s",
         fname.c_str(), st.ToString().c_str());
     return st;
+
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
     assert(tailer_->status().ok());
@@ -355,11 +349,10 @@ Status AwsEnv::NewRandomAccessFile(const std::string& fname,
                     return base_env_->NewRandomAccessFile(pathname, result, options);
                     };
     return KinesisSystem::Retry(this, lambda);
-  } else {
-    // This is neither a sst file or a log file. Read from default env.
-    return base_env_->NewRandomAccessFile(fname, result, options);
   }
-  return Status::OK();
+
+  // This is neither a sst file or a log file. Read from default env.
+  return base_env_->NewRandomAccessFile(fname, result, options);
 }
 
 // create a new file for writing
@@ -367,29 +360,6 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
                                 unique_ptr<WritableFile>* result,
                                 const EnvOptions& options) {
   assert(status().ok());
-
-  if (is_clone_) {
-    // If we are a clone, then we write only to local storage
-    return base_env_->NewWritableFile(fname, result, options);
-  } else if (is_cloud_direct_) {
-    // write only to cloud
-    S3WritableFile* f = new S3WritableFile(this, fname, fname,
-		                           options, cloud_env_options);
-    if (f == nullptr || !f->status().ok()) {
-      *result = nullptr;
-      Status s =  Status::IOError("[aws] NewWritableFile", fname.c_str());
-      if (f) {
-        s = f->status();
-      }
-      delete f;
-      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[s3] NewWritableFile src %s %s",
-        fname.c_str(), s.ToString().c_str());
-      return s;
-    }
-    result->reset(dynamic_cast<WritableFile*>(f));
-    return Status::OK();
-  }
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] NewWritableFile src '%s'",
@@ -399,27 +369,26 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
   bool logfile;
   bool sstfile;
   bool manifest;
-  GetFileType(fname, &sstfile, &logfile, &manifest);
+  bool identity;
+  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
   result->reset();
+  Status s;
 
-  if ((sstfile && !cloud_env_options.keep_local_sst_files) ||
-      (manifest && cloud_env_options.manifest_durable_periodicity_millis > 0)) {
+  if (has_dest_bucket_ &&
+      (sstfile  || identity ||
+       (manifest && cloud_env_options.manifest_durable_periodicity_millis > 0))) {
 
     std::string cloud_file;
     if (manifest) {
-      cloud_file = srcname(dirname(fname)) + "/MANIFEST";
+      cloud_file = destname(dirname(fname)) + "/MANIFEST";
     } else {
-      cloud_file = srcname(fname);
+      cloud_file = destname(fname);
     }
 
-    S3WritableFile* f = new S3WritableFile(this, fname, cloud_file,
-		                           options, cloud_env_options);
-    if (f == nullptr || !f->status().ok()) {
-      *result = nullptr;
-      Status s =  Status::IOError("[aws] NewWritableFile", fname.c_str());
-      if (f) {
-        s = f->status();
-      }
+    S3WritableFile* f = new S3WritableFile(this, fname, GetDestBucketPrefix(),
+		                           cloud_file, options, cloud_env_options);
+    s = f->status();
+    if (!s.ok()) {
       delete f;
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[s3] NewWritableFile src %s %s",
@@ -427,12 +396,14 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
       return s;
     }
     result->reset(dynamic_cast<WritableFile*>(f));
+
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
+
     KinesisWritableFile* f = new KinesisWritableFile(this, fname, options);
     if (f == nullptr || !f->status().ok()) {
       delete f;
       *result = nullptr;
-      Status s =  Status::IOError("[aws] NewWritableFile", fname.c_str());
+      s =  Status::IOError("[aws] NewWritableFile", fname.c_str());
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[kinesis] NewWritableFile src %s %s",
         fname.c_str(), s.ToString().c_str());
@@ -440,12 +411,12 @@ Status AwsEnv::NewWritableFile(const std::string& fname,
     }
     result->reset(dynamic_cast<WritableFile*>(f));
   } else {
-    return base_env_->NewWritableFile(fname, result, options);
+    s = base_env_->NewWritableFile(fname, result, options);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] NewWritableFile src %s %s",
-      fname.c_str(), "ok");
-  return Status::OK();
+      fname.c_str(), s.ToString().c_str());
+  return s;
 }
 
 class S3Directory : public Directory {
@@ -482,25 +453,11 @@ class S3Directory : public Directory {
 Status AwsEnv::NewDirectory(const std::string& name,
                            unique_ptr<Directory>* result) {
   assert(status().ok());
+  result->reset(nullptr);
 
-  // If we are a clone, then we write only to local storage
-  if (is_clone_) {
-    return base_env_->NewDirectory(name, result);
-  }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] NewDirectory name '%s'",
       name.c_str());
-
-  result->reset(nullptr);
-  assert(!IsSstFile(name));
-
-  // Check if directory exists in S3
-  Status st = PathExistsInS3(srcname(name), false);
-  if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[aws] Directory %s does not exist",
-        name.c_str(), st.ToString().c_str());
-  }
 
   // create new object.
   S3Directory* d = new S3Directory(this, name);
@@ -533,25 +490,23 @@ Status AwsEnv::FileExists(const std::string& fname) {
   // Get file type
   bool logfile;
   bool sstfile;
-  GetFileType(fname, &sstfile, &logfile);
+  bool manifest;
+  bool identity;
+  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
 
-  //
-  // A clone instance can have the sst file either in local storage
-  // or in cloud storage
-  //
-  if (is_clone_ && sstfile) {
-    // If the file is already in local storage, then we are done.
+  if (sstfile || manifest || identity) {
+
+    // We read first from local storage and then from cloud storage.
     st = base_env_->FileExists(fname);
-    if (st.IsNotFound()) {
-      // Check to see if the file is in S3
-      st = PathExistsInS3(srcname(fname), true);
+    if (st.IsNotFound() && has_dest_bucket_) {
+      st = PathExistsInS3(destname(fname), GetDestBucketPrefix(), true);
     }
-    return st;
-  }
+    if (!st.ok() && has_src_bucket_) {
+      st = PathExistsInS3(srcname(fname), GetSrcBucketPrefix(), true);
+    }
 
-  if ((sstfile && !cloud_env_options.keep_local_sst_files) || is_cloud_direct_) {
-    st = PathExistsInS3(srcname(fname), true);
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
+
     // read from Kinesis
     assert(tailer_->status().ok());
 
@@ -579,7 +534,9 @@ Status AwsEnv::FileExists(const std::string& fname) {
 // Check if the specified pathname exists as a file or directory
 // in AWS-S3
 //
-Status AwsEnv::PathExistsInS3(const std::string& fname, bool isfile) {
+Status AwsEnv::PathExistsInS3(const std::string& fname,
+		              const std::string& bucket,
+			      bool isfile) {
   assert(status().ok());
 
   // We could have used Aws::S3::Model::ListObjectsRequest to find
@@ -589,42 +546,25 @@ Status AwsEnv::PathExistsInS3(const std::string& fname, bool isfile) {
   // 0 bytes from the object.
   unique_ptr<SequentialFile> fd;
   Slice result;
-  S3ReadableFile* f = new S3ReadableFile(this, fname, isfile);
+  S3ReadableFile* f = new S3ReadableFile(this, bucket, fname, isfile);
   fd.reset(f);
   Status ret = f->Read(0, &result, nullptr);
-  if (!ret.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[s3] PathExistsInS3 dir %s %s",
-        fname.c_str(), ret.ToString().c_str());
-    return ret;
-  }
-  // If keep_local_sst_files, then a local copy of the file should exist
-  // too. Print informational message if this situation occurs. It can occur
-  // if the database is restarted on a new machine and the original files
-  // are not available on the local storage.
-  if (cloud_env_options.keep_local_sst_files && isfile) {
-    Status st = base_env_->FileExists(fname);
-    if (!st.ok()) {
-      Log(InfoLogLevel::WARN_LEVEL, info_log_,
-          "[s3] FileExists path %s exists in S3 but does not "
-	  "exist locally. It will be served directly from S3. %s",
-          fname.c_str(), st.ToString().c_str());
-    }
-  }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[s3] FileExists path % exists",
-      fname.c_str());
-  return Status::OK();
+      "[s3] PathExistsInS3 path '%s' %s",
+      fname.c_str(), ret.ToString().c_str());
+  return ret;
 }
 
 //
-// Return the names of all children of the specified path from S3
+// Appends the names of all children of the specified path from S3
+// into the result set.
 //
 Status AwsEnv::GetChildrenFromS3(const std::string& path,
+		                 const std::string& bucket_prefix,
                                  std::vector<std::string>* result) {
   assert(status().ok());
   // The bucket name
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
+  Aws::String bucket = GetBucket(bucket_prefix);
 
   // the starting object marker
   Aws::String prefix = Aws::String(path.c_str(), path.size());
@@ -683,12 +623,12 @@ Status AwsEnv::GetChildrenFromS3(const std::string& path,
 //
 // Deletes all the objects in our bucket.
 //
-Status AwsEnv::EmptyBucket() {
+Status AwsEnv::EmptyBucket(const std::string& bucket_prefix) {
   std::vector<std::string> results;
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
+  Aws::String bucket = GetBucket(bucket_prefix);
 
   // Get all the objects in the  bucket
-  Status st = GetChildrenFromS3("", &results);
+  Status st = GetChildrenFromS3("", bucket_prefix, &results);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
         "[s3] EmptyBucket unable to find objects in bucket %s %s",
@@ -696,12 +636,12 @@ Status AwsEnv::EmptyBucket() {
     return st;
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-      "[s3] EmptyBucket fetched %d objects in bucket %s",
+      "[s3] EmptyBucket going to delete %d objects in bucket %s",
       results.size(), bucket.c_str());
 
   // Delete all objects from bucket
   for (auto path: results) {
-    st = DeletePathInS3(path);
+    st = DeletePathInS3(bucket_prefix, path);
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[s3] EmptyBucket Unable to delete %s in bucket %s %s",
@@ -720,19 +660,25 @@ Status AwsEnv::GetChildren(const std::string& path,
   assert(!IsSstFile(path));
   result->clear();
 
-  // fetch the list of children from S3
+  // Fetch the list of children from both buckets in S3
   Status st;
-  if (is_clone_) {
-    std::string map_path = dirname(src_dbdir_) + "/" + basename(path);
-    st = GetChildrenFromS3(srcname(path), result); // XXX
-  } else {
-    st = GetChildrenFromS3(srcname(path), result);
+  if (has_src_bucket_) {
+    st = GetChildrenFromS3(srcname(path), GetSrcBucketPrefix(), result);
+    if (!st.ok()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] GetChildren src bucket %s %s error from S3 %s",
+          GetSrcBucketPrefix().c_str(), path.c_str(), st.ToString().c_str());
+      return st;
+    }
   }
-  if (!st.ok()) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[s3] GetChildren %s error from S3 ",
-        path.c_str());
-    return st;
+  if (has_dest_bucket_ && two_unique_buckets()) {
+    st = GetChildrenFromS3(srcname(path), GetDestBucketPrefix(), result);
+    if (!st.ok()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] GetChildren dest bucket %s %s error from S3 %s",
+          GetDestBucketPrefix().c_str(), path.c_str(), st.ToString().c_str());
+      return st;
+    }
   }
 
   // fetch all files that exist in the local posix directory
@@ -745,15 +691,8 @@ Status AwsEnv::GetChildren(const std::string& path,
     return st;
   }
 
-  // Append the local list with the result set. Do not append
-  // any sst files from the local list, the reason being that if an
-  // sst file exists locally but not in S3, then it is as good as
-  // if it does not exist at all (for db durability reasons).
-  //
   for (auto const& value: local_files) {
-    if (!IsSstFile(value) || is_clone_) {
-      result->push_back(value);
-    }
+    result->push_back(value);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] GetChildren %s successfully returned %d files",
@@ -771,20 +710,23 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
   // Get file type
   bool logfile;
   bool sstfile;
-  GetFileType(fname, &sstfile, &logfile);
+  bool manifest;
+  bool identity;
+  GetFileType(fname, &sstfile, &logfile, &manifest, &identity);
 
-  if (is_cloud_direct_) {
-    return DeletePathInS3(fname);
-  } else if (is_clone_ && sstfile) {
-    return base_env_->DeleteFile(fname);
-  }
+  // Delete from destination bucket and local dir
+  if (has_dest_bucket_ && (sstfile || manifest || identity)) {
 
-  if (sstfile && !cloud_env_options.keep_local_sst_files) {
-    // Delete from S3 and local file system
-    st = DeletePathInS3(srcname(fname));
-    if (st.ok() && cloud_env_options.keep_local_sst_files) {
-      st = base_env_->DeleteFile(fname);
+    st = DeletePathInS3(GetDestBucketPrefix(), destname(fname));
+    if (!st.ok() && !st.IsNotFound()) {
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] DeleteFile file %s error %s",
+          fname.c_str(), st.ToString().c_str());
+      return st;
     }
+    // delete from local
+    st = base_env_->DeleteFile(fname);
+
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     // read from Kinesis
     assert(tailer_->status().ok());
@@ -810,9 +752,10 @@ Status AwsEnv::DeleteFile(const std::string& fname) {
 //
 // Delete the specified path from S3
 //
-Status AwsEnv::DeletePathInS3(const std::string& fname) {
+Status AwsEnv::DeletePathInS3(const std::string& bucket_prefix,
+		              const std::string& fname) {
   assert(status().ok());
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
+  Aws::String bucket = GetBucket(bucket_prefix);
 
   // The filename is the same as the object name in the bucket
   Aws::String object = Aws::String(fname.c_str(), fname.size());
@@ -833,8 +776,8 @@ Status AwsEnv::DeletePathInS3(const std::string& fname) {
         s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
 	s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[s3] S3WritableFile error in deleting not-existent %s %",
-          fname.c_str(), errmsg.c_str());
+          "[s3] S3WritableFile bucket %s error in deleting non-existent %s %",
+          bucket.c_str(), fname.c_str(), errmsg.c_str());
       return Status::NotFound(fname, errmsg.c_str());
     }
     return Status::IOError(fname, errmsg.c_str());
@@ -844,47 +787,42 @@ Status AwsEnv::DeletePathInS3(const std::string& fname) {
 
 //
 // Create a new directory.
-// Create a new entry in AWS and create a directory in the
-// local posix env.
+// Create a new entry in the destination bucket and create a
+// directory in the local posix env.
 //
 Status AwsEnv::CreateDir(const std::string& dirname) {
   assert(status().ok());
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] CreateDir dir '%s'",
       dirname.c_str());
-  assert(!IsSstFile(dirname));
-
-  if (is_clone_) {
-    return base_env_->CreateDir(dirname);
-  }
-
-  // Get bucket name
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
-
-  std::string dname = srcname(dirname);
-  Aws::String object = Aws::String(dname.c_str(), dname.size());
-
-  // create an empty object
-  Aws::S3::Model::PutObjectRequest put_request;
-  put_request.SetBucket(bucket);
-  put_request.SetKey(object);
-  Aws::S3::Model::PutObjectOutcome put_outcome =
-	    s3client_->PutObject(put_request);
-  bool isSuccess = put_outcome.IsSuccess();
-  if (!isSuccess) {
-    const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
-	      put_outcome.GetError();
-    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[s3] CreateDir error in creating dir %s %s\n",
-        dirname.c_str(), errmsg.c_str());
-    return Status::IOError(dirname, errmsg.c_str());
-  }
-  // create the same directory in the posix filesystem as well
   Status st;
-  if (!is_cloud_direct_) {
-    st =  base_env_->CreateDir(dirname);
+
+  if (has_dest_bucket_) {
+
+    // Get bucket name
+    Aws::String bucket = GetBucket(GetDestBucketPrefix());
+    std::string dname = destname(dirname);
+    Aws::String object = Aws::String(dname.c_str(), dname.size());
+
+    // create an empty object
+    Aws::S3::Model::PutObjectRequest put_request;
+    put_request.SetBucket(bucket);
+    put_request.SetKey(object);
+    Aws::S3::Model::PutObjectOutcome put_outcome =
+	    s3client_->PutObject(put_request);
+    bool isSuccess = put_outcome.IsSuccess();
+    if (!isSuccess) {
+      const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
+	      put_outcome.GetError();
+      std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] CreateDir bucket %s error in creating dir %s %s\n",
+          bucket.c_str(), dirname.c_str(), errmsg.c_str());
+      return Status::IOError(dirname, errmsg.c_str());
+    }
   }
+  // create local dir as well.
+  st = base_env_->CreateDir(dirname);
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] CreateDir dir %s %s",
@@ -901,35 +839,34 @@ Status AwsEnv::CreateDirIfMissing(const std::string& dirname) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] CreateDirIfMissing dir '%s'",
        dirname.c_str());
-  if (is_clone_) {
-    return base_env_->CreateDirIfMissing(dirname);
-  }
+  Status st;
 
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
-  std::string dname = srcname(dirname);
-  Aws::String object = Aws::String(dname.c_str(), dname.size());
+  if (has_dest_bucket_) {
 
-  // create request
-  Aws::S3::Model::PutObjectRequest put_request;
-  put_request.SetBucket(bucket);
-  put_request.SetKey(object);
-  Aws::S3::Model::PutObjectOutcome put_outcome =
+    // Get bucket name
+    Aws::String bucket = GetBucket(GetDestBucketPrefix());
+    std::string dname = destname(dirname);
+    Aws::String object = Aws::String(dname.c_str(), dname.size());
+
+    // create request
+    Aws::S3::Model::PutObjectRequest put_request;
+    put_request.SetBucket(bucket);
+    put_request.SetKey(object);
+    Aws::S3::Model::PutObjectOutcome put_outcome =
 	    s3client_->PutObject(put_request);
-  bool isSuccess = put_outcome.IsSuccess();
-  if (!isSuccess) {
-    const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
+    bool isSuccess = put_outcome.IsSuccess();
+    if (!isSuccess) {
+      const Aws::Client::AWSError<Aws::S3::S3Errors>& error =
 	      put_outcome.GetError();
-    std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[s3] CreateDirIfMissing error in creating bucket %s %s",
-        bucket.c_str(), errmsg.c_str());
-    return Status::IOError(dirname, errmsg.c_str());
+      std::string errmsg(error.GetMessage().c_str(), error.GetMessage().size());
+      Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+          "[s3] CreateDirIfMissing error in creating bucket %s %s",
+          bucket.c_str(), errmsg.c_str());
+      return Status::IOError(dirname, errmsg.c_str());
+    }
   }
   // create the same directory in the posix filesystem as well
-  Status st;
-  if (!is_cloud_direct_) {
-    st = base_env_->CreateDirIfMissing(dirname);
-  }
+  st = base_env_->CreateDirIfMissing(dirname);
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] CreateDirIfMissing created dir %s %s",
@@ -943,31 +880,31 @@ Status AwsEnv::DeleteDir(const std::string& dirname) {
       "[s3] DeleteDir src '%s'",
       dirname.c_str());
   assert(!IsSstFile(dirname));
+  Status st;
 
-  if (is_clone_) {
-    return base_env_->DeleteDir(dirname);
-  }
+  if (has_dest_bucket_) {
 
-  // Verify that the S3 directory has no children
-  std::vector<std::string> results;
-  Status st = GetChildrenFromS3(srcname(dirname), &results);
-  if (st.ok() && results.size() != 0) {
-    Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-        "[s3] DeleteDir error in deleting nonempty dir %s with %d entries",
-        dirname.c_str(), results.size());
-    for (auto name: results) {
+    // Verify that the S3 directory has no children
+    std::vector<std::string> results;
+    st = GetChildrenFromS3(destname(dirname), GetDestBucketPrefix(),
+		           &results);
+    if (st.ok() && results.size() != 0) {
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[s3] DeleteDir entry %s", name.c_str());
+          "[s3] DeleteDir error in deleting nonempty dir %s with %d entries",
+          dirname.c_str(), results.size());
+      for (auto name: results) {
+        Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+            "[s3] DeleteDir entry %s", name.c_str());
+      }
+      return Status::IOError("[s3] DeleteDir error in deleting nonempty dir",
+                             dirname);
     }
-    return Status::IOError("[s3] DeleteDir error in deleting nonempty dir",
-		           dirname);
+    // Delete directory from S3
+    st = DeletePathInS3(GetDestBucketPrefix(), destname(dirname));
   }
-
-  // Delete directory from S3
-  st = DeletePathInS3(srcname(dirname));
 
   // delete the same directory in the posix filesystem as well
-  if (st.ok() && !is_cloud_direct_) {
+  if (st.ok()) {
     st = base_env_->DeleteDir(dirname);
   }
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
@@ -989,34 +926,21 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
   bool sstfile;
   GetFileType(fname, &sstfile, &logfile);
 
-  if (is_cloud_direct_) {
-    return GetFileInfoInS3(fname, size, nullptr);
-  } else if (is_clone_) {
-    Status ret = base_env_->GetFileSize(fname, size);
-    if (!ret.ok()) {
-      ret = GetFileInfoInS3(srcname(fname), size, nullptr);
-    }
-    return ret;
-  }
-
   if (sstfile) {
     // Get file length from S3
-    st = GetFileInfoInS3(srcname(fname), size, nullptr);
-
-    if (st.ok() && cloud_env_options.keep_local_sst_files) {
-      // Sanity check with local copy of sst file
-      uint64_t local_size;
-      Status ret = base_env_->GetFileSize(fname, &local_size);
-      if (!ret.ok()) {
-        Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-            "[aws] GetFileSize file %s exists in S3 but does not exist locally",
-            fname.c_str());
-      } else if (local_size != *size) {
-        Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-            "[aws] GetFileSize file %s size on S3 %d but local size %ld",
-            fname.c_str(), *size, local_size);
-      }
+    st = Status::NotFound();
+    if (has_dest_bucket_) {
+      st = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname),
+		           size, nullptr);
     }
+    if (st.IsNotFound() && has_src_bucket_) {
+      st = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname),
+                           size, nullptr);
+    }
+    if (st.IsNotFound()) {
+      st = base_env_->GetFileSize(fname, size);
+    }
+
   } else if (logfile && !cloud_env_options.keep_local_log_files) {
     assert(tailer_->status().ok());
 
@@ -1044,9 +968,9 @@ Status AwsEnv::GetFileSize(const std::string& fname, uint64_t* size) {
 // Check if the specified pathname exists as a file or directory
 // in AWS-S3
 //
-
-Status AwsEnv::GetFileInfoInS3(const std::string& fname, uint64_t* size,
-		               uint64_t *modtime) {
+Status AwsEnv::GetFileInfoInS3(const std::string& bucket_prefix,
+		               const std::string& fname,
+			       uint64_t* size, uint64_t *modtime) {
   if (size) {
     *size = 0L;
   }
@@ -1064,7 +988,7 @@ Status AwsEnv::GetFileInfoInS3(const std::string& fname, uint64_t* size,
   // 0 bytes from the object.
   unique_ptr<SequentialFile> fd;
   Slice result;
-  S3ReadableFile* f = new S3ReadableFile(this, fname);
+  S3ReadableFile* f = new S3ReadableFile(this, bucket_prefix, fname);
   fd.reset(f);
   Status ret = f->Read(0, &result, nullptr);
   if (!ret.ok()) {
@@ -1095,32 +1019,24 @@ Status AwsEnv::GetFileModificationTime(const std::string& fname,
   bool sstfile;
   GetFileType(fname, &sstfile, &logfile);
 
-  if (is_cloud_direct_) {
-   return GetFileInfoInS3(fname, nullptr, time);
-  } else if (is_clone_ && sstfile) {
-    st = base_env_->GetFileModificationTime(fname, time);
-    if (st.IsNotFound()) {
-      st = GetFileInfoInS3(srcname(fname), nullptr, time);
-    }
-    return st;
-  }
-
   if (sstfile) {
     // Get file length from S3
-    st = GetFileInfoInS3(srcname(fname), nullptr, time);
-
-    if (st.ok() && cloud_env_options.keep_local_sst_files) {
-      // Sanity check with local copy of sst file
-      Status ret = base_env_->FileExists(fname);
-      if (!ret.ok()) {
-        Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-            "[s3] GetFileModificationTime file %s exists in S3 but does not exist locally",
-            fname.c_str());
-      }
+    st = Status::NotFound();
+    if (has_dest_bucket_) {
+      st = GetFileInfoInS3(GetDestBucketPrefix(), destname(fname),
+		           nullptr, time);
     }
-  } else if (logfile && !cloud_env_options.keep_local_log_files) {
-    assert(tailer_->status().ok());
+    if (st.IsNotFound() && has_src_bucket_) {
+      st = GetFileInfoInS3(GetSrcBucketPrefix(), srcname(fname),
+		           nullptr, time);
+    }
+    if (st.IsNotFound()) {
+      st = base_env_->FileExists(fname);
+    }
 
+  } else if (logfile && !cloud_env_options.keep_local_log_files) {
+
+    assert(tailer_->status().ok());
     // map  pathname to cache dir
     std::string pathname = KinesisSystem::GetCachePath(
 		             tailer_->GetCacheDir(), Slice(fname));
@@ -1132,9 +1048,13 @@ Status AwsEnv::GetFileModificationTime(const std::string& fname,
                     return base_env_->GetFileModificationTime(pathname, time);
                     };
     st = KinesisSystem::Retry(this, lambda);
+
   } else {
     st = base_env_->GetFileModificationTime(fname, time);
   }
+  Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
+      "[aws] GetFileModificationTime src '%s' %s",
+      fname.c_str(), st.ToString().c_str());
   return st;
 }
 
@@ -1145,11 +1065,6 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[aws] RenameFile src '%s' target '%s'",
       src.c_str(), target.c_str());
-
-  // If cloud storage is not to be used.
-  if (cloud_env_options.keep_local_sst_files) {
-    return base_env_->RenameFile(src, target);
-  }
 
   // Get file type of target
   bool logfile;
@@ -1184,15 +1099,16 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
     assert(0);
     return Status::NotSupported(Slice(src), Slice(target));
 
-  } else if (!idfile || is_clone_) {
+  } else if (!idfile || !has_dest_bucket_) {
     return base_env_->RenameFile(src, target);
   }
   // Only ID file should come here
   assert(idfile);
+  assert(has_dest_bucket_);
   assert(basename(target) == "IDENTITY");
 
   // Save Identity to S3
-  Status st = SaveIdentitytoS3(src, srcname(target));
+  Status st = SaveIdentitytoS3(src, destname(target));
 
   // Do the rename on local filesystem too
   if (st.ok()) {
@@ -1210,7 +1126,7 @@ Status AwsEnv::RenameFile(const std::string& src, const std::string& target) {
 Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
                                 const std::string& idfile) {
   assert(basename(idfile) == "IDENTITY");
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
+  Aws::String bucket = GetBucket(GetDestBucketPrefix());
 
   // Read id into string
   std::string dbid;
@@ -1220,7 +1136,7 @@ Status AwsEnv::SaveIdentitytoS3(const std::string& localfile,
   // Upload ID file to  S3
   if (st.ok()) {
     Aws::String target(idfile.c_str(), idfile.size());
-    st = S3WritableFile::CopyToS3(this, localfile, bucket,  target);
+    st = S3WritableFile::CopyToS3(this, localfile, bucket, target);
   }
 
   // Save mapping from ID to dirname
@@ -1242,7 +1158,7 @@ Status AwsEnv::SaveDbid(const std::string& dbid,
        dbid.c_str(), dirname.c_str());
 
   std::string dbidkey = dbid_registry_ + dbid;
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
+  Aws::String bucket = GetBucket(GetDestBucketPrefix());
   Aws::String key = Aws::String(dbidkey.c_str(), dbidkey.size());
 
   std::string dirname_tag = "dirname";
@@ -1278,10 +1194,11 @@ Status AwsEnv::SaveDbid(const std::string& dbid,
 //
 // Given a dbid, retrieves its pathname.
 //
-Status AwsEnv::GetPathForDbid(const std::string& dbid,
+Status AwsEnv::GetPathForDbid(const std::string& bucket_prefix,
+		              const std::string& dbid,
 		              std::string *dirname) {
   std::string dbidkey = dbid_registry_ + dbid;
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
+  Aws::String bucket = GetBucket(bucket_prefix);
   Aws::String key = Aws::String(dbidkey.c_str(), dbidkey.size());
 
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
@@ -1306,7 +1223,7 @@ Status AwsEnv::GetPathForDbid(const std::string& dbid,
         s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND ||
 	errmsg.find("Response code: 404") != std::string::npos) {
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
-          "[s3] %s GetPathForDbid error not-existent dbid %s %s",
+          "[s3] %s GetPathForDbid error non-existent dbid %s %s",
           bucket.c_str(), dbid.c_str(), errmsg.c_str());
       return Status::NotFound(dbid, errmsg.c_str());
     }
@@ -1338,12 +1255,13 @@ Status AwsEnv::GetPathForDbid(const std::string& dbid,
 //
 // Retrieves the list of all registered dbids and their paths
 //
-Status AwsEnv::GetDbidList(DbidList* dblist) {
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
+Status AwsEnv::GetDbidList(const std::string& bucket_prefix,
+		           DbidList* dblist) {
+  Aws::String bucket = GetBucket(bucket_prefix);
 
   // fetch the list all all dbids
   std::vector<std::string> dbid_list;
-  Status st = GetChildrenFromS3(dbid_registry_, &dbid_list);
+  Status st = GetChildrenFromS3(dbid_registry_, bucket_prefix, &dbid_list);
   if (!st.ok()) {
     Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
         "[s3] %s GetDbidList error in GetChildrenFromS3 %s",
@@ -1353,7 +1271,7 @@ Status AwsEnv::GetDbidList(DbidList* dblist) {
   // for each dbid, fetch the db directory where the db data should reside
   for (auto dbid: dbid_list) {
     std::string dirname;
-    st = GetPathForDbid(dbid, &dirname);
+    st = GetPathForDbid(bucket_prefix, dbid, &dirname);
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
           "[s3] %s GetDbidList error in GetPathForDbid(%s) %s",
@@ -1369,12 +1287,13 @@ Status AwsEnv::GetDbidList(DbidList* dblist) {
 //
 // Deletes the specified dbid from the registry
 //
-Status AwsEnv::DeleteDbid(const std::string& dbid) {
-  Aws::String bucket = GetBucket(GetSrcBucketPrefix());
+Status AwsEnv::DeleteDbid(const std::string& bucket_prefix,
+		          const std::string& dbid) {
+  Aws::String bucket = GetBucket(bucket_prefix);
 
   // fetch the list all all dbids
   std::string dbidkey = dbid_registry_ + dbid;
-  Status st = DeletePathInS3(dbidkey);
+  Status st = DeletePathInS3(bucket_prefix, dbidkey);
   Log(InfoLogLevel::DEBUG_LEVEL, info_log_,
       "[s3] %s DeleteDbid DeleteDbid(%s) %s",
       bucket.c_str(), dbid.c_str(), st.ToString().c_str());
@@ -1382,11 +1301,19 @@ Status AwsEnv::DeleteDbid(const std::string& dbid) {
 }
 
 //
-// prepends the configured object path name 
+// prepends the configured src object path name
 //
 std::string AwsEnv::srcname(const std::string& localname) {
   assert(!src_bucket_prefix_.empty());
   return src_object_prefix_ + "/" + basename(localname);
+}
+
+//
+// prepends the configured dest object path name
+//
+std::string AwsEnv::destname(const std::string& localname) {
+  assert(!dest_bucket_prefix_.empty());
+  return dest_object_prefix_ + "/" + basename(localname);
 }
 
 

@@ -69,7 +69,7 @@ DBTestBase::DBTestBase(const std::string path)
     st = AwsEnv::NewAwsEnv(Env::Default(),
 		           "dbtest." + AwsEnv::GetTestBucketSuffix(),
 			   "", // src object prefix
-			   "", // destination bucket name prefix
+		           "dbtest." + AwsEnv::GetTestBucketSuffix(),
 			   "", // src object prefix
 			   coptions,
 			   info_log,

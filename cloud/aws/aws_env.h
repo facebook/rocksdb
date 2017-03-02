@@ -74,7 +74,8 @@ class AwsEnv : public CloudEnvImpl {
                                    std::unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override;
 
-  virtual Status NewSequentialFileCloud(const std::string& fname,
+  virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
+		                   const std::string& fname,
                                    std::unique_ptr<SequentialFile>* result,
                                    const EnvOptions& options) override;
 
@@ -186,7 +187,7 @@ class AwsEnv : public CloudEnvImpl {
     return AwsEnv::gettid();
   }
 
-  virtual Status EmptyBucket() override;
+  virtual Status EmptyBucket(const std::string& bucket_prefix) override;
 
   // get the posix env
   Env* GetPosixEnv() const { return base_env_; }
@@ -229,10 +230,13 @@ class AwsEnv : public CloudEnvImpl {
   // Saves and retrieves the dbid->dirname mapping in S3
   Status SaveDbid(const std::string& dbid,
 		  const std::string& dirname) override;
-  Status GetPathForDbid(const std::string& dbid,
+  Status GetPathForDbid(const std::string& bucket_prefix,
+		        const std::string& dbid,
 		        std::string *dirname) override;
-  Status GetDbidList(DbidList* dblist) override;
-  Status DeleteDbid(const std::string& dbid) override;
+  Status GetDbidList(const std::string& bucket_prefix,
+		     DbidList* dblist) override;
+  Status DeleteDbid(const std::string& bucket_prefix,
+		    const std::string& dbid) override;
 
  private:
   //
@@ -250,15 +254,10 @@ class AwsEnv : public CloudEnvImpl {
   // The pathname that contains a list of all db's inside a bucket.
   static constexpr const char* dbid_registry_ = "/.rockset/dbid/";
 
-  Status NewSequentialFileInternal(const std::string& fname,
-		                   unique_ptr<SequentialFile>* result,
-		                   const EnvOptions& options,
-                                   bool is_cloud_direct);
-
-  const std::string src_bucket_prefix_;
-  const std::string src_object_prefix_;
-  const std::string dest_bucket_prefix_;
-  const std::string dest_object_prefix_;
+  std::string src_bucket_prefix_;
+  std::string src_object_prefix_;
+  std::string dest_bucket_prefix_;
+  std::string dest_object_prefix_;
 
   Status create_bucket_status_;
 
@@ -270,16 +269,28 @@ class AwsEnv : public CloudEnvImpl {
 
   Aws::S3::Model::BucketLocationConstraint bucket_location_;
 
+  // Is there a src bucket specified?
+  bool has_src_bucket_;
+
+  // Is there a dest bucket specified?
+  bool has_dest_bucket_;
+
+  // Is the src bucket different from the destination bucket?
+  bool has_two_unique_buckets_;
+
   Status status();
 
   // Check if the specified pathname exists
-  Status PathExistsInS3(const std::string& fname, bool isfile);
+  Status PathExistsInS3(const std::string& fname,
+		        const std::string& bucket_prefix, bool isfile);
 
   // Delete the specified path from S3
-  Status DeletePathInS3(const std::string& fname);
+  Status DeletePathInS3(const std::string& bucket_prefix,
+		        const std::string& fname);
 
   // Get size and modtime of file in S3
-  Status GetFileInfoInS3(const std::string& fname, uint64_t* size,
+  Status GetFileInfoInS3(const std::string& bucket_prefix,
+		         const std::string& fname, uint64_t* size,
 		         uint64_t* modtime);
 
   // Validate options
@@ -297,6 +308,7 @@ class AwsEnv : public CloudEnvImpl {
 
   // Return the list of children of the specified path
   Status GetChildrenFromS3(const std::string& path,
+		           const std::string& bucket_prefix,
 		           std::vector<std::string>* result);
 
   // Save IDENTITY file to S3. Update dbid registry.
@@ -305,6 +317,12 @@ class AwsEnv : public CloudEnvImpl {
 
   // Converts a local pathname to an object name in the src bucket
   std::string srcname(const std::string& localname);
+
+  // Converts a local pathname to an object name in the dest bucket
+  std::string destname(const std::string& localname);
+
+  // Is the src bucket different from dest bucket?
+  bool two_unique_buckets() const { return has_two_unique_buckets_; }
 };
 
 }  // namespace rocksdb
@@ -446,7 +464,7 @@ class AwsEnv : public CloudEnvImpl {
     return 0;
   }
 
-  virtual Status EmptyBucket() {
+  virtual Status EmptyBucket(const std::string& bucket_prefix) {
       return s3_notsup;
   }
 
@@ -455,14 +473,17 @@ class AwsEnv : public CloudEnvImpl {
       return s3_notsup;
   }
 
-  virtual Status GetPathForDbid(const std::string& dbid,
+  virtual Status GetPathForDbid(const std::string& bucket_prefix,
+		                const std::string& dbid,
 		                std::string *dirname) override {
       return s3_notsup;
   }
-  virtual Status GetDbidList(DbidList* dblist) override {
+  virtual Status GetDbidList(const std::string& bucket_prefix,
+		             DbidList* dblist) override {
       return s3_notsup;
   }
-  virtual Status DeleteDbid(const std::string& dbid) override {
+  virtual Status DeleteDbid(const std::string& bucket_prefix,
+		            const std::string& dbid) override {
       return s3_notsup;
   }
 

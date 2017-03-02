@@ -19,7 +19,9 @@ namespace rocksdb {
 
 /******************** Readablefile ******************/
 
-S3ReadableFile::S3ReadableFile(AwsEnv* env, const std::string& fname,
+S3ReadableFile::S3ReadableFile(AwsEnv* env,
+		               const std::string& bucket_prefix,
+		               const std::string& fname,
 		               bool is_file)
       : env_(env), fname_(fname), offset_(0), file_size_(0),
 	last_mod_time_(0), is_file_(is_file) {
@@ -28,7 +30,7 @@ S3ReadableFile::S3ReadableFile(AwsEnv* env, const std::string& fname,
         fname_.c_str());
     assert(!is_file_ || IsSstFile(fname) || IsManifestFile(fname) ||
            IsIdentityFile(fname));
-    s3_bucket_ = GetBucket(env_->GetSrcBucketPrefix());
+    s3_bucket_ = GetBucket(bucket_prefix);
     s3_object_ = Aws::String(fname_.c_str(), fname_.size());
 
     // fetch file size from S3
@@ -242,6 +244,7 @@ Status S3WritableFile::CreateBucketInS3(std::shared_ptr<Aws::S3::S3Client> clien
 
 S3WritableFile::S3WritableFile(AwsEnv* env,
 		 const std::string& local_fname,
+		 const std::string& bucket_prefix,
 		 const std::string& cloud_fname,
 		 const EnvOptions& options,
 		 const CloudEnvOptions cloud_env_options)
@@ -251,13 +254,16 @@ S3WritableFile::S3WritableFile(AwsEnv* env,
 	  cloud_env_options.manifest_durable_periodicity_millis),
         manifest_last_sync_time_(0) {
 
-    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-        "[s3] S3WritableFile opened file %s",
-	fname_.c_str());
     assert(IsSstFile(fname_) || IsManifestFile(fname_));
 
     // Is this a manifest file?
     is_manifest_ = IsManifestFile(fname_);
+
+    Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
+        "[s3] S3WritableFile bucket %s opened local file %s "
+	"cloud file %s manifest %d",
+	bucket_prefix.c_str(), fname_.c_str(),
+	cloud_fname.c_str(), is_manifest_);
 
     // Create a temporary file using the posixEnv. This file will be deleted
     // when the file is closed.
@@ -268,7 +274,7 @@ S3WritableFile::S3WritableFile(AwsEnv* env,
         fname_.c_str(), s.ToString().c_str());
       status_ = s;
     }
-    s3_bucket_ = GetBucket(env_->GetSrcBucketPrefix());
+    s3_bucket_ = GetBucket(bucket_prefix);
     s3_object_ = Aws::String(cloud_fname.c_str(), cloud_fname.size());
     env_->info_log_->Flush();
 }
@@ -389,13 +395,14 @@ Status S3WritableFile::CopyToS3(
 //
 Status S3WritableFile::CopyFromS3(
     AwsEnv* env,
+    const std::string& bucket_prefix,
     const std::string& source_object,
     const std::string& destination_pathname,
     uint64_t size,
     bool do_sync) {
 
   std::unique_ptr<S3ReadableFile> src_reader(
-		     new S3ReadableFile(env, source_object, true));
+		     new S3ReadableFile(env, bucket_prefix, source_object, true));
   if (!src_reader) {
     return Status::IOError("S3WritableFile::CopyFromS3 error");
   }
