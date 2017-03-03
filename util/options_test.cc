@@ -437,8 +437,7 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
             "checksum=kxxHash;hash_index_allow_collision=1;no_block_cache=1;"
             "block_cache=1M;block_cache_compressed=1k;block_size=1024;"
             "block_size_deviation=8;block_restart_interval=4;"
-            "filter_policy=bloomfilter:4:true;whole_key_filtering=1;"
-            "skip_table_builder_flush=1",
+            "filter_policy=bloomfilter:4:true;whole_key_filtering=1;",
             &new_opt));
   ASSERT_TRUE(new_opt.cache_index_and_filter_blocks);
   ASSERT_EQ(new_opt.index_type, BlockBasedTableOptions::kHashSearch);
@@ -453,7 +452,6 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   ASSERT_EQ(new_opt.block_size_deviation, 8);
   ASSERT_EQ(new_opt.block_restart_interval, 4);
   ASSERT_TRUE(new_opt.filter_policy != nullptr);
-  ASSERT_TRUE(new_opt.skip_table_builder_flush);
 
   // unknown option
   ASSERT_NOK(GetBlockBasedTableOptionsFromString(table_opt,

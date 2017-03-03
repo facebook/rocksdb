@@ -425,9 +425,6 @@ DEFINE_int32(random_access_max_buffer_size, 1024 * 1024,
 DEFINE_int32(writable_file_max_buffer_size, 1024 * 1024,
              "Maximum write buffer for Writable File");
 
-DEFINE_bool(skip_table_builder_flush, false, "Skip flushing block in "
-            "table builder ");
-
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
 DEFINE_double(memtable_bloom_size_ratio, 0,
@@ -2917,8 +2914,6 @@ class Benchmark {
       block_based_options.index_block_restart_interval =
           FLAGS_index_block_restart_interval;
       block_based_options.filter_policy = filter_policy_;
-      block_based_options.skip_table_builder_flush =
-          FLAGS_skip_table_builder_flush;
       block_based_options.format_version = 2;
       block_based_options.read_amp_bytes_per_bit = FLAGS_read_amp_bytes_per_bit;
       if (FLAGS_read_cache_path != "") {
