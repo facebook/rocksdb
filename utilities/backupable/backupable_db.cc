@@ -1219,7 +1219,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
     }
     s = dest_writer->Append(data);
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(data.size(), Env::IO_LOW);
+      rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */);
     }
     if (processed_buffer_size > options_.callback_trigger_interval_size) {
       processed_buffer_size -= options_.callback_trigger_interval_size;
