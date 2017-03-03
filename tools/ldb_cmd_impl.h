@@ -160,6 +160,8 @@ class ManifestDumpCommand : public LDBCommand {
   static void Help(std::string& ret);
   virtual void DoCommand() override;
 
+  virtual bool NoDBOpen() override { return true; }
+
  private:
   bool verbose_;
   bool json_;
