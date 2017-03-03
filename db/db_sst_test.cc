@@ -520,7 +520,7 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
   bool bg_error_set = false;
   uint64_t total_sst_files_size = 0;
 
-  std::atomic<int> estimate_multiplier(1);
+  std::atomic<int> estimate_multiplier(1); // adjust for clearing error below
   int reached_max_space_on_flush = 0;
   int reached_max_space_on_compaction = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
