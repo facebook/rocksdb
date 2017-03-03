@@ -228,6 +228,8 @@ bool DBTestBase::ChangeFilterOptions() {
     option_config_ = kFilter;
   } else if (option_config_ == kFilter) {
     option_config_ = kFullFilterWithNewTableReaderForCompactions;
+  } else if (option_config_ == kFullFilterWithNewTableReaderForCompactions) {
+    option_config_ = kPartitionedFilterWithNewTableReaderForCompactions;
   } else {
     return false;
   }
@@ -320,6 +322,14 @@ Options DBTestBase::CurrentOptions(
       break;
     case kFullFilterWithNewTableReaderForCompactions:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+      options.new_table_reader_for_compaction_inputs = true;
+      options.compaction_readahead_size = 10 * 1024 * 1024;
+      break;
+    case kPartitionedFilterWithNewTableReaderForCompactions:
+      table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+      table_options.partition_filters = true;
+      table_options.index_type =
+          BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
       options.new_table_reader_for_compaction_inputs = true;
       options.compaction_readahead_size = 10 * 1024 * 1024;
       break;
@@ -424,6 +434,8 @@ Options DBTestBase::CurrentOptions(
 
   if (options_override.filter_policy) {
     table_options.filter_policy = options_override.filter_policy;
+    table_options.partition_filters = options_override.partition_filters;
+    table_options.index_per_partition = options_override.index_per_partition;
   }
   if (set_block_based_table_factory) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
@@ -511,6 +523,13 @@ Status DBTestBase::ReadOnlyReopen(const Options& options) {
 
 Status DBTestBase::TryReopen(const Options& options) {
   Close();
+  last_options_.table_factory.reset();
+  // Note: operator= is an unsafe approach here since it destructs shared_ptr in
+  // the same order of their creation, in contrast to destructors which
+  // destructs them in the opposite order of creation. One particular problme is
+  // that the cache destructor might invoke callback functions that use Option
+  // members such as statistics. To work around this problem, we manually call
+  // destructor of table_facotry which eventually clears the block cache.
   last_options_ = options;
   return DB::Open(options, dbname_, &db_);
 }

@@ -148,6 +148,9 @@ struct BlockBasedTableOptions {
   // i.e., the number of data blocks covered by each index partition
   uint64_t index_per_partition = 1024;
 
+  // Use partitioned full filters for each SST file
+  bool partition_filters = false;
+
   // Use delta encoding to compress keys in blocks.
   // ReadOptions::pin_data requires this option to be disabled.
   //
