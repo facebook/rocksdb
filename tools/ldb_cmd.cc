@@ -2600,8 +2600,7 @@ BackupableCommand::BackupableCommand(
     : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_BACKUP_ENV_URI, ARG_BACKUP_DIR,
                                       ARG_NUM_THREADS, ARG_STDERR_LOG_LEVEL})),
-      num_threads_(1),
-      stderr_log_level_(InfoLogLevel::NUM_INFO_LOG_LEVELS) {
+      num_threads_(1) {
   auto itr = options.find(ARG_NUM_THREADS);
   if (itr != options.end()) {
     num_threads_ = std::stoi(itr->second);
@@ -2627,7 +2626,8 @@ BackupableCommand::BackupableCommand(
           ARG_STDERR_LOG_LEVEL + " must be >= 0 and < " +
           std::to_string(InfoLogLevel::NUM_INFO_LOG_LEVELS) + ".");
     } else {
-      stderr_log_level_ = static_cast<InfoLogLevel>(stderr_log_level);
+      logger_.reset(
+          new StderrLogger(static_cast<InfoLogLevel>(stderr_log_level)));
     }
   }
 }
@@ -2665,9 +2665,7 @@ void BackupCommand::DoCommand() {
   Env* custom_env = NewCustomObject<Env>(backup_env_uri_, &custom_env_guard);
   BackupableDBOptions backup_options =
       BackupableDBOptions(backup_dir_, custom_env);
-  if (stderr_log_level_ != InfoLogLevel::NUM_INFO_LOG_LEVELS) {
-    backup_options.info_log = new StderrLogger(stderr_log_level_);
-  }
+  backup_options.info_log = logger_.get();
   backup_options.max_background_operations = num_threads_;
   status = BackupEngine::Open(Env::Default(), backup_options, &backup_engine);
   if (status.ok()) {
@@ -2704,9 +2702,7 @@ void RestoreCommand::DoCommand() {
   Status status;
   {
     BackupableDBOptions opts(backup_dir_, custom_env);
-    if (stderr_log_level_ != InfoLogLevel::NUM_INFO_LOG_LEVELS) {
-      opts.info_log = new StderrLogger(stderr_log_level_);
-    }
+    opts.info_log = logger_.get();
     opts.max_background_operations = num_threads_;
     BackupEngineReadOnly* raw_restore_engine_ptr;
     status = BackupEngineReadOnly::Open(Env::Default(), opts,
