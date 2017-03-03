@@ -78,7 +78,8 @@ AwsEnv::AwsEnv(Env* underlying_env,
 
   // Do we have two unique buckets?
   if (has_src_bucket_ && has_dest_bucket_ &&
-      GetSrcBucketPrefix() != GetDestBucketPrefix()) {
+      ((GetSrcBucketPrefix() != GetDestBucketPrefix()) ||
+       (GetSrcObjectPrefix() != GetDestObjectPrefix()))) {
     has_two_unique_buckets_ = true;
   }
 

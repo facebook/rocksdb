@@ -398,7 +398,12 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download MANIFEST file from "
-	  "bucket %s. %s",
+	  "dest bucket %s. %s",
+	  cenv->GetDestBucketPrefix().c_str(), st.ToString().c_str());
+    } else {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Downloaded MANIFEST file from "
+	  "dest bucket %s. %s",
 	  cenv->GetDestBucketPrefix().c_str(), st.ToString().c_str());
     }
 
@@ -412,14 +417,18 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download IDENTITY file from "
-	  "bucket %s. %s",
+	  "dest bucket %s. %s",
+	  cenv->GetDestBucketPrefix().c_str(), st.ToString().c_str());
+    } else {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Downloaded IDENTITY file from "
+	  "dest bucket %s. %s",
 	  cenv->GetDestBucketPrefix().c_str(), st.ToString().c_str());
     }
   }
 
   // Download files from src bucket
-  if (!cenv->GetSrcBucketPrefix().empty() &&
-      cenv->GetDestBucketPrefix() != cenv->GetSrcBucketPrefix()) {
+  if (!cenv->GetSrcBucketPrefix().empty()) {
 
     // download MANIFEST
     std::string cloudfile = cenv->GetSrcObjectPrefix() + "/MANIFEST";
@@ -432,6 +441,11 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to download MANIFEST file from "
 	  "bucket %s. %s",
+	  cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
+    } else {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Download MANIFEST file from "
+	  "src bucket %s. %s",
 	  cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
     }
 
@@ -447,12 +461,22 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
           "[db_cloud_impl] Unable to download IDENTITY file from "
 	  "bucket %s. %s",
 	  cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
+    } else {
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Download IDENTITY file from "
+	  "src bucket %s. %s",
+	  cenv->GetSrcBucketPrefix().c_str(), st.ToString().c_str());
     }
   }
   // If an ID file exists in the dest, use it.
 
   if (env->FileExists(local_name + "/IDENTITY.dest").ok() &&
       env->FileExists(local_name + "/MANIFEST.dest").ok()) {
+
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        "[db_cloud_impl] Downloaded IDENTITY and MANIFEST "
+	"from dest bucket are potential candidates");
+
     st = env->RenameFile(local_name + "/IDENTITY.dest",
 		         local_name + "/IDENTITY");
     if (!st.ok()) {
@@ -462,7 +486,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       return st;
     }
     st = env->RenameFile(local_name + "/MANIFEST.dest",
-                         local_name + "/MANIFEST-00000");
+                         local_name + "/MANIFEST-000001");
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to rename MANIFEST.dest %s",
@@ -484,6 +508,10 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
   } else if (env->FileExists(local_name + "/IDENTITY.src").ok() &&
              env->FileExists(local_name + "/MANIFEST.src").ok()) {
 
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        "[db_cloud_impl] Downloaded IDENTITY and MANIFEST "
+	"from src bucket are potential candidates");
+
     // There isn't a ID file in the dest bucket but there exists
     // a ID file exists in the src bucket. Read src dbid.
 
@@ -495,14 +523,21 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
 	  st.ToString().c_str());
       return st;
     }
-    // If the dest bucket is the same as the src or no destination
+    src_dbid = rtrim_if(trim(src_dbid), '\n');
+
+    // If the dest bucketpath is the same as the src or no destination
     // bucket is specified, then it is not a clone. So continue to use
     // the src_dbid
     std::string new_dbid;
-    if (cenv->GetSrcBucketPrefix() == cenv->GetDestBucketPrefix() ||
+    if ((cenv->GetSrcBucketPrefix() == cenv->GetDestBucketPrefix() &&
+	(cenv->GetSrcObjectPrefix() == cenv->GetDestObjectPrefix())) ||
 	cenv->GetDestBucketPrefix().empty()) {
-      new_dbid = src_dbid;
 
+      Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+          "[db_cloud_impl] Reopening an existing cloud-db with dbid %s",
+          src_dbid.c_str());
+
+      new_dbid = src_dbid;
       st = env->RenameFile(local_name + "/IDENTITY.src",
 		           local_name + "/IDENTITY");
       if (!st.ok()) {
@@ -542,7 +577,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
 
       // Rename ID file on local filesystem and upload it to dest bucket too
       st = cenv->RenameFile(local_name + "/IDENTITY.tmp",
-		            local_name + "IDENTITY");
+		            local_name + "/IDENTITY");
       if (!st.ok()) {
         Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
             "[db_cloud_impl] Unable to rename newly created IDENTITY.tmp "
@@ -561,7 +596,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
     }
     // Rename src manifest file
     st = env->RenameFile(local_name + "/MANIFEST.src",
-		         local_name + "/MANIFEST-000000");
+		         local_name + "/MANIFEST-000001");
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
           "[db_cloud_impl] Unable to rename IDENTITY.src %s",
@@ -592,7 +627,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
           local_name.c_str(), st.ToString().c_str());
       return st;
     }
-    std::string manifestfile = "MANIFEST-000000\n";   // CURRENT file needs a newline
+    std::string manifestfile = "MANIFEST-000001\n";   // CURRENT file needs a newline
     st = destfile->Append(Slice(manifestfile));
     if (!st.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,

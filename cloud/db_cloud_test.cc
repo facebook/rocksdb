@@ -96,6 +96,10 @@ class CloudTest : public testing::Test {
 
   // Creates and Opens a clone
   void CloneDB(const std::string& clone_name,
+	       const std::string& src_bucket,
+	       const std::string& src_object_path,
+	       const std::string& dest_bucket,
+	       const std::string& dest_object_path,
 	       std::unique_ptr<DB>* cloud_db,
 	       std::unique_ptr<CloudEnv>* cloud_env) {
 
@@ -107,10 +111,10 @@ class CloudTest : public testing::Test {
 
     // Create new AWS env
     ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
-			          src_bucket_prefix_,
-			          src_object_prefix_,
-			          dest_bucket_prefix_,
-			          dest_object_prefix_,
+			          src_bucket,
+			          src_object_path,
+			          dest_bucket,
+			          dest_object_path,
 		                  cloud_env_options_,
 				  options_.info_log,
 				  &cenv));
@@ -190,7 +194,10 @@ TEST_F(CloudTest, BasicTest) {
 //
 // Create and read from a clone.
 //
-TEST_F(CloudTest, BasicClone) {
+TEST_F(CloudTest, Newdb) {
+  std::string master_dbid;
+  std::string newdb1_dbid;
+  std::string newdb2_dbid;
 
   // Put one key-value
   OpenDB();
@@ -198,19 +205,31 @@ TEST_F(CloudTest, BasicClone) {
   ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
   ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
   ASSERT_TRUE(value.compare("World") == 0);
+  ASSERT_OK(db_->GetDbIdentity(master_dbid));
   CloseDB();
   value.clear();
 
   {
-    // Create and Open clone
+    // Create and Open  a new instance
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DB> cloud_db;
-    CloneDB("clone1", &cloud_db, &cloud_env);
+    CloneDB("newdb1",
+	    src_bucket_prefix_, src_object_prefix_,
+	    dest_bucket_prefix_, dest_object_prefix_,
+	    &cloud_db, &cloud_env);
+
+    // Retrieve the id of the first reopen
+    ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
+
+    // This reopen has the same src and destination paths, so it is
+    // not a clone, but just a reopen.
+    ASSERT_EQ(newdb1_dbid, master_dbid);
 
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
     ASSERT_TRUE(value.compare("World") == 0);
 
-    // Open master and write one more kv to it
+    // Open master and write one more kv to it. The dest bukcet is emty,
+    // so writes go to local dir only.
     OpenDB();
     ASSERT_OK(db_->Put(WriteOptions(), "Dhruba", "Borthakur"));
 
@@ -225,14 +244,26 @@ TEST_F(CloudTest, BasicClone) {
     ASSERT_TRUE(value.compare("World") == 0);
     CloseDB();
 
-    // Assert  that clone1 cannot see the second kv
+    // Assert  that newdb1 cannot see the second kv because the second kv
+    // was written to local dir only.
     ASSERT_TRUE(cloud_db->Get(ReadOptions(), "Dhruba", &value).IsNotFound());
   }
   {
-    // Create another clone
+    // Create another instance using a different local dir but the same two
+    // buckets as newdb1. This should be identical in contents with newdb1.
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DB> cloud_db;
-    CloneDB("clone2", &cloud_db, &cloud_env);
+    CloneDB("newdb2",
+	    src_bucket_prefix_, src_object_prefix_,
+	    dest_bucket_prefix_, dest_object_prefix_,
+            &cloud_db, &cloud_env);
+
+    // Retrieve the id of the second clone db
+    ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
+
+    // Since we used the same src and destination buckets & paths for both
+    // newdb1 and newdb2, we should get the same dbid as newdb1
+    ASSERT_EQ(newdb1_dbid, newdb2_dbid);
 
     // check that both the kvs appear in the clone
     value.clear();
@@ -241,6 +272,88 @@ TEST_F(CloudTest, BasicClone) {
     value.clear();
     ASSERT_OK(cloud_db->Get(ReadOptions(), "Dhruba", &value));
     ASSERT_TRUE(value.compare("Borthakur") == 0);
+  }
+}
+
+//
+// Create and read from a clone.
+//
+TEST_F(CloudTest, TrueClone) {
+  std::string master_dbid;
+  std::string newdb1_dbid;
+  std::string newdb2_dbid;
+  std::string newdb3_dbid;
+
+  // Put one key-value
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_TRUE(value.compare("World") == 0);
+  ASSERT_OK(db_->GetDbIdentity(master_dbid));
+  CloseDB();
+  value.clear();
+  {
+    // Create a new instance with different src and destination paths.
+    // This is true clone and should have all the contents of the masterdb
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DB> cloud_db;
+    CloneDB("localpath1",
+	    src_bucket_prefix_, src_object_prefix_,
+	    src_bucket_prefix_, "clone1_path",
+            &cloud_db, &cloud_env);
+
+    // Retrieve the id of the clone db
+    ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
+
+    // Since we used the different src and destination paths for both
+    // the master and clone1, the clone should have its own identity.
+    ASSERT_NE(master_dbid, newdb1_dbid);
+
+    // check that the original kv appears in the clone
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("World") == 0);
+
+    // write a new value to the clone
+    ASSERT_OK(cloud_db->Put(WriteOptions(), "Hello", "Clone1"));
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("Clone1") == 0);
+  }
+  {
+    // Reopen clone1 with a different local path
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DB> cloud_db;
+    CloneDB("localpath2",
+	    src_bucket_prefix_, src_object_prefix_,
+	    src_bucket_prefix_, "clone1_path",
+            &cloud_db, &cloud_env);
+
+    // Retrieve the id of the clone db
+    ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
+    ASSERT_EQ(newdb1_dbid, newdb2_dbid);
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("Clone1") == 0);
+  }
+  {
+    // Create clone2
+    std::unique_ptr<CloudEnv> cloud_env;
+    std::unique_ptr<DB> cloud_db;
+    CloneDB("localpath3", // xxx try with localpath2
+	    src_bucket_prefix_, src_object_prefix_,
+	    src_bucket_prefix_, "clone2_path",
+            &cloud_db, &cloud_env);
+
+    // Retrieve the id of the clone db
+    ASSERT_OK(cloud_db->GetDbIdentity(newdb3_dbid));
+    ASSERT_NE(newdb2_dbid, newdb3_dbid);
+
+    // verify that data is still as it was in the original db.
+    value.clear();
+    ASSERT_OK(cloud_db->Get(ReadOptions(), "Hello", &value));
+    ASSERT_TRUE(value.compare("World") == 0);
   }
 }
 

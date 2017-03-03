@@ -459,11 +459,15 @@ Status S3WritableFile::CopyManifestToS3(bool force) {
     if (stat.ok()) {
       manifest_last_sync_time_ = now;
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
-          "[s3] S3WritableFile made manifest %s durable.", fname_.c_str());
+          "[s3] S3WritableFile made manifest %s durable to "
+	  "bucket %s bucketpath.",
+	  fname_.c_str(), s3_bucket_.c_str(), s3_object_.c_str());
     } else {
       Log(InfoLogLevel::ERROR_LEVEL, env_->info_log_,
-          "[s3] S3WritableFile failed to make manifest %s durable. %s",
-	  fname_.c_str(), stat.ToString().c_str());
+          "[s3] S3WritableFile failed to make manifest %s durable to "
+	  "bucket %s bucketpath. %s",
+	  fname_.c_str(), s3_bucket_.c_str(), s3_object_.c_str(),
+	  stat.ToString().c_str());
     }
   }
   return stat;
