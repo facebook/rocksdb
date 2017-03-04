@@ -18,6 +18,9 @@ DBCloudImpl::DBCloudImpl(DB* db) :
 }
 
 DBCloudImpl::~DBCloudImpl() {
+  // Issue a blocking flush so that the latest manifest
+  // is made durable in the cloud.
+  Flush(FlushOptions());
 }
 
 Status DBCloud::Open(
@@ -25,7 +28,7 @@ Status DBCloud::Open(
     const std::string& local_dbname,
     const std::vector<ColumnFamilyDescriptor>& column_families,
     std::vector<ColumnFamilyHandle*>* handles,
-    DB** dbptr,
+    DBCloud** dbptr,
     bool read_only) {
 
   Status st = DBCloudImpl::SanitizeDirectory(options,
@@ -34,12 +37,16 @@ Status DBCloud::Open(
     return st;
   }
 
+  DB* db;
   if (read_only) {
     st = DB::OpenForReadOnly(options, local_dbname, column_families,
-		             handles, dbptr);
+		             handles, &db);
   } else {
     st = DB::Open(options, local_dbname, column_families,
-		  handles, dbptr);
+		  handles, &db);
+  }
+  if (st.ok()) {
+    *dbptr = new DBCloudImpl(db);
   }
   return st;
 }
@@ -86,6 +93,16 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 		             const Options& options,
 		             const std::string& local_dir,
 			     bool* do_reinit) {
+  Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+      "[db_cloud_impl] NeedsReinitialization: "
+      "checking local dir %s src bucket %s src path %s "
+      "dest bucket %s dest path %s",
+      local_dir.c_str(),
+      cenv->GetSrcBucketPrefix().c_str(),
+      cenv->GetSrcObjectPrefix().c_str(),
+      cenv->GetDestBucketPrefix().c_str(),
+      cenv->GetDestObjectPrefix().c_str());
+
   // If no buckets are specified, then we cannot reinit anyways
   if (cenv->GetSrcBucketPrefix().empty() &&
       cenv->GetSrcBucketPrefix().empty()) {
@@ -112,12 +129,20 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
   std::string idfilename = local_dir + "/IDENTITY";
   st = env->FileExists(idfilename);
   if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        "[db_cloud_impl] NeedsReinitialization: "
+        "local dir %s does not exist",
+	local_dir.c_str());
     return Status::OK();
   }
   // Read DBID file from local dir
   std::string local_dbid;
   st = ReadFileIntoString(env, idfilename, &local_dbid);
   if (!st.ok()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        "[db_cloud_impl] NeedsReinitialization: "
+        "local dir %s unable to read local dbid",
+	local_dir.c_str());
     return Status::OK();
   }
   std::string src_bucket = cenv->GetSrcBucketPrefix();
@@ -367,7 +392,7 @@ Status DBCloudImpl::SanitizeDirectory(const Options& options,
       return st;
     }
     Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
-      "[db_cloud_impl] SanitizeDirectory cleanup: '%s'",
+      "[db_cloud_impl] SanitizeDirectory cleaned-up: '%s'",
       pathname.c_str());
   }
 

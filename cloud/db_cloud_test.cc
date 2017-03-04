@@ -20,7 +20,9 @@ namespace rocksdb {
 class CloudTest : public testing::Test {
  public:
   CloudTest() {
+    base_env_ = Env::Default();
     dbname_ = test::TmpDir() + "/db_cloud";
+    clone_dir_ = test::TmpDir() + "/ctest";
     src_bucket_prefix_ = "dbcloud." + AwsEnv::GetTestBucketSuffix();
     src_object_prefix_ = dbname_;
     options_.create_if_missing = true;
@@ -34,13 +36,14 @@ class CloudTest : public testing::Test {
               &cloud_env_options_.credentials.access_key_id,
               &cloud_env_options_.credentials.secret_key,
               &cloud_env_options_.region);
-    EmptyBucket();
+    Cleanup();
   }
 
-  void EmptyBucket() {
+  void Cleanup() {
     ASSERT_TRUE(!aenv_);
+
     // create a dummy aws env 
-    ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
+    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_,
 			          src_bucket_prefix_,
 			          src_object_prefix_,
 			          dest_bucket_prefix_,
@@ -52,11 +55,21 @@ class CloudTest : public testing::Test {
     ASSERT_OK(aenv_->EmptyBucket(src_bucket_prefix_));
     delete aenv_;
     aenv_ = nullptr;
+
+    // delete and create directory where clones reside
+    DestroyDir(clone_dir_);
+    ASSERT_OK(base_env_->CreateDir(clone_dir_));
+  }
+
+  void DestroyDir(const std::string& dir) {
+    std::string cmd = "rm -rf " + dir;
+    system(cmd.c_str());
   }
 
   virtual ~CloudTest() {
     CloseDB();
     DestroyDB(dbname_, Options());
+    DestroyDir(clone_dir_);
   }
 
   // Open database via the cloud interface
@@ -65,7 +78,7 @@ class CloudTest : public testing::Test {
     ASSERT_NE(cloud_env_options_.credentials.secret_key.size(), 0);
 
     // Create new AWS env
-    ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
+    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_,
 			          src_bucket_prefix_,
 			          src_object_prefix_,
 			          src_bucket_prefix_,
@@ -100,17 +113,17 @@ class CloudTest : public testing::Test {
 	       const std::string& src_object_path,
 	       const std::string& dest_bucket,
 	       const std::string& dest_object_path,
-	       std::unique_ptr<DB>* cloud_db,
+	       std::unique_ptr<DBCloud>* cloud_db,
 	       std::unique_ptr<CloudEnv>* cloud_env) {
 
     // The local directory where the clone resides
-    std::string cname = test::TmpDir() + "/" + clone_name;
+    std::string cname = clone_dir_ + "/" + clone_name;
 
     CloudEnv* cenv;
-    DB* clone_db;
+    DBCloud* clone_db;
 
     // Create new AWS env
-    ASSERT_OK(CloudEnv::NewAwsEnv(Env::Default(),
+    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_,
 			          src_bucket,
 			          src_object_path,
 			          dest_bucket,
@@ -157,15 +170,17 @@ class CloudTest : public testing::Test {
   }
 
  protected:
+  Env* base_env_;
   Options options_;
   std::string dbname_;
+  std::string clone_dir_;
   std::string src_bucket_prefix_;
   std::string src_object_prefix_;
   std::string dest_bucket_prefix_;
   std::string dest_object_prefix_;
   CloudEnvOptions cloud_env_options_;
   std::string dbid_;
-  DB* db_;
+  DBCloud* db_;
   CloudEnv* aenv_;
 };
 
@@ -212,7 +227,7 @@ TEST_F(CloudTest, Newdb) {
   {
     // Create and Open  a new instance
     std::unique_ptr<CloudEnv> cloud_env;
-    std::unique_ptr<DB> cloud_db;
+    std::unique_ptr<DBCloud> cloud_db;
     CloneDB("newdb1",
 	    src_bucket_prefix_, src_object_prefix_,
 	    dest_bucket_prefix_, dest_object_prefix_,
@@ -252,7 +267,7 @@ TEST_F(CloudTest, Newdb) {
     // Create another instance using a different local dir but the same two
     // buckets as newdb1. This should be identical in contents with newdb1.
     std::unique_ptr<CloudEnv> cloud_env;
-    std::unique_ptr<DB> cloud_db;
+    std::unique_ptr<DBCloud> cloud_db;
     CloneDB("newdb2",
 	    src_bucket_prefix_, src_object_prefix_,
 	    dest_bucket_prefix_, dest_object_prefix_,
@@ -297,7 +312,7 @@ TEST_F(CloudTest, TrueClone) {
     // Create a new instance with different src and destination paths.
     // This is true clone and should have all the contents of the masterdb
     std::unique_ptr<CloudEnv> cloud_env;
-    std::unique_ptr<DB> cloud_db;
+    std::unique_ptr<DBCloud> cloud_db;
     CloneDB("localpath1",
 	    src_bucket_prefix_, src_object_prefix_,
 	    src_bucket_prefix_, "clone1_path",
@@ -324,7 +339,7 @@ TEST_F(CloudTest, TrueClone) {
   {
     // Reopen clone1 with a different local path
     std::unique_ptr<CloudEnv> cloud_env;
-    std::unique_ptr<DB> cloud_db;
+    std::unique_ptr<DBCloud> cloud_db;
     CloneDB("localpath2",
 	    src_bucket_prefix_, src_object_prefix_,
 	    src_bucket_prefix_, "clone1_path",
@@ -340,7 +355,7 @@ TEST_F(CloudTest, TrueClone) {
   {
     // Create clone2
     std::unique_ptr<CloudEnv> cloud_env;
-    std::unique_ptr<DB> cloud_db;
+    std::unique_ptr<DBCloud> cloud_db;
     CloneDB("localpath3", // xxx try with localpath2
 	    src_bucket_prefix_, src_object_prefix_,
 	    src_bucket_prefix_, "clone2_path",

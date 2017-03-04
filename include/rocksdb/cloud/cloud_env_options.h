@@ -80,6 +80,7 @@ class CloudEnv : public Env {
 
   // Returns the underlying env
   virtual Env* GetBaseEnv() = 0;
+  virtual ~CloudEnv();
 
   // Empties all contents of the associated cloud storage bucket.
   virtual Status EmptyBucket(const std::string& bucket_prefix) = 0;

@@ -13,6 +13,9 @@
 
 namespace rocksdb {
 
+CloudEnv::~CloudEnv() {
+}
+
 CloudEnvWrapper::~CloudEnvWrapper() {
 }
 

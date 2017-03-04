@@ -27,7 +27,7 @@ class DBCloud : public StackableDB {
 		     const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,
-                     DB** dbptr,
+                     DBCloud** dbptr,
                      bool read_only = false);
 
   virtual ~DBCloud() {}
