@@ -82,10 +82,13 @@ class FilterBlockReader {
   virtual ~FilterBlockReader() {}
 
   virtual bool IsBlockBased() = 0;  // If is blockbased filter
-  virtual bool KeyMayMatch(const Slice& key,
-                           uint64_t block_offset = kNotValid) = 0;
+  virtual bool KeyMayMatch(const Slice& key, uint64_t block_offset = kNotValid,
+                           const bool no_io = false,
+                           const Slice* const const_ikey_ptr = nullptr) = 0;
   virtual bool PrefixMayMatch(const Slice& prefix,
-                              uint64_t block_offset = kNotValid) = 0;
+                              uint64_t block_offset = kNotValid,
+                              const bool no_io = false,
+                              const Slice* const const_ikey_ptr = nullptr) = 0;
   virtual size_t ApproximateMemoryUsage() const = 0;
   virtual size_t size() const { return size_; }
   virtual Statistics* statistics() const { return statistics_; }
