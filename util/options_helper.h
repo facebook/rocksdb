@@ -638,6 +638,9 @@ static std::unordered_map<std::string, OptionTypeInfo>
         {"index_per_partition",
          {offsetof(struct BlockBasedTableOptions, index_per_partition),
           OptionType::kUInt64T, OptionVerificationType::kNormal, false, 0}},
+        {"partition_filters",
+         {offsetof(struct BlockBasedTableOptions, partition_filters),
+          OptionType::kBoolean, OptionVerificationType::kNormal, false, 0}},
         {"filter_policy",
          {offsetof(struct BlockBasedTableOptions, filter_policy),
           OptionType::kFilterPolicy, OptionVerificationType::kByName, false,
@@ -702,7 +705,7 @@ static std::unordered_map<std::string, BlockBasedTableOptions::IndexType>
         {"kBinarySearch", BlockBasedTableOptions::IndexType::kBinarySearch},
         {"kHashSearch", BlockBasedTableOptions::IndexType::kHashSearch},
         {"kTwoLevelIndexSearch",
-         BlockBasedTableOptions::IndexType::kHashSearch}};
+         BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch}};
 
 static std::unordered_map<std::string, EncodingType> encoding_type_string_map =
     {{"kPlain", kPlain}, {"kPrefix", kPrefix}};

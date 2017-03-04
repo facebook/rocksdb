@@ -10,6 +10,7 @@
 #include "table/index_builder.h"
 #include <assert.h>
 #include <inttypes.h>
+
 #include <list>
 #include <string>
 
@@ -24,21 +25,22 @@ namespace rocksdb {
 IndexBuilder* IndexBuilder::CreateIndexBuilder(
     BlockBasedTableOptions::IndexType index_type,
     const InternalKeyComparator* comparator,
+    const SliceTransform* slice_transform,
     const SliceTransform* prefix_extractor, int index_block_restart_interval,
-    uint64_t index_per_partition) {
+    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt) {
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
       return new ShortenedIndexBuilder(comparator,
                                        index_block_restart_interval);
     }
     case BlockBasedTableOptions::kHashSearch: {
-      return new HashIndexBuilder(comparator, prefix_extractor,
+      return new HashIndexBuilder(comparator, slice_transform,
                                   index_block_restart_interval);
     }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
-      return new PartitionIndexBuilder(comparator, prefix_extractor,
-                                       index_per_partition,
-                                       index_block_restart_interval);
+      return PartitionIndexBuilder::CreateIndexBuilder(
+          comparator, prefix_extractor, index_block_restart_interval,
+          index_per_partition, table_opt);
     }
     default: {
       assert(!"Do not recognize the index type ");
@@ -49,4 +51,24 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
   assert(false);
   return nullptr;
 }
-}  // namespace rocksdb
+
+PartitionIndexBuilder* PartitionIndexBuilder::CreateIndexBuilder(
+    const InternalKeyComparator* comparator,
+    const SliceTransform* prefix_extractor, int index_block_restart_interval,
+    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt) {
+  class DummyFilterBitsBuilder : public FilterBitsBuilder {
+   public:
+    virtual void AddKey(const Slice& key) { assert(0); }
+    virtual Slice Finish(std::unique_ptr<const char[]>* buf) { assert(0); }
+  };
+  FilterBitsBuilder* filter_bits_builder =
+      table_opt.filter_policy != nullptr
+          ? table_opt.filter_policy->GetFilterBitsBuilder()
+          : new DummyFilterBitsBuilder();
+  assert(filter_bits_builder);
+  return new PartitionIndexBuilder(
+      comparator, prefix_extractor, index_per_partition,
+      index_block_restart_interval, table_opt.whole_key_filtering,
+      filter_bits_builder, table_opt);
+}
+}

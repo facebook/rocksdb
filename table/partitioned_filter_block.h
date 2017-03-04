@@ -7,11 +7,14 @@
 
 #include <list>
 #include <string>
+#include <vector>
+#include "db/dbformat.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "util/hash.h"
 
+#include "table/full_filter_block.h"
 #include "table/index_builder.h"
 
 namespace rocksdb {
@@ -26,23 +29,38 @@ namespace rocksdb {
  * containing a secondary index on the partitions, built using
  * ShortenedIndexBuilder.
  */
-class PartitionIndexBuilder : public IndexBuilder {
+class PartitionIndexBuilder : public IndexBuilder,
+                              public FullFilterBlockBuilder {
  public:
+  static PartitionIndexBuilder* CreateIndexBuilder(
+      const rocksdb::InternalKeyComparator* comparator,
+      const SliceTransform* prefix_extractor, int index_block_restart_interval,
+      uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
+
   explicit PartitionIndexBuilder(const InternalKeyComparator* comparator,
                                  const SliceTransform* prefix_extractor,
                                  const uint64_t index_per_partition,
-                                 int index_block_restart_interval);
+                                 int index_block_restart_interval,
+                                 bool whole_key_filtering,
+                                 FilterBitsBuilder* filter_bits_builder,
+                                 const BlockBasedTableOptions& table_opt);
 
   virtual ~PartitionIndexBuilder();
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
-                             const BlockHandle& block_handle);
+                             const BlockHandle& block_handle) override;
 
-  virtual Status Finish(IndexBlocks* index_blocks,
-                        const BlockHandle& last_partition_block_handle);
+  virtual Status Finish(
+      IndexBlocks* index_blocks,
+      const BlockHandle& last_partition_block_handle) override;
 
-  virtual size_t EstimatedSize() const;
+  virtual size_t EstimatedSize() const override;
+
+  void AddKey(const Slice& key) override;
+
+  virtual Slice Finish(const BlockHandle& last_partition_block_handle,
+                       Status* status) override;
 
  private:
   static const BlockBasedTableOptions::IndexType sub_type_ =
@@ -58,8 +76,32 @@ class PartitionIndexBuilder : public IndexBuilder {
   uint64_t index_per_partition_;
   int index_block_restart_interval_;
   uint64_t num_indexes = 0;
-  bool finishing =
+  bool finishing_indexes =
       false;  // true if Finish is called once but not complete yet.
+  // Filter data
+  BlockBuilder index_on_filter_block_builder_;  // top-level index builder
+  struct FilterEntry {
+    std::string key;
+    Slice filter;
+  };
+  std::list<FilterEntry> filters;  // list of partitioned indexes and their keys
+  std::unique_ptr<IndexBuilder> value;
+  std::vector<std::unique_ptr<const char[]>> filter_gc;
+  bool finishing_filters =
+      false;  // true if Finish is called once but not complete yet.
+  bool cut_filter_block =
+      false;  // true if it should cut the next filter partition block
+  const BlockBasedTableOptions& table_opt_;
+  // The policy of when cut a filter block and Finish it
+  inline bool ShouldCutFilterBlock() {
+    // Current policy is to align the partitions of index and filters
+    if (cut_filter_block) {
+      cut_filter_block = false;
+      return true;
+    }
+    return false;
+  }
+  void MayBeCutAFilterBlock();
 };
 
 }  // namespace rocksdb

@@ -11,6 +11,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+
 #include <string>
 #include <unordered_map>
 
@@ -34,9 +35,10 @@ class IndexBuilder {
  public:
   static IndexBuilder* CreateIndexBuilder(
       BlockBasedTableOptions::IndexType index_type,
-      const InternalKeyComparator* comparator,
+      const rocksdb::InternalKeyComparator* comparator,
+      const SliceTransform* slice_transform,
       const SliceTransform* prefix_extractor, int index_block_restart_interval,
-      uint64_t index_per_partition);
+      uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -262,4 +264,16 @@ class HashIndexBuilder : public IndexBuilder {
 
   uint64_t current_restart_index_ = 0;
 };
-}  // namespace rocksdb
+}
+
+/*
+namespace rocksdb {
+namespace {
+IndexBuilder* CreateIndexBuilder(
+    BlockBasedTableOptions::IndexType index_type,
+    const rocksdb::InternalKeyComparator* comparator,
+    const SliceTransform* prefix_extractor, int index_block_restart_interval,
+    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
+}
+}
+*/

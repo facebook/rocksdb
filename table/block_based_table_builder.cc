@@ -31,16 +31,14 @@
 #include "rocksdb/table.h"
 
 #include "table/block.h"
-#include "table/block_based_filter_block.h"
-#include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
-#include "table/format.h"
+#include "table/block_based_filter_block.h"
+#include "table/block_based_table_factory.h"
 #include "table/full_filter_block.h"
-#include "table/index_builder.h"
+#include "table/format.h"
 #include "table/meta_blocks.h"
-#include "table/partitioned_filter_block.h"
 #include "table/table_builder.h"
 
 #include "util/string_util.h"
@@ -49,6 +47,9 @@
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/xxhash.h"
+
+#include "table/index_builder.h"
+#include "table/partitioned_filter_block.h"
 
 namespace rocksdb {
 
@@ -246,7 +247,8 @@ struct BlockBasedTableBuilder::Rep {
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
-  std::unique_ptr<FilterBlockBuilder> filter_block;
+  std::unique_ptr<FilterBlockBuilder> filter_block_gc;
+  FilterBlockBuilder* filter_block;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
 
@@ -277,21 +279,40 @@ struct BlockBasedTableBuilder::Rep {
                    table_options.use_delta_encoding),
         range_del_block(1),  // TODO(andrewkr): restart_interval unnecessary
         internal_prefix_transform(_ioptions.prefix_extractor),
-        index_builder(IndexBuilder::CreateIndexBuilder(
-            table_options.index_type, &internal_comparator,
-            &this->internal_prefix_transform,
-            table_options.index_block_restart_interval,
-            table_options.index_per_partition)),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
         compression_dict(_compression_dict),
-        filter_block(skip_filters ? nullptr : CreateFilterBlockBuilder(
-                                                  _ioptions, table_options)),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name) {
+    PartitionIndexBuilder* part_index_builder = nullptr;
+    if (table_options.index_type ==
+        BlockBasedTableOptions::kTwoLevelIndexSearch) {
+      part_index_builder = PartitionIndexBuilder::CreateIndexBuilder(
+          &internal_comparator, _ioptions.prefix_extractor,
+          table_options.index_block_restart_interval,
+          table_options.index_per_partition, table_options);
+      index_builder.reset(part_index_builder);
+    } else {
+      index_builder.reset(IndexBuilder::CreateIndexBuilder(
+          table_options.index_type, &internal_comparator,
+          &this->internal_prefix_transform, _ioptions.prefix_extractor,
+          table_options.index_block_restart_interval,
+          table_options.index_per_partition, table_options));
+    }
+    filter_block = nullptr;
+    if (!skip_filters) {
+      if (table_opt.partition_filters) {
+        assert(part_index_builder != nullptr);
+        filter_block = part_index_builder;
+      } else {
+        filter_block = CreateFilterBlockBuilder(_ioptions, table_options);
+        filter_block_gc.reset(filter_block);
+      }
+    }
+
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
       table_properties_collectors.emplace_back(
           collector_factories->CreateIntTblPropCollector(column_family_id));
@@ -374,6 +395,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       }
     }
 
+    // Note: PartitionIndexBuilder requires adding to filter_block to be after
+    // adding to index_builder
     if (r->filter_block != nullptr) {
       r->filter_block->Add(ExtractUserKey(key));
     }
@@ -600,21 +623,32 @@ Status BlockBasedTableBuilder::Finish() {
   assert(!r->closed);
   r->closed = true;
 
-  BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle,
-      compression_dict_block_handle, range_del_block_handle;
-  // Write filter block
-  if (ok() && r->filter_block != nullptr) {
-    auto filter_contents = r->filter_block->Finish();
-    r->props.filter_size = filter_contents.size();
-    WriteRawBlock(filter_contents, kNoCompression, &filter_block_handle);
-  }
-
   // To make sure properties block is able to keep the accurate size of index
   // block, we will finish writing all index entries here and flush them
   // to storage after metaindex block is written.
   if (ok() && !empty_data_block) {
     r->index_builder->AddIndexEntry(
         &r->last_key, nullptr /* no next data block */, r->pending_handle);
+  }
+
+  BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle,
+      compression_dict_block_handle, range_del_block_handle;
+  // Write filter block
+  if (ok() && r->filter_block != nullptr) {
+    Status s;
+    Slice filter_content = r->filter_block->Finish(filter_block_handle, &s);
+    r->props.filter_size += filter_content.size();
+    WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
+    while (s.IsIncomplete()) {
+      filter_content = r->filter_block->Finish(filter_block_handle, &s);
+      r->props.filter_size += filter_content.size();
+      if (s.IsIncomplete()) {
+        WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
+      } else {  // index on filter partitions
+        assert(s.ok());
+        WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
+      }
+    }
   }
 
   IndexBuilder::IndexBlocks index_blocks;
@@ -650,7 +684,9 @@ Status BlockBasedTableBuilder::Finish() {
       if (r->filter_block->IsBlockBased()) {
         key = BlockBasedTable::kFilterBlockPrefix;
       } else {
-        key = BlockBasedTable::kFullFilterBlockPrefix;
+        key = r->table_options.partition_filters
+                  ? BlockBasedTable::kPartitionedFilterBlockPrefix
+                  : BlockBasedTable::kFullFilterBlockPrefix;
       }
       key.append(r->table_options.filter_policy->Name());
       meta_index_builder.Add(key, filter_block_handle);
@@ -810,4 +846,6 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
+const std::string BlockBasedTable::kPartitionedFilterBlockPrefix =
+    "partitionedfilter.";
 }  // namespace rocksdb
