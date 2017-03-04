@@ -28,6 +28,7 @@ class WriteBatchHandlerJniCallback : public WriteBatch::Handler {
     void Put(const Slice& key, const Slice& value);
     void Merge(const Slice& key, const Slice& value);
     void Delete(const Slice& key);
+    void DeleteRange(const Slice& beginKey, const Slice& endKey);
     void LogData(const Slice& blob);
     bool Continue();
 
@@ -38,6 +39,7 @@ class WriteBatchHandlerJniCallback : public WriteBatch::Handler {
     jmethodID m_jPutMethodId;
     jmethodID m_jMergeMethodId;
     jmethodID m_jDeleteMethodId;
+    jmethodID m_jDeleteRangeMethodId;
     jmethodID m_jLogDataMethodId;
     jmethodID m_jContinueMethodId;
 };

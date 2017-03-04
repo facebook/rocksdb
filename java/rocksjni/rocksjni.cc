@@ -1225,6 +1225,135 @@ void Java_org_rocksdb_RocksDB_singleDelete__JJ_3BIJ(
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::DeleteRange()
+/**
+ * @return true if the delete range succeeded, false if a Java Exception
+ *     was thrown
+ */
+bool rocksdb_delete_range_helper(JNIEnv* env, rocksdb::DB* db,
+                                 const rocksdb::WriteOptions& write_options,
+                                 rocksdb::ColumnFamilyHandle* cf_handle,
+                                 jbyteArray jbegin_key, jint jbegin_key_off,
+                                 jint jbegin_key_len, jbyteArray jend_key,
+                                 jint jend_key_off, jint jend_key_len) {
+  jbyte* begin_key = new jbyte[jbegin_key_len];
+  env->GetByteArrayRegion(jbegin_key, jbegin_key_off, jbegin_key_len,
+                          begin_key);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] begin_key;
+    return false;
+  }
+  rocksdb::Slice begin_key_slice(reinterpret_cast<char*>(begin_key),
+                                 jbegin_key_len);
+
+  jbyte* end_key = new jbyte[jend_key_len];
+  env->GetByteArrayRegion(jend_key, jend_key_off, jend_key_len, end_key);
+  if (env->ExceptionCheck()) {
+    // exception thrown: ArrayIndexOutOfBoundsException
+    delete[] begin_key;
+    delete[] end_key;
+    return false;
+  }
+  rocksdb::Slice end_key_slice(reinterpret_cast<char*>(end_key), jend_key_len);
+
+  rocksdb::Status s =
+      db->DeleteRange(write_options, cf_handle, begin_key_slice, end_key_slice);
+
+  // cleanup
+  delete[] begin_key;
+  delete[] end_key;
+
+  if (s.ok()) {
+    return true;
+  }
+
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  return false;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    deleteRange
+ * Signature: (J[BII[BII)V
+ */
+void Java_org_rocksdb_RocksDB_deleteRange__J_3BII_3BII(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jbyteArray jbegin_key,
+    jint jbegin_key_off, jint jbegin_key_len, jbyteArray jend_key,
+    jint jend_key_off, jint jend_key_len) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  static const rocksdb::WriteOptions default_write_options =
+      rocksdb::WriteOptions();
+  rocksdb_delete_range_helper(env, db, default_write_options, nullptr,
+                              jbegin_key, jbegin_key_off, jbegin_key_len,
+                              jend_key, jend_key_off, jend_key_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    deleteRange
+ * Signature: (J[BII[BIIJ)V
+ */
+void Java_org_rocksdb_RocksDB_deleteRange__J_3BII_3BIIJ(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jbyteArray jbegin_key,
+    jint jbegin_key_off, jint jbegin_key_len, jbyteArray jend_key,
+    jint jend_key_off, jint jend_key_len, jlong jcf_handle) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  static const rocksdb::WriteOptions default_write_options =
+      rocksdb::WriteOptions();
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  if (cf_handle != nullptr) {
+    rocksdb_delete_range_helper(env, db, default_write_options, cf_handle,
+                                jbegin_key, jbegin_key_off, jbegin_key_len,
+                                jend_key, jend_key_off, jend_key_len);
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env, rocksdb::Status::InvalidArgument("Invalid ColumnFamilyHandle."));
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    deleteRange
+ * Signature: (JJ[BII[BII)V
+ */
+void Java_org_rocksdb_RocksDB_deleteRange__JJ_3BII_3BII(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jwrite_options,
+    jbyteArray jbegin_key, jint jbegin_key_off, jint jbegin_key_len,
+    jbyteArray jend_key, jint jend_key_off, jint jend_key_len) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* write_options =
+      reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options);
+  rocksdb_delete_range_helper(env, db, *write_options, nullptr, jbegin_key,
+                              jbegin_key_off, jbegin_key_len, jend_key,
+                              jend_key_off, jend_key_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    deleteRange
+ * Signature: (JJ[BII[BIIJ)V
+ */
+void Java_org_rocksdb_RocksDB_deleteRange__JJ_3BII_3BIIJ(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jwrite_options,
+    jbyteArray jbegin_key, jint jbegin_key_off, jint jbegin_key_len,
+    jbyteArray jend_key, jint jend_key_off, jint jend_key_len,
+    jlong jcf_handle) {
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* write_options =
+      reinterpret_cast<rocksdb::WriteOptions*>(jwrite_options);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  if (cf_handle != nullptr) {
+    rocksdb_delete_range_helper(env, db, *write_options, cf_handle, jbegin_key,
+                                jbegin_key_off, jbegin_key_len, jend_key,
+                                jend_key_off, jend_key_len);
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(
+        env, rocksdb::Status::InvalidArgument("Invalid ColumnFamilyHandle."));
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Merge
 
 /**

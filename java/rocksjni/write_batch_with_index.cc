@@ -174,6 +174,44 @@ void Java_org_rocksdb_WriteBatchWithIndex_remove__J_3BIJ(
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    deleteRange
+ * Signature: (J[BI[BI)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_deleteRange__J_3BI_3BI(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jbegin_key,
+    jint jbegin_key_len, jbyteArray jend_key, jint jend_key_len) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+  auto deleteRange = [&wbwi](rocksdb::Slice beginKey, rocksdb::Slice endKey) {
+    wbwi->DeleteRange(beginKey, endKey);
+  };
+  rocksdb::JniUtil::kv_op(deleteRange, env, jobj, jbegin_key, jbegin_key_len,
+                          jend_key, jend_key_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
+ * Method:    deleteRange
+ * Signature: (J[BI[BIJ)V
+ */
+void Java_org_rocksdb_WriteBatchWithIndex_deleteRange__J_3BI_3BIJ(
+    JNIEnv* env, jobject jobj, jlong jwbwi_handle, jbyteArray jbegin_key,
+    jint jbegin_key_len, jbyteArray jend_key, jint jend_key_len,
+    jlong jcf_handle) {
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  assert(wbwi != nullptr);
+  auto* cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  assert(cf_handle != nullptr);
+  auto deleteRange = [&wbwi, &cf_handle](rocksdb::Slice beginKey,
+                                         rocksdb::Slice endKey) {
+    wbwi->DeleteRange(cf_handle, beginKey, endKey);
+  };
+  rocksdb::JniUtil::kv_op(deleteRange, env, jobj, jbegin_key, jbegin_key_len,
+                          jend_key, jend_key_len);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatchWithIndex
  * Method:    putLogData
  * Signature: (J[BI)V
  */

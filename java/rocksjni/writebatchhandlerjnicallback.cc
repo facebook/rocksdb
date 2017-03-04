@@ -41,6 +41,12 @@ WriteBatchHandlerJniCallback::WriteBatchHandlerJniCallback(
     return;
   }
 
+  m_jDeleteRangeMethodId = WriteBatchHandlerJni::getDeleteRangeMethodId(env);
+  if (m_jDeleteRangeMethodId == nullptr) {
+    // exception thrown
+    return;
+  }
+
   m_jLogDataMethodId = WriteBatchHandlerJni::getLogDataMethodId(env);
   if(m_jLogDataMethodId == nullptr) {
     // exception thrown
@@ -173,6 +179,49 @@ void WriteBatchHandlerJniCallback::Delete(const Slice& key) {
 
   if(j_key != nullptr) {
     m_env->DeleteLocalRef(j_key);
+  }
+}
+
+void WriteBatchHandlerJniCallback::DeleteRange(const Slice& beginKey,
+                                               const Slice& endKey) {
+  const jbyteArray j_beginKey = sliceToJArray(beginKey);
+  if (j_beginKey == nullptr) {
+    // exception thrown
+    if (m_env->ExceptionCheck()) {
+      m_env->ExceptionDescribe();
+    }
+    return;
+  }
+
+  const jbyteArray j_endKey = sliceToJArray(beginKey);
+  if (j_endKey == nullptr) {
+    // exception thrown
+    if (m_env->ExceptionCheck()) {
+      m_env->ExceptionDescribe();
+    }
+    return;
+  }
+
+  m_env->CallVoidMethod(m_jWriteBatchHandler, m_jDeleteRangeMethodId,
+                        j_beginKey, j_endKey);
+  if (m_env->ExceptionCheck()) {
+    // exception thrown
+    m_env->ExceptionDescribe();
+    if (j_beginKey != nullptr) {
+      m_env->DeleteLocalRef(j_beginKey);
+    }
+    if (j_endKey != nullptr) {
+      m_env->DeleteLocalRef(j_endKey);
+    }
+    return;
+  }
+
+  if (j_beginKey != nullptr) {
+    m_env->DeleteLocalRef(j_beginKey);
+  }
+
+  if (j_endKey != nullptr) {
+    m_env->DeleteLocalRef(j_endKey);
   }
 }
 
