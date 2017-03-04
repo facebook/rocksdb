@@ -511,6 +511,13 @@ Status DBTestBase::ReadOnlyReopen(const Options& options) {
 
 Status DBTestBase::TryReopen(const Options& options) {
   Close();
+  last_options_.table_factory.reset();
+  // Note: operator= is an unsafe approach here since it destructs shared_ptr in
+  // the same order of their creation, in contrast to destructors which
+  // destructs them in the opposite order of creation. One particular problme is
+  // that the cache destructor might invoke callback functions that use Option
+  // members such as statistics. To work around this problem, we manually call
+  // destructor of table_facotry which eventually clears the block cache.
   last_options_ = options;
   return DB::Open(options, dbname_, &db_);
 }
