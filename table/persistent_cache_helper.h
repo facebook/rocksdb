@@ -6,32 +6,13 @@
 
 #include <string>
 
-#include "table/block_based_table_reader.h"
+#include "table/format.h"
+#include "table/persistent_cache_options.h"
 #include "util/statistics.h"
 
 namespace rocksdb {
 
 struct BlockContents;
-
-// PersistentCacheOptions
-//
-// This describe the caching behavior for page cache
-// This is used to pass the context for caching and the cache handle
-struct PersistentCacheOptions {
-  PersistentCacheOptions() {}
-  explicit PersistentCacheOptions(
-      const std::shared_ptr<PersistentCache>& _persistent_cache,
-      const std::string _key_prefix, Statistics* const _statistics)
-      : persistent_cache(_persistent_cache),
-        key_prefix(_key_prefix),
-        statistics(_statistics) {}
-
-  virtual ~PersistentCacheOptions() {}
-
-  std::shared_ptr<PersistentCache> persistent_cache;
-  std::string key_prefix;
-  Statistics* statistics = nullptr;
-};
 
 // PersistentCacheHelper
 //
