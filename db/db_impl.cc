@@ -5053,14 +5053,25 @@ void DBImpl::MaybeFlushColumnFamilies() {
   auto oldest_log_with_uncommited_prep = FindMinLogContainingOutstandingPrep();
 
   if (allow_2pc() &&
-      unable_to_flush_oldest_log_ &&
       oldest_log_with_uncommited_prep > 0 &&
       oldest_log_with_uncommited_prep <= oldest_alive_log) {
-    // we already attempted to flush all column families dependent on
-    // the oldest alive log but the log still contained uncommited transactions.
-    // the oldest alive log STILL contains uncommited transaction so there
-    // is still nothing that we can do.
-    return;
+    if (unable_to_flush_oldest_log_) {
+        // we already attempted to flush all column families dependent on
+        // the oldest alive log but the log still contained uncommited transactions.
+        // the oldest alive log STILL contains uncommited transaction so there
+        // is still nothing that we can do.
+        return;
+    } else {
+      Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
+          "Unable to release oldest log due to uncommited transaction");
+      unable_to_flush_oldest_log_ = true;
+    }
+  } else {
+    // we only mark this log as getting flushed if we have successfully
+    // flushed all data in this log. If this log contains outstanding prepared
+    // transactions then we cannot flush this log until those transactions are commited.
+    unable_to_flush_oldest_log_ = false;
+    alive_log_files_.begin()->getting_flushed = true;
   }
 
   WriteContext context;
@@ -5086,25 +5097,6 @@ void DBImpl::MaybeFlushColumnFamilies() {
   }
   MaybeScheduleFlushOrCompaction();
 
-  // we only mark this log as getting flushed if we have successfully
-  // flushed all data in this log. If this log contains outstanding prepred
-  // transactions then we cannot flush this log until those transactions are commited.
-
-  unable_to_flush_oldest_log_ = false;
-
-  if (allow_2pc()) {
-    if (oldest_log_with_uncommited_prep == 0 ||
-        oldest_log_with_uncommited_prep > oldest_alive_log) {
-      // this log contains no outstanding prepared transactions
-      alive_log_files_.begin()->getting_flushed = true;
-    } else {
-      Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
-          "Unable to release oldest log due to uncommited transaction");
-      unable_to_flush_oldest_log_ = true;
-    }
-  } else {
-    alive_log_files_.begin()->getting_flushed = true;
-  }
 }
 
 uint64_t DBImpl::GetMaxTotalWalSize() const {
