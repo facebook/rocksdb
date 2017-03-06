@@ -31,13 +31,13 @@
 #include "rocksdb/table.h"
 
 #include "table/block.h"
+#include "table/block_based_filter_block.h"
+#include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
-#include "table/block_based_filter_block.h"
-#include "table/block_based_table_factory.h"
-#include "table/full_filter_block.h"
 #include "table/format.h"
+#include "table/full_filter_block.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 
@@ -61,9 +61,10 @@ typedef BlockBasedTableOptions::IndexType IndexType;
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
 namespace {
 
-// Create a index builder based on its type.
-FilterBlockBuilder* CreateFilterBlockBuilder(const ImmutableCFOptions& opt,
-    const BlockBasedTableOptions& table_opt) {
+// Create a filter block builder based on its type.
+FilterBlockBuilder* CreateFilterBlockBuilder(
+    const ImmutableCFOptions& opt, const BlockBasedTableOptions& table_opt,
+    PartitionedIndexBuilder* const part_index_builder) {
   if (table_opt.filter_policy == nullptr) return nullptr;
 
   FilterBitsBuilder* filter_bits_builder =
@@ -71,9 +72,17 @@ FilterBlockBuilder* CreateFilterBlockBuilder(const ImmutableCFOptions& opt,
   if (filter_bits_builder == nullptr) {
     return new BlockBasedFilterBlockBuilder(opt.prefix_extractor, table_opt);
   } else {
-    return new FullFilterBlockBuilder(opt.prefix_extractor,
-                                      table_opt.whole_key_filtering,
-                                      filter_bits_builder);
+    if (table_opt.partition_filters) {
+      assert(part_index_builder != nullptr);
+      return new PartitionedFilterBlockBuilder(
+          opt.prefix_extractor, table_opt.whole_key_filtering,
+          filter_bits_builder, table_opt.index_block_restart_interval,
+          part_index_builder);
+    } else {
+      return new FullFilterBlockBuilder(opt.prefix_extractor,
+                                        table_opt.whole_key_filtering,
+                                        filter_bits_builder);
+    }
   }
 }
 
@@ -247,8 +256,7 @@ struct BlockBasedTableBuilder::Rep {
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
-  std::unique_ptr<FilterBlockBuilder> filter_block_gc;
-  FilterBlockBuilder* filter_block;
+  std::unique_ptr<FilterBlockBuilder> filter_block;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
 
@@ -287,10 +295,10 @@ struct BlockBasedTableBuilder::Rep {
                 table_options, data_block)),
         column_family_id(_column_family_id),
         column_family_name(_column_family_name) {
-    PartitionIndexBuilder* part_index_builder = nullptr;
+    PartitionedIndexBuilder* part_index_builder = nullptr;
     if (table_options.index_type ==
         BlockBasedTableOptions::kTwoLevelIndexSearch) {
-      part_index_builder = PartitionIndexBuilder::CreateIndexBuilder(
+      part_index_builder = PartitionedIndexBuilder::CreateIndexBuilder(
           &internal_comparator, _ioptions.prefix_extractor,
           table_options.index_block_restart_interval,
           table_options.index_per_partition, table_options);
@@ -302,15 +310,11 @@ struct BlockBasedTableBuilder::Rep {
           table_options.index_block_restart_interval,
           table_options.index_per_partition, table_options));
     }
-    filter_block = nullptr;
-    if (!skip_filters) {
-      if (table_opt.partition_filters) {
-        assert(part_index_builder != nullptr);
-        filter_block = part_index_builder;
-      } else {
-        filter_block = CreateFilterBlockBuilder(_ioptions, table_options);
-        filter_block_gc.reset(filter_block);
-      }
+    if (skip_filters) {
+      filter_block = nullptr;
+    } else {
+      filter_block.reset(CreateFilterBlockBuilder(_ioptions, table_options,
+                                                  part_index_builder));
     }
 
     for (auto& collector_factories : *int_tbl_prop_collector_factories) {
@@ -395,8 +399,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
       }
     }
 
-    // Note: PartitionIndexBuilder requires adding to filter_block to be after
-    // adding to index_builder
+    // Note: PartitionedFilterBlockBuilder requires adding to filter_block to be
+    // after adding to index_builder
     if (r->filter_block != nullptr) {
       r->filter_block->Add(ExtractUserKey(key));
     }
@@ -635,19 +639,12 @@ Status BlockBasedTableBuilder::Finish() {
       compression_dict_block_handle, range_del_block_handle;
   // Write filter block
   if (ok() && r->filter_block != nullptr) {
-    Status s;
-    Slice filter_content = r->filter_block->Finish(filter_block_handle, &s);
-    r->props.filter_size += filter_content.size();
-    WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
+    Status s = Status::Incomplete();
     while (s.IsIncomplete()) {
-      filter_content = r->filter_block->Finish(filter_block_handle, &s);
+      Slice filter_content = r->filter_block->Finish(filter_block_handle, &s);
+      assert(s.ok() || s.IsIncomplete());
       r->props.filter_size += filter_content.size();
-      if (s.IsIncomplete()) {
-        WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
-      } else {  // index on filter partitions
-        assert(s.ok());
-        WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
-      }
+      WriteRawBlock(filter_content, kNoCompression, &filter_block_handle);
     }
   }
 

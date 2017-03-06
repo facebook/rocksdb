@@ -51,7 +51,7 @@ class FilterBlockBuilder {
   virtual bool IsBlockBased() = 0;                    // If is blockbased filter
   virtual void StartBlock(uint64_t block_offset) = 0;  // Start new block filter
   virtual void Add(const Slice& key) = 0;      // Add a key to current filter
-  inline Slice Finish() {                      // Generate Filter
+  Slice Finish() {                             // Generate Filter
     const BlockHandle empty_handle;
     Status dont_care_status;
     return Finish(empty_handle, &dont_care_status);

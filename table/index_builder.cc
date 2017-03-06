@@ -38,7 +38,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
                                   index_block_restart_interval);
     }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
-      return PartitionIndexBuilder::CreateIndexBuilder(
+      return PartitionedIndexBuilder::CreateIndexBuilder(
           comparator, prefix_extractor, index_block_restart_interval,
           index_per_partition, table_opt);
     }
@@ -52,7 +52,7 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
   return nullptr;
 }
 
-PartitionIndexBuilder* PartitionIndexBuilder::CreateIndexBuilder(
+PartitionedIndexBuilder* PartitionedIndexBuilder::CreateIndexBuilder(
     const InternalKeyComparator* comparator,
     const SliceTransform* prefix_extractor, int index_block_restart_interval,
     uint64_t index_per_partition, const BlockBasedTableOptions& table_opt) {
@@ -66,9 +66,85 @@ PartitionIndexBuilder* PartitionIndexBuilder::CreateIndexBuilder(
           ? table_opt.filter_policy->GetFilterBitsBuilder()
           : new DummyFilterBitsBuilder();
   assert(filter_bits_builder);
-  return new PartitionIndexBuilder(
-      comparator, prefix_extractor, index_per_partition,
-      index_block_restart_interval, table_opt.whole_key_filtering,
-      filter_bits_builder, table_opt);
+  return new PartitionedIndexBuilder(comparator, prefix_extractor,
+                                     index_per_partition,
+                                     index_block_restart_interval, table_opt);
+}
+
+PartitionedIndexBuilder::PartitionedIndexBuilder(
+    const InternalKeyComparator* comparator,
+    const SliceTransform* prefix_extractor, const uint64_t index_per_partition,
+    int index_block_restart_interval, const BlockBasedTableOptions& table_opt)
+    : IndexBuilder(comparator),
+      prefix_extractor_(prefix_extractor),
+      index_block_builder_(index_block_restart_interval),
+      index_per_partition_(index_per_partition),
+      index_block_restart_interval_(index_block_restart_interval),
+      table_opt_(table_opt) {
+  sub_index_builder_ = IndexBuilder::CreateIndexBuilder(
+      sub_type_, comparator_, nullptr, prefix_extractor_,
+      index_block_restart_interval_, index_per_partition_, table_opt_);
+}
+
+PartitionedIndexBuilder::~PartitionedIndexBuilder() {
+  delete sub_index_builder_;
+}
+
+void PartitionedIndexBuilder::AddIndexEntry(
+    std::string* last_key_in_current_block,
+    const Slice* first_key_in_next_block, const BlockHandle& block_handle) {
+  sub_index_builder_->AddIndexEntry(last_key_in_current_block,
+                                    first_key_in_next_block, block_handle);
+  num_indexes++;
+  if (UNLIKELY(first_key_in_next_block == nullptr)) {  // no more keys
+    entries_.push_back({std::string(*last_key_in_current_block),
+                        std::unique_ptr<IndexBuilder>(sub_index_builder_)});
+    sub_index_builder_ = nullptr;
+    cut_filter_block = true;
+  } else if (num_indexes % index_per_partition_ == 0) {
+    entries_.push_back({std::string(*last_key_in_current_block),
+                        std::unique_ptr<IndexBuilder>(sub_index_builder_)});
+    sub_index_builder_ = IndexBuilder::CreateIndexBuilder(
+        sub_type_, comparator_, nullptr, prefix_extractor_,
+        index_block_restart_interval_, index_per_partition_, table_opt_);
+    cut_filter_block = true;
+  }
+}
+
+Status PartitionedIndexBuilder::Finish(
+    IndexBlocks* index_blocks, const BlockHandle& last_partition_block_handle) {
+  assert(!entries_.empty());
+  // It must be set to null after last key is added
+  assert(sub_index_builder_ == nullptr);
+  if (finishing_indexes == true) {
+    Entry& last_entry = entries_.front();
+    std::string handle_encoding;
+    last_partition_block_handle.EncodeTo(&handle_encoding);
+    index_block_builder_.Add(last_entry.key, handle_encoding);
+    entries_.pop_front();
+  }
+  // If there is no sub_index left, then return the 2nd level index.
+  if (UNLIKELY(entries_.empty())) {
+    index_blocks->index_block_contents = index_block_builder_.Finish();
+    return Status::OK();
+  } else {
+    // Finish the next partition index in line and Incomplete() to indicate we
+    // expect more calls to Finish
+    Entry& entry = entries_.front();
+    auto s = entry.value->Finish(index_blocks);
+    finishing_indexes = true;
+    return s.ok() ? Status::Incomplete() : s;
+  }
+}
+
+size_t PartitionedIndexBuilder::EstimatedSize() const {
+  size_t total = 0;
+  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
+    total += it->value->EstimatedSize();
+  }
+  total += index_block_builder_.CurrentSizeEstimate();
+  total +=
+      sub_index_builder_ == nullptr ? 0 : sub_index_builder_->EstimatedSize();
+  return total;
 }
 }
