@@ -1041,9 +1041,11 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state, bool schedule_only) {
     Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
         "[JOB %d] Try to delete WAL files size %" PRIu64
         ", prev total WAL file size %" PRIu64
-        ", number of live WAL files %" ROCKSDB_PRIszt ".\n",
+        ", number of live WAL files %" ROCKSDB_PRIszt
+        ", min log number to keep %" ROCKSDB_PRIszt ".\n",
         state.job_id, state.size_log_to_delete, state.prev_total_log_size,
-        state.num_alive_log_files);
+        state.num_alive_log_files,
+        state.log_number);
   }
 
   std::vector<std::string> old_info_log_files;
@@ -5091,6 +5093,14 @@ void DBImpl::MaybeFlushColumnFamilies() {
   // transactions then we cannot flush this log until those transactions are commited.
 
   unable_to_flush_oldest_log_ = false;
+
+  // Another thread could have removed some logs from alive_log_files_ while
+  // we were in this method. This is possible because SwitchMemtable() unlocks
+  // and re-locks mutex_.
+  if (alive_log_files_.begin()->number != oldest_alive_log) {
+    assert(alive_log_files_.begin()->number > oldest_alive_log);
+    return;
+  }
 
   if (allow_2pc()) {
     if (oldest_log_with_uncommited_prep == 0 ||
