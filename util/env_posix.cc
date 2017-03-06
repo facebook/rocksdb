@@ -670,10 +670,12 @@ class PosixEnv : public Env {
   }
 
   virtual uint64_t NowNanos() override {
-#if defined(OS_LINUX) || defined(OS_FREEBSD)
+#if defined(OS_LINUX) || defined(OS_FREEBSD) || defined(OS_AIX)
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#elif defined(OS_SOLARIS)
+    return gethrtime();
 #elif defined(__MACH__)
     clock_serv_t cclock;
     mach_timespec_t ts;
