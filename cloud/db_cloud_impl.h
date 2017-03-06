@@ -20,8 +20,6 @@ namespace rocksdb {
 class DBCloudImpl : public DBCloud {
  friend DBCloud;
  public:
-  explicit DBCloudImpl(DB* db);
-
   virtual ~DBCloudImpl();
 
   // Get the contents of the specified file into a string
@@ -33,6 +31,8 @@ class DBCloudImpl : public DBCloud {
   CloudEnv* cenv_;
 
  private:
+
+  explicit DBCloudImpl(DB* db);
 
   // Does the dir need to be re-initialized?
   static Status NeedsReinitialization(CloudEnv* cenv,
