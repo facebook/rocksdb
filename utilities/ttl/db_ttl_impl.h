@@ -187,8 +187,6 @@ class TtlCompactionFilter : public CompactionFilter {
 
   virtual const char* Name() const override { return "Delete By TTL"; }
 
-  int32_t GetTtl() { return ttl_; }
-
  private:
   int32_t ttl_;
   Env* env_;
@@ -219,8 +217,6 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
   virtual const char* Name() const override {
     return "TtlCompactionFilterFactory";
   }
-
-  int32_t GetTtl() { return ttl_; }
 
  private:
   int32_t ttl_;
