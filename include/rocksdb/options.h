@@ -892,7 +892,7 @@ enum ReadTier {
                           // will skip data in memtable.
                           // Note that this ReadTier currently only supports
                           // Get and MultiGet and does not support iterators.
-  kMemtableTier = 0x3
+  kMemtableTier = 0x3     // data in memtable. used for memtable-only iterators.
 };
 
 // Options that control read operations
