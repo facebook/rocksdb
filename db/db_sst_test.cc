@@ -516,18 +516,25 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
   // than the limit.
 
   std::vector<int> max_space_limits_mbs = {1, 2, 4, 8, 10};
-
+  decltype(max_space_limits_mbs)::value_type limit_mb_cb;
   bool bg_error_set = false;
   uint64_t total_sst_files_size = 0;
 
+  std::atomic<int> estimate_multiplier(1);
   int reached_max_space_on_flush = 0;
   int reached_max_space_on_compaction = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
       [&](void* arg) {
+        Status* bg_error = static_cast<Status*>(arg);
         bg_error_set = true;
         GetAllSSTFiles(&total_sst_files_size);
         reached_max_space_on_flush++;
+        // low limit for size calculated using sst files
+        ASSERT_GE(total_sst_files_size, limit_mb_cb * 1024 * 1024);
+        // clear error to ensure compaction callback is called
+        *bg_error = Status::OK();
+        estimate_multiplier++;  // used in the main loop assert
       });
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -541,6 +548,8 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
   for (auto limit_mb : max_space_limits_mbs) {
     bg_error_set = false;
     total_sst_files_size = 0;
+    estimate_multiplier = 1;
+    limit_mb_cb = limit_mb;
     rocksdb::SyncPoint::GetInstance()->ClearTrace();
     rocksdb::SyncPoint::GetInstance()->EnableProcessing();
     std::shared_ptr<SstFileManager> sst_file_manager(NewSstFileManager(env_));
@@ -565,7 +574,8 @@ TEST_F(DBSSTTest, DBWithMaxSpaceAllowedRandomized) {
       // Check the estimated db size vs the db limit just to make sure we
       // dont run into an infinite loop
       estimated_db_size = keys_written * 60;  // ~60 bytes per key
-      ASSERT_LT(estimated_db_size, limit_mb * 1024 * 1024 * 2);
+      ASSERT_LT(estimated_db_size,
+                estimate_multiplier * limit_mb * 1024 * 1024 * 2);
     }
     ASSERT_TRUE(bg_error_set);
     ASSERT_GE(total_sst_files_size, limit_mb * 1024 * 1024);
