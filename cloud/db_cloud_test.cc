@@ -63,7 +63,7 @@ class CloudTest : public testing::Test {
 
   void DestroyDir(const std::string& dir) {
     std::string cmd = "rm -rf " + dir;
-    system(cmd.c_str());
+    (void)system(cmd.c_str());
   }
 
   virtual ~CloudTest() {
