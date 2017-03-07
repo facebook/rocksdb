@@ -31,7 +31,7 @@ class DBWithTTLImpl : public DBWithTTL {
                               Env* env);
 
   explicit DBWithTTLImpl(DB* db,
-                         const std::vector<ColumnFamilyDescriptor>& descriptors,
+                         const std::vector<ColumnFamilyHandle*>* handles,
                          std::vector<int32_t> ttls);
 
   virtual ~DBWithTTLImpl();
@@ -83,7 +83,7 @@ class DBWithTTLImpl : public DBWithTTL {
 
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
 
-  bool IsStale(const Slice& value, const std::string& column_family_name);
+  bool IsStale(const Slice& value, uint32_t column_family_id);
 
   static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env);
 
@@ -98,7 +98,7 @@ class DBWithTTLImpl : public DBWithTTL {
   static const int32_t kMaxTimestamp = 2147483647;  // 01/18/2038:7:14PM GMT-8
 
  private:
-  std::map<std::string, int32_t> column_family_ttls_;
+  std::map<uint32_t, int32_t> column_family_ttls_;
 };
 
 class TtlIterator : public Iterator {
