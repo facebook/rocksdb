@@ -54,7 +54,9 @@ class FilterBlockBuilder {
   Slice Finish() {                             // Generate Filter
     const BlockHandle empty_handle;
     Status dont_care_status;
-    return Finish(empty_handle, &dont_care_status);
+    auto ret = Finish(empty_handle, &dont_care_status);
+    assert(dont_care_status.ok());
+    return ret;
   }
   virtual Slice Finish(const BlockHandle& tmp, Status* status) = 0;
 
