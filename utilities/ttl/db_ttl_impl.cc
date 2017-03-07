@@ -33,7 +33,16 @@ void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
 }
 
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
-DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db) {}
+DBWithTTLImpl::DBWithTTLImpl(
+        DB* db,
+        const std::vector<ColumnFamilyDescriptor>& descriptors,
+        std::vector<int32_t> ttls) : DBWithTTL(db) {
+
+  for (size_t i=0; i < descriptors.size(); ++i) {
+    column_family_ttls_.insert(
+            std::make_pair(descriptors[i].name, ttls[i]));
+  }
+}
 
 DBWithTTLImpl::~DBWithTTLImpl() {
   // Need to stop background compaction before getting rid of the filter
@@ -101,7 +110,7 @@ Status DBWithTTL::Open(
     st = DB::Open(db_options, dbname, column_families_sanitized, handles, &db);
   }
   if (st.ok()) {
-    *dbptr = new DBWithTTLImpl(db);
+    *dbptr = new DBWithTTLImpl(db, column_families_sanitized, ttls);
   } else {
     *dbptr = nullptr;
   }
@@ -170,6 +179,15 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
   return (timestamp_value + ttl) < curtime;
 }
 
+bool DBWithTTLImpl::IsStale(const Slice& value, const std::string& column_family_name) {
+  int32_t ttl = 0;
+  auto iter = column_family_ttls_.find(column_family_name);
+  if(iter != column_family_ttls_.end())
+    ttl = iter->second;
+
+  return IsStale(value, ttl, GetBaseDB()->GetEnv());
+}
+
 // Strips the TS from the end of the string
 Status DBWithTTLImpl::StripTS(std::string* str) {
   Status st;
@@ -200,6 +218,11 @@ Status DBWithTTLImpl::Get(const ReadOptions& options,
   if (!st.ok()) {
     return st;
   }
+
+  if (IsStale(*value, column_family->GetName())) {
+    return Status::NotFound();
+  }
+
   return StripTS(value);
 }
 
@@ -207,6 +230,7 @@ std::vector<Status> DBWithTTLImpl::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  const std::string& column_family_name = column_family[0]->GetName();
   auto statuses = db_->MultiGet(options, column_family, keys, values);
   for (size_t i = 0; i < keys.size(); ++i) {
     if (!statuses[i].ok()) {
@@ -214,6 +238,11 @@ std::vector<Status> DBWithTTLImpl::MultiGet(
     }
     statuses[i] = SanityCheckTimestamp((*values)[i]);
     if (!statuses[i].ok()) {
+      continue;
+    }
+
+    if (IsStale((*values)[0], column_family_name)) {
+      statuses[i] = Status::NotFound();
       continue;
     }
     statuses[i] = StripTS(&(*values)[i]);
@@ -227,7 +256,8 @@ bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,
                                 bool* value_found) {
   bool ret = db_->KeyMayExist(options, column_family, key, value, value_found);
   if (ret && value != nullptr && value_found != nullptr && *value_found) {
-    if (!SanityCheckTimestamp(*value).ok() || !StripTS(value).ok()) {
+    if (!SanityCheckTimestamp(*value).ok() || 
+        IsStale(*value, column_family->GetName()) || !StripTS(value).ok()) {
       return false;
     }
   }
