@@ -9,76 +9,62 @@
 #include "util/coding.h"
 
 namespace rocksdb {
-PartitionIndexBuilder::PartitionIndexBuilder(
-    const InternalKeyComparator* comparator,
-    const SliceTransform* prefix_extractor, const uint64_t index_per_partition,
-    int index_block_restart_interval)
-    : IndexBuilder(comparator),
-      prefix_extractor_(prefix_extractor),
-      index_block_builder_(index_block_restart_interval),
-      index_per_partition_(index_per_partition),
-      index_block_restart_interval_(index_block_restart_interval) {
-  sub_index_builder_ =
-      CreateIndexBuilder(sub_type_, comparator_, prefix_extractor_,
-                         index_block_restart_interval_, index_per_partition_);
-}
 
-PartitionIndexBuilder::~PartitionIndexBuilder() { delete sub_index_builder_; }
+PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
+    const SliceTransform* prefix_extractor, bool whole_key_filtering,
+    FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
+    PartitionedIndexBuilder* const p_index_builder)
+    : FullFilterBlockBuilder(prefix_extractor, whole_key_filtering,
+                             filter_bits_builder),
+      index_on_filter_block_builder_(index_block_restart_interval),
+      p_index_builder_(p_index_builder) {}
 
-void PartitionIndexBuilder::AddIndexEntry(
-    std::string* last_key_in_current_block,
-    const Slice* first_key_in_next_block, const BlockHandle& block_handle) {
-  sub_index_builder_->AddIndexEntry(last_key_in_current_block,
-                                    first_key_in_next_block, block_handle);
-  num_indexes++;
-  if (UNLIKELY(first_key_in_next_block == nullptr)) {  // no more keys
-    entries_.push_back({std::string(*last_key_in_current_block),
-                        std::unique_ptr<IndexBuilder>(sub_index_builder_)});
-    sub_index_builder_ = nullptr;
-  } else if (num_indexes % index_per_partition_ == 0) {
-    entries_.push_back({std::string(*last_key_in_current_block),
-                        std::unique_ptr<IndexBuilder>(sub_index_builder_)});
-    sub_index_builder_ =
-        CreateIndexBuilder(sub_type_, comparator_, prefix_extractor_,
-                           index_block_restart_interval_, index_per_partition_);
+PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
+
+void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
+  if (!p_index_builder_->ShouldCutFilterBlock()) {
+    return;
   }
+  filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
+  Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
+  std::string& index_key = p_index_builder_->GetPartitionKey();
+  filters.push_back({index_key, filter});
 }
 
-Status PartitionIndexBuilder::Finish(
-    IndexBlocks* index_blocks, const BlockHandle& last_partition_block_handle) {
-  assert(!entries_.empty());
-  // It must be set to null after last key is added
-  assert(sub_index_builder_ == nullptr);
-  if (finishing == true) {
-    Entry& last_entry = entries_.front();
+void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
+  MaybeCutAFilterBlock();
+  filter_bits_builder_->AddKey(key);
+}
+
+Slice PartitionedFilterBlockBuilder::Finish(
+    const BlockHandle& last_partition_block_handle, Status* status) {
+  if (finishing_filters == true) {
+    // Record the handle of the last written filter block in the index
+    FilterEntry& last_entry = filters.front();
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
-    index_block_builder_.Add(last_entry.key, handle_encoding);
-    entries_.pop_front();
-  }
-  // If there is no sub_index left, then return the 2nd level index.
-  if (UNLIKELY(entries_.empty())) {
-    index_blocks->index_block_contents = index_block_builder_.Finish();
-    return Status::OK();
+    index_on_filter_block_builder_.Add(last_entry.key, handle_encoding);
+    filters.pop_front();
   } else {
-    // Finish the next partition index in line and Incomplete() to indicate we
-    // expect more calls to Finish
-    Entry& entry = entries_.front();
-    auto s = entry.value->Finish(index_blocks);
-    finishing = true;
-    return s.ok() ? Status::Incomplete() : s;
+    MaybeCutAFilterBlock();
   }
-}
-
-size_t PartitionIndexBuilder::EstimatedSize() const {
-  size_t total = 0;
-  for (auto it = entries_.begin(); it != entries_.end(); ++it) {
-    total += it->value->EstimatedSize();
+  // If there is no filter partition left, then return the index on filter
+  // partitions
+  if (UNLIKELY(filters.empty())) {
+    *status = Status::OK();
+    if (finishing_filters) {
+      return index_on_filter_block_builder_.Finish();
+    } else {
+      // This is the rare case where no key was added to the filter
+      return Slice();
+    }
+  } else {
+    // Return the next filter partition in line and set Incomplete() status to
+    // indicate we expect more calls to Finish
+    *status = Status::Incomplete();
+    finishing_filters = true;
+    return filters.front().filter;
   }
-  total += index_block_builder_.CurrentSizeEstimate();
-  total +=
-      sub_index_builder_ == nullptr ? 0 : sub_index_builder_->EstimatedSize();
-  return total;
 }
 
 }  // namespace rocksdb

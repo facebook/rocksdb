@@ -148,6 +148,15 @@ struct BlockBasedTableOptions {
   // i.e., the number of data blocks covered by each index partition
   uint64_t index_per_partition = 1024;
 
+  // Note: currently this option requires kTwoLevelIndexSearch to be set as
+  // well.
+  // TODO(myabandeh): remove the note above once the limitation is lifted
+  // TODO(myabandeh): this feature is in experimental phase and shall not be
+  // used in production; either remove the feature or remove this comment if
+  // it is ready to be used in production.
+  // Use partitioned full filters for each SST file
+  bool partition_filters = false;
+
   // Use delta encoding to compress keys in blocks.
   // ReadOptions::pin_data requires this option to be disabled.
   //

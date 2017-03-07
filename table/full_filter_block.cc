@@ -40,11 +40,12 @@ inline void FullFilterBlockBuilder::AddKey(const Slice& key) {
 // Add prefix to filter if needed
 inline void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
   Slice prefix = prefix_extractor_->Transform(key);
-  filter_bits_builder_->AddKey(prefix);
-  num_added_++;
+  AddKey(prefix);
 }
 
-Slice FullFilterBlockBuilder::Finish() {
+Slice FullFilterBlockBuilder::Finish(const BlockHandle& tmp, Status* status) {
+  // In this impl we ignore BlockHandle
+  *status = Status::OK();
   if (num_added_ != 0) {
     num_added_ = 0;
     return filter_bits_builder_->Finish(&filter_data_);
@@ -73,7 +74,7 @@ FullFilterBlockReader::FullFilterBlockReader(
 }
 
 bool FullFilterBlockReader::KeyMayMatch(const Slice& key,
-    uint64_t block_offset) {
+                                        uint64_t block_offset) {
   assert(block_offset == kNotValid);
   if (!whole_key_filtering_) {
     return true;
