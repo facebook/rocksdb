@@ -502,7 +502,7 @@ TEST_F(TtlTest, ReadOnlyPresentForever) {
   CloseTtl();
 
   OpenReadOnlyTtl(1);
-  SleepCompactCheck(2, 0, kSampleSize_);       // T=2:Set1 should still be there
+  SleepCompactCheck(2, 0, kSampleSize_, false); // T=2:Set1 should not be there
   CloseTtl();
 }
 
