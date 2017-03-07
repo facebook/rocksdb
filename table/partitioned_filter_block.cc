@@ -21,7 +21,6 @@ PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
 
 PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
 
-// FullFilterBlockBuilder
 void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
   if (!p_index_builder_->ShouldCutFilterBlock()) {
     return;
@@ -40,27 +39,28 @@ void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
 Slice PartitionedFilterBlockBuilder::Finish(
     const BlockHandle& last_partition_block_handle, Status* status) {
   if (finishing_filters == true) {
+    // Record the handle of the last written filter block in the index
     FilterEntry& last_entry = filters.front();
     std::string handle_encoding;
     last_partition_block_handle.EncodeTo(&handle_encoding);
-    // This is the full key vs. the user key in the filters. We assume that
-    // user key <= full key
     index_on_filter_block_builder_.Add(last_entry.key, handle_encoding);
     filters.pop_front();
   } else {
     MaybeCutAFilterBlock();
   }
-  // If there is no sub_filter left, then return empty Slice
+  // If there is no filter partition left, then return the index on filter
+  // partitions
   if (UNLIKELY(filters.empty())) {
     *status = Status::OK();
     if (finishing_filters) {
       return index_on_filter_block_builder_.Finish();
     } else {
+      // This is the rare case where no key was added to the filter
       return Slice();
     }
   } else {
-    // Finish the next partition index in line and Incomplete() to indicate we
-    // expect more calls to Finish
+    // Return the next filter partition in line and set Incomplete() status to
+    // indicate we expect more calls to Finish
     *status = Status::Incomplete();
     finishing_filters = true;
     return filters.front().filter;
