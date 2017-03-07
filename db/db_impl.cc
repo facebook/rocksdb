@@ -3919,8 +3919,10 @@ InternalIterator* DBImpl::NewInternalIterator(
   }
   if (s.ok()) {
     // Collect iterators for files in L0 - Ln
-    super_version->current->AddIterators(read_options, env_options_,
-                                         &merge_iter_builder, range_del_agg);
+    if (read_options.read_tier != kMemtableTier) {
+      super_version->current->AddIterators(read_options, env_options_,
+                                           &merge_iter_builder, range_del_agg);
+    }
     internal_iter = merge_iter_builder.Finish();
     IterState* cleanup =
         new IterState(this, &mutex_, super_version,
