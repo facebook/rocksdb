@@ -12,7 +12,6 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "util/hash.h"
 
 #include "table/full_filter_block.h"
 #include "table/index_builder.h"
@@ -24,7 +23,7 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   explicit PartitionedFilterBlockBuilder(
       const SliceTransform* prefix_extractor, bool whole_key_filtering,
       FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
-      PartitionedIndexBuilder* const part_index_builder);
+      PartitionedIndexBuilder* const p_index_builder);
 
   virtual ~PartitionedFilterBlockBuilder();
 
@@ -46,8 +45,8 @@ class PartitionedFilterBlockBuilder : public FullFilterBlockBuilder {
   bool finishing_filters =
       false;  // true if Finish is called once but not complete yet.
   // The policy of when cut a filter block and Finish it
-  void MayBeCutAFilterBlock();
-  PartitionedIndexBuilder* const part_index_builder_;
+  void MaybeCutAFilterBlock();
+  PartitionedIndexBuilder* const p_index_builder_;
 };
 
 }  // namespace rocksdb

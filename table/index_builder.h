@@ -37,9 +37,8 @@ class IndexBuilder {
   static IndexBuilder* CreateIndexBuilder(
       BlockBasedTableOptions::IndexType index_type,
       const rocksdb::InternalKeyComparator* comparator,
-      const SliceTransform* slice_transform,
-      const SliceTransform* prefix_extractor, int index_block_restart_interval,
-      uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
+      const InternalKeySliceTransform* int_key_slice_transform,
+      const BlockBasedTableOptions& table_opt);
 
   // Index builder will construct a set of blocks which contain:
   //  1. One primary index block.
@@ -280,13 +279,9 @@ class PartitionedIndexBuilder : public IndexBuilder {
  public:
   static PartitionedIndexBuilder* CreateIndexBuilder(
       const rocksdb::InternalKeyComparator* comparator,
-      const SliceTransform* prefix_extractor, int index_block_restart_interval,
-      uint64_t index_per_partition, const BlockBasedTableOptions& table_opt);
+      const BlockBasedTableOptions& table_opt);
 
   explicit PartitionedIndexBuilder(const InternalKeyComparator* comparator,
-                                   const SliceTransform* prefix_extractor,
-                                   const uint64_t index_per_partition,
-                                   int index_block_restart_interval,
                                    const BlockBasedTableOptions& table_opt);
 
   virtual ~PartitionedIndexBuilder();
@@ -320,11 +315,8 @@ class PartitionedIndexBuilder : public IndexBuilder {
     std::unique_ptr<IndexBuilder> value;
   };
   std::list<Entry> entries_;  // list of partitioned indexes and their keys
-  const SliceTransform* prefix_extractor_;
   BlockBuilder index_block_builder_;  // top-level index builder
   IndexBuilder* sub_index_builder_;   // the active partition index builder
-  uint64_t index_per_partition_;
-  int index_block_restart_interval_;
   uint64_t num_indexes = 0;
   bool finishing_indexes =
       false;  // true if Finish is called once but not complete yet.
@@ -333,4 +325,4 @@ class PartitionedIndexBuilder : public IndexBuilder {
   bool cut_filter_block =
       false;  // true if it should cut the next filter partition block
 };
-}
+}  // namespace rocksdb

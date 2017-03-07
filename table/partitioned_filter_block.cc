@@ -13,27 +13,27 @@ namespace rocksdb {
 PartitionedFilterBlockBuilder::PartitionedFilterBlockBuilder(
     const SliceTransform* prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder, int index_block_restart_interval,
-    PartitionedIndexBuilder* const part_index_builder)
+    PartitionedIndexBuilder* const p_index_builder)
     : FullFilterBlockBuilder(prefix_extractor, whole_key_filtering,
                              filter_bits_builder),
       index_on_filter_block_builder_(index_block_restart_interval),
-      part_index_builder_(part_index_builder) {}
+      p_index_builder_(p_index_builder) {}
 
 PartitionedFilterBlockBuilder::~PartitionedFilterBlockBuilder() {}
 
 // FullFilterBlockBuilder
-void PartitionedFilterBlockBuilder::MayBeCutAFilterBlock() {
-  if (!part_index_builder_->ShouldCutFilterBlock()) {
+void PartitionedFilterBlockBuilder::MaybeCutAFilterBlock() {
+  if (!p_index_builder_->ShouldCutFilterBlock()) {
     return;
   }
   filter_gc.push_back(std::unique_ptr<const char[]>(nullptr));
   Slice filter = filter_bits_builder_->Finish(&filter_gc.back());
-  std::string& index_key = part_index_builder_->GetPartitionKey();
+  std::string& index_key = p_index_builder_->GetPartitionKey();
   filters.push_back({index_key, filter});
 }
 
 void PartitionedFilterBlockBuilder::AddKey(const Slice& key) {
-  MayBeCutAFilterBlock();
+  MaybeCutAFilterBlock();
   filter_bits_builder_->AddKey(key);
 }
 
@@ -47,8 +47,9 @@ Slice PartitionedFilterBlockBuilder::Finish(
     // user key <= full key
     index_on_filter_block_builder_.Add(last_entry.key, handle_encoding);
     filters.pop_front();
+  } else {
+    MaybeCutAFilterBlock();
   }
-  MayBeCutAFilterBlock();
   // If there is no sub_filter left, then return empty Slice
   if (UNLIKELY(filters.empty())) {
     *status = Status::OK();

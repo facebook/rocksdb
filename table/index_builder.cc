@@ -25,22 +25,19 @@ namespace rocksdb {
 IndexBuilder* IndexBuilder::CreateIndexBuilder(
     BlockBasedTableOptions::IndexType index_type,
     const InternalKeyComparator* comparator,
-    const SliceTransform* slice_transform,
-    const SliceTransform* prefix_extractor, int index_block_restart_interval,
-    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt) {
+    const InternalKeySliceTransform* int_key_slice_transform,
+    const BlockBasedTableOptions& table_opt) {
   switch (index_type) {
     case BlockBasedTableOptions::kBinarySearch: {
       return new ShortenedIndexBuilder(comparator,
-                                       index_block_restart_interval);
+                                       table_opt.index_block_restart_interval);
     }
     case BlockBasedTableOptions::kHashSearch: {
-      return new HashIndexBuilder(comparator, slice_transform,
-                                  index_block_restart_interval);
+      return new HashIndexBuilder(comparator, int_key_slice_transform,
+                                  table_opt.index_block_restart_interval);
     }
     case BlockBasedTableOptions::kTwoLevelIndexSearch: {
-      return PartitionedIndexBuilder::CreateIndexBuilder(
-          comparator, prefix_extractor, index_block_restart_interval,
-          index_per_partition, table_opt);
+      return PartitionedIndexBuilder::CreateIndexBuilder(comparator, table_opt);
     }
     default: {
       assert(!"Do not recognize the index type ");
@@ -54,36 +51,18 @@ IndexBuilder* IndexBuilder::CreateIndexBuilder(
 
 PartitionedIndexBuilder* PartitionedIndexBuilder::CreateIndexBuilder(
     const InternalKeyComparator* comparator,
-    const SliceTransform* prefix_extractor, int index_block_restart_interval,
-    uint64_t index_per_partition, const BlockBasedTableOptions& table_opt) {
-  class DummyFilterBitsBuilder : public FilterBitsBuilder {
-   public:
-    virtual void AddKey(const Slice& key) { assert(0); }
-    virtual Slice Finish(std::unique_ptr<const char[]>* buf) { assert(0); }
-  };
-  FilterBitsBuilder* filter_bits_builder =
-      table_opt.filter_policy != nullptr
-          ? table_opt.filter_policy->GetFilterBitsBuilder()
-          : new DummyFilterBitsBuilder();
-  assert(filter_bits_builder);
-  return new PartitionedIndexBuilder(comparator, prefix_extractor,
-                                     index_per_partition,
-                                     index_block_restart_interval, table_opt);
+    const BlockBasedTableOptions& table_opt) {
+  return new PartitionedIndexBuilder(comparator, table_opt);
 }
 
 PartitionedIndexBuilder::PartitionedIndexBuilder(
     const InternalKeyComparator* comparator,
-    const SliceTransform* prefix_extractor, const uint64_t index_per_partition,
-    int index_block_restart_interval, const BlockBasedTableOptions& table_opt)
+    const BlockBasedTableOptions& table_opt)
     : IndexBuilder(comparator),
-      prefix_extractor_(prefix_extractor),
-      index_block_builder_(index_block_restart_interval),
-      index_per_partition_(index_per_partition),
-      index_block_restart_interval_(index_block_restart_interval),
+      index_block_builder_(table_opt.index_block_restart_interval),
       table_opt_(table_opt) {
-  sub_index_builder_ = IndexBuilder::CreateIndexBuilder(
-      sub_type_, comparator_, nullptr, prefix_extractor_,
-      index_block_restart_interval_, index_per_partition_, table_opt_);
+  sub_index_builder_ = IndexBuilder::CreateIndexBuilder(sub_type_, comparator_,
+                                                        nullptr, table_opt_);
 }
 
 PartitionedIndexBuilder::~PartitionedIndexBuilder() {
@@ -101,12 +80,11 @@ void PartitionedIndexBuilder::AddIndexEntry(
                         std::unique_ptr<IndexBuilder>(sub_index_builder_)});
     sub_index_builder_ = nullptr;
     cut_filter_block = true;
-  } else if (num_indexes % index_per_partition_ == 0) {
+  } else if (num_indexes % table_opt_.index_per_partition == 0) {
     entries_.push_back({std::string(*last_key_in_current_block),
                         std::unique_ptr<IndexBuilder>(sub_index_builder_)});
     sub_index_builder_ = IndexBuilder::CreateIndexBuilder(
-        sub_type_, comparator_, nullptr, prefix_extractor_,
-        index_block_restart_interval_, index_per_partition_, table_opt_);
+        sub_type_, comparator_, nullptr, table_opt_);
     cut_filter_block = true;
   }
 }
@@ -147,4 +125,4 @@ size_t PartitionedIndexBuilder::EstimatedSize() const {
       sub_index_builder_ == nullptr ? 0 : sub_index_builder_->EstimatedSize();
   return total;
 }
-}
+}  // namespace rocksdb

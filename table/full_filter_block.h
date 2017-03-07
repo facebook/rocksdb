@@ -100,14 +100,13 @@ class FullFilterBlockReader : public FilterBlockReader {
  private:
   const SliceTransform* prefix_extractor_;
   Slice contents_;
-  bool MayMatch(const Slice& entry);
-
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   BlockContents block_contents_;
   std::unique_ptr<const char[]> filter_data_;
 
   // No copying allowed
   FullFilterBlockReader(const FullFilterBlockReader&);
+  bool MayMatch(const Slice& entry);
   void operator=(const FullFilterBlockReader&);
 };
 
