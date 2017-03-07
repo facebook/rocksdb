@@ -26,6 +26,10 @@ CloudEnvImpl::CloudEnvImpl(CloudType type, Env* base_env) :
 }
 
 CloudEnvImpl::~CloudEnvImpl() {
+  StopPurger();
+}
+
+void CloudEnvImpl::StopPurger() {
   // tell the purger to stop
   purger_is_running_ = false;
 

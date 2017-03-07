@@ -129,6 +129,7 @@ AwsEnv::AwsEnv(Env* underlying_env,
 
 AwsEnv::~AwsEnv() {
   running_ = false;
+  StopPurger();
   if (tid_.joinable()) {
     tid_.join();
   }
