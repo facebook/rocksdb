@@ -5208,7 +5208,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
   });
   env_->SleepForMicroseconds(200000);
   // make sure the thread is not done
-  ASSERT_EQ(false, done.load());
+  ASSERT_FALSE(done.load());
   db_->ContinueBackgroundWork();
   for (auto& t : threads) {
     t.join();
