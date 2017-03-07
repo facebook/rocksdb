@@ -1338,6 +1338,104 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+   * including "beginKey" and excluding "endKey". a non-OK status on error. It
+   * is not an error if no keys exist in the range ["beginKey", "endKey").
+   *
+   * Delete the database entry (if any) for "key". Returns OK on success, and a
+   * non-OK status on error. It is not an error if "key" did not exist in the
+   * database.
+   *
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (excluded)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteRange(final byte[] beginKey, final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length);
+  }
+
+  /**
+   * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+   * including "beginKey" and excluding "endKey". a non-OK status on error. It
+   * is not an error if no keys exist in the range ["beginKey", "endKey").
+   *
+   * Delete the database entry (if any) for "key". Returns OK on success, and a
+   * non-OK status on error. It is not an error if "key" did not exist in the
+   * database.
+   *
+   * @param columnFamilyHandle
+   *          {@link org.rocksdb.ColumnFamilyHandle} instance
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (excluded)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle, final byte[] beginKey,
+      final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, beginKey, 0, beginKey.length, endKey, 0, endKey.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+   * including "beginKey" and excluding "endKey". a non-OK status on error. It
+   * is not an error if no keys exist in the range ["beginKey", "endKey").
+   *
+   * Delete the database entry (if any) for "key". Returns OK on success, and a
+   * non-OK status on error. It is not an error if "key" did not exist in the
+   * database.
+   *
+   * @param writeOpt
+   *          WriteOptions to be used with delete operation
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (excluded)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteRange(final WriteOptions writeOpt, final byte[] beginKey, final byte[] endKey)
+      throws RocksDBException {
+    deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
+        endKey.length);
+  }
+
+  /**
+   * Removes the database entries in the range ["beginKey", "endKey"), i.e.,
+   * including "beginKey" and excluding "endKey". a non-OK status on error. It
+   * is not an error if no keys exist in the range ["beginKey", "endKey").
+   *
+   * Delete the database entry (if any) for "key". Returns OK on success, and a
+   * non-OK status on error. It is not an error if "key" did not exist in the
+   * database.
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param writeOpt
+   *          WriteOptions to be used with delete operation
+   * @param beginKey
+   *          First key to delete within database (included)
+   * @param endKey
+   *          Last key to delete within database (excluded)
+   *
+   * @throws RocksDBException
+   *           thrown if error happens in underlying native library.
+   */
+  public void deleteRange(final ColumnFamilyHandle columnFamilyHandle, final WriteOptions writeOpt,
+      final byte[] beginKey, final byte[] endKey) throws RocksDBException {
+    deleteRange(nativeHandle_, writeOpt.nativeHandle_, beginKey, 0, beginKey.length, endKey, 0,
+        endKey.length, columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * DB implementations can export properties about their state
    * via this method.  If "property" is a valid property understood by this
    * DB implementation, fills "*value" with its current value and returns
@@ -2261,6 +2359,18 @@ public class RocksDB extends RocksObject {
   protected native void singleDelete(
       long handle, long writeOptHandle,
       byte[] key, int keyLen, long cfHandle) throws RocksDBException;
+  protected native void deleteRange(long handle, byte[] beginKey, int beginKeyOffset,
+      int beginKeyLength, byte[] endKey, int endKeyOffset, int endKeyLength)
+      throws RocksDBException;
+  protected native void deleteRange(long handle, byte[] beginKey, int beginKeyOffset,
+      int beginKeyLength, byte[] endKey, int endKeyOffset, int endKeyLength, long cfHandle)
+      throws RocksDBException;
+  protected native void deleteRange(long handle, long writeOptHandle, byte[] beginKey,
+      int beginKeyOffset, int beginKeyLength, byte[] endKey, int endKeyOffset, int endKeyLength)
+      throws RocksDBException;
+  protected native void deleteRange(long handle, long writeOptHandle, byte[] beginKey,
+      int beginKeyOffset, int beginKeyLength, byte[] endKey, int endKeyOffset, int endKeyLength,
+      long cfHandle) throws RocksDBException;
   protected native String getProperty0(long nativeHandle,
       String property, int propertyLength) throws RocksDBException;
   protected native String getProperty0(long nativeHandle, long cfHandle,

@@ -52,6 +52,17 @@ public abstract class AbstractWriteBatch extends RocksObject
   }
 
   @Override
+  public void deleteRange(byte[] beginKey, byte[] endKey) {
+    deleteRange(nativeHandle_, beginKey, beginKey.length, endKey, endKey.length);
+  }
+
+  @Override
+  public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) {
+    deleteRange(nativeHandle_, beginKey, beginKey.length, endKey, endKey.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  @Override
   public void putLogData(byte[] blob) {
     putLogData(nativeHandle_, blob, blob.length);
   }
@@ -90,6 +101,12 @@ public abstract class AbstractWriteBatch extends RocksObject
 
   abstract void remove(final long handle, final byte[] key,
       final int keyLen, final long cfHandle);
+
+  abstract void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen);
+
+  abstract void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen, final long cfHandle);
 
   abstract void putLogData(final long handle, final byte[] blob,
       final int blobLen);
