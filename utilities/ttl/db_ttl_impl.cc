@@ -241,7 +241,7 @@ std::vector<Status> DBWithTTLImpl::MultiGet(
       continue;
     }
 
-    if (IsStale((*values)[0], column_family_name)) {
+    if (IsStale((*values)[i], column_family_name)) {
       statuses[i] = Status::NotFound();
       continue;
     }
