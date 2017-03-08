@@ -1921,10 +1921,40 @@ TEST_F(DBIteratorTest, DBIterator13) {
   std::unique_ptr<Iterator> db_iter(
       NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
                     internal_iter, 2, 3, 0));
-  db_iter->Seek(key.substr(0, 1));
+  db_iter->Seek("b");
   ASSERT_TRUE(db_iter->Valid());
   ASSERT_EQ(db_iter->key().ToString(), key);
   ASSERT_EQ(db_iter->value().ToString(), "2");
+}
+
+TEST_F(DBIteratorTest, DBIterator14) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  std::string key("b");
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("b", "0");
+  internal_iter->AddPut("b", "1");
+  internal_iter->AddPut("b", "2");
+  internal_iter->AddPut("b", "3");
+  internal_iter->AddPut("a", "4");
+  internal_iter->AddPut("a", "5");
+  internal_iter->AddPut("a", "6");
+  internal_iter->AddPut("c", "7");
+  internal_iter->AddPut("c", "8");
+  internal_iter->AddPut("c", "9");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(
+    NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
+                  internal_iter, 4, 1, 0));
+  db_iter->Seek("b");
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  ASSERT_EQ(db_iter->value().ToString(), "3");
+  db_iter->SeekToFirst();
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "4");
 }
 
 class DBIterWithMergeIterTest : public testing::Test {

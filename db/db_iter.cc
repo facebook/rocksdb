@@ -1039,6 +1039,8 @@ void DBIter::SeekToFirst() {
 
   RecordTick(statistics_, NUMBER_DB_SEEK);
   if (iter_->Valid()) {
+    saved_key_.SetKey(ExtractUserKey(iter_->key()),
+                      !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
     FindNextUserEntry(false /* not skipping */, false /* no prefix check */);
     if (statistics_ != nullptr) {
       if (valid_) {
