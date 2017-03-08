@@ -1946,8 +1946,8 @@ TEST_F(DBIteratorTest, DBIterator14) {
   internal_iter->Finish();
 
   std::unique_ptr<Iterator> db_iter(
-    NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
-                  internal_iter, 4, 1, 0));
+      NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 4, 1, 0));
   db_iter->Seek("b");
   ASSERT_TRUE(db_iter->Valid());
   ASSERT_EQ(db_iter->key().ToString(), "b");
