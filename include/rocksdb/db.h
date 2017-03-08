@@ -251,6 +251,8 @@ class DB {
   // Consider setting ReadOptions::ignore_range_deletions = true to speed
   // up reads for key(s) that are known to be unaffected by range deletions.
   virtual Status DeleteRange(const WriteOptions& options,
+                             const Slice& begin_key, const Slice& end_key);
+  virtual Status DeleteRange(const WriteOptions& options,
                              ColumnFamilyHandle* column_family,
                              const Slice& begin_key, const Slice& end_key);
 
@@ -586,7 +588,7 @@ class DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* value) = 0;
 
-  // Flags for DB::GetSizeApproximation that specify whether memtable 
+  // Flags for DB::GetSizeApproximation that specify whether memtable
   // stats should be included, or file stats approximation or both
   enum SizeApproximationFlags : uint8_t {
     NONE = 0,
