@@ -946,7 +946,6 @@ void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
   ReleaseTempPinnedData();
   saved_key_.Clear();
-  // now saved_key is used to store internal key.
   saved_key_.SetInternalKey(target, sequence_);
 
   {
@@ -961,6 +960,7 @@ void DBIter::Seek(const Slice& target) {
     }
     direction_ = kForward;
     ClearSavedValue();
+    saved_key_.Reserve(saved_key_.Size() - 8);
     FindNextUserEntry(false /* not skipping */, prefix_same_as_start_);
     if (!valid_) {
       prefix_start_key_.clear();

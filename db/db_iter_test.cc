@@ -1897,6 +1897,36 @@ TEST_F(DBIteratorTest, DBIterator12) {
   ASSERT_FALSE(db_iter->Valid());
 }
 
+TEST_F(DBIteratorTest, DBIterator13) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  std::string key;
+  key.resize(9);
+  key.assign(9, static_cast<char>(0));
+  key[0] = 'b';
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut(key, "0");
+  internal_iter->AddPut(key, "1");
+  internal_iter->AddPut(key, "2");
+  internal_iter->AddPut(key, "3");
+  internal_iter->AddPut(key, "4");
+  internal_iter->AddPut(key, "5");
+  internal_iter->AddPut(key, "6");
+  internal_iter->AddPut(key, "7");
+  internal_iter->AddPut(key, "8");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 2, 3, 0));
+  db_iter->Seek(key.substr(0, 1));
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), key);
+  ASSERT_EQ(db_iter->value().ToString(), "2");
+}
+
 class DBIterWithMergeIterTest : public testing::Test {
  public:
   DBIterWithMergeIterTest()
