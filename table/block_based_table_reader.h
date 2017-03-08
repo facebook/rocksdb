@@ -342,7 +342,8 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   BlockBasedTable* table_;
   const ReadOptions read_options_;
   bool skip_filters_;
-  bool is_user_data_;
+  // true if the 2nd level iterator is on indexes instead of on user data.
+  bool is_index_;
 };
 
 // CachableEntry represents the entries that *may* be fetched from block cache.

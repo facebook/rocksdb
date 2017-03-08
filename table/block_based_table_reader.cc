@@ -180,10 +180,10 @@ class PartitionIndexReader : public IndexReader {
                                         bool dont_care = true) override {
     // Filters are already checked before seeking the index
     const bool skip_filters = true;
-    const bool is_user_data = true;
+    const bool is_index = true;
     return NewTwoLevelIterator(
-        new BlockBasedTable::BlockEntryIteratorState(
-            table_, ReadOptions(), skip_filters, !is_user_data),
+        new BlockBasedTable::BlockEntryIteratorState(table_, ReadOptions(),
+                                                     skip_filters, is_index),
         index_block_->NewIterator(comparator_, nullptr, true));
     // TODO: Update TwoLevelIterator to be able to make use of on-stack
     // BlockIter while the state is on heap
@@ -821,7 +821,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
     const ImmutableCFOptions& ioptions, const ReadOptions& read_options,
     BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version,
     const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-    bool is_user_data) {
+    bool is_index) {
   Status s;
   Block* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
@@ -831,9 +831,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   if (block_cache != nullptr) {
     block->cache_handle = GetEntryFromCache(
         block_cache, block_cache_key,
-        is_user_data ? BLOCK_CACHE_DATA_MISS : BLOCK_CACHE_INDEX_MISS,
-        is_user_data ? BLOCK_CACHE_DATA_HIT : BLOCK_CACHE_INDEX_HIT,
-        statistics);
+        is_index ? BLOCK_CACHE_INDEX_MISS : BLOCK_CACHE_DATA_MISS,
+        is_index ? BLOCK_CACHE_INDEX_HIT : BLOCK_CACHE_DATA_HIT, statistics);
     if (block->cache_handle != nullptr) {
       block->value =
           reinterpret_cast<Block*>(block_cache->Value(block->cache_handle));
@@ -885,13 +884,13 @@ Status BlockBasedTable::GetDataBlockFromCache(
           &DeleteCachedEntry<Block>, &(block->cache_handle));
       if (s.ok()) {
         RecordTick(statistics, BLOCK_CACHE_ADD);
-        if (is_user_data) {
-          RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
-          RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
-                     block->value->usable_size());
-        } else {
+        if (is_index) {
           RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
           RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT,
+                     block->value->usable_size());
+        } else {
+          RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
+          RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
                      block->value->usable_size());
         }
         RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
@@ -915,7 +914,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
     CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
     const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-    bool is_user_data) {
+    bool is_index) {
   assert(raw_block->compression_type() == kNoCompression ||
          block_cache_compressed != nullptr);
 
@@ -967,13 +966,13 @@ Status BlockBasedTable::PutDataBlockToCache(
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
       RecordTick(statistics, BLOCK_CACHE_ADD);
-      if (is_user_data) {
-        RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
-        RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
-                   block->value->usable_size());
-      } else {
+      if (is_index) {
         RecordTick(statistics, BLOCK_CACHE_INDEX_ADD);
         RecordTick(statistics, BLOCK_CACHE_INDEX_BYTES_INSERT,
+                   block->value->usable_size());
+      } else {
+        RecordTick(statistics, BLOCK_CACHE_DATA_ADD);
+        RecordTick(statistics, BLOCK_CACHE_DATA_BYTES_INSERT,
                    block->value->usable_size());
       }
       RecordTick(statistics, BLOCK_CACHE_BYTES_WRITE,
@@ -1222,7 +1221,7 @@ InternalIterator* BlockBasedTable::NewIndexIterator(
 // If input_iter is not null, update this iter and return it
 InternalIterator* BlockBasedTable::NewDataBlockIterator(
     Rep* rep, const ReadOptions& ro, const Slice& index_value,
-    BlockIter* input_iter, bool is_user_data) {
+    BlockIter* input_iter, bool is_index) {
   PERF_TIMER_GUARD(new_table_block_iter_nanos);
 
   const bool no_io = (ro.read_tier == kBlockCacheTier);
@@ -1239,7 +1238,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
       compression_dict = rep->compression_dict_block->data;
     }
     s = MaybeLoadDataBlockToCache(rep, ro, handle, compression_dict, &block,
-                                  is_user_data);
+                                  is_index);
   }
 
   // Didn't get any data from block caches.
@@ -1288,8 +1287,7 @@ InternalIterator* BlockBasedTable::NewDataBlockIterator(
 
 Status BlockBasedTable::MaybeLoadDataBlockToCache(
     Rep* rep, const ReadOptions& ro, const BlockHandle& handle,
-    Slice compression_dict, CachableEntry<Block>* block_entry,
-    bool is_user_data) {
+    Slice compression_dict, CachableEntry<Block>* block_entry, bool is_index) {
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->table_options.block_cache.get();
   Cache* block_cache_compressed =
@@ -1319,7 +1317,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
     s = GetDataBlockFromCache(
         key, ckey, block_cache, block_cache_compressed, rep->ioptions, ro,
         block_entry, rep->table_options.format_version, compression_dict,
-        rep->table_options.read_amp_bytes_per_bit, is_user_data);
+        rep->table_options.read_amp_bytes_per_bit, is_index);
 
     if (block_entry->value == nullptr && !no_io && ro.fill_cache) {
       std::unique_ptr<Block> raw_block;
@@ -1337,7 +1335,7 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             key, ckey, block_cache, block_cache_compressed, ro, rep->ioptions,
             block_entry, raw_block.release(), rep->table_options.format_version,
             compression_dict, rep->table_options.read_amp_bytes_per_bit,
-            is_user_data);
+            is_index);
       }
     }
   }
@@ -1346,19 +1344,19 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
 
 BlockBasedTable::BlockEntryIteratorState::BlockEntryIteratorState(
     BlockBasedTable* table, const ReadOptions& read_options, bool skip_filters,
-    bool is_user_data)
+    bool is_index)
     : TwoLevelIteratorState(table->rep_->ioptions.prefix_extractor != nullptr),
       table_(table),
       read_options_(read_options),
       skip_filters_(skip_filters),
-      is_user_data_(is_user_data) {}
+      is_index_(is_index) {}
 
 InternalIterator*
 BlockBasedTable::BlockEntryIteratorState::NewSecondaryIterator(
     const Slice& index_value) {
   // Return a block iterator on the index partition
   return NewDataBlockIterator(table_->rep_, read_options_, index_value, nullptr,
-                              is_user_data_);
+                              is_index_);
 }
 
 bool BlockBasedTable::BlockEntryIteratorState::PrefixMayMatch(
