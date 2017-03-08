@@ -16,7 +16,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
 #include "util/sync_point.h"
@@ -190,13 +190,15 @@ uint64_t MemTableListVersion::GetTotalNumEntries() const {
   return total_num;
 }
 
-uint64_t MemTableListVersion::ApproximateSize(const Slice& start_ikey,
-                                              const Slice& end_ikey) {
-  uint64_t total_size = 0;
+MemTable::MemTableStats MemTableListVersion::ApproximateStats(
+    const Slice& start_ikey, const Slice& end_ikey) {
+  MemTable::MemTableStats total_stats = {0, 0};
   for (auto& m : memlist_) {
-    total_size += m->ApproximateSize(start_ikey, end_ikey);
+    auto mStats = m->ApproximateStats(start_ikey, end_ikey);
+    total_stats.size += mStats.size;
+    total_stats.count += mStats.count;
   }
-  return total_size;
+  return total_stats;
 }
 
 uint64_t MemTableListVersion::GetTotalNumDeletes() const {

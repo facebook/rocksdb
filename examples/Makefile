@@ -7,7 +7,7 @@ ifndef DISABLE_JEMALLOC
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS) -lpthread
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
 endif
-	
+
 .PHONY: clean librocksdb
 
 all: simple_example column_families_example compact_files_example c_simple_example optimistic_transaction_example transaction_example compaction_filter_example options_file_example

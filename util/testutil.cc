@@ -244,7 +244,6 @@ void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   db_opt->use_direct_writes = rnd->Uniform(2);
   db_opt->create_if_missing = rnd->Uniform(2);
   db_opt->create_missing_column_families = rnd->Uniform(2);
-  db_opt->disableDataSync = rnd->Uniform(2);
   db_opt->enable_thread_tracking = rnd->Uniform(2);
   db_opt->error_if_exists = rnd->Uniform(2);
   db_opt->is_fd_close_on_exec = rnd->Uniform(2);
@@ -304,7 +303,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
   cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
   cf_opt->paranoid_file_checks = rnd->Uniform(2);
   cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
-  cf_opt->verify_checksums_in_compaction = rnd->Uniform(2);
   cf_opt->force_consistency_checks = rnd->Uniform(2);
 
   // double options
@@ -340,7 +338,6 @@ void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
 
   // uint32_t options
   cf_opt->bloom_locality = rnd->Uniform(10000);
-  cf_opt->min_partial_merge_operands = rnd->Uniform(10000);
   cf_opt->max_bytes_for_level_base = rnd->Uniform(10000);
 
   // uint64_t options

@@ -73,8 +73,10 @@ public class RocksDBTest {
 
   @Test
   public void write() throws RocksDBException {
-    try (final Options options = new Options().setMergeOperator(
-        new StringAppendOperator()).setCreateIfMissing(true);
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options options = new Options()
+             .setMergeOperator(stringAppendOperator)
+             .setCreateIfMissing(true);
          final RocksDB db = RocksDB.open(options,
              dbFolder.getRoot().getAbsolutePath());
          final WriteOptions opts = new WriteOptions()) {
@@ -182,9 +184,10 @@ public class RocksDBTest {
 
   @Test
   public void merge() throws RocksDBException {
-    try (final Options opt = new Options()
-        .setCreateIfMissing(true)
-        .setMergeOperator(new StringAppendOperator());
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final Options opt = new Options()
+            .setCreateIfMissing(true)
+            .setMergeOperator(stringAppendOperator);
          final WriteOptions wOpt = new WriteOptions();
          final RocksDB db = RocksDB.open(opt,
              dbFolder.getRoot().getAbsolutePath())
@@ -249,6 +252,26 @@ public class RocksDBTest {
       db.singleDelete(wOpt, "key2".getBytes());
       assertThat(db.get("key1".getBytes())).isNull();
       assertThat(db.get("key2".getBytes())).isNull();
+    }
+  }
+
+  @Test
+  public void deleteRange() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteOptions wOpt = new WriteOptions()) {
+      db.put("key1".getBytes(), "value".getBytes());
+      db.put("key2".getBytes(), "12345678".getBytes());
+      db.put("key3".getBytes(), "abcdefg".getBytes());
+      db.put("key4".getBytes(), "xyz".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("12345678".getBytes());
+      assertThat(db.get("key3".getBytes())).isEqualTo("abcdefg".getBytes());
+      assertThat(db.get("key4".getBytes())).isEqualTo("xyz".getBytes());
+      db.deleteRange("key2".getBytes(), "key4".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isNull();
+      assertThat(db.get("key3".getBytes())).isNull();
+      assertThat(db.get("key4".getBytes())).isEqualTo("xyz".getBytes());
     }
   }
 

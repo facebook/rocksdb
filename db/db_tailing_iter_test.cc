@@ -294,8 +294,6 @@ TEST_F(DBTestTailingIterator, TailingIteratorDeletes) {
 }
 
 TEST_F(DBTestTailingIterator, TailingIteratorPrefixSeek) {
-  XFUNC_TEST("", "dbtest_prefix", prefix_skip1, XFuncPoint::SetSkip,
-             kSkipNoPrefix);
   ReadOptions read_options;
   read_options.tailing = true;
 
@@ -326,7 +324,6 @@ TEST_F(DBTestTailingIterator, TailingIteratorPrefixSeek) {
 
   iter->Next();
   ASSERT_TRUE(!iter->Valid());
-  XFUNC_TEST("", "dbtest_prefix", prefix_skip1, XFuncPoint::SetSkip, 0);
 }
 
 TEST_F(DBTestTailingIterator, TailingIteratorIncomplete) {
@@ -614,8 +611,6 @@ TEST_F(DBTestTailingIterator, ManagedTailingIteratorDeletes) {
 }
 
 TEST_F(DBTestTailingIterator, ManagedTailingIteratorPrefixSeek) {
-  XFUNC_TEST("", "dbtest_prefix", prefix_skip1, XFuncPoint::SetSkip,
-             kSkipNoPrefix);
   ReadOptions read_options;
   read_options.tailing = true;
   read_options.managed = true;
@@ -647,7 +642,6 @@ TEST_F(DBTestTailingIterator, ManagedTailingIteratorPrefixSeek) {
 
   iter->Next();
   ASSERT_TRUE(!iter->Valid());
-  XFUNC_TEST("", "dbtest_prefix", prefix_skip1, XFuncPoint::SetSkip, 0);
 }
 
 TEST_F(DBTestTailingIterator, ManagedTailingIteratorIncomplete) {

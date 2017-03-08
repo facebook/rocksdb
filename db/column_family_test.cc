@@ -15,6 +15,7 @@
 
 #include "db/db_impl.h"
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -1147,7 +1148,6 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;
@@ -1220,7 +1220,6 @@ TEST_F(ColumnFamilyTest, MultipleManualCompactions) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
 
   default_cf.compaction_style = kCompactionStyleLevel;
@@ -1268,7 +1267,7 @@ TEST_F(ColumnFamilyTest, MultipleManualCompactions) {
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   threads.emplace_back([&] {
     CompactRangeOptions compact_options;
     compact_options.exclusive_manual_compaction = false;
@@ -1318,7 +1317,6 @@ TEST_F(ColumnFamilyTest, AutomaticAndManualCompactions) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1376,7 +1374,7 @@ TEST_F(ColumnFamilyTest, AutomaticAndManualCompactions) {
     WaitForFlush(2);
     AssertFilesPerLevel(ToString(i + 1), 2);
   }
-  std::thread threads([&] {
+  rocksdb::port::Thread threads([&] {
     CompactRangeOptions compact_options;
     compact_options.exclusive_manual_compaction = false;
     ASSERT_OK(
@@ -1411,7 +1409,6 @@ TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1464,7 +1461,7 @@ TEST_F(ColumnFamilyTest, ManualAndAutomaticCompactions) {
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  std::thread threads([&] {
+  rocksdb::port::Thread threads([&] {
     CompactRangeOptions compact_options;
     compact_options.exclusive_manual_compaction = false;
     ASSERT_OK(
@@ -1507,7 +1504,6 @@ TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1557,7 +1553,7 @@ TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  std::thread threads([&] {
+  rocksdb::port::Thread threads([&] {
     CompactRangeOptions compact_options;
     compact_options.exclusive_manual_compaction = true;
     ASSERT_OK(
@@ -1577,7 +1573,7 @@ TEST_F(ColumnFamilyTest, SameCFManualManualCompactions) {
                         1);
   }
 
-  std::thread threads1([&] {
+  rocksdb::port::Thread threads1([&] {
     CompactRangeOptions compact_options;
     compact_options.exclusive_manual_compaction = false;
     ASSERT_OK(
@@ -1606,7 +1602,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1655,7 +1650,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactions) {
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  std::thread threads([&] {
+  rocksdb::port::Thread threads([&] {
     CompactRangeOptions compact_options;
     compact_options.exclusive_manual_compaction = false;
     ASSERT_OK(
@@ -1696,7 +1691,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1747,7 +1741,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticCompactionsLevel) {
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  std::thread threads([&] {
+  rocksdb::port::Thread threads([&] {
     CompactRangeOptions compact_options;
     compact_options.exclusive_manual_compaction = false;
     ASSERT_OK(
@@ -1793,7 +1787,6 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticConflict) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -1858,7 +1851,7 @@ TEST_F(ColumnFamilyTest, SameCFManualAutomaticConflict) {
       });
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  std::thread threads([&] {
+  rocksdb::port::Thread threads([&] {
     CompactRangeOptions compact_options;
     compact_options.exclusive_manual_compaction = false;
     ASSERT_OK(
@@ -1913,7 +1906,6 @@ TEST_F(ColumnFamilyTest, SameCFAutomaticManualCompactions) {
   CreateColumnFamilies({"one"});
   ColumnFamilyOptions default_cf, one;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
   db_options_.max_background_compactions = 3;
   db_options_.base_background_compactions = 3;
 
@@ -2323,7 +2315,7 @@ TEST_F(ColumnFamilyTest, FlushAndDropRaceCondition) {
   int kKeysNum = 10000;
   PutRandomData(1, kKeysNum, 100);
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   threads.emplace_back([&] { ASSERT_OK(db_->DropColumnFamily(handles_[1])); });
 
   sleeping_task.WakeUp();
@@ -2424,7 +2416,7 @@ TEST_F(ColumnFamilyTest, CreateAndDropRace) {
 
   // Start a thread that will drop the first column family
   // and its comparator
-  std::thread drop_cf_thread(DropSingleColumnFamily, this, 1, &comparators);
+  rocksdb::port::Thread drop_cf_thread(DropSingleColumnFamily, this, 1, &comparators);
 
   DropColumnFamilies({2});
 
@@ -3078,7 +3070,7 @@ TEST_F(ColumnFamilyTest, LogSyncConflictFlush) {
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread thread([&] { db_->SyncWAL(); });
+  rocksdb::port::Thread thread([&] { db_->SyncWAL(); });
 
   TEST_SYNC_POINT("ColumnFamilyTest::LogSyncConflictFlush:1");
   Flush(1);

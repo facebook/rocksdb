@@ -11,6 +11,7 @@
 #include <functional>
 
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/wal_filter.h"
@@ -1616,8 +1617,8 @@ TEST_F(DBTest2, SyncPointMarker) {
     CountSyncPoint();
   };
 
-  auto thread1 = std::thread(func1);
-  auto thread2 = std::thread(func2);
+  auto thread1 = port::Thread(func1);
+  auto thread2 = port::Thread(func2);
   thread1.join();
   thread2.join();
 
@@ -1906,8 +1907,8 @@ TEST_P(MergeOperatorPinningTest, TailingIterator) {
     delete iter;
   };
 
-  std::thread writer_thread(writer_func);
-  std::thread reader_thread(reader_func);
+  rocksdb::port::Thread writer_thread(writer_func);
+  rocksdb::port::Thread reader_thread(reader_func);
 
   writer_thread.join();
   reader_thread.join();
@@ -2178,7 +2179,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
     cro.exclusive_manual_compaction = false;
     ASSERT_OK(db_->CompactRange(cro, &k1s, &k2s));
   };
-  std::thread bg_thread;
+  rocksdb::port::Thread bg_thread;
 
   // While the compaction is running, we will create 2 new files that
   // can fit in L1, these 2 files will be moved to L1 and overlap with
@@ -2199,7 +2200,7 @@ TEST_F(DBTest2, ManualCompactionOverlapManualCompaction) {
         ASSERT_OK(Flush());
 
         // Start a non-exclusive manual compaction in a bg thread
-        bg_thread = std::thread(bg_manual_compact);
+        bg_thread = port::Thread(bg_manual_compact);
         // This manual compaction conflict with the other manual compaction
         // so it should wait until the first compaction finish
         env_->SleepForMicroseconds(1000000);
@@ -2228,8 +2229,139 @@ TEST_F(DBTest2, OptimizeForPointLookup) {
   Flush();
   ASSERT_EQ("v1", Get("foo"));
 }
+
 #endif  // ROCKSDB_LITE
 
+TEST_F(DBTest2, GetRaceFlush1) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:1", "DBTest2::GetRaceFlush:1"},
+       {"DBTest2::GetRaceFlush:2", "DBImpl::GetImpl:2"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  rocksdb::port::Thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::GetRaceFlush:2");
+  });
+
+  // Get() is issued after the first Put(), so it should see either
+  // "v1" or "v2".
+  ASSERT_NE("NOT_FOUND", Get("foo"));
+  t1.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, GetRaceFlush2) {
+  ASSERT_OK(Put("foo", "v1"));
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBImpl::GetImpl:3", "DBTest2::GetRaceFlush:1"},
+       {"DBTest2::GetRaceFlush:2", "DBImpl::GetImpl:4"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  port::Thread t1([&] {
+    TEST_SYNC_POINT("DBTest2::GetRaceFlush:1");
+    ASSERT_OK(Put("foo", "v2"));
+    Flush();
+    TEST_SYNC_POINT("DBTest2::GetRaceFlush:2");
+  });
+
+  // Get() is issued after the first Put(), so it should see either
+  // "v1" or "v2".
+  ASSERT_NE("NOT_FOUND", Get("foo"));
+  t1.join();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest2, DirectIO) {
+  if (!IsDirectIOSupported()) {
+    return;
+  }
+  Options options = CurrentOptions();
+  options.use_direct_reads = options.use_direct_writes = true;
+  options.allow_mmap_reads = options.allow_mmap_writes = false;
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put(Key(0), "a"));
+  ASSERT_OK(Put(Key(5), "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(Put(Key(10), "a"));
+  ASSERT_OK(Put(Key(15), "a"));
+  ASSERT_OK(Flush());
+
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  Reopen(options);
+}
+
+TEST_F(DBTest2, MemtableOnlyIterator) {
+  Options options = CurrentOptions();
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "foo", "first"));
+  ASSERT_OK(Put(1, "bar", "second"));
+
+  ReadOptions ropt;
+  ropt.read_tier = kMemtableTier;
+  std::string value;
+  Iterator* it = nullptr;
+
+  // Before flushing
+  // point lookups
+  ASSERT_OK(db_->Get(ropt, handles_[1], "foo", &value));
+  ASSERT_EQ("first", value);
+  ASSERT_OK(db_->Get(ropt, handles_[1], "bar", &value));
+  ASSERT_EQ("second", value);
+
+  // Memtable-only iterator (read_tier=kMemtableTier); data not flushed yet.
+  it = db_->NewIterator(ropt, handles_[1]);
+  int count = 0;
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    ASSERT_TRUE(it->Valid());
+    count++;
+  }
+  ASSERT_TRUE(!it->Valid());
+  ASSERT_EQ(2, count);
+  delete it;
+
+  Flush(1);
+
+  // After flushing
+  // point lookups
+  ASSERT_OK(db_->Get(ropt, handles_[1], "foo", &value));
+  ASSERT_EQ("first", value);
+  ASSERT_OK(db_->Get(ropt, handles_[1], "bar", &value));
+  ASSERT_EQ("second", value);
+  // nothing should be returned using memtable-only iterator after flushing.
+  it = db_->NewIterator(ropt, handles_[1]);
+  count = 0;
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    ASSERT_TRUE(it->Valid());
+    count++;
+  }
+  ASSERT_TRUE(!it->Valid());
+  ASSERT_EQ(0, count);
+  delete it;
+
+  // Add a key to memtable
+  ASSERT_OK(Put(1, "foobar", "third"));
+  it = db_->NewIterator(ropt, handles_[1]);
+  count = 0;
+  for (it->SeekToFirst(); it->Valid(); it->Next()) {
+    ASSERT_TRUE(it->Valid());
+    ASSERT_EQ("foobar", it->key().ToString());
+    ASSERT_EQ("third", it->value().ToString());
+    count++;
+  }
+  ASSERT_TRUE(!it->Valid());
+  ASSERT_EQ(1, count);
+  delete it;
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

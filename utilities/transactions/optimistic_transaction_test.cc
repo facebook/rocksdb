@@ -17,6 +17,7 @@
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/transaction_test_util.h"
+#include "port/port.h"
 
 using std::string;
 
@@ -1326,7 +1327,7 @@ TEST_F(OptimisticTransactionTest, OptimisticTransactionStressTest) {
   // Setting the key-space to be 100 keys should cause enough write-conflicts
   // to make this test interesting.
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
 
   std::function<void()> call_inserter = [&] {
     ASSERT_OK(OptimisticTransactionStressTestInserter(

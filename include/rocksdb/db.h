@@ -464,7 +464,7 @@ class DB {
     static const std::string kNumDeletesImmMemTables;
 
     //  "rocksdb.estimate-num-keys" - returns estimated number of total keys in
-    //      the active and unflushed immutable memtables.
+    //      the active and unflushed immutable memtables and storage.
     static const std::string kEstimateNumKeys;
 
     //  "rocksdb.estimate-table-readers-mem" - returns estimated memory used for
@@ -614,6 +614,18 @@ class DB {
                                    = INCLUDE_FILES) {
     GetApproximateSizes(DefaultColumnFamily(), range, n, sizes,
                         include_flags);
+  }
+
+  // The method is similar to GetApproximateSizes, except it
+  // returns approximate number of records in memtables.
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) = 0;
+  virtual void GetApproximateMemTableStats(const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) {
+    GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
   }
 
   // Deprecated versions of GetApproximateSizes

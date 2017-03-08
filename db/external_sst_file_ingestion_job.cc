@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "db/external_sst_file_ingestion_job.h"
 
 #define __STDC_FORMAT_MACROS
@@ -13,7 +15,7 @@
 #include <vector>
 
 #include "db/version_edit.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/scoped_arena_iterator.h"
 #include "table/sst_file_writer_collectors.h"
 #include "table/table_builder.h"
@@ -309,6 +311,7 @@ Status ExternalSstFileIngestionJob::GetIngestedFileInfo(
   } else if (file_to_ingest->version == 1) {
     // SST file V1 should not have global seqno field
     assert(seqno_iter == uprops.end());
+    file_to_ingest->original_seqno = 0;
     if (ingestion_options_.allow_blocking_flush ||
             ingestion_options_.allow_global_seqno) {
       return Status::InvalidArgument(
@@ -524,3 +527,5 @@ bool ExternalSstFileIngestionJob::IngestedFileFitInLevel(
 }
 
 }  // namespace rocksdb
+
+#endif  // !ROCKSDB_LITE

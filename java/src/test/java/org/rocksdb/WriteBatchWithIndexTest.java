@@ -192,16 +192,16 @@ public class WriteBatchWithIndexTest {
       final ByteBuffer buffer = ByteBuffer.allocateDirect(zeroByteValue.length);
       buffer.put(zeroByteValue);
 
-      WBWIRocksIterator.WriteEntry[] expected = {
+      final WBWIRocksIterator.WriteEntry expected =
           new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
               new DirectSlice(buffer, zeroByteValue.length),
-              new DirectSlice(buffer, zeroByteValue.length))
-      };
+              new DirectSlice(buffer, zeroByteValue.length));
 
       try (final WBWIRocksIterator it = wbwi.newIterator()) {
         it.seekToFirst();
-        assertThat(it.entry().equals(expected[0])).isTrue();
-        assertThat(it.entry().hashCode() == expected[0].hashCode()).isTrue();
+        final WBWIRocksIterator.WriteEntry actual = it.entry();
+        assertThat(actual.equals(expected)).isTrue();
+        assertThat(it.entry().hashCode() == expected.hashCode()).isTrue();
       }
     }
   }
@@ -382,5 +382,29 @@ public class WriteBatchWithIndexTest {
     final byte[] ary = new byte[buf.remaining()];
     buf.get(ary);
     return ary;
+  }
+
+  @Test
+  public void deleteRange() throws RocksDBException {
+    try (final RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
+         final WriteOptions wOpt = new WriteOptions()) {
+      db.put("key1".getBytes(), "value".getBytes());
+      db.put("key2".getBytes(), "12345678".getBytes());
+      db.put("key3".getBytes(), "abcdefg".getBytes());
+      db.put("key4".getBytes(), "xyz".getBytes());
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isEqualTo("12345678".getBytes());
+      assertThat(db.get("key3".getBytes())).isEqualTo("abcdefg".getBytes());
+      assertThat(db.get("key4".getBytes())).isEqualTo("xyz".getBytes());
+
+      WriteBatch batch = new WriteBatch();
+      batch.deleteRange("key2".getBytes(), "key4".getBytes());
+      db.write(new WriteOptions(), batch);
+
+      assertThat(db.get("key1".getBytes())).isEqualTo("value".getBytes());
+      assertThat(db.get("key2".getBytes())).isNull();
+      assertThat(db.get("key3".getBytes())).isNull();
+      assertThat(db.get("key4".getBytes())).isEqualTo("xyz".getBytes());
+    }
   }
 }

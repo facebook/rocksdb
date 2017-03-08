@@ -28,7 +28,7 @@ class MergeHelperTest : public testing::Test {
     iter_->SeekToFirst();
     merge_helper_.reset(new MergeHelper(env_, BytewiseComparator(),
                                         merge_op_.get(), filter_.get(), nullptr,
-                                        2U, false, latest_snapshot));
+                                        false, latest_snapshot));
     return merge_helper_->MergeUntil(iter_.get(), nullptr /* range_del_agg */,
                                      stop_before, at_bottom);
   }

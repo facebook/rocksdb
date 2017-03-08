@@ -55,7 +55,6 @@ ImmutableCFOptions::ImmutableCFOptions(const ImmutableDBOptions& db_options,
       bloom_locality(cf_options.bloom_locality),
       purge_redundant_kvs_while_flush(
           cf_options.purge_redundant_kvs_while_flush),
-      disable_data_sync(db_options.disable_data_sync),
       use_fsync(db_options.use_fsync),
       compression_per_level(cf_options.compression_per_level),
       bottommost_compression(cf_options.bottommost_compression),
@@ -159,8 +158,6 @@ void MutableCFOptions::Dump(Logger* log) const {
   }
 
   Log(log, "max_bytes_for_level_multiplier_additional: %s", result.c_str());
-  Log(log, "           verify_checksums_in_compaction: %d",
-      verify_checksums_in_compaction);
   Log(log, "        max_sequential_skip_in_iterations: %" PRIu64,
       max_sequential_skip_in_iterations);
   Log(log, "                     paranoid_file_checks: %d",
@@ -168,8 +165,6 @@ void MutableCFOptions::Dump(Logger* log) const {
   Log(log, "                       report_bg_io_stats: %d", report_bg_io_stats);
   Log(log, "                              compression: %d",
       static_cast<int>(compression));
-  Log(log, "               min_partial_merge_operands: %" PRIu32,
-      min_partial_merge_operands);
 }
 
 }  // namespace rocksdb

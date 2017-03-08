@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "port/win/env_win.h"
+#include "port/win/win_thread.h"
 #include <algorithm>
 #include <ctime>
 #include <thread>
@@ -837,7 +838,7 @@ void WinEnvThreads::StartThread(void(*function)(void* arg), void* arg) {
   state->arg = arg;
   try {
 
-    std::thread th(&StartThreadWrapper, state.get());
+    rocksdb::port::WindowsThread th(&StartThreadWrapper, state.get());
     state.release();
 
     std::lock_guard<std::mutex> lg(mu_);

@@ -26,9 +26,14 @@
 namespace rocksdb {
 
 static Status IOError(const std::string& context, int err_number) {
-  return (err_number == ENOSPC) ?
-      Status::NoSpace(context, strerror(err_number)) :
-      Status::IOError(context, strerror(err_number));
+  switch (err_number) {
+  case ENOSPC:
+    return Status::NoSpace(context, strerror(err_number));
+  case ESTALE:
+    return Status::IOError(Status::kStaleFile);
+  default:
+    return Status::IOError(context, strerror(err_number));
+  }
 }
 
 class PosixHelper {
@@ -42,6 +47,7 @@ class PosixSequentialFile : public SequentialFile {
   FILE* file_;
   int fd_;
   bool use_direct_io_;
+  size_t logical_sector_size_;
 
  public:
   PosixSequentialFile(const std::string& fname, FILE* file, int fd,
@@ -54,6 +60,9 @@ class PosixSequentialFile : public SequentialFile {
   virtual Status Skip(uint64_t n) override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
   virtual bool use_direct_io() const override { return use_direct_io_; }
+  virtual size_t GetRequiredBufferAlignment() const override {
+    return logical_sector_size_;
+  }
 };
 
 class PosixRandomAccessFile : public RandomAccessFile {
@@ -61,6 +70,7 @@ class PosixRandomAccessFile : public RandomAccessFile {
   std::string filename_;
   int fd_;
   bool use_direct_io_;
+  size_t logical_sector_size_;
 
  public:
   PosixRandomAccessFile(const std::string& fname, int fd,
@@ -75,6 +85,9 @@ class PosixRandomAccessFile : public RandomAccessFile {
   virtual void Hint(AccessPattern pattern) override;
   virtual Status InvalidateCache(size_t offset, size_t length) override;
   virtual bool use_direct_io() const override { return use_direct_io_; }
+  virtual size_t GetRequiredBufferAlignment() const override {
+    return logical_sector_size_;
+  }
 };
 
 class PosixWritableFile : public WritableFile {
@@ -83,6 +96,7 @@ class PosixWritableFile : public WritableFile {
   const bool use_direct_io_;
   int fd_;
   uint64_t filesize_;
+  size_t logical_sector_size_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   bool allow_fallocate_;
   bool fallocate_with_keep_size_;
@@ -93,9 +107,9 @@ class PosixWritableFile : public WritableFile {
                              const EnvOptions& options);
   virtual ~PosixWritableFile();
 
-  // Means Close() will properly take care of truncate
-  // and it does not need any additional information
-  virtual Status Truncate(uint64_t size) override { return Status::OK(); }
+  // Need to implement this so the file is truncated correctly
+  // with direct I/O
+  virtual Status Truncate(uint64_t size) override;
   virtual Status Close() override;
   virtual Status Append(const Slice& data) override;
   virtual Status PositionedAppend(const Slice& data, uint64_t offset) override;
@@ -105,14 +119,14 @@ class PosixWritableFile : public WritableFile {
   virtual bool IsSyncThreadSafe() const override;
   virtual bool use_direct_io() const override { return use_direct_io_; }
   virtual uint64_t GetFileSize() override;
-  virtual size_t GetRequiredBufferAlignment() const override {
-    // TODO(gzh): It should be the logical sector size/filesystem block size
-    // hardcoded as 4k for most cases
-    return 4 * 1024;
-  }
   virtual Status InvalidateCache(size_t offset, size_t length) override;
+  virtual size_t GetRequiredBufferAlignment() const override {
+    return logical_sector_size_;
+  }
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(uint64_t offset, uint64_t len) override;
+#endif
+#ifdef OS_LINUX
   virtual Status RangeSync(uint64_t offset, uint64_t nbytes) override;
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 #endif

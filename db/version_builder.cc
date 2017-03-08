@@ -28,6 +28,7 @@
 #include "db/internal_stats.h"
 #include "db/table_cache.h"
 #include "db/version_set.h"
+#include "port/port.h"
 #include "table/table_reader.h"
 
 namespace rocksdb {
@@ -359,7 +360,7 @@ class VersionBuilder::Rep {
     if (max_threads <= 1) {
       load_handlers_func();
     } else {
-      std::vector<std::thread> threads;
+      std::vector<port::Thread> threads;
       for (int i = 0; i < max_threads; i++) {
         threads.emplace_back(load_handlers_func);
       }

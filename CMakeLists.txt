@@ -90,6 +90,21 @@ endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
+if (NOT WIN32)
+  execute_process(COMMAND
+      "./build_tools/version.sh" "full"
+      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+      OUTPUT_VARIABLE ROCKSDB_VERSION
+  )
+  string(STRIP "${ROCKSDB_VERSION}" ROCKSDB_VERSION)
+  execute_process(COMMAND
+      "./build_tools/version.sh" "major"
+      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+      OUTPUT_VARIABLE ROCKSDB_VERSION_MAJOR
+  )
+  string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
+endif()
+
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 add_library(build_version OBJECT ${BUILD_VERSION_CC})
@@ -299,7 +314,6 @@ set(SOURCES
         db/write_batch_base.cc
         db/write_controller.cc
         db/write_thread.cc
-        db/xfunc_test_points.cc
         memtable/hash_cuckoo_rep.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
@@ -322,10 +336,12 @@ set(SOURCES
         table/format.cc
         table/full_filter_block.cc
         table/get_context.cc
+        table/index_builder.cc
         table/iterator.cc
-        table/merger.cc
+        table/merging_iterator.cc
         table/sst_file_writer.cc
         table/meta_blocks.cc
+        table/partitioned_filter_block.cc
         table/plain_table_builder.cc
         table/plain_table_factory.cc
         table/plain_table_index.cc
@@ -362,6 +378,7 @@ set(SOURCES
         util/histogram_windowing.cc
         util/instrumented_mutex.cc
         util/iostats_context.cc
+        
         util/lru_cache.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
@@ -392,7 +409,6 @@ set(SOURCES
         util/thread_status_util.cc
         util/thread_status_util_debug.cc
         util/transaction_test_util.cc
-        util/xfunc.cc
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/blob_db/blob_db.cc
@@ -403,7 +419,6 @@ set(SOURCES
         utilities/document/json_document.cc
         utilities/document/json_document_builder.cc
         utilities/env_mirror.cc
-        utilities/env_registry.cc
         utilities/geodb/geodb_impl.cc
         utilities/leveldb_options/leveldb_options.cc
         utilities/lua/rocks_lua_compaction_filter.cc
@@ -447,6 +462,7 @@ if(WIN32)
     port/win/env_default.cc
     port/win/port_win.cc
     port/win/win_logger.cc
+    port/win/win_thread.cc
     port/win/xpress_win.cc)
 else()
   list(APPEND SOURCES
@@ -472,6 +488,8 @@ else()
     ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
   set_target_properties(${ROCKSDB_SHARED_LIB} PROPERTIES
                         LINKER_LANGUAGE CXX
+                        VERSION ${ROCKSDB_VERSION}
+                        SOVERSION ${ROCKSDB_VERSION_MAJOR}
                         CXX_STANDARD 11
                         OUTPUT_NAME "rocksdb")
 endif()
@@ -520,6 +538,7 @@ set(TESTS
         db/comparator_db_test.cc
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
+        db/db_basic_test.cc
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc
         db/db_dynamic_level_test.cc
@@ -540,6 +559,7 @@ set(TESTS
         db/db_iterator_test.cc
         db/db_range_del_test.cc
         db/db_sst_test.cc
+        db/external_sst_file_basic_test.cc
         db/external_sst_file_test.cc
         db/db_universal_compaction_test.cc
         db/db_wal_test.cc
@@ -612,7 +632,7 @@ set(TESTS
         utilities/date_tiered/date_tiered_test.cc
         utilities/document/document_db_test.cc
         utilities/document/json_document_test.cc
-        utilities/env_registry_test.cc
+        utilities/object_registry_test.cc
         utilities/geodb/geodb_test.cc
         utilities/memory/memory_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
@@ -709,3 +729,13 @@ foreach(sourcefile ${C_TEST_EXES})
     add_dependencies(check ${exename}${ARTIFACT_SUFFIX})
 endforeach(sourcefile ${C_TEST_EXES})
 add_subdirectory(tools)
+
+# Installation and packaging for Linux
+if (NOT WIN32)
+install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib64)
+install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib64)
+install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/rocksdb/"
+        COMPONENT devel
+        DESTINATION include/rocksdb)
+set(CMAKE_INSTALL_PREFIX /usr)
+endif()

@@ -543,26 +543,6 @@ public interface MutableColumnFamilyOptionsInterface {
    */
   int[] maxBytesForLevelMultiplierAdditional();
 
-  /**
-   * If true, compaction will verify checksum on every read that happens
-   * as part of compaction
-   * Default: true
-   *
-   * @param verifyChecksumsInCompaction true if compaction verifies
-   *     checksum on every read.
-   * @return the reference to the current option.
-   */
-  MutableColumnFamilyOptionsInterface setVerifyChecksumsInCompaction(
-      boolean verifyChecksumsInCompaction);
-
-  /**
-   * If true, compaction will verify checksum on every read that happens
-   * as part of compaction
-   * Default: true
-   *
-   * @return true if compaction verifies checksum on every read.
-   */
-  boolean verifyChecksumsInCompaction();
 
   /**
    * An iteration-&gt;Next() sequentially skips over keys with the same

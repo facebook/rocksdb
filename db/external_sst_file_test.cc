@@ -3,8 +3,9 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include <functional>
+#ifndef ROCKSDB_LITE
 
+#include <functional>
 #include "db/db_test_util.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -13,7 +14,6 @@
 
 namespace rocksdb {
 
-#ifndef ROCKSDB_LITE
 class ExternalSSTFileTest : public DBTestBase {
  public:
   ExternalSSTFileTest() : DBTestBase("/external_sst_file_test") {
@@ -258,11 +258,11 @@ TEST_F(ExternalSSTFileTest, Basic) {
       ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
     }
 
-    // This file has overlapping values with the exisitng data
+    // This file has overlapping values with the existing data
     s = DeprecatedAddFile({file3});
     ASSERT_FALSE(s.ok()) << s.ToString();
 
-    // This file has overlapping values with the exisitng data
+    // This file has overlapping values with the existing data
     s = DeprecatedAddFile({file4});
     ASSERT_FALSE(s.ok()) << s.ToString();
 
@@ -510,7 +510,7 @@ TEST_F(ExternalSSTFileTest, AddList) {
       ASSERT_EQ(user_props["xyz_Count"], "100");
     }
 
-    // This file list has overlapping values with the exisitng data
+    // This file list has overlapping values with the existing data
     s = DeprecatedAddFile(file_list3);
     ASSERT_FALSE(s.ok()) << s.ToString();
 
@@ -650,71 +650,6 @@ TEST_F(ExternalSSTFileTest, PurgeObsoleteFilesBug) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(ExternalSSTFileTest, NoCopy) {
-  Options options = CurrentOptions();
-  const ImmutableCFOptions ioptions(options);
-
-  SstFileWriter sst_file_writer(EnvOptions(), options, options.comparator);
-
-  // file1.sst (0 => 99)
-  std::string file1 = sst_files_dir_ + "file1.sst";
-  ASSERT_OK(sst_file_writer.Open(file1));
-  for (int k = 0; k < 100; k++) {
-    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
-  }
-  ExternalSstFileInfo file1_info;
-  Status s = sst_file_writer.Finish(&file1_info);
-  ASSERT_TRUE(s.ok()) << s.ToString();
-  ASSERT_EQ(file1_info.file_path, file1);
-  ASSERT_EQ(file1_info.num_entries, 100);
-  ASSERT_EQ(file1_info.smallest_key, Key(0));
-  ASSERT_EQ(file1_info.largest_key, Key(99));
-
-  // file2.sst (100 => 299)
-  std::string file2 = sst_files_dir_ + "file2.sst";
-  ASSERT_OK(sst_file_writer.Open(file2));
-  for (int k = 100; k < 300; k++) {
-    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
-  }
-  ExternalSstFileInfo file2_info;
-  s = sst_file_writer.Finish(&file2_info);
-  ASSERT_TRUE(s.ok()) << s.ToString();
-  ASSERT_EQ(file2_info.file_path, file2);
-  ASSERT_EQ(file2_info.num_entries, 200);
-  ASSERT_EQ(file2_info.smallest_key, Key(100));
-  ASSERT_EQ(file2_info.largest_key, Key(299));
-
-  // file3.sst (110 => 124) .. overlap with file2.sst
-  std::string file3 = sst_files_dir_ + "file3.sst";
-  ASSERT_OK(sst_file_writer.Open(file3));
-  for (int k = 110; k < 125; k++) {
-    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
-  }
-  ExternalSstFileInfo file3_info;
-  s = sst_file_writer.Finish(&file3_info);
-  ASSERT_TRUE(s.ok()) << s.ToString();
-  ASSERT_EQ(file3_info.file_path, file3);
-  ASSERT_EQ(file3_info.num_entries, 15);
-  ASSERT_EQ(file3_info.smallest_key, Key(110));
-  ASSERT_EQ(file3_info.largest_key, Key(124));
-  s = DeprecatedAddFile({file1}, true /* move file */);
-  ASSERT_TRUE(s.ok()) << s.ToString();
-  ASSERT_EQ(Status::NotFound(), env_->FileExists(file1));
-
-  s = DeprecatedAddFile({file2}, false /* copy file */);
-  ASSERT_TRUE(s.ok()) << s.ToString();
-  ASSERT_OK(env_->FileExists(file2));
-
-  // This file have overlapping values with the exisitng data
-  s = DeprecatedAddFile({file2}, true /* move file */);
-  ASSERT_FALSE(s.ok()) << s.ToString();
-  ASSERT_OK(env_->FileExists(file3));
-
-  for (int k = 0; k < 300; k++) {
-    ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
-  }
-}
-
 TEST_F(ExternalSSTFileTest, SkipSnapshot) {
   Options options = CurrentOptions();
 
@@ -821,7 +756,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
       ASSERT_TRUE(s.ok()) << s.ToString();
     };
     // Write num_files files in parallel
-    std::vector<std::thread> sst_writer_threads;
+    std::vector<port::Thread> sst_writer_threads;
     for (int i = 0; i < num_files; ++i) {
       sst_writer_threads.emplace_back(write_file_func);
     }
@@ -864,7 +799,7 @@ TEST_F(ExternalSSTFileTest, MultiThreaded) {
     };
 
     // Bulk load num_files files in parallel
-    std::vector<std::thread> add_file_threads;
+    std::vector<port::Thread> add_file_threads;
     DestroyAndReopen(options);
     for (int i = 0; i < num_files; ++i) {
       add_file_threads.emplace_back(load_file_func);
@@ -1108,13 +1043,13 @@ TEST_F(ExternalSSTFileTest, PickedLevelBug) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // While writing the MANIFEST start a thread that will ask for compaction
-  std::thread bg_compact([&]() {
+  rocksdb::port::Thread bg_compact([&]() {
     ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   });
   TEST_SYNC_POINT("ExternalSSTFileTest::PickedLevelBug:2");
 
   // Start a thread that will ingest a new file
-  std::thread bg_addfile([&]() {
+  rocksdb::port::Thread bg_addfile([&]() {
     file_keys = {1, 2, 3};
     ASSERT_OK(GenerateAndAddExternalFile(options, file_keys, 1));
   });
@@ -1169,7 +1104,7 @@ TEST_F(ExternalSSTFileTest, CompactDuringAddFileRandom) {
     ASSERT_OK(GenerateAndAddExternalFile(options, file_keys, range_id));
   };
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   while (range_id < 5000) {
     int range_start = range_id * 10;
     int range_end = range_start + 10;
@@ -1537,93 +1472,6 @@ TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoAssignedLevel) {
   VerifyDBFromMap(true_data, &kcnt, false);
 }
 
-TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoPickedSeqno) {
-  Options options = CurrentOptions();
-  DestroyAndReopen(options);
-  std::map<std::string, std::string> true_data;
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 2, 3, 4, 5, 6}, -1, true,
-                                       false, &true_data));
-  // File dont overwrite any keys, No seqno needed
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {10, 11, 12, 13}, -1, true,
-                                       false, &true_data));
-  // File dont overwrite any keys, No seqno needed
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 0);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 4, 6}, -1, true, false,
-                                       &true_data));
-  // File overwrite some keys, a seqno will be assigned
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 1);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {11, 15, 19}, -1, true, false,
-                                       &true_data));
-  // File overwrite some keys, a seqno will be assigned
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {120, 130}, -1, true, false,
-                                       &true_data));
-  // File dont overwrite any keys, No seqno needed
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 2);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 130}, -1, true, false,
-                                       &true_data));
-  // File overwrite some keys, a seqno will be assigned
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), 3);
-
-  // Write some keys through normal write path
-  for (int i = 0; i < 50; i++) {
-    ASSERT_OK(Put(Key(i), "memtable"));
-    true_data[Key(i)] = "memtable";
-  }
-  SequenceNumber last_seqno = dbfull()->GetLatestSequenceNumber();
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {60, 61, 62}, -1, true, false,
-                                       &true_data));
-  // File dont overwrite any keys, No seqno needed
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {40, 41, 42}, -1, true, false,
-                                       &true_data));
-  // File overwrite some keys, a seqno will be assigned
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 1);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {20, 30, 40}, -1, true, false,
-                                       &true_data));
-  // File overwrite some keys, a seqno will be assigned
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 2);
-
-  const Snapshot* snapshot = db_->GetSnapshot();
-
-  // We will need a seqno for the file regardless if the file overwrite
-  // keys in the DB or not because we have a snapshot
-  ASSERT_OK(GenerateAndAddExternalFile(options, {1000, 1002}, -1, true, false,
-                                       &true_data));
-  // A global seqno will be assigned anyway because of the snapshot
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 3);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {2000, 3002}, -1, true, false,
-                                       &true_data));
-  // A global seqno will be assigned anyway because of the snapshot
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 4);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {1, 20, 40, 100, 150}, -1, true,
-                                       false, &true_data));
-  // A global seqno will be assigned anyway because of the snapshot
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
-
-  db_->ReleaseSnapshot(snapshot);
-
-  ASSERT_OK(GenerateAndAddExternalFile(options, {5000, 5001}, -1, true, false,
-                                       &true_data));
-  // No snapshot anymore, no need to assign a seqno
-  ASSERT_EQ(dbfull()->GetLatestSequenceNumber(), last_seqno + 5);
-
-  size_t kcnt = 0;
-  VerifyDBFromMap(true_data, &kcnt, false);
-}
-
 TEST_F(ExternalSSTFileTest, IngestFileWithGlobalSeqnoMemtableFlush) {
   Options options = CurrentOptions();
   DestroyAndReopen(options);
@@ -1728,7 +1576,7 @@ TEST_F(ExternalSSTFileTest, CompactionDeadlock) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // Start ingesting and extrnal file in the background
-  std::thread bg_ingest_file([&]() {
+  rocksdb::port::Thread bg_ingest_file([&]() {
     running_threads += 1;
     ASSERT_OK(GenerateAndAddExternalFile(options, {5, 6}));
     running_threads -= 1;
@@ -1748,7 +1596,7 @@ TEST_F(ExternalSSTFileTest, CompactionDeadlock) {
 
   // This thread will try to insert into the memtable but since we have 4 L0
   // files this thread will be blocked and hold the writer thread
-  std::thread bg_block_put([&]() {
+  rocksdb::port::Thread bg_block_put([&]() {
     running_threads += 1;
     ASSERT_OK(Put(Key(10), "memtable"));
     running_threads -= 1;
@@ -1944,50 +1792,6 @@ TEST_F(ExternalSSTFileTest, SnapshotInconsistencyBug) {
 
   db_->ReleaseSnapshot(snap);
 }
-
-TEST_F(ExternalSSTFileTest, FadviseTrigger) {
-  Options options = CurrentOptions();
-  const int kNumKeys = 10000;
-
-  size_t total_fadvised_bytes = 0;
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "SstFileWriter::InvalidatePageCache", [&](void* arg) {
-        size_t fadvise_size = *(reinterpret_cast<size_t*>(arg));
-        total_fadvised_bytes += fadvise_size;
-      });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
-  std::unique_ptr<SstFileWriter> sst_file_writer;
-
-  std::string sst_file_path = sst_files_dir_ + "file_fadvise_disable.sst";
-  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options,
-                                          options.comparator, nullptr, false));
-  ASSERT_OK(sst_file_writer->Open(sst_file_path));
-  for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
-  }
-  ASSERT_OK(sst_file_writer->Finish());
-  // fadvise disabled
-  ASSERT_EQ(total_fadvised_bytes, 0);
-
-
-  sst_file_path = sst_files_dir_ + "file_fadvise_enable.sst";
-  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options,
-                                          options.comparator, nullptr, true));
-  ASSERT_OK(sst_file_writer->Open(sst_file_path));
-  for (int i = 0; i < kNumKeys; i++) {
-    ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
-  }
-  ASSERT_OK(sst_file_writer->Finish());
-  // fadvise enabled
-  ASSERT_EQ(total_fadvised_bytes, sst_file_writer->FileSize());
-  ASSERT_GT(total_fadvised_bytes, 0);
-
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-}
-
-#endif  // ROCKSDB_LITE
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
@@ -1995,3 +1799,15 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr,
+          "SKIPPED as External SST File Writer and Ingestion are not supported "
+          "in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

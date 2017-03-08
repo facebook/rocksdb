@@ -38,7 +38,7 @@
 #include "rocksdb/table.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
@@ -313,7 +313,7 @@ Status FlushJob::WriteLevel0Table() {
         meta_.fd.GetFileSize(), s.ToString().c_str(),
         meta_.marked_for_compaction ? " (needs compaction)" : "");
 
-    if (!db_options_.disable_data_sync && output_file_directory_ != nullptr) {
+    if (output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }
     TEST_SYNC_POINT("FlushJob::WriteLevel0Table");

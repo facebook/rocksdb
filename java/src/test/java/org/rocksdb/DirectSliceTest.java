@@ -54,7 +54,7 @@ public class DirectSliceTest {
     }
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = IllegalArgumentException.class)
   public void directSliceInitWithoutDirectAllocation() {
     final byte[] data = "Some text".getBytes();
     final ByteBuffer buffer = ByteBuffer.wrap(data);
@@ -63,12 +63,31 @@ public class DirectSliceTest {
     }
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = IllegalArgumentException.class)
   public void directSlicePrefixInitWithoutDirectAllocation() {
     final byte[] data = "Some text".getBytes();
     final ByteBuffer buffer = ByteBuffer.wrap(data);
     try(final DirectSlice directSlice = new DirectSlice(buffer, 4)) {
       //no-op
+    }
+  }
+
+  @Test
+  public void directSliceClear() {
+    try(final DirectSlice directSlice = new DirectSlice("abc")) {
+      assertThat(directSlice.toString()).isEqualTo("abc");
+      directSlice.clear();
+      assertThat(directSlice.toString()).isEmpty();
+      directSlice.clear();  // make sure we don't double-free
+    }
+  }
+
+  @Test
+  public void directSliceRemovePrefix() {
+    try(final DirectSlice directSlice = new DirectSlice("abc")) {
+      assertThat(directSlice.toString()).isEqualTo("abc");
+      directSlice.removePrefix(1);
+      assertThat(directSlice.toString()).isEqualTo("bc");
     }
   }
 }

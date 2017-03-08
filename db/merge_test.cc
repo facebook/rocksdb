@@ -76,14 +76,12 @@ class CountMergeOperator : public AssociativeMergeOperator {
 
 namespace {
 std::shared_ptr<DB> OpenDb(const std::string& dbname, const bool ttl = false,
-                           const size_t max_successive_merges = 0,
-                           const uint32_t min_partial_merge_operands = 2) {
+                           const size_t max_successive_merges = 0) {
   DB* db;
   Options options;
   options.create_if_missing = true;
   options.merge_operator = std::make_shared<CountMergeOperator>();
   options.max_successive_merges = max_successive_merges;
-  options.min_partial_merge_operands = min_partial_merge_operands;
   Status s;
   DestroyDB(dbname, Options());
 // DBWithTTL is not supported in ROCKSDB_LITE
@@ -448,20 +446,20 @@ void runTest(int argc, const std::string& dbname, const bool use_ttl = false) {
   {
     std::cout << "Test Partial-Merge\n";
     size_t max_merge = 100;
-    for (uint32_t min_merge = 5; min_merge < 25; min_merge += 5) {
-      for (uint32_t count = min_merge - 1; count <= min_merge + 1; count++) {
-        auto db = OpenDb(dbname, use_ttl, max_merge, min_merge);
-        MergeBasedCounters counters(db, 0);
-        testPartialMerge(&counters, db.get(), max_merge, min_merge, count);
-        DestroyDB(dbname, Options());
-      }
-      {
-        auto db = OpenDb(dbname, use_ttl, max_merge, min_merge);
-        MergeBasedCounters counters(db, 0);
-        testPartialMerge(&counters, db.get(), max_merge, min_merge,
-                         min_merge * 10);
-        DestroyDB(dbname, Options());
-      }
+    // Min merge is hard-coded to 2.
+    uint32_t min_merge = 2;
+    for (uint32_t count = min_merge - 1; count <= min_merge + 1; count++) {
+      auto db = OpenDb(dbname, use_ttl, max_merge);
+      MergeBasedCounters counters(db, 0);
+      testPartialMerge(&counters, db.get(), max_merge, min_merge, count);
+      DestroyDB(dbname, Options());
+    }
+    {
+      auto db = OpenDb(dbname, use_ttl, max_merge);
+      MergeBasedCounters counters(db, 0);
+      testPartialMerge(&counters, db.get(), max_merge, min_merge,
+                       min_merge * 10);
+      DestroyDB(dbname, Options());
     }
   }
 

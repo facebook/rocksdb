@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <thread>
 // size_t printf formatting named in the manner of C99 standard formatting
 // strings such as PRIu64
 // in fact, we could use that one
@@ -155,6 +156,8 @@ class CondVar {
   pthread_cond_t cv_;
   Mutex* mu_;
 };
+
+using Thread = std::thread;
 
 static inline void AsmVolatilePause() {
 #if defined(__i386__) || defined(__x86_64__)

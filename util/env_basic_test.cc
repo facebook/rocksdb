@@ -8,7 +8,7 @@
 #include <algorithm>
 
 #include "rocksdb/env.h"
-#include "rocksdb/utilities/env_registry.h"
+#include "rocksdb/utilities/object_registry.h"
 #include "util/mock_env.h"
 #include "util/stderr_logger.h"
 #include "util/testharness.h"
@@ -138,7 +138,12 @@ Env* CreateAwsEnv(const std::string& dbpath,
   result->reset(s);
   return new NormalizingEnvWrapper(s); // XXX when does this get freed?
 }
-static rocksdb::EnvRegistrar s3_reg("s3://", &CreateAwsEnv);
+static rocksdb::Registrar<rocksdb::Env>
+  s3_reg("s3://.*", [](const std::string& uri, 
+                       std::unique_ptr<rocksdb::Env>* env_guard) {
+    CreateAwsEnv(uri, env_guard);
+    return env_guard->get();
+});
 #endif /* USE_AWS */
 
 static std::unique_ptr<Env> mem_env(NewMemEnv(Env::Default()));
@@ -160,7 +165,7 @@ std::vector<Env*> GetCustomEnvs() {
     init = true;
     const char* uri = getenv("TEST_ENV_URI");
     if (uri != nullptr) {
-      custom_env = NewEnvFromUri(uri, &custom_env_guard);
+      custom_env = NewCustomObject<Env>(uri, &custom_env_guard);
     }
   }
 

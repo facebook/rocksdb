@@ -134,15 +134,15 @@ public class EnvOptions extends RocksObject {
     return writableFileMaxBufferSize(nativeHandle_);
   }
 
-  public EnvOptions setRateLimiterConfig(final RateLimiterConfig rateLimiterConfig) {
-    this.rateLimiterConfig = rateLimiterConfig;
-    setRateLimiter(nativeHandle_, rateLimiterConfig.newRateLimiterHandle());
+  public EnvOptions setRateLimiter(final RateLimiter rateLimiter) {
+    this.rateLimiter = rateLimiter;
+    setRateLimiter(nativeHandle_, rateLimiter.nativeHandle_);
     return this;
   }
 
-  public RateLimiterConfig rateLimiterConfig() {
+  public RateLimiter rateLimiter() {
     assert(isOwningHandle());
-    return rateLimiterConfig;
+    return rateLimiter;
   }
 
   private native static long newEnvOptions();
@@ -203,5 +203,5 @@ public class EnvOptions extends RocksObject {
 
   private native void setRateLimiter(final long handle, final long rateLimiterHandle);
 
-  private RateLimiterConfig rateLimiterConfig;
+  private RateLimiter rateLimiter;
 }

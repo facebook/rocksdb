@@ -21,7 +21,8 @@
  */
 void Java_org_rocksdb_RocksIterator_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  assert(it != nullptr);
   delete it;
 }
 
@@ -83,11 +84,16 @@ void Java_org_rocksdb_RocksIterator_prev0(
 void Java_org_rocksdb_RocksIterator_seek0(
     JNIEnv* env, jobject jobj, jlong handle,
     jbyteArray jtarget, jint jtarget_len) {
-  auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
-  jbyte* target = env->GetByteArrayElements(jtarget, 0);
+  jbyte* target = env->GetByteArrayElements(jtarget, nullptr);
+  if(target == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
+
   rocksdb::Slice target_slice(
       reinterpret_cast<char*>(target), jtarget_len);
 
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
   it->Seek(target_slice);
 
   env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
@@ -100,7 +106,7 @@ void Java_org_rocksdb_RocksIterator_seek0(
  */
 void Java_org_rocksdb_RocksIterator_status0(
     JNIEnv* env, jobject jobj, jlong handle) {
-  auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
   rocksdb::Status s = it->status();
 
   if (s.ok()) {
@@ -117,10 +123,14 @@ void Java_org_rocksdb_RocksIterator_status0(
  */
 jbyteArray Java_org_rocksdb_RocksIterator_key0(
     JNIEnv* env, jobject jobj, jlong handle) {
-  auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
   rocksdb::Slice key_slice = it->key();
 
   jbyteArray jkey = env->NewByteArray(static_cast<jsize>(key_slice.size()));
+  if(jkey == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
   env->SetByteArrayRegion(jkey, 0, static_cast<jsize>(key_slice.size()),
                           reinterpret_cast<const jbyte*>(key_slice.data()));
   return jkey;
@@ -133,11 +143,15 @@ jbyteArray Java_org_rocksdb_RocksIterator_key0(
  */
 jbyteArray Java_org_rocksdb_RocksIterator_value0(
     JNIEnv* env, jobject jobj, jlong handle) {
-  auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
+  auto* it = reinterpret_cast<rocksdb::Iterator*>(handle);
   rocksdb::Slice value_slice = it->value();
 
   jbyteArray jkeyValue =
       env->NewByteArray(static_cast<jsize>(value_slice.size()));
+  if(jkeyValue == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return nullptr;
+  }
   env->SetByteArrayRegion(jkeyValue, 0, static_cast<jsize>(value_slice.size()),
                           reinterpret_cast<const jbyte*>(value_slice.data()));
   return jkeyValue;

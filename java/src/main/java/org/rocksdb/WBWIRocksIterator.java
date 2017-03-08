@@ -29,12 +29,11 @@ public class WBWIRocksIterator
    */
   public WriteEntry entry() {
     assert(isOwningHandle());
-    assert(entry != null);
     final long ptrs[] = entry1(nativeHandle_);
 
     entry.type = WriteType.fromId((byte)ptrs[0]);
-    entry.key.setNativeHandle(ptrs[1], true);
-    entry.value.setNativeHandle(ptrs[2], ptrs[2] != 0);
+    entry.key.resetNativeHandle(ptrs[1], ptrs[1] != 0);
+    entry.value.resetNativeHandle(ptrs[2], ptrs[2] != 0);
 
     return entry;
   }
@@ -75,6 +74,12 @@ public class WBWIRocksIterator
     }
   }
 
+  @Override
+  public void close() {
+    entry.close();
+    super.close();
+  }
+
   /**
    * Represents an entry returned by
    * {@link org.rocksdb.WBWIRocksIterator#entry()}
@@ -84,7 +89,7 @@ public class WBWIRocksIterator
    * or {@link org.rocksdb.WBWIRocksIterator.WriteType#LOG}
    * will not have a value.
    */
-  public static class WriteEntry {
+  public static class WriteEntry implements AutoCloseable {
     WriteType type = null;
     final DirectSlice key;
     final DirectSlice value;
@@ -101,7 +106,8 @@ public class WBWIRocksIterator
       value = new DirectSlice();
     }
 
-    public WriteEntry(WriteType type, DirectSlice key, DirectSlice value) {
+    public WriteEntry(final WriteType type, final DirectSlice key,
+        final DirectSlice value) {
       this.type = type;
       this.key = key;
       this.value = value;
@@ -154,7 +160,7 @@ public class WBWIRocksIterator
     }
 
     @Override
-    public boolean equals(Object other) {
+    public boolean equals(final Object other) {
       if(other == null) {
         return false;
       } else if (this == other) {
@@ -167,6 +173,12 @@ public class WBWIRocksIterator
       } else {
         return false;
       }
+    }
+
+    @Override
+    public void close() {
+      value.close();
+      key.close();
     }
   }
 }

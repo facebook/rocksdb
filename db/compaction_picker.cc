@@ -18,7 +18,6 @@
 #include <queue>
 #include <string>
 #include <utility>
-
 #include "db/column_family.h"
 #include "db/filename.h"
 #include "util/log_buffer.h"
@@ -466,49 +465,66 @@ bool CompactionPicker::SetupOtherInputs(
   // user key, while excluding other entries for the same user key. This
   // can happen when one user key spans multiple files.
   if (!output_level_inputs->empty()) {
-    CompactionInputFiles expanded0;
-    expanded0.level = input_level;
-    // Get entire range covered by compaction
+    const uint64_t limit = mutable_cf_options.max_compaction_bytes;
+    const uint64_t output_level_inputs_size =
+        TotalCompensatedFileSize(output_level_inputs->files);
+    const uint64_t inputs_size = TotalCompensatedFileSize(inputs->files);
+    bool expand_inputs = false;
+
+    CompactionInputFiles expanded_inputs;
+    expanded_inputs.level = input_level;
+    // Get closed interval of output level
     InternalKey all_start, all_limit;
     GetRange(*inputs, *output_level_inputs, &all_start, &all_limit);
-
+    bool try_overlapping_inputs = true;
     vstorage->GetOverlappingInputs(input_level, &all_start, &all_limit,
-                                   &expanded0.files, base_index, nullptr);
-    const uint64_t inputs0_size = TotalCompensatedFileSize(inputs->files);
-    const uint64_t inputs1_size =
-        TotalCompensatedFileSize(output_level_inputs->files);
-    const uint64_t expanded0_size = TotalCompensatedFileSize(expanded0.files);
-    uint64_t limit = mutable_cf_options.max_compaction_bytes;
-    if (expanded0.size() > inputs->size() &&
-        inputs1_size + expanded0_size < limit &&
-        !FilesInCompaction(expanded0.files) &&
-        !vstorage->HasOverlappingUserKey(&expanded0.files, input_level)) {
+                                   &expanded_inputs.files, base_index, nullptr);
+    uint64_t expanded_inputs_size =
+        TotalCompensatedFileSize(expanded_inputs.files);
+    if (!ExpandWhileOverlapping(cf_name, vstorage, &expanded_inputs)) {
+      try_overlapping_inputs = false;
+    }
+    if (try_overlapping_inputs && expanded_inputs.size() > inputs->size() &&
+        output_level_inputs_size + expanded_inputs_size < limit &&
+        !FilesInCompaction(expanded_inputs.files)) {
       InternalKey new_start, new_limit;
-      GetRange(expanded0, &new_start, &new_limit);
-      CompactionInputFiles expanded1;
-      expanded1.level = output_level;
+      GetRange(expanded_inputs, &new_start, &new_limit);
+      CompactionInputFiles expanded_output_level_inputs;
+      expanded_output_level_inputs.level = output_level;
       vstorage->GetOverlappingInputs(output_level, &new_start, &new_limit,
-                                     &expanded1.files, *parent_index,
-                                     parent_index);
-      assert(!expanded1.empty());
-      if (!FilesInCompaction(expanded1.files) &&
-          ExpandWhileOverlapping(cf_name, vstorage, &expanded1) &&
-          expanded1.size() == output_level_inputs->size()) {
-        Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
-            "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64
-            "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
-            " (%" PRIu64 "+%" PRIu64 "bytes)\n",
-            cf_name.c_str(), input_level, inputs->size(),
-            output_level_inputs->size(), inputs0_size, inputs1_size,
-            expanded0.size(), expanded1.size(), expanded0_size, inputs1_size);
-        smallest = new_start;
-        largest = new_limit;
-        inputs->files = expanded0.files;
-        output_level_inputs->files = expanded1.files;
+                                     &expanded_output_level_inputs.files,
+                                     *parent_index, parent_index);
+      assert(!expanded_output_level_inputs.empty());
+      if (!FilesInCompaction(expanded_output_level_inputs.files) &&
+          ExpandWhileOverlapping(cf_name, vstorage,
+                                 &expanded_output_level_inputs) &&
+          expanded_output_level_inputs.size() == output_level_inputs->size()) {
+        expand_inputs = true;
       }
     }
+    if (!expand_inputs) {
+      vstorage->GetCleanInputsWithinInterval(input_level, &all_start,
+                                             &all_limit, &expanded_inputs.files,
+                                             base_index, nullptr);
+      expanded_inputs_size = TotalCompensatedFileSize(expanded_inputs.files);
+      if (expanded_inputs.size() > inputs->size() &&
+          output_level_inputs_size + expanded_inputs_size < limit &&
+          !FilesInCompaction(expanded_inputs.files)) {
+        expand_inputs = true;
+      }
+    }
+    if (expand_inputs) {
+      Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
+          "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64
+          "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
+          " (%" PRIu64 "+%" PRIu64 "bytes)\n",
+          cf_name.c_str(), input_level, inputs->size(),
+          output_level_inputs->size(), inputs_size, output_level_inputs_size,
+          expanded_inputs.size(), output_level_inputs->size(),
+          expanded_inputs_size, output_level_inputs_size);
+      inputs->files = expanded_inputs.files;
+    }
   }
-
   return true;
 }
 

@@ -542,6 +542,9 @@ bool AreEqualOptions(
     case OptionType::kCompactionStyle:
       return (*reinterpret_cast<const CompactionStyle*>(offset1) ==
               *reinterpret_cast<const CompactionStyle*>(offset2));
+    case OptionType::kCompactionPri:
+      return (*reinterpret_cast<const CompactionPri*>(offset1) ==
+              *reinterpret_cast<const CompactionPri*>(offset2));
     case OptionType::kCompressionType:
       return (*reinterpret_cast<const CompressionType*>(offset1) ==
               *reinterpret_cast<const CompressionType*>(offset2));

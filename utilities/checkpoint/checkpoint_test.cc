@@ -18,13 +18,13 @@
 #include <utility>
 #include "db/db_impl.h"
 #include "port/stack_trace.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
-#include "util/xfunc.h"
 
 namespace rocksdb {
 class CheckpointTest : public testing::Test {
@@ -298,7 +298,7 @@ TEST_F(CheckpointTest, CheckpointCF) {
 
   Status s;
   // Take a snapshot
-  std::thread t([&]() {
+  rocksdb::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name));
@@ -368,7 +368,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing) {
         "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread t([&]() {
+  rocksdb::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(kSnapshotName));
@@ -451,7 +451,7 @@ TEST_F(CheckpointTest, CurrentFileModifiedWhileCheckpointing2PC) {
        {"CheckpointTest::CurrentFileModifiedWhileCheckpointing2PC:PostCommit",
         "CheckpointImpl::CreateCheckpoint:SavedLiveFiles2"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-  std::thread t([&]() {
+  rocksdb::port::Thread t([&]() {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(txdb, &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(kSnapshotName));

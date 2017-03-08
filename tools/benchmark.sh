@@ -61,7 +61,6 @@ block_size=${BLOCK_SIZE:-8192}
 const_params="
   --db=$DB_DIR \
   --wal_dir=$WAL_DIR \
-  --disable_data_sync=0 \
   \
   --num=$num_keys \
   --num_levels=6 \

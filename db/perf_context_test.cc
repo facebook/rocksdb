@@ -12,6 +12,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
+#include "port/port.h"
 #include "util/histogram.h"
 #include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
@@ -561,7 +562,7 @@ TEST_F(PerfContextTest, DBMutexLockCounter) {
     for (int c = 0; c < 2; ++c) {
     InstrumentedMutex mutex(nullptr, Env::Default(), stats_code[c]);
     mutex.Lock();
-    std::thread child_thread([&] {
+    rocksdb::port::Thread child_thread([&] {
       SetPerfLevel(perf_level);
       perf_context.Reset();
       ASSERT_EQ(perf_context.db_mutex_lock_nanos, 0);
