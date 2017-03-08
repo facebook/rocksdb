@@ -80,6 +80,8 @@ class CompactionJobTest : public testing::Test {
     EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
+    mutable_cf_options_.target_file_size_base = 1024 * 1024;
+    mutable_cf_options_.max_compaction_bytes = 10 * 1024 * 1024;
   }
 
   std::string GenerateFileName(uint64_t file_number) {
@@ -223,9 +225,10 @@ class CompactionJobTest : public testing::Test {
 
   void RunCompaction(
       const std::vector<std::vector<FileMetaData*>>& input_files,
-      const stl_wrappers::KVMap& expected_results,
+      const stl_wrappers::KVMap& expected_last_file_contents,
       const std::vector<SequenceNumber>& snapshots = {},
-      SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber) {
+      SequenceNumber earliest_write_conflict_snapshot = kMaxSequenceNumber,
+      int grandparent_level = 0, uint64_t num_output_files = 1) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     size_t num_input_files = 0;
@@ -240,10 +243,18 @@ class CompactionJobTest : public testing::Test {
       num_input_files += level_files.size();
     }
 
+    std::vector<FileMetaData*> grandparent;
+    if (grandparent_level > 0) {
+      grandparent =
+          cfd->current()->storage_info()->LevelFiles(grandparent_level);
+    }
+
     Compaction compaction(cfd->current()->storage_info(), *cfd->ioptions(),
                           *cfd->GetLatestMutableCFOptions(),
-                          compaction_input_files, 1, 1024 * 1024,
-                          10 * 1024 * 1024, 0, kNoCompression, {}, true);
+                          compaction_input_files, 1,
+                          mutable_cf_options_.target_file_size_base,
+                          mutable_cf_options_.max_compaction_bytes, 0,
+                          kNoCompression, grandparent, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -266,15 +277,15 @@ class CompactionJobTest : public testing::Test {
     ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions()));
     mutex_.Unlock();
 
-    if (expected_results.size() == 0) {
+    if (expected_last_file_contents.size() == 0) {
       ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
       ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
       ASSERT_EQ(compaction_job_stats_.num_output_files, 0U);
     } else {
       ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
       ASSERT_EQ(compaction_job_stats_.num_input_files, num_input_files);
-      ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
-      mock_table_factory_->AssertLatestFile(expected_results);
+      ASSERT_EQ(compaction_job_stats_.num_output_files, num_output_files);
+      mock_table_factory_->AssertLatestFile(expected_last_file_contents);
     }
   }
 
@@ -386,6 +397,102 @@ TEST_F(CompactionJobTest, SimpleNonLastLevel) {
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
   auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
   RunCompaction({lvl0_files, lvl1_files}, expected_results);
+}
+
+TEST_F(CompactionJobTest, CutForMaxCompactionBytes) {
+  NewDB();
+  mutable_cf_options_.target_file_size_base = 80;
+  mutable_cf_options_.max_compaction_bytes = 21;
+
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("c", 5U, kTypeValue), "val2"},
+      {KeyStr("n", 6U, kTypeValue), "val3"},
+  });
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("h", 3U, kTypeValue), "val"},
+                                   {KeyStr("j", 4U, kTypeValue), "val"}});
+  AddMockFile(file2, 1);
+
+  // Create three L2 files, each size 8.
+  // max_compaction_bytes 21 means the compaction output in L1 will
+  // be cut to at least two files.
+  auto file3 = mock::MakeMockFile({{KeyStr("b", 1U, kTypeValue), "val"},
+                                   {KeyStr("c", 1U, kTypeValue), "val"},
+                                   {KeyStr("c1", 1U, kTypeValue), "val"},
+                                   {KeyStr("c2", 1U, kTypeValue), "val"},
+                                   {KeyStr("c3", 1U, kTypeValue), "val"},
+                                   {KeyStr("c4", 1U, kTypeValue), "val"},
+                                   {KeyStr("d", 1U, kTypeValue), "val"},
+                                   {KeyStr("e", 2U, kTypeValue), "val"}});
+  AddMockFile(file3, 2);
+
+  auto file4 = mock::MakeMockFile({{KeyStr("h", 1U, kTypeValue), "val"},
+                                   {KeyStr("i", 1U, kTypeValue), "val"},
+                                   {KeyStr("i1", 1U, kTypeValue), "val"},
+                                   {KeyStr("i2", 1U, kTypeValue), "val"},
+                                   {KeyStr("i3", 1U, kTypeValue), "val"},
+                                   {KeyStr("i4", 1U, kTypeValue), "val"},
+                                   {KeyStr("j", 1U, kTypeValue), "val"},
+                                   {KeyStr("k", 2U, kTypeValue), "val"}});
+  AddMockFile(file4, 2);
+
+  auto file5 = mock::MakeMockFile({{KeyStr("l", 1U, kTypeValue), "val"},
+                                   {KeyStr("m", 1U, kTypeValue), "val"},
+                                   {KeyStr("m1", 1U, kTypeValue), "val"},
+                                   {KeyStr("m2", 1U, kTypeValue), "val"},
+                                   {KeyStr("m3", 1U, kTypeValue), "val"},
+                                   {KeyStr("m4", 1U, kTypeValue), "val"},
+                                   {KeyStr("n", 1U, kTypeValue), "val"},
+                                   {KeyStr("o", 2U, kTypeValue), "val"}});
+  AddMockFile(file5, 2);
+
+  auto expected_last_file =
+      mock::MakeMockFile({{KeyStr("n", 6U, kTypeValue), "val3"}});
+
+  SetLastSequence(6U);
+  auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
+  auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
+  RunCompaction({lvl0_files, lvl1_files}, expected_last_file, {},
+                kMaxSequenceNumber, 2, 2);
+}
+
+TEST_F(CompactionJobTest, CutToSkipGrandparetFile) {
+  NewDB();
+  // Make sure the grandparent level file size (10) qualifies skipping.
+  mutable_cf_options_.target_file_size_base = 70;
+
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("a", 5U, kTypeValue), "val2"},
+      {KeyStr("z", 6U, kTypeValue), "val3"},
+  });
+  AddMockFile(file1);
+
+  auto file2 = mock::MakeMockFile({{KeyStr("c", 3U, kTypeValue), "val"},
+                                   {KeyStr("x", 4U, kTypeValue), "val"}});
+  AddMockFile(file2, 1);
+
+  auto file3 = mock::MakeMockFile({{KeyStr("b", 1U, kTypeValue), "val"},
+                                   {KeyStr("d", 2U, kTypeValue), "val"}});
+  AddMockFile(file3, 2);
+
+  auto file4 = mock::MakeMockFile({{KeyStr("h", 1U, kTypeValue), "val"},
+                                   {KeyStr("i", 2U, kTypeValue), "val"}});
+  AddMockFile(file4, 2);
+
+  auto file5 = mock::MakeMockFile({{KeyStr("v", 1U, kTypeValue), "val"},
+                                   {KeyStr("y", 2U, kTypeValue), "val"}});
+  AddMockFile(file5, 2);
+
+  auto expected_last_file =
+      mock::MakeMockFile({{KeyStr("x", 4U, kTypeValue), "val"},
+                          {KeyStr("z", 6U, kTypeValue), "val3"}});
+
+  SetLastSequence(6U);
+  auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
+  auto lvl1_files = cfd_->current()->storage_info()->LevelFiles(1);
+  RunCompaction({lvl0_files, lvl1_files}, expected_last_file, {},
+                kMaxSequenceNumber, 2, 2);
 }
 
 TEST_F(CompactionJobTest, SimpleMerge) {

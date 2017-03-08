@@ -4990,8 +4990,9 @@ TEST_F(DBTest, SoftLimit) {
   dbfull()->TEST_WaitForCompact();
 
   // Now there is one L1 file but doesn't trigger soft_rate_limit
-  // The L1 file size is around 30KB.
-  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  // The L1 size is around 30KB.
+  ASSERT_GE(NumTableFilesAtLevel(1), 1);
+  ASSERT_LE(NumTableFilesAtLevel(1), 2);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
 
   // Only allow one compactin going through.
@@ -5022,10 +5023,11 @@ TEST_F(DBTest, SoftLimit) {
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilSleeping();
 
-  // Now there is one L1 file (around 60KB) which exceeds 50KB base by 10KB
+  // Now L1 size (around 60KB) exceeds 50KB base by 10KB
   // Given level multiplier 10, estimated pending compaction is around 100KB
   // doesn't trigger soft_pending_compaction_bytes_limit
-  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_GE(NumTableFilesAtLevel(1), 1);
+  ASSERT_LE(NumTableFilesAtLevel(1), 4);
   ASSERT_TRUE(!dbfull()->TEST_write_controler().NeedsDelay());
 
   // Create 3 L0 files, making score of L0 to be 3, higher than L0.
@@ -5041,11 +5043,12 @@ TEST_F(DBTest, SoftLimit) {
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilSleeping();
 
-  // Now there is one L1 file (around 90KB) which exceeds 50KB base by 40KB
+  // Now L1 size is around 90KB which exceeds 50KB base by 40KB
   // L2 size is 360KB, so the estimated level fanout 4, estimated pending
   // compaction is around 200KB
   // triggerring soft_pending_compaction_bytes_limit
-  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_GE(NumTableFilesAtLevel(1), 1);
+  ASSERT_LE(NumTableFilesAtLevel(1), 6);
   ASSERT_TRUE(dbfull()->TEST_write_controler().NeedsDelay());
 
   sleeping_task_low.WakeUp();

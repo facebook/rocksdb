@@ -171,12 +171,18 @@ struct CompactionJob::SubcompactionState {
     const std::vector<FileMetaData*>& grandparents = compaction->grandparents();
 
     // Scan to find earliest grandparent file that contains key.
+    int grandparent_index_moved = 0;
     while (grandparent_index < grandparents.size() &&
            icmp->Compare(internal_key,
                          grandparents[grandparent_index]->largest.Encode()) >
                0) {
       if (seen_key) {
         overlapped_bytes += grandparents[grandparent_index]->fd.GetFileSize();
+        if (grandparent_index == 0 ||
+            grandparents[grandparent_index]->fd.GetFileSize() >
+                compaction->max_output_file_size() / 8) {
+          grandparent_index_moved++;
+        }
       }
       assert(grandparent_index + 1 >= grandparents.size() ||
              icmp->Compare(
@@ -187,8 +193,13 @@ struct CompactionJob::SubcompactionState {
     seen_key = true;
 
     if (overlapped_bytes + curr_file_size >
-        compaction->max_compaction_bytes()) {
-      // Too much overlap for current output; start new output
+            compaction->max_compaction_bytes() ||
+        grandparent_index_moved > 1) {
+      // Start a new output file if:
+      // 1. Too much overlap for current output, or
+      // 2. there is at least one full file in parent level is between the
+      //    previous key and current key, and the file size is more than
+      //    1/8 of the target file size of the output level.
       overlapped_bytes = 0;
       return true;
     }
