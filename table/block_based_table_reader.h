@@ -193,11 +193,15 @@ class BlockBasedTable : public TableReader {
 
   class BlockEntryIteratorState;
 
- private:
+ protected:
   template <class TValue>
   struct CachableEntry;
   struct Rep;
   Rep* rep_;
+  explicit BlockBasedTable(Rep* rep)
+      : rep_(rep), compaction_optimized_(false) {}
+
+ private:
   bool compaction_optimized_;
 
   // input_iter: if it is not null, update this one and return it as Iterator
@@ -224,7 +228,7 @@ class BlockBasedTable : public TableReader {
   // if `no_io == true`, we will not try to read filter/index from sst file
   // were they not present in cache yet.
   CachableEntry<FilterBlockReader> GetFilter(bool no_io = false) const;
-  CachableEntry<FilterBlockReader> GetFilter(
+  virtual CachableEntry<FilterBlockReader> GetFilter(
       const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
       bool no_io) const;
 
@@ -303,9 +307,6 @@ class BlockBasedTable : public TableReader {
                                 const bool is_a_filter_partition) const;
 
   static void SetupCacheKeyPrefix(Rep* rep, uint64_t file_size);
-
-  explicit BlockBasedTable(Rep* rep)
-      : rep_(rep), compaction_optimized_(false) {}
 
   // Generate a cache key prefix from the file
   static void GenerateCachePrefix(Cache* cc,

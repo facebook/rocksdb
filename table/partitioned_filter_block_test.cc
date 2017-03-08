@@ -14,9 +14,22 @@
 
 namespace rocksdb {
 
-typedef PartitionIndexBuilder PartitionedFilterBlockBuilder;
-
 std::map<uint64_t, Slice> slices;
+
+class MockedBlockBasedTable : public BlockBasedTable {
+ public:
+  MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep){};
+
+  virtual CachableEntry<FilterBlockReader> GetFilter(
+      const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
+      bool no_io) const override {
+    Slice slice = slices[filter_blk_handle.offset()];
+    auto obj = new FullFilterBlockReader(
+        nullptr, true, BlockContents(slice, false, kNoCompression),
+        rep_->table_options.filter_policy->GetFilterBitsReader(slice), nullptr);
+    return {obj, nullptr};
+  }
+};
 
 class PartitionedFilterBlockTest : public testing::Test {
  public:
@@ -27,6 +40,9 @@ class PartitionedFilterBlockTest : public testing::Test {
     cache_ = NewLRUCache(1, 1, false);
     table_options_.block_cache = cache_;
     table_options_.filter_policy.reset(NewBloomFilterPolicy(10, false));
+    table_options_.no_block_cache = true;  // Otherwise BlockBasedTable::Close
+                                           // will access variable that are not
+                                           // initialized in our mocked version
   }
 
   std::shared_ptr<Cache> cache_;
@@ -43,15 +59,19 @@ class PartitionedFilterBlockTest : public testing::Test {
     return bh;
   }
 
-  PartitionedFilterBlockBuilder* NewBuilder() {
-    return new PartitionedFilterBlockBuilder(
-        &icomp, nullptr, table_options_.index_per_partition,
-        table_options_.index_block_restart_interval,
-        table_options_.whole_key_filtering,
-        table_options_.filter_policy->GetFilterBitsBuilder(), table_options_);
+  PartitionedIndexBuilder* NewIndexBuilder() {
+    return PartitionedIndexBuilder::CreateIndexBuilder(&icomp, table_options_);
   }
 
-  std::unique_ptr<BlockBasedTable> table;
+  PartitionedFilterBlockBuilder* NewBuilder(
+      PartitionedIndexBuilder* const p_index_builder) {
+    return new PartitionedFilterBlockBuilder(
+        nullptr, table_options_.whole_key_filtering,
+        table_options_.filter_policy->GetFilterBitsBuilder(),
+        table_options_.index_block_restart_interval, p_index_builder);
+  }
+
+  std::unique_ptr<MockedBlockBasedTable> table;
 
   PartitionedFilterBlockReader* NewReader(
       PartitionedFilterBlockBuilder* builder) {
@@ -65,10 +85,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     const Options options;
     const ImmutableCFOptions ioptions(options);
     const EnvOptions env_options;
-    // BlockBasedTable::Open(ioptions, env_options, table_options, icomp,
-    // std::unique_ptr<rocksdb::RandomAccessFileReader>(), 0L, table, false,
-    // false, 0);
-    table.reset(new BlockBasedTable(new BlockBasedTable::Rep(
+    table.reset(new MockedBlockBasedTable(new BlockBasedTable::Rep(
         ioptions, env_options, table_options_, icomp, false)));
     auto reader = new PartitionedFilterBlockReader(
         nullptr, true, BlockContents(slice, false, kNoCompression), nullptr,
@@ -107,43 +124,49 @@ class PartitionedFilterBlockTest : public testing::Test {
 
   void TestBlockPerKey() {
     table_options_.index_per_partition = 1;
-    std::unique_ptr<PartitionedFilterBlockBuilder> builder(NewBuilder());
+    std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
+    std::unique_ptr<PartitionedFilterBlockBuilder> builder(
+        NewBuilder(pib.get()));
     int i = 0;
     builder->Add(keys[i]);
-    CutABlock(builder.get(), keys[i], keys[i + 1]);
+    CutABlock(pib.get(), keys[i], keys[i + 1]);
     i++;
     builder->Add(keys[i]);
-    CutABlock(builder.get(), keys[i], keys[i + 1]);
+    CutABlock(pib.get(), keys[i], keys[i + 1]);
     i++;
     builder->Add(keys[i]);
     builder->Add(keys[i]);
-    CutABlock(builder.get(), keys[i], keys[i + 1]);
+    CutABlock(pib.get(), keys[i], keys[i + 1]);
     i++;
     builder->Add(keys[i]);
-    CutABlock(builder.get(), keys[i]);
+    CutABlock(pib.get(), keys[i]);
 
     VerifyReader(builder.get());
   }
 
   void TestBlockPerTwoKeys() {
-    std::unique_ptr<PartitionedFilterBlockBuilder> builder(NewBuilder());
+    std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
+    std::unique_ptr<PartitionedFilterBlockBuilder> builder(
+        NewBuilder(pib.get()));
     int i = 0;
     builder->Add(keys[i]);
     i++;
     builder->Add(keys[i]);
-    CutABlock(builder.get(), keys[i], keys[i + 1]);
+    CutABlock(pib.get(), keys[i], keys[i + 1]);
     i++;
     builder->Add(keys[i]);
     builder->Add(keys[i]);
     i++;
     builder->Add(keys[i]);
-    CutABlock(builder.get(), keys[i]);
+    CutABlock(pib.get(), keys[i]);
 
     VerifyReader(builder.get());
   }
 
   void TestBlockPerAllKeys() {
-    std::unique_ptr<PartitionedFilterBlockBuilder> builder(NewBuilder());
+    std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
+    std::unique_ptr<PartitionedFilterBlockBuilder> builder(
+        NewBuilder(pib.get()));
     int i = 0;
     builder->Add(keys[i]);
     i++;
@@ -153,12 +176,12 @@ class PartitionedFilterBlockTest : public testing::Test {
     builder->Add(keys[i]);
     i++;
     builder->Add(keys[i]);
-    CutABlock(builder.get(), keys[i]);
+    CutABlock(pib.get(), keys[i]);
 
     VerifyReader(builder.get());
   }
 
-  void CutABlock(PartitionedFilterBlockBuilder* builder,
+  void CutABlock(PartitionedIndexBuilder* builder,
                  const std::string& user_key) {
     // Assuming a block is cut, add an entry to the index
     std::string key =
@@ -167,8 +190,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     builder->AddIndexEntry(&key, nullptr, dont_care_block_handle);
   }
 
-  void CutABlock(PartitionedFilterBlockBuilder* builder,
-                 const std::string& user_key,
+  void CutABlock(PartitionedIndexBuilder* builder, const std::string& user_key,
                  const std::string& next_user_key) {
     // Assuming a block is cut, add an entry to the index
     std::string key =
@@ -182,7 +204,8 @@ class PartitionedFilterBlockTest : public testing::Test {
 };
 
 TEST_F(PartitionedFilterBlockTest, EmptyBuilder) {
-  std::unique_ptr<PartitionedFilterBlockBuilder> builder(NewBuilder());
+  std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
+  std::unique_ptr<PartitionedFilterBlockBuilder> builder(NewBuilder(pib.get()));
   const bool empty = true;
   VerifyReader(builder.get(), empty);
 }
@@ -210,79 +233,6 @@ TEST_F(PartitionedFilterBlockTest, OneBlockPerKey) {
     TestBlockPerKey();
   }
 }
-
-// A Mock of BlockBasedTable
-// The only three engaged methods are GetFilter, ReadFilter, and Open. The rest
-// are noop.
-BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
-    const BlockHandle& bh, const bool is_a_filter_partition, bool no_io) const {
-  Slice slice = slices[bh.offset()];
-  auto obj = new FullFilterBlockReader(
-      nullptr, true, BlockContents(slice, false, kNoCompression),
-      rep_->table_options.filter_policy->GetFilterBitsReader(slice), nullptr);
-  return {obj, nullptr};
-}
-
-FilterBlockReader* BlockBasedTable::ReadFilter(
-    const BlockHandle& bh, const bool is_a_filter_partition) const {
-  assert(0);
-  return nullptr;
-  // return slices[bh.offset()].get();
-}
-
-Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
-                             const EnvOptions& env_options,
-                             const BlockBasedTableOptions& table_options,
-                             const InternalKeyComparator& internal_comparator,
-                             unique_ptr<RandomAccessFileReader>&& file,
-                             uint64_t file_size,
-                             unique_ptr<TableReader>* table_reader,
-                             const bool prefetch_index_and_filter_in_cache,
-                             const bool skip_filters, const int level) {
-  Rep* rep = new BlockBasedTable::Rep(ioptions, env_options, table_options,
-                                      internal_comparator, skip_filters);
-  *table_reader = unique_ptr<BlockBasedTable>(new BlockBasedTable(rep));
-  return Status::OK();
-}
-
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, WritableFile* file,
-                                          char* buffer, size_t* size) {}
-void BlockBasedTable::GenerateCachePrefix(Cache* cc, RandomAccessFile* file,
-                                          char* buffer, size_t* size) {}
-Slice BlockBasedTable::GetCacheKey(const char* cache_key_prefix,
-                                   size_t cache_key_prefix_size,
-                                   const BlockHandle& handle, char* cache_key) {
-  return Slice();
-}
-BlockBasedTable::~BlockBasedTable() {}
-InternalIterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
-                                               Arena* arena,
-                                               bool skip_filters) {
-  return nullptr;
-}
-uint64_t BlockBasedTable::ApproximateOffsetOf(const Slice& key) { return 0; }
-InternalIterator* BlockBasedTable::NewRangeTombstoneIterator(
-    const ReadOptions& read_options) {
-  return nullptr;
-}
-void BlockBasedTable::SetupForCompaction() {}
-std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
-    const {
-  return rep_->table_properties;
-}
-size_t BlockBasedTable::ApproximateMemoryUsage() const { return 0; }
-Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
-                            GetContext* get_context, bool skip_filters) {
-  return Status::OK();
-}
-Status BlockBasedTable::Prefetch(const Slice* const begin,
-                                 const Slice* const end) {
-  return Status::OK();
-}
-Status BlockBasedTable::DumpTable(WritableFile* out_file) {
-  return Status::OK();
-}
-void BlockBasedTable::Close() {}
 
 }  // namespace rocksdb
 

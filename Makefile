@@ -1159,8 +1159,7 @@ block_based_filter_block_test: table/block_based_filter_block_test.o $(LIBOBJECT
 full_filter_block_test: table/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-# Exclude block_based_table_reader.o since the class is mocked in the test
-partitioned_filter_block_test: table/partitioned_filter_block_test.o $(LIBOBJECTS:table/block_based_table_reader.o=) $(TESTHARNESS)
+partitioned_filter_block_test: table/partitioned_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 log_test: db/log_test.o $(LIBOBJECTS) $(TESTHARNESS)
