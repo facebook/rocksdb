@@ -341,6 +341,7 @@ void DBIter::Next() {
 //
 // NOTE: In between, saved_key_ can point to a user key that has
 //       a delete marker or a sequence number higher than sequence_
+//       saved_key_ MUST have a proper user_key before calling this function
 //
 // The prefix_check parameter controls whether we check the iterated
 // keys against the prefix of the seeked key. Set to false when
