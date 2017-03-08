@@ -50,7 +50,8 @@ Write-Output "Root: $RootFolder, WorkFolder: $WorkFolder"
 
 # Use JEMALLOC executables
 if($Run -ceq "db_test" -or
-   $Run -ceq "db_test2" ) {
+   $Run -ceq "db_test2" -or
+   $Run -ceq "db_basic_test") {
 
    $file_name = $Run
 
@@ -150,7 +151,7 @@ function MakeAndAdd([string]$token, $HashTable) {
 # Test executable name -> Log file
 function Discover-TestBinaries([string]$Pattern, $HashTable) {
 
-    $Exclusions = @("db_test*", "db_sanity_test*")
+    $Exclusions = @("db_test*", "db_sanity_test*", "db_basic_test*")
 
     $p = -join ($BinariesFolder, $pattern)
 
@@ -164,7 +165,8 @@ function Discover-TestBinaries([string]$Pattern, $HashTable) {
 $TestsToRun = [ordered]@{}
 
 if($Run -ceq "db_test" -or
-   $Run -ceq "db_test2") {
+   $Run -ceq "db_test2" -or
+   $Run -ceq "db_basic_test") {
     Normalize-DbTests -HashTable $TestsToRun
 } elseif($Run -ceq "tests") {
     if($EnableJE) {
@@ -237,7 +239,8 @@ function RunJobs($TestToLog, [int]$ConcurrencyVal, [bool]$AddForRerun)
             $log_path = ($TestToLog.$k)
 
             if($Run -ceq "db_test" -or
-               $Run -ceq "db_test2") {
+               $Run -ceq "db_test2" -or
+               $Run -ceq "db_basic_test") {
               $job = Start-Job -Name $k -ScriptBlock $InvokeTestCase -ArgumentList @($db_test,$k,$log_path)
             } else {
               [string]$Exe =  -Join ($BinariesFolder, $k)
