@@ -411,6 +411,9 @@ struct HistogramData {
   double percentile99;
   double average;
   double standard_deviation;
+  // zero-initialize new members since old Statistics::histogramData()
+  // implementations won't write them.
+  double max = 0.0;
 };
 
 enum StatsLevel {

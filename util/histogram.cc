@@ -11,11 +11,13 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include "util/histogram.h"
+
 #include <inttypes.h>
 #include <cassert>
 #include <math.h>
 #include <stdio.h>
-#include "util/histogram.h"
+
 #include "port/port.h"
 
 namespace rocksdb {
@@ -233,6 +235,7 @@ void HistogramStat::Data(HistogramData * const data) const {
   data->median = Median();
   data->percentile95 = Percentile(95);
   data->percentile99 = Percentile(99);
+  data->max = max();
   data->average = Average();
   data->standard_deviation = StandardDeviation();
 }
