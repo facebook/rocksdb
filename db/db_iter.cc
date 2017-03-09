@@ -961,6 +961,8 @@ void DBIter::Seek(const Slice& target) {
     }
     direction_ = kForward;
     ClearSavedValue();
+    // convert the InternalKey to UserKey in saved_key_ before
+    // passed to FindNextUserEntry
     saved_key_.Reserve(saved_key_.Size() - 8);
     FindNextUserEntry(false /* not skipping */, prefix_same_as_start_);
     if (!valid_) {
