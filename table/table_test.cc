@@ -1187,9 +1187,9 @@ TEST_F(BlockBasedTableTest, RangeDelBlock) {
       // iterator can still access its metablock's range tombstones.
       c.ResetTableReader();
     }
-    ASSERT_EQ(false, iter->Valid());
+    ASSERT_FALSE(iter->Valid());
     iter->SeekToFirst();
-    ASSERT_EQ(true, iter->Valid());
+    ASSERT_TRUE(iter->Valid());
     for (int i = 0; i < 2; i++) {
       ASSERT_TRUE(iter->Valid());
       ParsedInternalKey parsed_key;
