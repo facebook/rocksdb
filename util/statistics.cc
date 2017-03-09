@@ -200,13 +200,10 @@ std::string StatisticsImpl::ToString() const {
       HistogramData hData;
       histogramData(h.first, &hData);
       snprintf(
-          buffer,
-          kBufferSize,
-          "%s statistics Percentiles :=> 50 : %f 95 : %f 99 : %f\n",
-          h.second.c_str(),
-          hData.median,
-          hData.percentile95,
-          hData.percentile99);
+          buffer, kBufferSize,
+          "%s statistics Percentiles :=> 50 : %f 95 : %f 99 : %f 100 : %f\n",
+          h.second.c_str(), hData.median, hData.percentile95,
+          hData.percentile99, hData.max);
       res.append(buffer);
     }
   }
