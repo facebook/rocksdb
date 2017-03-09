@@ -11,11 +11,13 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include "util/histogram.h"
+
 #include <inttypes.h>
 #include <cassert>
 #include <math.h>
 #include <stdio.h>
-#include "util/histogram.h"
+
 #include "port/port.h"
 
 namespace rocksdb {
