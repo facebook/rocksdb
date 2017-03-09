@@ -2398,7 +2398,7 @@ rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create(
     const rocksdb_envoptions_t* env, const rocksdb_options_t* io_options) {
   rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
   writer->rep =
-      new SstFileWriter(env->rep, io_options->rep, io_options->rep.comparator);
+      new SstFileWriter(env->rep, io_options->rep);
   return writer;
 }
 
@@ -2407,7 +2407,7 @@ rocksdb_sstfilewriter_t* rocksdb_sstfilewriter_create_with_comparator(
     const rocksdb_comparator_t* comparator) {
   rocksdb_sstfilewriter_t* writer = new rocksdb_sstfilewriter_t;
   writer->rep =
-      new SstFileWriter(env->rep, io_options->rep, io_options->rep.comparator);
+      new SstFileWriter(env->rep, io_options->rep);
   return writer;
 }
 

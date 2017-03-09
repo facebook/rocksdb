@@ -52,6 +52,13 @@ class SstFileWriter {
   // If invalidate_page_cache is set to true, SstFileWriter will give the OS a
   // hint that this file pages is not needed everytime we write 1MB to the file
   SstFileWriter(const EnvOptions& env_options, const Options& options,
+                ColumnFamilyHandle* column_family = nullptr,
+                bool invalidate_page_cache = true)
+      : SstFileWriter(env_options, options, options.comparator, column_family,
+                      invalidate_page_cache) {}
+
+  // Deprecated API
+  SstFileWriter(const EnvOptions& env_options, const Options& options,
                 const Comparator* user_comparator,
                 ColumnFamilyHandle* column_family = nullptr,
                 bool invalidate_page_cache = true);
