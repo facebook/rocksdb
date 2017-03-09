@@ -312,7 +312,7 @@ function update_report {
   # parse the output of the time command
   real_sec=`tail -3 $2 | grep real | awk '{print $2}'`
   user_sec=`tail -3 $2 | grep user | awk '{print $2}'`
-  sec_sec=`tail -3 $2 | grep sys | awk '{print $2}'`
+  sys_sec=`tail -3 $2 | grep sys | awk '{print $2}'`
 
   (printf "$DATA_FORMAT" \
     $COMMIT_ID $1 $REMOTE_USER_AT_HOST $NUM_MULTI_DB $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
@@ -328,7 +328,7 @@ function update_report {
        $DEBUG \
        $real_sec \
        $user_sec \
-       $sec_sec \
+       $sys_sec \
        >> $SUMMARY_FILE)
   exit_on_error $?
 }
@@ -427,7 +427,7 @@ function setup_test_directory {
       "value-size" "compress-rate" "ops-per-thread" "num-threads" "cache-size" \
       "flushes" "compactions" \
       "ops-per-s" "p50" "p75" "p99" "p99.9" "p99.99" "debug" \
-      "real" "user" "sys" \
+      "real-sec" "user-sec" "sys-sec" \
       >> $SUMMARY_FILE)
   exit_on_error $?
 }
