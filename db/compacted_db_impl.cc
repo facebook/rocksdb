@@ -42,10 +42,10 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
   return right;
 }
 
-Status CompactedDBImpl::Get(const ReadOptions& options,
-     ColumnFamilyHandle*, const Slice& key, std::string* value) {
+Status CompactedDBImpl::Get(const ReadOptions& options, ColumnFamilyHandle*,
+                            const Slice& key, PinnableSlice* pSlice) {
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, key, value, nullptr, nullptr,
+                         GetContext::kNotFound, key, pSlice, nullptr, nullptr,
                          nullptr, nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
   files_.files[FindFile(key)].fd.table_reader->Get(
@@ -75,11 +75,14 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
   int idx = 0;
   for (auto* r : reader_list) {
     if (r != nullptr) {
+      PinnableSlice pSlice;
+      std::string& value = (*values)[idx];
       GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                             GetContext::kNotFound, keys[idx], &(*values)[idx],
-                             nullptr, nullptr, nullptr, nullptr);
+                             GetContext::kNotFound, keys[idx], &pSlice, nullptr,
+                             nullptr, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
       r->Get(options, lkey.internal_key(), &get_context);
+      value.assign(pSlice.data(), pSlice.size());
       if (get_context.State() == GetContext::kFound) {
         statuses[idx] = Status::OK();
       }

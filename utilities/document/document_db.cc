@@ -1039,7 +1039,7 @@ class DocumentDBImpl : public DocumentDB {
   // RocksDB functions
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override {
+                     PinnableSlice* pSlice) override {
     return Status::NotSupported("");
   }
   virtual Status Get(const ReadOptions& options, const Slice& key,

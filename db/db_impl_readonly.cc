@@ -31,7 +31,7 @@ DBImplReadOnly::~DBImplReadOnly() {
 // Implementations of the DB interface
 Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value) {
+                           PinnableSlice* pSlice) {
   Status s;
   SequenceNumber snapshot = versions_->LastSequence();
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
@@ -40,11 +40,11 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   MergeContext merge_context;
   RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
   LookupKey lkey(key, snapshot);
-  if (super_version->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
+  if (super_version->mem->Get(lkey, pSlice, &s, &merge_context, &range_del_agg,
                               read_options)) {
   } else {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    super_version->current->Get(read_options, lkey, value, &s, &merge_context,
+    super_version->current->Get(read_options, lkey, pSlice, &s, &merge_context,
                                 &range_del_agg);
   }
   return s;
