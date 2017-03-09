@@ -520,7 +520,7 @@ struct Saver {
   const LookupKey* key;
   bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
   bool* merge_in_progress;
-  PinnableSlice* value;
+  std::string* value;
   SequenceNumber seq;
   const MergeOperator* merge_operator;
   // the merge operations encountered;
@@ -571,16 +571,13 @@ static bool SaveValue(void* arg, const char* entry) {
         }
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->status) = Status::OK();
-        if (LIKELY(s->value != nullptr)) {
-          if (*(s->merge_in_progress)) {
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), &v,
-                merge_context->GetOperands(), s->value->GetSelf(), s->logger,
-                s->statistics, s->env_);
-            s->value->PinSelf();
-          } else {
-            s->value->PinSelf(v);
-          }
+        if (*(s->merge_in_progress)) {
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), &v,
+              merge_context->GetOperands(), s->value, s->logger, s->statistics,
+              s->env_);
+        } else if (s->value != nullptr) {
+          s->value->assign(v.data(), v.size());
         }
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadUnlock();
@@ -592,14 +589,10 @@ static bool SaveValue(void* arg, const char* entry) {
       case kTypeSingleDeletion:
       case kTypeRangeDeletion: {
         if (*(s->merge_in_progress)) {
-          *(s->status) = Status::OK();
-          if (LIKELY(s->value != nullptr)) {
-            *(s->status) = MergeHelper::TimedFullMerge(
-                merge_operator, s->key->user_key(), nullptr,
-                merge_context->GetOperands(), s->value->GetSelf(), s->logger,
-                s->statistics, s->env_);
-            s->value->PinSelf();
-          }
+          *(s->status) = MergeHelper::TimedFullMerge(
+              merge_operator, s->key->user_key(), nullptr,
+              merge_context->GetOperands(), s->value, s->logger, s->statistics,
+              s->env_);
         } else {
           *(s->status) = Status::NotFound();
         }
@@ -633,7 +626,7 @@ static bool SaveValue(void* arg, const char* entry) {
   return false;
 }
 
-bool MemTable::Get(const LookupKey& key, PinnableSlice* value, Status* s,
+bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext* merge_context,
                    RangeDelAggregator* range_del_agg, SequenceNumber* seq,
                    const ReadOptions& read_opts) {

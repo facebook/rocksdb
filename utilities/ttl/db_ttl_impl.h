@@ -87,7 +87,7 @@ class DBWithTTLImpl : public DBWithTTL {
 
   static Status StripTS(std::string* str);
 
-  static Status StripTS(Slice* str);
+  static Status StripTS(PinnableSlice* str);
 
   static const uint32_t kTSLength = sizeof(int32_t);  // size of timestamp
 

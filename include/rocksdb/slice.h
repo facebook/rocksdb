@@ -130,36 +130,65 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
                        void* arg2) {
+    assert(!pinned_);
+    pinned_ = true;
     data_ = s.data();
     size_ = s.size();
     RegisterCleanup(f, arg1, arg2);
+    assert(pinned_);
   }
 
   inline void PinSlice(const Slice& s, Cleanable* cleanable) {
+    assert(!pinned_);
+    pinned_ = true;
     data_ = s.data();
     size_ = s.size();
     cleanable->DelegateCleanupsTo(this);
+    assert(pinned_);
   }
 
   inline void PinSelf(const Slice& slice) {
-    self_space.assign(slice.data(), slice.size());
-    data_ = self_space.data();
-    size_ = self_space.size();
+    assert(!pinned_);
+    self_space_.assign(slice.data(), slice.size());
+    data_ = self_space_.data();
+    size_ = self_space_.size();
+    assert(!pinned_);
   }
 
   inline void PinSelf() {
-    data_ = self_space.data();
-    size_ = self_space.size();
+    assert(!pinned_);
+    data_ = self_space_.data();
+    size_ = self_space_.size();
+    assert(!pinned_);
   }
 
-  inline std::string* GetSelf() { return &self_space; }
+  void remove_suffix(size_t n) {
+    assert(n <= size());
+    if (pinned_) {
+      size_ -= n;
+    } else {
+      self_space_.erase(size() - n, n);
+      PinSelf();
+    }
+  }
+
+  void remove_prefix(size_t n) {
+    assert(0); // Not implemented
+  }
+
+  void Reset() {
+    Cleanable::Reset();
+    pinned_ = false;
+  }
+
+  inline std::string* GetSelf() { return &self_space_; }
+
+  inline bool IsPinned() { return pinned_; }
 
  private:
   friend class PinnableSlice4Test;
-  std::string self_space;
-  static void ReleaseStringHeap(void* s, void*) {
-    delete reinterpret_cast<const std::string*>(s);
-  }
+  std::string self_space_;
+  bool pinned_ = false;
 };
 
 // A set of Slices that are virtually concatenated together.  'parts' points

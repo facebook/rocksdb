@@ -17,58 +17,6 @@
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
-
-// These methods are deprecated and only being used in tests for backward
-// compatibility
-bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
-                              Status* s, MergeContext* merge_context,
-                              RangeDelAggregator* range_del_agg,
-                              SequenceNumber* seq,
-                              const ReadOptions& read_opts) {
-  if (value != nullptr) {
-    PinnableSlice pinnable_val;
-    auto res = Get(key, &pinnable_val, s, merge_context, range_del_agg, seq,
-                   read_opts);
-    value->assign(pinnable_val.data(), pinnable_val.size());
-    return res;
-  } else {
-    PinnableSlice* null_ptr = nullptr;
-    return Get(key, null_ptr, s, merge_context, range_del_agg, seq, read_opts);
-  }
-}
-
-bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
-                              Status* s, MergeContext* merge_context,
-                              RangeDelAggregator* range_del_agg,
-                              const ReadOptions& read_opts) {
-  SequenceNumber seq;
-  return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
-}
-
-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext* merge_context,
-                   RangeDelAggregator* range_del_agg, SequenceNumber* seq,
-                   const ReadOptions& read_opts) {
-  if (value != nullptr) {
-    PinnableSlice pinnable_val;
-    auto res = Get(key, &pinnable_val, s, merge_context, range_del_agg, seq,
-                   read_opts);
-    value->assign(pinnable_val.data(), pinnable_val.size());
-    return res;
-  } else {
-    PinnableSlice* null_ptr = nullptr;
-    return Get(key, null_ptr, s, merge_context, range_del_agg, seq, read_opts);
-  }
-}
-
-bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext* merge_context,
-                   RangeDelAggregator* range_del_agg,
-                   const ReadOptions& read_opts) {
-  SequenceNumber seq;
-  return Get(key, value, s, merge_context, range_del_agg, &seq, read_opts);
-}
-
 namespace test {
 
 Slice RandomString(Random* rnd, int len, std::string* dst) {

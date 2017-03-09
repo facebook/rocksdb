@@ -198,6 +198,10 @@ TEST_F(CleanableTest, Delegation) {
   ASSERT_EQ(5, res);
 }
 
+static void ReleaseStringHeap(void* s, void*) {
+  delete reinterpret_cast<const std::string*>(s);
+}
+
 class PinnableSlice4Test : public PinnableSlice {
  public:
   void TestStringIsRegistered(std::string* s) {

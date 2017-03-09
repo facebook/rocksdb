@@ -171,13 +171,13 @@ bool DBWithTTLImpl::IsStale(const Slice& value, int32_t ttl, Env* env) {
 }
 
 // Strips the TS from the end of the slice
-Status DBWithTTLImpl::StripTS(Slice* slice) {
+Status DBWithTTLImpl::StripTS(PinnableSlice* pinnable_val) {
   Status st;
-  if (slice->size() < kTSLength) {
+  if (pinnable_val->size() < kTSLength) {
     return Status::Corruption("Bad timestamp in key-value");
   }
   // Erasing characters which hold the TS
-  slice->remove_suffix(kTSLength);
+  pinnable_val->remove_suffix(kTSLength);
   return st;
 }
 

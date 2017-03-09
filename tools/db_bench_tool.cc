@@ -230,7 +230,7 @@ DEFINE_bool(reverse_iterator, false,
 
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
-DEFINE_bool(pin_slice, false, "use pinnable slice for point lookup");
+DEFINE_bool(pin_slice, true, "use pinnable slice for point lookup");
 
 DEFINE_int64(batch_size, 1, "Batch size");
 

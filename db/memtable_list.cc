@@ -100,7 +100,7 @@ int MemTableList::NumFlushed() const {
 // Search all the memtables starting from the most recent one.
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
-bool MemTableListVersion::Get(const LookupKey& key, PinnableSlice* value,
+bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
                               Status* s, MergeContext* merge_context,
                               RangeDelAggregator* range_del_agg,
                               SequenceNumber* seq,
@@ -115,22 +115,16 @@ bool MemTableListVersion::GetFromHistory(const LookupKey& key,
                                          RangeDelAggregator* range_del_agg,
                                          SequenceNumber* seq,
                                          const ReadOptions& read_opts) {
-  if (LIKELY(value != nullptr)) {
-    PinnableSlice pinnable_val;
-    auto res = GetFromList(&memlist_history_, key, &pinnable_val, s,
-                           merge_context, range_del_agg, seq, read_opts);
-    value->assign(pinnable_val.data(), pinnable_val.size());
-    return res;
-  } else {
-    return GetFromList(&memlist_history_, key, nullptr, s, merge_context,
-                       range_del_agg, seq, read_opts);
-  }
+  return GetFromList(&memlist_history_, key, value, s, merge_context,
+                     range_del_agg, seq, read_opts);
 }
 
-bool MemTableListVersion::GetFromList(
-    std::list<MemTable*>* list, const LookupKey& key, PinnableSlice* value,
-    Status* s, MergeContext* merge_context, RangeDelAggregator* range_del_agg,
-    SequenceNumber* seq, const ReadOptions& read_opts) {
+bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
+                                      const LookupKey& key, std::string* value,
+                                      Status* s, MergeContext* merge_context,
+                                      RangeDelAggregator* range_del_agg,
+                                      SequenceNumber* seq,
+                                      const ReadOptions& read_opts) {
   *seq = kMaxSequenceNumber;
 
   for (auto& memtable : *list) {
