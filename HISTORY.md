@@ -1,5 +1,7 @@
 # Rocksdb Change Log
 ## Unreleased
+
+## 5.3.0 (03/08/2017)
 ### Public API Change
 * Remove disableDataSync option.
 * Remove timeout_hint_us option from WriteOptions. The option has been deprecated and has no effect since 3.13.0.
