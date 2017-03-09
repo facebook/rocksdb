@@ -470,12 +470,27 @@ class PosixEnv : public Env {
           return IOError(dir, errno);
       }
     }
+    auto name_max = pathconf(dir.c_str(), _PC_NAME_MAX);
+    if (name_max == -1) {
+      name_max = 255;
+    }
+    auto len = offsetof(dirent, d_name) + name_max + 1;
+    std::unique_ptr<char[]> entryp(new char[len]);
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr) {
+    Status s;
+    for (;;) {
+      int rc = readdir_r(d, reinterpret_cast<dirent*>(entryp.get()), &entry);
+      if (rc != 0) {
+        s = IOError(dir, rc);
+        break;
+      }
+      if (entry == nullptr) {
+        break;
+      }
       result->push_back(entry->d_name);
     }
     closedir(d);
-    return Status::OK();
+    return s;
   }
 
   virtual Status DeleteFile(const std::string& fname) override {
