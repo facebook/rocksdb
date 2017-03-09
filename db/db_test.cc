@@ -2980,7 +2980,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   options.level0_stop_writes_trigger = 1024;
   DestroyAndReopen(options);
 
-  auto gen_l0_kb = [this, kNumPutsBeforeWaitForFlush](int size) {
+  auto gen_l0_kb = [this](int size) {
     Random rnd(301);
     for (int i = 0; i < size; i++) {
       ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
