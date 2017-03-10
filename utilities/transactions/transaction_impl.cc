@@ -268,6 +268,11 @@ Status TransactionImpl::Commit() {
       WriteBatchInternal::MarkCommit(commit_time_batch, name_);
       s = db_impl_->WriteImpl(write_options_, commit_time_batch, nullptr, nullptr,
             log_number_, &hidden_key_handles_, false /*hide*/, false /*rollback*/);
+
+      for (auto &handle : hidden_key_handles_) {
+        handle.mem->RefLogContainingPrepSection(log_number_);
+      }
+
       hidden_key_handles_.clear();
     }
 

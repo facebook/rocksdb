@@ -805,7 +805,7 @@ TEST_P(TransactionTest, TwoPhaseRollbackTest) {
   string value;
   Status s;
 
-  //DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   Transaction* txn = db->BeginTransaction(write_options, txn_options);
   s = txn->SetName("xid");
   ASSERT_OK(s);
@@ -843,7 +843,7 @@ TEST_P(TransactionTest, TwoPhaseRollbackTest) {
   // flush to next wal
   s = db->Put(write_options, Slice("foo"), Slice("bar"));
   ASSERT_OK(s);
-  //db_impl->TEST_FlushMemTable(true);
+  db_impl->TEST_FlushMemTable(false);
 
   // issue rollback (marker written to WAL)
   s = txn->Rollback();
@@ -966,8 +966,8 @@ TEST_P(TransactionTest, PersistentTwoPhaseTransactionTest) {
   ASSERT_EQ(db_impl->TEST_FindMinLogContainingOutstandingPrep(), 0);
 
   // but now our memtable should be referencing the prep section
-  //ASSERT_EQ(log_containing_prep,
-            //db_impl->TEST_FindMinPrepLogReferencedByMemTable());
+  ASSERT_EQ(log_containing_prep,
+            db_impl->TEST_FindMinPrepLogReferencedByMemTable());
 
   db_impl->TEST_FlushMemTable(true);
 
@@ -1244,7 +1244,6 @@ TEST_P(TransactionTest, TwoPhaseDoubleRecoveryTest) {
 }
 
 TEST_P(TransactionTest, TwoPhaseLogRollingTest) {
-  return;
   DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
 
   Status s;
@@ -1429,6 +1428,12 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
+  ReadOptions read_options;
+  std::string value;
+  s = db->Get(read_options, cfa, "boys", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "girls1");
+
   ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), prepare_log_no);
 
   ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
@@ -1474,6 +1479,7 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
  * hidden behind improperly summed sequence ids
  */
 TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
   WriteOptions wal_on, wal_off;
   wal_on.sync = true;
   wal_on.disableWAL = false;
@@ -1502,6 +1508,9 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   s = db->Put(wal_off, "cats", "dogs2");
   ASSERT_OK(s);
   s = db->Put(wal_off, "cats", "dogs3");
+  ASSERT_OK(s);
+
+  s = db_impl->TEST_FlushMemTable(false);
   ASSERT_OK(s);
 
   s = db->Put(wal_on, "cats", "dogs4");
