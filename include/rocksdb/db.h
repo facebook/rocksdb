@@ -285,15 +285,18 @@ class DB {
                     ColumnFamilyHandle* column_family, const Slice& key,
                     std::string* value) {
     assert(value != nullptr);
-    PinnableSlice pinnable_val;
+    thread_local PinnableSlice pinnable_val;
+    assert(!pinnable_val.IsPinned());
     auto s = Get(options, column_family, key, &pinnable_val);
     if (LIKELY(s.ok())) {
       if (pinnable_val.IsPinned()) {
         value->assign(pinnable_val.data(), pinnable_val.size());
       } else {
-        *value = std::move(*pinnable_val.GetSelf());
+        value->swap(*pinnable_val.GetSelf());
       }
     }
+    pinnable_val.Reset();
+    assert(!pinnable_val.IsPinned());
     return s;
   }
   virtual Status Get(const ReadOptions& options,

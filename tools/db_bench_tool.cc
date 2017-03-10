@@ -3839,7 +3839,7 @@ class Benchmark {
         s = db_with_cfh->db->Get(options, db_with_cfh->GetCfh(key_rand), key,
                                  &value);
       } else {
-        if (FLAGS_pin_slice == 1) {
+        if (LIKELY(FLAGS_pin_slice == 1)) {
           pinnable_val.Reset();
           s = db_with_cfh->db->Get(options,
                                    db_with_cfh->db->DefaultColumnFamily(), key,
