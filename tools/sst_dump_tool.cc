@@ -371,6 +371,7 @@ void print_help() {
 
     --prefix=<user_key>
       Returns all keys with this prefix when executing check|scan
+      Cannot be used in conjunction with --from
 
     --read_num=<num>
       Maximum number of entries to read when executing check|scan
