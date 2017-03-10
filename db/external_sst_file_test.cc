@@ -1635,14 +1635,12 @@ TEST_F(ExternalSSTFileTest, DirtyExit) {
   std::unique_ptr<SstFileWriter> sst_file_writer;
 
   // Destruct SstFileWriter without calling Finish()
-  sst_file_writer.reset(
-      new SstFileWriter(EnvOptions(), options));
+  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options));
   ASSERT_OK(sst_file_writer->Open(file_path));
   sst_file_writer.reset();
 
   // Destruct SstFileWriter with a failing Finish
-  sst_file_writer.reset(
-      new SstFileWriter(EnvOptions(), options));
+  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options));
   ASSERT_OK(sst_file_writer->Open(file_path));
   ASSERT_NOK(sst_file_writer->Finish());
 }

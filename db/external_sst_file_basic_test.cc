@@ -285,8 +285,8 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
   std::unique_ptr<SstFileWriter> sst_file_writer;
 
   std::string sst_file_path = sst_files_dir_ + "file_fadvise_disable.sst";
-  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options,
-                                          nullptr, false));
+  sst_file_writer.reset(
+      new SstFileWriter(EnvOptions(), options, nullptr, false));
   ASSERT_OK(sst_file_writer->Open(sst_file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
@@ -297,8 +297,8 @@ TEST_F(ExternalSSTFileBasicTest, FadviseTrigger) {
 
 
   sst_file_path = sst_files_dir_ + "file_fadvise_enable.sst";
-  sst_file_writer.reset(new SstFileWriter(EnvOptions(), options,
-                                          nullptr, true));
+  sst_file_writer.reset(
+      new SstFileWriter(EnvOptions(), options, nullptr, true));
   ASSERT_OK(sst_file_writer->Open(sst_file_path));
   for (int i = 0; i < kNumKeys; i++) {
     ASSERT_OK(sst_file_writer->Add(Key(i), Key(i)));
