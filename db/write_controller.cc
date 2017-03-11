@@ -44,7 +44,7 @@ uint64_t WriteController::GetDelay(Env* env, uint64_t num_bytes) {
   if (total_stopped_ > 0) {
     return 0;
   }
-  if (total_delayed_ == 0) {
+  if (total_delayed_.load() == 0) {
     return 0;
   }
 
@@ -115,7 +115,7 @@ StopWriteToken::~StopWriteToken() {
 
 DelayWriteToken::~DelayWriteToken() {
   controller_->total_delayed_--;
-  assert(controller_->total_delayed_ >= 0);
+  assert(controller_->total_delayed_.load() >= 0);
 }
 
 CompactionPressureToken::~CompactionPressureToken() {

@@ -5134,25 +5134,30 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
   bool delayed = false;
   {
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
-    auto delay = write_controller_.GetDelay(env_, num_bytes);
+    uint64_t stall_start = env_->NowNanos();
+    uint64_t delay = write_controller_.GetDelay(env_, num_bytes);
     if (delay > 0) {
       if (write_options.no_slowdown) {
         return Status::Incomplete();
       }
       TEST_SYNC_POINT_CALLBACK("DBImpl::DelayWrite:Sleep", &delay);
 
-      // We will delay the write until the wall clock reach stall_end or
-      // we don't have any flushes or compactions running in the bg
-      uint64_t stall_end = sw.start_time() + delay;
-      while (bg_flush_scheduled_ > 0 || bg_compaction_scheduled_ > 0) {
-        uint64_t now = env_->NowMicros();
-        if (now >= stall_end) {
+      mutex_.Unlock();
+      // We will delay the write until we have slept for delay ms or
+      // we don't need a delay anymore
+      const uint64_t kDelayInterval = 10000;
+      uint64_t stall_end = stall_start + (delay * std::milli::den);
+      while (write_controller_.NeedsDelay()) {
+        if (env_->NowNanos() >= stall_end) {
+          // We already delayed this write `delay` microseconds
           break;
         }
 
         delayed = true;
-        bg_cv_.TimedWait(static_cast<int>(stall_end - now));
+        // Sleep for 0.01 seconds
+        env_->SleepForMicroseconds(kDelayInterval);
       }
+      mutex_.Lock();
     }
 
     while (bg_error_.ok() && write_controller_.IsStopped()) {

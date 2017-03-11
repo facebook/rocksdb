@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <memory>
 
 namespace rocksdb {
@@ -45,7 +46,7 @@ class WriteController {
 
   // these three metods are querying the state of the WriteController
   bool IsStopped() const;
-  bool NeedsDelay() const { return total_delayed_ > 0; }
+  bool NeedsDelay() const { return total_delayed_.load() > 0; }
   bool NeedSpeedupCompaction() const {
     return IsStopped() || NeedsDelay() || total_compaction_pressure_ > 0;
   }
@@ -87,7 +88,7 @@ class WriteController {
   friend class CompactionPressureToken;
 
   int total_stopped_;
-  int total_delayed_;
+  std::atomic<int> total_delayed_;
   int total_compaction_pressure_;
   uint64_t bytes_left_;
   uint64_t last_refill_time_;
