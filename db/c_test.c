@@ -87,6 +87,16 @@ static void Free(char** ptr) {
   }
 }
 
+static void CheckValue(
+    char* err,
+    const char* expected,
+    char** actual,
+    size_t actual_length) {
+  CheckNoError(err);
+  CheckEqual(expected, *actual, actual_length);
+  Free(actual);
+}
+
 static void CheckGet(
     rocksdb_t* db,
     const rocksdb_readoptions_t* options,
@@ -608,6 +618,90 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_destroy(wb2);
   }
 
+  StartPhase("writebatch_wi");
+  {
+    rocksdb_writebatch_wi_t* wbi = rocksdb_writebatch_wi_create(0, 1);
+    rocksdb_writebatch_wi_put(wbi, "foo", 3, "a", 1);
+    rocksdb_writebatch_wi_clear(wbi);
+    rocksdb_writebatch_wi_put(wbi, "bar", 3, "b", 1);
+    rocksdb_writebatch_wi_put(wbi, "box", 3, "c", 1);
+    rocksdb_writebatch_wi_delete(wbi, "bar", 3);
+    int count = rocksdb_writebatch_wi_count(wbi);
+    CheckCondition(count == 3);
+    size_t size;
+    char* value;
+    value = rocksdb_writebatch_wi_get_from_batch(wbi, options, "box", 3, &size, &err);
+    CheckValue(err, "c", &value, size);
+    value = rocksdb_writebatch_wi_get_from_batch(wbi, options, "bar", 3, &size, &err);
+    CheckValue(err, NULL, &value, size);
+    value = rocksdb_writebatch_wi_get_from_batch_and_db(wbi, db, roptions, "foo", 3, &size, &err);
+    CheckValue(err, "hello", &value, size);
+    value = rocksdb_writebatch_wi_get_from_batch_and_db(wbi, db, roptions, "box", 3, &size, &err);
+    CheckValue(err, "c", &value, size);
+    rocksdb_write_writebatch_wi(db, woptions, wbi, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "foo", "hello");
+    CheckGet(db, roptions, "bar", NULL);
+    CheckGet(db, roptions, "box", "c");
+    int pos = 0;
+    rocksdb_writebatch_wi_iterate(wbi, &pos, CheckPut, CheckDel);
+    CheckCondition(pos == 3);
+    rocksdb_writebatch_wi_clear(wbi);
+    rocksdb_writebatch_wi_put(wbi, "bar", 3, "b", 1);
+    rocksdb_writebatch_wi_put(wbi, "bay", 3, "d", 1);
+    rocksdb_writebatch_wi_delete_range(wbi, "bar", 3, "bay", 3);
+    rocksdb_write_writebatch_wi(db, woptions, wbi, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "bar", NULL);
+    CheckGet(db, roptions, "bay", "d");
+    rocksdb_writebatch_wi_clear(wbi);
+    const char* start_list[1] = {"bay"};
+    const size_t start_sizes[1] = {3};
+    const char* end_list[1] = {"baz"};
+    const size_t end_sizes[1] = {3};
+    rocksdb_writebatch_wi_delete_rangev(wbi, 1, start_list, start_sizes, end_list,
+                                     end_sizes);
+    rocksdb_write_writebatch_wi(db, woptions, wbi, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "bay", NULL);
+    rocksdb_writebatch_wi_destroy(wbi);
+  }
+
+  StartPhase("writebatch_wi_vectors");
+  {
+    rocksdb_writebatch_wi_t* wb = rocksdb_writebatch_wi_create(0, 1);
+    const char* k_list[2] = { "z", "ap" };
+    const size_t k_sizes[2] = { 1, 2 };
+    const char* v_list[3] = { "x", "y", "z" };
+    const size_t v_sizes[3] = { 1, 1, 1 };
+    rocksdb_writebatch_wi_putv(wb, 2, k_list, k_sizes, 3, v_list, v_sizes);
+    rocksdb_write_writebatch_wi(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "zap", "xyz");
+    rocksdb_writebatch_wi_delete(wb, "zap", 3);
+    rocksdb_write_writebatch_wi(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "zap", NULL);
+    rocksdb_writebatch_wi_destroy(wb);
+  }
+
+  StartPhase("writebatch_wi_savepoint");
+  {
+    rocksdb_writebatch_wi_t* wb = rocksdb_writebatch_wi_create(0, 1);
+    rocksdb_writebatch_wi_set_save_point(wb);
+    const char* k_list[2] = {"z", "ap"};
+    const size_t k_sizes[2] = {1, 2};
+    const char* v_list[3] = {"x", "y", "z"};
+    const size_t v_sizes[3] = {1, 1, 1};
+    rocksdb_writebatch_wi_putv(wb, 2, k_list, k_sizes, 3, v_list, v_sizes);
+    rocksdb_writebatch_wi_rollback_to_save_point(wb, &err);
+    CheckNoError(err);
+    rocksdb_write_writebatch_wi(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "zap", NULL);
+    rocksdb_writebatch_wi_destroy(wb);
+  }
+
   StartPhase("iter");
   {
     rocksdb_iterator_t* iter = rocksdb_create_iterator(db, roptions);
@@ -632,6 +726,37 @@ int main(int argc, char** argv) {
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
+  }
+
+  StartPhase("wbwi_iter");
+  {
+    rocksdb_iterator_t* base_iter = rocksdb_create_iterator(db, roptions);
+    rocksdb_writebatch_wi_t* wbi = rocksdb_writebatch_wi_create(0, 1);
+    rocksdb_writebatch_wi_put(wbi, "bar", 3, "b", 1);
+    rocksdb_writebatch_wi_delete(wbi, "foo", 3);
+    rocksdb_iterator_t* iter = rocksdb_writebatch_wi_create_iterator_with_base(wbi, base_iter);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_first(iter);
+    CheckCondition(rocksdb_iter_valid(iter));
+    CheckIter(iter, "bar", "b");
+    rocksdb_iter_next(iter);
+    CheckIter(iter, "box", "c");
+    rocksdb_iter_prev(iter);
+    CheckIter(iter, "bar", "b");
+    rocksdb_iter_prev(iter);
+    CheckCondition(!rocksdb_iter_valid(iter));
+    rocksdb_iter_seek_to_last(iter);
+    CheckIter(iter, "box", "c");
+    rocksdb_iter_seek(iter, "b", 1);
+    CheckIter(iter, "bar", "b");
+    rocksdb_iter_seek_for_prev(iter, "c", 1);
+    CheckIter(iter, "box", "c");
+    rocksdb_iter_seek_for_prev(iter, "box", 3);
+    CheckIter(iter, "box", "c");
+    rocksdb_iter_get_error(iter, &err);
+    CheckNoError(err);
+    rocksdb_iter_destroy(iter);
+    rocksdb_writebatch_wi_destroy(wbi);
   }
 
   StartPhase("multiget");

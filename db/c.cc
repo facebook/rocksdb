@@ -32,8 +32,10 @@
 #include "rocksdb/table.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "utilities/merge_operators.h"
 
+using rocksdb::BytewiseComparator;
 using rocksdb::Cache;
 using rocksdb::ColumnFamilyDescriptor;
 using rocksdb::ColumnFamilyHandle;
@@ -75,6 +77,7 @@ using rocksdb::SstFileWriter;
 using rocksdb::Status;
 using rocksdb::WritableFile;
 using rocksdb::WriteBatch;
+using rocksdb::WriteBatchWithIndex;
 using rocksdb::WriteOptions;
 using rocksdb::LiveFileMetaData;
 using rocksdb::BackupEngine;
@@ -95,6 +98,7 @@ struct rocksdb_backup_engine_info_t { std::vector<BackupInfo> rep; };
 struct rocksdb_restore_options_t { RestoreOptions rep; };
 struct rocksdb_iterator_t        { Iterator*         rep; };
 struct rocksdb_writebatch_t      { WriteBatch        rep; };
+struct rocksdb_writebatch_wi_t   { WriteBatchWithIndex* rep; };
 struct rocksdb_snapshot_t        { const Snapshot*   rep; };
 struct rocksdb_flushoptions_t    { FlushOptions      rep; };
 struct rocksdb_fifo_compaction_options_t { CompactionOptionsFIFO rep; };
@@ -1354,6 +1358,377 @@ void rocksdb_writebatch_set_save_point(rocksdb_writebatch_t* b) {
 void rocksdb_writebatch_rollback_to_save_point(rocksdb_writebatch_t* b,
                                                char** errptr) {
   SaveError(errptr, b->rep.RollbackToSavePoint());
+}
+
+rocksdb_writebatch_wi_t* rocksdb_writebatch_wi_create(size_t reserved_bytes, unsigned char overwrite_key) {
+  rocksdb_writebatch_wi_t* b = new rocksdb_writebatch_wi_t;
+  b->rep = new WriteBatchWithIndex(BytewiseComparator(), reserved_bytes, overwrite_key);
+  return b;
+}
+
+void rocksdb_writebatch_wi_destroy(rocksdb_writebatch_wi_t* b) {
+  if (b->rep) {
+    delete b->rep;
+  }
+  delete b;
+}
+
+void rocksdb_writebatch_wi_clear(rocksdb_writebatch_wi_t* b) {
+  b->rep->Clear();
+}
+
+int rocksdb_writebatch_wi_count(rocksdb_writebatch_wi_t* b) {
+  return b->rep->GetWriteBatch()->Count();
+}
+
+void rocksdb_writebatch_wi_put(
+    rocksdb_writebatch_wi_t* b,
+    const char* key, size_t klen,
+    const char* val, size_t vlen) {
+  b->rep->Put(Slice(key, klen), Slice(val, vlen));
+}
+
+void rocksdb_writebatch_wi_put_cf(
+    rocksdb_writebatch_wi_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen,
+    const char* val, size_t vlen) {
+  b->rep->Put(column_family->rep, Slice(key, klen), Slice(val, vlen));
+}
+
+void rocksdb_writebatch_wi_putv(
+    rocksdb_writebatch_wi_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes) {
+  std::vector<Slice> key_slices(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    key_slices[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<Slice> value_slices(num_values);
+  for (int i = 0; i < num_values; i++) {
+    value_slices[i] = Slice(values_list[i], values_list_sizes[i]);
+  }
+  b->rep->Put(SliceParts(key_slices.data(), num_keys),
+             SliceParts(value_slices.data(), num_values));
+}
+
+void rocksdb_writebatch_wi_putv_cf(
+    rocksdb_writebatch_wi_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes) {
+  std::vector<Slice> key_slices(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    key_slices[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<Slice> value_slices(num_values);
+  for (int i = 0; i < num_values; i++) {
+    value_slices[i] = Slice(values_list[i], values_list_sizes[i]);
+  }
+  b->rep->Put(column_family->rep, SliceParts(key_slices.data(), num_keys),
+             SliceParts(value_slices.data(), num_values));
+}
+
+void rocksdb_writebatch_wi_merge(
+    rocksdb_writebatch_wi_t* b,
+    const char* key, size_t klen,
+    const char* val, size_t vlen) {
+  b->rep->Merge(Slice(key, klen), Slice(val, vlen));
+}
+
+void rocksdb_writebatch_wi_merge_cf(
+    rocksdb_writebatch_wi_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen,
+    const char* val, size_t vlen) {
+  b->rep->Merge(column_family->rep, Slice(key, klen), Slice(val, vlen));
+}
+
+void rocksdb_writebatch_wi_mergev(
+    rocksdb_writebatch_wi_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes) {
+  std::vector<Slice> key_slices(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    key_slices[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<Slice> value_slices(num_values);
+  for (int i = 0; i < num_values; i++) {
+    value_slices[i] = Slice(values_list[i], values_list_sizes[i]);
+  }
+  b->rep->Merge(SliceParts(key_slices.data(), num_keys),
+               SliceParts(value_slices.data(), num_values));
+}
+
+void rocksdb_writebatch_wi_mergev_cf(
+    rocksdb_writebatch_wi_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes) {
+  std::vector<Slice> key_slices(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    key_slices[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  std::vector<Slice> value_slices(num_values);
+  for (int i = 0; i < num_values; i++) {
+    value_slices[i] = Slice(values_list[i], values_list_sizes[i]);
+  }
+  b->rep->Merge(column_family->rep, SliceParts(key_slices.data(), num_keys),
+               SliceParts(value_slices.data(), num_values));
+}
+
+void rocksdb_writebatch_wi_delete(
+    rocksdb_writebatch_wi_t* b,
+    const char* key, size_t klen) {
+  b->rep->Delete(Slice(key, klen));
+}
+
+void rocksdb_writebatch_wi_delete_cf(
+    rocksdb_writebatch_wi_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t klen) {
+  b->rep->Delete(column_family->rep, Slice(key, klen));
+}
+
+void rocksdb_writebatch_wi_deletev(
+    rocksdb_writebatch_wi_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes) {
+  std::vector<Slice> key_slices(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    key_slices[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  b->rep->Delete(SliceParts(key_slices.data(), num_keys));
+}
+
+void rocksdb_writebatch_wi_deletev_cf(
+    rocksdb_writebatch_wi_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes) {
+  std::vector<Slice> key_slices(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    key_slices[i] = Slice(keys_list[i], keys_list_sizes[i]);
+  }
+  b->rep->Delete(column_family->rep, SliceParts(key_slices.data(), num_keys));
+}
+
+void rocksdb_writebatch_wi_delete_range(rocksdb_writebatch_wi_t* b,
+                                     const char* start_key,
+                                     size_t start_key_len, const char* end_key,
+                                     size_t end_key_len) {
+  b->rep->DeleteRange(Slice(start_key, start_key_len),
+                     Slice(end_key, end_key_len));
+}
+
+void rocksdb_writebatch_wi_delete_range_cf(
+    rocksdb_writebatch_wi_t* b, rocksdb_column_family_handle_t* column_family,
+    const char* start_key, size_t start_key_len, const char* end_key,
+    size_t end_key_len) {
+  b->rep->DeleteRange(column_family->rep, Slice(start_key, start_key_len),
+                     Slice(end_key, end_key_len));
+}
+
+void rocksdb_writebatch_wi_delete_rangev(rocksdb_writebatch_wi_t* b, int num_keys,
+                                      const char* const* start_keys_list,
+                                      const size_t* start_keys_list_sizes,
+                                      const char* const* end_keys_list,
+                                      const size_t* end_keys_list_sizes) {
+  std::vector<Slice> start_key_slices(num_keys);
+  std::vector<Slice> end_key_slices(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    start_key_slices[i] = Slice(start_keys_list[i], start_keys_list_sizes[i]);
+    end_key_slices[i] = Slice(end_keys_list[i], end_keys_list_sizes[i]);
+  }
+  b->rep->DeleteRange(SliceParts(start_key_slices.data(), num_keys),
+                     SliceParts(end_key_slices.data(), num_keys));
+}
+
+void rocksdb_writebatch_wi_delete_rangev_cf(
+    rocksdb_writebatch_wi_t* b, rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* start_keys_list,
+    const size_t* start_keys_list_sizes, const char* const* end_keys_list,
+    const size_t* end_keys_list_sizes) {
+  std::vector<Slice> start_key_slices(num_keys);
+  std::vector<Slice> end_key_slices(num_keys);
+  for (int i = 0; i < num_keys; i++) {
+    start_key_slices[i] = Slice(start_keys_list[i], start_keys_list_sizes[i]);
+    end_key_slices[i] = Slice(end_keys_list[i], end_keys_list_sizes[i]);
+  }
+  b->rep->DeleteRange(column_family->rep,
+                     SliceParts(start_key_slices.data(), num_keys),
+                     SliceParts(end_key_slices.data(), num_keys));
+}
+
+void rocksdb_writebatch_wi_put_log_data(
+    rocksdb_writebatch_wi_t* b,
+    const char* blob, size_t len) {
+  b->rep->PutLogData(Slice(blob, len));
+}
+
+void rocksdb_writebatch_wi_iterate(
+    rocksdb_writebatch_wi_t* b,
+    void* state,
+    void (*put)(void*, const char* k, size_t klen, const char* v, size_t vlen),
+    void (*deleted)(void*, const char* k, size_t klen)) {
+  class H : public WriteBatch::Handler {
+   public:
+    void* state_;
+    void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
+    void (*deleted_)(void*, const char* k, size_t klen);
+    virtual void Put(const Slice& key, const Slice& value) override {
+      (*put_)(state_, key.data(), key.size(), value.data(), value.size());
+    }
+    virtual void Delete(const Slice& key) override {
+      (*deleted_)(state_, key.data(), key.size());
+    }
+  };
+  H handler;
+  handler.state_ = state;
+  handler.put_ = put;
+  handler.deleted_ = deleted;
+  b->rep->GetWriteBatch()->Iterate(&handler);
+}
+
+const char* rocksdb_writebatch_wi_data(rocksdb_writebatch_wi_t* b, size_t* size) {
+  WriteBatch* wb = b->rep->GetWriteBatch();
+  *size = wb->GetDataSize();
+  return wb->Data().c_str();
+}
+
+void rocksdb_writebatch_wi_set_save_point(rocksdb_writebatch_wi_t* b) {
+  b->rep->SetSavePoint();
+}
+
+void rocksdb_writebatch_wi_rollback_to_save_point(rocksdb_writebatch_wi_t* b,
+                                               char** errptr) {
+  SaveError(errptr, b->rep->RollbackToSavePoint());
+}
+
+rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base(
+    rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_iterator_t* base_iterator) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = wbwi->rep->NewIteratorWithBase(base_iterator->rep);
+  delete base_iterator;
+  return result;
+}
+
+rocksdb_iterator_t* rocksdb_writebatch_wi_create_iterator_with_base_cf(
+    rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_iterator_t* base_iterator,
+    rocksdb_column_family_handle_t* column_family) {
+  rocksdb_iterator_t* result = new rocksdb_iterator_t;
+  result->rep = wbwi->rep->NewIteratorWithBase(column_family->rep, base_iterator->rep);
+  delete base_iterator;
+  return result;
+}
+
+char* rocksdb_writebatch_wi_get_from_batch(
+    rocksdb_writebatch_wi_t* wbwi,
+    const rocksdb_options_t* options,
+    const char* key, size_t keylen,
+    size_t* vallen,
+    char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = wbwi->rep->GetFromBatch(options->rep, Slice(key, keylen), &tmp);
+  if (s.ok()) {
+    *vallen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vallen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
+char* rocksdb_writebatch_wi_get_from_batch_cf(
+    rocksdb_writebatch_wi_t* wbwi,
+    const rocksdb_options_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen,
+    size_t* vallen,
+    char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = wbwi->rep->GetFromBatch(column_family->rep, options->rep,
+      Slice(key, keylen), &tmp);
+  if (s.ok()) {
+    *vallen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vallen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
+char* rocksdb_writebatch_wi_get_from_batch_and_db(
+    rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    const char* key, size_t keylen,
+    size_t* vallen,
+    char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = wbwi->rep->GetFromBatchAndDB(db->rep, options->rep, Slice(key, keylen), &tmp);
+  if (s.ok()) {
+    *vallen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vallen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
+char* rocksdb_writebatch_wi_get_from_batch_and_db_cf(
+    rocksdb_writebatch_wi_t* wbwi,
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    rocksdb_column_family_handle_t* column_family,
+    const char* key, size_t keylen,
+    size_t* vallen,
+    char** errptr) {
+  char* result = nullptr;
+  std::string tmp;
+  Status s = wbwi->rep->GetFromBatchAndDB(db->rep, options->rep, column_family->rep,
+      Slice(key, keylen), &tmp);
+  if (s.ok()) {
+    *vallen = tmp.size();
+    result = CopyString(tmp);
+  } else {
+    *vallen = 0;
+    if (!s.IsNotFound()) {
+      SaveError(errptr, s);
+    }
+  }
+  return result;
+}
+
+void rocksdb_write_writebatch_wi(
+    rocksdb_t* db,
+    const rocksdb_writeoptions_t* options,
+    rocksdb_writebatch_wi_t* wbwi,
+    char** errptr) {
+  WriteBatch* wb = wbwi->rep->GetWriteBatch();
+  SaveError(errptr, db->rep->Write(options->rep, wb));
 }
 
 rocksdb_block_based_table_options_t*
