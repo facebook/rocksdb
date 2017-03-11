@@ -126,7 +126,8 @@ class Slice {
  */
 class PinnableSlice : public Slice, public Cleanable {
  public:
-  PinnableSlice() {}
+  PinnableSlice() { buf_ = &self_space_; }
+  PinnableSlice(std::string* buf) { buf_ = buf; }
 
   inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
                        void* arg2) {
@@ -149,16 +150,16 @@ class PinnableSlice : public Slice, public Cleanable {
 
   inline void PinSelf(const Slice& slice) {
     assert(!pinned_);
-    self_space_.assign(slice.data(), slice.size());
-    data_ = self_space_.data();
-    size_ = self_space_.size();
+    buf_->assign(slice.data(), slice.size());
+    data_ = buf_->data();
+    size_ = buf_->size();
     assert(!pinned_);
   }
 
   inline void PinSelf() {
     assert(!pinned_);
-    data_ = self_space_.data();
-    size_ = self_space_.size();
+    data_ = buf_->data();
+    size_ = buf_->size();
     assert(!pinned_);
   }
 
@@ -167,13 +168,13 @@ class PinnableSlice : public Slice, public Cleanable {
     if (pinned_) {
       size_ -= n;
     } else {
-      self_space_.erase(size() - n, n);
+      buf_->erase(size() - n, n);
       PinSelf();
     }
   }
 
   void remove_prefix(size_t n) {
-    assert(0); // Not implemented
+    assert(0);  // Not implemented
   }
 
   void Reset() {
@@ -181,13 +182,14 @@ class PinnableSlice : public Slice, public Cleanable {
     pinned_ = false;
   }
 
-  inline std::string* GetSelf() { return &self_space_; }
+  inline std::string* GetSelf() { return buf_; }
 
   inline bool IsPinned() { return pinned_; }
 
  private:
   friend class PinnableSlice4Test;
   std::string self_space_;
+  std::string* buf_;
   bool pinned_ = false;
 };
 
