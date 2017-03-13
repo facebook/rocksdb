@@ -36,6 +36,9 @@
 #       ./tools/regression_test.sh
 #
 # = Regression test environmental parameters =
+#   DEBUG: If true, then the script will not checkout master and build db_bench
+#       if db_bench already exists
+#       Default: 0
 #   TEST_PATH: the root directory of the regression test.
 #       Default: "/tmp/rocksdb/regression_test"
 #   RESULT_PATH: the directory where the regression results will be generated.
@@ -83,17 +86,39 @@
 #   SEED:  random seed that controls the randomness of the benchmark.
 #       Default: $( date +%s )
 
+#==============================================================================
+#  CONSTANT
+#==============================================================================
+TITLE_FORMAT="%40s,%25s,%30s,%7s,%9s,%8s,"
+TITLE_FORMAT+="%10s,%13s,%14s,%11s,%12s,"
+TITLE_FORMAT+="%7s,%11s,"
+TITLE_FORMAT+="%9s,%10s,%10s,%10s,%10s,%10s,%5s"
+TITLE_FORMAT+="\n"
+
+DATA_FORMAT="%40s,%25s,%30s,%7s,%9s,%8s,"
+DATA_FORMAT+="%10s,%13.0f,%14s,%11s,%12s,"
+DATA_FORMAT+="%7s,%11s,"
+DATA_FORMAT+="%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f,%5.0f"
+DATA_FORMAT+="\n"
+
+MAIN_PATTERN="$1""[[:blank:]]+:.*[[:blank:]]+([0-9\.]+)[[:blank:]]+ops/sec"
+PERC_PATTERN="Percentiles: P50: ([0-9\.]+) P75: ([0-9\.]+) "
+PERC_PATTERN+="P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)"
+#==============================================================================
+
 function main {
   commit=${1:-"origin/master"}
   test_root_dir=${TEST_PATH:-"/tmp/rocksdb/regression_test"}
-
   init_arguments $test_root_dir
 
-  checkout_rocksdb $commit
-  build_db_bench
+  if [ $DEBUG -eq 0 ]; then
+      checkout_rocksdb $commit
+      build_db_bench
+  elif [ ! -f db_bench ]; then
+      build_db_bench
+  fi
 
   setup_test_directory
-
   # an additional dot indicates we share same env variables
   run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
   run_db_bench "readrandom"
@@ -127,6 +152,7 @@ function init_arguments {
     DB_BENCH_DIR=${5:-"$1/db_bench"}
   fi
 
+  DEBUG=${DEBUG:-0}
   SCP=${SCP:-"scp"}
   SSH=${SSH:-"ssh"}
   NUM_THREADS=${NUM_THREADS:-16}
@@ -244,31 +270,30 @@ function update_report {
   exit_on_error $?
 
   # Obtain micros / op
-  main_pattern="$1"'[[:blank:]]+:[[:blank:]]+([0-9\.]+)[[:blank:]]+micros/op'
-  [[ $main_result =~ $main_pattern ]]
-  micros_op=${BASH_REMATCH[1]}
+
+  [[ $main_result =~ $MAIN_PATTERN ]]
+  ops_per_s=${BASH_REMATCH[1]}
 
   # Obtain percentile information
-  perc_pattern='Percentiles: P50: ([0-9\.]+) P75: ([0-9\.]+) P99: ([0-9\.]+) P99.9: ([0-9\.]+) P99.99: ([0-9\.]+)'
-  [[ $perc_statement =~ $perc_pattern ]]
-
+  [[ $perc_statement =~ $PERC_PATTERN ]]
   perc[0]=${BASH_REMATCH[1]}  # p50
   perc[1]=${BASH_REMATCH[2]}  # p75
   perc[2]=${BASH_REMATCH[3]}  # p99
   perc[3]=${BASH_REMATCH[4]}  # p99.9
   perc[4]=${BASH_REMATCH[5]}  # p99.99
 
-  (printf "$COMMIT_ID,%25s,%30s,%7s,%9s,%8s,%10s,%13.0f,%14s,%11s,%12s,%7s,%11s,%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f\n" \
-    $1 $REMOTE_USER_AT_HOST $NUM_MULTI_DB $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
+  (printf "$DATA_FORMAT" \
+    $COMMIT_ID $1 $REMOTE_USER_AT_HOST $NUM_MULTI_DB $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
        $(multiply $COMPRESSION_RATIO 100) \
        $3 $4 $CACHE_SIZE \
        $MAX_BACKGROUND_FLUSHES $MAX_BACKGROUND_COMPACTIONS \
-       $(multiply $micros_op 1000) \
+       $ops_per_s \
        $(multiply ${perc[0]} 1000) \
        $(multiply ${perc[1]} 1000) \
        $(multiply ${perc[2]} 1000) \
        $(multiply ${perc[3]} 1000) \
        $(multiply ${perc[4]} 1000) \
+       $DEBUG \
        >> $SUMMARY_FILE)
   exit_on_error $?
 }
@@ -358,12 +383,11 @@ function setup_test_directory {
 
   run_local "mkdir -p $RESULT_PATH"
 
-  (printf "%40s,%25s,%30s,%7s,%9s,%8s,%10s,%13s,%14s,%11s,%12s,%7s,%11s,%9s,%10s,%10s,%10s,%10s,%10s\n" \
-      "commit id" "benchmark" "user@host" "num-dbs" \
-      "key-range" "key-size" "value-size" "compress-rate" \
-      "ops-per-thread" "num-threads" "cache-size" \
+  (printf $TITLE_FORMAT \
+      "commit id" "benchmark" "user@host" "num-dbs" "key-range" "key-size" \
+      "value-size" "compress-rate" "ops-per-thread" "num-threads" "cache-size" \
       "flushes" "compactions" \
-      "us-per-op" "p50" "p75" "p99" "p99.9" "p99.99" \
+      "ops-per-s" "p50" "p75" "p99" "p99.9" "p99.99" "debug" \
       >> $SUMMARY_FILE)
   exit_on_error $?
 }
@@ -378,6 +402,10 @@ function cleanup_test_directory {
       run_remote "rm -rf $DB_BENCH_DIR"
     fi
     run_remote "rm -rf $1"
+  else
+    echo "------------ DEBUG MODE ------------"
+    echo "DB  PATH: $DB_PATH"
+    echo "WAL PATH: $WAL_PATH"
   fi
 }
 
