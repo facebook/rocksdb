@@ -106,7 +106,8 @@ int main() {
   }
   delete it;
 
-  // free up the database
+  // Flush all data from main db to sst files. Release db.
+  db->Flush(FlushOptions());
   delete db;
 
   fprintf(stdout, "Successfully used db at path %s bucket %s.\n",
