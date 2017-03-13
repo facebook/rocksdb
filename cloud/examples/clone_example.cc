@@ -14,7 +14,7 @@ using namespace rocksdb;
 std::string kDBPath = "/tmp/rocksdb_main_db";
 
 // This is the local directory where the clone is stored. The same
-// pathname is used to store data in the cpecified cloud bucket.
+// pathname is used to store data in the specified cloud bucket.
 std::string kClonePath = "/tmp/rocksdb_clone_db";
 
 //

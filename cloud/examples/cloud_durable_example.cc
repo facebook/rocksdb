@@ -11,7 +11,7 @@ using namespace rocksdb;
 // This is the local directory where the db is stored.
 std::string kDBPath = "/tmp/rocksdb_cloud_durable";
 
-// This is the name of the cloud stprage bucket where the db
+// This is the name of the cloud storage bucket where the db
 // is made durable. if you are using AWS, you have to manually
 // ensure that this bucket name is unique to you and does not
 // conflict with any other S3 users who might have already created
