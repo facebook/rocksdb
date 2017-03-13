@@ -276,7 +276,6 @@ S3WritableFile::S3WritableFile(AwsEnv* env,
     }
     s3_bucket_ = GetBucket(bucket_prefix);
     s3_object_ = Aws::String(cloud_fname.c_str(), cloud_fname.size());
-    env_->info_log_->Flush();
 }
 
 S3WritableFile::~S3WritableFile() {
@@ -320,7 +319,6 @@ Status S3WritableFile::Close() {
     Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
         "[s3] S3WritableFile closing CopyToS3 failed on local file %s",
         fname_.c_str());
-    env_->info_log_->Flush();
     return st;
   }
 
@@ -331,14 +329,12 @@ Status S3WritableFile::Close() {
       Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
           "[s3] S3WritableFile closing delete failed on local file %s",
           fname_.c_str());
-      env_->info_log_->Flush();
       return st;
     }
   }
   Log(InfoLogLevel::DEBUG_LEVEL, env_->info_log_,
       "[s3] S3WritableFile closed file %s size %ld",
       fname_.c_str(), file_size);
-  env_->info_log_->Flush();
   return Status::OK();
 }
 
@@ -354,7 +350,6 @@ Status S3WritableFile::Sync() {
   if (is_manifest_ && stat.ok()) {
     stat = CopyManifestToS3();
   }
-  env_->info_log_->Flush();
   return stat;
 }
 

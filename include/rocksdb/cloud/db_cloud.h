@@ -24,6 +24,11 @@ class DBCloud : public StackableDB {
   // options.env is an object of type rocksdb::CloudEnv and the cloud
   // buckets are specified there.
   static Status Open(const Options& options,
+		     const std::string& name,
+		     DB** dbptr);
+
+  // This is for advanced users who can comprehend column families.
+  static Status Open(const Options& options,
 		     const std::string& dbname,
                      const std::vector<ColumnFamilyDescriptor>& column_families,
                      std::vector<ColumnFamilyHandle*>* handles,

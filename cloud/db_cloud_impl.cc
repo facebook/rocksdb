@@ -23,6 +23,25 @@ DBCloudImpl::~DBCloudImpl() {
   Flush(FlushOptions());
 }
 
+Status DBCloud::Open(const Options& options,
+		     const std::string& dbname, DB** dbptr) {
+  ColumnFamilyOptions cf_options(options);
+  std::vector<ColumnFamilyDescriptor> column_families;
+  column_families.push_back(
+      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  std::vector<ColumnFamilyHandle*> handles;
+  DBCloud* dbcloud = nullptr;
+  Status s = DBCloud::Open(options, dbname, column_families, &handles, &dbcloud);
+  if (s.ok()) {
+    assert(handles.size() == 1);
+    // i can delete the handle since DBImpl is always holding a reference to
+    // default column family
+    delete handles[0];
+    *dbptr = dbcloud;
+  }
+  return s;
+}
+
 Status DBCloud::Open(
     const Options& options,
     const std::string& local_dbname,
@@ -299,6 +318,15 @@ Status DBCloudImpl::NeedsReinitialization(CloudEnv* cenv,
 	return Status::OK();
       }
     }
+  }
+  // We found a local dbid but we did not find this dbid mapping in the bucket.
+  if (src_object_path.empty() && dest_object_path.empty()) {
+    Log(InfoLogLevel::DEBUG_LEVEL, options.info_log,
+        "[db_cloud_impl] NeedsReinitialization: "
+	"local dbid %s does not have a mapping in src bucket "
+        "%s or dest bucket %s",
+        local_dbid.c_str(), src_bucket.c_str(), dest_bucket.c_str() );
+    return Status::OK();
   }
   // ID's in the local dir are valid.
 

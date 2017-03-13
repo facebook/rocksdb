@@ -1,6 +1,8 @@
 //  Copyright (c) 2016-present, Rockset, Inc.  All rights reserved.
 //
 #pragma once
+#include "rocksdb/status.h"
+#include "rocksdb/env.h"
 
 namespace rocksdb {
 
