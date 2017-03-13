@@ -13,7 +13,7 @@ environment variables:
    USE_AWS=1
    make clean all db_bench
 
-Here is an example of code that used rockdb-cloud.
+Here is an [example](https://github.com/rockset/rocksdb-cloud/blob/master/cloud/examples/cloud_durable_example.cc)  of code that uses rockdb-cloud.
 
 The cloud unit tests need a AWS S3 bucket to store files. Please set the
 following environment variables to run the cloud unit tests:
