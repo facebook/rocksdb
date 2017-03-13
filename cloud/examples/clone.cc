@@ -24,7 +24,7 @@ int main() {
 
   // Store a reference to a cloud env. A new cloud env object should be associated
   // with every new cloud-db.
-  std::unique_ptr<CloudEnv> cloud_env;
+  CloudEnv* cloud_env;
 
   // Retrieve aws access keys from env
   char* keyid = getenv("AWS_ACCESS_KEY_ID");
@@ -45,7 +45,6 @@ int main() {
   kBucketSuffix.append(user);
 
   // Create a new AWS cloud env Status
-  CloudEnv* cenv;
   Status s = CloudEnv::NewAwsEnv(Env::Default(),
                                  kBucketSuffix,
                                  kDBPath,
@@ -53,17 +52,16 @@ int main() {
                                  kDBPath,
                                  cloud_env_options,
                                  nullptr,
-                                 &cenv);
+                                 &cloud_env);
   if (!s.ok()) {
     fprintf(stderr, "Unable to create cloud env bucket suffix %s. %s\n",
             kBucketSuffix.c_str(), s.ToString().c_str());
     return -1;
   }
-  cloud_env.reset(cenv);
 
   // Create options and use the AWS env that we created earlier
   Options options;
-  options.env = cloud_env.get();
+  options.env = cloud_env;
   options.create_if_missing = true;
 
   // open DB
@@ -108,6 +106,9 @@ int main() {
 
   // free up the database
   delete db;
+
+  // free up the cloud env that was used to access the db
+  delete cloud_env;
 
   fprintf(stdout, "Successfully used db at path %s bucket %s.\n",
           kDBPath.c_str(), kBucketSuffix.c_str());
