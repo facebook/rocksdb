@@ -30,7 +30,9 @@ class DBWithTTLImpl : public DBWithTTL {
   static void SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
                               Env* env);
 
-  explicit DBWithTTLImpl(DB* db);
+  explicit DBWithTTLImpl(DB* db,
+                         const std::vector<ColumnFamilyHandle*>* handles,
+                         std::vector<int32_t> ttls);
 
   virtual ~DBWithTTLImpl();
 
@@ -81,6 +83,8 @@ class DBWithTTLImpl : public DBWithTTL {
 
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
 
+  bool IsStale(const Slice& value, uint32_t column_family_id);
+
   static Status AppendTS(const Slice& val, std::string* val_with_ts, Env* env);
 
   static Status SanityCheckTimestamp(const Slice& str);
@@ -92,6 +96,9 @@ class DBWithTTLImpl : public DBWithTTL {
   static const int32_t kMinTimestamp = 1368146402;  // 05/09/2013:5:40PM GMT-8
 
   static const int32_t kMaxTimestamp = 2147483647;  // 01/18/2038:7:14PM GMT-8
+
+ private:
+  std::map<uint32_t, int32_t> column_family_ttls_;
 };
 
 class TtlIterator : public Iterator {
