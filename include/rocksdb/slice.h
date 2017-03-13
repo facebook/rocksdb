@@ -127,7 +127,7 @@ class Slice {
 class PinnableSlice : public Slice, public Cleanable {
  public:
   PinnableSlice() { buf_ = &self_space_; }
-  PinnableSlice(std::string* buf) { buf_ = buf; }
+  explicit PinnableSlice(std::string* buf) { buf_ = buf; }
 
   inline void PinSlice(const Slice& s, CleanupFunction f, void* arg1,
                        void* arg2) {
