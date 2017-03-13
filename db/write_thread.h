@@ -23,7 +23,7 @@
 
 namespace rocksdb {
 
-class HiddenKeyHandle;
+struct HiddenKeyHandle;
 
 class WriteThread {
  public:

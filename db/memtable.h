@@ -35,7 +35,7 @@ class Mutex;
 class MemTableIterator;
 class MergeContext;
 class InternalIterator;
-class HiddenKeyHandle;
+struct HiddenKeyHandle;
 
 struct MemTableOptions {
   explicit MemTableOptions(

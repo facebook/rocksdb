@@ -31,7 +31,7 @@
 namespace rocksdb {
 
 class TransactionDBImpl;
-class HiddenKeyHandle;
+struct HiddenKeyHandle;
 
 class TransactionImpl : public TransactionBaseImpl {
  public:
