@@ -8,6 +8,9 @@
 * Remove option min_partial_merge_operands. Partial merge operands will always be merged in flush or compaction if there are more than one.
 * Remove option verify_checksums_in_compaction. Compaction will always verify checksum.
 
+### Bug Fixes
+* Fix the bug that iterator may skip keys
+
 ## 5.2.0 (02/08/2017)
 ### Public API Change
 * NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
