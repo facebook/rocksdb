@@ -4,13 +4,16 @@ This directory contains the extensions needed to make rocksdb store
 files in AWS environment.
 
 The compilation process assumes that the AWS c++ SDK is installed in
-the default location of /usr/local.
+the default location of /usr/local. You can follow the steps listed
+here https://github.com/aws/aws-sdk-cpp to install the c++ AWS sdk.
 
 If you want to compile rocksdb with AWS support, please set the following
 environment variables:
 
    USE_AWS=1
    make clean all db_bench
+
+Here is an example of code that used rockdb-cloud.
 
 The cloud unit tests need a AWS S3 bucket to store files. Please set the
 following environment variables to run the cloud unit tests:
