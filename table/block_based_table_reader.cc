@@ -1470,9 +1470,6 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
       iiter_unique_ptr = std::unique_ptr<InternalIterator>(iiter);
     }
 
-    PinnedIteratorsManager* pinned_iters_mgr = get_context->pinned_iters_mgr();
-    bool pin_blocks = pinned_iters_mgr && pinned_iters_mgr->PinningEnabled();
-
     bool done = false;
     for (iiter->Seek(key); iiter->Valid() && !done; iiter->Next()) {
       Slice handle_value = iiter->value();
@@ -1513,17 +1510,12 @@ Status BlockBasedTable::Get(const ReadOptions& read_options, const Slice& key,
             s = Status::Corruption(Slice());
           }
 
-          if (!get_context->SaveValue(parsed_key, biter.value(), pin_blocks)) {
+          if (!get_context->SaveValue(parsed_key, biter.value(), &biter)) {
             done = true;
             break;
           }
         }
         s = biter.status();
-
-        if (pin_blocks && get_context->State() == GetContext::kMerge) {
-          // Pin blocks as long as we are merging
-          biter.DelegateCleanupsTo(pinned_iters_mgr);
-        }
       }
     }
     if (s.ok()) {

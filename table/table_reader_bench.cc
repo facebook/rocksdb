@@ -166,7 +166,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string key = MakeKey(r1, r2, through_db);
           uint64_t start_time = Now(env, measured_by_nanosecond);
           if (!through_db) {
-            std::string value;
+            PinnableSlice value;
             MergeContext merge_context;
             RangeDelAggregator range_del_agg(ikc, {} /* snapshots */);
             GetContext get_context(ioptions.user_comparator,
