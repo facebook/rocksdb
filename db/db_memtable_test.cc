@@ -123,6 +123,7 @@ TEST_F(DBMemTableTest, InsertWithHint) {
   options.memtable_factory.reset(new MockMemTableRepFactory());
   options.memtable_insert_with_hint_prefix_extractor.reset(
       new TestPrefixExtractor());
+  options.env = env_;
   Reopen(options);
   MockMemTableRep* rep =
       reinterpret_cast<MockMemTableRepFactory*>(options.memtable_factory.get())

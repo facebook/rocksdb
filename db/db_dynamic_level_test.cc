@@ -75,6 +75,7 @@ TEST_F(DBTestDynamicLevel, DynamicLevelMaxBytesBase) {
       options.compression_per_level[0] = kNoCompression;
       options.compression_per_level[1] = kLZ4Compression;
       options.compression_per_level[2] = kSnappyCompression;
+      options.env = env_;
 
       DestroyAndReopen(options);
 

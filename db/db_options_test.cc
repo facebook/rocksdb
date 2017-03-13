@@ -62,6 +62,7 @@ class DBOptionsTest : public DBTestBase {
   std::unordered_map<std::string, std::string> GetRandomizedMutableCFOptionsMap(
       Random* rnd) {
     Options options;
+    options.env = env_;
     ImmutableDBOptions db_options(options);
     test::RandomInitCFOptions(&options, rnd);
     auto sanitized_options = SanitizeOptions(db_options, options);
@@ -87,6 +88,7 @@ TEST_F(DBOptionsTest, GetLatestDBOptions) {
   // GetOptions should be able to get latest option changed by SetOptions.
   Options options;
   options.create_if_missing = true;
+  options.env = env_;
   Random rnd(228);
   Reopen(options);
   auto new_options = GetRandomizedMutableDBOptionsMap(&rnd);
@@ -98,6 +100,7 @@ TEST_F(DBOptionsTest, GetLatestCFOptions) {
   // GetOptions should be able to get latest option changed by SetOptions.
   Options options;
   options.create_if_missing = true;
+  options.env = env_;
   Random rnd(228);
   Reopen(options);
   CreateColumnFamilies({"foo"}, options);
@@ -118,6 +121,7 @@ TEST_F(DBOptionsTest, SetOptionsAndReopen) {
   ASSERT_OK(dbfull()->SetOptions(rand_opts));
   // Verify if DB can be reopen after setting options.
   Options options;
+  options.env = env_;
   ASSERT_OK(TryReopen(options));
 }
 
@@ -137,6 +141,7 @@ TEST_F(DBOptionsTest, EnableAutoCompactionAndTriggerStall) {
           std::numeric_limits<uint64_t>::max();
       options.soft_pending_compaction_bytes_limit =
           std::numeric_limits<uint64_t>::max();
+      options.env = env_;
 
       DestroyAndReopen(options);
       int i = 0;
@@ -228,6 +233,7 @@ TEST_F(DBOptionsTest, SetOptionsMayTriggerCompaction) {
   Options options;
   options.create_if_missing = true;
   options.level0_file_num_compaction_trigger = 1000;
+  options.env = env_;
   Reopen(options);
   for (int i = 0; i < 3; i++) {
     // Need to insert two keys to avoid trivial move.
@@ -247,6 +253,7 @@ TEST_F(DBOptionsTest, SetBackgroundCompactionThreads) {
   options.create_if_missing = true;
   options.base_background_compactions = 1;  // default value
   options.max_background_compactions = 1;   // default value
+  options.env = env_;
   Reopen(options);
   ASSERT_EQ(1, dbfull()->TEST_BGCompactionsAllowed());
   ASSERT_OK(dbfull()->SetDBOptions({{"base_background_compactions", "2"},
@@ -260,6 +267,7 @@ TEST_F(DBOptionsTest, AvoidFlushDuringShutdown) {
   Options options;
   options.create_if_missing = true;
   options.disable_auto_compactions = true;
+  options.env = env_;
   WriteOptions write_without_wal;
   write_without_wal.disableWAL = true;
 
@@ -282,6 +290,7 @@ TEST_F(DBOptionsTest, SetDelayedWriteRateOption) {
   Options options;
   options.create_if_missing = true;
   options.delayed_write_rate = 2 * 1024U * 1024U;
+  options.env = env_;
   Reopen(options);
   ASSERT_EQ(2 * 1024U * 1024U, dbfull()->TEST_write_controler().max_delayed_write_rate());
 
@@ -297,6 +306,7 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
 
   Options options;
   options.create_if_missing = true;
+  options.env = env_;
   CreateColumnFamilies({"1", "2", "3"}, options);
   ReopenWithColumnFamilies({"default", "1", "2", "3"}, options);
 
@@ -326,7 +336,7 @@ static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
 }
 
 TEST_F(DBOptionsTest, DeleteObsoleteFilesPeriodChange) {
-  SpecialEnv env(Env::Default());
+  SpecialEnv env(env_);
   env.time_elapse_only_sleep_ = true;
   Options options;
   options.env = &env;

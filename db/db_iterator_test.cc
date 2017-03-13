@@ -981,6 +981,7 @@ TEST_F(DBIteratorTest, PrevAfterAndNextAfterMerge) {
   Options options;
   options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreatePutOperator();
+  options.env = env_;
   DestroyAndReopen(options);
 
   // write three entries with different keys using Merge()
