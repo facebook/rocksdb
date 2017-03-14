@@ -335,10 +335,10 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
       // again, messages with level smaller than log_level will not be logged.
       ROCKS_LOG_HEADER(&logger, "%s", kSampleMessage.c_str());
       ROCKS_LOG_DEBUG(&logger, "%s", kSampleMessage.c_str());
-      Info(&logger, "%s", kSampleMessage.c_str());
+      ROCKS_LOG_INFO(&logger, "%s", kSampleMessage.c_str());
       ROCKS_LOG_WARN(&logger, "%s", kSampleMessage.c_str());
-      Error(&logger, "%s", kSampleMessage.c_str());
-      Fatal(&logger, "%s", kSampleMessage.c_str());
+      ROCKS_LOG_ERROR(&logger, "%s", kSampleMessage.c_str());
+      ROCKS_LOG_FATAL(&logger, "%s", kSampleMessage.c_str());
       log_lines += InfoLogLevel::HEADER_LEVEL - log_level + 1;
     }
   }
