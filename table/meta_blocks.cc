@@ -114,7 +114,7 @@ void LogPropertiesCollectionError(
   std::string msg =
     "Encountered error when calling TablePropertiesCollector::" +
     method + "() with collector name: " + name;
-  Log(InfoLogLevel::ERROR_LEVEL, info_log, "%s", msg.c_str());
+  ROCKS_LOG_ERROR(info_log, "%s", msg.c_str());
 }
 
 bool NotifyCollectTableCollectorsOnAdd(
@@ -227,8 +227,7 @@ Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
         auto error_msg =
           "Detect malformed value in properties meta-block:"
           "\tkey: " + key + "\tval: " + raw_val.ToString();
-        Log(InfoLogLevel::ERROR_LEVEL, ioptions.info_log, "%s",
-        error_msg.c_str());
+        ROCKS_LOG_ERROR(ioptions.info_log, "%s", error_msg.c_str());
         continue;
       }
       *(pos->second) = val;

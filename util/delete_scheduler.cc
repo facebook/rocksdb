@@ -12,8 +12,9 @@
 
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/sst_file_manager_impl.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/sst_file_manager_impl.h"
 #include "util/sync_point.h"
 
 namespace rocksdb {
@@ -64,9 +65,8 @@ Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   std::string path_in_trash;
   s = MoveToTrash(file_path, &path_in_trash);
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "Failed to move %s to trash directory (%s)", file_path.c_str(),
-        trash_dir_.c_str());
+    ROCKS_LOG_ERROR(info_log_, "Failed to move %s to trash directory (%s)",
+                    file_path.c_str(), trash_dir_.c_str());
     s = env_->DeleteFile(file_path);
     if (s.ok() && sst_file_manager_) {
       sst_file_manager_->OnDeleteFile(file_path);
@@ -191,9 +191,8 @@ Status DeleteScheduler::DeleteTrashFile(const std::string& path_in_trash,
 
   if (!s.ok()) {
     // Error while getting file size or while deleting
-    Log(InfoLogLevel::ERROR_LEVEL, info_log_,
-        "Failed to delete %s from trash -- %s", path_in_trash.c_str(),
-        s.ToString().c_str());
+    ROCKS_LOG_ERROR(info_log_, "Failed to delete %s from trash -- %s",
+                    path_in_trash.c_str(), s.ToString().c_str());
     *deleted_bytes = 0;
   } else {
     *deleted_bytes = file_size;

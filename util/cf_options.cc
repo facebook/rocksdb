@@ -109,42 +109,47 @@ uint64_t MutableCFOptions::MaxFileSizeForLevel(int level) const {
 
 void MutableCFOptions::Dump(Logger* log) const {
   // Memtable related options
-  Log(log, "                        write_buffer_size: %" ROCKSDB_PRIszt,
-      write_buffer_size);
-  Log(log, "                  max_write_buffer_number: %d",
-      max_write_buffer_number);
-  Log(log, "                         arena_block_size: %" ROCKSDB_PRIszt,
-      arena_block_size);
-  Log(log, "              memtable_prefix_bloom_ratio: %f",
-      memtable_prefix_bloom_size_ratio);
-  Log(log, "                  memtable_huge_page_size: %" ROCKSDB_PRIszt,
-      memtable_huge_page_size);
-  Log(log, "                    max_successive_merges: %" ROCKSDB_PRIszt,
-      max_successive_merges);
-  Log(log, "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
-      inplace_update_num_locks);
-  Log(log, "                 disable_auto_compactions: %d",
-      disable_auto_compactions);
-  Log(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
-      soft_pending_compaction_bytes_limit);
-  Log(log, "      hard_pending_compaction_bytes_limit: %" PRIu64,
-      hard_pending_compaction_bytes_limit);
-  Log(log, "       level0_file_num_compaction_trigger: %d",
-      level0_file_num_compaction_trigger);
-  Log(log, "           level0_slowdown_writes_trigger: %d",
-      level0_slowdown_writes_trigger);
-  Log(log, "               level0_stop_writes_trigger: %d",
-      level0_stop_writes_trigger);
-  Log(log, "                     max_compaction_bytes: %" PRIu64,
-      max_compaction_bytes);
-  Log(log, "                    target_file_size_base: %" PRIu64,
-      target_file_size_base);
-  Log(log, "              target_file_size_multiplier: %d",
-      target_file_size_multiplier);
-  Log(log, "                 max_bytes_for_level_base: %" PRIu64,
-      max_bytes_for_level_base);
-  Log(log, "           max_bytes_for_level_multiplier: %f",
-      max_bytes_for_level_multiplier);
+  ROCKS_LOG_INFO(log,
+                 "                        write_buffer_size: %" ROCKSDB_PRIszt,
+                 write_buffer_size);
+  ROCKS_LOG_INFO(log, "                  max_write_buffer_number: %d",
+                 max_write_buffer_number);
+  ROCKS_LOG_INFO(log,
+                 "                         arena_block_size: %" ROCKSDB_PRIszt,
+                 arena_block_size);
+  ROCKS_LOG_INFO(log, "              memtable_prefix_bloom_ratio: %f",
+                 memtable_prefix_bloom_size_ratio);
+  ROCKS_LOG_INFO(log,
+                 "                  memtable_huge_page_size: %" ROCKSDB_PRIszt,
+                 memtable_huge_page_size);
+  ROCKS_LOG_INFO(log,
+                 "                    max_successive_merges: %" ROCKSDB_PRIszt,
+                 max_successive_merges);
+  ROCKS_LOG_INFO(log,
+                 "                 inplace_update_num_locks: %" ROCKSDB_PRIszt,
+                 inplace_update_num_locks);
+  ROCKS_LOG_INFO(log, "                 disable_auto_compactions: %d",
+                 disable_auto_compactions);
+  ROCKS_LOG_INFO(log, "      soft_pending_compaction_bytes_limit: %" PRIu64,
+                 soft_pending_compaction_bytes_limit);
+  ROCKS_LOG_INFO(log, "      hard_pending_compaction_bytes_limit: %" PRIu64,
+                 hard_pending_compaction_bytes_limit);
+  ROCKS_LOG_INFO(log, "       level0_file_num_compaction_trigger: %d",
+                 level0_file_num_compaction_trigger);
+  ROCKS_LOG_INFO(log, "           level0_slowdown_writes_trigger: %d",
+                 level0_slowdown_writes_trigger);
+  ROCKS_LOG_INFO(log, "               level0_stop_writes_trigger: %d",
+                 level0_stop_writes_trigger);
+  ROCKS_LOG_INFO(log, "                     max_compaction_bytes: %" PRIu64,
+                 max_compaction_bytes);
+  ROCKS_LOG_INFO(log, "                    target_file_size_base: %" PRIu64,
+                 target_file_size_base);
+  ROCKS_LOG_INFO(log, "              target_file_size_multiplier: %d",
+                 target_file_size_multiplier);
+  ROCKS_LOG_INFO(log, "                 max_bytes_for_level_base: %" PRIu64,
+                 max_bytes_for_level_base);
+  ROCKS_LOG_INFO(log, "           max_bytes_for_level_multiplier: %f",
+                 max_bytes_for_level_multiplier);
   std::string result;
   char buf[10];
   for (const auto m : max_bytes_for_level_multiplier_additional) {
@@ -157,14 +162,16 @@ void MutableCFOptions::Dump(Logger* log) const {
     result = "";
   }
 
-  Log(log, "max_bytes_for_level_multiplier_additional: %s", result.c_str());
-  Log(log, "        max_sequential_skip_in_iterations: %" PRIu64,
-      max_sequential_skip_in_iterations);
-  Log(log, "                     paranoid_file_checks: %d",
-      paranoid_file_checks);
-  Log(log, "                       report_bg_io_stats: %d", report_bg_io_stats);
-  Log(log, "                              compression: %d",
-      static_cast<int>(compression));
+  ROCKS_LOG_INFO(log, "max_bytes_for_level_multiplier_additional: %s",
+                 result.c_str());
+  ROCKS_LOG_INFO(log, "        max_sequential_skip_in_iterations: %" PRIu64,
+                 max_sequential_skip_in_iterations);
+  ROCKS_LOG_INFO(log, "                     paranoid_file_checks: %d",
+                 paranoid_file_checks);
+  ROCKS_LOG_INFO(log, "                       report_bg_io_stats: %d",
+                 report_bg_io_stats);
+  ROCKS_LOG_INFO(log, "                              compression: %d",
+                 static_cast<int>(compression));
 }
 
 }  // namespace rocksdb

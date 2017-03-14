@@ -1075,15 +1075,16 @@ TEST_P(EnvPosixTestWithParam, LogBufferTest) {
   std::fill_n(bytes9000, sizeof(bytes9000), '1');
   bytes9000[sizeof(bytes9000) - 1] = '\0';
 
-  LogToBuffer(&log_buffer, "x%sx", bytes200);
-  LogToBuffer(&log_buffer, "x%sx", bytes600);
-  LogToBuffer(&log_buffer, "x%sx%sx%sx", bytes200, bytes200, bytes200);
-  LogToBuffer(&log_buffer, "x%sx%sx", bytes200, bytes600);
-  LogToBuffer(&log_buffer, "x%sx%sx", bytes600, bytes9000);
+  ROCKS_LOG_BUFFER(&log_buffer, "x%sx", bytes200);
+  ROCKS_LOG_BUFFER(&log_buffer, "x%sx", bytes600);
+  ROCKS_LOG_BUFFER(&log_buffer, "x%sx%sx%sx", bytes200, bytes200, bytes200);
+  ROCKS_LOG_BUFFER(&log_buffer, "x%sx%sx", bytes200, bytes600);
+  ROCKS_LOG_BUFFER(&log_buffer, "x%sx%sx", bytes600, bytes9000);
 
-  LogToBuffer(&log_buffer_debug, "x%sx", bytes200);
+  ROCKS_LOG_BUFFER(&log_buffer_debug, "x%sx", bytes200);
   test_logger.SetInfoLogLevel(DEBUG_LEVEL);
-  LogToBuffer(&log_buffer_debug, "x%sx%sx%sx", bytes600, bytes9000, bytes200);
+  ROCKS_LOG_BUFFER(&log_buffer_debug, "x%sx%sx%sx", bytes600, bytes9000,
+                   bytes200);
 
   ASSERT_EQ(0, test_logger.log_count);
   log_buffer.FlushBufferToLog();
@@ -1124,7 +1125,7 @@ TEST_P(EnvPosixTestWithParam, LogBufferMaxSizeTest) {
     TestLogger2 test_logger(max_log_size);
     test_logger.SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, &test_logger);
-    LogToBuffer(&log_buffer, max_log_size, "%s", bytes9000);
+    ROCKS_LOG_BUFFER_MAX_SZ(&log_buffer, max_log_size, "%s", bytes9000);
     log_buffer.FlushBufferToLog();
   }
 }
