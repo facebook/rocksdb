@@ -932,8 +932,8 @@ Status BlockBasedTable::PutDataBlockToCache(
     Cache* block_cache, Cache* block_cache_compressed,
     const ReadOptions& read_options, const ImmutableCFOptions& ioptions,
     CachableEntry<Block>* block, Block* raw_block, uint32_t format_version,
-    const Slice& compression_dict, size_t read_amp_bytes_per_bit,
-    bool is_index) {
+    const Slice& compression_dict, size_t read_amp_bytes_per_bit, bool is_index,
+    Cache::Priority priority) {
   assert(raw_block->compression_type() == kNoCompression ||
          block_cache_compressed != nullptr);
 
@@ -979,9 +979,9 @@ Status BlockBasedTable::PutDataBlockToCache(
   // insert into uncompressed block cache
   assert((block->value->compression_type() == kNoCompression));
   if (block_cache != nullptr && block->value->cachable()) {
-    s = block_cache->Insert(block_cache_key, block->value,
-                            block->value->usable_size(),
-                            &DeleteCachedEntry<Block>, &(block->cache_handle));
+    s = block_cache->Insert(
+        block_cache_key, block->value, block->value->usable_size(),
+        &DeleteCachedEntry<Block>, &(block->cache_handle), priority);
     if (s.ok()) {
       assert(block->cache_handle != nullptr);
       RecordTick(statistics, BLOCK_CACHE_ADD);
@@ -1360,7 +1360,12 @@ Status BlockBasedTable::MaybeLoadDataBlockToCache(
             key, ckey, block_cache, block_cache_compressed, ro, rep->ioptions,
             block_entry, raw_block.release(), rep->table_options.format_version,
             compression_dict, rep->table_options.read_amp_bytes_per_bit,
-            is_index);
+            is_index,
+            is_index &&
+                    rep->table_options
+                        .cache_index_and_filter_blocks_with_high_priority
+                ? Cache::Priority::HIGH
+                : Cache::Priority::LOW);
       }
     }
   }
