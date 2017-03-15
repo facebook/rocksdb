@@ -93,7 +93,8 @@ class TestDirectory : public Directory {
 class FaultInjectionTestEnv : public EnvWrapper {
  public:
   explicit FaultInjectionTestEnv(Env* base)
-      : EnvWrapper(base), filesystem_active_(true) {}
+      : EnvWrapper(base), filesystem_active_(true),
+                          ignore_deletes_(false) {}
   virtual ~FaultInjectionTestEnv() {}
 
   Status NewDirectory(const std::string& name,
