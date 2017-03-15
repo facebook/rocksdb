@@ -4,13 +4,13 @@
 
 #ifdef USE_AWS
 
-#include "rocksdb/status.h"
-#include "rocksdb/options.h"
 #include "rocksdb/cloud/db_cloud.h"
-#include "util/testharness.h"
-#include "util/logging.h"
 #include "cloud/aws/aws_env.h"
 #include "cloud/db_cloud_impl.h"
+#include "rocksdb/options.h"
+#include "rocksdb/status.h"
+#include "util/logging.h"
+#include "util/testharness.h"
 #ifndef OS_WIN
 #include <unistd.h>
 #endif
@@ -28,29 +28,26 @@ class CloudTest : public testing::Test {
     options_.create_if_missing = true;
     db_ = nullptr;
     aenv_ = nullptr;
+    persistent_cache_path_ = "";
+    persistent_cache_size_gb_ = 0;
+
     DestroyDB(dbname_, Options());
     CreateLoggerFromOptions(dbname_, options_, &options_.info_log);
 
     // Get cloud credentials
-    AwsEnv::GetTestCredentials(
-              &cloud_env_options_.credentials.access_key_id,
-              &cloud_env_options_.credentials.secret_key,
-              &cloud_env_options_.region);
+    AwsEnv::GetTestCredentials(&cloud_env_options_.credentials.access_key_id,
+                               &cloud_env_options_.credentials.secret_key,
+                               &cloud_env_options_.region);
     Cleanup();
   }
 
   void Cleanup() {
     ASSERT_TRUE(!aenv_);
 
-    // create a dummy aws env 
-    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_,
-			          src_bucket_prefix_,
-			          src_object_prefix_,
-			          dest_bucket_prefix_,
-			          dest_object_prefix_,
-		                  cloud_env_options_,
-				  options_.info_log,
-				  &aenv_));
+    // create a dummy aws env
+    ASSERT_OK(CloudEnv::NewAwsEnv(
+        base_env_, src_bucket_prefix_, src_object_prefix_, dest_bucket_prefix_,
+        dest_object_prefix_, cloud_env_options_, options_.info_log, &aenv_));
     // delete all pre-existing contents from the bucket
     Status st = aenv_->EmptyBucket(src_bucket_prefix_);
     ASSERT_TRUE(st.ok() || st.IsNotFound());
@@ -80,27 +77,22 @@ class CloudTest : public testing::Test {
     ASSERT_NE(cloud_env_options_.credentials.secret_key.size(), 0);
 
     // Create new AWS env
-    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_,
-			          src_bucket_prefix_,
-			          src_object_prefix_,
-			          src_bucket_prefix_,
-			          src_object_prefix_,
-		                  cloud_env_options_,
-				  options_.info_log,
-				  &aenv_));
+    ASSERT_OK(CloudEnv::NewAwsEnv(
+        base_env_, src_bucket_prefix_, src_object_prefix_, src_bucket_prefix_,
+        src_object_prefix_, cloud_env_options_, options_.info_log, &aenv_));
     options_.env = aenv_;
 
     // default column family
     ColumnFamilyOptions cfopt = options_;
     std::vector<ColumnFamilyDescriptor> column_families;
     column_families.emplace_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cfopt));
+        ColumnFamilyDescriptor(kDefaultColumnFamilyName, cfopt));
     std::vector<ColumnFamilyHandle*> handles;
 
     ASSERT_TRUE(db_ == nullptr);
-    ASSERT_OK(DBCloud::Open(options_, dbname_,
-			    column_families, &handles,
-			    &db_));
+    ASSERT_OK(DBCloud::Open(options_, dbname_, column_families,
+                            persistent_cache_path_, persistent_cache_size_gb_,
+                            &handles, &db_));
     ASSERT_OK(db_->GetDbIdentity(dbid_));
 
     // Delete the handle for the default column family because the DBImpl
@@ -110,14 +102,12 @@ class CloudTest : public testing::Test {
   }
 
   // Creates and Opens a clone
-  void CloneDB(const std::string& clone_name,
-	       const std::string& src_bucket,
-	       const std::string& src_object_path,
-	       const std::string& dest_bucket,
-	       const std::string& dest_object_path,
-	       std::unique_ptr<DBCloud>* cloud_db,
-	       std::unique_ptr<CloudEnv>* cloud_env) {
-
+  void CloneDB(const std::string& clone_name, const std::string& src_bucket,
+               const std::string& src_object_path,
+               const std::string& dest_bucket,
+               const std::string& dest_object_path,
+               std::unique_ptr<DBCloud>* cloud_db,
+               std::unique_ptr<CloudEnv>* cloud_env) {
     // The local directory where the clone resides
     std::string cname = clone_dir_ + "/" + clone_name;
 
@@ -125,14 +115,9 @@ class CloudTest : public testing::Test {
     DBCloud* clone_db;
 
     // Create new AWS env
-    ASSERT_OK(CloudEnv::NewAwsEnv(base_env_,
-			          src_bucket,
-			          src_object_path,
-			          dest_bucket,
-			          dest_object_path,
-		                  cloud_env_options_,
-				  options_.info_log,
-				  &cenv));
+    ASSERT_OK(CloudEnv::NewAwsEnv(
+        base_env_, src_bucket, src_object_path, dest_bucket, dest_object_path,
+        cloud_env_options_, options_.info_log, &cenv));
 
     // sets the cloud env to be used by the env wrapper
     options_.env = cenv;
@@ -145,12 +130,12 @@ class CloudTest : public testing::Test {
 
     std::vector<ColumnFamilyDescriptor> column_families;
     column_families.emplace_back(
-      ColumnFamilyDescriptor(kDefaultColumnFamilyName, cfopt));
+        ColumnFamilyDescriptor(kDefaultColumnFamilyName, cfopt));
     std::vector<ColumnFamilyHandle*> handles;
 
-    ASSERT_OK(DBCloud::Open(options_, cname,
-			    column_families, &handles,
-			    &clone_db));
+    ASSERT_OK(DBCloud::Open(options_, cname, column_families,
+                            persistent_cache_path_, persistent_cache_size_gb_,
+                            &handles, &clone_db));
     cloud_db->reset(clone_db);
 
     // Delete the handle for the default column family because the DBImpl
@@ -171,6 +156,11 @@ class CloudTest : public testing::Test {
     }
   }
 
+  void SetPersistentCache(const std::string& path, uint64_t size_gb) {
+    persistent_cache_path_ = path;
+    persistent_cache_size_gb_ = size_gb;
+  }
+
  protected:
   Env* base_env_;
   Options options_;
@@ -182,6 +172,8 @@ class CloudTest : public testing::Test {
   std::string dest_object_prefix_;
   CloudEnvOptions cloud_env_options_;
   std::string dbid_;
+  std::string persistent_cache_path_;
+  uint64_t persistent_cache_size_gb_;
   DBCloud* db_;
   CloudEnv* aenv_;
 };
@@ -191,7 +183,6 @@ class CloudTest : public testing::Test {
 // that the key exists.
 //
 TEST_F(CloudTest, BasicTest) {
-
   // Put one key-value
   OpenDB();
   std::string value;
@@ -230,10 +221,8 @@ TEST_F(CloudTest, Newdb) {
     // Create and Open  a new instance
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("newdb1",
-	    src_bucket_prefix_, src_object_prefix_,
-	    dest_bucket_prefix_, dest_object_prefix_,
-	    &cloud_db, &cloud_env);
+    CloneDB("newdb1", src_bucket_prefix_, src_object_prefix_,
+            dest_bucket_prefix_, dest_object_prefix_, &cloud_db, &cloud_env);
 
     // Retrieve the id of the first reopen
     ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
@@ -270,10 +259,8 @@ TEST_F(CloudTest, Newdb) {
     // buckets as newdb1. This should be identical in contents with newdb1.
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("newdb2",
-	    src_bucket_prefix_, src_object_prefix_,
-	    dest_bucket_prefix_, dest_object_prefix_,
-            &cloud_db, &cloud_env);
+    CloneDB("newdb2", src_bucket_prefix_, src_object_prefix_,
+            dest_bucket_prefix_, dest_object_prefix_, &cloud_db, &cloud_env);
 
     // Retrieve the id of the second clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
@@ -315,10 +302,8 @@ TEST_F(CloudTest, TrueClone) {
     // This is true clone and should have all the contents of the masterdb
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath1",
-	    src_bucket_prefix_, src_object_prefix_,
-	    src_bucket_prefix_, "clone1_path",
-            &cloud_db, &cloud_env);
+    CloneDB("localpath1", src_bucket_prefix_, src_object_prefix_,
+            src_bucket_prefix_, "clone1_path", &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb1_dbid));
@@ -342,10 +327,8 @@ TEST_F(CloudTest, TrueClone) {
     // Reopen clone1 with a different local path
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath2",
-	    src_bucket_prefix_, src_object_prefix_,
-	    src_bucket_prefix_, "clone1_path",
-            &cloud_db, &cloud_env);
+    CloneDB("localpath2", src_bucket_prefix_, src_object_prefix_,
+            src_bucket_prefix_, "clone1_path", &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb2_dbid));
@@ -358,10 +341,9 @@ TEST_F(CloudTest, TrueClone) {
     // Create clone2
     std::unique_ptr<CloudEnv> cloud_env;
     std::unique_ptr<DBCloud> cloud_db;
-    CloneDB("localpath3", // xxx try with localpath2
-	    src_bucket_prefix_, src_object_prefix_,
-	    src_bucket_prefix_, "clone2_path",
-            &cloud_db, &cloud_env);
+    CloneDB("localpath3",  // xxx try with localpath2
+            src_bucket_prefix_, src_object_prefix_, src_bucket_prefix_,
+            "clone2_path", &cloud_db, &cloud_env);
 
     // Retrieve the id of the clone db
     ASSERT_OK(cloud_db->GetDbIdentity(newdb3_dbid));
@@ -378,7 +360,6 @@ TEST_F(CloudTest, TrueClone) {
 // verify that dbid registry is appropriately handled
 //
 TEST_F(CloudTest, DbidRegistry) {
-
   // Put one key-value
   OpenDB();
   std::string value;
@@ -399,7 +380,30 @@ TEST_F(CloudTest, DbidRegistry) {
   CloseDB();
 }
 
-} //  namespace rocksdb
+//
+// Verify that we can cache data from S3 in persistent cache.
+//
+TEST_F(CloudTest, PersistentCache) {
+  std::string pcache = test::TmpDir() + "/persistent_cache";
+  SetPersistentCache(pcache, 1);
+
+  // Put one key-value
+  OpenDB();
+  std::string value;
+  ASSERT_OK(db_->Put(WriteOptions(), "Hello", "World"));
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_TRUE(value.compare("World") == 0);
+  CloseDB();
+  value.clear();
+
+  // Reopen and validate
+  OpenDB();
+  ASSERT_OK(db_->Get(ReadOptions(), "Hello", &value));
+  ASSERT_EQ(value, "World");
+  CloseDB();
+}
+
+}  //  namespace rocksdb
 
 // A black-box test for the cloud wrapper around rocksdb
 int main(int argc, char** argv) {
@@ -407,7 +411,7 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else // USE_AWS
+#else  // USE_AWS
 
 #include <stdio.h>
 
@@ -418,7 +422,7 @@ int main(int argc, char** argv) {
 }
 #endif
 
-#else // ROCKSDB_LITE
+#else  // ROCKSDB_LITE
 
 #include <stdio.h>
 

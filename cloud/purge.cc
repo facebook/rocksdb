@@ -1,12 +1,12 @@
 // Copyright (c) 2017 Rockset.
 #ifndef ROCKSDB_LITE
 
+#include "cloud/purge.h"
+#include "cloud/aws/aws_env.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "cloud/purge.h"
-#include "cloud/aws/aws_env.h"
 
 namespace rocksdb {
 
@@ -28,9 +28,7 @@ void CloudEnvImpl::Purger() {
   }
 }
 
-
 Status CloudEnvImpl::PurgeObsoleteFiles() {
-
   // Step1: fetch a list of all pathnames in S3
   // Step2: from all MANIFEST files in Step 1, compile a list of all live files
   // Step3: delete all files that are (Step1 - Step 2)
@@ -47,22 +45,20 @@ Status CloudEnvImpl::PurgeObsoleteDbid() {
   // delete this dbid from the registry.
   if (st.ok()) {
     for (auto iter = dbid_list.begin(); iter != dbid_list.end(); ++iter) {
-
       std::unique_ptr<SequentialFile> result;
       std::string path = iter->second + "/MANIFEST";
       st = NewSequentialFileCloud(GetDestBucketPrefix(), path, &result,
-		                  EnvOptions());
+                                  EnvOptions());
       if (st.ok() || !st.IsNotFound()) {
         // data for this dbid possibly exists, leave it alone.
-	continue;
+        continue;
       }
       // this dbid can be cleaned up
 
       st = DeleteDbid(GetDestBucketPrefix(), iter->first);
       Log(InfoLogLevel::WARN_LEVEL, info_log_,
-          "[pg] dbid %s non-existent dbpath %s %s",  
-          iter->first.c_str(), iter->second.c_str(),
-          st.ToString().c_str());
+          "[pg] dbid %s non-existent dbpath %s %s", iter->first.c_str(),
+          iter->second.c_str(), st.ToString().c_str());
     }
   }
   return st;

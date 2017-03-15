@@ -4,37 +4,38 @@
 #ifdef USE_AWS
 
 #include <chrono>
-#include <iostream>
 #include <fstream>
-#include "rocksdb/env.h"
+#include <iostream>
 #include "cloud/aws/aws_env.h"
 #include "cloud/filename.h"
+#include "db/filename.h"
+#include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
 #include <aws/core/Aws.h>
-#include <aws/core/utils/Outcome.h>
 #include <aws/core/utils/DateTime.h>
+#include <aws/core/utils/Outcome.h>
 #include <aws/core/utils/crypto/CryptoStream.h>
 #include <aws/core/utils/memory/stl/AWSStreamFwd.h>
 #include <aws/s3/S3Client.h>
-#include <aws/s3/model/GetObjectRequest.h>
-#include <aws/s3/model/GetObjectResult.h>
-#include <aws/s3/model/CreateBucketRequest.h>
+#include <aws/s3/S3Errors.h>
+#include <aws/s3/model/CopyObjectRequest.h>
 #include <aws/s3/model/CreateBucketConfiguration.h>
+#include <aws/s3/model/CreateBucketRequest.h>
 #include <aws/s3/model/CreateBucketResult.h>
-#include <aws/s3/model/PutObjectRequest.h>
-#include <aws/s3/model/PutObjectResult.h>
-#include <aws/s3/model/GetBucketVersioningRequest.h>
-#include <aws/s3/model/GetBucketVersioningResult.h>
-#include <aws/s3/model/ListObjectsRequest.h>
-#include <aws/s3/model/ListObjectsResult.h>
+#include <aws/s3/model/DeleteBucketRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/DeleteObjectResult.h>
-#include <aws/s3/model/DeleteBucketRequest.h>
-#include <aws/s3/model/CopyObjectRequest.h>
+#include <aws/s3/model/GetBucketVersioningRequest.h>
+#include <aws/s3/model/GetBucketVersioningResult.h>
+#include <aws/s3/model/GetObjectRequest.h>
+#include <aws/s3/model/GetObjectResult.h>
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/HeadObjectResult.h>
-#include <aws/s3/S3Errors.h>
+#include <aws/s3/model/ListObjectsRequest.h>
+#include <aws/s3/model/ListObjectsResult.h>
+#include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/PutObjectResult.h>
 
 #include <aws/kinesis/KinesisClient.h>
 #include <aws/kinesis/KinesisErrors.h>
@@ -130,8 +131,7 @@ bool IsManifestFile(const std::string& pathname) {
   return false;
 }
 
-bool __attribute__ ((unused))
-IsIdentityFile(const std::string& pathname) {
+bool __attribute__((unused)) IsIdentityFile(const std::string& pathname) {
   // extract last component of the path
   std::string fname;
   size_t offset = pathname.find_last_of(pathsep);
@@ -168,12 +168,10 @@ inline Aws::String GetStreamName(const std::string& bucket_prefix) {
 namespace rocksdb {
 
 class S3ReadableFile : virtual public SequentialFile,
-                         virtual public RandomAccessFile {
+                       virtual public RandomAccessFile {
  public:
-  S3ReadableFile(AwsEnv* env,
-		 const std::string& bucket_prefix,
-		 const std::string& fname,
-		 bool is_file = true);
+  S3ReadableFile(AwsEnv* env, const std::string& bucket_prefix,
+                 const std::string& fname, bool is_file = true);
   virtual ~S3ReadableFile();
 
   // sequential access, read data at current offset in file
@@ -185,55 +183,51 @@ class S3ReadableFile : virtual public SequentialFile,
 
   virtual Status Skip(uint64_t n);
 
-  uint64_t GetSize() const {
-    return file_size_;
-  }
-  uint64_t GetLastModTime() const {
-    return last_mod_time_;
-  }
-  virtual Status status() {
-    return status_;
-  }
+  uint64_t GetSize() const { return file_size_; }
+  uint64_t GetLastModTime() const { return last_mod_time_; }
+  virtual Status status() { return status_; }
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 
  private:
   AwsEnv* env_;
   std::string fname_;
+  uint64_t file_number_;
+  FileType file_type_;
+  WalFileType log_type_;
   Status status_;
   Aws::String s3_bucket_;
   Aws::String s3_object_;
   uint64_t offset_;
   mutable uint64_t file_size_;
   mutable uint64_t last_mod_time_;
-  bool is_file_; // is this a file or dir?
+  bool is_file_;  // is this a file or dir?
   Status GetFileInfo();
 };
 
 // Appends to a file in S3.
-class S3WritableFile: public WritableFile {
+class S3WritableFile : public WritableFile {
  private:
   AwsEnv* env_;
   std::string fname_;
   Status status_;
-  unique_ptr<WritableFile> temp_file_; // handle to the temporary file
+  unique_ptr<WritableFile> temp_file_;  // handle to the temporary file
   Aws::String s3_bucket_;
   Aws::String s3_object_;
   bool is_manifest_;
   const uint64_t manifest_durable_periodicity_millis_;
-  uint64_t manifest_last_sync_time_; // last time when manifest made duarbale
+  uint64_t manifest_last_sync_time_;  // last time when manifest made duarbale
 
  public:
   // create S3 bucket
   static Status CreateBucketInS3(
-		  std::shared_ptr<Aws::S3::S3Client> client,
-		  const std::string& bucket_prefix,
-		const Aws::S3::Model::BucketLocationConstraint& location);
+      std::shared_ptr<Aws::S3::S3Client> client,
+      const std::string& bucket_prefix,
+      const Aws::S3::Model::BucketLocationConstraint& location);
 
-  S3WritableFile(AwsEnv* env,
-		 const std::string& local_fname,
-		 const std::string& bucket_prefix,
-		 const std::string& cloud_fname,
-		 const EnvOptions& options,
-		 const CloudEnvOptions cloud_env_options);
+  S3WritableFile(AwsEnv* env, const std::string& local_fname,
+                 const std::string& bucket_prefix,
+                 const std::string& cloud_fname, const EnvOptions& options,
+                 const CloudEnvOptions cloud_env_options);
 
   virtual ~S3WritableFile();
 
@@ -250,34 +244,28 @@ class S3WritableFile: public WritableFile {
 
   virtual Status Sync();
 
-  virtual Status status() {
-    return status_;
-  }
+  virtual Status status() { return status_; }
 
   virtual Status Close();
 
   virtual Status CopyManifestToS3(bool force = false);
-  static Status CopyToS3(const AwsEnv* env,
-		         const std::string& fname,
-			 const Aws::String& s3_bucket,
-		         const Aws::String& destination_object);
-  static Status CopyFromS3(AwsEnv* env,
-		         const std::string& bucket_prefix,
-		         const std::string& source_object,
-			 const std::string& destination_pathname,
-			 uint64_t size = 0, // entire file
-			 bool do_sync = 1); // sync
+  static Status CopyToS3(const AwsEnv* env, const std::string& fname,
+                         const Aws::String& s3_bucket,
+                         const Aws::String& destination_object);
+  static Status CopyFromS3(AwsEnv* env, const std::string& bucket_prefix,
+                           const std::string& source_object,
+                           const std::string& destination_pathname,
+                           uint64_t size = 0,  // entire file
+                           bool do_sync = 1);  // sync
 };
 
 // Creates a new file, appends data to a file or delete an existing file via
 // logging into a Kinesis stream
 //
-class KinesisWritableFile: public WritableFile {
+class KinesisWritableFile : public WritableFile {
  public:
-
-  KinesisWritableFile(AwsEnv* env,
-		      const std::string& fname,
-		      const EnvOptions& options);
+  KinesisWritableFile(AwsEnv* env, const std::string& fname,
+                      const EnvOptions& options);
 
   virtual ~KinesisWritableFile();
 
@@ -294,9 +282,7 @@ class KinesisWritableFile: public WritableFile {
     return status_;
   }
 
-  virtual Status status() {
-    return status_;
-  }
+  virtual Status status() { return status_; }
 
   // Closes a file by writing an eof marker to Kinesis stream
   virtual Status Close();
@@ -308,7 +294,7 @@ class KinesisWritableFile: public WritableFile {
   AwsEnv* env_;
   std::string fname_;
   Status status_;
-  unique_ptr<WritableFile> temp_file_; // handle to the temporary file
+  unique_ptr<WritableFile> temp_file_;  // handle to the temporary file
   Aws::String topic_;
   uint64_t current_offset_;
 };
@@ -318,9 +304,9 @@ class KinesisWritableFile: public WritableFile {
 //
 class KinesisSystem {
  public:
-  static const uint32_t Append = 0x1; // add a new record to a logfile
-  static const uint32_t Delete = 0x2; // delete a log file
-  static const uint32_t Closed = 0x4; // closing a file
+  static const uint32_t Append = 0x1;  // add a new record to a logfile
+  static const uint32_t Delete = 0x2;  // delete a log file
+  static const uint32_t Closed = 0x4;  // closing a file
 
   KinesisSystem(AwsEnv* env, std::shared_ptr<Logger> info_log);
   virtual ~KinesisSystem();
@@ -329,42 +315,34 @@ class KinesisSystem {
   Status TailStream();
 
   // The directory where files are cached
-  std::string const GetCacheDir() {
-    return cache_dir_;
-  }
+  std::string const GetCacheDir() { return cache_dir_; }
 
-  Status const status() {
-    return status_;
-  }
+  Status const status() { return status_; }
 
   // convert a original pathname to a pathname in the cache
   static std::string GetCachePath(const std::string& cache_dir,
                                   const Slice& original_pathname);
 
-  static void SerializeLogRecordAppend(const Slice& filename,
-				const Slice& data,
-				uint64_t offset,
-				std::string* out);
+  static void SerializeLogRecordAppend(const Slice& filename, const Slice& data,
+                                       uint64_t offset, std::string* out);
   static void SerializeLogRecordClosed(const Slice& filename,
-				uint64_t file_size,
-				std::string* out);
+                                       uint64_t file_size, std::string* out);
   static void SerializeLogRecordDelete(const std::string& filename,
-				std::string* out) ;
+                                       std::string* out);
 
   // create stream to store all log files
-  static Status CreateStream(AwsEnv* env,
-		             std::shared_ptr<Logger> info_log,
-		             std::shared_ptr<Aws::Kinesis::KinesisClient> client,
-		             const std::string& bucket_prefix);
+  static Status CreateStream(
+      AwsEnv* env, std::shared_ptr<Logger> info_log,
+      std::shared_ptr<Aws::Kinesis::KinesisClient> client,
+      const std::string& bucket_prefix);
   // wait for stream to be ready
-  static Status WaitForStreamReady(AwsEnv* env,
-		                   std::shared_ptr<Logger> info_log,
-		                   std::shared_ptr<Aws::Kinesis::KinesisClient>
-		                   client,
-		                   const std::string& bucket_prefix);
+  static Status WaitForStreamReady(
+      AwsEnv* env, std::shared_ptr<Logger> info_log,
+      std::shared_ptr<Aws::Kinesis::KinesisClient> client,
+      const std::string& bucket_prefix);
 
   // delay in Kinesis stream: writes to read visibility
-  static const uint64_t retry_period_micros = 30 * 1000000L; // 30 seconds
+  static const uint64_t retry_period_micros = 30 * 1000000L;  // 30 seconds
 
   // Retry this till success or timeout has expired
   typedef std::function<Status()> RetryType;
@@ -386,19 +364,16 @@ class KinesisSystem {
   std::map<std::string, std::unique_ptr<RandomRWFile>> cache_fds_;
 
   Status InitializeShards();
-  Status Apply (const Slice& data);
+  Status Apply(const Slice& data);
 
   // Set shard iterator for every shard to position specified by
   // shards_position_
   void SeekShards();
-  static bool ExtractLogRecord(const Slice& input,
-		        uint32_t* operation,
-			Slice* filename,
-			uint64_t* offset_in_file,
-			uint64_t* file_size,
-			Slice* data);
+  static bool ExtractLogRecord(const Slice& input, uint32_t* operation,
+                               Slice* filename, uint64_t* offset_in_file,
+                               uint64_t* file_size, Slice* data);
 };
 
-} // namepace rocksdb
+}  // namepace rocksdb
 
 #endif /* USE_AWS */

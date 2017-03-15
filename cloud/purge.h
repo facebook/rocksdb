@@ -7,9 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "cloud/cloud_env_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
-#include "cloud/cloud_env_impl.h"
 
 namespace rocksdb {
 
@@ -18,7 +18,6 @@ namespace rocksdb {
 //
 class Purge {
  public:
-
   // The bucket name is specified when the CloudEnv was created.
   Purge(CloudEnvImpl* env, std::shared_ptr<Logger> info_log);
 
@@ -33,7 +32,6 @@ class Purge {
  private:
   CloudEnvImpl* cenv_;
   std::shared_ptr<Logger> info_log_;
-}; 
-
+};
 }
 #endif  // ROCKSDB_LITE

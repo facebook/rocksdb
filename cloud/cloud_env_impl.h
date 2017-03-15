@@ -3,9 +3,9 @@
 #pragma once
 #include <atomic>
 #include <thread>
+#include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-#include "rocksdb/cloud/cloud_env_options.h"
 
 namespace rocksdb {
 
@@ -13,7 +13,8 @@ namespace rocksdb {
 // The Cloud environment
 //
 class CloudEnvImpl : public CloudEnv {
- friend class CloudEnv;
+  friend class CloudEnv;
+
  public:
   // Constructor
   CloudEnvImpl(CloudType type, Env* base_env);
@@ -42,7 +43,7 @@ class CloudEnvImpl : public CloudEnv {
   // The purger keep on running till this is set to false.
   std::atomic<bool> purger_is_running_;
 
-  std::shared_ptr<Logger> info_log_;    // informational messages
+  std::shared_ptr<Logger> info_log_;  // informational messages
 
   std::thread purge_thread_;
 

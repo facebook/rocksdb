@@ -3,10 +3,10 @@
 #pragma once
 #include <atomic>
 #include <thread>
+#include "cloud/cloud_env_impl.h"
+#include "rocksdb/cloud/cloud_env_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
-#include "rocksdb/cloud/cloud_env_options.h"
-#include "cloud/cloud_env_impl.h"
 
 namespace rocksdb {
 
@@ -22,28 +22,26 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   virtual ~CloudEnvWrapper();
 
-  virtual Status EmptyBucket(const std::string& bucket) {
-    return notsup_;
-  }
+  virtual Status EmptyBucket(const std::string& bucket) { return notsup_; }
   virtual Status NewSequentialFileCloud(const std::string& bucket_prefix,
-		   const std::string& fname, unique_ptr<SequentialFile>* result,
-		   const EnvOptions& options) {
+                                        const std::string& fname,
+                                        unique_ptr<SequentialFile>* result,
+                                        const EnvOptions& options) {
     return notsup_;
   }
-  virtual Status SaveDbid(const std::string& dbid,
-		          const std::string& dirname) {
+  virtual Status SaveDbid(const std::string& dbid, const std::string& dirname) {
     return notsup_;
   }
   virtual Status GetPathForDbid(const std::string& bucket_prefix,
-		                const std::string& dbid, std::string *dirname) {
+                                const std::string& dbid, std::string* dirname) {
     return notsup_;
   }
   virtual Status GetDbidList(const std::string& bucket_prefix,
-		             DbidList* dblist) {
+                             DbidList* dblist) {
     return notsup_;
   }
   virtual Status DeleteDbid(const std::string& bucket_prefix,
-		            const std::string& dbid) {
+                            const std::string& dbid) {
     return notsup_;
   }
 
@@ -54,8 +52,8 @@ class CloudEnvWrapper : public CloudEnvImpl {
 
   // Ability to read a file directly from cloud storage
   virtual Status NewSequentialFileCloud(const std::string& fname,
-		                        unique_ptr<SequentialFile>* result,
-					const EnvOptions& options) {
+                                        unique_ptr<SequentialFile>* result,
+                                        const EnvOptions& options) {
     return notsup_;
   }
 
@@ -196,9 +194,8 @@ class CloudEnvWrapper : public CloudEnvImpl {
     return base_env_->GetThreadStatusUpdater();
   }
 
-  uint64_t GetThreadID() const override {
-    return base_env_->GetThreadID();
-  }
+  uint64_t GetThreadID() const override { return base_env_->GetThreadID(); }
+
  private:
   Status notsup_;
   std::string empty_;
