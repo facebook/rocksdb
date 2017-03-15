@@ -115,7 +115,7 @@ Status WritableFileWriter::Append(const Slice& data) {
   }
 
   // Flush only when buffered I/O
-  if (!direct_io_ && (buf_.Capacity() - buf_.CurrentSize()) < left) {
+  if (!use_direct_io() && (buf_.Capacity() - buf_.CurrentSize()) < left) {
     if (buf_.CurrentSize() > 0) {
       s = Flush();
       if (!s.ok()) {
@@ -134,7 +134,7 @@ Status WritableFileWriter::Append(const Slice& data) {
   // We never write directly to disk with direct I/O on.
   // or we simply use it for its original purpose to accumulate many small
   // chunks
-  if (direct_io_ || (buf_.Capacity() >= left)) {
+  if (use_direct_io() || (buf_.Capacity() >= left)) {
     while (left > 0) {
       size_t appended = buf_.Append(src, left);
       left -= appended;
@@ -211,7 +211,7 @@ Status WritableFileWriter::Flush() {
                    rocksdb_kill_odds * REDUCE_ODDS2);
 
   if (buf_.CurrentSize() > 0) {
-    if (direct_io_) {
+    if (use_direct_io()) {
 #ifndef ROCKSDB_LITE
       s = WriteDirect();
 #endif  // !ROCKSDB_LITE
@@ -240,7 +240,7 @@ Status WritableFileWriter::Flush() {
   //     the page.
   // Xfs does neighbor page flushing outside of the specified ranges. We
   // need to make sure sync range is far from the write offset.
-  if (!direct_io_ && bytes_per_sync_) {
+  if (!use_direct_io() && bytes_per_sync_) {
     const uint64_t kBytesNotSyncRange = 1024 * 1024;  // recent 1MB is not synced.
     const uint64_t kBytesAlignWhenSync = 4 * 1024;    // Align 4KB.
     if (filesize_ > kBytesNotSyncRange) {
@@ -264,7 +264,7 @@ Status WritableFileWriter::Sync(bool use_fsync) {
     return s;
   }
   TEST_KILL_RANDOM("WritableFileWriter::Sync:0", rocksdb_kill_odds);
-  if (!direct_io_ && pending_sync_) {
+  if (!use_direct_io() && pending_sync_) {
     s = SyncInternal(use_fsync);
     if (!s.ok()) {
       return s;
@@ -328,7 +328,7 @@ size_t WritableFileWriter::RequestToken(size_t bytes, bool align) {
 // limiter if available
 Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
   Status s;
-  assert(!direct_io_);
+  assert(!use_direct_io());
   const char* src = data;
   size_t left = size;
 
@@ -365,9 +365,8 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
 // offsets.
 #ifndef ROCKSDB_LITE
 Status WritableFileWriter::WriteDirect() {
+  assert(use_direct_io());
   Status s;
-
-  assert(direct_io_);
   const size_t alignment = buf_.Alignment();
   assert((next_write_offset_ % alignment) == 0);
 
