@@ -106,7 +106,8 @@ class DBIter: public Iterator {
          uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
          const Slice* iterate_upper_bound = nullptr,
          bool prefix_same_as_start = false, bool pin_data = false,
-         bool total_order_seek = false)
+         bool total_order_seek = false,
+         uint64_t max_tombstones_skip_in_iterations = 0)
       : arena_mode_(arena_mode),
         env_(env),
         logger_(ioptions.info_log),
@@ -128,6 +129,7 @@ class DBIter: public Iterator {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = ioptions.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
+    max_tombstones_skip_ = max_tombstones_skip_in_iterations;
     if (pin_thru_lifetime_) {
       pinned_iters_mgr_.StartPinning();
     }
@@ -268,6 +270,8 @@ class DBIter: public Iterator {
   // for prefix seek mode to support prev()
   Statistics* statistics_;
   uint64_t max_skip_;
+  uint64_t max_tombstones_skip_;
+  uint64_t num_tombstones_skipped_;
   uint64_t version_number_;
   const Slice* iterate_upper_bound_;
   IterKey prefix_start_buf_;
@@ -394,6 +398,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       if (skipping &&
           user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0) {
         num_skipped++;  // skip this entry
+        num_tombstones_skipped_++;
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
         num_skipped = 0;
@@ -406,6 +411,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
                 ikey.user_key,
                 !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
             skipping = true;
+            num_tombstones_skipped_++;
             PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             break;
           case kTypeValue:
@@ -419,8 +425,10 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               // they are hidden by this deletion.
               skipping = true;
               num_skipped = 0;
+              num_tombstones_skipped_++;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             } else {
+              num_tombstones_skipped_ = 0;
               valid_ = true;
               return;
             }
@@ -436,10 +444,12 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
               // they are hidden by this deletion.
               skipping = true;
               num_skipped = 0;
+              num_tombstones_skipped_++;
               PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             } else {
               // By now, we are sure the current ikey is going to yield a
               // value
+              num_tombstones_skipped_ = 0;
               current_entry_is_merged_ = true;
               valid_ = true;
               MergeValuesNewToOld();  // Go to a different state machine
@@ -466,6 +476,13 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
         skipping = false;
         num_skipped = 0;
       }
+    }
+
+    if ((max_tombstones_skip_ > 0) && (num_tombstones_skipped_ > max_tombstones_skip_)) {
+      num_tombstones_skipped_ = 0;
+      valid_ = false;
+      status_ = Status::Incomplete("Too many deletions encountered!");
+      return;
     }
 
     // If we have sequentially iterated via numerous equal keys, then it's
