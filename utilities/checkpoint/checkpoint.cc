@@ -42,7 +42,8 @@ class CheckpointImpl : public Checkpoint {
   // The directory should not already exist and will be created by this API.
   // The directory will be an absolute path
   using Checkpoint::CreateCheckpoint;
-  virtual Status CreateCheckpoint(const std::string& checkpoint_dir) override;
+  virtual Status CreateCheckpoint(const std::string& checkpoint_dir,
+                                  uint64_t log_size_for_flush) override;
 
  private:
   DB* db_;
@@ -53,12 +54,14 @@ Status Checkpoint::Create(DB* db, Checkpoint** checkpoint_ptr) {
   return Status::OK();
 }
 
-Status Checkpoint::CreateCheckpoint(const std::string& checkpoint_dir) {
+Status Checkpoint::CreateCheckpoint(const std::string& checkpoint_dir,
+                                    uint64_t log_size_for_flush) {
   return Status::NotSupported("");
 }
 
 // Builds an openable snapshot of RocksDB
-Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
+Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir,
+                                        uint64_t log_size_for_flush) {
   Status s;
   std::vector<std::string> live_files;
   uint64_t manifest_file_size = 0;
@@ -77,9 +80,32 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   }
 
   s = db_->DisableFileDeletions();
+  bool flush_memtable = true;
   if (s.ok()) {
+    if (!db_options.allow_2pc) {
+      // If out standing log files are small, we skip the flush.
+      s = db_->GetSortedWalFiles(live_wal_files);
+
+      if (!s.ok()) {
+        db_->EnableFileDeletions(false);
+        return s;
+      }
+
+      // Don't flush column families if total log size is smaller than
+      // log_size_for_flush. We copy the log files instead.
+      // We may be able to cover 2PC case too.
+      uint64_t total_wal_size = 0;
+      for (auto& wal : live_wal_files) {
+        total_wal_size += wal->SizeFileBytes();
+      }
+      if (total_wal_size < log_size_for_flush) {
+        flush_memtable = false;
+      }
+      live_wal_files.clear();
+    }
+
     // this will return live_files prefixed with "/"
-    s = db_->GetLiveFiles(live_files, &manifest_file_size);
+    s = db_->GetLiveFiles(live_files, &manifest_file_size, flush_memtable);
 
     if (s.ok() && db_options.allow_2pc) {
       // If 2PC is enabled, we need to get minimum log number after the flush.
@@ -189,7 +215,8 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   // that has changes after the last flush.
   for (size_t i = 0; s.ok() && i < wal_size; ++i) {
     if ((live_wal_files[i]->Type() == kAliveLogFile) &&
-        (live_wal_files[i]->StartSequence() >= sequence_number ||
+        (!flush_memtable ||
+         live_wal_files[i]->StartSequence() >= sequence_number ||
          live_wal_files[i]->LogNumber() >= min_log_num)) {
       if (i + 1 == wal_size) {
         ROCKS_LOG_INFO(db_options.info_log, "Copying %s",
