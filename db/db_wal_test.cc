@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "db/db_test_util.h"
+#include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/fault_injection_test_env.h"
 #include "util/options_helper.h"
@@ -50,7 +51,7 @@ TEST_F(DBWALTest, WAL) {
     // again both values should be present.
     ASSERT_EQ("v3", Get(1, "foo"));
     ASSERT_EQ("v3", Get(1, "bar"));
-  } while (ChangeCompactOptions());
+  } while (ChangeWalOptions());
 }
 
 TEST_F(DBWALTest, RollLog) {
@@ -67,7 +68,7 @@ TEST_F(DBWALTest, RollLog) {
     for (int i = 0; i < 10; i++) {
       ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     }
-  } while (ChangeOptions());
+  } while (ChangeWalOptions());
 }
 
 TEST_F(DBWALTest, SyncWALNotBlockWrite) {
@@ -86,7 +87,7 @@ TEST_F(DBWALTest, SyncWALNotBlockWrite) {
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread thread([&]() { ASSERT_OK(db_->SyncWAL()); });
+  rocksdb::port::Thread thread([&]() { ASSERT_OK(db_->SyncWAL()); });
 
   TEST_SYNC_POINT("DBWALTest::SyncWALNotBlockWrite:1");
   ASSERT_OK(Put("foo2", "bar2"));
@@ -118,7 +119,7 @@ TEST_F(DBWALTest, SyncWALNotWaitWrite) {
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  std::thread thread([&]() { ASSERT_OK(Put("foo2", "bar2")); });
+  rocksdb::port::Thread thread([&]() { ASSERT_OK(Put("foo2", "bar2")); });
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:1");
   ASSERT_OK(db_->SyncWAL());
   TEST_SYNC_POINT("DBWALTest::SyncWALNotWaitWrite:2");
@@ -150,7 +151,7 @@ TEST_F(DBWALTest, Recover) {
     ASSERT_EQ("v4", Get(1, "foo"));
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v5", Get(1, "baz"));
-  } while (ChangeOptions());
+  } while (ChangeWalOptions());
 }
 
 TEST_F(DBWALTest, RecoverWithTableHandle) {
@@ -187,23 +188,22 @@ TEST_F(DBWALTest, RecoverWithTableHandle) {
         }
       }
     }
-  } while (ChangeOptions());
+  } while (ChangeWalOptions());
 }
 
 TEST_F(DBWALTest, IgnoreRecoveredLog) {
   std::string backup_logs = dbname_ + "/backup_logs";
 
-  // delete old files in backup_logs directory
-  env_->CreateDirIfMissing(backup_logs);
-  std::vector<std::string> old_files;
-  env_->GetChildren(backup_logs, &old_files);
-  for (auto& file : old_files) {
-    if (file != "." && file != "..") {
-      env_->DeleteFile(backup_logs + "/" + file);
-    }
-  }
-
   do {
+    // delete old files in backup_logs directory
+    env_->CreateDirIfMissing(backup_logs);
+    std::vector<std::string> old_files;
+    env_->GetChildren(backup_logs, &old_files);
+    for (auto& file : old_files) {
+      if (file != "." && file != "..") {
+        env_->DeleteFile(backup_logs + "/" + file);
+      }
+    }
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreateUInt64AddOperator();
@@ -276,7 +276,8 @@ TEST_F(DBWALTest, IgnoreRecoveredLog) {
     }
     Status s = TryReopen(options);
     ASSERT_TRUE(!s.ok());
-  } while (ChangeOptions(kSkipHashCuckoo));
+    Destroy(options);
+  } while (ChangeWalOptions());
 }
 
 TEST_F(DBWALTest, RecoveryWithEmptyLog) {
@@ -289,7 +290,7 @@ TEST_F(DBWALTest, RecoveryWithEmptyLog) {
     ASSERT_OK(Put(1, "foo", "v3"));
     ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v3", Get(1, "foo"));
-  } while (ChangeOptions());
+  } while (ChangeWalOptions());
 }
 
 #if !(defined NDEBUG) || !defined(OS_WIN)
@@ -428,7 +429,7 @@ TEST_F(DBWALTest, GetSortedWalFiles) {
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(dbfull()->GetSortedWalFiles(log_files));
     ASSERT_EQ(1, log_files.size());
-  } while (ChangeOptions());
+  } while (ChangeWalOptions());
 }
 
 TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
@@ -453,7 +454,7 @@ TEST_F(DBWALTest, RecoveryWithLogDataForSomeCFs) {
     }
     // Check at least the first WAL was cleaned up during the recovery.
     ASSERT_LT(earliest_log_nums[0], earliest_log_nums[1]);
-  } while (ChangeOptions());
+  } while (ChangeWalOptions());
 }
 
 TEST_F(DBWALTest, RecoverWithLargeLog) {
@@ -480,7 +481,7 @@ TEST_F(DBWALTest, RecoverWithLargeLog) {
     ASSERT_EQ(std::string(10, '3'), Get(1, "small3"));
     ASSERT_EQ(std::string(10, '4'), Get(1, "small4"));
     ASSERT_GT(NumTableFilesAtLevel(0, 1), 1);
-  } while (ChangeCompactOptions());
+  } while (ChangeWalOptions());
 }
 
 // In https://reviews.facebook.net/D20661 we change
@@ -678,9 +679,9 @@ class RecoveryTestHelper {
   // Starting number for the WAL file name like 00010.log
   static const int kWALFileOffset = 10;
   // Keys to be written per WAL file
-  static const int kKeysPerWALFile = 1024;
+  static const int kKeysPerWALFile = 133;
   // Size of the value
-  static const int kValueSize = 10;
+  static const int kValueSize = 96;
 
   // Create WAL files with values filled in
   static void FillData(DBWALTest* test, const Options& options,
@@ -689,7 +690,7 @@ class RecoveryTestHelper {
 
     *count = 0;
 
-    shared_ptr<Cache> table_cache = NewLRUCache(50000, 16);
+    shared_ptr<Cache> table_cache = NewLRUCache(50, 0);
     EnvOptions env_options;
     WriteBufferManager write_buffer_manager(db_options.db_write_buffer_size);
 
@@ -716,12 +717,13 @@ class RecoveryTestHelper {
           new log::Writer(std::move(file_writer), current_log_number,
                           db_options.recycle_log_file_num > 0));
 
+      WriteBatch batch;
       for (int i = 0; i < kKeysPerWALFile; i++) {
         std::string key = "key" + ToString((*count)++);
         std::string value = test->DummyString(kValueSize);
         assert(current_log_writer.get() != nullptr);
         uint64_t seq = versions->LastSequence() + 1;
-        WriteBatch batch;
+        batch.Clear();
         batch.Put(key, value);
         WriteBatchInternal::SetSequence(&batch, seq);
         current_log_writer->AddRecord(WriteBatchInternal::Contents(&batch));
@@ -772,7 +774,7 @@ class RecoveryTestHelper {
     if (trunc) {
       ASSERT_EQ(0, truncate(fname.c_str(), static_cast<int64_t>(size * off)));
     } else {
-      InduceCorruption(fname, static_cast<size_t>(size * off),
+      InduceCorruption(fname, static_cast<size_t>(size * off + 8),
                        static_cast<size_t>(size * len));
     }
   }
@@ -791,7 +793,7 @@ class RecoveryTestHelper {
     ASSERT_EQ(offset, lseek(fd, static_cast<long>(offset), SEEK_SET));
 
     void* buf = alloca(len);
-    memset(buf, 'a', len);
+    memset(buf, 'b', len);
     ASSERT_EQ(len, write(fd, buf, static_cast<unsigned int>(len)));
 
     close(fd);
@@ -807,7 +809,7 @@ TEST_F(DBWALTest, kTolerateCorruptedTailRecords) {
   const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
 
   for (auto trunc : {true, false}) {        /* Corruption style */
-    for (int i = 0; i < 4; i++) {           /* Corruption offset position */
+    for (int i = 0; i < 3; i++) {           /* Corruption offset position */
       for (int j = jstart; j < jend; j++) { /* WAL file */
         // Fill data for testing
         Options options = CurrentOptions();

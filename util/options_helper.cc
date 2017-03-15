@@ -47,7 +47,6 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
       immutable_db_options.max_file_opening_threads;
   options.max_total_wal_size = mutable_db_options.max_total_wal_size;
   options.statistics = immutable_db_options.statistics;
-  options.disableDataSync = immutable_db_options.disable_data_sync;
   options.use_fsync = immutable_db_options.use_fsync;
   options.db_paths = immutable_db_options.db_paths;
   options.db_log_dir = immutable_db_options.db_log_dir;
@@ -164,17 +163,12 @@ ColumnFamilyOptions BuildColumnFamilyOptions(
     cf_opts.max_bytes_for_level_multiplier_additional.emplace_back(value);
   }
 
-  cf_opts.verify_checksums_in_compaction =
-      mutable_cf_options.verify_checksums_in_compaction;
-
   // Misc options
   cf_opts.max_sequential_skip_in_iterations =
       mutable_cf_options.max_sequential_skip_in_iterations;
   cf_opts.paranoid_file_checks = mutable_cf_options.paranoid_file_checks;
   cf_opts.report_bg_io_stats = mutable_cf_options.report_bg_io_stats;
   cf_opts.compression = mutable_cf_options.compression;
-  cf_opts.min_partial_merge_operands =
-      mutable_cf_options.min_partial_merge_operands;
 
   cf_opts.table_factory = options.table_factory;
   // TODO(yhchiang): find some way to handle the following derived options
@@ -536,6 +530,10 @@ bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
       return ParseEnum<CompactionStyle>(
           compaction_style_string_map, value,
           reinterpret_cast<CompactionStyle*>(opt_address));
+    case OptionType::kCompactionPri:
+      return ParseEnum<CompactionPri>(
+          compaction_pri_string_map, value,
+          reinterpret_cast<CompactionPri*>(opt_address));
     case OptionType::kCompressionType:
       return ParseEnum<CompressionType>(
           compression_type_string_map, value,
@@ -617,6 +615,10 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       return SerializeEnum<CompactionStyle>(
           compaction_style_string_map,
           *(reinterpret_cast<const CompactionStyle*>(opt_address)), value);
+    case OptionType::kCompactionPri:
+      return SerializeEnum<CompactionPri>(
+          compaction_pri_string_map,
+          *(reinterpret_cast<const CompactionPri*>(opt_address)), value);
     case OptionType::kCompressionType:
       return SerializeEnum<CompressionType>(
           compression_type_string_map,

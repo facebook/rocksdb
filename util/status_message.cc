@@ -12,7 +12,9 @@ const char* Status::msgs[] = {
     "Timeout Acquiring Mutex",                            // kMutexTimeout
     "Timeout waiting to lock key",                        // kLockTimeout
     "Failed to acquire lock due to max_num_locks limit",  // kLockLimit
-    "No space left on device"                             // kNoSpace
+    "No space left on device",                            // kNoSpace
+    "Deadlock",                                           // kDeadlock
+    "Stale file handle"                                   // kStaleFile
 };
 
 }  // namespace rocksdb

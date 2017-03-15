@@ -10,6 +10,8 @@ package org.rocksdb;
  * two merge operands held under the same key in order to obtain a single
  * value.
  */
-public interface MergeOperator {
-    long newMergeOperatorHandle();
+public abstract class MergeOperator extends RocksObject {
+    protected MergeOperator(final long nativeHandle) {
+        super(nativeHandle);
+    }
 }

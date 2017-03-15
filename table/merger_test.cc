@@ -6,7 +6,7 @@
 #include <vector>
 #include <string>
 
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 

@@ -91,7 +91,7 @@ class DBImpl : public DB {
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override;
+                     PinnableSlice* value) override;
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
@@ -138,7 +138,13 @@ class DBImpl : public DB {
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   bool include_memtable = false) override;
+                                   uint8_t include_flags
+                                   = INCLUDE_FILES) override;
+  using DB::GetApproximateMemTableStats;
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) override;
   using DB::CompactRange;
   virtual Status CompactRange(const CompactRangeOptions& options,
                               ColumnFamilyHandle* column_family,
@@ -308,6 +314,16 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
+  void TEST_MaybeFlushColumnFamilies();
+
+  bool TEST_UnableToFlushOldestLog() {
+    return unable_to_flush_oldest_log_;
+  }
+
+  bool TEST_IsLogGettingFlushed() {
+    return alive_log_files_.begin()->getting_flushed;
+  }
+
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true,
                             ColumnFamilyHandle* cfh = nullptr);
@@ -420,9 +436,6 @@ class DBImpl : public DB {
   // mutex is held.
   SuperVersion* GetAndRefSuperVersion(uint32_t column_family_id);
 
-  // Same as above, should called without mutex held and not on write thread.
-  SuperVersion* GetAndRefSuperVersionUnlocked(uint32_t column_family_id);
-
   // Un-reference the super version and return it to thread local cache if
   // needed. If it is the last reference of the super version. Clean it up
   // after un-referencing it.
@@ -433,17 +446,10 @@ class DBImpl : public DB {
   // REQUIRED: this function should only be called on the write thread.
   void ReturnAndCleanupSuperVersion(uint32_t colun_family_id, SuperVersion* sv);
 
-  // Same as above, should called without mutex held and not on write thread.
-  void ReturnAndCleanupSuperVersionUnlocked(uint32_t colun_family_id,
-                                            SuperVersion* sv);
-
   // REQUIRED: this function should only be called on the write thread or if the
   // mutex is held.  Return value only valid until next call to this function or
   // mutex is released.
   ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
-
-  // Same as above, should called without mutex held and not on write thread.
-  ColumnFamilyHandle* GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
 
   // Returns the number of currently running flushes.
   // REQUIREMENT: mutex_ must be held when calling this function.
@@ -559,8 +565,10 @@ class DBImpl : public DB {
   void NotifyOnMemTableSealed(ColumnFamilyData* cfd,
                               const MemTableInfo& mem_table_info);
 
+#ifndef ROCKSDB_LITE
   void NotifyOnExternalFileIngested(
       ColumnFamilyData* cfd, const ExternalSstFileIngestionJob& ingestion_job);
+#endif  // !ROCKSDB_LITE
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 
@@ -734,7 +742,7 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked
   Status PersistOptions();
 
-  void FlushColumnFamilies();
+  void MaybeFlushColumnFamilies();
 
   uint64_t GetMaxTotalWalSize() const;
 
@@ -992,7 +1000,15 @@ class DBImpl : public DB {
   // A flag indicating whether the current rocksdb database has any
   // data that is not yet persisted into either WAL or SST file.
   // Used when disableWAL is true.
-  bool has_unpersisted_data_;
+  std::atomic<bool> has_unpersisted_data_;
+
+  // if an attempt was made to flush all column families that
+  // the oldest log depends on but uncommited data in the oldest
+  // log prevents the log from being released.
+  // We must attempt to free the dependent memtables again
+  // at a later time after the transaction in the oldest
+  // log is fully commited.
+  bool unable_to_flush_oldest_log_;
 
   static const int KEEP_LOG_FILE_NUM = 1000;
   // MSVC version 1800 still does not have constexpr for ::max()
@@ -1088,7 +1104,7 @@ class DBImpl : public DB {
   // Function that Get and KeyMayExist call with no_io true or false
   // Note: 'value_found' from KeyMayExist propagates here
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
-                 const Slice& key, std::string* value,
+                 const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr);
 
   bool GetIntPropertyInternal(ColumnFamilyData* cfd,

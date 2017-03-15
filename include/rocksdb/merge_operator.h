@@ -165,10 +165,8 @@ class MergeOperator {
   //
   // The string that new_value is pointing to will be empty.
   //
-  // The PartialMergeMulti function will be called only when the list of
-  // operands are long enough. The minimum amount of operands that will be
-  // passed to the function are specified by the "min_partial_merge_operands"
-  // option.
+  // The PartialMergeMulti function will be called when there are at least two
+  // operands.
   //
   // In the default implementation, PartialMergeMulti will invoke PartialMerge
   // multiple times, where each time it only merges two operands.  Developers

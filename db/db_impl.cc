@@ -58,7 +58,6 @@
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
-#include "db/xfunc_test_points.h"
 #include "memtable/hash_linklist_rep.h"
 #include "memtable/hash_skiplist_rep.h"
 #include "port/likely.h"
@@ -76,7 +75,7 @@
 #include "rocksdb/write_buffer_manager.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "util/autovector.h"
@@ -100,7 +99,6 @@
 #include "util/sync_point.h"
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
-#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -150,6 +148,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
       result.info_log = nullptr;
     }
   }
+
   if (!result.write_buffer_manager) {
     result.write_buffer_manager.reset(
         new WriteBufferManager(result.db_write_buffer_size));
@@ -196,6 +195,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
 
   if (result.db_paths.size() == 0) {
     result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
+  }
+
+  if (result.use_direct_reads && result.compaction_readahead_size == 0) {
+    result.compaction_readahead_size = 1024 * 1024 * 2;
   }
 
   if (result.compaction_readahead_size > 0) {
@@ -266,6 +269,10 @@ static Status ValidateOptions(
     return Status::NotSupported(
         "If memory mapped writes (allow_mmap_writes) are enabled "
         "then direct I/O writes (use_direct_writes) must be disabled. ");
+  }
+
+  if (db_options.keep_log_file_num == 0) {
+    return Status::InvalidArgument("keep_log_file_num must be greater than 0");
   }
 
   return Status::OK();
@@ -342,6 +349,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
       has_unpersisted_data_(false),
+      unable_to_flush_oldest_log_(false),
       env_options_(BuildDBOptions(immutable_db_options_, mutable_db_options_)),
       num_running_ingest_file_(0),
 #ifndef ROCKSDB_LITE
@@ -383,7 +391,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
       "Shutdown: canceling all background work");
 
   if (!shutting_down_.load(std::memory_order_acquire) &&
-      has_unpersisted_data_ &&
+      has_unpersisted_data_.load(std::memory_order_relaxed) &&
       !mutable_db_options_.avoid_flush_during_shutdown) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped() && !cfd->mem()->IsEmpty()) {
@@ -601,7 +609,7 @@ static void DumpMallocStats(std::string* stats) {
 #ifdef ROCKSDB_JEMALLOC
   MallocStatus mstat;
   const uint kMallocStatusLen = 1000000;
-  std::unique_ptr<char> buf{new char[kMallocStatusLen + 1]};
+  std::unique_ptr<char[]> buf{new char[kMallocStatusLen + 1]};
   mstat.cur = buf.get();
   mstat.end = buf.get() + kMallocStatusLen;
   malloc_stats_print(GetJemallocStatus, &mstat, "");
@@ -663,6 +671,10 @@ void DBImpl::MaybeDumpStats() {
 }
 
 uint64_t DBImpl::FindMinPrepLogReferencedByMemTable() {
+  if (!allow_2pc()) {
+    return 0;
+  }
+
   uint64_t min_log = 0;
 
   // we must look through the memtables for two phase transactions
@@ -707,6 +719,11 @@ void DBImpl::MarkLogAsContainingPrepSection(uint64_t log) {
 }
 
 uint64_t DBImpl::FindMinLogContainingOutstandingPrep() {
+
+  if (!allow_2pc()) {
+    return 0;
+  }
+
   std::lock_guard<std::mutex> lock(prep_heap_mutex_);
   uint64_t min_log = 0;
 
@@ -1832,6 +1849,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 }
 
 Status DBImpl::SyncClosedLogs(JobContext* job_context) {
+  TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Start");
   mutex_.AssertHeld();
   autovector<log::Writer*, 1> logs_to_sync;
   uint64_t current_log_number = logfile_number_;
@@ -1868,6 +1886,7 @@ Status DBImpl::SyncClosedLogs(JobContext* job_context) {
     MarkLogsSynced(current_log_number - 1, true, s);
     if (!s.ok()) {
       bg_error_ = s;
+      TEST_SYNC_POINT("DBImpl::SyncClosedLogs:Failed");
       return s;
     }
   }
@@ -1899,8 +1918,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   Status s;
   if (logfile_number_ > 0 &&
-      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0 &&
-      !immutable_db_options_.disable_data_sync) {
+      versions_->GetColumnFamilySet()->NumberOfColumnFamilies() > 0) {
     // If there are more than one column families, we need to make sure that
     // all the log files except the most recent one are synced. Otherwise if
     // the host crashes after flushing and before WAL is persistent, the
@@ -1918,6 +1936,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   // is unlocked by the current thread.
   if (s.ok()) {
     s = flush_job.Run(&file_meta);
+  } else {
+    flush_job.Cancel();
   }
 
   if (s.ok()) {
@@ -1951,8 +1971,9 @@ Status DBImpl::FlushMemTableToOutputFile(
       sfm->OnAddFile(file_path);
       if (sfm->IsMaxAllowedSpaceReached() && bg_error_.ok()) {
         bg_error_ = Status::IOError("Max allowed space was reached");
-        TEST_SYNC_POINT(
-            "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached");
+        TEST_SYNC_POINT_CALLBACK(
+            "DBImpl::FlushMemTableToOutputFile:MaxAllowedSpaceReached",
+            &bg_error_);
       }
     }
 #endif  // ROCKSDB_LITE
@@ -2135,7 +2156,7 @@ Status DBImpl::CompactFiles(
                        immutable_db_options_.info_log.get());
 
   // Perform CompactFiles
-  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -2147,7 +2168,12 @@ Status DBImpl::CompactFiles(
                          input_file_names, output_level,
                          output_path_id, &job_context, &log_buffer);
   }
-  ReturnAndCleanupSuperVersion(cfd, sv);
+  if (sv->Unref()) {
+    mutex_.Lock();
+    sv->Cleanup();
+    mutex_.Unlock();
+    delete sv;
+  }
 
   // Find and delete obsolete files
   {
@@ -2505,7 +2531,7 @@ Status DBImpl::SetDBOptions(
       mutable_db_options_ = new_options;
 
       if (total_log_size_ > GetMaxTotalWalSize()) {
-        FlushColumnFamilies();
+        MaybeFlushColumnFamilies();
       }
 
       persist_options_status = PersistOptions();
@@ -2752,7 +2778,7 @@ void DBImpl::MarkLogsSynced(
       ++it;
     }
   }
-  assert(logs_.empty() || logs_[0].number > up_to ||
+  assert(!status.ok() || logs_.empty() || logs_[0].number > up_to ||
          (logs_.size() == 1 && !logs_[0].getting_synced));
   log_sync_cv_.SignalAll();
 }
@@ -3893,8 +3919,10 @@ InternalIterator* DBImpl::NewInternalIterator(
   }
   if (s.ok()) {
     // Collect iterators for files in L0 - Ln
-    super_version->current->AddIterators(read_options, env_options_,
-                                         &merge_iter_builder, range_del_agg);
+    if (read_options.read_tier != kMemtableTier) {
+      super_version->current->AddIterators(read_options, env_options_,
+                                           &merge_iter_builder, range_del_agg);
+    }
     internal_iter = merge_iter_builder.Finish();
     IterState* cleanup =
         new IterState(this, &mutex_, super_version,
@@ -3912,7 +3940,7 @@ ColumnFamilyHandle* DBImpl::DefaultColumnFamily() const {
 
 Status DBImpl::Get(const ReadOptions& read_options,
                    ColumnFamilyHandle* column_family, const Slice& key,
-                   std::string* value) {
+                   PinnableSlice* value) {
   return GetImpl(read_options, column_family, key, value);
 }
 
@@ -3970,22 +3998,40 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
 
 Status DBImpl::GetImpl(const ReadOptions& read_options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       std::string* value, bool* value_found) {
+                       PinnableSlice* pinnable_val, bool* value_found) {
+  assert(pinnable_val != nullptr);
   StopWatch sw(env_, stats_, DB_GET);
   PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
+  // Acquire SuperVersion
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+
+  TEST_SYNC_POINT("DBImpl::GetImpl:1");
+  TEST_SYNC_POINT("DBImpl::GetImpl:2");
+
   SequenceNumber snapshot;
   if (read_options.snapshot != nullptr) {
     snapshot = reinterpret_cast<const SnapshotImpl*>(
         read_options.snapshot)->number_;
   } else {
+    // Since we get and reference the super version before getting
+    // the snapshot number, without a mutex protection, it is possible
+    // that a memtable switch happened in the middle and not all the
+    // data for this snapshot is available. But it will contain all
+    // the data available in the super version we have, which is also
+    // a valid snapshot to read from.
+    // We shouldn't get snapshot before finding and referencing the
+    // super versipon because a flush happening in between may compact
+    // away data for the snapshot, but the snapshot is earlier than the
+    // data overwriting it, so users may see wrong results.
     snapshot = versions_->LastSequence();
   }
-  // Acquire SuperVersion
-  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  TEST_SYNC_POINT("DBImpl::GetImpl:3");
+  TEST_SYNC_POINT("DBImpl::GetImpl:4");
+
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
   RangeDelAggregator range_del_agg(cfd->internal_comparator(), snapshot);
@@ -3997,18 +4043,20 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
 
-  bool skip_memtable =
-      (read_options.read_tier == kPersistedTier && has_unpersisted_data_);
+  bool skip_memtable = (read_options.read_tier == kPersistedTier &&
+                        has_unpersisted_data_.load(std::memory_order_relaxed));
   bool done = false;
   if (!skip_memtable) {
-    if (sv->mem->Get(lkey, value, &s, &merge_context, &range_del_agg,
-                     read_options)) {
+    if (sv->mem->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+                     &range_del_agg, read_options)) {
       done = true;
+      pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
     } else if ((s.ok() || s.IsMergeInProgress()) &&
-               sv->imm->Get(lkey, value, &s, &merge_context, &range_del_agg,
-                            read_options)) {
+               sv->imm->Get(lkey, pinnable_val->GetSelf(), &s, &merge_context,
+                            &range_del_agg, read_options)) {
       done = true;
+      pinnable_val->PinSelf();
       RecordTick(stats_, MEMTABLE_HIT);
     }
     if (!done && !s.ok() && !s.IsMergeInProgress()) {
@@ -4017,7 +4065,7 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   }
   if (!done) {
     PERF_TIMER_GUARD(get_from_output_files_time);
-    sv->current->Get(read_options, lkey, value, &s, &merge_context,
+    sv->current->Get(read_options, lkey, pinnable_val, &s, &merge_context,
                      &range_del_agg, value_found);
     RecordTick(stats_, MEMTABLE_MISS);
   }
@@ -4028,8 +4076,9 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
     ReturnAndCleanupSuperVersion(cfd, sv);
 
     RecordTick(stats_, NUMBER_KEYS_READ);
-    RecordTick(stats_, BYTES_READ, value->size());
-    MeasureTime(stats_, BYTES_PER_READ, value->size());
+    size_t size = pinnable_val->size();
+    RecordTick(stats_, BYTES_READ, size);
+    MeasureTime(stats_, BYTES_PER_READ, size);
   }
   return s;
 }
@@ -4103,7 +4152,8 @@ std::vector<Status> DBImpl::MultiGet(
     auto mgd = mgd_iter->second;
     auto super_version = mgd->super_version;
     bool skip_memtable =
-        (read_options.read_tier == kPersistedTier && has_unpersisted_data_);
+        (read_options.read_tier == kPersistedTier &&
+         has_unpersisted_data_.load(std::memory_order_relaxed));
     bool done = false;
     if (!skip_memtable) {
       if (super_version->mem->Get(lkey, value, &s, &merge_context,
@@ -4117,9 +4167,11 @@ std::vector<Status> DBImpl::MultiGet(
       }
     }
     if (!done) {
+      PinnableSlice pinnable_val;
       PERF_TIMER_GUARD(get_from_output_files_time);
-      super_version->current->Get(read_options, lkey, value, &s, &merge_context,
-                                  &range_del_agg);
+      super_version->current->Get(read_options, lkey, &pinnable_val, &s,
+                                  &merge_context, &range_del_agg);
+      value->assign(pinnable_val.data(), pinnable_val.size());
       // TODO(?): RecordTick(stats_, MEMTABLE_MISS)?
     }
 
@@ -4331,13 +4383,16 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
 bool DBImpl::KeyMayExist(const ReadOptions& read_options,
                          ColumnFamilyHandle* column_family, const Slice& key,
                          std::string* value, bool* value_found) {
+  assert(value != nullptr);
   if (value_found != nullptr) {
     // falsify later if key-may-exist but can't fetch value
     *value_found = true;
   }
   ReadOptions roptions = read_options;
   roptions.read_tier = kBlockCacheTier; // read from block cache only
-  auto s = GetImpl(roptions, column_family, key, value, value_found);
+  PinnableSlice pinnable_val;
+  auto s = GetImpl(roptions, column_family, key, &pinnable_val, value_found);
+  value->assign(pinnable_val.data(), pinnable_val.size());
 
   // If block_cache is enabled and the index block of the table didn't
   // not present in block_cache, the return value will be Status::Incomplete.
@@ -4353,10 +4408,6 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   }
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
-
-  XFUNC_TEST("", "managed_new", managed_new1, xf_manage_new,
-             reinterpret_cast<DBImpl*>(this),
-             const_cast<ReadOptions*>(&read_options), is_snapshot_supported_);
   if (read_options.managed) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
@@ -4465,9 +4516,6 @@ Status DBImpl::NewIterators(
   }
   iterators->clear();
   iterators->reserve(column_families.size());
-  XFUNC_TEST("", "managed_new", managed_new1, xf_manage_new,
-             reinterpret_cast<DBImpl*>(this),
-             const_cast<ReadOptions*>(&read_options), is_snapshot_supported_);
   if (read_options.managed) {
 #ifdef ROCKSDB_LITE
     return Status::InvalidArgument(
@@ -4607,21 +4655,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
-  if (write_options.timeout_hint_us != 0) {
-    return Status::InvalidArgument("timeout_hint_us is deprecated");
-  }
 
   Status status;
-
-  bool xfunc_attempted_write = false;
-  XFUNC_TEST("transaction", "transaction_xftest_write_impl",
-             xf_transaction_write1, xf_transaction_write, write_options,
-             immutable_db_options_, my_batch, callback, this, &status,
-             &xfunc_attempted_write);
-  if (xfunc_attempted_write) {
-    // Test already did the write
-    return status;
-  }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w;
@@ -4698,10 +4733,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
 
   if (UNLIKELY(!single_column_family_mode_ &&
-               !alive_log_files_.begin()->getting_flushed &&
                total_log_size_ > GetMaxTotalWalSize())) {
-    FlushColumnFamilies();
-  } else if (UNLIKELY(write_buffer_manager_->ShouldFlush())) {
+    MaybeFlushColumnFamilies();
+  }
+  if (UNLIKELY(write_buffer_manager_->ShouldFlush())) {
     // Before a new memtable is added in SwitchMemtable(),
     // write_buffer_manager_->ShouldFlush() will keep returning true. If another
     // thread is writing to another DB with the same write buffer, they may also
@@ -4785,6 +4820,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // and protects against concurrent loggers and concurrent writes
     // into memtables
   }
+  log::Writer* cur_log_writer = logs_.back().writer;
 
   mutex_.Unlock();
 
@@ -4836,7 +4872,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     PERF_TIMER_STOP(write_pre_and_post_process_time);
 
     if (write_options.disableWAL) {
-      has_unpersisted_data_ = true;
+      has_unpersisted_data_.store(true, std::memory_order_relaxed);
     }
 
     uint64_t log_size = 0;
@@ -4872,7 +4908,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       WriteBatchInternal::SetSequence(merged_batch, current_sequence);
 
       Slice log_entry = WriteBatchInternal::Contents(merged_batch);
-      status = logs_.back().writer->AddRecord(log_entry);
+      status = cur_log_writer->AddRecord(log_entry);
       total_log_size_ += log_entry.size();
       alive_log_files_.back().AddSize(log_entry.size());
       log_empty_ = false;
@@ -5018,28 +5054,51 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   return status;
 }
 
-void DBImpl::FlushColumnFamilies() {
+void DBImpl::MaybeFlushColumnFamilies() {
   mutex_.AssertHeld();
-
-  WriteContext context;
 
   if (alive_log_files_.begin()->getting_flushed) {
     return;
   }
 
-  uint64_t flush_column_family_if_log_file = alive_log_files_.begin()->number;
-  alive_log_files_.begin()->getting_flushed = true;
+  auto oldest_alive_log = alive_log_files_.begin()->number;
+  auto oldest_log_with_uncommited_prep = FindMinLogContainingOutstandingPrep();
+
+  if (allow_2pc() &&
+      oldest_log_with_uncommited_prep > 0 &&
+      oldest_log_with_uncommited_prep <= oldest_alive_log) {
+    if (unable_to_flush_oldest_log_) {
+        // we already attempted to flush all column families dependent on
+        // the oldest alive log but the log still contained uncommited transactions.
+        // the oldest alive log STILL contains uncommited transaction so there
+        // is still nothing that we can do.
+        return;
+    } else {
+      Log(InfoLogLevel::WARN_LEVEL, immutable_db_options_.info_log,
+          "Unable to release oldest log due to uncommited transaction");
+      unable_to_flush_oldest_log_ = true;
+    }
+  } else {
+    // we only mark this log as getting flushed if we have successfully
+    // flushed all data in this log. If this log contains outstanding prepared
+    // transactions then we cannot flush this log until those transactions are commited.
+    unable_to_flush_oldest_log_ = false;
+    alive_log_files_.begin()->getting_flushed = true;
+  }
+
+  WriteContext context;
+
   Log(InfoLogLevel::INFO_LEVEL, immutable_db_options_.info_log,
       "Flushing all column families with data in WAL number %" PRIu64
       ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
-      flush_column_family_if_log_file, total_log_size_, GetMaxTotalWalSize());
+      oldest_alive_log, total_log_size_, GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   for (auto cfd : *versions_->GetColumnFamilySet()) {
     if (cfd->IsDropped()) {
       continue;
     }
-    if (cfd->GetLogNumber() <= flush_column_family_if_log_file) {
+    if (cfd->OldestLogToKeep() <= oldest_alive_log) {
       auto status = SwitchMemtable(cfd, &context);
       if (!status.ok()) {
         break;
@@ -5049,6 +5108,7 @@ void DBImpl::FlushColumnFamilies() {
     }
   }
   MaybeScheduleFlushOrCompaction();
+
 }
 
 uint64_t DBImpl::GetMaxTotalWalSize() const {
@@ -5444,22 +5504,6 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
   return GetAndRefSuperVersion(cfd);
 }
 
-// REQUIRED:  mutex is NOT held
-SuperVersion* DBImpl::GetAndRefSuperVersionUnlocked(uint32_t column_family_id) {
-  ColumnFamilyData* cfd;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    auto column_family_set = versions_->GetColumnFamilySet();
-    cfd = column_family_set->GetColumnFamily(column_family_id);
-  }
-
-  if (!cfd) {
-    return nullptr;
-  }
-
-  return GetAndRefSuperVersion(cfd);
-}
-
 void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
                                           SuperVersion* sv) {
   bool unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
@@ -5490,22 +5534,6 @@ void DBImpl::ReturnAndCleanupSuperVersion(uint32_t column_family_id,
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
-// REQUIRED: Mutex should NOT be held.
-void DBImpl::ReturnAndCleanupSuperVersionUnlocked(uint32_t column_family_id,
-                                                  SuperVersion* sv) {
-  ColumnFamilyData* cfd;
-  {
-    InstrumentedMutexLock l(&mutex_);
-    auto column_family_set = versions_->GetColumnFamilySet();
-    cfd = column_family_set->GetColumnFamily(column_family_id);
-  }
-
-  // If SuperVersion is held, and we successfully fetched a cfd using
-  // GetAndRefSuperVersion(), it must still exist.
-  assert(cfd != nullptr);
-  ReturnAndCleanupSuperVersion(cfd, sv);
-}
-
 // REQUIRED: this function should only be called on the write thread or if the
 // mutex is held.
 ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
@@ -5518,23 +5546,33 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
   return cf_memtables->GetColumnFamilyHandle();
 }
 
-// REQUIRED: mutex is NOT held.
-ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
-    uint32_t column_family_id) {
-  ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
+void DBImpl::GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                         const Range& range,
+                                         uint64_t* const count,
+                                         uint64_t* const size) {
+  ColumnFamilyHandleImpl* cfh =
+      reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
 
-  InstrumentedMutexLock l(&mutex_);
+  // Convert user_key into a corresponding internal key.
+  InternalKey k1(range.start, kMaxSequenceNumber, kValueTypeForSeek);
+  InternalKey k2(range.limit, kMaxSequenceNumber, kValueTypeForSeek);
+  MemTable::MemTableStats memStats =
+      sv->mem->ApproximateStats(k1.Encode(), k2.Encode());
+  MemTable::MemTableStats immStats =
+      sv->imm->ApproximateStats(k1.Encode(), k2.Encode());
+  *count = memStats.count + immStats.count;
+  *size = memStats.size + immStats.size;
 
-  if (!cf_memtables->Seek(column_family_id)) {
-    return nullptr;
-  }
-
-  return cf_memtables->GetColumnFamilyHandle();
+  ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
                                  const Range* range, int n, uint64_t* sizes,
-                                 bool include_memtable) {
+                                 uint8_t include_flags) {
+  assert(include_flags & DB::SizeApproximationFlags::INCLUDE_FILES ||
+         include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES);
   Version* v;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -5545,10 +5583,13 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     // Convert user_key into a corresponding internal key.
     InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
-    sizes[i] = versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
-    if (include_memtable) {
-      sizes[i] += sv->mem->ApproximateSize(k1.Encode(), k2.Encode());
-      sizes[i] += sv->imm->ApproximateSize(k1.Encode(), k2.Encode());
+    sizes[i] = 0;
+    if (include_flags & DB::SizeApproximationFlags::INCLUDE_FILES) {
+      sizes[i] += versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
+    }
+    if (include_flags & DB::SizeApproximationFlags::INCLUDE_MEMTABLES) {
+      sizes[i] += sv->mem->ApproximateStats(k1.Encode(), k2.Encode()).size;
+      sizes[i] += sv->imm->ApproximateStats(k1.Encode(), k2.Encode()).size;
     }
   }
 
@@ -6489,10 +6530,15 @@ Status DBImpl::IngestExternalFile(
                                             immutable_db_options_, env_options_,
                                             &snapshots_, ingestion_options);
 
-  // Make sure that bg cleanup wont delete the files that we are ingesting
   std::list<uint64_t>::iterator pending_output_elem;
   {
     InstrumentedMutexLock l(&mutex_);
+    if (!bg_error_.ok()) {
+      // Don't ingest files when there is a bg_error
+      return bg_error_;
+    }
+
+    // Make sure that bg cleanup wont delete the files that we are ingesting
     pending_output_elem = CaptureCurrentFileNumberInPendingOutputs();
   }
 

@@ -51,7 +51,7 @@ class DBWithTTLImpl : public DBWithTTL {
   using StackableDB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) override;
+                     PinnableSlice* value) override;
 
   using StackableDB::MultiGet;
   virtual std::vector<Status> MultiGet(
@@ -86,6 +86,8 @@ class DBWithTTLImpl : public DBWithTTL {
   static Status SanityCheckTimestamp(const Slice& str);
 
   static Status StripTS(std::string* str);
+
+  static Status StripTS(PinnableSlice* str);
 
   static const uint32_t kTSLength = sizeof(int32_t);  // size of timestamp
 

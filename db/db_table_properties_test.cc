@@ -147,6 +147,7 @@ TEST_F(DBTablePropertiesTest, GetPropertiesOfTablesInRange) {
   options.max_bytes_for_level_multiplier = 4;
   options.hard_pending_compaction_bytes_limit = 16 * 1024;
   options.num_levels = 8;
+  options.env = env_;
 
   DestroyAndReopen(options);
 

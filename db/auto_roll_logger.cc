@@ -8,6 +8,7 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 // -- AutoRollLogger
 Status AutoRollLogger::ResetLogger() {
   TEST_SYNC_POINT("AutoRollLogger::ResetLogger:BeforeNewLogger");
@@ -130,6 +131,7 @@ bool AutoRollLogger::LogExpired() {
   ++cached_now_access_count;
   return cached_now >= ctime_ + kLogFileTimeToRoll;
 }
+#endif  // !ROCKSDB_LITE
 
 Status CreateLoggerFromOptions(const std::string& dbname,
                                const DBOptions& options,
@@ -147,6 +149,7 @@ Status CreateLoggerFromOptions(const std::string& dbname,
 
   env->CreateDirIfMissing(dbname);  // In case it does not exist
   // Currently we only support roll by time-to-roll and log size
+#ifndef ROCKSDB_LITE
   if (options.log_file_time_to_roll > 0 || options.max_log_file_size > 0) {
     AutoRollLogger* result = new AutoRollLogger(
         env, dbname, options.db_log_dir, options.max_log_file_size,
@@ -158,17 +161,17 @@ Status CreateLoggerFromOptions(const std::string& dbname,
       logger->reset(result);
     }
     return s;
-  } else {
-    // Open a log file in the same directory as the db
-    env->RenameFile(
-        fname, OldInfoLogFileName(dbname, env->NowMicros(), db_absolute_path,
-                                  options.db_log_dir));
-    auto s = env->NewLogger(fname, logger);
-    if (logger->get() != nullptr) {
-      (*logger)->SetInfoLogLevel(options.info_log_level);
-    }
-    return s;
   }
+#endif  // !ROCKSDB_LITE
+  // Open a log file in the same directory as the db
+  env->RenameFile(fname,
+                  OldInfoLogFileName(dbname, env->NowMicros(), db_absolute_path,
+                                     options.db_log_dir));
+  auto s = env->NewLogger(fname, logger);
+  if (logger->get() != nullptr) {
+    (*logger)->SetInfoLogLevel(options.info_log_level);
+  }
+  return s;
 }
 
 }  // namespace rocksdb

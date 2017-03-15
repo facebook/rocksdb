@@ -30,7 +30,6 @@ struct ImmutableDBOptions {
   int max_open_files;
   int max_file_opening_threads;
   std::shared_ptr<Statistics> statistics;
-  bool disable_data_sync;
   bool use_fsync;
   std::vector<DbPath> db_paths;
   std::string db_log_dir;

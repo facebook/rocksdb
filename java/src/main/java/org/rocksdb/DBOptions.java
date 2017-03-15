@@ -135,15 +135,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setRateLimiterConfig(
-      final RateLimiterConfig config) {
-    assert(isOwningHandle());
-    rateLimiterConfig_ = config;
-    setOldRateLimiter(nativeHandle_, config.newRateLimiterHandle());
-    return this;
-  }
-
-  @Override
   public DBOptions setRateLimiter(final RateLimiter rateLimiter) {
     assert(isOwningHandle());
     rateLimiter_ = rateLimiter;
@@ -219,20 +210,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
     }
 
     return new Statistics(statsPtr);
-  }
-
-  @Override
-  public DBOptions setDisableDataSync(
-      final boolean disableDataSync) {
-    assert(isOwningHandle());
-    setDisableDataSync(nativeHandle_, disableDataSync);
-    return this;
-  }
-
-  @Override
-  public boolean disableDataSync() {
-    assert(isOwningHandle());
-    return disableDataSync(nativeHandle_);
   }
 
   @Override
@@ -664,9 +641,6 @@ public long delayedWriteRate(){
   private native void setParanoidChecks(
       long handle, boolean paranoidChecks);
   private native boolean paranoidChecks(long handle);
-  @Deprecated
-  private native void setOldRateLimiter(long handle,
-      long rateLimiterHandle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
   private native void setLogger(long handle,
@@ -680,8 +654,6 @@ public long delayedWriteRate(){
   private native long maxTotalWalSize(long handle);
   private native void createStatistics(long optHandle);
   private native long statisticsPtr(long optHandle);
-  private native void setDisableDataSync(long handle, boolean disableDataSync);
-  private native boolean disableDataSync(long handle);
   private native boolean useFsync(long handle);
   private native void setUseFsync(long handle, boolean useFsync);
   private native void setDbLogDir(long handle, String dbLogDir);
@@ -766,6 +738,5 @@ public long delayedWriteRate(){
   private native long delayedWriteRate(long handle);
 
   int numShardBits_;
-  RateLimiterConfig rateLimiterConfig_;
   RateLimiter rateLimiter_;
 }

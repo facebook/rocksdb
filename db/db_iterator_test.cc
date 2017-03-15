@@ -981,6 +981,7 @@ TEST_F(DBIteratorTest, PrevAfterAndNextAfterMerge) {
   Options options;
   options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreatePutOperator();
+  options.env = env_;
   DestroyAndReopen(options);
 
   // write three entries with different keys using Merge()
@@ -1644,7 +1645,7 @@ TEST_F(DBIteratorTest, IteratorWithLocalStatistics) {
   std::atomic<uint64_t> total_prev_found(0);
   std::atomic<uint64_t> total_bytes(0);
 
-  std::vector<std::thread> threads;
+  std::vector<port::Thread> threads;
   std::function<void()> reader_func_next = [&]() {
     Iterator* iter = db_->NewIterator(ReadOptions());
 

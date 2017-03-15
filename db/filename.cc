@@ -389,12 +389,8 @@ Status SetIdentityFile(Env* env, const std::string& dbname) {
 Status SyncManifest(Env* env, const ImmutableDBOptions* db_options,
                     WritableFileWriter* file) {
   TEST_KILL_RANDOM("SyncManifest:0", rocksdb_kill_odds * REDUCE_ODDS2);
-  if (db_options->disable_data_sync) {
-    return Status::OK();
-  } else {
-    StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
-    return file->Sync(db_options->use_fsync);
-  }
+  StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
+  return file->Sync(db_options->use_fsync);
 }
 
 }  // namespace rocksdb

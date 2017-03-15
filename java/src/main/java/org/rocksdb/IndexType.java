@@ -18,7 +18,11 @@ public enum IndexType {
    * The hash index, if enabled, will do the hash lookup when
    * {@code Options.prefix_extractor} is provided.
    */
-  kHashSearch((byte) 1);
+  kHashSearch((byte) 1),
+  /**
+   * A two-level index implementation. Both levels are binary search indexes.
+   */
+  kTwoLevelIndexSearch((byte) 2);
 
   /**
    * Returns the byte value of the enumerations value

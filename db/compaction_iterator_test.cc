@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "port/port.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -181,7 +182,7 @@ class CompactionIteratorTest : public testing::Test {
     }
 
     merge_helper_.reset(new MergeHelper(Env::Default(), cmp_, merge_op, filter,
-                                        nullptr, 0U, false, 0, 0, nullptr,
+                                        nullptr, false, 0, 0, nullptr,
                                         &shutting_down_));
     iter_.reset(new LoggingForwardVectorIterator(ks, vs));
     iter_->SeekToFirst();
@@ -393,7 +394,7 @@ TEST_F(CompactionIteratorTest, ShuttingDownInFilter) {
   compaction_proxy_->key_not_exists_beyond_output_level = true;
 
   std::atomic<bool> seek_done{false};
-  std::thread compaction_thread([&] {
+  rocksdb::port::Thread compaction_thread([&] {
     c_iter_->SeekToFirst();
     EXPECT_FALSE(c_iter_->Valid());
     EXPECT_TRUE(c_iter_->status().IsShutdownInProgress());
@@ -429,7 +430,7 @@ TEST_F(CompactionIteratorTest, ShuttingDownInMerge) {
   compaction_proxy_->key_not_exists_beyond_output_level = true;
 
   std::atomic<bool> seek_done{false};
-  std::thread compaction_thread([&] {
+  rocksdb::port::Thread compaction_thread([&] {
     c_iter_->SeekToFirst();
     ASSERT_FALSE(c_iter_->Valid());
     ASSERT_TRUE(c_iter_->status().IsShutdownInProgress());

@@ -31,17 +31,35 @@ jlong Java_org_rocksdb_ExternalSstFileInfo_newExternalSstFileInfo__Ljava_lang_St
     JNIEnv *env, jclass jcls, jstring jfile_path, jstring jsmallest_key,
     jstring jlargest_key, jlong jsequence_number, jlong jfile_size,
     jint jnum_entries, jint jversion) {
-  const char *file_path = env->GetStringUTFChars(jfile_path, NULL);
-  const char *smallest_key = env->GetStringUTFChars(jsmallest_key, NULL);
-  const char *largest_key = env->GetStringUTFChars(jlargest_key, NULL);
+  const char *file_path = env->GetStringUTFChars(jfile_path, nullptr);
+  if(file_path == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return 0;
+  }
+  const char *smallest_key = env->GetStringUTFChars(jsmallest_key, nullptr);
+  if(smallest_key == nullptr) {
+    // exception thrown: OutOfMemoryError
+    env->ReleaseStringUTFChars(jfile_path, file_path);
+    return 0;
+  }
+  const char *largest_key = env->GetStringUTFChars(jlargest_key, nullptr);
+  if(largest_key == nullptr) {
+    // exception thrown: OutOfMemoryError
+    env->ReleaseStringUTFChars(jsmallest_key, smallest_key);
+    env->ReleaseStringUTFChars(jfile_path, file_path);
+    return 0;
+  }
+
   auto *external_sst_file_info = new rocksdb::ExternalSstFileInfo(
       file_path, smallest_key, largest_key,
       static_cast<rocksdb::SequenceNumber>(jsequence_number),
       static_cast<uint64_t>(jfile_size), static_cast<int32_t>(jnum_entries),
       static_cast<int32_t>(jversion));
-  env->ReleaseStringUTFChars(jfile_path, file_path);
-  env->ReleaseStringUTFChars(jsmallest_key, smallest_key);
+
   env->ReleaseStringUTFChars(jlargest_key, largest_key);
+  env->ReleaseStringUTFChars(jsmallest_key, smallest_key);
+  env->ReleaseStringUTFChars(jfile_path, file_path);
+
   return reinterpret_cast<jlong>(external_sst_file_info);
 }
 
@@ -55,7 +73,11 @@ void Java_org_rocksdb_ExternalSstFileInfo_setFilePath(JNIEnv *env, jobject jobj,
                                                       jstring jfile_path) {
   auto *external_sst_file_info =
       reinterpret_cast<rocksdb::ExternalSstFileInfo *>(jhandle);
-  const char *file_path = env->GetStringUTFChars(jfile_path, NULL);
+  const char *file_path = env->GetStringUTFChars(jfile_path, nullptr);
+  if(file_path == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
   external_sst_file_info->file_path = file_path;
   env->ReleaseStringUTFChars(jfile_path, file_path);
 }
@@ -81,7 +103,11 @@ void Java_org_rocksdb_ExternalSstFileInfo_setSmallestKey(
     JNIEnv *env, jobject jobj, jlong jhandle, jstring jsmallest_key) {
   auto *external_sst_file_info =
       reinterpret_cast<rocksdb::ExternalSstFileInfo *>(jhandle);
-  const char *smallest_key = env->GetStringUTFChars(jsmallest_key, NULL);
+  const char *smallest_key = env->GetStringUTFChars(jsmallest_key, nullptr);
+  if(smallest_key == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
   external_sst_file_info->smallest_key = smallest_key;
   env->ReleaseStringUTFChars(jsmallest_key, smallest_key);
 }
@@ -111,6 +137,10 @@ void Java_org_rocksdb_ExternalSstFileInfo_setLargestKey(JNIEnv *env,
   auto *external_sst_file_info =
       reinterpret_cast<rocksdb::ExternalSstFileInfo *>(jhandle);
   const char *largest_key = env->GetStringUTFChars(jlargest_key, NULL);
+  if(largest_key == nullptr) {
+    // exception thrown: OutOfMemoryError
+    return;
+  }
   external_sst_file_info->largest_key = largest_key;
   env->ReleaseStringUTFChars(jlargest_key, largest_key);
 }
@@ -238,5 +268,7 @@ jint Java_org_rocksdb_ExternalSstFileInfo_version(JNIEnv *env, jobject jobj,
 void Java_org_rocksdb_ExternalSstFileInfo_disposeInternal(JNIEnv *env,
                                                           jobject jobj,
                                                           jlong jhandle) {
-  delete reinterpret_cast<rocksdb::ExternalSstFileInfo *>(jhandle);
+  auto* esfi = reinterpret_cast<rocksdb::ExternalSstFileInfo *>(jhandle);
+  assert(esfi != nullptr);
+  delete esfi;
 }

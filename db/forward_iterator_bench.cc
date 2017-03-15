@@ -34,6 +34,7 @@ int main() { return 0; }
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "port/port.h"
 #include "util/testharness.h"
 
 const int MAX_SHARDS = 100000;
@@ -94,7 +95,7 @@ struct Reader {
   explicit Reader(std::vector<ShardState>* shard_states, rocksdb::DB* db)
       : shard_states_(shard_states), db_(db) {
     sem_init(&sem_, 0, 0);
-    thread_ = std::thread(&Reader::run, this);
+    thread_ = port::Thread(&Reader::run, this);
   }
 
   void run() {
@@ -193,7 +194,7 @@ struct Reader {
   char pad1[128] __attribute__((__unused__));
   std::vector<ShardState>* shard_states_;
   rocksdb::DB* db_;
-  std::thread thread_;
+  rocksdb::port::Thread thread_;
   sem_t sem_;
   std::mutex queue_mutex_;
   std::bitset<MAX_SHARDS + 1> shards_pending_set_;
@@ -206,7 +207,7 @@ struct Writer {
   explicit Writer(std::vector<ShardState>* shard_states, rocksdb::DB* db)
       : shard_states_(shard_states), db_(db) {}
 
-  void start() { thread_ = std::thread(&Writer::run, this); }
+  void start() { thread_ = port::Thread(&Writer::run, this); }
 
   void run() {
     std::queue<std::chrono::steady_clock::time_point> workq;
@@ -263,7 +264,7 @@ struct Writer {
   char pad1[128] __attribute__((__unused__));
   std::vector<ShardState>* shard_states_;
   rocksdb::DB* db_;
-  std::thread thread_;
+  rocksdb::port::Thread thread_;
   char pad2[128] __attribute__((__unused__));
 };
 
@@ -313,7 +314,7 @@ struct StatsThread {
   rocksdb::DB* db_;
   std::mutex cvm_;
   std::condition_variable cv_;
-  std::thread thread_;
+  rocksdb::port::Thread thread_;
   std::atomic<bool> done_{false};
 };
 

@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "port/port.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 #include "utilities/persistent_cache/block_cache_tier_file.h"
@@ -45,7 +46,7 @@ Status BlockCacheTier::Open() {
   // Create base/<cache dir> directory
   status = opt_.env->CreateDir(GetCachePath());
   if (!status.ok()) {
-    // directory already exisits, clean it up
+    // directory already exists, clean it up
     status = CleanupCacheFolder(GetCachePath());
     assert(status.ok());
     if (!status.ok()) {
@@ -68,7 +69,7 @@ Status BlockCacheTier::Open() {
 
   if (opt_.pipeline_writes) {
     assert(!insert_th_.joinable());
-    insert_th_ = std::thread(&BlockCacheTier::InsertMain, this);
+    insert_th_ = port::Thread(&BlockCacheTier::InsertMain, this);
   }
 
   return Status::OK();
@@ -226,7 +227,7 @@ Status BlockCacheTier::InsertImpl(const Slice& key, const Slice& data) {
 
   LBA lba;
   if (metadata_.Lookup(key, &lba)) {
-    // the key already exisits, this is duplicate insert
+    // the key already exists, this is duplicate insert
     return Status::OK();
   }
 

@@ -298,15 +298,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void verifyChecksumsInCompaction() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setVerifyChecksumsInCompaction(boolValue);
-      assertThat(opt.verifyChecksumsInCompaction()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
   public void maxSequentialSkipInIterations() {
     try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
       final long longValue = rand.nextLong();
@@ -366,15 +357,6 @@ public class ColumnFamilyOptionsTest {
       final long longValue = rand.nextLong();
       opt.setMaxSuccessiveMerges(longValue);
       assertThat(opt.maxSuccessiveMerges()).isEqualTo(longValue);
-    }
-  }
-
-  @Test
-  public void minPartialMergeOperands() {
-    try (final ColumnFamilyOptions opt = new ColumnFamilyOptions()) {
-      final int intValue = rand.nextInt();
-      opt.setMinPartialMergeOperands(intValue);
-      assertThat(opt.minPartialMergeOperands()).isEqualTo(intValue);
     }
   }
 

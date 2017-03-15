@@ -203,8 +203,9 @@ public class ColumnFamilyTest {
 
   @Test
   public void writeBatch() throws RocksDBException {
-    try (final ColumnFamilyOptions defaultCfOptions = new ColumnFamilyOptions()
-        .setMergeOperator(new StringAppendOperator())) {
+    try (final StringAppendOperator stringAppendOperator = new StringAppendOperator();
+         final ColumnFamilyOptions defaultCfOptions = new ColumnFamilyOptions()
+             .setMergeOperator(stringAppendOperator)) {
       final List<ColumnFamilyDescriptor> cfDescriptors = Arrays.asList(
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
               defaultCfOptions),

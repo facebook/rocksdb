@@ -123,12 +123,12 @@ class CuckooReaderTest : public testing::Test {
     ASSERT_OK(reader.status());
     // Assume no merge/deletion
     for (uint32_t i = 0; i < num_items; ++i) {
-      std::string value;
+      PinnableSlice value;
       GetContext get_context(ucomp, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, Slice(user_keys[i]), &value,
                              nullptr, nullptr, nullptr, nullptr);
       ASSERT_OK(reader.Get(ReadOptions(), Slice(keys[i]), &get_context));
-      ASSERT_EQ(values[i], value);
+      ASSERT_STREQ(values[i].c_str(), value.data());
     }
   }
   void UpdateKeys(bool with_zero_seqno) {
@@ -333,7 +333,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   AddHashLookups(not_found_user_key, 0, kNumHashFunc);
   ParsedInternalKey ikey(not_found_user_key, 1000, kTypeValue);
   AppendInternalKey(&not_found_key, ikey);
-  std::string value;
+  PinnableSlice value;
   GetContext get_context(ucmp, nullptr, nullptr, nullptr, GetContext::kNotFound,
                          Slice(not_found_key), &value, nullptr, nullptr,
                          nullptr, nullptr);
@@ -346,6 +346,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   ParsedInternalKey ikey2(not_found_user_key2, 1000, kTypeValue);
   std::string not_found_key2;
   AppendInternalKey(&not_found_key2, ikey2);
+  value.Reset();
   GetContext get_context2(ucmp, nullptr, nullptr, nullptr,
                           GetContext::kNotFound, Slice(not_found_key2), &value,
                           nullptr, nullptr, nullptr, nullptr);
@@ -360,6 +361,7 @@ TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   // Add hash values that map to empty buckets.
   AddHashLookups(ExtractUserKey(unused_key).ToString(),
       kNumHashFunc, kNumHashFunc);
+  value.Reset();
   GetContext get_context3(ucmp, nullptr, nullptr, nullptr,
                           GetContext::kNotFound, Slice(unused_key), &value,
                           nullptr, nullptr, nullptr, nullptr);
@@ -433,12 +435,13 @@ void WriteFile(const std::vector<std::string>& keys,
                            test::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());
   ReadOptions r_options;
-  std::string value;
+  PinnableSlice value;
   // Assume only the fast path is triggered
   GetContext get_context(nullptr, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, Slice(), &value, nullptr,
                          nullptr, nullptr, nullptr);
   for (uint64_t i = 0; i < num; ++i) {
+    value.Reset();
     value.clear();
     ASSERT_OK(reader.Get(r_options, Slice(keys[i]), &get_context));
     ASSERT_TRUE(Slice(keys[i]) == Slice(&keys[i][0], 4));
@@ -480,7 +483,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   }
   std::random_shuffle(keys.begin(), keys.end());
 
-  std::string value;
+  PinnableSlice value;
   // Assume only the fast path is triggered
   GetContext get_context(nullptr, nullptr, nullptr, nullptr,
                          GetContext::kNotFound, Slice(), &value, nullptr,

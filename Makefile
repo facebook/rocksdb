@@ -299,9 +299,26 @@ BENCHTOOLOBJECTS = $(BENCH_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 EXPOBJECTS = $(EXP_LIB_SOURCES:.cc=.o) $(LIBOBJECTS) $(TESTUTIL)
 
 TESTS = \
-	db_test \
+	db_basic_test \
 	db_test2 \
+	external_sst_file_basic_test \
+	auto_roll_logger_test \
+	bloom_test \
+	dynamic_bloom_test \
+	c_test \
+	checkpoint_test \
+	crc32c_test \
+	coding_test \
+	inlineskiplist_test \
+	env_basic_test \
+	env_test \
+	thread_local_test \
+	rate_limiter_test \
+	perf_context_test \
+	iostats_context_test \
+	db_wal_test \
 	db_block_cache_test \
+	db_test \
 	db_bloom_filter_test \
 	db_iter_test \
 	db_log_iter_test \
@@ -316,10 +333,8 @@ TESTS = \
 	db_options_test \
 	db_range_del_test \
 	db_sst_test \
-	external_sst_file_test \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
-	db_wal_test \
 	db_io_failure_test \
 	db_properties_test \
 	db_table_properties_test \
@@ -328,20 +343,11 @@ TESTS = \
 	column_family_test \
 	table_properties_collector_test \
 	arena_test \
-	auto_roll_logger_test \
 	block_test \
-	bloom_test \
-	dynamic_bloom_test \
-	c_test \
 	cache_test \
-	checkpoint_test \
-	coding_test \
 	corruption_test \
-	crc32c_test \
 	slice_transform_test \
 	dbformat_test \
-	env_basic_test \
-	env_test \
 	fault_injection_test \
 	filelock_test \
 	filename_test \
@@ -350,7 +356,6 @@ TESTS = \
 	full_filter_block_test \
 	hash_table_test \
 	histogram_test \
-	inlineskiplist_test \
 	log_test \
 	manual_compaction_test \
 	mock_env_test \
@@ -365,6 +370,7 @@ TESTS = \
 	reduce_levels_test \
 	plain_table_db_test \
 	comparator_db_test \
+	external_sst_file_test \
 	prefix_test \
 	skiplist_test \
 	stringappend_test \
@@ -386,9 +392,7 @@ TESTS = \
 	write_controller_test\
 	deletefile_test \
 	table_test \
-	thread_local_test \
 	geodb_test \
-	rate_limiter_test \
 	delete_scheduler_test \
 	options_test \
 	options_settable_test \
@@ -406,7 +410,6 @@ TESTS = \
 	sst_dump_test \
 	column_aware_encoding_test \
 	compact_files_test \
-	perf_context_test \
 	optimistic_transaction_test \
 	write_callback_test \
 	heap_test \
@@ -415,12 +418,13 @@ TESTS = \
 	option_change_migration_test \
 	transaction_test \
 	ldb_cmd_test \
-	iostats_context_test \
 	persistent_cache_test \
 	statistics_test \
 	lua_test \
 	range_del_aggregator_test \
 	lru_cache_test \
+	object_registry_test \
+	repair_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -668,6 +672,8 @@ check_0:
 	  | grep -E '$(tests-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 
+valgrind-blacklist-regexp = InlineSkipTest.ConcurrentInsert|TransactionTest.DeadlockStress|DBCompactionTest.SuggestCompactRangeNoTwoLevel0Compactions|BackupableDBTest.RateLimiting|DBTest.CloseSpeedup|DBTest.ThreadStatusFlush|DBTest.RateLimitingTest|DBTest.EncodeDecompressedBlockSizeTest|FaultInjectionTest.UninstalledCompaction|HarnessTest.Randomized|ExternalSSTFileTest.CompactDuringAddFileRandom|ExternalSSTFileTest.IngestFileWithGlobalSeqnoRandomized
+
 .PHONY: valgrind_check_0
 valgrind_check_0:
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
@@ -681,6 +687,7 @@ valgrind_check_0:
 	}								\
 	  | $(prioritize_long_running_tests)				\
 	  | grep -E '$(tests-regexp)'					\
+	  | grep -E -v '$(valgrind-blacklist-regexp)'					\
 	  | build_tools/gnu_parallel -j$(J) --plain --joblog=LOG $$eta --gnu \
 	  '(if [[ "{}" == "./"* ]] ; then $(DRIVER) {}; else {}; fi) ' \
 	  '>& t/valgrind_log-{/}'
@@ -966,6 +973,9 @@ crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_basic_test: db/db_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_test: db/db_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -1012,6 +1022,9 @@ db_range_del_test: db/db_range_del_test.o db/db_test_util.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 db_sst_test: db/db_sst_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+external_sst_file_basic_test: db/external_sst_file_basic_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 external_sst_file_test: db/external_sst_file_test.o db/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1085,7 +1098,7 @@ env_librados_test: utilities/env_librados_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 endif
 
-env_registry_test: utilities/env_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
+object_registry_test: utilities/object_registry_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -1368,10 +1381,21 @@ ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linu
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadoc.jar
 ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
+SHA256_CMD = sha256sum
+
+ZLIB_VER = 1.2.11
+ZLIB_SHA256 = c3e5e9fdd5004dcb542feda5ee4f0ff0744628baf8ed2dd5d66f8ca1197cb1a1
+BZIP2_VER = 1.0.6
+BZIP2_SHA256 = a2848f34fcd5d6cf47def00461fcb528a0484d8edef8208d6d2e2909dc61d9cd
+SNAPPY_VER = 1.1.4
+SNAPPY_SHA256 = 134bfe122fd25599bb807bb8130e7ba6d9bdb851e0b16efcb83ac4f5d0b70057
+LZ4_VER = 1.7.5
+LZ4_SHA256 = 0190cacd63022ccb86f44fa5041dc6c3804407ad61550ca21c382827319e7e7e
 
 ifeq ($(PLATFORM), OS_MACOSX)
 	ROCKSDBJNILIB = librocksdbjni-osx.jnilib
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
+	SHA256_CMD = openssl sha256 -r
 ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I $(JAVA_HOME)/include/darwin
 else
@@ -1387,44 +1411,65 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 	ROCKSDBJNILIB = librocksdbjni-solaris$(ARCH).so
 	ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-solaris$(ARCH).jar
 	JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/solaris
+	SHA256_CMD = digest -a sha256
 endif
 
 libz.a:
-	-rm -rf zlib-1.2.8
-	curl -O -L http://zlib.net/zlib-1.2.8.tar.gz
-	tar xvzf zlib-1.2.8.tar.gz
-	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
-	cp zlib-1.2.8/libz.a .
+	-rm -rf zlib-$(ZLIB_VER)
+	curl -O -L http://zlib.net/zlib-$(ZLIB_VER).tar.gz
+	ZLIB_SHA256_ACTUAL=`$(SHA256_CMD) zlib-$(ZLIB_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(ZLIB_SHA256)" != "$$ZLIB_SHA256_ACTUAL" ]; then \
+		echo zlib-$(ZLIB_VER).tar.gz checksum mismatch, expected=\"$(ZLIB_SHA256)\" actual=\"$$ZLIB_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf zlib-$(ZLIB_VER).tar.gz
+	cd zlib-$(ZLIB_VER) && CFLAGS='-fPIC' ./configure --static && make
+	cp zlib-$(ZLIB_VER)/libz.a .
 
 libbz2.a:
-	-rm -rf bzip2-1.0.6
-	curl -O -L http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
-	tar xvzf bzip2-1.0.6.tar.gz
-	cd bzip2-1.0.6 && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
-	cp bzip2-1.0.6/libbz2.a .
+	-rm -rf bzip2-$(BZIP2_VER)
+	curl -O -L http://www.bzip.org/$(BZIP2_VER)/bzip2-$(BZIP2_VER).tar.gz
+	BZIP2_SHA256_ACTUAL=`$(SHA256_CMD) bzip2-$(BZIP2_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(BZIP2_SHA256)" != "$$BZIP2_SHA256_ACTUAL" ]; then \
+		echo bzip2-$(BZIP2_VER).tar.gz checksum mismatch, expected=\"$(BZIP2_SHA256)\" actual=\"$$BZIP2_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf bzip2-$(BZIP2_VER).tar.gz
+	cd bzip2-$(BZIP2_VER) && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
+	cp bzip2-$(BZIP2_VER)/libbz2.a .
 
 libsnappy.a:
-	-rm -rf snappy-1.1.3
-	curl -O -L https://github.com/google/snappy/releases/download/1.1.3/snappy-1.1.3.tar.gz
-	tar xvzf snappy-1.1.3.tar.gz
-	cd snappy-1.1.3 && ./configure --with-pic --enable-static
-	cd snappy-1.1.3 && make
-	cp snappy-1.1.3/.libs/libsnappy.a .
+	-rm -rf snappy-$(SNAPPY_VER)
+	curl -O -L https://github.com/google/snappy/releases/download/$(SNAPPY_VER)/snappy-$(SNAPPY_VER).tar.gz
+	SNAPPY_SHA256_ACTUAL=`$(SHA256_CMD) snappy-$(SNAPPY_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(SNAPPY_SHA256)" != "$$SNAPPY_SHA256_ACTUAL" ]; then \
+		echo snappy-$(SNAPPY_VER).tar.gz checksum mismatch, expected=\"$(SNAPPY_SHA256)\" actual=\"$$SNAPPY_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf snappy-$(SNAPPY_VER).tar.gz
+	cd snappy-$(SNAPPY_VER) && ./configure --with-pic --enable-static
+	cd snappy-$(SNAPPY_VER) && make
+	cp snappy-$(SNAPPY_VER)/.libs/libsnappy.a .
 
 liblz4.a:
-	   -rm -rf lz4-r127
-	   curl -O -L https://codeload.github.com/Cyan4973/lz4/tar.gz/r127
-	   mv r127 lz4-r127.tar.gz
-	   tar xvzf lz4-r127.tar.gz
-	   cd lz4-r127/lib && make CFLAGS='-fPIC' all
-	   cp lz4-r127/lib/liblz4.a .
+	-rm -rf lz4-$(LZ4_VER)
+	curl -O -L https://github.com/lz4/lz4/archive/v$(LZ4_VER).tar.gz
+	mv v$(LZ4_VER).tar.gz lz4-$(LZ4_VER).tar.gz
+	LZ4_SHA256_ACTUAL=`$(SHA256_CMD) lz4-$(LZ4_VER).tar.gz | cut -d ' ' -f 1`; \
+	if [ "$(LZ4_SHA256)" != "$$LZ4_SHA256_ACTUAL" ]; then \
+		echo lz4-$(LZ4_VER).tar.gz checksum mismatch, expected=\"$(LZ4_SHA256)\" actual=\"$$LZ4_SHA256_ACTUAL\"; \
+		exit 1; \
+	fi
+	tar xvzf lz4-$(LZ4_VER).tar.gz
+	cd lz4-$(LZ4_VER)/lib && make CFLAGS='-fPIC' all
+	cp lz4-$(LZ4_VER)/lib/liblz4.a .
 
 # A version of each $(LIBOBJECTS) compiled with -fPIC and a fixed set of static compression libraries
 java_static_libobjects = $(patsubst %,jls/%,$(LIBOBJECTS))
 CLEAN_FILES += jls
 
 JAVA_STATIC_FLAGS = -DZLIB -DBZIP2 -DSNAPPY -DLZ4
-JAVA_STATIC_INCLUDES = -I./zlib-1.2.8 -I./bzip2-1.0.6 -I./snappy-1.1.3 -I./lz4-r127/lib
+JAVA_STATIC_INCLUDES = -I./zlib-$(ZLIB_VER) -I./bzip2-$(BZIP2_VER) -I./snappy-$(SNAPPY_VER) -I./lz4-$(LZ4_VER)/lib
 
 $(java_static_libobjects): jls/%.o: %.cc libz.a libbz2.a libsnappy.a liblz4.a
 	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) $(JAVA_STATIC_FLAGS) $(JAVA_STATIC_INCLUDES) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
@@ -1494,13 +1539,6 @@ commit_prereq: build_tools/rocksdb-lego-determinator \
                build_tools/precommit_checker.py
 	J=$(J) build_tools/precommit_checker.py unit unit_481 clang_unit release release_481 clang_release tsan asan ubsan lite unit_non_shm
 	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
-
-xfunc:
-	for xftest in $(XFUNC_TESTS); do \
-		echo "===== Running xftest $$xftest"; \
-		make check ROCKSDB_XFUNC_TEST="$$xftest" tests-regexp="DBTest" ;\
-	done
-
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation

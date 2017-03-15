@@ -425,7 +425,7 @@ class BackupEngineImpl : public BackupEngine {
   bool initialized_;
   std::mutex byte_report_mutex_;
   channel<CopyOrCreateWorkItem> files_to_copy_or_create_;
-  std::vector<std::thread> threads_;
+  std::vector<port::Thread> threads_;
 
   // Adds a file to the backup work queue to be copied or created if it doesn't
   // already exist.
@@ -709,9 +709,18 @@ Status BackupEngineImpl::CreateNewBackupWithMetadata(
   Log(options_.info_log, "Started the backup process -- creating backup %u",
       new_backup_id);
 
-  // create temporary private dir
-  s = backup_env_->CreateDir(
-      GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)));
+  auto private_tmp_dir = GetAbsolutePath(GetPrivateFileRel(new_backup_id, true));
+  s = backup_env_->FileExists(private_tmp_dir);
+  if (s.ok()) {
+    // maybe last backup failed and left partial state behind, clean it up
+    s = GarbageCollect();
+  } else if (s.IsNotFound()) {
+    // normal case, the new backup's private dir doesn't exist yet
+    s = Status::OK();
+  }
+  if (s.ok()) {
+    s = backup_env_->CreateDir(private_tmp_dir);
+  }
 
   RateLimiter* rate_limiter = options_.backup_rate_limiter.get();
   if (rate_limiter) {
@@ -1210,7 +1219,7 @@ Status BackupEngineImpl::CopyOrCreateFile(
     }
     s = dest_writer->Append(data);
     if (rate_limiter != nullptr) {
-      rate_limiter->Request(data.size(), Env::IO_LOW);
+      rate_limiter->Request(data.size(), Env::IO_LOW, nullptr /* stats */);
     }
     if (processed_buffer_size > options_.callback_trigger_interval_size) {
       processed_buffer_size -= options_.callback_trigger_interval_size;
@@ -1407,16 +1416,19 @@ Status BackupEngineImpl::InsertPathnameToSizeBytes(
     std::unordered_map<std::string, uint64_t>* result) {
   assert(result != nullptr);
   std::vector<Env::FileAttributes> files_attrs;
-  Status status = env->GetChildrenFileAttributes(dir, &files_attrs);
-  if (!status.ok()) {
-    return status;
+  Status status = env->FileExists(dir);
+  if (status.ok()) {
+    status = env->GetChildrenFileAttributes(dir, &files_attrs);
+  } else if (status.IsNotFound()) {
+    // Insert no entries can be considered success
+    status = Status::OK();
   }
   const bool slash_needed = dir.empty() || dir.back() != '/';
   for (const auto& file_attrs : files_attrs) {
     result->emplace(dir + (slash_needed ? "/" : "") + file_attrs.name,
                     file_attrs.size_bytes);
   }
-  return Status::OK();
+  return status;
 }
 
 Status BackupEngineImpl::GarbageCollect() {

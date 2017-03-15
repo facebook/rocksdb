@@ -32,7 +32,6 @@
 #include "util/compression.h"
 #include "util/options_helper.h"
 #include "util/thread_status_util.h"
-#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -182,14 +181,6 @@ ColumnFamilyOptions SanitizeOptions(const ImmutableDBOptions& db_options,
   } else if (result.memtable_prefix_bloom_size_ratio < 0) {
     result.memtable_prefix_bloom_size_ratio = 0;
   }
-  XFUNC_TEST("memtablelist_history", "transaction_xftest_SanitizeOptions",
-             xf_transaction_set_memtable_history1,
-             xf_transaction_set_memtable_history,
-             &result.max_write_buffer_number_to_maintain);
-  XFUNC_TEST("memtablelist_history_clear", "transaction_xftest_SanitizeOptions",
-             xf_transaction_clear_memtable_history1,
-             xf_transaction_clear_memtable_history,
-             &result.max_write_buffer_number_to_maintain);
 
   if (!result.prefix_extractor) {
     assert(result.memtable_factory);
@@ -370,7 +361,8 @@ ColumnFamilyData::ColumnFamilyData(
       column_family_set_(column_family_set),
       pending_flush_(false),
       pending_compaction_(false),
-      prev_compaction_needed_bytes_(0) {
+      prev_compaction_needed_bytes_(0),
+      allow_2pc_(db_options.allow_2pc) {
   Ref();
 
   // Convert user defined table properties collector factories to internal ones.
@@ -490,6 +482,25 @@ void ColumnFamilyData::SetDropped() {
 
 ColumnFamilyOptions ColumnFamilyData::GetLatestCFOptions() const {
   return BuildColumnFamilyOptions(initial_cf_options_, mutable_cf_options_);
+}
+
+uint64_t ColumnFamilyData::OldestLogToKeep() {
+  auto current_log = GetLogNumber();
+
+  if (allow_2pc_) {
+    auto imm_prep_log = imm()->GetMinLogContainingPrepSection();
+    auto mem_prep_log = mem()->GetMinLogContainingPrepSection();
+
+    if (imm_prep_log > 0 && imm_prep_log < current_log) {
+      current_log = imm_prep_log;
+    }
+
+    if (mem_prep_log > 0 && mem_prep_log < current_log) {
+      current_log = mem_prep_log;
+    }
+  }
+
+  return current_log;
 }
 
 const double kIncSlowdownRatio = 0.8;

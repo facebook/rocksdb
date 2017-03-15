@@ -22,7 +22,8 @@ class SstFileReader {
 
   Status ReadSequential(bool print_kv, uint64_t read_num, bool has_from,
                         const std::string& from_key, bool has_to,
-                        const std::string& to_key);
+                        const std::string& to_key,
+                        bool use_from_as_prefix = false);
 
   Status ReadTableProperties(
       std::shared_ptr<const TableProperties>* table_properties);

@@ -700,33 +700,6 @@ public interface ColumnFamilyOptionsInterface {
   int bloomLocality();
 
   /**
-   * The number of partial merge operands to accumulate before partial
-   * merge will be performed. Partial merge will not be called
-   * if the list of values to merge is less than min_partial_merge_operands.
-   *
-   * If min_partial_merge_operands &lt; 2, then it will be treated as 2.
-   *
-   * Default: 2
-   *
-   * @param minPartialMergeOperands min partial merge operands
-   * @return the reference to the current option.
-   */
-  Object setMinPartialMergeOperands(int minPartialMergeOperands);
-
-  /**
-   * The number of partial merge operands to accumulate before partial
-   * merge will be performed. Partial merge will not be called
-   * if the list of values to merge is less than min_partial_merge_operands.
-   *
-   * If min_partial_merge_operands &lt; 2, then it will be treated as 2.
-   *
-   * Default: 2
-   *
-   * @return min partial merge operands
-   */
-  int minPartialMergeOperands();
-
-  /**
    * <p>This flag specifies that the implementation should optimize the filters
    * mainly for cases where keys are found rather than also optimize for keys
    * missed. This would be used in cases where the application knows that

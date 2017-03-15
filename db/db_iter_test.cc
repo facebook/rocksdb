@@ -16,7 +16,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "table/iterator_wrapper.h"
-#include "table/merger.h"
+#include "table/merging_iterator.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -1895,6 +1895,66 @@ TEST_F(DBIteratorTest, DBIterator12) {
   ASSERT_EQ(db_iter->value().ToString(), "1");
   db_iter->Prev();
   ASSERT_FALSE(db_iter->Valid());
+}
+
+TEST_F(DBIteratorTest, DBIterator13) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  std::string key;
+  key.resize(9);
+  key.assign(9, static_cast<char>(0));
+  key[0] = 'b';
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut(key, "0");
+  internal_iter->AddPut(key, "1");
+  internal_iter->AddPut(key, "2");
+  internal_iter->AddPut(key, "3");
+  internal_iter->AddPut(key, "4");
+  internal_iter->AddPut(key, "5");
+  internal_iter->AddPut(key, "6");
+  internal_iter->AddPut(key, "7");
+  internal_iter->AddPut(key, "8");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 2, 3, 0));
+  db_iter->Seek("b");
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), key);
+  ASSERT_EQ(db_iter->value().ToString(), "2");
+}
+
+TEST_F(DBIteratorTest, DBIterator14) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  std::string key("b");
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("b", "0");
+  internal_iter->AddPut("b", "1");
+  internal_iter->AddPut("b", "2");
+  internal_iter->AddPut("b", "3");
+  internal_iter->AddPut("a", "4");
+  internal_iter->AddPut("a", "5");
+  internal_iter->AddPut("a", "6");
+  internal_iter->AddPut("c", "7");
+  internal_iter->AddPut("c", "8");
+  internal_iter->AddPut("c", "9");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 4, 1, 0));
+  db_iter->Seek("b");
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  ASSERT_EQ(db_iter->value().ToString(), "3");
+  db_iter->SeekToFirst();
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "4");
 }
 
 class DBIterWithMergeIterTest : public testing::Test {

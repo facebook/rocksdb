@@ -570,7 +570,7 @@ WriteBatchWithIndex::WriteBatchWithIndex(
     bool overwrite_key)
     : rep(new Rep(default_index_comparator, reserved_bytes, overwrite_key)) {}
 
-WriteBatchWithIndex::~WriteBatchWithIndex() { delete rep; }
+WriteBatchWithIndex::~WriteBatchWithIndex() {}
 
 WriteBatch* WriteBatchWithIndex::GetWriteBatch() { return &rep->write_batch; }
 

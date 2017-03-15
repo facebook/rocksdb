@@ -32,7 +32,6 @@ class MergeHelper {
   MergeHelper(Env* env, const Comparator* user_comparator,
               const MergeOperator* user_merge_operator,
               const CompactionFilter* compaction_filter, Logger* logger,
-              unsigned min_partial_merge_operands,
               bool assert_valid_internal_key, SequenceNumber latest_snapshot,
               int level = 0, Statistics* stats = nullptr,
               const std::atomic<bool>* shutting_down = nullptr)
@@ -42,7 +41,6 @@ class MergeHelper {
         compaction_filter_(compaction_filter),
         shutting_down_(shutting_down),
         logger_(logger),
-        min_partial_merge_operands_(min_partial_merge_operands),
         assert_valid_internal_key_(assert_valid_internal_key),
         latest_snapshot_(latest_snapshot),
         level_(level),
@@ -156,7 +154,6 @@ class MergeHelper {
   const CompactionFilter* compaction_filter_;
   const std::atomic<bool>* shutting_down_;
   Logger* logger_;
-  unsigned min_partial_merge_operands_;
   bool assert_valid_internal_key_; // enforce no internal key corruption?
   SequenceNumber latest_snapshot_;
   int level_;

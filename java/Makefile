@@ -18,7 +18,6 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.ExternalSstFileInfo\
 	org.rocksdb.FlushOptions\
 	org.rocksdb.Filter\
-	org.rocksdb.GenericRateLimiterConfig\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.Logger\
@@ -91,6 +90,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
         org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptionsTest\
 	org.rocksdb.PlainTableConfigTest\
+	org.rocksdb.RateLimiterTest\
 	org.rocksdb.ReadOnlyTest\
 	org.rocksdb.ReadOptionsTest\
 	org.rocksdb.RocksDBTest\
@@ -136,6 +136,14 @@ JAVA_TESTCLASSPATH = $(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_MOCKITO_JAR):$(J
 
 MVN_LOCAL = ~/.m2/repository
 
+# Set the default JAVA_ARGS to "" for DEBUG_LEVEL=0
+JAVA_ARGS? =
+
+# When debugging add -Xcheck:jni to the java args
+ifneq ($(DEBUG_LEVEL),0)
+	JAVA_ARGS = -ea -Xcheck:jni
+endif
+
 clean:
 	$(AM_V_at)rm -rf include/*
 	$(AM_V_at)rm -rf test-libs/
@@ -164,7 +172,7 @@ sample: java
 	$(AM_V_at)javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBSample.java
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni_not_found
-	java -ea -Xcheck:jni -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBSample /tmp/rocksdbjni
+	java $(JAVA_ARGS) -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBSample /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni_not_found
 
@@ -172,7 +180,7 @@ column_family_sample: java
 	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSES)
 	$(AM_V_at)javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBColumnFamilySample.java
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
-	java -ea -Xcheck:jni -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBColumnFamilySample /tmp/rocksdbjni
+	java $(JAVA_ARGS) -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBColumnFamilySample /tmp/rocksdbjni
 	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 
 resolve_test_deps:
@@ -194,7 +202,7 @@ java_test: java resolve_test_deps
 test: java java_test run_test
 
 run_test:
-	java -ea -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
+	java $(JAVA_ARGS) -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
 	$(AM_V_GEN)mkdir -p $(BENCHMARK_MAIN_CLASSES)

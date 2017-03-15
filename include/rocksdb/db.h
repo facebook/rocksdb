@@ -16,6 +16,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "port/likely.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -292,9 +293,21 @@ class DB {
   // a status for which Status::IsNotFound() returns true.
   //
   // May return some other Status on an error.
+  inline Status Get(const ReadOptions& options,
+                    ColumnFamilyHandle* column_family, const Slice& key,
+                    std::string* value) {
+    assert(value != nullptr);
+    PinnableSlice pinnable_val(value);
+    assert(!pinnable_val.IsPinned());
+    auto s = Get(options, column_family, key, &pinnable_val);
+    if (LIKELY(s.ok()) && pinnable_val.IsPinned()) {
+      value->assign(pinnable_val.data(), pinnable_val.size());
+    }  // else value is already assigned
+    return s;
+  }
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value) = 0;
+                     PinnableSlice* value) = 0;
   virtual Status Get(const ReadOptions& options, const Slice& key, std::string* value) {
     return Get(options, DefaultColumnFamily(), key, value);
   }
@@ -476,7 +489,7 @@ class DB {
     static const std::string kNumDeletesImmMemTables;
 
     //  "rocksdb.estimate-num-keys" - returns estimated number of total keys in
-    //      the active and unflushed immutable memtables.
+    //      the active and unflushed immutable memtables and storage.
     static const std::string kEstimateNumKeys;
 
     //  "rocksdb.estimate-table-readers-mem" - returns estimated memory used for
@@ -598,6 +611,14 @@ class DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* value) = 0;
 
+  // Flags for DB::GetSizeApproximation that specify whether memtable 
+  // stats should be included, or file stats approximation or both
+  enum SizeApproximationFlags : uint8_t {
+    NONE = 0,
+    INCLUDE_MEMTABLES = 1,
+    INCLUDE_FILES = 1 << 1
+  };
+
   // For each i in [0,n-1], store in "sizes[i]", the approximate
   // file system space used by keys in "[range[i].start .. range[i].limit)".
   //
@@ -605,16 +626,52 @@ class DB {
   // if the user data compresses by a factor of ten, the returned
   // sizes will be one-tenth the size of the corresponding user data size.
   //
-  // If include_memtable is set to true, then the result will also
-  // include those recently written data in the mem-tables if
-  // the mem-table type supports it.
+  // If include_flags defines whether the returned size should include
+  // the recently written data in the mem-tables (if
+  // the mem-table type supports it), data serialized to disk, or both.
+  // include_flags should be of type DB::SizeApproximationFlags
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
-                                   bool include_memtable = false) = 0;
+                                   uint8_t include_flags
+                                   = INCLUDE_FILES) = 0;
   virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes,
-                                   bool include_memtable = false) {
+                                   uint8_t include_flags
+                                   = INCLUDE_FILES) {
     GetApproximateSizes(DefaultColumnFamily(), range, n, sizes,
-                        include_memtable);
+                        include_flags);
+  }
+
+  // The method is similar to GetApproximateSizes, except it
+  // returns approximate number of records in memtables.
+  virtual void GetApproximateMemTableStats(ColumnFamilyHandle* column_family,
+                                           const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) = 0;
+  virtual void GetApproximateMemTableStats(const Range& range,
+                                           uint64_t* const count,
+                                           uint64_t* const size) {
+    GetApproximateMemTableStats(DefaultColumnFamily(), range, count, size);
+  }
+
+  // Deprecated versions of GetApproximateSizes
+  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
+      const Range* range, int n, uint64_t* sizes,
+      bool include_memtable) {
+    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
+    if (include_memtable) {
+      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
+    }
+    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes, include_flags);
+  }
+  ROCKSDB_DEPRECATED_FUNC virtual void GetApproximateSizes(
+      ColumnFamilyHandle* column_family,
+      const Range* range, int n, uint64_t* sizes,
+      bool include_memtable) {
+    uint8_t include_flags = SizeApproximationFlags::INCLUDE_FILES;
+    if (include_memtable) {
+      include_flags |= SizeApproximationFlags::INCLUDE_MEMTABLES;
+    }
+    GetApproximateSizes(column_family, range, n, sizes, include_flags);
   }
 
   // Compact the underlying storage for the key range [*begin,*end].

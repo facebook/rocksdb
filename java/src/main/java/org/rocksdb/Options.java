@@ -188,7 +188,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setMergeOperator(final MergeOperator mergeOperator) {
-    setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
+    setMergeOperator(nativeHandle_, mergeOperator.nativeHandle_);
     return this;
   }
 
@@ -267,19 +267,6 @@ public class Options extends RocksObject
   public Options setMaxOpenFiles(final int maxOpenFiles) {
     assert(isOwningHandle());
     setMaxOpenFiles(nativeHandle_, maxOpenFiles);
-    return this;
-  }
-
-  @Override
-  public boolean disableDataSync() {
-    assert(isOwningHandle());
-    return disableDataSync(nativeHandle_);
-  }
-
-  @Override
-  public Options setDisableDataSync(final boolean disableDataSync) {
-    assert(isOwningHandle());
-    setDisableDataSync(nativeHandle_, disableDataSync);
     return this;
   }
 
@@ -697,13 +684,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setRateLimiterConfig(final RateLimiterConfig config) {
-    rateLimiterConfig_ = config;
-    setOldRateLimiter(nativeHandle_, config.newRateLimiterHandle());
-    return this;
-  }
-
-  @Override
   public Options setRateLimiter(final RateLimiter rateLimiter) {
     assert(isOwningHandle());
     rateLimiter_ = rateLimiter;
@@ -1011,19 +991,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public boolean verifyChecksumsInCompaction() {
-    return verifyChecksumsInCompaction(nativeHandle_);
-  }
-
-  @Override
-  public Options setVerifyChecksumsInCompaction(
-      final boolean verifyChecksumsInCompaction) {
-    setVerifyChecksumsInCompaction(
-        nativeHandle_, verifyChecksumsInCompaction);
-    return this;
-  }
-
-  @Override
   public long maxSequentialSkipInIterations() {
     return maxSequentialSkipInIterations(nativeHandle_);
   }
@@ -1102,18 +1069,6 @@ public class Options extends RocksObject
   public Options setMinWriteBufferNumberToMerge(
       final int minWriteBufferNumberToMerge) {
     setMinWriteBufferNumberToMerge(nativeHandle_, minWriteBufferNumberToMerge);
-    return this;
-  }
-
-  @Override
-  public int minPartialMergeOperands() {
-    return minPartialMergeOperands(nativeHandle_);
-  }
-
-  @Override
-  public Options setMinPartialMergeOperands(
-      final int minPartialMergeOperands) {
-    setMinPartialMergeOperands(nativeHandle_, minPartialMergeOperands);
     return this;
   }
 
@@ -1240,9 +1195,6 @@ public class Options extends RocksObject
   private native void setParanoidChecks(
       long handle, boolean paranoidChecks);
   private native boolean paranoidChecks(long handle);
-  @Deprecated
-  private native void setOldRateLimiter(long handle,
-      long rateLimiterHandle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
   private native void setLogger(long handle,
@@ -1256,8 +1208,6 @@ public class Options extends RocksObject
   private native long maxTotalWalSize(long handle);
   private native void createStatistics(long optHandle);
   private native long statisticsPtr(long optHandle);
-  private native void setDisableDataSync(long handle, boolean disableDataSync);
-  private native boolean disableDataSync(long handle);
   private native boolean useFsync(long handle);
   private native void setUseFsync(long handle, boolean useFsync);
   private native void setDbLogDir(long handle, String dbLogDir);
@@ -1421,9 +1371,6 @@ public class Options extends RocksObject
   private native void setPurgeRedundantKvsWhileFlush(
       long handle, boolean purgeRedundantKvsWhileFlush);
   private native boolean purgeRedundantKvsWhileFlush(long handle);
-  private native void setVerifyChecksumsInCompaction(
-      long handle, boolean verifyChecksumsInCompaction);
-  private native boolean verifyChecksumsInCompaction(long handle);
   private native void setMaxSequentialSkipInIterations(
       long handle, long maxSequentialSkipInIterations);
   private native long maxSequentialSkipInIterations(long handle);
@@ -1448,9 +1395,6 @@ public class Options extends RocksObject
       long handle, long maxSuccessiveMerges)
       throws IllegalArgumentException;
   private native long maxSuccessiveMerges(long handle);
-  private native void setMinPartialMergeOperands(
-      long handle, int minPartialMergeOperands);
-  private native int minPartialMergeOperands(long handle);
   private native void setOptimizeFiltersForHits(long handle,
       boolean optimizeFiltersForHits);
   private native boolean optimizeFiltersForHits(long handle);
@@ -1482,7 +1426,6 @@ public class Options extends RocksObject
   Env env_;
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;
-  RateLimiterConfig rateLimiterConfig_;
   RateLimiter rateLimiter_;
   AbstractComparator<? extends AbstractSlice<?>> comparator_;
 }

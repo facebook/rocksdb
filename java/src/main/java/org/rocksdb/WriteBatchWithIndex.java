@@ -144,6 +144,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @param options The database options to use
    * @param key The key to read the value for
    *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
+   *
    * @throws RocksDBException if the batch does not have enough data to resolve
    * Merge operations, MergeInProgress status may be returned.
    */
@@ -159,6 +162,9 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *
    * @param options The database options to use
    * @param key The key to read the value for
+   *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
    *
    * @throws RocksDBException if the batch does not have enough data to resolve
    * Merge operations, MergeInProgress status may be returned.
@@ -181,9 +187,13 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * (the keys in this batch do not yet belong to any snapshot and will be
    * fetched regardless).
    *
+   * @param db The Rocks database
    * @param columnFamilyHandle The column family to retrieve the value from
    * @param options The read options to use
    * @param key The key to read the value for
+   *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
    *
    * @throws RocksDBException if the value for the key cannot be read
    */
@@ -207,8 +217,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * (the keys in this batch do not yet belong to any snapshot and will be
    * fetched regardless).
    *
+   * @param db The Rocks database
    * @param options The read options to use
    * @param key The key to read the value for
+   *
+   * @return a byte array storing the value associated with the input key if
+   *     any. null if it does not find the specified key.
    *
    * @throws RocksDBException if the value for the key cannot be read
    */
@@ -234,6 +248,12 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
       final int keyLen);
   @Override final native void remove(final long handle, final byte[] key,
       final int keyLen, final long cfHandle);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen);
+  @Override
+  final native void deleteRange(final long handle, final byte[] beginKey, final int beginKeyLen,
+      final byte[] endKey, final int endKeyLen, final long cfHandle);
   @Override final native void putLogData(final long handle, final byte[] blob,
       final int blobLen);
   @Override final native void clear0(final long handle);

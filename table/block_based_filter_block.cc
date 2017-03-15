@@ -113,7 +113,10 @@ inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   }
 }
 
-Slice BlockBasedFilterBlockBuilder::Finish() {
+Slice BlockBasedFilterBlockBuilder::Finish(const BlockHandle& tmp,
+                                           Status* status) {
+  // In this impl we ignore BlockHandle
+  *status = Status::OK();
   if (!start_.empty()) {
     GenerateFilter();
   }

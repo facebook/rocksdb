@@ -30,6 +30,8 @@
 
 #include <stdint.h>
 
+#include "port/win/win_thread.h"
+
 #include "rocksdb/options.h"
 
 #undef min
@@ -206,6 +208,9 @@ class CondVar {
   Mutex* mu_;
 };
 
+// Wrapper around the platform efficient
+// or otherwise preferrable implementation
+using Thread = WindowsThread;
 
 // OnceInit type helps emulate
 // Posix semantics with initialization

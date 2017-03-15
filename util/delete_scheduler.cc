@@ -34,7 +34,7 @@ DeleteScheduler::DeleteScheduler(Env* env, const std::string& trash_dir,
     bg_thread_.reset();
   } else {
     bg_thread_.reset(
-        new std::thread(&DeleteScheduler::BackgroundEmptyTrash, this));
+        new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
   }
 }
 

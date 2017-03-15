@@ -9,9 +9,11 @@ package org.rocksdb;
  * StringAppendOperator is a merge operator that concatenates
  * two strings.
  */
-public class StringAppendOperator implements MergeOperator {
-    @Override public long newMergeOperatorHandle() {
-        return newMergeOperatorHandleImpl();
+public class StringAppendOperator extends MergeOperator {
+    public StringAppendOperator() {
+        super(newSharedStringAppendOperator());
     }
-    private native long newMergeOperatorHandleImpl();
+
+    private native static long newSharedStringAppendOperator();
+    @Override protected final native void disposeInternal(final long handle);
 }

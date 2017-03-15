@@ -66,12 +66,13 @@ int main() {
 #include <string>
 #include <thread>
 
+#include "db/filename.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 
-#include "db/filename.h"
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -290,7 +291,7 @@ class WriteStress {
   // frequently than the first one.
   std::atomic<char> key_prefix_[kPrefixSize];
   std::atomic<bool> stop_;
-  std::vector<std::thread> threads_;
+  std::vector<port::Thread> threads_;
   std::unique_ptr<DB> db_;
 };
 

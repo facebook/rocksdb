@@ -112,7 +112,8 @@ Status BuildTable(
       }
       file->SetIOPriority(io_priority);
 
-      file_writer.reset(new WritableFileWriter(std::move(file), env_options));
+      file_writer.reset(new WritableFileWriter(std::move(file), env_options,
+                                               ioptions.statistics));
 
       builder = NewTableBuilder(
           ioptions, internal_comparator, int_tbl_prop_collector_factories,
@@ -122,7 +123,6 @@ Status BuildTable(
 
     MergeHelper merge(env, internal_comparator.user_comparator(),
                       ioptions.merge_operator, nullptr, ioptions.info_log,
-                      mutable_cf_options.min_partial_merge_operands,
                       true /* internal key corruption is not ok */,
                       snapshots.empty() ? 0 : snapshots.back());
 
@@ -170,7 +170,7 @@ Status BuildTable(
     delete builder;
 
     // Finish and check for file errors
-    if (s.ok() && !empty && !ioptions.disable_data_sync) {
+    if (s.ok() && !empty) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       file_writer->Sync(ioptions.use_fsync);
     }

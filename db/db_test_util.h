@@ -14,9 +14,6 @@
 
 #include <fcntl.h>
 #include <inttypes.h>
-#ifndef OS_WIN
-#include <unistd.h>
-#endif
 
 #include <algorithm>
 #include <map>
@@ -58,7 +55,6 @@
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/xfunc.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -119,6 +115,8 @@ struct OptionsOverride {
 };
 
 }  // namespace anon
+
+enum SkipPolicy { kSkipNone = 0, kSkipNoSnapshot = 1, kSkipNoPrefix = 2 };
 
 // A hacky skip list mem table that triggers flush after number of entries.
 class SpecialMemTableRep : public MemTableRep {
@@ -231,6 +229,20 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
+      Status PositionedAppend(const Slice& data, uint64_t offset) override {
+        if (env_->table_write_callback_) {
+          (*env_->table_write_callback_)();
+        }
+        if (env_->drop_writes_.load(std::memory_order_acquire)) {
+          // Drop writes on the floor
+          return Status::OK();
+        } else if (env_->no_space_.load(std::memory_order_acquire)) {
+          return Status::NoSpace("No space left on device");
+        } else {
+          env_->bytes_written_ += data.size();
+          return base_->PositionedAppend(data, offset);
+        }
+      }
       Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
@@ -256,6 +268,9 @@ class SpecialEnv : public EnvWrapper {
       }
       Env::IOPriority GetIOPriority() override {
         return base_->GetIOPriority();
+      }
+      bool use_direct_io() const override {
+        return base_->use_direct_io();
       }
     };
     class ManifestFile : public WritableFile {
@@ -358,7 +373,14 @@ class SpecialEnv : public EnvWrapper {
       return Status::IOError("simulated write error");
     }
 
-    Status s = target()->NewWritableFile(f, r, soptions);
+    EnvOptions optimized = soptions;
+    if (strstr(f.c_str(), "MANIFEST") != nullptr ||
+        strstr(f.c_str(), "log") != nullptr) {
+      optimized.use_mmap_writes = false;
+      optimized.use_direct_writes = false;
+    }
+
+    Status s = target()->NewWritableFile(f, r, optimized);
     if (s.ok()) {
       if (strstr(f.c_str(), ".sst") != nullptr) {
         r->reset(new SSTableFile(this, std::move(*r)));
@@ -594,6 +616,7 @@ class DBTestBase : public testing::Test {
     kLevelSubcompactions = 31,
     kUniversalSubcompactions = 32,
     kBlockBasedTableWithIndexRestartInterval = 33,
+    kBlockBasedTableWithPartitionedIndex = 34,
   };
   int option_config_;
 
@@ -645,8 +668,11 @@ class DBTestBase : public testing::Test {
   // test.  Return false if there are no more configurations to test.
   bool ChangeOptions(int skip_mask = kNoSkip);
 
-  // Switch between different compaction styles (we have only 2 now).
+  // Switch between different compaction styles.
   bool ChangeCompactOptions();
+
+  // Switch between different WAL-realted options.
+  bool ChangeWalOptions();
 
   // Switch between different filter policy
   // Jump from kDefault to kFilter to kFullFilter

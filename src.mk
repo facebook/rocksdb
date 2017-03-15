@@ -49,7 +49,6 @@ LIB_SOURCES =                                                   \
   db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
   db/write_thread.cc                                            \
-  db/xfunc_test_points.cc                                       \
   memtable/hash_cuckoo_rep.cc                                   \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
@@ -73,10 +72,12 @@ LIB_SOURCES =                                                   \
   table/format.cc                                               \
   table/full_filter_block.cc                                    \
   table/get_context.cc                                          \
+  table/index_builder.cc                                        \
   table/iterator.cc                                             \
-  table/merger.cc                                               \
+  table/merging_iterator.cc                                     \
   table/meta_blocks.cc                                          \
   table/sst_file_writer.cc                                      \
+  table/partitioned_filter_block.cc                             \
   table/plain_table_builder.cc                                  \
   table/plain_table_factory.cc                                  \
   table/plain_table_index.cc                                    \
@@ -142,7 +143,6 @@ LIB_SOURCES =                                                   \
   util/thread_status_util_debug.cc                              \
   util/threadpool_imp.cc                                        \
   util/transaction_test_util.cc                                 \
-  util/xfunc.cc                                                 \
   util/xxhash.cc                                                \
   utilities/backupable/backupable_db.cc                         \
   utilities/blob_db/blob_db.cc                                  \
@@ -153,7 +153,6 @@ LIB_SOURCES =                                                   \
   utilities/document/json_document_builder.cc                   \
   utilities/document/json_document.cc                           \
   utilities/env_mirror.cc                                       \
-  utilities/env_registry.cc                                     \
   utilities/geodb/geodb_impl.cc                                 \
   utilities/leveldb_options/leveldb_options.cc                  \
   utilities/lua/rocks_lua_compaction_filter.cc                  \
@@ -221,6 +220,7 @@ MAIN_SOURCES =                                                    \
   db/corruption_test.cc                                                 \
   db/cuckoo_table_db_test.cc                                            \
   db/dbformat_test.cc                                                   \
+  db/db_basic_test.cc                                                   \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
   db/db_block_cache_test.cc                                             \
@@ -239,6 +239,7 @@ MAIN_SOURCES =                                                    \
   db/db_range_del_test.cc                                               \
   db/db_sst_test.cc                                                     \
   db/external_sst_file_test.cc                                          \
+  db/external_sst_file_basic_test.cc                                    \
   db/db_tailing_iter_test.cc                                            \
   db/db_universal_compaction_test.cc                                    \
   db/db_wal_test.cc                                                     \
@@ -299,7 +300,7 @@ MAIN_SOURCES =                                                    \
   utilities/checkpoint/checkpoint_test.cc                               \
   utilities/document/document_db_test.cc                                \
   utilities/document/json_document_test.cc                              \
-  utilities/env_registry_test.cc                                        \
+  utilities/object_registry_test.cc                                     \
   utilities/geodb/geodb_test.cc                                         \
   utilities/memory/memory_test.cc                                       \
   utilities/merge_operators/string_append/stringappend_test.cc          \
@@ -360,18 +361,3 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/writebatchhandlerjnicallback.cc               \
   java/rocksjni/write_batch_test.cc                           \
   java/rocksjni/write_batch_with_index.cc
-
-# Currently, we do not generate dependencies for
-# java/rocksjni/write_batch_test.cc, because its dependent,
-# java/include/org_rocksdb_WriteBatch.h is generated.
-# TODO/FIXME: fix the above.  Otherwise, the current rules would fail:
-#   java/rocksjni/write_batch_test.cc:13:44: fatal error: include/org_rocksdb_WriteBatch.h: No such file or directory
-#    #include "include/org_rocksdb_WriteBatch.h"
-
-# These are the xfunc tests run :
-XFUNC_TESTS =                                                   \
-  "managed_new"                                                 \
-  "managed_xftest_dropold"                                      \
-  "managed_xftest_release"                                      \
-  "inplace_lock_test"                                           \
-  "transaction"
