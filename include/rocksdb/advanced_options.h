@@ -454,6 +454,8 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_sequential_skip_in_iterations = 8;
 
+  uint64_t max_tombstones_skip_in_iterations = 0;
+
   // This is a factory that provides MemTableRep objects.
   // Default: a factory that provides a skip-list-based implementation of
   // MemTableRep.

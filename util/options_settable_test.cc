@@ -400,6 +400,7 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "memtable_huge_page_size=2557;"
       "max_successive_merges=5497;"
       "max_sequential_skip_in_iterations=4294971408;"
+      "max_tombstones_skip_in_iterations=34561298;"
       "arena_block_size=1893;"
       "target_file_size_multiplier=35;"
       "min_write_buffer_number_to_merge=9;"

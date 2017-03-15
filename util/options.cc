@@ -78,6 +78,8 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       compaction_options_fifo(options.compaction_options_fifo),
       max_sequential_skip_in_iterations(
           options.max_sequential_skip_in_iterations),
+      max_tombstones_skip_in_iterations(
+          options.max_tombstones_skip_in_iterations),
       memtable_factory(options.memtable_factory),
       table_properties_collector_factories(
           options.table_properties_collector_factories),
@@ -281,6 +283,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     ROCKS_LOG_HEADER(
         log, "      Options.max_sequential_skip_in_iterations: %" PRIu64,
         max_sequential_skip_in_iterations);
+    ROCKS_LOG_HEADER(
+        log, "      Options.max_tombstones_skip_in_iterations: %" PRIu64,
+        max_tombstones_skip_in_iterations);
     ROCKS_LOG_HEADER(
         log, "                   Options.max_compaction_bytes: %" PRIu64,
         max_compaction_bytes);
