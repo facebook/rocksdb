@@ -115,7 +115,6 @@ class WritableFileWriter {
   // so we need to go back and write that page again
   uint64_t                next_write_offset_;
   bool                    pending_sync_;
-  const bool              direct_io_;
   uint64_t                last_sync_size_;
   uint64_t                bytes_per_sync_;
   RateLimiter*            rate_limiter_;
@@ -130,7 +129,6 @@ class WritableFileWriter {
         filesize_(0),
         next_write_offset_(0),
         pending_sync_(false),
-        direct_io_(writable_file_->use_direct_io()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter),
