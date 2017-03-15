@@ -163,8 +163,7 @@ void WalManager::PurgeObsoleteWALFiles() {
     return;
   }
 
-  size_t log_files_num = 0;
-  uint64_t log_file_size = 0;
+  uint64_t total_log_file_size = 0;
 
   for (auto& f : files) {
     uint64_t number;
@@ -205,8 +204,7 @@ void WalManager::PurgeObsoleteWALFiles() {
           return;
         } else {
           if (file_size > 0) {
-            log_file_size = std::max(log_file_size, file_size);
-            ++log_files_num;
+            total_log_file_size += file_size;
           } else {
             s = env_->DeleteFile(file_path);
             if (!s.ok()) {
@@ -224,30 +222,35 @@ void WalManager::PurgeObsoleteWALFiles() {
     }
   }
 
-  if (0 == log_files_num || !size_limit_enabled) {
+  if (total_log_file_size == 0) {
     return;
   }
 
-  size_t const files_keep_num =
-      db_options_.wal_size_limit_mb * 1024 * 1024 / log_file_size;
-  if (log_files_num <= files_keep_num) {
+  if (total_log_file_size <= db_options_.wal_size_limit_mb * 1024 * 1024) {
     return;
   }
+  uint64_t overflow_size =
+      total_log_file_size - db_options_.wal_size_limit_mb * 1024 * 1024;
 
-  size_t files_del_num = log_files_num - files_keep_num;
   VectorLogPtr archived_logs;
   GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
 
-  if (files_del_num > archived_logs.size()) {
-    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-        "Trying to delete more archived log files than "
-        "exist. Deleting all");
-    files_del_num = archived_logs.size();
-  }
-
-  for (size_t i = 0; i < files_del_num; ++i) {
-    std::string const file_path = archived_logs[i]->PathName();
-    s = env_->DeleteFile(db_options_.wal_dir + "/" + file_path);
+  for (const auto &log : archived_logs) {
+    std::string const file_path =
+        db_options_.wal_dir + "/" + log->PathName();
+    uint64_t file_size;
+    s = env_->GetFileSize(file_path, &file_size);
+    if (!s.ok()) {
+      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+          "Unable to get file size: %s: %s",
+          file_path.c_str(), s.ToString().c_str());
+      return;
+    }
+    if (file_size > overflow_size) {
+      break;
+    }
+    overflow_size -= file_size;
+    s = env_->DeleteFile(file_path);
     if (!s.ok()) {
       Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
           "Unable to delete file: %s: %s", file_path.c_str(),
@@ -255,7 +258,7 @@ void WalManager::PurgeObsoleteWALFiles() {
       continue;
     } else {
       MutexLock l(&read_first_record_cache_mutex_);
-      read_first_record_cache_.erase(archived_logs[i]->LogNumber());
+      read_first_record_cache_.erase(log->LogNumber());
     }
   }
 }
