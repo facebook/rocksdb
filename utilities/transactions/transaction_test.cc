@@ -1594,6 +1594,9 @@ TEST_P(TransactionTest, InvalidPrepareFromLogGap) {
   s = db->Get(read_options, "cats", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "dogs1");
+
+  delete txn1;
+  delete txn2;
 }
 
 TEST_P(TransactionTest, FirstWriteTest) {
