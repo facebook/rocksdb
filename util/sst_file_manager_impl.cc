@@ -87,6 +87,10 @@ int64_t SstFileManagerImpl::GetDeleteRateBytesPerSecond() {
   return delete_scheduler_.GetRateBytesPerSecond();
 }
 
+void SstFileManagerImpl::SetDeleteRateBytesPerSecond(int64_t delete_rate) {
+  return delete_scheduler_.SetRateBytesPerSecond(delete_rate);
+}
+
 Status SstFileManagerImpl::ScheduleFileDeletion(const std::string& file_path) {
   return delete_scheduler_.DeleteFile(file_path);
 }
@@ -127,7 +131,7 @@ SstFileManager* NewSstFileManager(Env* env, std::shared_ptr<Logger> info_log,
       new SstFileManagerImpl(env, info_log, trash_dir, rate_bytes_per_sec);
 
   Status s;
-  if (trash_dir != "" && rate_bytes_per_sec > 0) {
+  if (trash_dir != "") {
     s = env->CreateDirIfMissing(trash_dir);
     if (s.ok() && delete_existing_trash) {
       std::vector<std::string> files_in_trash;

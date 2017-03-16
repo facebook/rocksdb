@@ -50,6 +50,11 @@ class SstFileManager {
   // Return delete rate limit in bytes per second.
   // thread-safe
   virtual int64_t GetDeleteRateBytesPerSecond() = 0;
+
+  // Update the delete rate limit in bytes per second.
+  // zero means disable delete rate limiting and delete files immediately
+  // thread-safe
+  virtual void SetDeleteRateBytesPerSecond(int64_t delete_rate) = 0;
 };
 
 // Create a new SstFileManager that can be shared among multiple RocksDB
