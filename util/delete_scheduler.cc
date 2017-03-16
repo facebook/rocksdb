@@ -30,13 +30,8 @@ DeleteScheduler::DeleteScheduler(Env* env, const std::string& trash_dir,
       cv_(&mu_),
       info_log_(info_log),
       sst_file_manager_(sst_file_manager) {
-  if (rate_bytes_per_sec_ <= 0) {
-    // Rate limiting is disabled
-    bg_thread_.reset();
-  } else {
-    bg_thread_.reset(
-        new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
-  }
+  bg_thread_.reset(
+      new port::Thread(&DeleteScheduler::BackgroundEmptyTrash, this));
 }
 
 DeleteScheduler::~DeleteScheduler() {
@@ -52,8 +47,9 @@ DeleteScheduler::~DeleteScheduler() {
 
 Status DeleteScheduler::DeleteFile(const std::string& file_path) {
   Status s;
-  if (rate_bytes_per_sec_ <= 0) {
+  if (rate_bytes_per_sec_.load() <= 0) {
     // Rate limiting is disabled
+    TEST_SYNC_POINT("DeleteScheduler::DeleteFile");
     s = env_->DeleteFile(file_path);
     if (s.ok() && sst_file_manager_) {
       sst_file_manager_->OnDeleteFile(file_path);
@@ -147,7 +143,16 @@ void DeleteScheduler::BackgroundEmptyTrash() {
     // Delete all files in queue_
     uint64_t start_time = env_->NowMicros();
     uint64_t total_deleted_bytes = 0;
+    int64_t current_delete_rate = rate_bytes_per_sec_.load();
     while (!queue_.empty() && !closing_) {
+      if (current_delete_rate != rate_bytes_per_sec_.load()) {
+        // User changed the delete rate
+        current_delete_rate = rate_bytes_per_sec_.load();
+        start_time = env_->NowMicros();
+        total_deleted_bytes = 0;
+      }
+
+      // Get new file to delete
       std::string path_in_trash = queue_.front();
       queue_.pop();
 
@@ -164,9 +169,16 @@ void DeleteScheduler::BackgroundEmptyTrash() {
       }
 
       // Apply penlty if necessary
-      uint64_t total_penlty =
-          ((total_deleted_bytes * kMicrosInSecond) / rate_bytes_per_sec_);
-      while (!closing_ && !cv_.TimedWait(start_time + total_penlty)) {}
+      uint64_t total_penlty;
+      if (current_delete_rate > 0) {
+        // rate limiting is enabled
+        total_penlty =
+            ((total_deleted_bytes * kMicrosInSecond) / current_delete_rate);
+        while (!closing_ && !cv_.TimedWait(start_time + total_penlty)) {}
+      } else {
+        // rate limiting is disabled
+        total_penlty = 0;
+      }
       TEST_SYNC_POINT_CALLBACK("DeleteScheduler::BackgroundEmptyTrash:Wait",
                                &total_penlty);
 
