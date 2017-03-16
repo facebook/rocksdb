@@ -539,7 +539,7 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits = 6;
 
-  // DEPRECATED
+  // NOT SUPPORTED ANYMORE
   // int table_cache_remove_scan_count_limit;
 
   // The following two fields affect how archived logs will be deleted.
@@ -595,7 +595,7 @@ struct DBOptions {
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec = true;
 
-  // DEPRECATED -- this options is no longer used
+  // NOT SUPPORTED ANYMORE -- this options is no longer used
   bool skip_log_error_on_recovery = false;
 
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
@@ -911,7 +911,7 @@ struct ReadOptions {
   // If this option is set and memtable implementation allows, Seek
   // might only return keys with the same prefix as the seek-key
   //
-  // ! DEPRECATED: prefix_seek is on by default when prefix_extractor
+  // ! NOT SUPPORTED ANYMORE: prefix_seek is on by default when prefix_extractor
   // is configured
   // bool prefix_seek;
 
@@ -921,21 +921,6 @@ struct ReadOptions {
   // snapshot of the state at the beginning of this read operation.
   // Default: nullptr
   const Snapshot* snapshot;
-
-  // If "prefix" is non-nullptr, and ReadOptions is being passed to
-  // db.NewIterator, only return results when the key begins with this
-  // prefix.  This field is ignored by other calls (e.g., Get).
-  // Options.prefix_extractor must also be set, and
-  // prefix_extractor.InRange(prefix) must be true.  The iterator
-  // returned by NewIterator when this option is set will behave just
-  // as if the underlying store did not contain any non-matching keys,
-  // with two exceptions.  Seek() only accepts keys starting with the
-  // prefix, and SeekToLast() is not supported.  prefix filter with this
-  // option will sometimes reduce the number of read IOPs.
-  // Default: nullptr
-  //
-  // ! DEPRECATED
-  // const Slice* prefix;
 
   // "iterate_upper_bound" defines the extent upto which the forward iterator
   // can returns entries. Once the bound is reached, Valid() will be false.
