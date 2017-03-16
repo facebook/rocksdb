@@ -16,6 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_manager.h"
 #include "rocksdb/wal_filter.h"
+#include "util/logging.h"
 
 namespace rocksdb {
 
@@ -88,120 +89,132 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
 }
 
 void ImmutableDBOptions::Dump(Logger* log) const {
-  Header(log, "                        Options.error_if_exists: %d",
-         error_if_exists);
-  Header(log, "                      Options.create_if_missing: %d",
-         create_if_missing);
-  Header(log, "                        Options.paranoid_checks: %d",
-         paranoid_checks);
-  Header(log, "                                    Options.env: %p", env);
-  Header(log, "                               Options.info_log: %p",
-         info_log.get());
-  Header(log, "                         Options.max_open_files: %d",
-         max_open_files);
-  Header(log, "               Options.max_file_opening_threads: %d",
-         max_file_opening_threads);
-  Header(log, "                              Options.use_fsync: %d", use_fsync);
-  Header(log,
-         "                      Options.max_log_file_size: %" ROCKSDB_PRIszt,
-         max_log_file_size);
-  Header(log, "                 Options.max_manifest_file_size: %" PRIu64,
-         max_manifest_file_size);
-  Header(log,
-         "                  Options.log_file_time_to_roll: %" ROCKSDB_PRIszt,
-         log_file_time_to_roll);
-  Header(log,
-         "                      Options.keep_log_file_num: %" ROCKSDB_PRIszt,
-         keep_log_file_num);
-  Header(log,
-         "                   Options.recycle_log_file_num: %" ROCKSDB_PRIszt,
-         recycle_log_file_num);
-  Header(log, "                        Options.allow_fallocate: %d",
-         allow_fallocate);
-  Header(log, "                       Options.allow_mmap_reads: %d",
-         allow_mmap_reads);
-  Header(log, "                      Options.allow_mmap_writes: %d",
-         allow_mmap_writes);
-  Header(log, "                       Options.use_direct_reads: %d",
-         use_direct_reads);
-  Header(log, "                       Options.use_direct_writes: %d",
-         use_direct_writes);
-  Header(log, "         Options.create_missing_column_families: %d",
-         create_missing_column_families);
-  Header(log, "                             Options.db_log_dir: %s",
-         db_log_dir.c_str());
-  Header(log, "                                Options.wal_dir: %s",
-         wal_dir.c_str());
-  Header(log, "               Options.table_cache_numshardbits: %d",
-         table_cache_numshardbits);
-  Header(log, "                     Options.max_subcompactions: %" PRIu32,
-         max_subcompactions);
-  Header(log, "                 Options.max_background_flushes: %d",
-         max_background_flushes);
-  Header(log, "                        Options.WAL_ttl_seconds: %" PRIu64,
-         wal_ttl_seconds);
-  Header(log, "                      Options.WAL_size_limit_MB: %" PRIu64,
-         wal_size_limit_mb);
-  Header(log,
-         "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
-         manifest_preallocation_size);
-  Header(log, "                    Options.is_fd_close_on_exec: %d",
-         is_fd_close_on_exec);
-  Header(log, "                  Options.stats_dump_period_sec: %u",
-         stats_dump_period_sec);
-  Header(log, "                  Options.advise_random_on_open: %d",
-         advise_random_on_open);
-  Header(log,
-         "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
-         db_write_buffer_size);
-  Header(log, "        Options.access_hint_on_compaction_start: %d",
-         static_cast<int>(access_hint_on_compaction_start));
-  Header(log, " Options.new_table_reader_for_compaction_inputs: %d",
-         new_table_reader_for_compaction_inputs);
-  Header(log,
-         "              Options.compaction_readahead_size: %" ROCKSDB_PRIszt,
-         compaction_readahead_size);
-  Header(log,
-         "          Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt,
-         random_access_max_buffer_size);
-  Header(log,
-         "          Options.writable_file_max_buffer_size: %" ROCKSDB_PRIszt,
-         writable_file_max_buffer_size);
-  Header(log, "                     Options.use_adaptive_mutex: %d",
-         use_adaptive_mutex);
-  Header(log, "                           Options.rate_limiter: %p",
-         rate_limiter.get());
+  ROCKS_LOG_HEADER(log, "                        Options.error_if_exists: %d",
+                   error_if_exists);
+  ROCKS_LOG_HEADER(log, "                      Options.create_if_missing: %d",
+                   create_if_missing);
+  ROCKS_LOG_HEADER(log, "                        Options.paranoid_checks: %d",
+                   paranoid_checks);
+  ROCKS_LOG_HEADER(log, "                                    Options.env: %p",
+                   env);
+  ROCKS_LOG_HEADER(log, "                               Options.info_log: %p",
+                   info_log.get());
+  ROCKS_LOG_HEADER(log, "                         Options.max_open_files: %d",
+                   max_open_files);
+  ROCKS_LOG_HEADER(log, "               Options.max_file_opening_threads: %d",
+                   max_file_opening_threads);
+  ROCKS_LOG_HEADER(log, "                              Options.use_fsync: %d",
+                   use_fsync);
+  ROCKS_LOG_HEADER(
+      log, "                      Options.max_log_file_size: %" ROCKSDB_PRIszt,
+      max_log_file_size);
+  ROCKS_LOG_HEADER(log,
+                   "                 Options.max_manifest_file_size: %" PRIu64,
+                   max_manifest_file_size);
+  ROCKS_LOG_HEADER(
+      log, "                  Options.log_file_time_to_roll: %" ROCKSDB_PRIszt,
+      log_file_time_to_roll);
+  ROCKS_LOG_HEADER(
+      log, "                      Options.keep_log_file_num: %" ROCKSDB_PRIszt,
+      keep_log_file_num);
+  ROCKS_LOG_HEADER(
+      log, "                   Options.recycle_log_file_num: %" ROCKSDB_PRIszt,
+      recycle_log_file_num);
+  ROCKS_LOG_HEADER(log, "                        Options.allow_fallocate: %d",
+                   allow_fallocate);
+  ROCKS_LOG_HEADER(log, "                       Options.allow_mmap_reads: %d",
+                   allow_mmap_reads);
+  ROCKS_LOG_HEADER(log, "                      Options.allow_mmap_writes: %d",
+                   allow_mmap_writes);
+  ROCKS_LOG_HEADER(log, "                       Options.use_direct_reads: %d",
+                   use_direct_reads);
+  ROCKS_LOG_HEADER(log, "                       Options.use_direct_writes: %d",
+                   use_direct_writes);
+  ROCKS_LOG_HEADER(log, "         Options.create_missing_column_families: %d",
+                   create_missing_column_families);
+  ROCKS_LOG_HEADER(log, "                             Options.db_log_dir: %s",
+                   db_log_dir.c_str());
+  ROCKS_LOG_HEADER(log, "                                Options.wal_dir: %s",
+                   wal_dir.c_str());
+  ROCKS_LOG_HEADER(log, "               Options.table_cache_numshardbits: %d",
+                   table_cache_numshardbits);
+  ROCKS_LOG_HEADER(log,
+                   "                     Options.max_subcompactions: %" PRIu32,
+                   max_subcompactions);
+  ROCKS_LOG_HEADER(log, "                 Options.max_background_flushes: %d",
+                   max_background_flushes);
+  ROCKS_LOG_HEADER(log,
+                   "                        Options.WAL_ttl_seconds: %" PRIu64,
+                   wal_ttl_seconds);
+  ROCKS_LOG_HEADER(log,
+                   "                      Options.WAL_size_limit_MB: %" PRIu64,
+                   wal_size_limit_mb);
+  ROCKS_LOG_HEADER(
+      log, "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
+      manifest_preallocation_size);
+  ROCKS_LOG_HEADER(log, "                    Options.is_fd_close_on_exec: %d",
+                   is_fd_close_on_exec);
+  ROCKS_LOG_HEADER(log, "                  Options.stats_dump_period_sec: %u",
+                   stats_dump_period_sec);
+  ROCKS_LOG_HEADER(log, "                  Options.advise_random_on_open: %d",
+                   advise_random_on_open);
+  ROCKS_LOG_HEADER(
+      log, "                   Options.db_write_buffer_size: %" ROCKSDB_PRIszt,
+      db_write_buffer_size);
+  ROCKS_LOG_HEADER(log, "        Options.access_hint_on_compaction_start: %d",
+                   static_cast<int>(access_hint_on_compaction_start));
+  ROCKS_LOG_HEADER(log, " Options.new_table_reader_for_compaction_inputs: %d",
+                   new_table_reader_for_compaction_inputs);
+  ROCKS_LOG_HEADER(
+      log, "              Options.compaction_readahead_size: %" ROCKSDB_PRIszt,
+      compaction_readahead_size);
+  ROCKS_LOG_HEADER(
+      log, "          Options.random_access_max_buffer_size: %" ROCKSDB_PRIszt,
+      random_access_max_buffer_size);
+  ROCKS_LOG_HEADER(
+      log, "          Options.writable_file_max_buffer_size: %" ROCKSDB_PRIszt,
+      writable_file_max_buffer_size);
+  ROCKS_LOG_HEADER(log, "                     Options.use_adaptive_mutex: %d",
+                   use_adaptive_mutex);
+  ROCKS_LOG_HEADER(log, "                           Options.rate_limiter: %p",
+                   rate_limiter.get());
   Header(
       log, "    Options.sst_file_manager.rate_bytes_per_sec: %" PRIi64,
       sst_file_manager ? sst_file_manager->GetDeleteRateBytesPerSecond() : 0);
-  Header(log, "                         Options.bytes_per_sync: %" PRIu64,
-         bytes_per_sync);
-  Header(log, "                     Options.wal_bytes_per_sync: %" PRIu64,
-         wal_bytes_per_sync);
-  Header(log, "                      Options.wal_recovery_mode: %d",
-         wal_recovery_mode);
-  Header(log, "                 Options.enable_thread_tracking: %d",
-         enable_thread_tracking);
-  Header(log, "        Options.allow_concurrent_memtable_write: %d",
-         allow_concurrent_memtable_write);
-  Header(log, "     Options.enable_write_thread_adaptive_yield: %d",
-         enable_write_thread_adaptive_yield);
-  Header(log, "            Options.write_thread_max_yield_usec: %" PRIu64,
-         write_thread_max_yield_usec);
-  Header(log, "           Options.write_thread_slow_yield_usec: %" PRIu64,
-         write_thread_slow_yield_usec);
+  ROCKS_LOG_HEADER(log,
+                   "                         Options.bytes_per_sync: %" PRIu64,
+                   bytes_per_sync);
+  ROCKS_LOG_HEADER(log,
+                   "                     Options.wal_bytes_per_sync: %" PRIu64,
+                   wal_bytes_per_sync);
+  ROCKS_LOG_HEADER(log, "                      Options.wal_recovery_mode: %d",
+                   wal_recovery_mode);
+  ROCKS_LOG_HEADER(log, "                 Options.enable_thread_tracking: %d",
+                   enable_thread_tracking);
+  ROCKS_LOG_HEADER(log, "        Options.allow_concurrent_memtable_write: %d",
+                   allow_concurrent_memtable_write);
+  ROCKS_LOG_HEADER(log, "     Options.enable_write_thread_adaptive_yield: %d",
+                   enable_write_thread_adaptive_yield);
+  ROCKS_LOG_HEADER(log,
+                   "            Options.write_thread_max_yield_usec: %" PRIu64,
+                   write_thread_max_yield_usec);
+  ROCKS_LOG_HEADER(log,
+                   "           Options.write_thread_slow_yield_usec: %" PRIu64,
+                   write_thread_slow_yield_usec);
   if (row_cache) {
-    Header(log, "                              Options.row_cache: %" PRIu64,
-           row_cache->GetCapacity());
+    ROCKS_LOG_HEADER(
+        log, "                              Options.row_cache: %" PRIu64,
+        row_cache->GetCapacity());
   } else {
-    Header(log, "                              Options.row_cache: None");
+    ROCKS_LOG_HEADER(log,
+                     "                              Options.row_cache: None");
   }
 #ifndef ROCKSDB_LITE
-  Header(log, "                             Options.wal_filter: %s",
-         wal_filter ? wal_filter->Name() : "None");
+  ROCKS_LOG_HEADER(log, "                             Options.wal_filter: %s",
+                   wal_filter ? wal_filter->Name() : "None");
 #endif  // ROCKDB_LITE
-  Header(log, "            Options.avoid_flush_during_recovery: %d",
-         avoid_flush_during_recovery);
+  ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_recovery: %d",
+                   avoid_flush_during_recovery);
 }
 
 MutableDBOptions::MutableDBOptions()
@@ -222,19 +235,19 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
           options.delete_obsolete_files_period_micros) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
-  Header(log, "            Options.base_background_compactions: %d",
-         base_background_compactions);
-  Header(log, "            Options.max_background_compactions: %d",
-         max_background_compactions);
-  Header(log, "            Options.avoid_flush_during_shutdown: %d",
-         avoid_flush_during_shutdown);
-  Header(log, "            Options.delayed_write_rate : %" PRIu64,
-         delayed_write_rate);
-  Header(log, "            Options.max_total_wal_size: %" PRIu64,
-         max_total_wal_size);
-  Header(log,
-         "            Options.delete_obsolete_files_period_micros: %" PRIu64,
-         delete_obsolete_files_period_micros);
+  ROCKS_LOG_HEADER(log, "            Options.base_background_compactions: %d",
+                   base_background_compactions);
+  ROCKS_LOG_HEADER(log, "            Options.max_background_compactions: %d",
+                   max_background_compactions);
+  ROCKS_LOG_HEADER(log, "            Options.avoid_flush_during_shutdown: %d",
+                   avoid_flush_during_shutdown);
+  ROCKS_LOG_HEADER(log, "            Options.delayed_write_rate : %" PRIu64,
+                   delayed_write_rate);
+  ROCKS_LOG_HEADER(log, "            Options.max_total_wal_size: %" PRIu64,
+                   max_total_wal_size);
+  ROCKS_LOG_HEADER(
+      log, "            Options.delete_obsolete_files_period_micros: %" PRIu64,
+      delete_obsolete_files_period_micros);
 }
 
 }  // namespace rocksdb

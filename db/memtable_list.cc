@@ -355,9 +355,9 @@ Status MemTableList::InstallMemtableFlushResults(
       }
       if (it == memlist.rbegin() || batch_file_number != m->file_number_) {
         batch_file_number = m->file_number_;
-        LogToBuffer(log_buffer,
-                    "[%s] Level-0 commit table #%" PRIu64 " started",
-                    cfd->GetName().c_str(), m->file_number_);
+        ROCKS_LOG_BUFFER(log_buffer,
+                         "[%s] Level-0 commit table #%" PRIu64 " started",
+                         cfd->GetName().c_str(), m->file_number_);
         edit_list.push_back(&m->edit_);
       }
       batch_count++;
@@ -378,9 +378,9 @@ Status MemTableList::InstallMemtableFlushResults(
       if (s.ok()) {         // commit new state
         while (batch_count-- > 0) {
           MemTable* m = current_->memlist_.back();
-          LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64
-                                  ": memtable #%" PRIu64 " done",
-                      cfd->GetName().c_str(), m->file_number_, mem_id);
+          ROCKS_LOG_BUFFER(log_buffer, "[%s] Level-0 commit table #%" PRIu64
+                                       ": memtable #%" PRIu64 " done",
+                           cfd->GetName().c_str(), m->file_number_, mem_id);
           assert(m->file_number_ > 0);
           current_->Remove(m, to_delete);
           ++mem_id;
@@ -389,9 +389,9 @@ Status MemTableList::InstallMemtableFlushResults(
         for (auto it = current_->memlist_.rbegin(); batch_count-- > 0; it++) {
           MemTable* m = *it;
           // commit failed. setup state so that we can flush again.
-          LogToBuffer(log_buffer, "Level-0 commit table #%" PRIu64
-                                  ": memtable #%" PRIu64 " failed",
-                      m->file_number_, mem_id);
+          ROCKS_LOG_BUFFER(log_buffer, "Level-0 commit table #%" PRIu64
+                                       ": memtable #%" PRIu64 " failed",
+                           m->file_number_, mem_id);
           m->flush_completed_ = false;
           m->flush_in_progress_ = false;
           m->edit_.Clear();

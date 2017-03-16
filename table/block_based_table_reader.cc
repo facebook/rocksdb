@@ -430,9 +430,8 @@ bool IsFeatureSupported(const TableProperties& table_properties,
     if (pos->second == kPropFalse) {
       return false;
     } else if (pos->second != kPropTrue) {
-      Log(InfoLogLevel::WARN_LEVEL, info_log,
-          "Property %s has invalidate value %s", user_prop_name.c_str(),
-          pos->second.c_str());
+      ROCKS_LOG_WARN(info_log, "Property %s has invalidate value %s",
+                     user_prop_name.c_str(), pos->second.c_str());
     }
   }
   return true;
@@ -449,7 +448,8 @@ SequenceNumber GetGlobalSequenceNumber(const TableProperties& table_properties,
     if (seqno_pos != props.end()) {
       // This is not an external sst file, global_seqno is not supported.
       assert(false);
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
+      ROCKS_LOG_ERROR(
+          info_log,
           "A non-external sst file have global seqno property with value %s",
           seqno_pos->second.c_str());
     }
@@ -461,7 +461,8 @@ SequenceNumber GetGlobalSequenceNumber(const TableProperties& table_properties,
     if (seqno_pos != props.end() || version != 1) {
       // This is a v1 external sst file, global_seqno is not supported.
       assert(false);
-      Log(InfoLogLevel::ERROR_LEVEL, info_log,
+      ROCKS_LOG_ERROR(
+          info_log,
           "An external sst file with version %u have global seqno property "
           "with value %s",
           version, seqno_pos->second.c_str());
@@ -473,7 +474,8 @@ SequenceNumber GetGlobalSequenceNumber(const TableProperties& table_properties,
 
   if (global_seqno > kMaxSequenceNumber) {
     assert(false);
-    Log(InfoLogLevel::ERROR_LEVEL, info_log,
+    ROCKS_LOG_ERROR(
+        info_log,
         "An external sst file with version %u have global seqno property "
         "with value %llu, which is greater than kMaxSequenceNumber",
         version, global_seqno);
@@ -571,9 +573,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
 
   if (!s.ok()) {
-    Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
-        "Error when seeking to properties block from file: %s",
-        s.ToString().c_str());
+    ROCKS_LOG_WARN(rep->ioptions.info_log,
+                   "Error when seeking to properties block from file: %s",
+                   s.ToString().c_str());
   } else if (found_properties_block) {
     s = meta_iter->status();
     TableProperties* table_properties = nullptr;
@@ -583,22 +585,24 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     }
 
     if (!s.ok()) {
-      Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
-        "Encountered error while reading data from properties "
-        "block %s", s.ToString().c_str());
+      ROCKS_LOG_WARN(rep->ioptions.info_log,
+                     "Encountered error while reading data from properties "
+                     "block %s",
+                     s.ToString().c_str());
     } else {
       rep->table_properties.reset(table_properties);
     }
   } else {
-    Log(InfoLogLevel::ERROR_LEVEL, rep->ioptions.info_log,
-        "Cannot find Properties block from file.");
+    ROCKS_LOG_ERROR(rep->ioptions.info_log,
+                    "Cannot find Properties block from file.");
   }
 
   // Read the compression dictionary meta block
   bool found_compression_dict;
   s = SeekToCompressionDictBlock(meta_iter.get(), &found_compression_dict);
   if (!s.ok()) {
-    Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+    ROCKS_LOG_WARN(
+        rep->ioptions.info_log,
         "Error when seeking to compression dictionary block from file: %s",
         s.ToString().c_str());
   } else if (found_compression_dict) {
@@ -613,7 +617,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                rocksdb::kCompressionDictBlock,
                                compression_dict_block.get());
     if (!s.ok()) {
-      Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+      ROCKS_LOG_WARN(
+          rep->ioptions.info_log,
           "Encountered error while reading data from compression dictionary "
           "block %s",
           s.ToString().c_str());
@@ -627,7 +632,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   s = SeekToRangeDelBlock(meta_iter.get(), &found_range_del_block,
                           &rep->range_del_handle);
   if (!s.ok()) {
-    Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+    ROCKS_LOG_WARN(
+        rep->ioptions.info_log,
         "Error when seeking to range delete tombstones block from file: %s",
         s.ToString().c_str());
   } else {
@@ -637,7 +643,8 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                                     Slice() /* compression_dict */,
                                     &rep->range_del_entry);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+        ROCKS_LOG_WARN(
+            rep->ioptions.info_log,
             "Encountered error while reading data from range del block %s",
             s.ToString().c_str());
       }
@@ -773,9 +780,10 @@ Status BlockBasedTable::ReadMetaBlock(Rep* rep,
       0 /* read_amp_bytes_per_bit */);
 
   if (!s.ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL, rep->ioptions.info_log,
-        "Encountered error while reading data from properties"
-        " block %s", s.ToString().c_str());
+    ROCKS_LOG_ERROR(rep->ioptions.info_log,
+                    "Encountered error while reading data from properties"
+                    " block %s",
+                    s.ToString().c_str());
     return s;
   }
 
@@ -1641,10 +1649,10 @@ Status BlockBasedTable::CreateIndexReader(
   const Footer& footer = rep_->footer;
   if (index_type_on_file == BlockBasedTableOptions::kHashSearch &&
       rep_->ioptions.prefix_extractor == nullptr) {
-    Log(InfoLogLevel::WARN_LEVEL, rep_->ioptions.info_log,
-        "BlockBasedTableOptions::kHashSearch requires "
-        "options.prefix_extractor to be set."
-        " Fall back to binary search index.");
+    ROCKS_LOG_WARN(rep_->ioptions.info_log,
+                   "BlockBasedTableOptions::kHashSearch requires "
+                   "options.prefix_extractor to be set."
+                   " Fall back to binary search index.");
     index_type_on_file = BlockBasedTableOptions::kBinarySearch;
   }
 
@@ -1668,9 +1676,9 @@ Status BlockBasedTable::CreateIndexReader(
         if (!s.ok()) {
           // we simply fall back to binary search in case there is any
           // problem with prefix hash index loading.
-          Log(InfoLogLevel::WARN_LEVEL, rep_->ioptions.info_log,
-              "Unable to read the metaindex block."
-              " Fall back to binary search index.");
+          ROCKS_LOG_WARN(rep_->ioptions.info_log,
+                         "Unable to read the metaindex block."
+                         " Fall back to binary search index.");
           return BinarySearchIndexReader::Create(
               file, footer, footer.index_handle(), rep_->ioptions, comparator,
               index_reader, rep_->persistent_cache_options);

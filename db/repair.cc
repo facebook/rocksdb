@@ -199,13 +199,13 @@ class Repairer {
       for (size_t i = 0; i < tables_.size(); i++) {
         bytes += tables_[i].meta.fd.GetFileSize();
       }
-      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-          "**** Repaired rocksdb %s; "
-          "recovered %" ROCKSDB_PRIszt " files; %" PRIu64
-          "bytes. "
-          "Some data may have been lost. "
-          "****",
-          dbname_.c_str(), tables_.size(), bytes);
+      ROCKS_LOG_WARN(db_options_.info_log,
+                     "**** Repaired rocksdb %s; "
+                     "recovered %" ROCKSDB_PRIszt " files; %" PRIu64
+                     "bytes. "
+                     "Some data may have been lost. "
+                     "****",
+                     dbname_.c_str(), tables_.size(), bytes);
     }
     return status;
   }
@@ -291,9 +291,9 @@ class Repairer {
       std::string logname = LogFileName(dbname_, logs_[i]);
       Status status = ConvertLogToTable(logs_[i]);
       if (!status.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "Log #%" PRIu64 ": ignoring conversion error: %s", logs_[i],
-            status.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "Log #%" PRIu64 ": ignoring conversion error: %s",
+                       logs_[i], status.ToString().c_str());
       }
       ArchiveFile(logname);
     }
@@ -306,9 +306,8 @@ class Repairer {
       uint64_t lognum;
       virtual void Corruption(size_t bytes, const Status& s) override {
         // We print error messages for corruption, but continue repairing.
-        Log(InfoLogLevel::ERROR_LEVEL, info_log,
-            "Log #%" PRIu64 ": dropping %d bytes; %s", lognum,
-            static_cast<int>(bytes), s.ToString().c_str());
+        ROCKS_LOG_ERROR(info_log, "Log #%" PRIu64 ": dropping %d bytes; %s",
+                        lognum, static_cast<int>(bytes), s.ToString().c_str());
       }
     };
 
@@ -357,8 +356,8 @@ class Repairer {
       if (status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
       } else {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "Log #%" PRIu64 ": ignoring %s", log, status.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log, "Log #%" PRIu64 ": ignoring %s",
+                       log, status.ToString().c_str());
         status = Status::OK();  // Keep going with rest of file
       }
     }
@@ -386,9 +385,10 @@ class Repairer {
           cfd->int_tbl_prop_collector_factories(), cfd->GetID(), cfd->GetName(),
           {}, kMaxSequenceNumber, kNoCompression, CompressionOptions(), false,
           nullptr /* internal_stats */, TableFileCreationReason::kRecovery);
-      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-          "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s", log,
-          counter, meta.fd.GetNumber(), status.ToString().c_str());
+      ROCKS_LOG_INFO(db_options_.info_log,
+                     "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
+                     log, counter, meta.fd.GetNumber(),
+                     status.ToString().c_str());
       if (status.ok()) {
         if (meta.fd.GetFileSize() > 0) {
           table_fds_.push_back(meta.fd);
@@ -412,8 +412,8 @@ class Repairer {
         char file_num_buf[kFormatFileNumberBufSize];
         FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
                          file_num_buf, sizeof(file_num_buf));
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "Table #%s: ignoring %s", file_num_buf, status.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log, "Table #%s: ignoring %s",
+                       file_num_buf, status.ToString().c_str());
         ArchiveFile(fname);
       } else {
         tables_.push_back(t);
@@ -438,7 +438,8 @@ class Repairer {
       t->column_family_id = static_cast<uint32_t>(props->column_family_id);
       if (t->column_family_id ==
           TablePropertiesCollectorFactory::Context::kUnknownColumnFamily) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
             "Table #%" PRIu64
             ": column family unknown (probably due to legacy format); "
             "adding to default column family id 0.",
@@ -456,7 +457,8 @@ class Repairer {
     if (status.ok()) {
       cfd = vset_.GetColumnFamilySet()->GetColumnFamily(t->column_family_id);
       if (cfd->GetName() != props->column_family_name) {
-        Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        ROCKS_LOG_ERROR(
+            db_options_.info_log,
             "Table #%" PRIu64
             ": inconsistent column family name '%s'; expected '%s' for column "
             "family id %" PRIu32 ".",
@@ -476,9 +478,9 @@ class Repairer {
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (!ParseInternalKey(key, &parsed)) {
-          Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-              "Table #%" PRIu64 ": unparsable key %s", t->meta.fd.GetNumber(),
-              EscapeString(key).c_str());
+          ROCKS_LOG_ERROR(db_options_.info_log,
+                          "Table #%" PRIu64 ": unparsable key %s",
+                          t->meta.fd.GetNumber(), EscapeString(key).c_str());
           continue;
         }
 
@@ -501,9 +503,9 @@ class Repairer {
       }
       delete iter;
 
-      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-          "Table #%" PRIu64 ": %d entries %s", t->meta.fd.GetNumber(), counter,
-          status.ToString().c_str());
+      ROCKS_LOG_INFO(db_options_.info_log, "Table #%" PRIu64 ": %d entries %s",
+                     t->meta.fd.GetNumber(), counter,
+                     status.ToString().c_str());
     }
     return status;
   }
@@ -563,8 +565,8 @@ class Repairer {
     new_file.append("/");
     new_file.append((slash == nullptr) ? fname.c_str() : slash + 1);
     Status s = env_->RenameFile(fname, new_file);
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log, "Archiving %s: %s\n",
-        fname.c_str(), s.ToString().c_str());
+    ROCKS_LOG_INFO(db_options_.info_log, "Archiving %s: %s\n", fname.c_str(),
+                   s.ToString().c_str());
   }
 };
 

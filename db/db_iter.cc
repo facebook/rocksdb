@@ -291,9 +291,8 @@ class DBIter: public Iterator {
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   if (!ParseInternalKey(iter_->key(), ikey)) {
     status_ = Status::Corruption("corrupted internal key in DBIter");
-    Log(InfoLogLevel::ERROR_LEVEL,
-        logger_, "corrupted internal key in DBIter: %s",
-        iter_->key().ToString(true).c_str());
+    ROCKS_LOG_ERROR(logger_, "corrupted internal key in DBIter: %s",
+                    iter_->key().ToString(true).c_str());
     return false;
   } else {
     return true;
@@ -509,8 +508,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 //       iter_ points to the next entry (or invalid)
 void DBIter::MergeValuesNewToOld() {
   if (!merge_operator_) {
-    Log(InfoLogLevel::ERROR_LEVEL,
-        logger_, "Options::merge_operator is null.");
+    ROCKS_LOG_ERROR(logger_, "Options::merge_operator is null.");
     status_ = Status::InvalidArgument("merge_operator_ must be set.");
     valid_ = false;
     return;

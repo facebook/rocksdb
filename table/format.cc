@@ -20,12 +20,12 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
+#include "util/logging.h"
 #include "util/perf_context_imp.h"
-#include "util/string_util.h"
-#include "util/xxhash.h"
 #include "util/statistics.h"
 #include "util/stop_watch.h"
-
+#include "util/string_util.h"
+#include "util/xxhash.h"
 
 namespace rocksdb {
 
@@ -331,9 +331,9 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
       // uncompressed page is not found
       if (ioptions.info_log && !status.IsNotFound()) {
         assert(!status.ok());
-        Log(InfoLogLevel::INFO_LEVEL, ioptions.info_log,
-            "Error reading from persistent cache. %s",
-            status.ToString().c_str());
+        ROCKS_LOG_INFO(ioptions.info_log,
+                       "Error reading from persistent cache. %s",
+                       status.ToString().c_str());
       }
     }
   }
@@ -354,8 +354,9 @@ Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
   } else {
     if (ioptions.info_log && !status.IsNotFound()) {
       assert(!status.ok());
-      Log(InfoLogLevel::INFO_LEVEL, ioptions.info_log,
-          "Error reading from persistent cache. %s", status.ToString().c_str());
+      ROCKS_LOG_INFO(ioptions.info_log,
+                     "Error reading from persistent cache. %s",
+                     status.ToString().c_str());
     }
     // cache miss read from device
     if (decompression_requested &&

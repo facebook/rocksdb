@@ -120,9 +120,9 @@ Status ExternalSstFileIngestionJob::Prepare(
       }
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "AddFile() clean up for file %s failed : %s",
-            f.internal_file_path.c_str(), s.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "AddFile() clean up for file %s failed : %s",
+                       f.internal_file_path.c_str(), s.ToString().c_str());
       }
     }
   }
@@ -212,7 +212,8 @@ void ExternalSstFileIngestionJob::UpdateStats() {
     if (f.picked_level == 0) {
       total_l0_files += 1;
     }
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    ROCKS_LOG_INFO(
+        db_options_.info_log,
         "[AddFile] External SST file %s was ingested in L%d with path %s "
         "(global_seqno=%" PRIu64 ")\n",
         f.external_file_path.c_str(), f.picked_level,
@@ -233,9 +234,9 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = env_->DeleteFile(f.internal_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "AddFile() clean up for file %s failed : %s",
-            f.internal_file_path.c_str(), s.ToString().c_str());
+        ROCKS_LOG_WARN(db_options_.info_log,
+                       "AddFile() clean up for file %s failed : %s",
+                       f.internal_file_path.c_str(), s.ToString().c_str());
       }
     }
   } else if (status.ok() && ingestion_options_.move_files) {
@@ -243,7 +244,8 @@ void ExternalSstFileIngestionJob::Cleanup(const Status& status) {
     for (IngestedFileInfo& f : files_to_ingest_) {
       Status s = env_->DeleteFile(f.external_file_path);
       if (!s.ok()) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+        ROCKS_LOG_WARN(
+            db_options_.info_log,
             "%s was added to DB successfully but failed to remove original "
             "file link : %s",
             f.external_file_path.c_str(), s.ToString().c_str());

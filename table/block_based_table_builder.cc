@@ -338,7 +338,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
-    Log(InfoLogLevel::WARN_LEVEL, ioptions.info_log,
+    ROCKS_LOG_WARN(
+        ioptions.info_log,
         "Silently converting format_version to 1 because checksum is "
         "non-default");
     // silently convert format_version to 1 to keep consistent with current
@@ -489,8 +490,8 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
         if (!compressed_ok) {
           // The result of the compression was invalid. abort.
           abort_compression = true;
-          Log(InfoLogLevel::ERROR_LEVEL, r->ioptions.info_log,
-              "Decompressed block did not match raw block");
+          ROCKS_LOG_ERROR(r->ioptions.info_log,
+                          "Decompressed block did not match raw block");
           r->status =
               Status::Corruption("Decompressed block did not match raw block");
         }
