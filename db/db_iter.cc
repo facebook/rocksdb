@@ -1122,11 +1122,13 @@ Iterator* NewDBIterator(
     const Comparator* user_key_comparator, InternalIterator* internal_iter,
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, const Slice* iterate_upper_bound,
-    bool prefix_same_as_start, bool pin_data, bool total_order_seek) {
+    bool prefix_same_as_start, bool pin_data, bool total_order_seek,
+    uint64_t max_tombstones_skip_in_iterations) {
   DBIter* db_iter = new DBIter(
       env, ioptions, user_key_comparator, internal_iter, sequence, false,
       max_sequential_skip_in_iterations, version_number, iterate_upper_bound,
-      prefix_same_as_start, pin_data, total_order_seek);
+      prefix_same_as_start, pin_data, total_order_seek,
+      max_tombstones_skip_in_iterations);
   return db_iter;
 }
 
@@ -1170,14 +1172,15 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const Comparator* user_key_comparator, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     const Slice* iterate_upper_bound, bool prefix_same_as_start, bool pin_data,
-    bool total_order_seek) {
+    bool total_order_seek, uint64_t max_tombstones_skip_in_iterations) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
   DBIter* db_iter = new (mem) DBIter(
       env, ioptions, user_key_comparator, nullptr, sequence, true,
       max_sequential_skip_in_iterations, version_number, iterate_upper_bound,
-      prefix_same_as_start, pin_data, total_order_seek);
+      prefix_same_as_start, pin_data, total_order_seek,
+      max_tombstones_skip_in_iterations);
 
   iter->SetDBIter(db_iter);
 
