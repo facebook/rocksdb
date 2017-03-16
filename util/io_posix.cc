@@ -730,13 +730,11 @@ Status PosixWritableFile::PositionedAppend(const Slice& data, uint64_t offset) {
 
 Status PosixWritableFile::Truncate(uint64_t size) {
   Status s;
-  if (use_direct_io()) {
-    int r = ftruncate(fd_, size);
-    if (r < 0) {
-      s = IOError(filename_, errno);
-    } else {
-      filesize_ = size;
-    }
+  int r = ftruncate(fd_, size);
+  if (r < 0) {
+    s = IOError(filename_, errno);
+  } else {
+    filesize_ = size;
   }
   return s;
 }

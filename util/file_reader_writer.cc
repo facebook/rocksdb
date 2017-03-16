@@ -186,7 +186,9 @@ Status WritableFileWriter::Close() {
 
   // In direct I/O mode we write whole pages so
   // we need to let the file know where data ends.
-  Status interim = writable_file_->Truncate(filesize_);
+  if (use_direct_io()) {
+    Status interim = writable_file_->Truncate(filesize_);
+  }
   if (!interim.ok() && s.ok()) {
     s = interim;
   }
