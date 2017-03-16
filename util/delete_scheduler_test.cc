@@ -422,6 +422,90 @@ TEST_F(DeleteSchedulerTest, MoveToTrashError) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+TEST_F(DeleteSchedulerTest, DynamicRateLimiting1) {
+  std::vector<uint64_t> penalties;
+  int bg_delete_file = 0;
+  int fg_delete_file = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteTrashFile:DeleteFile",
+      [&](void* arg) { bg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::DeleteFile",
+      [&](void* arg) { fg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteScheduler::BackgroundEmptyTrash:Wait",
+      [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DeleteSchedulerTest::DynamicRateLimiting1:1",
+       "DeleteScheduler::BackgroundEmptyTrash"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  rate_bytes_per_sec_ = 0;  // Disable rate limiting initially
+  NewDeleteScheduler();
+
+
+  int num_files = 10;  // 10 files
+  uint64_t file_size = 1024;  // every file is 1 kb
+
+  std::vector<int64_t> delete_kbs_per_sec = {512, 200, 0, 100, 50, -2, 25};
+  for (size_t t = 0; t < delete_kbs_per_sec.size(); t++) {
+    penalties.clear();
+    bg_delete_file = 0;
+    fg_delete_file = 0;
+    rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    DestroyAndCreateDir(dummy_files_dir_);
+    rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
+    delete_scheduler_->SetRateBytesPerSecond(rate_bytes_per_sec_);
+
+    // Create 100 dummy files, every file is 1 Kb
+    std::vector<std::string> generated_files;
+    for (int i = 0; i < num_files; i++) {
+      std::string file_name = "file" + ToString(i) + ".data";
+      generated_files.push_back(NewDummyFile(file_name, file_size));
+    }
+
+    // Delete dummy files and measure time spent to empty trash
+    for (int i = 0; i < num_files; i++) {
+      ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[i]));
+    }
+    ASSERT_EQ(CountFilesInDir(dummy_files_dir_), 0);
+
+    if (rate_bytes_per_sec_ > 0) {
+      uint64_t delete_start_time = env_->NowMicros();
+      TEST_SYNC_POINT("DeleteSchedulerTest::DynamicRateLimiting1:1");
+      delete_scheduler_->WaitForEmptyTrash();
+      uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
+
+      auto bg_errors = delete_scheduler_->GetBackgroundErrors();
+      ASSERT_EQ(bg_errors.size(), 0);
+
+      uint64_t total_files_size = 0;
+      uint64_t expected_penlty = 0;
+      ASSERT_EQ(penalties.size(), num_files);
+      for (int i = 0; i < num_files; i++) {
+        total_files_size += file_size;
+        expected_penlty = ((total_files_size * 1000000) / rate_bytes_per_sec_);
+        ASSERT_EQ(expected_penlty, penalties[i]);
+      }
+      ASSERT_GT(time_spent_deleting, expected_penlty * 0.9);
+      ASSERT_EQ(bg_delete_file, num_files);
+      ASSERT_EQ(fg_delete_file, 0);
+    } else {
+      ASSERT_EQ(penalties.size(), 0);
+      ASSERT_EQ(bg_delete_file, 0);
+      ASSERT_EQ(fg_delete_file, num_files);
+    }
+
+    ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

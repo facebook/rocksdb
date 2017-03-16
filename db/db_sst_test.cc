@@ -328,9 +328,10 @@ TEST_F(DBSSTTest, RateLimitedDelete) {
   std::string trash_dir = test::TmpDir(env_) + "/trash";
   int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
   Status s;
-  options.sst_file_manager.reset(NewSstFileManager(
-      env_, nullptr, trash_dir, rate_bytes_per_sec, false, &s));
+  options.sst_file_manager.reset(
+      NewSstFileManager(env_, nullptr, trash_dir, 0, false, &s));
   ASSERT_OK(s);
+  options.sst_file_manager->SetDeleteRateBytesPerSecond(rate_bytes_per_sec);
   auto sfm = static_cast<SstFileManagerImpl*>(options.sst_file_manager.get());
 
   ASSERT_OK(TryReopen(options));
