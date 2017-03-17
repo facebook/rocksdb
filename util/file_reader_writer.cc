@@ -184,11 +184,14 @@ Status WritableFileWriter::Close() {
 
   s = Flush();  // flush cache to OS
 
+  Status interim;
   // In direct I/O mode we write whole pages so
   // we need to let the file know where data ends.
-  Status interim = writable_file_->Truncate(filesize_);
-  if (!interim.ok() && s.ok()) {
-    s = interim;
+  if (use_direct_io()) {
+    interim = writable_file_->Truncate(filesize_);
+    if (!interim.ok() && s.ok()) {
+      s = interim;
+    }
   }
 
   TEST_KILL_RANDOM("WritableFileWriter::Close:0", rocksdb_kill_odds);
