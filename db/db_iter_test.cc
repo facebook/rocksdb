@@ -875,6 +875,297 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
   }
 }
 
+TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
+  Options options;
+
+  // Basic test case ... Make sure explicityly passing the default value works.
+  // Skipping tombstones is disabled by default, when the value is 0.
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddDeletion("c");
+    internal_iter->AddPut("d", "val_d");
+    internal_iter->Finish();
+
+    options.max_tombstones_skip_in_iterations = 0;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, options.max_tombstones_skip_in_iterations));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "val_d");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().ok());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "val_d");
+
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().ok());
+  }
+
+  // Test to make sure that the request will *not* fail as incomplete if
+  // num_tombstones is *equal* to max_tombstones threshold. (It will fail as
+  // incomplete only when num_tombstones exceeds max_tombstones)
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->Finish();
+
+    options.max_tombstones_skip_in_iterations = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, options.max_tombstones_skip_in_iterations));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().ok());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+    db_iter->Prev();
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().ok());
+  }
+
+  // Fail the request as incomplete when num_tombstones > max_tombstones
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->Finish();
+
+    options.max_tombstones_skip_in_iterations = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, options.max_tombstones_skip_in_iterations));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+
+  // Fail the request as incomplete when num_tombstones > max_tombstones
+  // Check reverse
+  // {
+  //   TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  //   internal_iter->AddPut("a", "val_a");
+  //   internal_iter->AddDeletion("b");
+  //   internal_iter->AddDeletion("b");
+  //   internal_iter->AddDeletion("b");
+  //   internal_iter->AddPut("c", "val_c");
+  //   internal_iter->Finish();
+  //
+  //   options.max_tombstones_skip_in_iterations = 2;
+  //   std::unique_ptr<Iterator> db_iter(NewDBIterator(
+  //       env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+  //       10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+  //       false, options.max_tombstones_skip_in_iterations));
+  //
+  //   db_iter->SeekToLast();
+  //   ASSERT_TRUE(db_iter->Valid());
+  //   ASSERT_EQ(db_iter->key().ToString(), "c");
+  //   ASSERT_EQ(db_iter->value().ToString(), "val_c");
+  //
+  //   db_iter->Prev();
+  //   ASSERT_TRUE(!db_iter->Valid());
+  //   ASSERT_TRUE(db_iter->status().IsIncomplete());
+  // }
+
+  // Test that the num_tombstones_skipped_ counter resets after a successful
+  // read.
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddPut("e", "val_e");
+    internal_iter->Finish();
+
+    options.max_tombstones_skip_in_iterations = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, options.max_tombstones_skip_in_iterations));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "val_c");
+
+    db_iter->Next(); // num_tombstones_skipped_ counter resets here.
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddDeletion("c");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddPut("e", "val_e");
+    internal_iter->Finish();
+
+    options.max_tombstones_skip_in_iterations = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, options.max_tombstones_skip_in_iterations));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "e");
+    ASSERT_EQ(db_iter->value().ToString(), "val_e");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+
+  // {
+  //   TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  //   internal_iter->AddPut("a", "val_a");
+  //   internal_iter->AddPut("b", "val_b");
+  //   internal_iter->AddDeletion("b");
+  //   internal_iter->AddPut("c", "val_c");
+  //   internal_iter->AddDeletion("c");
+  //   internal_iter->AddPut("d", "val_d");
+  //   internal_iter->Finish();
+  //
+  //   options.max_tombstones_skip_in_iterations = 2;
+  //   std::unique_ptr<Iterator> db_iter(NewDBIterator(
+  //       env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+  //       10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+  //       false, options.max_tombstones_skip_in_iterations));
+  //
+  //   db_iter->SeekToFirst();
+  //   ASSERT_TRUE(db_iter->Valid());
+  //   ASSERT_EQ(db_iter->key().ToString(), "a");
+  //   ASSERT_EQ(db_iter->value().ToString(), "val_a");
+  //
+  //   db_iter->Next();
+  //   ASSERT_TRUE(!db_iter->Valid());
+  //   ASSERT_TRUE(db_iter->status().IsIncomplete());
+  //
+  //   db_iter->SeekToLast();
+  //   ASSERT_TRUE(db_iter->Valid());
+  //   ASSERT_EQ(db_iter->key().ToString(), "d");
+  //   ASSERT_EQ(db_iter->value().ToString(), "val_d");
+  //
+  //   db_iter->Prev();
+  //   ASSERT_TRUE(!db_iter->Valid());
+  //   ASSERT_TRUE(db_iter->status().IsIncomplete());
+  // }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddPut("a", "val_a");
+    internal_iter->AddPut("b", "val_b");
+    internal_iter->AddDeletion("b");
+    internal_iter->AddPut("c", "val_c");
+    internal_iter->AddDeletion("c");
+    internal_iter->AddPut("d", "val_d");
+    internal_iter->AddDeletion("d");
+    internal_iter->AddPut("e", "val_e");
+    internal_iter->Finish();
+
+    options.max_tombstones_skip_in_iterations = 2;
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
+        false, options.max_tombstones_skip_in_iterations));
+
+    db_iter->SeekToFirst();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "val_a");
+
+    db_iter->Next();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "e");
+    ASSERT_EQ(db_iter->value().ToString(), "val_e");
+
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+    ASSERT_TRUE(db_iter->status().IsIncomplete());
+  }
+}
+
 TEST_F(DBIteratorTest, DBIterator1) {
   Options options;
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
