@@ -2133,7 +2133,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
     InstrumentedMutexLock l(&mutex_);
     // an automatic compaction that has been scheduled might have been
     // preempted by the manual compactions. Need to schedule it back.
-    MaybeScheduleFlushOrCompaction();
+    CALL_AND_LOG(immutable_db_options_.info_log,
+                 MaybeScheduleFlushOrCompaction);
   }
 
   return s;
@@ -2379,7 +2380,8 @@ Status DBImpl::ContinueBackgroundWork() {
   // It's sufficient to check just bg_work_paused_ here since
   // bg_work_paused_ is always no greater than bg_compaction_paused_
   if (bg_work_paused_ == 0) {
-    MaybeScheduleFlushOrCompaction();
+    CALL_AND_LOG(immutable_db_options_.info_log,
+                 MaybeScheduleFlushOrCompaction);
   }
   return Status::OK();
 }
@@ -2529,7 +2531,8 @@ Status DBImpl::SetDBOptions(
           mutable_db_options_.max_background_compactions) {
         env_->IncBackgroundThreadsIfNeeded(
             new_options.max_background_compactions, Env::Priority::LOW);
-        MaybeScheduleFlushOrCompaction();
+        CALL_AND_LOG(immutable_db_options_.info_log,
+                     MaybeScheduleFlushOrCompaction);
       }
 
       write_controller_.set_max_delayed_write_rate(new_options.delayed_write_rate);
@@ -2962,7 +2965,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     // schedule flush
     SchedulePendingFlush(cfd);
-    MaybeScheduleFlushOrCompaction();
+    CALL_AND_LOG(immutable_db_options_.info_log,
+                 MaybeScheduleFlushOrCompaction);
   }
 
   if (s.ok() && flush_options.wait) {
@@ -3021,11 +3025,14 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // DB is being deleted; no more background compactions
     return;
   }
+  int flush_scheduled = 0;
+  int compaction_scheduled = 0;
 
   while (unscheduled_flushes_ > 0 &&
          bg_flush_scheduled_ < immutable_db_options_.max_background_flushes) {
     unscheduled_flushes_--;
     bg_flush_scheduled_++;
+    flush_scheduled++;
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
 
@@ -3039,31 +3046,34 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
                bg_compactions_allowed) {
       unscheduled_flushes_--;
       bg_flush_scheduled_++;
+      flush_scheduled++;
       env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
     }
   }
 
-  if (bg_compaction_paused_ > 0) {
-    // we paused the background compaction
-    return;
-  }
+  // Compaction is disabled if we paused background compaction
+  // or having an exclusive manual compaction running
+  bool compaction_disabled =
+      (bg_compaction_paused_ > 0 || HasExclusiveManualCompaction());
 
-  if (HasExclusiveManualCompaction()) {
-    // only manual compactions are allowed to run. don't schedule automatic
-    // compactions
-    return;
+  if (!compaction_disabled) {
+    while (bg_compaction_scheduled_ < bg_compactions_allowed &&
+           unscheduled_compactions_ > 0) {
+      CompactionArg* ca = new CompactionArg;
+      ca->db = this;
+      ca->m = nullptr;
+      bg_compaction_scheduled_++;
+      unscheduled_compactions_--;
+      compaction_scheduled++;
+      env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
+                     &DBImpl::UnscheduleCallback);
+    }
   }
-
-  while (bg_compaction_scheduled_ < bg_compactions_allowed &&
-         unscheduled_compactions_ > 0) {
-    CompactionArg* ca = new CompactionArg;
-    ca->db = this;
-    ca->m = nullptr;
-    bg_compaction_scheduled_++;
-    unscheduled_compactions_--;
-    env_->Schedule(&DBImpl::BGWorkCompaction, ca, Env::Priority::LOW, this,
-                   &DBImpl::UnscheduleCallback);
-  }
+  ROCKS_LOG_INFO(immutable_db_options_.info_log,
+                 "Scheduled %d flushes and %d compactions, (%d unscheduled "
+                 "flushes %d unscheduled compactions)",
+                 flush_scheduled, compaction_scheduled, unscheduled_flushes_,
+                 unscheduled_compactions_);
 }
 
 void DBImpl::SchedulePurge() {
@@ -3320,7 +3330,8 @@ void DBImpl::BackgroundCallFlush() {
     num_running_flushes_--;
     bg_flush_scheduled_--;
     // See if there's more work to be done
-    MaybeScheduleFlushOrCompaction();
+    CALL_AND_LOG(immutable_db_options_.info_log,
+                 MaybeScheduleFlushOrCompaction);
     bg_cv_.SignalAll();
     // IMPORTANT: there should be no code after calling SignalAll. This call may
     // signal the DB destructor that it's OK to proceed with destruction. In
@@ -3402,7 +3413,8 @@ void DBImpl::BackgroundCallCompaction(void* arg) {
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
 
     // See if there's more work to be done
-    MaybeScheduleFlushOrCompaction();
+    CALL_AND_LOG(immutable_db_options_.info_log,
+                 MaybeScheduleFlushOrCompaction);
     if (made_progress || bg_compaction_scheduled_ == 0 ||
         HasPendingManualCompaction()) {
       // signal if
@@ -3539,7 +3551,8 @@ Status DBImpl::BackgroundCompaction(bool* made_progress,
           // Yes, we need more compactions!
           AddToCompactionQueue(cfd);
           ++unscheduled_compactions_;
-          MaybeScheduleFlushOrCompaction();
+          CALL_AND_LOG(immutable_db_options_.info_log,
+                       MaybeScheduleFlushOrCompaction);
         }
       }
     }
@@ -3991,7 +4004,7 @@ SuperVersion* DBImpl::InstallSuperVersionAndScheduleWork(
   // compactions.
   SchedulePendingFlush(cfd);
   SchedulePendingCompaction(cfd);
-  MaybeScheduleFlushOrCompaction();
+  CALL_AND_LOG(immutable_db_options_.info_log, MaybeScheduleFlushOrCompaction);
 
   // Update max_total_in_memory_state_
   max_total_in_memory_state_ =
@@ -4777,7 +4790,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       if (status.ok()) {
         largest_cfd->imm()->FlushRequested();
         SchedulePendingFlush(largest_cfd);
-        MaybeScheduleFlushOrCompaction();
+        CALL_AND_LOG(immutable_db_options_.info_log,
+                     MaybeScheduleFlushOrCompaction);
       }
     }
   }
@@ -5115,7 +5129,7 @@ void DBImpl::MaybeFlushColumnFamilies() {
       SchedulePendingFlush(cfd);
     }
   }
-  MaybeScheduleFlushOrCompaction();
+  CALL_AND_LOG(immutable_db_options_.info_log, MaybeScheduleFlushOrCompaction);
 
 }
 
@@ -6117,7 +6131,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 
     *dbptr = impl;
     impl->opened_successfully_ = true;
-    impl->MaybeScheduleFlushOrCompaction();
+    CALL_AND_LOG(impl->immutable_db_options_.info_log,
+                 impl->MaybeScheduleFlushOrCompaction);
   }
   impl->mutex_.Unlock();
 
