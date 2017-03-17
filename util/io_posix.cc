@@ -674,11 +674,6 @@ Status PosixWritableFile::Close() {
   size_t last_allocated_block;
   GetPreallocationStatus(&block_size, &last_allocated_block);
   if (last_allocated_block > 0) {
-    // trim the extra space preallocated at the end of the file
-    // NOTE(ljin): we probably don't want to surface failure as an IOError,
-    // but it will be nice to log these errors.
-    int dummy __attribute__((unused));
-    dummy = ftruncate(fd_, filesize_);
 #if defined(ROCKSDB_FALLOCATE_PRESENT) && !defined(TRAVIS)
     // in some file systems, ftruncate only trims trailing space if the
     // new file size is smaller than the current size. Calling fallocate
@@ -702,6 +697,11 @@ Status PosixWritableFile::Close() {
                 block_size * last_allocated_block - filesize_);
     }
 #endif
+    // trim the extra space preallocated at the end of the file
+    // NOTE(ljin): we probably don't want to surface failure as an IOError,
+    // but it will be nice to log these errors.
+    int dummy __attribute__((unused));
+    dummy = ftruncate(fd_, filesize_);
   }
 
   if (close(fd_) < 0) {
