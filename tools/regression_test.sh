@@ -167,7 +167,8 @@ function run_db_bench {
   db_bench_error=0
   options_file_arg=$(setup_options_file)
   echo "$options_file_arg"
-  db_bench_cmd="$DB_BENCH_DIR/db_bench \
+  # use `which time` to avoid using bash's internal time command
+  db_bench_cmd="(`which time` -p $DB_BENCH_DIR/db_bench \
       --benchmarks=$1 --db=$DB_PATH --wal_dir=$WAL_PATH \
       --use_existing_db=$USE_EXISTING_DB \
       --disable_auto_compactions \
@@ -189,7 +190,7 @@ function run_db_bench {
       --max_background_flushes=$MAX_BACKGROUND_FLUSHES \
       --num_multi_db=$NUM_MULTI_DB \
       --max_background_compactions=$MAX_BACKGROUND_COMPACTIONS \
-      --seed=$SEED 2>&1"
+      --seed=$SEED) 2>&1"
   kill_db_bench_cmd="pkill db_bench"
   ps_cmd="ps aux"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
@@ -258,7 +259,12 @@ function update_report {
   perc[3]=${BASH_REMATCH[4]}  # p99.9
   perc[4]=${BASH_REMATCH[5]}  # p99.99
 
-  (printf "$COMMIT_ID,%25s,%30s,%7s,%9s,%8s,%10s,%13.0f,%14s,%11s,%12s,%7s,%11s,%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f\n" \
+  # parse the output of the time command
+  real_sec=`tail -3 $2 | grep real | awk '{print $2}'`
+  user_sec=`tail -3 $2 | grep user | awk '{print $2}'`
+  sys_sec=`tail -3 $2 | grep sys | awk '{print $2}'`
+
+  (printf "$COMMIT_ID,%25s,%30s,%7s,%9s,%8s,%10s,%13.0f,%14s,%11s,%12s,%7s,%11s,%9.0f,%10.0f,%10.0f,%10.0f,%10.0f,%10.0f,%5.0f,%5.0f,%5.0f\n" \
     $1 $REMOTE_USER_AT_HOST $NUM_MULTI_DB $NUM_KEYS $KEY_SIZE $VALUE_SIZE \
        $(multiply $COMPRESSION_RATIO 100) \
        $3 $4 $CACHE_SIZE \
@@ -269,6 +275,9 @@ function update_report {
        $(multiply ${perc[2]} 1000) \
        $(multiply ${perc[3]} 1000) \
        $(multiply ${perc[4]} 1000) \
+       $real_sec \
+       $user_sec \
+       $sys_sec \
        >> $SUMMARY_FILE)
   exit_on_error $?
 }
@@ -358,12 +367,13 @@ function setup_test_directory {
 
   run_local "mkdir -p $RESULT_PATH"
 
-  (printf "%40s,%25s,%30s,%7s,%9s,%8s,%10s,%13s,%14s,%11s,%12s,%7s,%11s,%9s,%10s,%10s,%10s,%10s,%10s\n" \
+  (printf "%40s,%25s,%30s,%7s,%9s,%8s,%10s,%13s,%14s,%11s,%12s,%7s,%11s,%9s,%10s,%10s,%10s,%10s,%10s,%5s,%5s,%5s\n" \
       "commit id" "benchmark" "user@host" "num-dbs" \
       "key-range" "key-size" "value-size" "compress-rate" \
       "ops-per-thread" "num-threads" "cache-size" \
       "flushes" "compactions" \
       "us-per-op" "p50" "p75" "p99" "p99.9" "p99.99" \
+      "real-sec" "user-sec" "sys-sec" \
       >> $SUMMARY_FILE)
   exit_on_error $?
 }
