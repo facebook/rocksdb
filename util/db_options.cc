@@ -56,7 +56,6 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       use_direct_writes(options.use_direct_writes),
       allow_fallocate(options.allow_fallocate),
       is_fd_close_on_exec(options.is_fd_close_on_exec),
-      stats_dump_period_sec(options.stats_dump_period_sec),
       advise_random_on_open(options.advise_random_on_open),
       db_write_buffer_size(options.db_write_buffer_size),
       write_buffer_manager(options.write_buffer_manager),
@@ -154,8 +153,6 @@ void ImmutableDBOptions::Dump(Logger* log) const {
       manifest_preallocation_size);
   ROCKS_LOG_HEADER(log, "                    Options.is_fd_close_on_exec: %d",
                    is_fd_close_on_exec);
-  ROCKS_LOG_HEADER(log, "                  Options.stats_dump_period_sec: %u",
-                   stats_dump_period_sec);
   ROCKS_LOG_HEADER(log, "                  Options.advise_random_on_open: %d",
                    advise_random_on_open);
   ROCKS_LOG_HEADER(
@@ -223,7 +220,8 @@ MutableDBOptions::MutableDBOptions()
       avoid_flush_during_shutdown(false),
       delayed_write_rate(2 * 1024U * 1024U),
       max_total_wal_size(0),
-      delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000) {}
+      delete_obsolete_files_period_micros(6ULL * 60 * 60 * 1000000),
+      stats_dump_period_sec(600) {}
 
 MutableDBOptions::MutableDBOptions(const DBOptions& options)
     : base_background_compactions(options.base_background_compactions),
@@ -232,7 +230,8 @@ MutableDBOptions::MutableDBOptions(const DBOptions& options)
       delayed_write_rate(options.delayed_write_rate),
       max_total_wal_size(options.max_total_wal_size),
       delete_obsolete_files_period_micros(
-          options.delete_obsolete_files_period_micros) {}
+          options.delete_obsolete_files_period_micros),
+      stats_dump_period_sec(options.stats_dump_period_sec) {}
 
 void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(log, "            Options.base_background_compactions: %d",
@@ -248,6 +247,8 @@ void MutableDBOptions::Dump(Logger* log) const {
   ROCKS_LOG_HEADER(
       log, "            Options.delete_obsolete_files_period_micros: %" PRIu64,
       delete_obsolete_files_period_micros);
+  ROCKS_LOG_HEADER(log, "                  Options.stats_dump_period_sec: %u",
+                   stats_dump_period_sec);
 }
 
 }  // namespace rocksdb
