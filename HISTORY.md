@@ -1,5 +1,6 @@
 # Rocksdb Change Log
 ## Unreleased
+* Support dynamically change `stats_dump_period_sec` option via SetDBOptions().
 
 ## 5.3.0 (03/08/2017)
 ### Public API Change
@@ -44,7 +45,6 @@
 * Support dynamically change `delayed_write_rate` and `max_total_wal_size` options via SetDBOptions().
 * Introduce DB::DeleteRange for optimized deletion of large ranges of contiguous keys.
 * Support dynamically change `delayed_write_rate` option via SetDBOptions().
-* Support dynamically change `stats_dump_period_sec` option via SetDBOptions().
 * Options::allow_concurrent_memtable_write and Options::enable_write_thread_adaptive_yield are now true by default.
 * Remove Tickers::SEQUENCE_NUMBER to avoid confusion if statistics object is shared among RocksDB instance. Alternatively DB::GetLatestSequenceNumber() can be used to get the same value.
 * Options.level0_stop_writes_trigger default value changes from 24 to 32.
