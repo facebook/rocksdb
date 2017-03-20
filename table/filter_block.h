@@ -108,8 +108,8 @@ class FilterBlockReader {
 
   bool whole_key_filtering() const { return whole_key_filtering_; }
 
-  inline int GetLevel() const { return level_; };
-  inline void SetLevel(int level) { level_ = level; };
+  int GetLevel() const { return level_; }
+  void SetLevel(int level) { level_ = level; }
 
   // convert this object to a human readable form
   virtual std::string ToString() const {

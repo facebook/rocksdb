@@ -75,8 +75,6 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
     BlockContents&& contents, FilterBitsReader* filter_bits_reader,
     Statistics* stats, const Comparator& comparator,
     const BlockBasedTable* table)
-    // : FullFilterBlockReader(prefix_extractor, whole_key_filtering,
-    //                        contents.data, filter_bits_reader, stats),
     : FilterBlockReader(contents.data.size(), stats, _whole_key_filtering),
       prefix_extractor_(prefix_extractor),
       comparator_(comparator),
@@ -84,13 +82,11 @@ PartitionedFilterBlockReader::PartitionedFilterBlockReader(
   idx_on_fltr_blk_.reset(new Block(std::move(contents),
                                    kDisableGlobalSequenceNumber,
                                    0 /* read_amp_bytes_per_bit */, stats));
-  BlockIter iter;
-  idx_on_fltr_blk_->NewIterator(&comparator_, &iter, true);
-};
+}
 
 PartitionedFilterBlockReader::~PartitionedFilterBlockReader() {
-  ReadLock rl(&mu);
-  for (auto it = handle_list.begin(); it != handle_list.end(); ++it) {
+  ReadLock rl(&mu_);
+  for (auto it = handle_list_.begin(); it != handle_list_.end(); ++it) {
     table_->rep_->table_options.block_cache.get()->Release(*it);
   }
 }
@@ -188,9 +184,9 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
         GetLevel() == 0 &&
         table_->rep_->table_options.pin_l0_filter_and_index_blocks_in_cache;
     if (pin_cached_filters) {
-      ReadLock rl(&mu);
-      auto iter = filter_cache.find(fltr_blk_handle.offset());
-      if (iter != filter_cache.end()) {
+      ReadLock rl(&mu_);
+      auto iter = filter_cache_.find(fltr_blk_handle.offset());
+      if (iter != filter_cache_.end()) {
         RecordTick(statistics(), BLOCK_CACHE_FILTER_HIT);
         *cached = true;
         return {iter->second, nullptr};
@@ -199,9 +195,13 @@ PartitionedFilterBlockReader::GetFilterPartition(Slice* handle_value,
     auto filter =
         table_->GetFilter(fltr_blk_handle, is_a_filter_partition, no_io);
     if (pin_cached_filters && filter.IsSet()) {
-      WriteLock wl(&mu);
-      filter_cache[fltr_blk_handle.offset()] = filter.value;
-      handle_list.push_back(filter.cache_handle);
+      WriteLock wl(&mu_);
+      std::pair<uint64_t, FilterBlockReader*> pair(fltr_blk_handle.offset(),
+                                                   filter.value);
+      auto succ = filter_cache_.insert(pair).second;
+      if (succ) {
+        handle_list_.push_back(filter.cache_handle);
+      }  // Otherwise it is already inserted by a concurrent thread
       *cached = true;
     }
     return filter;

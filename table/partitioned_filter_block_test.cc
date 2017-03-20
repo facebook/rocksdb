@@ -3,9 +3,11 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include "table/partitioned_filter_block.h"
+#include <map>
 
 #include "rocksdb/filter_policy.h"
+
+#include "table/partitioned_filter_block.h"
 #include "util/coding.h"
 #include "util/hash.h"
 #include "util/logging.h"
@@ -18,7 +20,7 @@ std::map<uint64_t, Slice> slices;
 
 class MockedBlockBasedTable : public BlockBasedTable {
  public:
-  MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep){};
+  explicit MockedBlockBasedTable(Rep* rep) : BlockBasedTable(rep) {}
 
   virtual CachableEntry<FilterBlockReader> GetFilter(
       const BlockHandle& filter_blk_handle, const bool is_a_filter_partition,
@@ -37,8 +39,6 @@ class PartitionedFilterBlockTest : public testing::Test {
   InternalKeyComparator icomp = InternalKeyComparator(BytewiseComparator());
 
   PartitionedFilterBlockTest() {
-    cache_ = NewLRUCache(1, 1, false);
-    table_options_.block_cache = cache_;
     table_options_.filter_policy.reset(NewBloomFilterPolicy(10, false));
     table_options_.no_block_cache = true;  // Otherwise BlockBasedTable::Close
                                            // will access variable that are not
@@ -52,7 +52,7 @@ class PartitionedFilterBlockTest : public testing::Test {
   const std::string missing_keys[2] = {"missing", "other"};
 
   int last_offset = 10;
-  BlockHandle Write(Slice& slice) {
+  BlockHandle Write(const Slice& slice) {
     BlockHandle bh(last_offset + 1, slice.size());
     slices[bh.offset()] = slice;
     last_offset += bh.size();

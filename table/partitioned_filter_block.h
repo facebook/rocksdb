@@ -7,7 +7,7 @@
 
 #include <list>
 #include <string>
-#include <vector>
+#include <unordered_map>
 #include "db/dbformat.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
@@ -17,6 +17,7 @@
 #include "table/block_based_table_reader.h"
 #include "table/full_filter_block.h"
 #include "table/index_builder.h"
+#include "util/autovector.h"
 
 namespace rocksdb {
 
@@ -74,16 +75,17 @@ class PartitionedFilterBlockReader : public FilterBlockReader {
   virtual size_t ApproximateMemoryUsage() const override;
 
  private:
+  Slice GetFilterPartitionHandle(const Slice& entry);
+  BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
+      Slice* handle, const bool no_io, bool* cached);
+
   const SliceTransform* prefix_extractor_;
   std::unique_ptr<Block> idx_on_fltr_blk_;
   const Comparator& comparator_;
   const BlockBasedTable* table_;
-  Slice GetFilterPartitionHandle(const Slice& entry);
-  BlockBasedTable::CachableEntry<FilterBlockReader> GetFilterPartition(
-      Slice* handle, const bool no_io, bool* cached);
-  std::map<uint64_t, FilterBlockReader*> filter_cache;
-  std::vector<Cache::Handle*> handle_list;
-  port::RWMutex mu;
+  std::unordered_map<uint64_t, FilterBlockReader*> filter_cache_;
+  autovector<Cache::Handle*> handle_list_;
+  port::RWMutex mu_;
 };
 
 }  // namespace rocksdb
