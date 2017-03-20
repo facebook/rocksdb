@@ -16,7 +16,6 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "port/likely.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/metadata.h"
@@ -288,7 +287,7 @@ class DB {
     PinnableSlice pinnable_val(value);
     assert(!pinnable_val.IsPinned());
     auto s = Get(options, column_family, key, &pinnable_val);
-    if (LIKELY(s.ok()) && pinnable_val.IsPinned()) {
+    if (s.ok() && pinnable_val.IsPinned()) {
       value->assign(pinnable_val.data(), pinnable_val.size());
     }  // else value is already assigned
     return s;
