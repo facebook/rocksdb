@@ -1,5 +1,6 @@
 # Rocksdb Change Log
 ## Unreleased
+### Public API Change
 * Support dynamically change `stats_dump_period_sec` option via SetDBOptions().
 
 ## 5.3.0 (03/08/2017)
