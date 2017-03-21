@@ -27,6 +27,9 @@ compact_files_example: librocksdb compact_files_example.cc
 .c.o:
 	$(CC) $(CFLAGS) -c $< -o $@ -I../include
 
+.cc.o:
+	$(CXX) $(CXXFLAGS) -c $< -o $@ -I../include
+
 c_simple_example: librocksdb c_simple_example.o
 	$(CXX) $@.o -o$@ ../librocksdb.a $(PLATFORM_LDFLAGS) $(EXEC_LDFLAGS)
 
