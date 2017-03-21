@@ -286,6 +286,12 @@ class MemTable {
     return earliest_seqno_.load(std::memory_order_relaxed);
   }
 
+  // DB's latest sequence ID when the memtable is created. This number
+  // may be updated to a more recent one before any key is inserted.
+  SequenceNumber GetCreationSeq() const { return creation_seq_; }
+
+  void SetCreationSeq(SequenceNumber sn) { creation_seq_ = sn; }
+
   // Returns the next active logfile number when this memtable is about to
   // be flushed to storage
   // REQUIRES: external synchronization to prevent simultaneous
@@ -380,6 +386,8 @@ class MemTable {
   // The db sequence number at the time of creation or kMaxSequenceNumber
   // if not set.
   std::atomic<SequenceNumber> earliest_seqno_;
+
+  SequenceNumber creation_seq_;
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;

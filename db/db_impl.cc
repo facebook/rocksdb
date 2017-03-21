@@ -4758,8 +4758,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         write_buffer_manager_->buffer_size());
     // no need to refcount because drop is happening in write thread, so can't
     // happen while we're in the write thread
-    ColumnFamilyData* largest_cfd = nullptr;
-    size_t largest_cfd_size = 0;
+    ColumnFamilyData* cfd_picked = nullptr;
+    SequenceNumber seq_num_for_cf_picked = kMaxSequenceNumber;
 
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (cfd->IsDropped()) {
@@ -4768,18 +4768,18 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       if (!cfd->mem()->IsEmpty()) {
         // We only consider active mem table, hoping immutable memtable is
         // already in the process of flushing.
-        size_t cfd_size = cfd->mem()->ApproximateMemoryUsage();
-        if (largest_cfd == nullptr || cfd_size > largest_cfd_size) {
-          largest_cfd = cfd;
-          largest_cfd_size = cfd_size;
+        uint64_t seq = cfd->mem()->GetCreationSeq();
+        if (cfd_picked == nullptr || seq < seq_num_for_cf_picked) {
+          cfd_picked = cfd;
+          seq_num_for_cf_picked = seq;
         }
       }
     }
-    if (largest_cfd != nullptr) {
-      status = SwitchMemtable(largest_cfd, &context);
+    if (cfd_picked != nullptr) {
+      status = SwitchMemtable(cfd_picked, &context);
       if (status.ok()) {
-        largest_cfd->imm()->FlushRequested();
-        SchedulePendingFlush(largest_cfd);
+        cfd_picked->imm()->FlushRequested();
+        SchedulePendingFlush(cfd_picked);
         MaybeScheduleFlushOrCompaction();
       }
     }
@@ -5317,17 +5317,21 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     log_dir_synced_ = false;
     logs_.emplace_back(logfile_number_, new_log);
     alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
-    for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
-      // all this is just optimization to delete logs that
-      // are no longer needed -- if CF is empty, that means it
-      // doesn't need that particular log to stay alive, so we just
-      // advance the log number. no need to persist this in the manifest
-      if (loop_cfd->mem()->GetFirstSequenceNumber() == 0 &&
-          loop_cfd->imm()->NumNotFlushed() == 0) {
+  }
+  for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
+    // all this is just optimization to delete logs that
+    // are no longer needed -- if CF is empty, that means it
+    // doesn't need that particular log to stay alive, so we just
+    // advance the log number. no need to persist this in the manifest
+    if (loop_cfd->mem()->GetFirstSequenceNumber() == 0 &&
+        loop_cfd->imm()->NumNotFlushed() == 0) {
+      if (creating_new_log) {
         loop_cfd->SetLogNumber(logfile_number_);
       }
+      loop_cfd->mem()->SetCreationSeq(versions_->LastSequence());
     }
   }
+
   cfd->mem()->SetNextLogNumber(logfile_number_);
   cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
