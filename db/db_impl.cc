@@ -618,12 +618,15 @@ static void DumpMallocStats(std::string* stats) {
 #endif  // !ROCKSDB_LITE
 
 void DBImpl::MaybeDumpStats() {
-  if (immutable_db_options_.stats_dump_period_sec == 0) return;
+  mutex_.Lock();
+  unsigned int stats_dump_period_sec =
+      mutable_db_options_.stats_dump_period_sec;
+  mutex_.Unlock();
+  if (stats_dump_period_sec == 0) return;
 
   const uint64_t now_micros = env_->NowMicros();
 
-  if (last_stats_dump_time_microsec_ +
-          immutable_db_options_.stats_dump_period_sec * 1000000 <=
+  if (last_stats_dump_time_microsec_ + stats_dump_period_sec * 1000000 <=
       now_micros) {
     // Multiple threads could race in here simultaneously.
     // However, the last one will update last_stats_dump_time_microsec_

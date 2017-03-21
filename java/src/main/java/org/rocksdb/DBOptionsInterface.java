@@ -715,7 +715,7 @@ public interface DBOptionsInterface {
 
   /**
    * if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
-   * Default: 3600 (1 hour)
+   * Default: 600 (10 minutes)
    *
    * @param statsDumpPeriodSec time interval in seconds.
    * @return the instance of the current Object.
@@ -724,7 +724,7 @@ public interface DBOptionsInterface {
 
   /**
    * If not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
-   * Default: 3600 (1 hour)
+   * Default: 600 (10 minutes)
    *
    * @return time interval in seconds.
    */

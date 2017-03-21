@@ -326,6 +326,22 @@ TEST_F(DBOptionsTest, MaxTotalWalSizeChange) {
   }
 }
 
+TEST_F(DBOptionsTest, SetStatsDumpPeriodSec) {
+  Options options;
+  options.create_if_missing = true;
+  options.stats_dump_period_sec = 5;
+  options.env = env_;
+  Reopen(options);
+  ASSERT_EQ(5, dbfull()->GetDBOptions().stats_dump_period_sec);
+
+  for (int i = 0; i < 20; i++) {
+    int num = rand() % 5000 + 1;
+    ASSERT_OK(dbfull()->SetDBOptions(
+        {{"stats_dump_period_sec", std::to_string(num)}}));
+    ASSERT_EQ(num, dbfull()->GetDBOptions().stats_dump_period_sec);
+  }
+}
+
 static void assert_candidate_files_empty(DBImpl* dbfull, const bool empty) {
   dbfull->TEST_LockMutex();
   JobContext job_context(0);

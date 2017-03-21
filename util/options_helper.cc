@@ -76,7 +76,7 @@ DBOptions BuildDBOptions(const ImmutableDBOptions& immutable_db_options,
   options.use_direct_writes = immutable_db_options.use_direct_writes;
   options.allow_fallocate = immutable_db_options.allow_fallocate;
   options.is_fd_close_on_exec = immutable_db_options.is_fd_close_on_exec;
-  options.stats_dump_period_sec = immutable_db_options.stats_dump_period_sec;
+  options.stats_dump_period_sec = mutable_db_options.stats_dump_period_sec;
   options.advise_random_on_open = immutable_db_options.advise_random_on_open;
   options.db_write_buffer_size = immutable_db_options.db_write_buffer_size;
   options.write_buffer_manager = immutable_db_options.write_buffer_manager;
