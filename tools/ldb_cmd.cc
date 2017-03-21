@@ -21,6 +21,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/write_buffer_manager.h"
@@ -222,6 +223,10 @@ LDBCommand* LDBCommand::SelectCommand(const ParsedParams& parsed_params) {
     return new CheckConsistencyCommand(parsed_params.cmd_params,
                                        parsed_params.option_map,
                                        parsed_params.flags);
+  } else if (parsed_params.cmd == CheckPointCommand::Name()) {
+    return new CheckPointCommand(parsed_params.cmd_params,
+                                 parsed_params.option_map,
+                                 parsed_params.flags);
   } else if (parsed_params.cmd == RepairCommand::Name()) {
     return new RepairCommand(parsed_params.cmd_params, parsed_params.option_map,
                              parsed_params.flags);
@@ -2559,6 +2564,47 @@ void CheckConsistencyCommand::DoCommand() {
     fprintf(stdout, "OK\n");
   } else {
     exec_state_ = LDBCommandExecuteResult::Failed(st.ToString());
+  }
+}
+
+// ----------------------------------------------------------------------------
+
+const std::string CheckPointCommand::ARG_CHECKPOINT_DIR = "checkpoint_dir";
+
+CheckPointCommand::CheckPointCommand(
+    const std::vector<std::string>& params,
+    const std::map<std::string, std::string>& options,
+    const std::vector<std::string>& flags)
+    : LDBCommand(options, flags, false /* is_read_only */,
+                 BuildCmdLineOptions({ARG_CHECKPOINT_DIR})) {
+  auto itr = options.find(ARG_CHECKPOINT_DIR);
+  if (itr == options.end()) {
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        "--" + ARG_CHECKPOINT_DIR + ": missing checkpoint directory");
+  } else {
+    checkpoint_dir_ = itr->second;
+  }
+}
+
+void CheckPointCommand::Help(std::string& ret) {
+  ret.append("  ");
+  ret.append(CheckPointCommand::Name());
+  ret.append(" [--" + ARG_CHECKPOINT_DIR + "] ");
+  ret.append("\n");
+}
+
+void CheckPointCommand::DoCommand() {
+  if (!db_) {
+    assert(GetExecuteState().IsFailed());
+    return;
+  }
+  Checkpoint* checkpoint;
+  Status status = Checkpoint::Create(db_, &checkpoint);
+  status = checkpoint->CreateCheckpoint(checkpoint_dir_);
+  if (status.ok()) {
+    printf("OK\n");
+  } else {
+    exec_state_ = LDBCommandExecuteResult::Failed(status.ToString());
   }
 }
 
