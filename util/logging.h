@@ -52,6 +52,10 @@
   rocksdb::LogToBuffer(LOG_BUF, MAX_LOG_SIZE, PREPEND_FILE_LINE(FMT), \
                        ##__VA_ARGS__)
 
+#define CALL_AND_LOG(LGR, FNC, ...)              \
+  ROCKS_LOG_INFO(LGR, "Calling " TOSTRING(FNC)); \
+  FNC(##__VA_ARGS__)
+
 namespace rocksdb {
 
 class Slice;
