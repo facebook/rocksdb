@@ -5,6 +5,8 @@
 
 #include "table/partitioned_filter_block.h"
 
+#include <utility>
+
 #include "port/port.h"
 #include "rocksdb/filter_policy.h"
 #include "table/block.h"
