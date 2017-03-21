@@ -82,6 +82,7 @@ void LDBCommandRunner::PrintHelp(const char* exec_name) {
   RepairCommand::Help(ret);
   BackupCommand::Help(ret);
   RestoreCommand::Help(ret);
+  CheckPointCommand::Help(ret);
 
   fprintf(stderr, "%s\n", ret.c_str());
 }
