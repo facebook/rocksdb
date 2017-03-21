@@ -5102,7 +5102,7 @@ void DBImpl::MaybeFlushColumnFamilies() {
                  "Flushing all column families with data in WAL number %" PRIu64
                  ". Total log size is %" PRIu64
                  " while max_total_wal_size is %" PRIu64,
-                 oldest_alive_log, total_log_size_, GetMaxTotalWalSize());
+                 oldest_alive_log, total_log_size_.load(), GetMaxTotalWalSize());
   // no need to refcount because drop is happening in write thread, so can't
   // happen while we're in the write thread
   for (auto cfd : *versions_->GetColumnFamilySet()) {

@@ -819,7 +819,7 @@ class DBImpl : public DB {
   std::deque<LogWriterNumber> logs_;
   // Signaled when getting_synced becomes false for some of the logs_.
   InstrumentedCondVar log_sync_cv_;
-  uint64_t total_log_size_;
+  std::atomic<uint64_t> total_log_size_;
   // only used for dynamically adjusting max_total_wal_size. it is a sum of
   // [write_buffer_size * max_write_buffer_number] over all column families
   uint64_t max_total_in_memory_state_;
