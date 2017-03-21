@@ -2575,7 +2575,7 @@ CheckPointCommand::CheckPointCommand(
     const std::vector<std::string>& params,
     const std::map<std::string, std::string>& options,
     const std::vector<std::string>& flags)
-    : LDBCommand(options, flags, false,
+    : LDBCommand(options, flags, false /* is_read_only */,
                  BuildCmdLineOptions({ARG_CHECKPOINT_DIR})) {
   auto itr = options.find(ARG_CHECKPOINT_DIR);
   if (itr == options.end()) {
