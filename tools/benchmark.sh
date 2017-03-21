@@ -86,7 +86,6 @@ const_params="
   \
   --verify_checksum=1 \
   --delete_obsolete_files_period_micros=$((60 * M)) \
-  --max_grandparent_overlap_factor=8 \
   --max_bytes_for_level_multiplier=8 \
   \
   --statistics=0 \
