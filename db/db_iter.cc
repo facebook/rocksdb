@@ -674,12 +674,6 @@ void DBIter::PrevInternal() {
 
   while (iter_->Valid()) {
 
-    if (CheckTooManyTombstones()) {
-      return;
-    } else {
-      num_tombstones_skipped_++;
-    }
-
     saved_key_.SetKey(ExtractUserKey(iter_->key()),
                       !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
 
@@ -699,6 +693,11 @@ void DBIter::PrevInternal() {
       }
       return;
     }
+
+    if (CheckTooManyTombstones()) {
+      return;
+    }
+
     if (!iter_->Valid()) {
       break;
     }
@@ -735,11 +734,11 @@ bool DBIter::FindValueForCurrentKey() {
   while (iter_->Valid() && ikey.sequence <= sequence_ &&
          user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
 
-    //  if (CheckTooManyTombstones()) {
-    //    return false;
-    //  } else {
-    //    num_tombstones_skipped_++;
-    //  }
+     if (CheckTooManyTombstones()) {
+       return false;
+     } else {
+       num_tombstones_skipped_++;
+     }
 
     // We iterate too much: let's use Seek() to avoid too much key comparisons
     if (num_skipped >= max_skip_) {
