@@ -971,7 +971,7 @@ bool DBIter::TooManyInternalKeysSkipped() {
   if ((max_skippable_internal_keys_ > 0) &&
       (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
     valid_ = false;
-    status_ = Status::Incomplete("Too many deletions encountered!");
+    status_ = Status::Incomplete("Too many internal keys skipped.");
     return true;
   }
   return false;
