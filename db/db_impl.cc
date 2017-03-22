@@ -5167,7 +5167,6 @@ Status DBImpl::DelayWrite(uint64_t num_bytes,
         env_->SleepForMicroseconds(kDelayInterval);
       }
       mutex_.Lock();
-
     }
 
     while (bg_error_.ok() && write_controller_.IsStopped()) {

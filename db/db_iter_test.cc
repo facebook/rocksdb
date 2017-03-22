@@ -1223,9 +1223,9 @@ TEST_F(DBIteratorTest, DBIteratorSkipInternalKeys) {
       options.max_sequential_skip_in_iterations = 1000;
       ro.max_skippable_internal_keys = i;
       std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
-          2 * i + 1, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
-          false, ro.max_skippable_internal_keys));
+          env_, ImmutableCFOptions(options), BytewiseComparator(),
+          internal_iter, 2 * i + 1, options.max_sequential_skip_in_iterations,
+          0, nullptr, false, false, false, ro.max_skippable_internal_keys));
 
       db_iter->SeekToFirst();
       ASSERT_TRUE(db_iter->Valid());

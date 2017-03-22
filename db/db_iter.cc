@@ -673,7 +673,6 @@ void DBIter::PrevInternal() {
   ParsedInternalKey ikey;
 
   while (iter_->Valid()) {
-
     saved_key_.SetKey(ExtractUserKey(iter_->key()),
                       !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
 
@@ -733,12 +732,11 @@ bool DBIter::FindValueForCurrentKey() {
   size_t num_skipped = 0;
   while (iter_->Valid() && ikey.sequence <= sequence_ &&
          user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
-
-     if (TooManyInternalKeysSkipped()) {
-       return false;
-     } else {
-       num_internal_keys_skipped_++;
-     }
+    if (TooManyInternalKeysSkipped()) {
+      return false;
+    } else {
+      num_internal_keys_skipped_++;
+    }
 
     // We iterate too much: let's use Seek() to avoid too much key comparisons
     if (num_skipped >= max_skip_) {
@@ -1158,11 +1156,11 @@ Iterator* NewDBIterator(
     uint64_t version_number, const Slice* iterate_upper_bound,
     bool prefix_same_as_start, bool pin_data, bool total_order_seek,
     uint64_t max_skippable_internal_keys) {
-  DBIter* db_iter = new DBIter(
-      env, ioptions, user_key_comparator, internal_iter, sequence, false,
-      max_sequential_skip_in_iterations, version_number, iterate_upper_bound,
-      prefix_same_as_start, pin_data, total_order_seek,
-      max_skippable_internal_keys);
+  DBIter* db_iter =
+      new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
+                 false, max_sequential_skip_in_iterations, version_number,
+                 iterate_upper_bound, prefix_same_as_start, pin_data,
+                 total_order_seek, max_skippable_internal_keys);
   return db_iter;
 }
 
@@ -1210,11 +1208,11 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
-  DBIter* db_iter = new (mem) DBIter(
-      env, ioptions, user_key_comparator, nullptr, sequence, true,
-      max_sequential_skip_in_iterations, version_number, iterate_upper_bound,
-      prefix_same_as_start, pin_data, total_order_seek,
-      max_skippable_internal_keys);
+  DBIter* db_iter =
+      new (mem) DBIter(env, ioptions, user_key_comparator, nullptr, sequence,
+                       true, max_sequential_skip_in_iterations, version_number,
+                       iterate_upper_bound, prefix_same_as_start, pin_data,
+                       total_order_seek, max_skippable_internal_keys);
 
   iter->SetDBIter(db_iter);
 
