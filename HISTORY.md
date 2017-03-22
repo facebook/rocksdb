@@ -1,12 +1,13 @@
 # Rocksdb Change Log
-## Unreleased
-
 ## 5.3.0 (03/08/2017)
 ### Public API Change
 * Remove disableDataSync option.
 * Remove timeout_hint_us option from WriteOptions. The option has been deprecated and has no effect since 3.13.0.
 * Remove option min_partial_merge_operands. Partial merge operands will always be merged in flush or compaction if there are more than one.
 * Remove option verify_checksums_in_compaction. Compaction will always verify checksum.
+
+### New Features
+* Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.
 
 ## 5.2.0 (02/08/2017)
 ### Public API Change
