@@ -998,7 +998,7 @@ struct ReadOptions {
   bool ignore_range_deletions;
 
   // Default: 0
-  uint64_t max_tombstones_skip_in_iterations;
+  uint64_t max_skippable_internal_keys;
 
   ReadOptions();
   ReadOptions(bool cksum, bool cache);

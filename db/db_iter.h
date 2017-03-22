@@ -34,7 +34,7 @@ extern Iterator* NewDBIterator(
     uint64_t version_number, const Slice* iterate_upper_bound = nullptr,
     bool prefix_same_as_start = false, bool pin_data = false,
     bool total_order_seek = false,
-    uint64_t max_tombstones_skip_in_iterations = 0);
+    uint64_t max_skippable_internal_keys = 0);
 
 // A wrapper iterator which wraps DB Iterator and the arena, with which the DB
 // iterator is supposed be allocated. This class is used as an entry point of
@@ -84,6 +84,6 @@ extern ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const Slice* iterate_upper_bound = nullptr,
     bool prefix_same_as_start = false, bool pin_data = false,
     bool total_order_seek = false,
-    uint64_t max_tombstones_skip_in_iterations = 0);
+    uint64_t max_skippable_internal_keys = 0);
 
 }  // namespace rocksdb

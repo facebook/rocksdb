@@ -107,7 +107,7 @@ class DBIter: public Iterator {
          const Slice* iterate_upper_bound = nullptr,
          bool prefix_same_as_start = false, bool pin_data = false,
          bool total_order_seek = false,
-         uint64_t max_tombstones_skip_in_iterations = 0)
+         uint64_t max_skippable_internal_keys = 0)
       : arena_mode_(arena_mode),
         env_(env),
         logger_(ioptions.info_log),
@@ -129,7 +129,7 @@ class DBIter: public Iterator {
     RecordTick(statistics_, NO_ITERATORS);
     prefix_extractor_ = ioptions.prefix_extractor;
     max_skip_ = max_sequential_skip_in_iterations;
-    max_tombstones_skip_ = max_tombstones_skip_in_iterations;
+    max_skippable_internal_keys_ = max_skippable_internal_keys;
     if (pin_thru_lifetime_) {
       pinned_iters_mgr_.StartPinning();
     }
@@ -226,7 +226,7 @@ class DBIter: public Iterator {
   void FindNextUserEntryInternal(bool skipping, bool prefix_check);
   bool ParseKey(ParsedInternalKey* key);
   void MergeValuesNewToOld();
-  bool CheckTooManyTombstones();
+  bool TooManyInternalKeysSkipped();
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -252,8 +252,8 @@ class DBIter: public Iterator {
     }
   }
 
-  inline void ResetTombstonesSkippedCounter() {
-    num_tombstones_skipped_ = 0;
+  inline void ResetInternalKeysSkippedCounter() {
+    num_internal_keys_skipped_ = 0;
   }
 
   const SliceTransform* prefix_extractor_;
@@ -275,8 +275,8 @@ class DBIter: public Iterator {
   // for prefix seek mode to support prev()
   Statistics* statistics_;
   uint64_t max_skip_;
-  uint64_t max_tombstones_skip_;
-  uint64_t num_tombstones_skipped_;
+  uint64_t max_skippable_internal_keys_;
+  uint64_t num_internal_keys_skipped_;
   uint64_t version_number_;
   const Slice* iterate_upper_bound_;
   IterKey prefix_start_buf_;
@@ -313,7 +313,7 @@ void DBIter::Next() {
 
   // Release temporarily pinned blocks from last operation
   ReleaseTempPinnedData();
-  ResetTombstonesSkippedCounter();
+  ResetInternalKeysSkippedCounter();
   if (direction_ == kReverse) {
     ReverseToForward();
   } else if (iter_->Valid() && !current_entry_is_merged_) {
@@ -400,10 +400,10 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
       break;
     }
 
-    if (CheckTooManyTombstones()) {
+    if (TooManyInternalKeysSkipped()) {
       return;
     } else {
-      num_tombstones_skipped_++;
+      num_internal_keys_skipped_++;
     }
 
     if (ikey.sequence <= sequence_) {
@@ -596,7 +596,7 @@ void DBIter::MergeValuesNewToOld() {
 void DBIter::Prev() {
   assert(valid_);
   ReleaseTempPinnedData();
-  ResetTombstonesSkippedCounter();
+  ResetInternalKeysSkippedCounter();
   if (direction_ == kForward) {
     ReverseToBackward();
   }
@@ -694,7 +694,7 @@ void DBIter::PrevInternal() {
       return;
     }
 
-    if (CheckTooManyTombstones()) {
+    if (TooManyInternalKeysSkipped()) {
       return;
     }
 
@@ -734,10 +734,10 @@ bool DBIter::FindValueForCurrentKey() {
   while (iter_->Valid() && ikey.sequence <= sequence_ &&
          user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
 
-     if (CheckTooManyTombstones()) {
+     if (TooManyInternalKeysSkipped()) {
        return false;
      } else {
-       num_tombstones_skipped_++;
+       num_internal_keys_skipped_++;
      }
 
     // We iterate too much: let's use Seek() to avoid too much key comparisons
@@ -939,10 +939,10 @@ void DBIter::FindPrevUserKey() {
   while (iter_->Valid() && ((cmp = user_comparator_->Compare(
                                  ikey.user_key, saved_key_.GetKey())) == 0 ||
                             (cmp > 0 && ikey.sequence > sequence_))) {
-    if (CheckTooManyTombstones()) {
+    if (TooManyInternalKeysSkipped()) {
       return;
     } else {
-      num_tombstones_skipped_++;
+      num_internal_keys_skipped_++;
     }
 
     if (cmp == 0) {
@@ -967,8 +967,9 @@ void DBIter::FindPrevUserKey() {
   }
 }
 
-bool DBIter::CheckTooManyTombstones() {
-  if ((max_tombstones_skip_ > 0) && (num_tombstones_skipped_ > max_tombstones_skip_)) {
+bool DBIter::TooManyInternalKeysSkipped() {
+  if ((max_skippable_internal_keys_ > 0) &&
+      (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
     valid_ = false;
     status_ = Status::Incomplete("Too many deletions encountered!");
     return true;
@@ -990,7 +991,7 @@ void DBIter::FindParseableKey(ParsedInternalKey* ikey, Direction direction) {
 void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
   ReleaseTempPinnedData();
-  ResetTombstonesSkippedCounter();
+  ResetInternalKeysSkippedCounter();
   saved_key_.Clear();
   saved_key_.SetInternalKey(target, sequence_);
 
@@ -1032,7 +1033,7 @@ void DBIter::Seek(const Slice& target) {
 void DBIter::SeekForPrev(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
   ReleaseTempPinnedData();
-  ResetTombstonesSkippedCounter();
+  ResetInternalKeysSkippedCounter();
   saved_key_.Clear();
   // now saved_key is used to store internal key.
   saved_key_.SetInternalKey(target, 0 /* sequence_number */,
@@ -1078,7 +1079,7 @@ void DBIter::SeekToFirst() {
   }
   direction_ = kForward;
   ReleaseTempPinnedData();
-  ResetTombstonesSkippedCounter();
+  ResetInternalKeysSkippedCounter();
   ClearSavedValue();
 
   {
@@ -1115,7 +1116,7 @@ void DBIter::SeekToLast() {
   }
   direction_ = kReverse;
   ReleaseTempPinnedData();
-  ResetTombstonesSkippedCounter();
+  ResetInternalKeysSkippedCounter();
   ClearSavedValue();
 
   {
@@ -1156,12 +1157,12 @@ Iterator* NewDBIterator(
     const SequenceNumber& sequence, uint64_t max_sequential_skip_in_iterations,
     uint64_t version_number, const Slice* iterate_upper_bound,
     bool prefix_same_as_start, bool pin_data, bool total_order_seek,
-    uint64_t max_tombstones_skip_in_iterations) {
+    uint64_t max_skippable_internal_keys) {
   DBIter* db_iter = new DBIter(
       env, ioptions, user_key_comparator, internal_iter, sequence, false,
       max_sequential_skip_in_iterations, version_number, iterate_upper_bound,
       prefix_same_as_start, pin_data, total_order_seek,
-      max_tombstones_skip_in_iterations);
+      max_skippable_internal_keys);
   return db_iter;
 }
 
@@ -1205,7 +1206,7 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
     const Comparator* user_key_comparator, const SequenceNumber& sequence,
     uint64_t max_sequential_skip_in_iterations, uint64_t version_number,
     const Slice* iterate_upper_bound, bool prefix_same_as_start, bool pin_data,
-    bool total_order_seek, uint64_t max_tombstones_skip_in_iterations) {
+    bool total_order_seek, uint64_t max_skippable_internal_keys) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
@@ -1213,7 +1214,7 @@ ArenaWrappedDBIter* NewArenaWrappedDbIterator(
       env, ioptions, user_key_comparator, nullptr, sequence, true,
       max_sequential_skip_in_iterations, version_number, iterate_upper_bound,
       prefix_same_as_start, pin_data, total_order_seek,
-      max_tombstones_skip_in_iterations);
+      max_skippable_internal_keys);
 
   iter->SetDBIter(db_iter);
 

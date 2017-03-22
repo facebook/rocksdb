@@ -593,7 +593,7 @@ ReadOptions::ReadOptions()
       background_purge_on_iterator_cleanup(false),
       readahead_size(0),
       ignore_range_deletions(false),
-      max_tombstones_skip_in_iterations(0) {
+      max_skippable_internal_keys(0) {
 }
 
 ReadOptions::ReadOptions(bool cksum, bool cache)
@@ -610,7 +610,7 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
       background_purge_on_iterator_cleanup(false),
       readahead_size(0),
       ignore_range_deletions(false),
-      max_tombstones_skip_in_iterations(0) {
+      max_skippable_internal_keys(0) {
 }
 
 }  // namespace rocksdb
