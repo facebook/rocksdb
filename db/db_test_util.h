@@ -111,7 +111,7 @@ struct OptionsOverride {
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
   // These will be used only if filter_policy is set
   bool partition_filters = false;
-  uint64_t index_per_partition = 1024;
+  uint64_t metadata_block_size = 1024;
   BlockBasedTableOptions::IndexType index_type =
       BlockBasedTableOptions::IndexType::kBinarySearch;
 

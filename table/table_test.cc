@@ -1657,10 +1657,12 @@ TEST_F(TableTest, HashIndexTest) {
 
 TEST_F(TableTest, PartitionIndexTest) {
   const int max_index_keys = 5;
-  for (int i = 1; i <= max_index_keys + 1; i++) {
+  const int est_max_index_key_value_size = 32;
+  const int est_max_index_size = max_index_keys * est_max_index_key_value_size;
+  for (int i = 1; i <= est_max_index_size + 1; i++) {
     BlockBasedTableOptions table_options;
     table_options.index_type = BlockBasedTableOptions::kTwoLevelIndexSearch;
-    table_options.index_per_partition = i;
+    table_options.metadata_block_size = i;
     IndexTest(table_options);
   }
 }

@@ -71,4 +71,10 @@ FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
       data_block_builder);
 }
 
+FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
+    const uint64_t size, const int deviation,
+    const BlockBuilder& data_block_builder) {
+  return new FlushBlockBySizePolicy(size, deviation, data_block_builder);
+}
+
 }  // namespace rocksdb

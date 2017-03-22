@@ -7,6 +7,7 @@
 
 #include "rocksdb/filter_policy.h"
 
+#include "table/index_builder.h"
 #include "table/partitioned_filter_block.h"
 #include "util/coding.h"
 #include "util/hash.h"
@@ -50,6 +51,16 @@ class PartitionedFilterBlockTest : public testing::Test {
 
   const std::string keys[4] = {"afoo", "bar", "box", "hello"};
   const std::string missing_keys[2] = {"missing", "other"};
+
+  uint64_t MaxIndexSize() {
+    int num_keys = sizeof(keys) / sizeof(*keys);
+    uint64_t max_key_size = 0;
+    for (int i = 1; i < num_keys; i++) {
+      max_key_size = std::max(max_key_size, keys[i].size());
+    }
+    uint64_t max_index_size = num_keys * (max_key_size + 8 /*handle*/);
+    return max_index_size;
+  }
 
   int last_offset = 10;
   BlockHandle Write(const Slice& slice) {
@@ -122,8 +133,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     }
   }
 
-  void TestBlockPerKey() {
-    table_options_.index_per_partition = 1;
+  int TestBlockPerKey() {
     std::unique_ptr<PartitionedIndexBuilder> pib(NewIndexBuilder());
     std::unique_ptr<PartitionedFilterBlockBuilder> builder(
         NewBuilder(pib.get()));
@@ -142,6 +152,7 @@ class PartitionedFilterBlockTest : public testing::Test {
     CutABlock(pib.get(), keys[i]);
 
     VerifyReader(builder.get());
+    return CountNumOfIndexPartitions(pib.get());
   }
 
   void TestBlockPerTwoKeys() {
@@ -201,6 +212,18 @@ class PartitionedFilterBlockTest : public testing::Test {
     Slice slice = Slice(next_key.data(), next_key.size());
     builder->AddIndexEntry(&key, &slice, dont_care_block_handle);
   }
+
+  int CountNumOfIndexPartitions(PartitionedIndexBuilder* builder) {
+    IndexBuilder::IndexBlocks dont_care_ib;
+    BlockHandle dont_care_bh(10, 10);
+    Status s;
+    int cnt = 0;
+    do {
+      s = builder->Finish(&dont_care_ib, dont_care_bh);
+      cnt++;
+    } while (s.IsIncomplete());
+    return cnt - 1;  // 1 is 2nd level index
+  }
 };
 
 TEST_F(PartitionedFilterBlockTest, EmptyBuilder) {
@@ -211,27 +234,38 @@ TEST_F(PartitionedFilterBlockTest, EmptyBuilder) {
 }
 
 TEST_F(PartitionedFilterBlockTest, OneBlock) {
-  int num_keys = sizeof(keys) / sizeof(*keys);
-  for (int i = 1; i < num_keys + 1; i++) {
-    table_options_.index_per_partition = i;
+  uint64_t max_index_size = MaxIndexSize();
+  for (uint64_t i = 1; i < max_index_size + 1; i++) {
+    table_options_.metadata_block_size = i;
     TestBlockPerAllKeys();
   }
 }
 
 TEST_F(PartitionedFilterBlockTest, TwoBlocksPerKey) {
-  int num_keys = sizeof(keys) / sizeof(*keys);
-  for (int i = 1; i < num_keys + 1; i++) {
-    table_options_.index_per_partition = i;
+  uint64_t max_index_size = MaxIndexSize();
+  for (uint64_t i = 1; i < max_index_size + 1; i++) {
+    table_options_.metadata_block_size = i;
     TestBlockPerTwoKeys();
   }
 }
 
 TEST_F(PartitionedFilterBlockTest, OneBlockPerKey) {
-  int num_keys = sizeof(keys) / sizeof(*keys);
-  for (int i = 1; i < num_keys + 1; i++) {
-    table_options_.index_per_partition = i;
+  uint64_t max_index_size = MaxIndexSize();
+  for (uint64_t i = 1; i < max_index_size + 1; i++) {
+    table_options_.metadata_block_size = i;
     TestBlockPerKey();
   }
+}
+
+TEST_F(PartitionedFilterBlockTest, PartitionCount) {
+  int num_keys = sizeof(keys) / sizeof(*keys);
+  table_options_.metadata_block_size = MaxIndexSize();
+  int partitions = TestBlockPerKey();
+  ASSERT_EQ(partitions, 1);
+  // A low number ensures cutting a block after each key
+  table_options_.metadata_block_size = 1;
+  partitions = TestBlockPerKey();
+  ASSERT_EQ(partitions, num_keys - 1 /* last two keys make one flush */);
 }
 
 }  // namespace rocksdb
