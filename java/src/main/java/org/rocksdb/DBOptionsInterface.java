@@ -8,6 +8,23 @@ package org.rocksdb;
 public interface DBOptionsInterface {
 
   /**
+   * Use the specified object to interact with the environment,
+   * e.g. to read/write files, schedule background work, etc.
+   * Default: {@link Env#getDefault()}
+   *
+   * @param env {@link Env} instance.
+   * @return the instance of the current Options.
+   */
+  Object setEnv(final Env env);
+
+  /**
+   * Returns the set RocksEnv instance.
+   *
+   * @return {@link RocksEnv} instance set in the options.
+   */
+  Env getEnv();
+
+  /**
    * <p>By default, RocksDB uses only one background thread for flush and
    * compaction. Calling this function will set it up such that total of
    * `total_threads` is used.</p>

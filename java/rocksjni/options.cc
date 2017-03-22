@@ -75,7 +75,7 @@ void Java_org_rocksdb_Options_disposeInternal(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_Options_setIncreaseParallelism(
-    JNIEnv * evnv, jobject jobj, jlong jhandle, jint totalThreads) {
+    JNIEnv * env, jobject jobj, jlong jhandle, jint totalThreads) {
   reinterpret_cast<rocksdb::Options*>
       (jhandle)->IncreaseParallelism(static_cast<int>(totalThreads));
 }
@@ -3511,6 +3511,17 @@ void Java_org_rocksdb_DBOptions_disposeInternal(
   auto* dbo = reinterpret_cast<rocksdb::DBOptions*>(handle);
   assert(dbo != nullptr);
   delete dbo;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setEnv
+ * Signature: (JJ)V
+ */
+void JNICALL Java_org_rocksdb_DBOptions_setEnv(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jenv_handle) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->env =
+      reinterpret_cast<rocksdb::Env*>(jenv_handle);
 }
 
 /*

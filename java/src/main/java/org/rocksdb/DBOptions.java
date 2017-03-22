@@ -107,6 +107,18 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
+  public DBOptions setEnv(final Env env) {
+    setEnv(nativeHandle_, env.nativeHandle_);
+    this.env_ = env;
+    return this;
+  }
+
+  @Override
+  public Env getEnv() {
+    return env_;
+  }
+
+  @Override
   public DBOptions setErrorIfExists(
       final boolean errorIfExists) {
     assert(isOwningHandle());
@@ -636,6 +648,7 @@ public long delayedWriteRate(){
   private native void setCreateMissingColumnFamilies(
       long handle, boolean flag);
   private native boolean createMissingColumnFamilies(long handle);
+  private native void setEnv(long handle, long envHandle);
   private native void setErrorIfExists(long handle, boolean errorIfExists);
   private native boolean errorIfExists(long handle);
   private native void setParanoidChecks(
@@ -737,6 +750,8 @@ public long delayedWriteRate(){
   private native void setDelayedWriteRate(long handle, long delayedWriteRate);
   private native long delayedWriteRate(long handle);
 
+  // instance variables
+  Env env_;
   int numShardBits_;
   RateLimiter rateLimiter_;
 }

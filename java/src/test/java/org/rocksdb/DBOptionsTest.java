@@ -64,6 +64,15 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void env() {
+    try (final DBOptions opt = new DBOptions();
+         final Env env = Env.getDefault()) {
+      opt.setEnv(env);
+      assertThat(opt.getEnv()).isSameAs(env);
+    }
+  }
+
+  @Test
   public void setIncreaseParallelism() {
     try(final DBOptions opt = new DBOptions()) {
       final int threads = Runtime.getRuntime().availableProcessors() * 2;

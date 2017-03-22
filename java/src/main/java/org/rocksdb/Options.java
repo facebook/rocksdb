@@ -68,14 +68,7 @@ public class Options extends RocksObject
     return this;
   }
 
-  /**
-   * Use the specified object to interact with the environment,
-   * e.g. to read/write files, schedule background work, etc.
-   * Default: {@link Env#getDefault()}
-   *
-   * @param env {@link Env} instance.
-   * @return the instance of the current Options.
-   */
+  @Override
   public Options setEnv(final Env env) {
     assert(isOwningHandle());
     setEnv(nativeHandle_, env.nativeHandle_);
@@ -83,11 +76,7 @@ public class Options extends RocksObject
     return this;
   }
 
-  /**
-   * Returns the set RocksEnv instance.
-   *
-   * @return {@link RocksEnv} instance set in the Options.
-   */
+  @Override
   public Env getEnv() {
     return env_;
   }
