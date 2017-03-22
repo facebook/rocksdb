@@ -3,6 +3,9 @@
 ### Public API Change
 * Support dynamically change `stats_dump_period_sec` option via SetDBOptions().
 
+### New Features
+* Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.
+
 ## 5.3.0 (03/08/2017)
 ### Public API Change
 * Remove disableDataSync option.
