@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <iostream>
 #include "db/memtable.h"
 
 #include <memory>
@@ -37,7 +38,16 @@
 #include "util/statistics.h"
 #include "util/stop_watch.h"
 
+
 namespace rocksdb {
+
+void Dump( const void * mem, unsigned int n ) {
+  const char * p = reinterpret_cast< const char *>( mem );
+  for ( unsigned int i = 0; i < n; i++ ) {
+     std::cout << std::hex << int(p[i]) << " ";
+  }
+  std::cout << std::endl;
+}
 
 MemTableOptions::MemTableOptions(const ImmutableCFOptions& ioptions,
                                  const MutableCFOptions& mutable_cf_options)
@@ -79,6 +89,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       data_size_(0),
       num_entries_(0),
       num_deletes_(0),
+      hidden_key_count_(0),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
@@ -107,7 +118,10 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   }
 }
 
-MemTable::~MemTable() { assert(refs_ == 0); }
+MemTable::~MemTable() {
+  assert(refs_ == 0);
+//  assert(hidden_key_count_ == 0);
+}
 
 size_t MemTable::ApproximateMemoryUsage() {
   autovector<size_t> usages = {arena_.ApproximateMemoryUsage(),
@@ -412,10 +426,27 @@ MemTable::MemTableStats MemTable::ApproximateStats(const Slice& start_ikey,
   return {entry_count * (data_size / n), entry_count};
 }
 
+void MemTable::MakeVisible(SequenceNumber s, bool allow_concurrent, const HiddenKeyHandle& handle) {
+  assert(handle.mem == this);
+  uint64_t packed = PackSequenceAndType(s, handle.type);
+  char *p = handle.packed_sequence_and_type;
+  EncodeFixed64(p, packed);
+  DoInsert(s, allow_concurrent, handle.key_handle, handle.type,
+           handle.key, handle.key_size, handle.encoded_len);
+
+  hidden_key_count_--;
+  assert(hidden_key_count_ >= 0);
+}
+
+void MemTable::DeleteHiddenKey(const HiddenKeyHandle& handle) {
+  hidden_key_count_--;
+  assert(hidden_key_count_ >= 0);
+}
+
 void MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
                    const Slice& value, bool allow_concurrent,
-                   MemTablePostProcessInfo* post_process_info) {
+                   MemTablePostProcessInfo* post_process_info, std::vector<HiddenKeyHandle>* handles) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -428,30 +459,50 @@ void MemTable::Add(SequenceNumber s, ValueType type,
                                internal_key_size + VarintLength(val_size) +
                                val_size;
   char* buf = nullptr;
-  std::unique_ptr<MemTableRep>& table =
-      type == kTypeRangeDeletion ? range_del_table_ : table_;
+  MemTableRep* table =
+      type == kTypeRangeDeletion ? range_del_table_.get() : table_.get();
   KeyHandle handle = table->Allocate(encoded_len, &buf);
 
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
-  Slice key_slice(p, key_size);
+  char *key_ptr = p;
   p += key_size;
   uint64_t packed = PackSequenceAndType(s, type);
   EncodeFixed64(p, packed);
+  char* seq = p;
   p += 8;
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
-  if (!allow_concurrent) {
-    // Extract prefix for insert with hint.
-    if (insert_with_hint_prefix_extractor_ != nullptr &&
-        insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
-      Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
-      table->InsertWithHint(handle, &insert_hints_[prefix]);
-    } else {
-      table->Insert(handle);
-    }
 
+  if (handles != nullptr) {
+    // here we have done arena allocation and memcpy of key/value data.
+    // we store all of this data in the callers handle catalog
+    // so the insert can me completed at a later time
+    auto key_handle = HiddenKeyHandle();
+    key_handle.mem = this;
+    key_handle.key_handle = handle;
+    key_handle.packed_sequence_and_type = seq;
+    key_handle.type = type;
+    key_handle.key = key_ptr;
+    key_handle.key_size = key_size;
+    key_handle.encoded_len = encoded_len;
+    // lock
+    handles->push_back(key_handle);
+    // unlock
+    hidden_key_count_++;
+  } else {
+    DoInsert(s, allow_concurrent, handle, type, key_ptr, key_size, encoded_len);
+  }
+
+  if (allow_concurrent) {
+    assert(post_process_info != nullptr);
+    post_process_info->num_entries++;
+    post_process_info->data_size += encoded_len;
+    if (type == kTypeDeletion) {
+      post_process_info->num_deletes++;
+    }
+  } else {
     // this is a bit ugly, but is the way to avoid locked instructions
     // when incrementing an atomic
     num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
@@ -462,10 +513,30 @@ void MemTable::Add(SequenceNumber s, ValueType type,
       num_deletes_.store(num_deletes_.load(std::memory_order_relaxed) + 1,
                          std::memory_order_relaxed);
     }
+    assert(post_process_info == nullptr);
+  }
+}
+
+void MemTable::DoInsert(SequenceNumber s, bool allow_concurrent, KeyHandle handle, ValueType type, char* key_ptr, uint32_t key_size, uint32_t encoded_len) {
+  MemTableRep* table =
+      type == kTypeRangeDeletion ? range_del_table_.get() : table_.get();
+
+  Slice key_slice(key_ptr, key_size);
+
+  // we have now saved the data into the arena
+  if (!allow_concurrent) {
+    // Extract prefix for insert with hint.
+    if (insert_with_hint_prefix_extractor_ != nullptr &&
+        insert_with_hint_prefix_extractor_->InDomain(key_slice)) {
+      Slice prefix = insert_with_hint_prefix_extractor_->Transform(key_slice);
+      table->InsertWithHint(handle, &insert_hints_[prefix]);
+    } else {
+      table->Insert(handle);
+    }
 
     if (prefix_bloom_) {
       assert(prefix_extractor_);
-      prefix_bloom_->Add(prefix_extractor_->Transform(key));
+      prefix_bloom_->Add(prefix_extractor_->Transform(key_slice));
     }
 
     // The first sequence number inserted into the memtable
@@ -479,21 +550,13 @@ void MemTable::Add(SequenceNumber s, ValueType type,
       }
       assert(first_seqno_.load() >= earliest_seqno_.load());
     }
-    assert(post_process_info == nullptr);
     UpdateFlushState();
   } else {
     table->InsertConcurrently(handle);
 
-    assert(post_process_info != nullptr);
-    post_process_info->num_entries++;
-    post_process_info->data_size += encoded_len;
-    if (type == kTypeDeletion) {
-      post_process_info->num_deletes++;
-    }
-
     if (prefix_bloom_) {
       assert(prefix_extractor_);
-      prefix_bloom_->AddConcurrently(prefix_extractor_->Transform(key));
+      prefix_bloom_->AddConcurrently(prefix_extractor_->Transform(key_slice));
     }
 
     // atomically update first_seqno_ and earliest_seqno_.

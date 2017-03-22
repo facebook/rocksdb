@@ -422,9 +422,14 @@ class Transaction {
   TransactionState GetState() const { return txn_state_; }
   void SetState(TransactionState state) { txn_state_ = state; }
 
+  void SetRecovered(bool recovered) { recovered_ = recovered; }
+
  protected:
   explicit Transaction(const TransactionDB* db) {}
   Transaction() {}
+
+  // 2pc transaction was recovered from WAL
+  bool recovered_;
 
   // the log in which the prepared section for this txn resides
   // (for two phase commit)

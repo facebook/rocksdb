@@ -35,6 +35,7 @@ class Mutex;
 class MemTableIterator;
 class MergeContext;
 class InternalIterator;
+struct HiddenKeyHandle;
 
 struct MemTableOptions {
   explicit MemTableOptions(
@@ -163,6 +164,13 @@ class MemTable {
 
   InternalIterator* NewRangeTombstoneIterator(const ReadOptions& read_options);
 
+
+  // provided a hidden key handle (that
+  void MakeVisible(SequenceNumber s, bool allow_concurrent, const HiddenKeyHandle& handle);
+
+  // provided a handle rollback that key
+  void DeleteHiddenKey(const HiddenKeyHandle& handle);
+
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
   // Typically value will be empty if type==kTypeDeletion.
@@ -171,7 +179,7 @@ class MemTable {
   // simultaneous operations on the same MemTable.
   void Add(SequenceNumber seq, ValueType type, const Slice& key,
            const Slice& value, bool allow_concurrent = false,
-           MemTablePostProcessInfo* post_process_info = nullptr);
+           MemTablePostProcessInfo* post_process_info = nullptr, std::vector<HiddenKeyHandle>* handles = nullptr);
 
   // If memtable contains a value for key, store it in *value and return true.
   // If memtable contains a deletion for key, store a NotFound() error
@@ -349,7 +357,17 @@ class MemTable {
 
   const MemTableOptions* GetMemTableOptions() const { return &moptions_; }
 
+  bool HasHiddenKeys() { return hidden_key_count_ > 0; }
+
+  void FinalizeAdd(SequenceNumber s, bool allow_concurrent, HiddenKeyHandle handle);
+
+  void DeleteHiddenKey(HiddenKeyHandle* handle);
+
+  int64_t NumHiddenKeys() { return hidden_key_count_; }
+
  private:
+  void DoInsert(SequenceNumber s, bool allow_concurrent, KeyHandle handle, ValueType type, char* key, uint32_t key_size, uint32_t encoded_len);
+
   enum FlushStateEnum { FLUSH_NOT_REQUESTED, FLUSH_REQUESTED, FLUSH_SCHEDULED };
 
   friend class MemTableIterator;
@@ -370,6 +388,7 @@ class MemTable {
   std::atomic<uint64_t> data_size_;
   std::atomic<uint64_t> num_entries_;
   std::atomic<uint64_t> num_deletes_;
+  std::atomic<int64_t> hidden_key_count_;
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush
@@ -421,6 +440,18 @@ class MemTable {
   // No copying allowed
   MemTable(const MemTable&);
   MemTable& operator=(const MemTable&);
+};
+
+// A handle for a caller to hold on to when inserting a hidden key.
+// His handle is later used, with a sequence id to make the key visible in the memtable
+struct HiddenKeyHandle {
+  MemTable* mem;
+  KeyHandle key_handle;
+  char* packed_sequence_and_type;
+  ValueType type;
+  char *key;
+  uint32_t key_size;
+  uint32_t encoded_len;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

@@ -272,6 +272,9 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
   const auto& memlist = current_->memlist_;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
+    if (m->HasHiddenKeys()) {
+      continue;
+    }
     if (!m->flush_in_progress_) {
       assert(!m->flush_completed_);
       num_flush_not_started_--;

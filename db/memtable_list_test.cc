@@ -213,6 +213,123 @@ TEST_F(MemTableListTest, GetTest) {
   }
 }
 
+TEST_F(MemTableListTest, SimpleGetTest) {
+  // Create MemTableList
+  int min_write_buffer_number_to_merge = 2;
+  int max_write_buffer_number_to_maintain = 0;
+  MemTableList list(min_write_buffer_number_to_merge,
+                    max_write_buffer_number_to_maintain);
+
+  SequenceNumber seq = 1;
+  std::string value;
+  Status s;
+  MergeContext merge_context;
+  InternalKeyComparator ikey_cmp(options.comparator);
+  RangeDelAggregator range_del_agg(ikey_cmp, {} /* snapshots */);
+  autovector<MemTable*> to_delete;
+
+  LookupKey lkey("key1", seq);
+  bool found = list.current()->Get(lkey, &value, &s, &merge_context,
+                                   &range_del_agg, ReadOptions());
+  ASSERT_FALSE(found);
+
+  // Create a MemTable
+  InternalKeyComparator cmp(BytewiseComparator());
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableCFOptions ioptions(options);
+
+  WriteBufferManager wb(options.db_write_buffer_size);
+  MemTable* mem = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb,
+                               kMaxSequenceNumber);
+  mem->Ref();
+  std::vector<HiddenKeyHandle> handles;
+
+  // Write some keys to this memtable.
+  mem->Add(seq, kTypeValue, "key", "value", false, nullptr, &handles);
+
+  // key should still count in stats
+  ASSERT_EQ(1, mem->num_entries());
+
+  // key should not be visible
+  merge_context.Clear();
+  found = mem->Get(LookupKey("key", seq), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
+  ASSERT_TRUE(!found);
+
+  mem->MakeVisible(seq, false, handles.at(0));
+  handles.clear();
+
+  // Fetch the newly written keys
+  merge_context.Clear();
+  found = mem->Get(LookupKey("key", seq), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ(value, "value");
+  return;
+
+  merge_context.Clear();
+  found = mem->Get(LookupKey("key1", 2), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
+  // MemTable found out that this key is *not* found (at this sequence#)
+  ASSERT_TRUE(found && s.IsNotFound());
+
+  merge_context.Clear();
+  found = mem->Get(LookupKey("key2", seq), &value, &s, &merge_context,
+                   &range_del_agg, ReadOptions());
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ(value, "value2.2");
+
+  ASSERT_EQ(4, mem->num_entries());
+  ASSERT_EQ(1, mem->num_deletes());
+
+  // Add memtable to list
+  list.Add(mem, &to_delete);
+
+  SequenceNumber saved_seq = seq;
+
+  // Create another memtable and write some keys to it
+  WriteBufferManager wb2(options.db_write_buffer_size);
+  MemTable* mem2 = new MemTable(cmp, ioptions, MutableCFOptions(options), &wb2,
+                                kMaxSequenceNumber);
+  mem2->Ref();
+
+  mem2->Add(++seq, kTypeDeletion, "key1", "");
+  mem2->Add(++seq, kTypeValue, "key2", "value2.3");
+
+  // Add second memtable to list
+  list.Add(mem2, &to_delete);
+
+  // Fetch keys via MemTableList
+  merge_context.Clear();
+  found = list.current()->Get(LookupKey("key1", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
+  ASSERT_TRUE(found && s.IsNotFound());
+
+  merge_context.Clear();
+  found = list.current()->Get(LookupKey("key1", saved_seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ("value1", value);
+
+  merge_context.Clear();
+  found = list.current()->Get(LookupKey("key2", seq), &value, &s,
+                              &merge_context, &range_del_agg, ReadOptions());
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ(value, "value2.3");
+
+  merge_context.Clear();
+  found = list.current()->Get(LookupKey("key2", 1), &value, &s, &merge_context,
+                              &range_del_agg, ReadOptions());
+  ASSERT_FALSE(found);
+
+  ASSERT_EQ(2, list.NumNotFlushed());
+
+  list.current()->Unref(&to_delete);
+  for (MemTable* m : to_delete) {
+    delete m;
+  }
+}
 TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 2;

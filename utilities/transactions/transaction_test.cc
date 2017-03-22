@@ -843,7 +843,7 @@ TEST_P(TransactionTest, TwoPhaseRollbackTest) {
   // flush to next wal
   s = db->Put(write_options, Slice("foo"), Slice("bar"));
   ASSERT_OK(s);
-  db_impl->TEST_FlushMemTable(true);
+  db_impl->TEST_FlushMemTable(false);
 
   // issue rollback (marker written to WAL)
   s = txn->Rollback();
@@ -1104,6 +1104,11 @@ TEST_P(TransactionTest, TwoPhaseLongPrepareTest) {
   // commit old txn
   txn = db->GetTransactionByName("bob");
   ASSERT_TRUE(txn);
+
+  s = txn->Get(read_options, "foo", &value);
+  ASSERT_EQ(s, Status::OK());
+  ASSERT_EQ(value, "bar");
+
   s = txn->Commit();
   ASSERT_OK(s);
 
@@ -1423,6 +1428,12 @@ TEST_P(TransactionTest, TwoPhaseLogRollingTest2) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
+  ReadOptions read_options;
+  std::string value;
+  s = db->Get(read_options, cfa, "boys", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "girls1");
+
   ASSERT_EQ(db_impl->TEST_FindMinPrepLogReferencedByMemTable(), prepare_log_no);
 
   ASSERT_TRUE(!db_impl->TEST_UnableToFlushOldestLog());
@@ -1499,7 +1510,7 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   s = db->Put(wal_off, "cats", "dogs3");
   ASSERT_OK(s);
 
-  s = db_impl->TEST_FlushMemTable(true);
+  s = db_impl->TEST_FlushMemTable(false);
   ASSERT_OK(s);
 
   s = db->Put(wal_on, "cats", "dogs4");

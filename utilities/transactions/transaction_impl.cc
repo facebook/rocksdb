@@ -95,6 +95,7 @@ TransactionImpl::~TransactionImpl() {
 
 void TransactionImpl::Clear() {
   txn_db_impl_->UnLock(this, &GetTrackedKeys());
+  hidden_key_handles_.clear();
   TransactionBaseImpl::Clear();
 }
 
@@ -189,9 +190,10 @@ Status TransactionImpl::Prepare() {
     WriteOptions write_options = write_options_;
     write_options.disableWAL = false;
     WriteBatchInternal::MarkEndPrepare(GetWriteBatch()->GetWriteBatch(), name_);
+    assert(hidden_key_handles_.empty());
     s = db_impl_->WriteImpl(write_options, GetWriteBatch()->GetWriteBatch(),
                             /*callback*/ nullptr, &log_number_, /*log ref*/ 0,
-                            /* disable_memtable*/ true);
+                            &hidden_key_handles_, true /*hide*/);
     if (s.ok()) {
       assert(log_number_ != 0);
       dbimpl_->MarkLogAsContainingPrepSection(log_number_);
@@ -255,21 +257,33 @@ Status TransactionImpl::Commit() {
   } else if (commit_prepared) {
     txn_state_.store(AWAITING_COMMIT);
 
-    // We take the commit-time batch and append the Commit marker.
-    // The Memtable will ignore the Commit marker in non-recovery mode
-    WriteBatch* working_batch = GetCommitTimeWriteBatch();
-    WriteBatchInternal::MarkCommit(working_batch, name_);
+    WriteBatch* commit_time_batch = GetCommitTimeWriteBatch();
+    WriteBatch* batch = GetWriteBatch()->GetWriteBatch();
 
-    // any operations appended to this working_batch will be ignored from WAL
-    working_batch->MarkWalTerminationPoint();
+    // we write the batch to both the WAL and memtable.
+    // all of the hidden key handles commited (made visible)
+    if (!recovered_) {
+      // We take the commit-time batch and append the Commit marker.
+      // The Memtable will ignore the Commit marker in non-recovery mode
+      WriteBatchInternal::MarkCommit(commit_time_batch, name_);
+      s = db_impl_->WriteImpl(write_options_, commit_time_batch, nullptr, nullptr,
+            log_number_, &hidden_key_handles_, false /*hide*/, false /*rollback*/);
 
-    // insert prepared batch into Memtable only skipping WAL.
-    // Memtable will ignore BeginPrepare/EndPrepare markers
-    // in non recovery mode and simply insert the values
-    WriteBatchInternal::Append(working_batch, GetWriteBatch()->GetWriteBatch());
+      for (auto &handle : hidden_key_handles_) {
+        handle.mem->RefLogContainingPrepSection(log_number_);
+      }
 
-    s = db_impl_->WriteImpl(write_options_, working_batch, nullptr, nullptr,
-                            log_number_);
+      hidden_key_handles_.clear();
+    }
+
+    else {
+      assert(WriteBatchInternal::Count(commit_time_batch) == 0);
+      WriteBatchInternal::MarkCommit(batch, name_);
+      // if this is a recovered transaction then the keys were not prepared
+      // in the memtable. do a regular write of
+      s = db_impl_->WriteImpl(write_options_, batch, nullptr, nullptr, log_number_);
+    }
+
     if (!s.ok()) {
       return s;
     }
@@ -302,7 +316,7 @@ Status TransactionImpl::Rollback() {
     WriteBatch rollback_marker;
     WriteBatchInternal::MarkRollback(&rollback_marker, name_);
     txn_state_.store(AWAITING_ROLLBACK);
-    s = db_impl_->WriteImpl(write_options_, &rollback_marker);
+    s = db_impl_->WriteImpl(write_options_, &rollback_marker, nullptr, nullptr, 0, &hidden_key_handles_, false /*hide*/, true /*rollback*/);
     if (s.ok()) {
       // we do not need to keep our prepared section around
       assert(log_number_ > 0);

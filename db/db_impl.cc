@@ -4659,22 +4659,50 @@ Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
 Status DBImpl::WriteImpl(const WriteOptions& write_options,
                          WriteBatch* my_batch, WriteCallback* callback,
                          uint64_t* log_used, uint64_t log_ref,
-                         bool disable_memtable) {
-  if (my_batch == nullptr) {
-    return Status::Corruption("Batch is nullptr!");
+                         std::vector<HiddenKeyHandle>* handles, bool hide, bool rollback) {
+  Status status;
+
+  if (hide) {
+    if (my_batch == nullptr) {
+      assert(false);
+      //err
+    }
+
+    if (handles == nullptr) {
+      assert(false);
+      // erro
+    }
+
+    if (!handles->empty()) {
+      assert(false);
+      //error
+    }
   }
 
-  Status status;
+  if (rollback) {
+    if (handles == nullptr) {
+      assert(false);
+      // erro
+    }
+
+    if (handles->empty()) {
+      assert(false);
+      //error
+    }
+  }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w;
   w.batch = my_batch;
   w.sync = write_options.sync;
   w.disableWAL = write_options.disableWAL;
-  w.disable_memtable = disable_memtable;
   w.in_batch_group = false;
   w.callback = callback;
   w.log_ref = log_ref;
+  w.hidden_key_handles = handles;
+  w.should_hide = hide;
+  w.should_rollback = rollback;
+
 
   if (!write_options.disableWAL) {
     RecordTick(stats_, WRITE_WITH_WAL);
@@ -4687,10 +4715,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // we are a non-leader in a parallel group
     PERF_TIMER_GUARD(write_memtable_time);
 
-    if (log_used != nullptr) {
-      *log_used = w.log_used;
-    }
-
     if (w.ShouldWriteToMemtable()) {
       ColumnFamilyMemTablesImpl column_family_memtables(
           versions_->GetColumnFamilySet());
@@ -4699,6 +4723,18 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           &w, &column_family_memtables, &flush_scheduler_,
           write_options.ignore_missing_column_families, 0 /*log_number*/, this,
           true /*concurrent_memtable_writes*/);
+    }
+
+    if (w.ShouldMakeHiddenKeysVisible()) {
+      SequenceNumber seq = w.sequence;
+      for (const auto& handle : *w.hidden_key_handles) {
+        handle.mem->MakeVisible(seq, true /*allow_concurrent*/, handle);
+        seq += 1;
+      }
+    } else if (w.ShouldRollbackHiddenKeys()) {
+      for (const auto& handle : *w.hidden_key_handles) {
+        handle.mem->DeleteHiddenKey(handle);
+      }
     }
 
     if (write_thread_.CompleteParallelWorker(&w)) {
@@ -4859,14 +4895,30 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     uint64_t total_byte_size = 0;
     for (auto writer : write_group) {
       if (writer->CheckCallback(this)) {
-        if (writer->ShouldWriteToMemtable()) {
-          total_count += WriteBatchInternal::Count(writer->batch);
-          parallel = parallel && !writer->batch->HasMerge();
-        }
-
         if (writer->ShouldWriteToWAL()) {
           total_byte_size = WriteBatchInternal::AppendedByteSize(
               total_byte_size, WriteBatchInternal::ByteSize(writer->batch));
+        }
+
+        // write_batch does not consume sequence numbers.
+        // handles should be empty to recieve reciepts
+        if (writer->ShouldInsertBatchHidden()) {
+          assert(writer->hidden_key_handles != nullptr);
+          assert(writer->hidden_key_handles->empty());
+          continue;
+        }
+
+        // write_batch does consume sequence numbers
+        else if (writer->ShouldWriteToMemtable()) {
+          total_count += WriteBatchInternal::Count(writer->batch);
+          // we can only perform a merge on non-hidden keys
+          parallel = parallel && !writer->batch->HasMerge();
+        }
+
+        // handles consumes sequence numbers
+        if (writer->ShouldMakeHiddenKeysVisible()) {
+          assert(writer->hidden_key_handles != nullptr);
+          total_count += writer->hidden_key_handles->size();
         }
       }
     }
@@ -5012,6 +5064,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
               this, true /*concurrent_memtable_writes*/);
         }
 
+        if (w.ShouldMakeHiddenKeysVisible()) {
+          SequenceNumber seq = w.sequence;
+          for (const auto& handle : *w.hidden_key_handles) {
+            handle.mem->MakeVisible(seq, true /*allow_concurrent*/, handle);
+            seq += 1;
+          }
+        } else if (w.ShouldRollbackHiddenKeys()) {
+          for (const auto& handle : *w.hidden_key_handles) {
+            handle.mem->DeleteHiddenKey(handle);
+          }
+        }
         // CompleteParallelWorker returns true if this thread should
         // handle exit, false means somebody else did
         exit_completed_early = !write_thread_.CompleteParallelWorker(&w);

@@ -102,6 +102,7 @@ Status TransactionDBImpl::Initialize(
     Transaction* real_trx = BeginTransaction(w_options, t_options, nullptr);
     assert(real_trx);
     real_trx->SetLogNumber(recovered_trx->log_number_);
+    real_trx->SetRecovered(true);
 
     s = real_trx->SetName(recovered_trx->name_);
     if (!s.ok()) {

@@ -31,6 +31,7 @@
 namespace rocksdb {
 
 class TransactionDBImpl;
+struct HiddenKeyHandle;
 
 class TransactionImpl : public TransactionBaseImpl {
  public:
@@ -117,6 +118,8 @@ class TransactionImpl : public TransactionBaseImpl {
 
   // Used to create unique ids for transactions.
   static std::atomic<TransactionID> txn_id_counter_;
+
+  std::vector<HiddenKeyHandle> hidden_key_handles_;
 
   // Unique ID for this transaction
   TransactionID txn_id_;
