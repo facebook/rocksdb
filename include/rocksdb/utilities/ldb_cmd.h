@@ -239,7 +239,7 @@ class LDBCommand {
 
 class LDBCommandRunner {
  public:
-  static void PrintHelp(const char* exec_name);
+  static void PrintHelp(const LDBOptions& ldb_options, const char* exec_name);
 
   static void RunCommand(
       int argc, char** argv, Options options, const LDBOptions& ldb_options,

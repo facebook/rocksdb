@@ -26,6 +26,8 @@ struct LDBOptions {
   // Key formatter that converts a slice to a readable string.
   // Default: Slice::ToString()
   std::shared_ptr<SliceFormatter> key_formatter;
+
+  std::string print_help_header = "ldb - RocksDB Tool";
 };
 
 class LDBTool {
