@@ -21,7 +21,7 @@ public interface MutableColumnFamilyOptionsInterface {
    *
    * Default: 4MB
    * @param writeBufferSize the size of write buffer.
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
    *   while overflowing the underlying platform specific value.
    */
@@ -166,7 +166,7 @@ public interface MutableColumnFamilyOptionsInterface {
    * Default: 2
    *
    * @param maxWriteBufferNumber maximum number of write buffers.
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
   MutableColumnFamilyOptionsInterface setMaxWriteBufferNumber(
       int maxWriteBufferNumber);

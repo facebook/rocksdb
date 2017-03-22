@@ -14,7 +14,7 @@ public interface ColumnFamilyOptionsInterface {
    * an iterator, only Put() and Get() API calls
    *
    * @param blockCacheSizeMb Block cache size in MB
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
   ColumnFamilyOptionsInterface optimizeForPointLookup(long blockCacheSizeMb);
 
@@ -29,7 +29,7 @@ public interface ColumnFamilyOptionsInterface {
    * <p>Note: we might use more memory than memtable_memory_budget during high
    * write rate period</p>
    *
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
   ColumnFamilyOptionsInterface optimizeLevelStyleCompaction();
 
@@ -45,9 +45,10 @@ public interface ColumnFamilyOptionsInterface {
    * write rate period</p>
    *
    * @param memtableMemoryBudget memory budget in bytes
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
-  Object optimizeLevelStyleCompaction(long memtableMemoryBudget);
+  ColumnFamilyOptionsInterface optimizeLevelStyleCompaction(
+      long memtableMemoryBudget);
 
   /**
    * <p>Default values for some parameters in ColumnFamilyOptions are not
@@ -64,9 +65,9 @@ public interface ColumnFamilyOptionsInterface {
    * <p>Note: we might use more memory than memtable_memory_budget during high
    * write rate period</p>
    *
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
-  Object optimizeUniversalStyleCompaction();
+  ColumnFamilyOptionsInterface optimizeUniversalStyleCompaction();
 
   /**
    * <p>Default values for some parameters in ColumnFamilyOptions are not
@@ -84,9 +85,10 @@ public interface ColumnFamilyOptionsInterface {
    * write rate period</p>
    *
    * @param memtableMemoryBudget memory budget in bytes
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
-  Object optimizeUniversalStyleCompaction(long memtableMemoryBudget);
+  ColumnFamilyOptionsInterface optimizeUniversalStyleCompaction(
+      long memtableMemoryBudget);
 
   /**
    * Set {@link BuiltinComparator} to be used with RocksDB.
@@ -95,9 +97,10 @@ public interface ColumnFamilyOptionsInterface {
    *
    * Default: BytewiseComparator.
    * @param builtinComparator a {@link BuiltinComparator} type.
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
-  Object setComparator(BuiltinComparator builtinComparator);
+  ColumnFamilyOptionsInterface setComparator(
+      BuiltinComparator builtinComparator);
 
   /**
    * Use the specified comparator for key ordering.
@@ -109,9 +112,10 @@ public interface ColumnFamilyOptionsInterface {
    * Comparator instance can be re-used in multiple options instances.
    *
    * @param comparator java instance.
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
-  Object setComparator(AbstractComparator<? extends AbstractSlice<?>> comparator);
+  ColumnFamilyOptionsInterface setComparator(
+      AbstractComparator<? extends AbstractSlice<?>> comparator);
 
   /**
    * <p>Set the merge operator to be used for merging two merge operands
@@ -124,9 +128,9 @@ public interface ColumnFamilyOptionsInterface {
    * The merge function is specified by name and must be one of the
    * standard merge operators provided by RocksDB. The available
    * operators are "put", "uint64add", "stringappend" and "stringappendtest".
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
-  Object setMergeOperatorName(String name);
+  ColumnFamilyOptionsInterface setMergeOperatorName(String name);
 
   /**
    * <p>Set the merge operator to be used for merging two different key/value
@@ -135,9 +139,9 @@ public interface ColumnFamilyOptionsInterface {
    * to the same key are found in the database.</p>
    *
    * @param mergeOperator {@link MergeOperator} instance.
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
-  Object setMergeOperator(MergeOperator mergeOperator);
+  ColumnFamilyOptionsInterface setMergeOperator(MergeOperator mergeOperator);
 
   /**
    * The minimum number of write buffers that will be merged together
@@ -152,7 +156,7 @@ public interface ColumnFamilyOptionsInterface {
    *     that will be merged together.
    * @return the reference to the current option.
    */
-  Object setMinWriteBufferNumberToMerge(
+  ColumnFamilyOptionsInterface setMinWriteBufferNumberToMerge(
       int minWriteBufferNumberToMerge);
 
   /**
@@ -179,8 +183,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param n use the first n bytes of a key as its prefix.
    * @return the reference to the current option.
    */
-  Object useFixedLengthPrefixExtractor(int n);
-
+  ColumnFamilyOptionsInterface useFixedLengthPrefixExtractor(int n);
 
   /**
    * Same as fixed length prefix extractor, except that when slice is
@@ -189,7 +192,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param n use the first n bytes of a key as its prefix.
    * @return the reference to the current option.
    */
-  Object useCappedPrefixExtractor(int n);
+  ColumnFamilyOptionsInterface useCappedPrefixExtractor(int n);
 
   /**
    * Compress blocks using the specified compression algorithm.  This
@@ -200,7 +203,8 @@ public interface ColumnFamilyOptionsInterface {
    * @param compressionType Compression Type.
    * @return the reference to the current option.
    */
-  Object setCompressionType(CompressionType compressionType);
+  ColumnFamilyOptionsInterface setCompressionType(
+      CompressionType compressionType);
 
   /**
    * Compress blocks using the specified compression algorithm.  This
@@ -254,7 +258,7 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @return the reference to the current option.
    */
-  Object setCompressionPerLevel(
+  ColumnFamilyOptionsInterface setCompressionPerLevel(
       List<CompressionType> compressionLevels);
 
   /**
@@ -276,7 +280,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param numLevels the number of levels.
    * @return the reference to the current option.
    */
-  Object setNumLevels(int numLevels);
+  ColumnFamilyOptionsInterface setNumLevels(int numLevels);
 
   /**
    * If level-styled compaction is used, then this number determines
@@ -294,7 +298,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param numFiles the number of files in level-0 to trigger compaction.
    * @return the reference to the current option.
    */
-  Object setLevelZeroFileNumCompactionTrigger(
+  ColumnFamilyOptionsInterface setLevelZeroFileNumCompactionTrigger(
       int numFiles);
 
   /**
@@ -315,7 +319,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param numFiles soft limit on number of level-0 files.
    * @return the reference to the current option.
    */
-  Object setLevelZeroSlowdownWritesTrigger(
+  ColumnFamilyOptionsInterface setLevelZeroSlowdownWritesTrigger(
       int numFiles);
 
   /**
@@ -333,7 +337,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param numFiles the hard limit of the number of level-0 files.
    * @return the reference to the current option.
    */
-  Object setLevelZeroStopWritesTrigger(int numFiles);
+  ColumnFamilyOptionsInterface setLevelZeroStopWritesTrigger(int numFiles);
 
   /**
    * Maximum number of level-0 files.  We stop writes at this point.
@@ -350,7 +354,7 @@ public interface ColumnFamilyOptionsInterface {
    * @return the reference to the current option.
    */
   @Deprecated
-  Object setMaxMemCompactionLevel(
+  ColumnFamilyOptionsInterface setMaxMemCompactionLevel(
       int maxMemCompactionLevel);
 
   /**
@@ -432,7 +436,7 @@ public interface ColumnFamilyOptionsInterface {
    *     if {@code LevelCompactionDynamicLevelBytes} shall be enabled.
    * @return the reference to the current option.
    */
-  Object setLevelCompactionDynamicLevelBytes(
+  ColumnFamilyOptionsInterface setLevelCompactionDynamicLevelBytes(
       boolean enableLevelCompactionDynamicLevelBytes);
 
   /**
@@ -456,7 +460,8 @@ public interface ColumnFamilyOptionsInterface {
    *     files and the total size of level-L files for all L.
    * @return the reference to the current option.
    */
-  Object setMaxBytesForLevelMultiplier(double multiplier);
+  ColumnFamilyOptionsInterface setMaxBytesForLevelMultiplier(
+      double multiplier);
 
   /**
    * The ratio between the total size of level-(L+1) files and the total
@@ -474,7 +479,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param maxCompactionBytes the compaction size limit
    * @return the reference to the current option.
    */
-  Object setMaxCompactionBytes(long maxCompactionBytes);
+  ColumnFamilyOptionsInterface setMaxCompactionBytes(long maxCompactionBytes);
 
   /**
    * Control maximum size of each compaction (not guaranteed)
@@ -494,7 +499,7 @@ public interface ColumnFamilyOptionsInterface {
    *     for put delay.
    * @return the reference to the current option.
    */
-  Object setSoftRateLimit(double softRateLimit);
+  ColumnFamilyOptionsInterface setSoftRateLimit(double softRateLimit);
 
   /**
    * Puts are delayed 0-1 ms when any level has a compaction score that exceeds
@@ -516,7 +521,7 @@ public interface ColumnFamilyOptionsInterface {
    *     delay.
    * @return the reference to the current option.
    */
-  Object setHardRateLimit(double hardRateLimit);
+  ColumnFamilyOptionsInterface setHardRateLimit(double hardRateLimit);
 
   /**
    * Puts are delayed 1ms at a time when any level has a compaction score that
@@ -536,7 +541,7 @@ public interface ColumnFamilyOptionsInterface {
    *     will be stalled.
    * @return the reference to the current option.
    */
-  Object setRateLimitDelayMaxMilliseconds(
+  ColumnFamilyOptionsInterface setRateLimitDelayMaxMilliseconds(
       int rateLimitDelayMaxMilliseconds);
 
   /**
@@ -556,7 +561,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param purgeRedundantKvsWhileFlush true if purging keys is disabled.
    * @return the reference to the current option.
    */
-  Object setPurgeRedundantKvsWhileFlush(
+  ColumnFamilyOptionsInterface setPurgeRedundantKvsWhileFlush(
       boolean purgeRedundantKvsWhileFlush);
 
   /**
@@ -575,7 +580,8 @@ public interface ColumnFamilyOptionsInterface {
    * @param compactionStyle Compaction style.
    * @return the reference to the current option.
    */
-  Object setCompactionStyle(CompactionStyle compactionStyle);
+  ColumnFamilyOptionsInterface setCompactionStyle(
+      CompactionStyle compactionStyle);
 
   /**
    * Compaction style for DB.
@@ -591,9 +597,10 @@ public interface ColumnFamilyOptionsInterface {
    * The default value is 1GB (1 * 1024 * 1024 * 1024).
    *
    * @param maxTableFilesSize the size limit of the total sum of table files.
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    */
-  Object setMaxTableFilesSizeFIFO(long maxTableFilesSize);
+  ColumnFamilyOptionsInterface setMaxTableFilesSizeFIFO(
+      long maxTableFilesSize);
 
   /**
    * FIFO compaction option.
@@ -609,11 +616,11 @@ public interface ColumnFamilyOptionsInterface {
    * Set the config for mem-table.
    *
    * @param config the mem-table config.
-   * @return the instance of the current Object.
+   * @return the instance of the current object.
    * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
    *   while overflowing the underlying platform specific value.
    */
-  Object setMemTableConfig(MemTableConfig config);
+  ColumnFamilyOptionsInterface setMemTableConfig(MemTableConfig config);
 
   /**
    * Returns the name of the current mem table representation.
@@ -630,7 +637,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param config the table format config.
    * @return the reference of the current Options.
    */
-  Object setTableFormatConfig(TableFormatConfig config);
+  ColumnFamilyOptionsInterface setTableFormatConfig(TableFormatConfig config);
 
   /**
    * @return the name of the currently used table factory.
@@ -651,7 +658,8 @@ public interface ColumnFamilyOptionsInterface {
    *     are allowed.
    * @return the reference to the current option.
    */
-  Object setInplaceUpdateSupport(boolean inplaceUpdateSupport);
+  ColumnFamilyOptionsInterface setInplaceUpdateSupport(
+      boolean inplaceUpdateSupport);
 
   /**
    * Allows thread-safe inplace updates.
@@ -681,7 +689,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param bloomLocality the level of locality of bloom-filter probes.
    * @return the reference to the current option.
    */
-  Object setBloomLocality(int bloomLocality);
+  ColumnFamilyOptionsInterface setBloomLocality(int bloomLocality);
 
   /**
    * Control locality of bloom filter probes to improve cache miss rate.
@@ -720,7 +728,8 @@ public interface ColumnFamilyOptionsInterface {
    * @param optimizeFiltersForHits boolean value indicating if this flag is set.
    * @return the reference to the current option.
    */
-  Object setOptimizeFiltersForHits(boolean optimizeFiltersForHits);
+  ColumnFamilyOptionsInterface setOptimizeFiltersForHits(
+      boolean optimizeFiltersForHits);
 
   /**
    * <p>Returns the current state of the {@code optimize_filters_for_hits}
