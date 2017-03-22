@@ -4444,7 +4444,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         sv->version_number, read_options.iterate_upper_bound,
         read_options.prefix_same_as_start, read_options.pin_data,
         read_options.total_order_seek,
-        sv->mutable_cf_options.max_tombstones_skip_in_iterations);
+        read_options.max_tombstones_skip_in_iterations);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
@@ -4504,7 +4504,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
         sv->version_number, read_options.iterate_upper_bound,
         read_options.prefix_same_as_start, read_options.pin_data,
         read_options.total_order_seek,
-        sv->mutable_cf_options.max_tombstones_skip_in_iterations);
+        read_options.max_tombstones_skip_in_iterations);
 
     InternalIterator* internal_iter =
         NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
@@ -4558,7 +4558,7 @@ Status DBImpl::NewIterators(
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
           sv->version_number, nullptr, false, read_options.pin_data,
           read_options.total_order_seek,
-          sv->mutable_cf_options.max_tombstones_skip_in_iterations));
+          read_options.max_tombstones_skip_in_iterations));
     }
 #endif
   } else {
@@ -4580,7 +4580,7 @@ Status DBImpl::NewIterators(
           sv->mutable_cf_options.max_sequential_skip_in_iterations,
           sv->version_number, nullptr, false, read_options.pin_data,
           read_options.total_order_seek,
-          sv->mutable_cf_options.max_tombstones_skip_in_iterations);
+          read_options.max_tombstones_skip_in_iterations);
       InternalIterator* internal_iter =
           NewInternalIterator(read_options, cfd, sv, db_iter->GetArena(),
                               db_iter->GetRangeDelAggregator());

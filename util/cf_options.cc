@@ -166,8 +166,6 @@ void MutableCFOptions::Dump(Logger* log) const {
                  result.c_str());
   ROCKS_LOG_INFO(log, "        max_sequential_skip_in_iterations: %" PRIu64,
                  max_sequential_skip_in_iterations);
- ROCKS_LOG_INFO(log, "        max_tombstones_skip_in_iterations: %" PRIu64,
-                max_tombstones_skip_in_iterations);
   ROCKS_LOG_INFO(log, "                     paranoid_file_checks: %d",
                  paranoid_file_checks);
   ROCKS_LOG_INFO(log, "                       report_bg_io_stats: %d",

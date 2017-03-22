@@ -1824,11 +1824,6 @@ void rocksdb_options_set_max_sequential_skip_in_iterations(
   opt->rep.max_sequential_skip_in_iterations = v;
 }
 
-void rocksdb_options_set_max_tombstones_skip_in_iterations(
-    rocksdb_options_t* opt, uint64_t v) {
-  opt->rep.max_tombstones_skip_in_iterations = v;
-}
-
 void rocksdb_options_set_max_write_buffer_number(rocksdb_options_t* opt, int n) {
   opt->rep.max_write_buffer_number = n;
 }

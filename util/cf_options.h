@@ -147,8 +147,6 @@ struct MutableCFOptions {
             options.max_bytes_for_level_multiplier_additional),
         max_sequential_skip_in_iterations(
             options.max_sequential_skip_in_iterations),
-        max_tombstones_skip_in_iterations(
-            options.max_tombstones_skip_in_iterations),
         paranoid_file_checks(options.paranoid_file_checks),
         report_bg_io_stats(options.report_bg_io_stats),
         compression(options.compression) {
@@ -175,7 +173,6 @@ struct MutableCFOptions {
         max_bytes_for_level_base(0),
         max_bytes_for_level_multiplier(0),
         max_sequential_skip_in_iterations(0),
-        max_tombstones_skip_in_iterations(0),
         paranoid_file_checks(false),
         report_bg_io_stats(false),
         compression(Snappy_Supported() ? kSnappyCompression : kNoCompression) {}
@@ -224,7 +221,6 @@ struct MutableCFOptions {
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
-  uint64_t max_tombstones_skip_in_iterations;
   bool paranoid_file_checks;
   bool report_bg_io_stats;
   CompressionType compression;

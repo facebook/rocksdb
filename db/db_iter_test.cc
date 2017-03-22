@@ -877,6 +877,7 @@ TEST_F(DBIteratorTest, DBIteratorUseSkip) {
 
 TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
   Options options;
+  ReadOptions ro;
 
   // Basic test case ... Make sure explicityly passing the default value works.
   // Skipping tombstones is disabled by default, when the value is 0.
@@ -891,11 +892,11 @@ TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
     internal_iter->AddPut("d", "val_d");
     internal_iter->Finish();
 
-    options.max_tombstones_skip_in_iterations = 0;
+    ro.max_tombstones_skip_in_iterations = 0;
     std::unique_ptr<Iterator> db_iter(NewDBIterator(
         env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
         10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
-        false, options.max_tombstones_skip_in_iterations));
+        false, ro.max_tombstones_skip_in_iterations));
 
     db_iter->SeekToFirst();
     ASSERT_TRUE(db_iter->Valid());
@@ -937,11 +938,11 @@ TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
     internal_iter->AddPut("c", "val_c");
     internal_iter->Finish();
 
-    options.max_tombstones_skip_in_iterations = 2;
+    ro.max_tombstones_skip_in_iterations = 2;
     std::unique_ptr<Iterator> db_iter(NewDBIterator(
         env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
         10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
-        false, options.max_tombstones_skip_in_iterations));
+        false, ro.max_tombstones_skip_in_iterations));
 
     db_iter->SeekToFirst();
     ASSERT_TRUE(db_iter->Valid());
@@ -981,11 +982,11 @@ TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
     internal_iter->AddPut("c", "val_c");
     internal_iter->Finish();
 
-    options.max_tombstones_skip_in_iterations = 2;
+    ro.max_tombstones_skip_in_iterations = 2;
     std::unique_ptr<Iterator> db_iter(NewDBIterator(
         env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
         10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
-        false, options.max_tombstones_skip_in_iterations));
+        false, ro.max_tombstones_skip_in_iterations));
 
     db_iter->SeekToFirst();
     ASSERT_TRUE(db_iter->Valid());
@@ -1020,11 +1021,11 @@ TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
     internal_iter->AddPut("e", "val_e");
     internal_iter->Finish();
 
-    options.max_tombstones_skip_in_iterations = 2;
+    ro.max_tombstones_skip_in_iterations = 2;
     std::unique_ptr<Iterator> db_iter(NewDBIterator(
         env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
         10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
-        false, options.max_tombstones_skip_in_iterations));
+        false, ro.max_tombstones_skip_in_iterations));
 
     db_iter->SeekToFirst();
     ASSERT_TRUE(db_iter->Valid());
@@ -1056,11 +1057,11 @@ TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
     internal_iter->AddPut("e", "val_e");
     internal_iter->Finish();
 
-    options.max_tombstones_skip_in_iterations = 2;
+    ro.max_tombstones_skip_in_iterations = 2;
     std::unique_ptr<Iterator> db_iter(NewDBIterator(
         env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
         10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
-        false, options.max_tombstones_skip_in_iterations));
+        false, ro.max_tombstones_skip_in_iterations));
 
     db_iter->SeekToLast();
     ASSERT_TRUE(db_iter->Valid());
@@ -1087,11 +1088,11 @@ TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
     internal_iter->AddPut("e", "val_e");
     internal_iter->Finish();
 
-    options.max_tombstones_skip_in_iterations = 2;
+    ro.max_tombstones_skip_in_iterations = 2;
     std::unique_ptr<Iterator> db_iter(NewDBIterator(
         env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
         10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
-        false, options.max_tombstones_skip_in_iterations));
+        false, ro.max_tombstones_skip_in_iterations));
 
     db_iter->SeekToFirst();
     ASSERT_TRUE(db_iter->Valid());
@@ -1125,11 +1126,11 @@ TEST_F(DBIteratorTest, DBIteratorSkipTombstones) {
     internal_iter->AddPut("e", "val_e");
     internal_iter->Finish();
 
-    options.max_tombstones_skip_in_iterations = 2;
+    ro.max_tombstones_skip_in_iterations = 2;
     std::unique_ptr<Iterator> db_iter(NewDBIterator(
         env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
         10, options.max_sequential_skip_in_iterations, 0, nullptr, false, false,
-        false, options.max_tombstones_skip_in_iterations));
+        false, ro.max_tombstones_skip_in_iterations));
 
     db_iter->SeekToFirst();
     ASSERT_TRUE(db_iter->Valid());
