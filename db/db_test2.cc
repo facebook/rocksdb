@@ -1221,7 +1221,7 @@ class PinL0IndexAndFilterBlocksTest : public DBTestBase,
   PinL0IndexAndFilterBlocksTest() : DBTestBase("/db_pin_l0_index_bloom_test") {}
   virtual void SetUp() override { infinite_max_files_ = GetParam(); }
 
-  void CreateTwoLevels(Options* options) {
+  void CreateTwoLevels(Options* options, bool close_afterwards) {
     if (infinite_max_files_) {
       options->max_open_files = -1;
     }
@@ -1249,6 +1249,9 @@ class PinL0IndexAndFilterBlocksTest : public DBTestBase,
     Put(1, "z2", "end2");
     ASSERT_OK(Flush(1));
 
+    if (close_afterwards) {
+      Close();  // This ensures that there is no ref to block cache entries
+    }
     table_options.block_cache->EraseUnRefEntries();
   }
 
@@ -1303,7 +1306,7 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 TEST_P(PinL0IndexAndFilterBlocksTest,
        MultiLevelIndexAndFilterBlocksCachedWithPinning) {
   Options options = CurrentOptions();
-  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options);
+  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options, false);
   // get base cache values
   uint64_t fm = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);
   uint64_t fh = TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT);
@@ -1332,7 +1335,10 @@ TEST_P(PinL0IndexAndFilterBlocksTest,
 
 TEST_P(PinL0IndexAndFilterBlocksTest, DisablePrefetchingNonL0IndexAndFilter) {
   Options options = CurrentOptions();
-  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options);
+  // This ensures that db does not ref anything in the block cache, so
+  // EraseUnRefEntries could clear them up.
+  bool close_afterwards = true;
+  PinL0IndexAndFilterBlocksTest::CreateTwoLevels(&options, close_afterwards);
 
   // Get base cache values
   uint64_t fm = TestGetTickerCount(options, BLOCK_CACHE_FILTER_MISS);

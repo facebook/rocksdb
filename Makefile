@@ -354,6 +354,7 @@ TESTS = \
 	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
+	partitioned_filter_block_test \
 	hash_table_test \
 	histogram_test \
 	log_test \
@@ -1156,6 +1157,9 @@ block_based_filter_block_test: table/block_based_filter_block_test.o $(LIBOBJECT
 	$(AM_LINK)
 
 full_filter_block_test: table/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+partitioned_filter_block_test: table/partitioned_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 log_test: db/log_test.o $(LIBOBJECTS) $(TESTHARNESS)
