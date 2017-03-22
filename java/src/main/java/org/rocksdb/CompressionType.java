@@ -20,7 +20,9 @@ public enum CompressionType {
   ZLIB_COMPRESSION((byte) 2, "z"),
   BZLIB2_COMPRESSION((byte) 3, "bzip2"),
   LZ4_COMPRESSION((byte) 4, "lz4"),
-  LZ4HC_COMPRESSION((byte) 5, "lz4hc");
+  LZ4HC_COMPRESSION((byte) 5, "lz4hc"),
+  XPRESS_COMPRESSION((byte) 6, "xpress"),
+  ZSTD_COMPRESSION((byte)7, "zstd");
 
   /**
    * <p>Get the CompressionType enumeration value by
@@ -84,9 +86,9 @@ public enum CompressionType {
     return libraryName_;
   }
 
-  private CompressionType(byte value, final String libraryName) {
-        value_ = value;
-        libraryName_ = libraryName;
+  CompressionType(final byte value, final String libraryName) {
+    value_ = value;
+    libraryName_ = libraryName;
   }
 
   private final byte value_;
