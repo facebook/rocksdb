@@ -997,6 +997,9 @@ struct ReadOptions {
   // Default: false
   bool ignore_range_deletions;
 
+  // A threshold for the number of keys that can be skipped before failing an
+  // iterator seek as incomplete. The default value of 0 should be used to
+  // never fail a request as incomplete, even on skipping too many keys.
   // Default: 0
   uint64_t max_skippable_internal_keys;
 
