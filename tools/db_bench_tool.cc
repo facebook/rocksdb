@@ -2851,10 +2851,6 @@ class Benchmark {
           FLAGS_rep_factory != kHashLinkedList) {
         fprintf(stderr, "Waring: plain table is used with skipList\n");
       }
-      if (!FLAGS_mmap_read && !FLAGS_mmap_write) {
-        fprintf(stderr, "plain table format requires mmap to operate\n");
-        exit(1);
-      }
 
       int bloom_bits_per_key = FLAGS_bloom_bits;
       if (bloom_bits_per_key < 0) {
