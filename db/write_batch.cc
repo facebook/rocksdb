@@ -34,6 +34,7 @@
 #include <map>
 #include <stack>
 #include <stdexcept>
+#include <type_traits>
 #include <vector>
 
 #include "db/column_family.h"
@@ -764,7 +765,7 @@ Status WriteBatch::RollbackToSavePoint() {
 }
 
 class MemTableInserter : public WriteBatch::Handler {
- public:
+
   SequenceNumber sequence_;
   ColumnFamilyMemTables* const cf_mems_;
   FlushScheduler* const flush_scheduler_;
@@ -774,12 +775,32 @@ class MemTableInserter : public WriteBatch::Handler {
   uint64_t log_number_ref_;
   DBImpl* db_;
   const bool concurrent_memtable_writes_;
+  bool       post_info_created_;
+
   bool* has_valid_writes_;
-  typedef std::map<MemTable*, MemTablePostProcessInfo> MemPostInfoMap;
-  MemPostInfoMap mem_post_info_map_;
+  // On some (!) platforms just default creating
+  // a map is too expensive in the Write() path as they
+  // cause memory allocations though unused.
+  // Make creation optional but do not incur
+  // unique_ptr additional allocation
+  using 
+  MemPostInfoMap = std::map<MemTable*, MemTablePostProcessInfo>;
+  using
+  PostMapType = std::aligned_storage<sizeof(MemPostInfoMap)>::type;
+  PostMapType mem_post_info_map_;
   // current recovered transaction we are rebuilding (recovery)
   WriteBatch* rebuilding_trx_;
 
+  MemPostInfoMap& GetPostMap() {
+    assert(concurrent_memtable_writes_);
+    if(!post_info_created_) {
+      new (&mem_post_info_map_) MemPostInfoMap();
+      post_info_created_ = true;
+    }
+    return *reinterpret_cast<MemPostInfoMap*>(&mem_post_info_map_);
+  }
+
+public:
   // cf_mems should not be shared with concurrent inserters
   MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
                    FlushScheduler* flush_scheduler,
@@ -795,18 +816,34 @@ class MemTableInserter : public WriteBatch::Handler {
         log_number_ref_(0),
         db_(reinterpret_cast<DBImpl*>(db)),
         concurrent_memtable_writes_(concurrent_memtable_writes),
+        post_info_created_(false),
         has_valid_writes_(has_valid_writes),
         rebuilding_trx_(nullptr) {
     assert(cf_mems_);
   }
 
+  ~MemTableInserter() {
+    if (post_info_created_) {
+      reinterpret_cast<MemPostInfoMap*>
+        (&mem_post_info_map_)->~MemPostInfoMap();
+    }
+  }
+
+  MemTableInserter(const MemTableInserter&) = delete;
+  MemTableInserter& operator=(const MemTableInserter&) = delete;
+
   void set_log_number_ref(uint64_t log) { log_number_ref_ = log; }
 
-  SequenceNumber get_final_sequence() { return sequence_; }
+  SequenceNumber get_final_sequence() const { return sequence_; }
 
   void PostProcess() {
-    for (auto& pair : mem_post_info_map_) {
-      pair.first->BatchPostProcess(pair.second);
+    assert(concurrent_memtable_writes_);
+    // If post info was not created there is nothing
+    // to process and no need to create on demand
+    if(post_info_created_) {
+      for (auto& pair : GetPostMap()) {
+        pair.first->BatchPostProcess(pair.second);
+      }
     }
   }
 
@@ -1194,7 +1231,7 @@ class MemTableInserter : public WriteBatch::Handler {
       // No need to batch counters locally if we don't use concurrent mode.
       return nullptr;
     }
-    return &mem_post_info_map_[mem];
+    return &GetPostMap()[mem];
   }
 };
 
