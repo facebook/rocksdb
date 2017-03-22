@@ -4087,7 +4087,7 @@ TEST_F(DBTest, DynamicMiscOptions) {
   // sanity check
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
+  ASSERT_TRUE(mutable_cf_options.report_bg_io_stats);
   // Test compression
   // sanity check
   ASSERT_OK(dbfull()->SetOptions({{"compression", "kNoCompression"}}));
@@ -4104,7 +4104,7 @@ TEST_F(DBTest, DynamicMiscOptions) {
       dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "true"}}));
   ASSERT_OK(dbfull()->TEST_GetLatestMutableCFOptions(handles_[1],
                                                      &mutable_cf_options));
-  ASSERT_EQ(true, mutable_cf_options.report_bg_io_stats);
+  ASSERT_TRUE(mutable_cf_options.report_bg_io_stats);
 }
 #endif  // ROCKSDB_LITE
 
@@ -5214,7 +5214,7 @@ TEST_F(DBTest, PauseBackgroundWorkTest) {
     t.join();
   }
   // now it's done
-  ASSERT_EQ(true, done.load());
+  ASSERT_TRUE(done.load());
 }
 
 }  // namespace rocksdb
