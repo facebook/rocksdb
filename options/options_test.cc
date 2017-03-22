@@ -121,6 +121,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"allow_mmap_writes", "false"},
       {"use_direct_reads", "false"},
       {"use_direct_io_for_flush_and_compaction", "false"},
+      { "use_async_reads", "false" },
       {"is_fd_close_on_exec", "true"},
       {"skip_log_error_on_recovery", "false"},
       {"stats_dump_period_sec", "46"},
@@ -235,6 +236,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.allow_mmap_writes, false);
   ASSERT_EQ(new_db_opt.use_direct_reads, false);
   ASSERT_EQ(new_db_opt.use_direct_io_for_flush_and_compaction, false);
+  ASSERT_EQ(new_db_opt.use_async_reads, false);
   ASSERT_EQ(new_db_opt.is_fd_close_on_exec, true);
   ASSERT_EQ(new_db_opt.skip_log_error_on_recovery, false);
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);

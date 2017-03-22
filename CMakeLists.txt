@@ -492,6 +492,8 @@ set(SOURCES
 
 if(WIN32)
   list(APPEND SOURCES
+    port/win/asyncthreadpoolimpl.cc
+    port/win/iocompletion.cc
     port/win/io_win.cc
     port/win/env_win.cc
     port/win/env_default.cc

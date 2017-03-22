@@ -15,6 +15,7 @@
 #include "monitoring/perf_context_imp.h"
 #include "monitoring/statistics.h"
 #include "rocksdb/env.h"
+#include "async/random_read_context.h"
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
 #include "table/persistent_cache_helper.h"
@@ -216,37 +217,158 @@ std::string Footer::ToString() const {
   return result;
 }
 
-Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
-                          Footer* footer, uint64_t enforce_table_magic_number) {
-  if (file_size < Footer::kMinEncodedLength) {
-    return Status::Corruption("file is too short to be an sstable");
-  }
+namespace async {
 
-  char footer_space[Footer::kMaxEncodedLength];
-  Slice footer_input;
-  size_t read_offset =
-      (file_size > Footer::kMaxEncodedLength)
-          ? static_cast<size_t>(file_size - Footer::kMaxEncodedLength)
-          : 0;
-  Status s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
-                        footer_space);
-  if (!s.ok()) return s;
+RandomReadContext::RandomReadContext(RandomAccessFileReader* file,
+  uint64_t offset, size_t n,
+  Slice* result, char* buf) {
+
+  ra_context_ = file->GetReadContext();
+  ra_context_->PrepareRead(offset, n, result, buf);
+}
+
+
+Status ReadFooterContext::OnReadFooterComplete(const Status& status, const Slice& slice) {
+
+  OnRandomReadComplete(status, slice);
+
+  if (!status.ok()) return status;
 
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
-  if (footer_input.size() < Footer::kMinEncodedLength) {
+  if (footer_input_.size() < Footer::kMinEncodedLength) {
     return Status::Corruption("file is too short to be an sstable");
   }
 
-  s = footer->DecodeFrom(&footer_input);
+  Status s = footer_->DecodeFrom(&footer_input_);
   if (!s.ok()) {
     return s;
   }
-  if (enforce_table_magic_number != 0 &&
-      enforce_table_magic_number != footer->table_magic_number()) {
+
+  if (enforce_table_magic_number_ != 0 &&
+    enforce_table_magic_number_ != footer_->table_magic_number()) {
     return Status::Corruption("Bad table magic number");
   }
   return Status::OK();
+}
+
+void ReadFooterContext::OnIOCompletion(Status&& s, const Slice& slice) {
+  std::unique_ptr<ReadFooterContext> self(this);
+  Status status = OnReadFooterComplete(s, slice);
+  footer_cb_.Invoke(std::move(status));
+}
+
+} // namespace async
+
+Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
+                          Footer* footer, uint64_t enforce_table_magic_number) {
+
+  return async::ReadFooterContext::ReadFooter(file, file_size, footer,
+                                              enforce_table_magic_number);
+}
+
+namespace async {
+
+Status ReadBlockContext::RequestBlockRead(const ReadBlockCallback& cb,
+   RandomAccessFileReader* file, const Footer& footer,
+  const ReadOptions& options, const BlockHandle& handle,
+  Slice* contents, /* result of reading */ char* buf) {
+
+  size_t n = static_cast<size_t>(handle.size()) + kBlockTrailerSize;
+
+  std::unique_ptr<ReadBlockContext> ctx(new ReadBlockContext(cb, file,
+    footer.checksum(), options.verify_checksums, handle.offset(),
+    static_cast<size_t>(handle.size()), contents, buf));
+
+  auto iocb = ctx->GetIOCallback();
+  Status s = ctx->RequestRead(iocb);
+
+  if (s.IsIOPending()) {
+    ctx.release();
+    return s;
+  }
+
+  ctx->OnReadBlockComplete(s, *contents);
+
+  return s;
+}
+
+
+Status ReadBlockContext::ReadBlock(RandomAccessFileReader * file,
+                                   const Footer& footer,  const ReadOptions & options,
+                                   const BlockHandle & handle, Slice * contents, char * buf) {
+
+  size_t n = static_cast<size_t>(handle.size()) + kBlockTrailerSize;
+
+  ReadBlockContext ctx(ReadBlockCallback(), file, footer.checksum(),
+                      options.verify_checksums, handle.offset(), n,
+                      contents, buf);
+
+  Status s = ctx.Read();
+
+  s = ctx.OnReadBlockComplete(s, *contents);
+
+  return s;
+}
+
+Status ReadBlockContext::OnReadBlockComplete(const Status& status, const Slice& raw_slice) {
+
+  OnRandomReadComplete(status, raw_slice);
+
+  PERF_TIMER_STOP(block_read_time);
+  PERF_COUNTER_ADD(block_read_count, 1);
+  PERF_COUNTER_ADD(block_read_byte, raw_slice.size());
+
+  if (!status.ok()) {
+    return status;
+  }
+
+  Status s(status);
+
+  const Slice& slice = GetResult();
+  auto n = GetRequestedSize();
+
+  if (slice.size() != n) {
+    return Status::Corruption("truncated block read");
+  }
+
+  // Bring back the original value
+  n -= kBlockTrailerSize;
+
+  // Check the crc of the type and the block contents
+  const char* data = slice.data();  // Pointer to where Read put the data
+  if (verify_checksums_) {
+    PERF_TIMER_GUARD(block_checksum_time);
+    uint32_t value = DecodeFixed32(data + n + 1);
+    uint32_t actual = 0;
+    switch (checksum_type_) {
+    case kCRC32c:
+      value = crc32c::Unmask(value);
+      actual = crc32c::Value(data, n + 1);
+      break;
+    case kxxHash:
+      actual = XXH32(data, static_cast<int>(n) + 1, 0);
+      break;
+    default:
+      s = Status::Corruption("unknown checksum type");
+    }
+    if (s.ok() && actual != value) {
+      s = Status::Corruption("block checksum mismatch");
+    }
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return s;
+}
+
+void ReadBlockContext::OnIoCompletion(Status&& status, const Slice& raw_slice) {
+
+  std::unique_ptr<ReadBlockContext> self(this);
+  Status s = OnReadBlockComplete(status, raw_slice);
+  client_cb_.Invoke(std::move(s), GetResult());
+}
+
 }
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes
@@ -258,49 +380,10 @@ namespace {
 Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
                  const ReadOptions& options, const BlockHandle& handle,
                  Slice* contents, /* result of reading */ char* buf) {
-  size_t n = static_cast<size_t>(handle.size());
-  Status s;
 
-  {
-    PERF_TIMER_GUARD(block_read_time);
-    s = file->Read(handle.offset(), n + kBlockTrailerSize, contents, buf);
-  }
 
-  PERF_COUNTER_ADD(block_read_count, 1);
-  PERF_COUNTER_ADD(block_read_byte, n + kBlockTrailerSize);
-
-  if (!s.ok()) {
-    return s;
-  }
-  if (contents->size() != n + kBlockTrailerSize) {
-    return Status::Corruption("truncated block read");
-  }
-
-  // Check the crc of the type and the block contents
-  const char* data = contents->data();  // Pointer to where Read put the data
-  if (options.verify_checksums) {
-    PERF_TIMER_GUARD(block_checksum_time);
-    uint32_t value = DecodeFixed32(data + n + 1);
-    uint32_t actual = 0;
-    switch (footer.checksum()) {
-      case kCRC32c:
-        value = crc32c::Unmask(value);
-        actual = crc32c::Value(data, n + 1);
-        break;
-      case kxxHash:
-        actual = XXH32(data, static_cast<int>(n) + 1, 0);
-        break;
-      default:
-        s = Status::Corruption("unknown checksum type");
-    }
-    if (s.ok() && actual != value) {
-      s = Status::Corruption("block checksum mismatch");
-    }
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  return s;
+   return async::ReadBlockContext::ReadBlock(file, footer, options, handle,
+                                             contents, buf);
 }
 
 }  // namespace

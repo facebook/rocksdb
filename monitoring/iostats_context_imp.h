@@ -39,6 +39,22 @@
   PerfStepTimer iostats_step_timer_ ## metric(&(iostats_context.metric));  \
   iostats_step_timer_ ## metric.Start();
 
+// Declare timer as a member of a class
+#define IOSTATS_TIMER_DECL(metric)               \
+  PerfStepTimer iostats_step_timer_ ## metric
+
+// Init timer in the __ctor init list
+#define IOSTATS_TIMER_INIT(metric)               \
+  iostats_step_timer_ ## metric(&(iostats_context.metric))
+
+// Start the timer
+#define IOSTATS_TIMER_START(metric)               \
+  iostats_step_timer_ ## metric.Start();
+
+// Stop the timer and update the metric
+#define IOSTATS_TIMER_STOP(metric)               \
+  iostats_step_timer_ ## metric.Stop();
+
 #else  // IOS_CROSS_COMPILE
 
 #define IOSTATS_ADD(metric, value)
@@ -50,5 +66,10 @@
 #define IOSTATS(metric) 0
 
 #define IOSTATS_TIMER_GUARD(metric)
+#define IOSTATS_TIMER_DECL(metric)
+#define IOSTATS_TIMER_INIT(metric)
+#define IOSTATS_TIMER_START(metric)
+#define IOSTATS_TIMER_STOP(metric)
+
 
 #endif  // IOS_CROSS_COMPILE

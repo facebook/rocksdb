@@ -8,11 +8,14 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "port/win/env_win.h"
-#include "port/win/win_thread.h"
+
+#include "port/port.h"
+#include "port/dirent.h"
+
+
 #include <algorithm>
 #include <ctime>
 #include <thread>
-
 #include <errno.h>
 #include <process.h> // _getpid
 #include <io.h> // _access
@@ -27,6 +30,10 @@
 #include "port/dirent.h"
 #include "port/win/win_logger.h"
 #include "port/win/io_win.h"
+#include "port/win/iocompletion.h"
+#include "port/win/win_logger.h"
+#include "port/win/win_thread.h"
+#include "port/win/winasyncthreadpoolimpl.h"
 
 #include "monitoring/iostats_context_imp.h"
 
@@ -35,6 +42,7 @@
 
 #include <Rpc.h>  // For UUID generation
 #include <Windows.h>
+
 
 namespace rocksdb {
 
@@ -149,6 +157,7 @@ Status WinEnvIO::NewSequentialFile(const std::string& fname,
 Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
   std::unique_ptr<RandomAccessFile>* result,
   const EnvOptions& options) {
+
   result->reset();
   Status s;
 
@@ -160,6 +169,18 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
     fileFlags |= FILE_FLAG_NO_BUFFERING;
   } else {
     fileFlags |= FILE_FLAG_RANDOM_ACCESS;
+  }
+
+  // TODO: Need to disqualify async when doing things
+  // other than reading the tables. Disable it for compactions.
+  if (options.use_async_reads && !options.use_mmap_reads) {
+
+    fileFlags |= FILE_FLAG_OVERLAPPED;
+
+    if (options.async_threadpool == nullptr) {
+      return Status::InvalidArgument(
+        "WinEnvIO::NewRandomAccessFile async_threadpool not provided");
+    }
   }
 
   /// Shared access is necessary for corruption test to pass
@@ -230,7 +251,27 @@ Status WinEnvIO::NewRandomAccessFile(const std::string& fname,
       fileGuard.release();
     }
   } else {
-    result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options));
+
+    std::unique_ptr<IOCompletion> iocompl;
+    if (options.use_async_reads && !options.use_mmap_reads) {
+      auto tp = reinterpret_cast<WinAsyncThreadPool*>(
+        options.async_threadpool);
+
+      iocompl = tp->MakeIOCompletion(hFile, &WinRandomAccessImpl::OnAsyncReadCompletion);
+      if (!iocompl) {
+        auto lastError = GetLastError();
+        return IOErrorFromWindowsError(fname, lastError);
+      }
+
+      // Do not require setting an event since we are using a compl port
+      // and in case the operation completes sync we do not want
+      // a callback dispatch
+      SetFileCompletionNotificationModes(hFile,
+        FILE_SKIP_SET_EVENT_ON_HANDLE | FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+    }
+
+    result->reset(new WinRandomAccessFile(fname, hFile, page_size_, options,
+      std::move(iocompl)));
     fileGuard.release();
   }
   return s;
@@ -1043,6 +1084,12 @@ unsigned int  WinEnv::GetThreadPoolQueueLen(Env::Priority pri) const {
 
 uint64_t WinEnv::GetThreadID() const {
   return winenv_threads_.GetThreadID();
+}
+
+std::unique_ptr<async::AsyncThreadPool> WinEnv::CreateAsyncThreadPool(void * context) {
+  std::unique_ptr<async::AsyncThreadPool> pool ( 
+    new WinAsyncThreadPool(reinterpret_cast<PTP_POOL>(context)));
+  return pool;
 }
 
 void WinEnv::SleepForMicroseconds(int micros) {

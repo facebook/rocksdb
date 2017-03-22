@@ -84,6 +84,9 @@ std::string Status::ToString() const {
     case kTryAgain:
       type = "Operation failed. Try again.: ";
       break;
+    case kIOPending:
+      type = "Asynchronous IO pending : ";
+      break;
     default:
       snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",
                static_cast<int>(code()));

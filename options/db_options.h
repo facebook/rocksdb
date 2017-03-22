@@ -24,6 +24,7 @@ struct ImmutableDBOptions {
   bool paranoid_checks;
   Env* env;
   std::shared_ptr<RateLimiter> rate_limiter;
+  std::shared_ptr<async::AsyncThreadPool> async_threadpool;
   std::shared_ptr<SstFileManager> sst_file_manager;
   std::shared_ptr<Logger> info_log;
   InfoLogLevel info_log_level;
@@ -49,6 +50,7 @@ struct ImmutableDBOptions {
   bool allow_mmap_writes;
   bool use_direct_reads;
   bool use_direct_io_for_flush_and_compaction;
+  bool use_async_reads;
   bool allow_fallocate;
   bool is_fd_close_on_exec;
   bool advise_random_on_open;

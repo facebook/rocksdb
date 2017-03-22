@@ -12,15 +12,17 @@
 #include <mutex>
 #include <string>
 
+
 #include "rocksdb/Status.h"
 #include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
 
 #include <Windows.h>
 
-
 namespace rocksdb {
 namespace port {
+
+class IOCompletion;
 
 std::string GetWindowsErrSz(DWORD err);
 
@@ -235,21 +237,26 @@ class WinMmapFile : private WinFileData, public WritableFile {
 };
 
 class WinRandomAccessImpl {
- protected:
-  WinFileData* file_base_;
-  size_t       alignment_;
+protected:
+  WinFileData*    file_base_;
+  size_t          alignment_;
+  std::unique_ptr<IOCompletion> iocompl_;
 
   // Override for behavior change when creating a custom env
   virtual SSIZE_T PositionedReadInternal(char* src, size_t numBytes,
                                          uint64_t offset) const;
 
   WinRandomAccessImpl(WinFileData* file_base, size_t alignment,
-                      const EnvOptions& options);
+                      const EnvOptions& options,
+                      std::unique_ptr<IOCompletion>&& iocompl);
 
-  virtual ~WinRandomAccessImpl() {}
+  ~WinRandomAccessImpl();
 
   Status ReadImpl(uint64_t offset, size_t n, Slice* result,
                   char* scratch) const;
+
+  Status ReadImpl(const async::Callable<void, Status&&, const Slice&>& cb,
+    uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
   size_t GetAlignment() const { return alignment_; }
 
@@ -257,22 +264,34 @@ class WinRandomAccessImpl {
 
   WinRandomAccessImpl(const WinRandomAccessImpl&) = delete;
   WinRandomAccessImpl& operator=(const WinRandomAccessImpl&) = delete;
+
+  static
+  void CALLBACK OnAsyncReadCompletion(
+      PTP_CALLBACK_INSTANCE Instance,
+      PVOID                 Context,
+      PVOID                 Overlapped,
+      ULONG                 IoResult,
+      ULONG_PTR             NumberOfBytesTransferred,
+      PTP_IO                ptp_io);
 };
 
 // pread() based random-access
 class WinRandomAccessFile
-    : private WinFileData,
+    : protected WinFileData,
       protected WinRandomAccessImpl,  // Want to be able to override
                                       // PositionedReadInternal
       public RandomAccessFile {
  public:
   WinRandomAccessFile(const std::string& fname, HANDLE hFile, size_t alignment,
-                      const EnvOptions& options);
+                      const EnvOptions& options, std::unique_ptr<IOCompletion>&& iocompl);
 
   ~WinRandomAccessFile();
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override;
+
+  Status Read(const async::Callable<void, Status&&, const Slice&>& cb,
+    uint64_t offset, size_t n, Slice* result, char* scratch) const override;
 
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 
@@ -339,7 +358,7 @@ class WinWritableImpl {
   WinWritableImpl& operator=(const WinWritableImpl&) = delete;
 };
 
-class WinWritableFile : private WinFileData,
+class WinWritableFile : protected WinFileData,
                         protected WinWritableImpl,
                         public WritableFile {
  public:
@@ -381,7 +400,7 @@ class WinWritableFile : private WinFileData,
   virtual size_t GetUniqueId(char* id, size_t max_size) const override;
 };
 
-class WinRandomRWFile : private WinFileData,
+class WinRandomRWFile : protected WinFileData,
                         protected WinRandomAccessImpl,
                         protected WinWritableImpl,
                         public RandomRWFile {

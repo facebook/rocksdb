@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <mutex>
 
+#include "async/random_read_context.h"
 #include "monitoring/histogram.h"
 #include "monitoring/iostats_context_imp.h"
 #include "port/port.h"
@@ -61,42 +62,138 @@ Status SequentialFileReader::Skip(uint64_t n) {
   return file_->Skip(n);
 }
 
+void async::RandomFileReadContext::PrepareRead(uint64_t offset, size_t n,
+                                               Slice* result, char * buffer) {
+
+  result_ = result;
+  result_buffer_ = buffer;
+  n_ = n;
+
+  IOSTATS_TIMER_START(read_nanos);
+
+  if (direct_io_) {
+    auto alignment = buf_.Alignment();
+    read_offset_ = TruncateToPageBoundary(alignment, offset);
+    offset_advance_ = offset - read_offset_;
+    read_size_ = Roundup(offset + n, alignment) - read_offset_;
+
+    buf_.AllocateNewBuffer(read_size_);
+  } else {
+    read_offset_ = offset;
+    read_size_ = n;
+  }
+
+}
+
+Status async::RandomFileReadContext::RandomRead() {
+
+  Status s;
+
+  if (direct_io_) {
+    assert(buf_.Capacity() >= read_size_);
+    s = ra_file_->Read(read_offset_, read_size_, result_, buf_.BufferStart());
+  }
+  else {
+    s = ra_file_->Read(read_offset_, read_size_, result_, result_buffer_);
+  }
+
+  return s;
+}
+
+Status async::RandomFileReadContext::RequestRandomRead(const RandomAccessCallback & iocb) {
+
+  Status s;
+
+  if (direct_io_) {
+    assert(buf_.Capacity() >= read_size_);
+    s = ra_file_->Read(iocb, read_offset_, read_size_, result_, buf_.BufferStart());
+  }
+  else {
+    s = ra_file_->Read(iocb, read_offset_, read_size_, result_, result_buffer_);
+  }
+
+  return s;
+}
+
+void async::RandomFileReadContext::OnRandomReadComplete(const Status& status,
+                                                        const Slice& slice) {
+
+   // This may or may not point to our buffer
+  *result_ = slice;
+
+  // Means there was a read with direct IO
+  // which requires additional handling
+  // namely, we need to copy aligned buffer content to
+  // the actual destination
+  if (direct_io_) {
+    // result_ may now have more bytes than requested
+    // or less data than requested
+    size_t r = 0;
+    if (status.ok()) {
+      // Data was placed into our aligned buffer
+      // copy it to the user supplied buffer
+      if(result_->data() == buf_.BufferStart()) {
+          if(offset_advance_ < result_->size()) {
+             buf_.Size(result_->size());
+             r = buf_.Read(result_buffer_, offset_advance_,
+               std::min(result_->size() - offset_advance_, n_));
+           }
+          *result_ = Slice(result_buffer_, r);
+      } else {
+        // result does not point to our intermediate buffer
+        // but possibly to a readahead buffer
+        // We want to keep that optimization but need to adjust
+        // the start and length
+        if (offset_advance_ < result_->size()) {
+          r = std::min(result_->size() - offset_advance_, n_);
+          auto start = result_->data() + offset_advance_;
+          *result_ = Slice(start, r);
+        }  else {
+          *result_ = Slice(result_buffer_, r);
+        }
+      }
+    } else {
+       // Failure to read
+      *result_ = Slice(result_buffer_, r);
+    }
+  }
+
+  IOSTATS_TIMER_STOP(read_nanos);
+  sw_.ElapsedAndDisarm();
+
+  if (stats_ != nullptr && hist_ != nullptr) {
+    hist_->Add(elapsed_);
+  }
+
+  // On direct io we read more, should we count the truth?
+  IOSTATS_ADD_IF_POSITIVE(bytes_read, result_->size());
+}
+
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                                     char* scratch) const {
-  Status s;
-  uint64_t elapsed = 0;
-  {
-    StopWatch sw(env_, stats_, hist_type_,
-                 (stats_ != nullptr) ? &elapsed : nullptr);
-    IOSTATS_TIMER_GUARD(read_nanos);
-    if (use_direct_io()) {
-#ifndef ROCKSDB_LITE
-      size_t alignment = file_->GetRequiredBufferAlignment();
-      size_t aligned_offset = TruncateToPageBoundary(alignment, offset);
-      size_t offset_advance = offset - aligned_offset;
-      size_t size = Roundup(offset + n, alignment) - aligned_offset;
-      size_t r = 0;
-      AlignedBuffer buf;
-      buf.Alignment(alignment);
-      buf.AllocateNewBuffer(size);
-      Slice tmp;
-      s = file_->Read(aligned_offset, size, &tmp, buf.BufferStart());
-      if (s.ok() && offset_advance < tmp.size()) {
-        buf.Size(tmp.size());
-        r = buf.Read(scratch, offset_advance,
-                            std::min(tmp.size() - offset_advance, n));
-      }
-      *result = Slice(scratch, r);
-#endif  // !ROCKSDB_LITE
-    } else {
-      s = file_->Read(offset, n, result, scratch);
-    }
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
-  }
-  if (stats_ != nullptr && file_read_hist_ != nullptr) {
-    file_read_hist_->Add(elapsed);
-  }
+
+  // No callback supplied
+  async::RandomFileReadContext req_ctx(file_.get(), env_, stats_, file_read_hist_,
+                        hist_type_, use_direct_io(),
+    file_->GetRequiredBufferAlignment());
+
+  req_ctx.PrepareRead(offset, n, result, scratch);
+
+  Status s = req_ctx.RandomRead();
+
+  req_ctx.OnRandomReadComplete(s, *result);
+
   return s;
+}
+
+std::unique_ptr<async::RandomFileReadContext> RandomAccessFileReader::GetReadContext() {
+
+  std::unique_ptr<async::RandomFileReadContext> result (
+    new async::RandomFileReadContext(file_.get(), env_, stats_, file_read_hist_,
+                                     hist_type_, use_direct_io(),
+                                     file_->GetRequiredBufferAlignment()));
+
+  return result;
 }
 
 Status WritableFileWriter::Append(const Slice& data) {

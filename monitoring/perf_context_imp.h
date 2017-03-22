@@ -12,6 +12,8 @@ namespace rocksdb {
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 
+#define PERF_TIMER_DECL(metric)
+#define PERF_TIMER_INIT(metric)
 #define PERF_TIMER_GUARD(metric)
 #define PERF_CONDITIONAL_TIMER_FOR_MUTEX_GUARD(metric, condition)
 #define PERF_TIMER_MEASURE(metric)
@@ -21,10 +23,19 @@ namespace rocksdb {
 
 #else
 
+// Declare timer as a member of a class
+#define PERF_TIMER_DECL(metric)           \
+  PerfStepTimer perf_step_timer_ ## metric
+
+// Init timer in the __ctor init list
+#define PERF_TIMER_INIT(metric)          \
+  perf_step_timer_ ## metric(&(perf_context.metric))
+
 // Stop the timer and update the metric
 #define PERF_TIMER_STOP(metric)          \
   perf_step_timer_ ## metric.Stop();
 
+// Start the timer
 #define PERF_TIMER_START(metric)          \
   perf_step_timer_ ## metric.Start();
 

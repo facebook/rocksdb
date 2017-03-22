@@ -90,10 +90,18 @@ Status TableCache::GetTableReader(
     bool sequential_mode, size_t readahead, bool record_read_stats,
     HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader,
     bool skip_filters, int level, bool prefetch_index_and_filter_in_cache) {
+
   std::string fname =
       TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
+
+  // Do not perform async IO on compaction
+  EnvOptions ra_options(env_options);
+  if(readahead > 0) {
+    ra_options.use_async_reads = false;
+  }
+
   unique_ptr<RandomAccessFile> file;
-  Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
+  Status s = ioptions_.env->NewRandomAccessFile(fname, &file, ra_options);
 
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {
@@ -109,7 +117,7 @@ Status TableCache::GetTableReader(
                                    ioptions_.statistics, record_read_stats,
                                    file_read_hist));
     s = ioptions_.table_factory->NewTableReader(
-        TableReaderOptions(ioptions_, env_options, internal_comparator,
+        TableReaderOptions(ioptions_, ra_options, internal_comparator,
                            skip_filters, level),
         std::move(file_reader), fd.GetFileSize(), table_reader,
         prefetch_index_and_filter_in_cache);

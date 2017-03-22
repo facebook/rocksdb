@@ -10,10 +10,15 @@
 #include <atomic>
 #include <string>
 #include "port/port.h"
+#include "rocksdb/async/callables.h"
 #include "rocksdb/env.h"
 #include "util/aligned_buffer.h"
 
 namespace rocksdb {
+
+namespace async {
+class RandomFileReadContext;
+}
 
 class Statistics;
 class HistogramImpl;
@@ -92,6 +97,8 @@ class RandomAccessFileReader {
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
+  std::unique_ptr<async::RandomFileReadContext> GetReadContext();
+
   Status Prefetch(uint64_t offset, size_t n) const {
     return file_->Prefetch(offset, n);
   }
@@ -99,10 +106,6 @@ class RandomAccessFileReader {
   RandomAccessFile* file() { return file_.get(); }
 
   bool use_direct_io() const { return file_->use_direct_io(); }
-
- protected:
-  Status DirectRead(uint64_t offset, size_t n, Slice* result,
-                    char* scratch) const;
 };
 
 // Use posix write to write data to a file.

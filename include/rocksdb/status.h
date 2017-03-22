@@ -58,7 +58,8 @@ class Status {
     kAborted = 10,
     kBusy = 11,
     kExpired = 12,
-    kTryAgain = 13
+    kTryAgain = 13,
+    kIOPending = 14
   };
 
   Code code() const { return code_; }
@@ -162,6 +163,11 @@ class Status {
     return Status(kTryAgain, msg, msg2);
   }
 
+  static Status IOPending(SubCode msg = kNone) { return Status(kIOPending, msg); }
+  static Status IOPending(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kIOPending, msg, msg2);
+  }
+
   static Status NoSpace() { return Status(kIOError, kNoSpace); }
   static Status NoSpace(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, kNoSpace, msg, msg2);
@@ -220,6 +226,8 @@ class Status {
   // This usually means that the operation failed, but may succeed if
   // re-attempted.
   bool IsTryAgain() const { return code() == kTryAgain; }
+
+  bool IsIOPending() const { return code() == kIOPending; }
 
   // Returns true iff the status indicates a NoSpace error
   // This is caused by an I/O error returning the specific "out of space"
