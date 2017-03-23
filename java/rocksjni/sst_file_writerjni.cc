@@ -22,7 +22,7 @@
  * Method:    newSstFileWriter
  * Signature: (JJJ)J
  */
-jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter(JNIEnv *env, jclass jcls,
+jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter__JJJ(JNIEnv *env, jclass jcls,
                                                       jlong jenvoptions,
                                                       jlong joptions,
                                                       jlong jcomparator) {
@@ -32,6 +32,22 @@ jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter(JNIEnv *env, jclass jcls,
   auto *comparator = reinterpret_cast<const rocksdb::Comparator *>(jcomparator);
   rocksdb::SstFileWriter *sst_file_writer =
       new rocksdb::SstFileWriter(*env_options, *options, comparator);
+  return reinterpret_cast<jlong>(sst_file_writer);
+}
+
+/*
+ * Class:     org_rocksdb_SstFileWriter
+ * Method:    newSstFileWriter
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_SstFileWriter_newSstFileWriter__JJ(JNIEnv *env, jclass jcls,
+                                                      jlong jenvoptions,
+                                                      jlong joptions) {
+  auto *env_options =
+      reinterpret_cast<const rocksdb::EnvOptions *>(jenvoptions);
+  auto *options = reinterpret_cast<const rocksdb::Options *>(joptions);
+  rocksdb::SstFileWriter *sst_file_writer =
+      new rocksdb::SstFileWriter(*env_options, *options);
   return reinterpret_cast<jlong>(sst_file_writer);
 }
 
