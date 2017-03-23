@@ -398,6 +398,10 @@ static bool isSSE42() {
   uint32_t d_;
   __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
   return c_ & (1U << 20);  // copied from CpuId.h in Folly.
+#elif defined(_WIN64)
+  int info[4];
+  __cpuidex(info, 0x00000001, 0);
+  return (info[2] & ((int)1 << 20)) != 0;
 #else
   return false;
 #endif
@@ -411,6 +415,8 @@ static inline Function Choose_Extend() {
 
 bool IsFastCrc32Supported() {
 #ifdef __SSE4_2__
+  return isSSE42();
+#elif defined(_WIN64)
   return isSSE42();
 #else
   return false;
