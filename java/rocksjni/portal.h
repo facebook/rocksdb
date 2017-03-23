@@ -2257,7 +2257,7 @@ class JniUtil {
       }
 
       env->SetByteArrayRegion(jbytes, 0, jlen,
-        reinterpret_cast<const jbyte*>(bytes.c_str()));
+        const_cast<jbyte*>(reinterpret_cast<const jbyte*>(bytes.c_str())));
       if(env->ExceptionCheck()) {
         // exception thrown: ArrayIndexOutOfBoundsException
         env->DeleteLocalRef(jbytes);
@@ -2384,7 +2384,7 @@ class JniUtil {
 
         env->SetByteArrayRegion(
           jbyte_string_ary, 0, str_len,
-          reinterpret_cast<const jbyte*>(str->c_str()));
+          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(str->c_str())));
         if(env->ExceptionCheck()) {
           // exception thrown: ArrayIndexOutOfBoundsException
           env->DeleteLocalRef(jbyte_string_ary);
@@ -2509,7 +2509,7 @@ class JniUtil {
         }
 
         env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
-                                reinterpret_cast<const jbyte*>(value.c_str()));
+                                const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value.c_str())));
         if(env->ExceptionCheck()) {
           // exception thrown: ArrayIndexOutOfBoundsException
           if(jret_value != nullptr) {

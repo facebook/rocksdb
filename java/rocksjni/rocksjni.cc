@@ -702,7 +702,7 @@ jint rocksdb_get_helper(JNIEnv* env, rocksdb::DB* db,
   const jint length = std::min(jval_len, cvalue_len);
 
   env->SetByteArrayRegion(jval, jval_off, length,
-                          reinterpret_cast<const jbyte*>(cvalue.c_str()));
+                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(cvalue.c_str())));
   if(env->ExceptionCheck()) {
     // exception thrown: OutOfMemoryError
     *has_exception = true;
@@ -843,7 +843,7 @@ jobjectArray multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
       }
 
       env->SetByteArrayRegion(jentry_value, 0, static_cast<jsize>(jvalue_len),
-          reinterpret_cast<const jbyte*>(value->c_str()));
+          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(value->c_str())));
       if(env->ExceptionCheck()) {
         // exception thrown: ArrayIndexOutOfBoundsException
         env->DeleteLocalRef(jentry_value);
@@ -1608,7 +1608,7 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
     for (std::vector<rocksdb::Iterator*>::size_type i = 0;
         i < iterators.size(); i++) {
       env->SetLongArrayRegion(jLongArray, static_cast<jsize>(i), 1,
-                              reinterpret_cast<const jlong*>(&iterators[i]));
+                              const_cast<jlong*>(reinterpret_cast<const jlong*>(&iterators[i])));
       if(env->ExceptionCheck()) {
         // exception thrown: ArrayIndexOutOfBoundsException
         env->DeleteLocalRef(jLongArray);
