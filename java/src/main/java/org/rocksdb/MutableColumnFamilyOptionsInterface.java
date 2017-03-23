@@ -6,7 +6,8 @@
 package org.rocksdb;
 
 public interface MutableColumnFamilyOptionsInterface
-    extends AdvancedMutableColumnFamilyOptionsInterface {
+    <T extends MutableColumnFamilyOptionsInterface>
+        extends AdvancedMutableColumnFamilyOptionsInterface<T> {
 
   /**
    * Amount of data to build up in memory (backed by an unsorted log
@@ -114,7 +115,7 @@ public interface MutableColumnFamilyOptionsInterface
    *
    * See {@link AdvancedMutableColumnFamilyOptionsInterface#setMaxBytesForLevelMultiplier(double)}
    */
-  MutableColumnFamilyOptionsInterface setMaxBytesForLevelBase(
+  T setMaxBytesForLevelBase(
       long maxBytesForLevelBase);
 
   /**
@@ -143,7 +144,7 @@ public interface MutableColumnFamilyOptionsInterface
    * @param compressionType Compression Type.
    * @return the reference to the current option.
    */
-  MutableColumnFamilyOptionsInterface setCompressionType(
+  T setCompressionType(
           CompressionType compressionType);
 
   /**

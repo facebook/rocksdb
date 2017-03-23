@@ -13,7 +13,8 @@ import java.util.List;
  *
  * Taken from include/rocksdb/advanced_options.h
  */
-public interface AdvancedColumnFamilyOptionsInterface {
+public interface AdvancedColumnFamilyOptionsInterface
+    <T extends AdvancedColumnFamilyOptionsInterface> {
 
   /**
    * The minimum number of write buffers that will be merged together
@@ -28,7 +29,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    *     that will be merged together.
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setMinWriteBufferNumberToMerge(
+  T setMinWriteBufferNumberToMerge(
       int minWriteBufferNumberToMerge);
 
   /**
@@ -79,7 +80,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    *
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setMaxWriteBufferNumberToMaintain(
+  T setMaxWriteBufferNumberToMaintain(
       int maxWriteBufferNumberToMaintain);
 
   /**
@@ -105,7 +106,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    *     are allowed.
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setInplaceUpdateSupport(
+  T setInplaceUpdateSupport(
       boolean inplaceUpdateSupport);
 
   /**
@@ -136,7 +137,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    * @param bloomLocality the level of locality of bloom-filter probes.
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setBloomLocality(int bloomLocality);
+  T setBloomLocality(int bloomLocality);
 
   /**
    * Control locality of bloom filter probes to improve cache miss rate.
@@ -196,7 +197,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    *
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setCompressionPerLevel(
+  T setCompressionPerLevel(
       List<CompressionType> compressionLevels);
 
   /**
@@ -218,7 +219,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    * @param numLevels the number of levels.
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setNumLevels(int numLevels);
+  T setNumLevels(int numLevels);
 
   /**
    * If level-styled compaction is used, then this number determines
@@ -301,7 +302,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    */
   @Experimental("Turning this feature on or off for an existing DB can cause" +
       "unexpected LSM tree structure so it's not recommended")
-  AdvancedColumnFamilyOptionsInterface setLevelCompactionDynamicLevelBytes(
+  T setLevelCompactionDynamicLevelBytes(
       boolean enableLevelCompactionDynamicLevelBytes);
 
   /**
@@ -323,7 +324,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    * @param maxCompactionBytes the compaction size limit
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setMaxCompactionBytes(
+  T setMaxCompactionBytes(
       long maxCompactionBytes);
 
   /**
@@ -361,7 +362,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    *
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setCompactionPriority(
+  T setCompactionPriority(
       CompactionPriority compactionPriority);
 
   /**
@@ -379,7 +380,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    *
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setCompactionOptionsUniversal(
+  T setCompactionOptionsUniversal(
       CompactionOptionsUniversal compactionOptionsUniversal);
 
   /**
@@ -396,7 +397,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    *
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setCompactionOptionsFIFO(
+  T setCompactionOptionsFIFO(
       CompactionOptionsFIFO compactionOptionsFIFO);
 
   /**
@@ -427,7 +428,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    * @param optimizeFiltersForHits boolean value indicating if this flag is set.
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setOptimizeFiltersForHits(
+  T setOptimizeFiltersForHits(
       boolean optimizeFiltersForHits);
 
   /**
@@ -450,7 +451,7 @@ public interface AdvancedColumnFamilyOptionsInterface {
    *
    * @return the reference to the current options.
    */
-  AdvancedColumnFamilyOptionsInterface setForceConsistencyChecks(
+  T setForceConsistencyChecks(
       boolean forceConsistencyChecks);
 
   /**

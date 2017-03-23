@@ -14,7 +14,8 @@ import java.util.Properties;
  * If {@link #dispose()} function is not called, then it will be GC'd
  * automatically and native resources will be released as part of the process.
  */
-public class DBOptions extends RocksObject implements DBOptionsInterface {
+public class DBOptions
+    extends RocksObject implements DBOptionsInterface<DBOptions> {
   static {
     RocksDB.loadLibrary();
   }

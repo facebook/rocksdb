@@ -11,7 +11,8 @@ package org.rocksdb;
  * Taken from include/rocksdb/advanced_options.h
  * and MutableCFOptions in util/cf_options.h
  */
-public interface AdvancedMutableColumnFamilyOptionsInterface {
+public interface AdvancedMutableColumnFamilyOptionsInterface
+    <T extends AdvancedMutableColumnFamilyOptionsInterface> {
 
   /**
    * The maximum number of write buffers that are built up in memory.
@@ -22,7 +23,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    * @param maxWriteBufferNumber maximum number of write buffers.
    * @return the instance of the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setMaxWriteBufferNumber(
+  T setMaxWriteBufferNumber(
       int maxWriteBufferNumber);
 
   /**
@@ -43,7 +44,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
    *     while overflowing the underlying platform specific value.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setInplaceUpdateNumLocks(
+  T setInplaceUpdateNumLocks(
       long inplaceUpdateNumLocks);
 
   /**
@@ -65,7 +66,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    * @param memtablePrefixBloomSizeRatio The ratio
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setMemtablePrefixBloomSizeRatio(
+  T setMemtablePrefixBloomSizeRatio(
       double memtablePrefixBloomSizeRatio);
 
   /**
@@ -91,7 +92,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *     page tlb
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setMemtableHugePageSize(
+  T setMemtableHugePageSize(
       long memtableHugePageSize);
 
   /**
@@ -124,7 +125,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
    *   while overflowing the underlying platform specific value.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setArenaBlockSize(long arenaBlockSize);
+  T setArenaBlockSize(long arenaBlockSize);
 
   /**
    * The size of one block in arena memory allocation.
@@ -153,7 +154,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *   level-0 files
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setLevel0SlowdownWritesTrigger(
+  T setLevel0SlowdownWritesTrigger(
       int level0SlowdownWritesTrigger);
 
   /**
@@ -172,7 +173,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    * @param level0StopWritesTrigger The maximum number of level-0 files
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setLevel0StopWritesTrigger(
+  T setLevel0StopWritesTrigger(
       int level0StopWritesTrigger);
 
   /**
@@ -198,7 +199,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *
    * @see #setTargetFileSizeMultiplier(int)
    */
-  AdvancedMutableColumnFamilyOptionsInterface setTargetFileSizeBase(
+  T setTargetFileSizeBase(
       long targetFileSizeBase);
 
   /**
@@ -228,7 +229,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *     and level-L file.
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setTargetFileSizeMultiplier(
+  T setTargetFileSizeMultiplier(
       int multiplier);
 
   /**
@@ -252,7 +253,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *
    * See {@link MutableColumnFamilyOptionsInterface#setMaxBytesForLevelBase(long)}
    */
-  AdvancedMutableColumnFamilyOptionsInterface setMaxBytesForLevelMultiplier(double multiplier);
+  T setMaxBytesForLevelMultiplier(double multiplier);
 
   /**
    * The ratio between the total size of level-(L+1) files and the total
@@ -277,7 +278,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *   for each level
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setMaxBytesForLevelMultiplierAdditional(
+  T setMaxBytesForLevelMultiplierAdditional(
       int[] maxBytesForLevelMultiplierAdditional);
 
   /**
@@ -301,7 +302,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *   compaction
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setSoftPendingCompactionBytesLimit(
+  T setSoftPendingCompactionBytesLimit(
       long softPendingCompactionBytesLimit);
 
   /**
@@ -324,7 +325,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *   compaction
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setHardPendingCompactionBytesLimit(
+  T setHardPendingCompactionBytesLimit(
       long hardPendingCompactionBytesLimit);
 
   /**
@@ -348,7 +349,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    *     be skipped in a iteration.
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setMaxSequentialSkipInIterations(
+  T setMaxSequentialSkipInIterations(
       long maxSequentialSkipInIterations);
 
   /**
@@ -378,7 +379,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
    *   while overflowing the underlying platform specific value.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setMaxSuccessiveMerges(
+  T setMaxSuccessiveMerges(
       long maxSuccessiveMerges);
 
   /**
@@ -404,7 +405,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    * @param paranoidFileChecks true to enable paranoid file checks
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setParanoidFileChecks(
+  T setParanoidFileChecks(
       boolean paranoidFileChecks);
 
   /**
@@ -424,7 +425,7 @@ public interface AdvancedMutableColumnFamilyOptionsInterface {
    * @param reportBgIoStats true to enable reporting
    * @return the reference to the current options.
    */
-  AdvancedMutableColumnFamilyOptionsInterface setReportBgIoStats(
+  T setReportBgIoStats(
       boolean reportBgIoStats);
 
   /**

@@ -6,7 +6,8 @@
 package org.rocksdb;
 
 public interface ColumnFamilyOptionsInterface
-    extends AdvancedColumnFamilyOptionsInterface {
+    <T extends ColumnFamilyOptionsInterface>
+        extends AdvancedColumnFamilyOptionsInterface<T> {
 
   /**
    * Use this if your DB is very small (like under 1GB) and you don't want to
@@ -14,7 +15,7 @@ public interface ColumnFamilyOptionsInterface
    *
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface optimizeForSmallDb();
+  T optimizeForSmallDb();
 
   /**
    * Use this if you don't need to keep the data sorted, i.e. you'll never use
@@ -23,7 +24,7 @@ public interface ColumnFamilyOptionsInterface
    * @param blockCacheSizeMb Block cache size in MB
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface optimizeForPointLookup(long blockCacheSizeMb);
+  T optimizeForPointLookup(long blockCacheSizeMb);
 
   /**
    * <p>Default values for some parameters in ColumnFamilyOptions are not
@@ -38,7 +39,7 @@ public interface ColumnFamilyOptionsInterface
    *
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface optimizeLevelStyleCompaction();
+  T optimizeLevelStyleCompaction();
 
   /**
    * <p>Default values for some parameters in ColumnFamilyOptions are not
@@ -54,7 +55,7 @@ public interface ColumnFamilyOptionsInterface
    * @param memtableMemoryBudget memory budget in bytes
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface optimizeLevelStyleCompaction(
+  T optimizeLevelStyleCompaction(
       long memtableMemoryBudget);
 
   /**
@@ -74,7 +75,7 @@ public interface ColumnFamilyOptionsInterface
    *
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface optimizeUniversalStyleCompaction();
+  T optimizeUniversalStyleCompaction();
 
   /**
    * <p>Default values for some parameters in ColumnFamilyOptions are not
@@ -94,7 +95,7 @@ public interface ColumnFamilyOptionsInterface
    * @param memtableMemoryBudget memory budget in bytes
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface optimizeUniversalStyleCompaction(
+  T optimizeUniversalStyleCompaction(
       long memtableMemoryBudget);
 
   /**
@@ -106,7 +107,7 @@ public interface ColumnFamilyOptionsInterface
    * @param builtinComparator a {@link BuiltinComparator} type.
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface setComparator(
+  T setComparator(
       BuiltinComparator builtinComparator);
 
   /**
@@ -121,7 +122,7 @@ public interface ColumnFamilyOptionsInterface
    * @param comparator java instance.
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface setComparator(
+  T setComparator(
       AbstractComparator<? extends AbstractSlice<?>> comparator);
 
   /**
@@ -137,7 +138,7 @@ public interface ColumnFamilyOptionsInterface
    * operators are "put", "uint64add", "stringappend" and "stringappendtest".
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface setMergeOperatorName(String name);
+  T setMergeOperatorName(String name);
 
   /**
    * <p>Set the merge operator to be used for merging two different key/value
@@ -148,7 +149,7 @@ public interface ColumnFamilyOptionsInterface
    * @param mergeOperator {@link MergeOperator} instance.
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface setMergeOperator(MergeOperator mergeOperator);
+  T setMergeOperator(MergeOperator mergeOperator);
 
   /**
    * This prefix-extractor uses the first n bytes of a key as its prefix.
@@ -161,7 +162,7 @@ public interface ColumnFamilyOptionsInterface
    * @param n use the first n bytes of a key as its prefix.
    * @return the reference to the current option.
    */
-  ColumnFamilyOptionsInterface useFixedLengthPrefixExtractor(int n);
+  T useFixedLengthPrefixExtractor(int n);
 
   /**
    * Same as fixed length prefix extractor, except that when slice is
@@ -170,7 +171,7 @@ public interface ColumnFamilyOptionsInterface
    * @param n use the first n bytes of a key as its prefix.
    * @return the reference to the current option.
    */
-  ColumnFamilyOptionsInterface useCappedPrefixExtractor(int n);
+  T useCappedPrefixExtractor(int n);
 
   /**
    * Number of files to trigger level-0 compaction. A value &lt; 0 means that
@@ -180,7 +181,7 @@ public interface ColumnFamilyOptionsInterface
    * @param numFiles the number of files in level-0 to trigger compaction.
    * @return the reference to the current option.
    */
-  ColumnFamilyOptionsInterface setLevelZeroFileNumCompactionTrigger(
+  T setLevelZeroFileNumCompactionTrigger(
       int numFiles);
 
   /**
@@ -201,7 +202,7 @@ public interface ColumnFamilyOptionsInterface
    * @param numFiles soft limit on number of level-0 files.
    * @return the reference to the current option.
    */
-  ColumnFamilyOptionsInterface setLevelZeroSlowdownWritesTrigger(
+  T setLevelZeroSlowdownWritesTrigger(
       int numFiles);
 
   /**
@@ -219,7 +220,7 @@ public interface ColumnFamilyOptionsInterface
    * @param numFiles the hard limit of the number of level-0 files.
    * @return the reference to the current option.
    */
-  ColumnFamilyOptionsInterface setLevelZeroStopWritesTrigger(int numFiles);
+  T setLevelZeroStopWritesTrigger(int numFiles);
 
   /**
    * Maximum number of level-0 files.  We stop writes at this point.
@@ -237,7 +238,7 @@ public interface ColumnFamilyOptionsInterface
    *     files and the total size of level-L files for all L.
    * @return the reference to the current option.
    */
-  ColumnFamilyOptionsInterface setMaxBytesForLevelMultiplier(
+  T setMaxBytesForLevelMultiplier(
       double multiplier);
 
   /**
@@ -259,7 +260,7 @@ public interface ColumnFamilyOptionsInterface
    * @param maxTableFilesSize the size limit of the total sum of table files.
    * @return the instance of the current object.
    */
-  ColumnFamilyOptionsInterface setMaxTableFilesSizeFIFO(
+  T setMaxTableFilesSizeFIFO(
       long maxTableFilesSize);
 
   /**
@@ -287,7 +288,7 @@ public interface ColumnFamilyOptionsInterface
    * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
    *   while overflowing the underlying platform specific value.
    */
-  ColumnFamilyOptionsInterface setMemTableConfig(MemTableConfig memTableConfig);
+  T setMemTableConfig(MemTableConfig memTableConfig);
 
   /**
    * Returns the name of the current mem table representation.
@@ -311,7 +312,7 @@ public interface ColumnFamilyOptionsInterface
    * @param config the table format config.
    * @return the reference of the current options.
    */
-  ColumnFamilyOptionsInterface setTableFormatConfig(TableFormatConfig config);
+  T setTableFormatConfig(TableFormatConfig config);
 
   /**
    * @return the name of the currently used table factory.
@@ -330,7 +331,7 @@ public interface ColumnFamilyOptionsInterface
    *
    * @return the reference of the current options.
    */
-  ColumnFamilyOptionsInterface setBottommostCompressionType(
+  T setBottommostCompressionType(
       final CompressionType bottommostCompressionType);
 
   /**
@@ -352,7 +353,7 @@ public interface ColumnFamilyOptionsInterface
    *
    * @return the reference of the current options.
    */
-  ColumnFamilyOptionsInterface setCompressionOptions(
+  T setCompressionOptions(
       CompressionOptions compressionOptions);
 
   /**

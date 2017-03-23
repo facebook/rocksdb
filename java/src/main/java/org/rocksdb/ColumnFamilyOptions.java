@@ -17,8 +17,8 @@ import java.util.Properties;
  * automatically and native resources will be released as part of the process.
  */
 public class ColumnFamilyOptions extends RocksObject
-    implements ColumnFamilyOptionsInterface,
-    MutableColumnFamilyOptionsInterface {
+    implements ColumnFamilyOptionsInterface<ColumnFamilyOptions>,
+    MutableColumnFamilyOptionsInterface<ColumnFamilyOptions> {
   static {
     RocksDB.loadLibrary();
   }

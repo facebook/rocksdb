@@ -16,8 +16,8 @@ import java.util.List;
  * automaticallyand native resources will be released as part of the process.
  */
 public class Options extends RocksObject
-    implements DBOptionsInterface, ColumnFamilyOptionsInterface,
-    MutableColumnFamilyOptionsInterface {
+    implements DBOptionsInterface<Options>, ColumnFamilyOptionsInterface<Options>,
+    MutableColumnFamilyOptionsInterface<Options> {
   static {
     RocksDB.loadLibrary();
   }
@@ -1118,7 +1118,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public MutableColumnFamilyOptionsInterface setLevel0StopWritesTrigger(int level0StopWritesTrigger) {
+  public Options setLevel0StopWritesTrigger(int level0StopWritesTrigger) {
     setLevel0StopWritesTrigger(nativeHandle_, level0StopWritesTrigger);
     return this;
   }
