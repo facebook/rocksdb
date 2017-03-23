@@ -554,9 +554,17 @@ class DBImpl : public DB {
   Status RenameTempFileToOptionsFile(const std::string& file_name);
   Status DeleteObsoleteOptionsFiles();
 
+  void NotifyOnFlushStarted(ColumnFamilyData* cfd, FileMetaData* file_meta,
+                              const MutableCFOptions& mutable_cf_options,
+                              int job_id, TableProperties prop);
+
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, FileMetaData* file_meta,
                               const MutableCFOptions& mutable_cf_options,
                               int job_id, TableProperties prop);
+
+  void NotifyOnCompactionStarted(ColumnFamilyData* cfd,
+                                 Compaction *c,
+                                 int job_id);
 
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
                                    Compaction *c, const Status &st,

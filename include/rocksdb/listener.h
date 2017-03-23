@@ -216,6 +216,16 @@ struct ExternalFileIngestionInfo {
 class EventListener {
  public:
   // A call-back function to RocksDB which will be called whenever a
+  // registered RocksDB starts flushing a file.  The default implementation is
+  // no-op.
+  //
+  // Note that the this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns.  Otherwise, RocksDB may be blocked.
+  virtual void OnFlushStarted(DB* /*db*/,
+                                const FlushJobInfo& /*flush_job_info*/) {}
+
+  // A call-back function to RocksDB which will be called whenever a
   // registered RocksDB flushes a file.  The default implementation is
   // no-op.
   //
@@ -237,6 +247,22 @@ class EventListener {
   // outside this function call, they should make copies from the
   // returned value.
   virtual void OnTableFileDeleted(const TableFileDeletionInfo& /*info*/) {}
+
+  // A call-back function for RocksDB which will be called whenever
+  // a registered RocksDB starts compaction. The default implementation
+  // is a no-op.
+  //
+  // Note that this function must be implemented in a way such that
+  // it should not run for an extended period of time before the function
+  // returns. Otherwise, RocksDB may be blocked.
+  //
+  // @param db a pointer to the rocksdb instance which just compacted
+  //   a file.
+  // @param ci a reference to a CompactionJobInfo struct. 'ci' is released
+  //  after this function is returned, and must be copied if it is needed
+  //  outside of this function.
+  virtual void OnCompactionStarted(DB* /*db*/,
+                                     const CompactionJobInfo& /*ci*/) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation
