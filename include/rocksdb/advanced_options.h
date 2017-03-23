@@ -319,6 +319,20 @@ struct AdvancedColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int level0_stop_writes_trigger = 36;
 
+  // If level compaction_style == kCompactionStyleLevel, L0->L0 compactions may
+  // be used to accommodate write bursts. These compactions make the L0 file
+  // limits (`level0_slowdown_writes_trigger` and `level0_stop_writes_trigger`)
+  // take longer to be triggered when bursts happen. This option configures the
+  // max output file size of L0->L0 compaction.
+  //
+  // The tradeoff is the base level can grow beyond its configured max size when
+  // these oversized L0 files are compacted downwards. Also write-amp in L0 will
+  // increase, which is usually irrelevant since these files are likely in page
+  // cache.
+  //
+  // Default: 0 (L0->L0 compactions disabled)
+  int max_level0_burst_file_size = 0;
+
   // Target file size for compaction.
   // target_file_size_base is per-file size for level-1.
   // Target file size for level L can be calculated by

@@ -140,6 +140,8 @@ void MutableCFOptions::Dump(Logger* log) const {
                  level0_slowdown_writes_trigger);
   ROCKS_LOG_INFO(log, "               level0_stop_writes_trigger: %d",
                  level0_stop_writes_trigger);
+  ROCKS_LOG_INFO(log, "               max_level0_burst_file_size: %d",
+                 max_level0_burst_file_size);
   ROCKS_LOG_INFO(log, "                     max_compaction_bytes: %" PRIu64,
                  max_compaction_bytes);
   ROCKS_LOG_INFO(log, "                    target_file_size_base: %" PRIu64,

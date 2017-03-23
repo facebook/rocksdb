@@ -1047,13 +1047,13 @@ Compaction* LevelCompactionPicker::PickCompaction(
   CompactionReason compaction_reason = CompactionReason::kUnknown;
 
   // Find the compactions by size on all levels.
-  bool skipped_l0 = false;
+  bool skipped_l0_to_base = false;
   for (int i = 0; i < NumberLevels() - 1; i++) {
     score = vstorage->CompactionScore(i);
     level = vstorage->CompactionScoreLevel(i);
     assert(i == 0 || score <= vstorage->CompactionScore(i - 1));
     if (score >= 1) {
-      if (skipped_l0 && level == vstorage->base_level()) {
+      if (skipped_l0_to_base && level == vstorage->base_level()) {
         // If L0->base_level compaction is pending, don't schedule further
         // compaction from base level. Otherwise L0->base_level compaction
         // may starve.
@@ -1077,7 +1077,22 @@ Compaction* LevelCompactionPicker::PickCompaction(
         // didn't find the compaction, clear the inputs
         inputs.clear();
         if (level == 0) {
-          skipped_l0 = true;
+          skipped_l0_to_base = true;
+          // L0->base_level may be blocked due to ongoing L0->base_level
+          // compactions. It may also be blocked by an ongoing compaction from
+          // base_level downwards.
+          //
+          // In these cases, to reduce L0 file count and thus reduce likelihood
+          // of write stalls, we can attempt compacting a span of files within
+          // L0.
+          if (PickIntraL0Compaction(
+                  vstorage, static_cast<size_t>(
+                                mutable_cf_options.max_level0_burst_file_size),
+                  &inputs)) {
+            output_level = 0;
+            compaction_reason = CompactionReason::kLevelL0FilesNum;
+            break;
+          }
         }
       }
     }
@@ -1102,7 +1117,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
 
   // Two level 0 compaction won't run at the same time, so don't need to worry
   // about files on level 0 being compacted.
-  if (level == 0) {
+  if (level == 0 && output_level != 0) {
     assert(level0_compactions_in_progress_.empty());
     InternalKey smallest, largest;
     GetRange(inputs, &smallest, &largest);
@@ -1123,33 +1138,40 @@ Compaction* LevelCompactionPicker::PickCompaction(
     assert(!inputs.files.empty());
   }
 
-  // Setup input files from output level
+  std::vector<CompactionInputFiles> compaction_inputs;
   CompactionInputFiles output_level_inputs;
-  output_level_inputs.level = output_level;
-  if (!SetupOtherInputs(cf_name, mutable_cf_options, vstorage, &inputs,
-                        &output_level_inputs, &parent_index, base_index)) {
-    return nullptr;
-  }
-
-  std::vector<CompactionInputFiles> compaction_inputs({inputs});
-  if (!output_level_inputs.empty()) {
-    compaction_inputs.push_back(output_level_inputs);
-  }
-
-  // In some edge cases we could pick a compaction that will be compacting
-  // a key range that overlap with another running compaction, and both
-  // of them have the same output leve. This could happen if
-  // (1) we are running a non-exclusive manual compaction
-  // (2) AddFile ingest a new file into the LSM tree
-  // We need to disallow this from happening.
-  if (FilesRangeOverlapWithCompaction(compaction_inputs, output_level)) {
-    // This compaction output could potentially conflict with the output
-    // of a currently running compaction, we cannot run it.
-    return nullptr;
-  }
-
   std::vector<FileMetaData*> grandparents;
-  GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
+  // Setup input files from output level. For output to L0, we only compact
+  // spans of files that do not interact with any pending compactions, so don't
+  // need to consider other levels.
+  if (output_level != 0) {
+    output_level_inputs.level = output_level;
+    if (!SetupOtherInputs(cf_name, mutable_cf_options, vstorage, &inputs,
+                          &output_level_inputs, &parent_index, base_index)) {
+      return nullptr;
+    }
+
+    compaction_inputs.push_back(inputs);
+    if (!output_level_inputs.empty()) {
+      compaction_inputs.push_back(output_level_inputs);
+    }
+
+    // In some edge cases we could pick a compaction that will be compacting
+    // a key range that overlap with another running compaction, and both
+    // of them have the same output level. This could happen if
+    // (1) we are running a non-exclusive manual compaction
+    // (2) AddFile ingest a new file into the LSM tree
+    // We need to disallow this from happening.
+    if (FilesRangeOverlapWithCompaction(compaction_inputs, output_level)) {
+      // This compaction output could potentially conflict with the output
+      // of a currently running compaction, we cannot run it.
+      return nullptr;
+    }
+    GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
+  } else {
+    compaction_inputs.push_back(inputs);
+  }
+
   auto c = new Compaction(
       vstorage, ioptions_, mutable_cf_options, std::move(compaction_inputs),
       output_level, mutable_cf_options.MaxFileSizeForLevel(output_level),
@@ -1273,6 +1295,51 @@ bool LevelCompactionPicker::PickCompactionBySize(VersionStorageInfo* vstorage,
   vstorage->SetNextCompactionIndex(level, nextIndex);
 
   return inputs->size() > 0;
+}
+
+bool LevelCompactionPicker::PickIntraL0Compaction(
+    VersionStorageInfo* vstorage, size_t max_level0_burst_file_size,
+    CompactionInputFiles* inputs) {
+  inputs->clear();
+  const std::vector<FileMetaData*>& level_files =
+      vstorage->LevelFiles(0 /* level */);
+
+  size_t max_span_base_idx = 0, max_span_len = 0, curr_span_base_idx = 0,
+         curr_span_size = 0;
+  for (size_t i = 0; i <= level_files.size(); ++i) {
+    curr_span_size +=
+        i == level_files.size() ? 0 : level_files[i]->fd.file_size;
+    if (i == level_files.size() || level_files[i]->being_compacted ||
+        curr_span_size > max_level0_burst_file_size) {
+      // span covering [curr_span_base_idx, i) ended
+      if (i - curr_span_base_idx > max_span_len) {
+        max_span_base_idx = curr_span_base_idx;
+        max_span_len = i - curr_span_base_idx;
+      }
+      if (i == level_files.size() || level_files[i]->being_compacted) {
+        // i is ineligible for inclusion in any span, reset
+        curr_span_base_idx = i + 1;
+        curr_span_size = 0;
+      } else {
+        // shift the start of span one rightwards. maybe it still exceeds size
+        // limit, in which case subsequent iterations will keep shifting. No
+        // need to shift start of span multiple times in same iteration since we
+        // only care about finding larger spans.
+        curr_span_size -= level_files[curr_span_base_idx]->fd.file_size;
+        ++curr_span_base_idx;
+      }
+    }
+  }
+
+  if (max_span_len > 1) {
+    inputs->level = 0;
+    for (size_t i = max_span_base_idx; i < max_span_base_idx + max_span_len;
+         ++i) {
+      inputs->files.push_back(level_files[i]);
+    }
+    return true;
+  }
+  return false;
 }
 
 #ifndef ROCKSDB_LITE

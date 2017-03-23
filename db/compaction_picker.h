@@ -232,6 +232,17 @@ class LevelCompactionPicker : public CompactionPicker {
                             int output_level, CompactionInputFiles* inputs,
                             int* parent_index, int* base_index);
 
+  // For L0->L0, picks the longest span of files that aren't currently
+  // undergoing compaction. Intra-L0 compaction is independent of all other
+  // files, so it can be performed even when L0->base_level compactions are
+  // blocked.
+  //
+  // Returns true if `inputs` is populated with a span of files to be compacted;
+  // otherwise, returns false.
+  bool PickIntraL0Compaction(VersionStorageInfo* vstorage,
+                             size_t max_level0_burst_file_size,
+                             CompactionInputFiles* inputs);
+
   // If there is any file marked for compaction, put put it into inputs.
   // This is still experimental. It will return meaningful results only if
   // clients call experimental feature SuggestCompactRange()
