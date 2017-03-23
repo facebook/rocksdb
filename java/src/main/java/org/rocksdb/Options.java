@@ -111,6 +111,12 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options optimizeForSmallDb() {
+    optimizeForSmallDb(nativeHandle_);
+    return this;
+  }
+
+  @Override
   public Options optimizeForPointLookup(
       long blockCacheSizeMb) {
     optimizeForPointLookup(nativeHandle_,
@@ -666,6 +672,11 @@ public class Options extends RocksObject
   }
 
   @Override
+  public MemTableConfig memTableConfig() {
+    return this.memTableConfig_;
+  }
+
+  @Override
   public Options setMemTableConfig(final MemTableConfig config) {
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
@@ -708,6 +719,11 @@ public class Options extends RocksObject
   }
 
   @Override
+  public TableFormatConfig tableFormatConfig() {
+    return this.tableFormatConfig_;
+  }
+
+  @Override
   public Options setTableFormatConfig(final TableFormatConfig config) {
     tableFormatConfig_ = config;
     setTableFactory(nativeHandle_, config.newTableFactoryHandle());
@@ -736,7 +752,7 @@ public class Options extends RocksObject
 
   @Override
   public CompressionType compressionType() {
-    return CompressionType.values()[compressionType(nativeHandle_)];
+    return CompressionType.getCompressionType(compressionType(nativeHandle_));
   }
 
   @Override
@@ -767,6 +783,34 @@ public class Options extends RocksObject
   public Options setCompressionType(CompressionType compressionType) {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
+  }
+
+
+  @Override
+  public Options setBottommostCompressionType(
+      final CompressionType bottommostCompressionType) {
+    setBottommostCompressionType(nativeHandle_,
+        bottommostCompressionType.getValue());
+    return this;
+  }
+
+  @Override
+  public CompressionType bottommostCompressionType() {
+    return CompressionType.getCompressionType(
+        bottommostCompressionType(nativeHandle_));
+  }
+
+  @Override
+  public Options setCompressionOptions(
+      final CompressionOptions compressionOptions) {
+    setCompressionOptions(nativeHandle_, compressionOptions.nativeHandle_);
+    this.compressionOptions_ = compressionOptions;
+    return this;
+  }
+
+  @Override
+  public CompressionOptions compressionOptions() {
+    return this.compressionOptions_;
   }
 
   @Override
@@ -826,17 +870,6 @@ public class Options extends RocksObject
   public Options setLevelZeroStopWritesTrigger(
       final int numFiles) {
     setLevelZeroStopWritesTrigger(nativeHandle_, numFiles);
-    return this;
-  }
-
-  @Override
-  public int maxMemCompactionLevel() {
-    return 0;
-  }
-
-  @Override
-  public Options setMaxMemCompactionLevel(
-      final int maxMemCompactionLevel) {
     return this;
   }
 
@@ -909,41 +942,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public double softRateLimit() {
-    return softRateLimit(nativeHandle_);
-  }
-
-  @Override
-  public Options setSoftRateLimit(final double softRateLimit) {
-    setSoftRateLimit(nativeHandle_, softRateLimit);
-    return this;
-  }
-
-  @Override
-  public double hardRateLimit() {
-    return hardRateLimit(nativeHandle_);
-  }
-
-  @Override
-  public Options setHardRateLimit(double hardRateLimit) {
-    setHardRateLimit(nativeHandle_, hardRateLimit);
-    return this;
-  }
-
-  @Override
-  public int rateLimitDelayMaxMilliseconds() {
-    return rateLimitDelayMaxMilliseconds(nativeHandle_);
-  }
-
-  @Override
-  public Options setRateLimitDelayMaxMilliseconds(
-      final int rateLimitDelayMaxMilliseconds) {
-    setRateLimitDelayMaxMilliseconds(
-        nativeHandle_, rateLimitDelayMaxMilliseconds);
-    return this;
-  }
-
-  @Override
   public long arenaBlockSize() {
     return arenaBlockSize(nativeHandle_);
   }
@@ -963,19 +961,6 @@ public class Options extends RocksObject
   public Options setDisableAutoCompactions(
       final boolean disableAutoCompactions) {
     setDisableAutoCompactions(nativeHandle_, disableAutoCompactions);
-    return this;
-  }
-
-  @Override
-  public boolean purgeRedundantKvsWhileFlush() {
-    return purgeRedundantKvsWhileFlush(nativeHandle_);
-  }
-
-  @Override
-  public Options setPurgeRedundantKvsWhileFlush(
-      final boolean purgeRedundantKvsWhileFlush) {
-    setPurgeRedundantKvsWhileFlush(
-        nativeHandle_, purgeRedundantKvsWhileFlush);
     return this;
   }
 
@@ -1165,6 +1150,81 @@ public class Options extends RocksObject
     return paranoidFileChecks(nativeHandle_);
   }
 
+  @Override
+  public Options setMaxWriteBufferNumberToMaintain(
+      final int maxWriteBufferNumberToMaintain) {
+    setMaxWriteBufferNumberToMaintain(
+        nativeHandle_, maxWriteBufferNumberToMaintain);
+    return this;
+  }
+
+  @Override
+  public int maxWriteBufferNumberToMaintain() {
+    return maxWriteBufferNumberToMaintain(nativeHandle_);
+  }
+
+  @Override
+  public Options setCompactionPriority(
+      final CompactionPriority compactionPriority) {
+    setCompactionPriority(nativeHandle_, compactionPriority.getValue());
+    return this;
+  }
+
+  @Override
+  public CompactionPriority compactionPriority() {
+    return CompactionPriority.getCompactionPriority(
+        compactionPriority(nativeHandle_));
+  }
+
+  @Override
+  public Options setReportBgIoStats(final boolean reportBgIoStats) {
+    setReportBgIoStats(nativeHandle_, reportBgIoStats);
+    return this;
+  }
+
+  @Override
+  public boolean reportBgIoStats() {
+    return reportBgIoStats(nativeHandle_);
+  }
+
+  @Override
+  public Options setCompactionOptionsUniversal(
+      final CompactionOptionsUniversal compactionOptionsUniversal) {
+    setCompactionOptionsUniversal(nativeHandle_,
+        compactionOptionsUniversal.nativeHandle_);
+    this.compactionOptionsUniversal_ = compactionOptionsUniversal;
+    return this;
+  }
+
+  @Override
+  public CompactionOptionsUniversal compactionOptionsUniversal() {
+    return this.compactionOptionsUniversal_;
+  }
+
+  @Override
+  public Options setCompactionOptionsFIFO(final CompactionOptionsFIFO compactionOptionsFIFO) {
+    setCompactionOptionsFIFO(nativeHandle_,
+        compactionOptionsFIFO.nativeHandle_);
+    this.compactionOptionsFIFO_ = compactionOptionsFIFO;
+    return this;
+  }
+
+  @Override
+  public CompactionOptionsFIFO compactionOptionsFIFO() {
+    return this.compactionOptionsFIFO_;
+  }
+
+  @Override
+  public Options setForceConsistencyChecks(final boolean forceConsistencyChecks) {
+    setForceConsistencyChecks(nativeHandle_, forceConsistencyChecks);
+    return this;
+  }
+
+  @Override
+  public boolean forceConsistencyChecks() {
+    return forceConsistencyChecks(nativeHandle_);
+  }
+
   private native static long newOptions();
   private native static long newOptions(long dbOptHandle,
       long cfOptHandle);
@@ -1280,6 +1340,7 @@ public class Options extends RocksObject
       long writeThreadSlowYieldUsec);
   private native long writeThreadSlowYieldUsec(long handle);
   // CF native handles
+  private native void optimizeForSmallDb(final long handle);
   private native void optimizeForPointLookup(long handle,
       long blockCacheSizeMb);
   private native void optimizeLevelStyleCompaction(long handle,
@@ -1307,6 +1368,11 @@ public class Options extends RocksObject
   private native void setCompressionPerLevel(long handle,
       byte[] compressionLevels);
   private native byte[] compressionPerLevel(long handle);
+  private native void setBottommostCompressionType(long handle,
+      byte bottommostCompressionType);
+  private native byte bottommostCompressionType(long handle);
+  private native void setCompressionOptions(long handle,
+      long compressionOptionsHandle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void useCappedPrefixExtractor(
@@ -1340,15 +1406,6 @@ public class Options extends RocksObject
   private native double maxBytesForLevelMultiplier(long handle);
   private native void setMaxCompactionBytes(long handle, long maxCompactionBytes);
   private native long maxCompactionBytes(long handle);
-  private native void setSoftRateLimit(
-      long handle, double softRateLimit);
-  private native double softRateLimit(long handle);
-  private native void setHardRateLimit(
-      long handle, double hardRateLimit);
-  private native double hardRateLimit(long handle);
-  private native void setRateLimitDelayMaxMilliseconds(
-      long handle, int rateLimitDelayMaxMilliseconds);
-  private native int rateLimitDelayMaxMilliseconds(long handle);
   private native void setArenaBlockSize(
       long handle, long arenaBlockSize) throws IllegalArgumentException;
   private native long arenaBlockSize(long handle);
@@ -1357,9 +1414,6 @@ public class Options extends RocksObject
   private native boolean disableAutoCompactions(long handle);
   private native void setCompactionStyle(long handle, byte compactionStyle);
   private native byte compactionStyle(long handle);
-  private native void setPurgeRedundantKvsWhileFlush(
-      long handle, boolean purgeRedundantKvsWhileFlush);
-  private native boolean purgeRedundantKvsWhileFlush(long handle);
   private native void setMaxSequentialSkipInIterations(
       long handle, long maxSequentialSkipInIterations);
   private native long maxSequentialSkipInIterations(long handle);
@@ -1411,10 +1465,30 @@ public class Options extends RocksObject
   private native void setParanoidFileChecks(long handle,
       boolean paranoidFileChecks);
   private native boolean paranoidFileChecks(long handle);
+  private native void setMaxWriteBufferNumberToMaintain(final long handle,
+      final int maxWriteBufferNumberToMaintain);
+  private native int maxWriteBufferNumberToMaintain(final long handle);
+  private native void setCompactionPriority(final long handle,
+      final byte compactionPriority);
+  private native byte compactionPriority(final long handle);
+  private native void setReportBgIoStats(final long handle,
+      final boolean reportBgIoStats);
+  private native boolean reportBgIoStats(final long handle);
+  private native void setCompactionOptionsUniversal(final long handle,
+      final long compactionOptionsUniversalHandle);
+  private native void setCompactionOptionsFIFO(final long handle,
+      final long compactionOptionsFIFOHandle);
+  private native void setForceConsistencyChecks(final long handle,
+      final boolean forceConsistencyChecks);
+  private native boolean forceConsistencyChecks(final long handle);
+
   // instance variables
-  Env env_;
-  MemTableConfig memTableConfig_;
-  TableFormatConfig tableFormatConfig_;
-  RateLimiter rateLimiter_;
-  AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  private Env env_;
+  private MemTableConfig memTableConfig_;
+  private TableFormatConfig tableFormatConfig_;
+  private RateLimiter rateLimiter_;
+  private AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  private CompactionOptionsUniversal compactionOptionsUniversal_;
+  private CompactionOptionsFIFO compactionOptionsFIFO_;
+  private CompressionOptions compressionOptions_;
 }

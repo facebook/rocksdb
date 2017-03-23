@@ -8,8 +8,11 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.Checkpoint\
 	org.rocksdb.ColumnFamilyHandle\
 	org.rocksdb.ColumnFamilyOptions\
+	org.rocksdb.CompactionOptionsFIFO\
+	org.rocksdb.CompactionOptionsUniversal\
 	org.rocksdb.Comparator\
 	org.rocksdb.ComparatorOptions\
+	org.rocksdb.CompressionOptions\
 	org.rocksdb.DBOptions\
 	org.rocksdb.DirectComparator\
 	org.rocksdb.DirectSlice\
@@ -69,9 +72,14 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.CheckPointTest\
 	org.rocksdb.ColumnFamilyOptionsTest\
 	org.rocksdb.ColumnFamilyTest\
+	org.rocksdb.CompactionOptionsFIFOTest\
+	org.rocksdb.CompactionOptionsUniversalTest\
+	org.rocksdb.CompactionPriorityTest\
+	org.rocksdb.CompactionStopStyleTest\
 	org.rocksdb.ComparatorOptionsTest\
 	org.rocksdb.ComparatorTest\
 	org.rocksdb.CompressionOptionsTest\
+	org.rocksdb.CompressionTypesTest\
 	org.rocksdb.DBOptionsTest\
 	org.rocksdb.DirectComparatorTest\
 	org.rocksdb.DirectSliceTest\

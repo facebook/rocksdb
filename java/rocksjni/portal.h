@@ -2069,6 +2069,138 @@ class BatchResultJni : public JavaClass {
   }
 };
 
+// The portal class for org.rocksdb.CompactionStopStyle
+class CompactionStopStyleJni {
+ public:
+  // Returns the equivalent org.rocksdb.CompactionStopStyle for the provided
+  // C++ rocksdb::CompactionStopStyle enum
+  static jbyte toJavaCompactionStopStyle(
+      const rocksdb::CompactionStopStyle& compaction_stop_style) {
+    switch(compaction_stop_style) {
+      case rocksdb::CompactionStopStyle::kCompactionStopStyleSimilarSize:
+        return 0x0;
+      case rocksdb::CompactionStopStyle::kCompactionStopStyleTotalSize:
+        return 0x1;
+      default:
+        return 0x7F;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::CompactionStopStyle enum for the
+  // provided Java org.rocksdb.CompactionStopStyle
+  static rocksdb::CompactionStopStyle toCppCompactionStopStyle(
+      jbyte jcompaction_stop_style) {
+    switch(jcompaction_stop_style) {
+      case 0x0:
+        return rocksdb::CompactionStopStyle::kCompactionStopStyleSimilarSize;
+      case 0x1:
+        return rocksdb::CompactionStopStyle::kCompactionStopStyleTotalSize;
+      default:
+        // undefined/default
+        return rocksdb::CompactionStopStyle::kCompactionStopStyleSimilarSize;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.CompressionType
+class CompressionTypeJni {
+ public:
+  // Returns the equivalent org.rocksdb.CompressionType for the provided
+  // C++ rocksdb::CompressionType enum
+  static jbyte toJavaCompressionType(
+      const rocksdb::CompressionType& compression_type) {
+    switch(compression_type) {
+      case rocksdb::CompressionType::kNoCompression:
+        return 0x0;
+      case rocksdb::CompressionType::kSnappyCompression:
+        return 0x1;
+      case rocksdb::CompressionType::kZlibCompression:
+        return 0x2;
+      case rocksdb::CompressionType::kBZip2Compression:
+        return 0x3;
+      case rocksdb::CompressionType::kLZ4Compression:
+        return 0x4;
+      case rocksdb::CompressionType::kLZ4HCCompression:
+        return 0x5;
+      case rocksdb::CompressionType::kXpressCompression:
+        return 0x6;
+      case rocksdb::CompressionType::kZSTD:
+        return 0x7;
+      case rocksdb::CompressionType::kDisableCompressionOption:
+      default:
+        return 0x7F;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::CompressionType enum for the
+  // provided Java org.rocksdb.CompressionType
+  static rocksdb::CompressionType toCppCompressionType(
+      jbyte jcompression_type) {
+    switch(jcompression_type) {
+      case 0x0:
+        return rocksdb::CompressionType::kNoCompression;
+      case 0x1:
+        return rocksdb::CompressionType::kSnappyCompression;
+      case 0x2:
+        return rocksdb::CompressionType::kZlibCompression;
+      case 0x3:
+        return rocksdb::CompressionType::kBZip2Compression;
+      case 0x4:
+        return rocksdb::CompressionType::kLZ4Compression;
+      case 0x5:
+        return rocksdb::CompressionType::kLZ4HCCompression;
+      case 0x6:
+        return rocksdb::CompressionType::kXpressCompression;
+      case 0x7:
+        return rocksdb::CompressionType::kZSTD;
+      case 0x7F:
+      default:
+        return rocksdb::CompressionType::kDisableCompressionOption;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.CompactionPriority
+class CompactionPriorityJni {
+ public:
+  // Returns the equivalent org.rocksdb.CompactionPriority for the provided
+  // C++ rocksdb::CompactionPri enum
+  static jbyte toJavaCompactionPriority(
+      const rocksdb::CompactionPri& compaction_priority) {
+    switch(compaction_priority) {
+      case rocksdb::CompactionPri::kByCompensatedSize:
+        return 0x0;
+      case rocksdb::CompactionPri::kOldestLargestSeqFirst:
+        return 0x1;
+      case rocksdb::CompactionPri::kOldestSmallestSeqFirst:
+        return 0x2;
+      case rocksdb::CompactionPri::kMinOverlappingRatio:
+        return 0x3;
+      default:
+        return 0x0;  // undefined
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::CompactionPri enum for the
+  // provided Java org.rocksdb.CompactionPriority
+  static rocksdb::CompactionPri toCppCompactionPriority(
+      jbyte jcompaction_priority) {
+    switch(jcompaction_priority) {
+      case 0x0:
+        return rocksdb::CompactionPri::kByCompensatedSize;
+      case 0x1:
+        return rocksdb::CompactionPri::kOldestLargestSeqFirst;
+      case 0x2:
+        return rocksdb::CompactionPri::kOldestSmallestSeqFirst;
+      case 0x3:
+        return rocksdb::CompactionPri::kMinOverlappingRatio;
+      default:
+        // undefined/default
+        return rocksdb::CompactionPri::kByCompensatedSize;
+    }
+  }
+};
+
 // various utility functions for working with RocksDB and JNI
 class JniUtil {
  public:

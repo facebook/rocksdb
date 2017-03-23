@@ -162,29 +162,11 @@ public class OptionsTest {
   }
 
   @Test
-  public void softRateLimit() {
-    try (final Options opt = new Options()) {
-      final double doubleValue = rand.nextDouble();
-      opt.setSoftRateLimit(doubleValue);
-      assertThat(opt.softRateLimit()).isEqualTo(doubleValue);
-    }
-  }
-
-  @Test
   public void softPendingCompactionBytesLimit() {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
       opt.setSoftPendingCompactionBytesLimit(longValue);
       assertThat(opt.softPendingCompactionBytesLimit()).isEqualTo(longValue);
-    }
-  }
-
-  @Test
-  public void hardRateLimit() {
-    try (final Options opt = new Options()) {
-      final double doubleValue = rand.nextDouble();
-      opt.setHardRateLimit(doubleValue);
-      assertThat(opt.hardRateLimit()).isEqualTo(doubleValue);
     }
   }
 
@@ -225,15 +207,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void rateLimitDelayMaxMilliseconds() {
-    try (final Options opt = new Options()) {
-      final int intValue = rand.nextInt();
-      opt.setRateLimitDelayMaxMilliseconds(intValue);
-      assertThat(opt.rateLimitDelayMaxMilliseconds()).isEqualTo(intValue);
-    }
-  }
-
-  @Test
   public void arenaBlockSize() throws RocksDBException {
     try (final Options opt = new Options()) {
       final long longValue = rand.nextLong();
@@ -248,15 +221,6 @@ public class OptionsTest {
       final boolean boolValue = rand.nextBoolean();
       opt.setDisableAutoCompactions(boolValue);
       assertThat(opt.disableAutoCompactions()).isEqualTo(boolValue);
-    }
-  }
-
-  @Test
-  public void purgeRedundantKvsWhileFlush() {
-    try (final Options opt = new Options()) {
-      final boolean boolValue = rand.nextBoolean();
-      opt.setPurgeRedundantKvsWhileFlush(boolValue);
-      assertThat(opt.purgeRedundantKvsWhileFlush()).isEqualTo(boolValue);
     }
   }
 
@@ -677,6 +641,7 @@ public class OptionsTest {
       options.optimizeLevelStyleCompaction();
       options.optimizeLevelStyleCompaction(3000);
       options.optimizeForPointLookup(10);
+      options.optimizeForSmallDb();
       options.prepareForBulkLoad();
     }
   }
@@ -735,6 +700,34 @@ public class OptionsTest {
               CompressionType.SNAPPY_COMPRESSION,
               CompressionType.LZ4_COMPRESSION);
 
+    }
+  }
+
+  @Test
+  public void bottommostCompressionType() {
+    try (final Options options = new Options()) {
+      assertThat(options.bottommostCompressionType())
+          .isEqualTo(CompressionType.DISABLE_COMPRESSION_OPTION);
+
+      for (final CompressionType compressionType : CompressionType.values()) {
+        options.setBottommostCompressionType(compressionType);
+        assertThat(options.bottommostCompressionType())
+            .isEqualTo(compressionType);
+      }
+    }
+  }
+
+  @Test
+  public void compressionOptions() {
+    try (final Options options = new Options();
+         final CompressionOptions compressionOptions = new CompressionOptions()
+             .setMaxDictBytes(123)) {
+
+      options.setCompressionOptions(compressionOptions);
+      assertThat(options.compressionOptions())
+          .isEqualTo(compressionOptions);
+      assertThat(options.compressionOptions().maxDictBytes())
+          .isEqualTo(123);
     }
   }
 
@@ -818,6 +811,77 @@ public class OptionsTest {
         statistics = anotherOptions.statisticsPtr();
         assertThat(statistics).isNotNull();
       }
+    }
+  }
+
+  @Test
+  public void maxWriteBufferNumberToMaintain() {
+    try (final Options options = new Options()) {
+      int intValue = rand.nextInt();
+      // Size has to be positive
+      intValue = (intValue < 0) ? -intValue : intValue;
+      intValue = (intValue == 0) ? intValue + 1 : intValue;
+      options.setMaxWriteBufferNumberToMaintain(intValue);
+      assertThat(options.maxWriteBufferNumberToMaintain()).
+          isEqualTo(intValue);
+    }
+  }
+
+  @Test
+  public void compactionPriorities() {
+    try (final Options options = new Options()) {
+      for (final CompactionPriority compactionPriority :
+          CompactionPriority.values()) {
+        options.setCompactionPriority(compactionPriority);
+        assertThat(options.compactionPriority()).
+            isEqualTo(compactionPriority);
+      }
+    }
+  }
+
+  @Test
+  public void reportBgIoStats() {
+    try (final Options options = new Options()) {
+      final boolean booleanValue = true;
+      options.setReportBgIoStats(booleanValue);
+      assertThat(options.reportBgIoStats()).
+          isEqualTo(booleanValue);
+    }
+  }
+
+  @Test
+  public void compactionOptionsUniversal() {
+    try (final Options options = new Options();
+         final CompactionOptionsUniversal optUni = new CompactionOptionsUniversal()
+             .setCompressionSizePercent(7)) {
+      options.setCompactionOptionsUniversal(optUni);
+      assertThat(options.compactionOptionsUniversal()).
+          isEqualTo(optUni);
+      assertThat(options.compactionOptionsUniversal().compressionSizePercent())
+          .isEqualTo(7);
+    }
+  }
+
+  @Test
+  public void compactionOptionsFIFO() {
+    try (final Options options = new Options();
+         final CompactionOptionsFIFO optFifo = new CompactionOptionsFIFO()
+             .setMaxTableFilesSize(2000)) {
+      options.setCompactionOptionsFIFO(optFifo);
+      assertThat(options.compactionOptionsFIFO()).
+          isEqualTo(optFifo);
+      assertThat(options.compactionOptionsFIFO().maxTableFilesSize())
+          .isEqualTo(2000);
+    }
+  }
+
+  @Test
+  public void forceConsistencyChecks() {
+    try (final Options options = new Options()) {
+      final boolean booleanValue = true;
+      options.setForceConsistencyChecks(booleanValue);
+      assertThat(options.forceConsistencyChecks()).
+          isEqualTo(booleanValue);
     }
   }
 }
