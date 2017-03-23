@@ -107,7 +107,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   }
 
   env->SetByteArrayRegion(jstate, 0, static_cast<jsize>(state.size()),
-                          reinterpret_cast<const jbyte*>(state.c_str()));
+                          const_cast<jbyte*>(reinterpret_cast<const jbyte*>(state.c_str())));
   if(env->ExceptionCheck()) {
     // exception thrown: ArrayIndexOutOfBoundsException
     env->DeleteLocalRef(jstate);

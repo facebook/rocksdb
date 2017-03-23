@@ -286,7 +286,7 @@ jbyteArray WriteBatchHandlerJniCallback::sliceToJArray(const Slice& s) {
 
   m_env->SetByteArrayRegion(
       ja, 0, static_cast<jsize>(s.size()),
-      reinterpret_cast<const jbyte*>(s.data()));
+      const_cast<jbyte*>(reinterpret_cast<const jbyte*>(s.data())));
   if(m_env->ExceptionCheck()) {
     if(ja != nullptr) {
       m_env->DeleteLocalRef(ja);
