@@ -54,3 +54,32 @@ steps:
       parameters:
         checkout_artifact: "%%steps.checkout.code%%"
         build_env_tests: $$[-e ROCKSDBTESTS_END=db_block_cache_test, -e ROCKSDBTESTS_START=db_block_cache_test -e ROCKSDBTESTS_END=comparator_db_test, -e ROCKSDBTESTS_START=comparator_db_test]$$
+
+---
+type: policy
+name: Rocksdb Build Policy
+description: Policy to trigger build for all events
+template: rockdb-build-standalone
+parameters:
+notifications:
+  -
+    when:
+      - on_success
+      - on_failure
+    whom:
+      - committer
+      - author
+when:
+  -
+    event: on_push
+    target_branches:
+      - ".*"
+  -
+    event: on_pull_request
+    target_branches:
+      - ".*"
+  -
+    event: on_pull_request_merge
+    target_branches:
+      - ".*"
+
