@@ -6,7 +6,7 @@
 
 #include <string>
 
-#include "include/rocksdb/persistent_cache.h"
+#include "rocksdb/persistent_cache.h"
 #include "util/statistics.h"
 
 namespace rocksdb {
