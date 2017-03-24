@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <jni.h>
 #include <memory>
+#include <vector>
 
 #include "include/org_rocksdb_Options.h"
 #include "include/org_rocksdb_DBOptions.h"
@@ -352,6 +353,28 @@ void Java_org_rocksdb_Options_setMaxOpenFiles(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setMaxFileOpeningThreads
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMaxFileOpeningThreads(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_file_opening_threads) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->max_file_opening_threads =
+      static_cast<int>(jmax_file_opening_threads);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxFileOpeningThreads
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_maxFileOpeningThreads(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<int>(opt->max_file_opening_threads);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    useFsync
  * Signature: (J)Z
  */
@@ -369,6 +392,106 @@ void Java_org_rocksdb_Options_setUseFsync(
     JNIEnv* env, jobject jobj, jlong jhandle, jboolean use_fsync) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->use_fsync =
       static_cast<bool>(use_fsync);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setDbPaths
+ * Signature: (J[Ljava/lang/String;[J)V
+ */
+void Java_org_rocksdb_Options_setDbPaths(
+    JNIEnv* env, jobject jobj, jlong jhandle, jobjectArray jpaths,
+    jlongArray jtarget_sizes) {
+  std::vector<rocksdb::DbPath> db_paths;
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  if(ptr_jtarget_size == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return;
+  }
+
+  jboolean has_exception = JNI_FALSE;
+  const jsize len = env->GetArrayLength(jpaths);
+  for(jsize i = 0; i < len; i++) {
+    jobject jpath = reinterpret_cast<jstring>(env->
+        GetObjectArrayElement(jpaths, i));
+    if(env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->ReleaseLongArrayElements(
+          jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+    std::string path = rocksdb::JniUtil::copyString(
+        env, static_cast<jstring>(jpath), &has_exception);
+    env->DeleteLocalRef(jpath);
+
+    if(has_exception == JNI_TRUE) {
+        env->ReleaseLongArrayElements(
+            jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+        return;
+    }
+
+    jlong jtarget_size = ptr_jtarget_size[i];
+
+    db_paths.push_back(
+        rocksdb::DbPath(path, static_cast<uint64_t>(jtarget_size)));
+  }
+
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->db_paths = db_paths;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    dbPathsLen
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_dbPathsLen(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jlong>(opt->db_paths.size());
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    dbPaths
+ * Signature: (J[Ljava/lang/String;[J)V
+ */
+void Java_org_rocksdb_Options_dbPaths(
+    JNIEnv* env, jobject jobj, jlong jhandle, jobjectArray jpaths,
+    jlongArray jtarget_sizes) {
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  if(ptr_jtarget_size == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return;
+  }
+
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  const jsize len = env->GetArrayLength(jpaths);
+  for(jsize i = 0; i < len; i++) {
+    rocksdb::DbPath db_path = opt->db_paths[i];
+
+    jstring jpath = env->NewStringUTF(db_path.path.c_str());
+    if(jpath == nullptr) {
+      // exception thrown: OutOfMemoryError
+      env->ReleaseLongArrayElements(
+          jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+    env->SetObjectArrayElement(jpaths, i, jpath);
+    if(env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(jpath);
+      env->ReleaseLongArrayElements(
+          jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+
+    ptr_jtarget_size[i] = static_cast<jint>(db_path.target_size);
+  }
+
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_COMMIT);
 }
 
 /*
@@ -615,23 +738,23 @@ void Java_org_rocksdb_Options_setKeepLogFileNum(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    recycleLogFiles
+ * Method:    recycleLogFileNum
  * Signature: (J)J
  */
-jlong Java_org_rocksdb_Options_recycleLogFileNum(JNIEnv* env, jobject jobj,
-                                                 jlong jhandle) {
+jlong Java_org_rocksdb_Options_recycleLogFileNum(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->recycle_log_file_num;
 }
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setRecycleLogFiles
+ * Method:    setRecycleLogFileNum
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_Options_setRecycleLogFiles(JNIEnv* env, jobject jobj,
-                                                 jlong jhandle,
-                                                 jlong recycle_log_file_num) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(recycle_log_file_num);
+void Java_org_rocksdb_Options_setRecycleLogFileNum(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong recycle_log_file_num) {
+  rocksdb::Status s =
+      rocksdb::check_if_jlong_fits_size_t(recycle_log_file_num);
   if (s.ok()) {
     reinterpret_cast<rocksdb::Options*>(jhandle)->recycle_log_file_num =
         recycle_log_file_num;
@@ -951,6 +1074,28 @@ void Java_org_rocksdb_Options_setUseDirectWrites(JNIEnv* env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setAllowFAllocate
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setAllowFAllocate(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jallow_fallocate) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->allow_fallocate =
+      static_cast<bool>(jallow_fallocate);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    allowFAllocate
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_allowFAllocate(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->allow_fallocate);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    isFdCloseOnExec
  * Signature: (J)Z
  */
@@ -1014,6 +1159,147 @@ void Java_org_rocksdb_Options_setAdviseRandomOnOpen(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setDbWriteBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setDbWriteBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jdb_write_buffer_size) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->db_write_buffer_size = static_cast<size_t>(jdb_write_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    dbWriteBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_dbWriteBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jlong>(opt->db_write_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setAccessHintOnCompactionStart
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setAccessHintOnCompactionStart(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jaccess_hint_value) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->access_hint_on_compaction_start =
+      rocksdb::AccessHintJni::toCppAccessHint(jaccess_hint_value);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    accessHintOnCompactionStart
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_Options_accessHintOnCompactionStart(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return rocksdb::AccessHintJni::toJavaAccessHint(
+      opt->access_hint_on_compaction_start);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setNewTableReaderForCompactionInputs
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setNewTableReaderForCompactionInputs(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jnew_table_reader_for_compaction_inputs) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->new_table_reader_for_compaction_inputs =
+      static_cast<bool>(jnew_table_reader_for_compaction_inputs);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    newTableReaderForCompactionInputs
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_newTableReaderForCompactionInputs(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<bool>(opt->new_table_reader_for_compaction_inputs);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setCompactionReadaheadSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setCompactionReadaheadSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jcompaction_readahead_size) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->compaction_readahead_size =
+      static_cast<size_t>(jcompaction_readahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    compactionReadaheadSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_compactionReadaheadSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jlong>(opt->compaction_readahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setRandomAccessMaxBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setRandomAccessMaxBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jlong jrandom_access_max_buffer_size) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->random_access_max_buffer_size =
+      static_cast<size_t>(jrandom_access_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    randomAccessMaxBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_randomAccessMaxBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jlong>(opt->random_access_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setWritableFileMaxBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setWritableFileMaxBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jlong jwritable_file_max_buffer_size) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->writable_file_max_buffer_size =
+      static_cast<size_t>(jwritable_file_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    writableFileMaxBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_writableFileMaxBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jlong>(opt->writable_file_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    useAdaptiveMutex
  * Signature: (J)Z
  */
@@ -1052,6 +1338,73 @@ void Java_org_rocksdb_Options_setBytesPerSync(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong bytes_per_sync) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->bytes_per_sync =
       static_cast<int64_t>(bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setWalBytesPerSync
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setWalBytesPerSync(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jwal_bytes_per_sync) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->wal_bytes_per_sync =
+      static_cast<int64_t>(jwal_bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    walBytesPerSync
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_walBytesPerSync(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jlong>(opt->wal_bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setEnableThreadTracking
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setEnableThreadTracking(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jenable_thread_tracking) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->enable_thread_tracking = static_cast<bool>(jenable_thread_tracking);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    enableThreadTracking
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_enableThreadTracking(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->enable_thread_tracking);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setDelayedWriteRate
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setDelayedWriteRate(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jdelayed_write_rate) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->delayed_write_rate = static_cast<uint64_t>(jdelayed_write_rate);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    delayedWriteRate
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_delayedWriteRate(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jlong>(opt->delayed_write_rate);
 }
 
 /*
@@ -1140,6 +1493,180 @@ jlong Java_org_rocksdb_Options_writeThreadSlowYieldUsec(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->
       write_thread_slow_yield_usec;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setSkipStatsUpdateOnDbOpen
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setSkipStatsUpdateOnDbOpen(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jskip_stats_update_on_db_open) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->skip_stats_update_on_db_open =
+      static_cast<bool>(jskip_stats_update_on_db_open);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    skipStatsUpdateOnDbOpen
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_skipStatsUpdateOnDbOpen(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->skip_stats_update_on_db_open);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setWalRecoveryMode
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setWalRecoveryMode(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jwal_recovery_mode_value) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->wal_recovery_mode =
+      rocksdb::WALRecoveryModeJni::toCppWALRecoveryMode(
+          jwal_recovery_mode_value);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    walRecoveryMode
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_Options_walRecoveryMode(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return rocksdb::WALRecoveryModeJni::toJavaWALRecoveryMode(
+      opt->wal_recovery_mode);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setAllow2pc
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setAllow2pc(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jallow_2pc) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->allow_2pc = static_cast<bool>(jallow_2pc);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    allow2pc
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_allow2pc(JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->allow_2pc);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setRowCache
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setRowCache(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrow_cache_handle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  auto* row_cache = reinterpret_cast<std::shared_ptr<rocksdb::Cache>*>(jrow_cache_handle);
+  opt->row_cache = *row_cache;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setFailIfOptionsFileError
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setFailIfOptionsFileError(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jfail_if_options_file_error) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->fail_if_options_file_error =
+      static_cast<bool>(jfail_if_options_file_error);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    failIfOptionsFileError
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_failIfOptionsFileError(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->fail_if_options_file_error);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setDumpMallocStats
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setDumpMallocStats(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jdump_malloc_stats) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->dump_malloc_stats = static_cast<bool>(jdump_malloc_stats);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    dumpMallocStats
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_dumpMallocStats(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->dump_malloc_stats);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setAvoidFlushDuringRecovery
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setAvoidFlushDuringRecovery(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean javoid_flush_during_recovery) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->avoid_flush_during_recovery = static_cast<bool>(javoid_flush_during_recovery);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    avoidFlushDuringRecovery
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_avoidFlushDuringRecovery(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->avoid_flush_during_recovery);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setAvoidFlushDuringShutdown
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setAvoidFlushDuringShutdown(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean javoid_flush_during_shutdown) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  opt->avoid_flush_during_shutdown = static_cast<bool>(javoid_flush_during_shutdown);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    avoidFlushDuringShutdown
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_avoidFlushDuringShutdown(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return static_cast<jboolean>(opt->avoid_flush_during_shutdown);
 }
 
 /*
@@ -3615,10 +4142,20 @@ void Java_org_rocksdb_DBOptions_disposeInternal(
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    optimizeForSmallDb
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_DBOptions_optimizeForSmallDb(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->OptimizeForSmallDb();
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setEnv
  * Signature: (JJ)V
  */
-void JNICALL Java_org_rocksdb_DBOptions_setEnv(
+void Java_org_rocksdb_DBOptions_setEnv(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jenv_handle) {
   reinterpret_cast<rocksdb::DBOptions*>(jhandle)->env =
       reinterpret_cast<rocksdb::Env*>(jenv_handle);
@@ -3815,6 +4352,28 @@ jint Java_org_rocksdb_DBOptions_maxOpenFiles(
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    setMaxFileOpeningThreads
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_DBOptions_setMaxFileOpeningThreads(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jmax_file_opening_threads) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->max_file_opening_threads =
+      static_cast<int>(jmax_file_opening_threads);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    maxFileOpeningThreads
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_DBOptions_maxFileOpeningThreads(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<int>(opt->max_file_opening_threads);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    createStatistics
  * Signature: (J)V
  */
@@ -3855,6 +4414,106 @@ void Java_org_rocksdb_DBOptions_setUseFsync(
 jboolean Java_org_rocksdb_DBOptions_useFsync(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->use_fsync;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setDbPaths
+ * Signature: (J[Ljava/lang/String;[J)V
+ */
+void Java_org_rocksdb_DBOptions_setDbPaths(
+    JNIEnv* env, jobject jobj, jlong jhandle, jobjectArray jpaths,
+    jlongArray jtarget_sizes) {
+  std::vector<rocksdb::DbPath> db_paths;
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  if(ptr_jtarget_size == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return;
+  }
+
+  jboolean has_exception = JNI_FALSE;
+  const jsize len = env->GetArrayLength(jpaths);
+  for(jsize i = 0; i < len; i++) {
+    jobject jpath = reinterpret_cast<jstring>(env->
+        GetObjectArrayElement(jpaths, i));
+    if(env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->ReleaseLongArrayElements(
+          jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+    std::string path = rocksdb::JniUtil::copyString(
+        env, static_cast<jstring>(jpath), &has_exception);
+    env->DeleteLocalRef(jpath);
+
+    if(has_exception == JNI_TRUE) {
+        env->ReleaseLongArrayElements(
+            jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+        return;
+    }
+
+    jlong jtarget_size = ptr_jtarget_size[i];
+
+    db_paths.push_back(
+        rocksdb::DbPath(path, static_cast<uint64_t>(jtarget_size)));
+  }
+
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->db_paths = db_paths;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    dbPathsLen
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_dbPathsLen(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jlong>(opt->db_paths.size());
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    dbPaths
+ * Signature: (J[Ljava/lang/String;[J)V
+ */
+void Java_org_rocksdb_DBOptions_dbPaths(
+    JNIEnv* env, jobject jobj, jlong jhandle, jobjectArray jpaths,
+    jlongArray jtarget_sizes) {
+  jlong* ptr_jtarget_size = env->GetLongArrayElements(jtarget_sizes, nullptr);
+  if(ptr_jtarget_size == nullptr) {
+      // exception thrown: OutOfMemoryError
+      return;
+  }
+
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  const jsize len = env->GetArrayLength(jpaths);
+  for(jsize i = 0; i < len; i++) {
+    rocksdb::DbPath db_path = opt->db_paths[i];
+
+    jstring jpath = env->NewStringUTF(db_path.path.c_str());
+    if(jpath == nullptr) {
+      // exception thrown: OutOfMemoryError
+      env->ReleaseLongArrayElements(
+          jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+    env->SetObjectArrayElement(jpaths, i, jpath);
+    if(env->ExceptionCheck()) {
+      // exception thrown: ArrayIndexOutOfBoundsException
+      env->DeleteLocalRef(jpath);
+      env->ReleaseLongArrayElements(
+          jtarget_sizes, ptr_jtarget_size, JNI_ABORT);
+      return;
+    }
+
+    ptr_jtarget_size[i] = static_cast<jint>(db_path.target_size);
+  }
+
+  env->ReleaseLongArrayElements(jtarget_sizes, ptr_jtarget_size, JNI_COMMIT);
 }
 
 /*
@@ -4100,7 +4759,7 @@ jlong Java_org_rocksdb_DBOptions_keepLogFileNum(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    setRecycleLogFiles
+ * Method:    setRecycleLogFileNum
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_DBOptions_setRecycleLogFileNum(
@@ -4116,7 +4775,7 @@ void Java_org_rocksdb_DBOptions_setRecycleLogFileNum(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    recycleLogFiles
+ * Method:    recycleLogFileNum
  * Signature: (J)J
  */
 jlong Java_org_rocksdb_DBOptions_recycleLogFileNum(JNIEnv* env, jobject jobj,
@@ -4283,6 +4942,28 @@ void Java_org_rocksdb_DBOptions_setUseDirectWrites(JNIEnv* env, jobject jobj,
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    setAllowFAllocate
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setAllowFAllocate(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jallow_fallocate) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->allow_fallocate =
+      static_cast<bool>(jallow_fallocate);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    allowFAllocate
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_allowFAllocate(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->allow_fallocate);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setAllowMmapReads
  * Signature: (JZ)V
  */
@@ -4388,6 +5069,147 @@ jboolean Java_org_rocksdb_DBOptions_adviseRandomOnOpen(
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    setDbWriteBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setDbWriteBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jdb_write_buffer_size) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->db_write_buffer_size = static_cast<size_t>(jdb_write_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    dbWriteBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_dbWriteBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jlong>(opt->db_write_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setAccessHintOnCompactionStart
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_DBOptions_setAccessHintOnCompactionStart(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jaccess_hint_value) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->access_hint_on_compaction_start =
+      rocksdb::AccessHintJni::toCppAccessHint(jaccess_hint_value);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    accessHintOnCompactionStart
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_DBOptions_accessHintOnCompactionStart(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return rocksdb::AccessHintJni::toJavaAccessHint(
+      opt->access_hint_on_compaction_start);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setNewTableReaderForCompactionInputs
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setNewTableReaderForCompactionInputs(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jnew_table_reader_for_compaction_inputs) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->new_table_reader_for_compaction_inputs =
+      static_cast<bool>(jnew_table_reader_for_compaction_inputs);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    newTableReaderForCompactionInputs
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_newTableReaderForCompactionInputs(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<bool>(opt->new_table_reader_for_compaction_inputs);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setCompactionReadaheadSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setCompactionReadaheadSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jcompaction_readahead_size) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->compaction_readahead_size =
+      static_cast<size_t>(jcompaction_readahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    compactionReadaheadSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_compactionReadaheadSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jlong>(opt->compaction_readahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setRandomAccessMaxBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setRandomAccessMaxBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jlong jrandom_access_max_buffer_size) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->random_access_max_buffer_size =
+      static_cast<size_t>(jrandom_access_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    randomAccessMaxBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_randomAccessMaxBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jlong>(opt->random_access_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setWritableFileMaxBufferSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setWritableFileMaxBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jlong jwritable_file_max_buffer_size) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->writable_file_max_buffer_size =
+      static_cast<size_t>(jwritable_file_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    writableFileMaxBufferSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_writableFileMaxBufferSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jlong>(opt->writable_file_max_buffer_size);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setUseAdaptiveMutex
  * Signature: (JZ)V
  */
@@ -4426,6 +5248,73 @@ void Java_org_rocksdb_DBOptions_setBytesPerSync(
 jlong Java_org_rocksdb_DBOptions_bytesPerSync(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->bytes_per_sync;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setWalBytesPerSync
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setWalBytesPerSync(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jwal_bytes_per_sync) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->wal_bytes_per_sync =
+      static_cast<int64_t>(jwal_bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    walBytesPerSync
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_walBytesPerSync(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jlong>(opt->wal_bytes_per_sync);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setEnableThreadTracking
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setEnableThreadTracking(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jenable_thread_tracking) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->enable_thread_tracking = static_cast<bool>(jenable_thread_tracking);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    enableThreadTracking
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_enableThreadTracking(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->enable_thread_tracking);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setDelayedWriteRate
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setDelayedWriteRate(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jdelayed_write_rate) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->delayed_write_rate = static_cast<uint64_t>(jdelayed_write_rate);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    delayedWriteRate
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_DBOptions_delayedWriteRate(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jlong>(opt->delayed_write_rate);
 }
 
 /*
@@ -4516,16 +5405,178 @@ jlong Java_org_rocksdb_DBOptions_writeThreadSlowYieldUsec(
       write_thread_slow_yield_usec;
 }
 
-void Java_org_rocksdb_DBOptions_setDelayedWriteRate(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong delay_write_rate) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->delayed_write_rate =
-      static_cast<int64_t>(delay_write_rate);
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setSkipStatsUpdateOnDbOpen
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setSkipStatsUpdateOnDbOpen(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jskip_stats_update_on_db_open) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->skip_stats_update_on_db_open =
+      static_cast<bool>(jskip_stats_update_on_db_open);
 }
 
-jlong Java_org_rocksdb_DBOptions_delayedWriteRate(
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    skipStatsUpdateOnDbOpen
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_skipStatsUpdateOnDbOpen(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
-      delayed_write_rate;
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->skip_stats_update_on_db_open);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setWalRecoveryMode
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_DBOptions_setWalRecoveryMode(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jwal_recovery_mode_value) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->wal_recovery_mode =
+      rocksdb::WALRecoveryModeJni::toCppWALRecoveryMode(
+          jwal_recovery_mode_value);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    walRecoveryMode
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_DBOptions_walRecoveryMode(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return rocksdb::WALRecoveryModeJni::toJavaWALRecoveryMode(
+      opt->wal_recovery_mode);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setAllow2pc
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setAllow2pc(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jallow_2pc) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->allow_2pc = static_cast<bool>(jallow_2pc);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    allow2pc
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_allow2pc(JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->allow_2pc);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setRowCache
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setRowCache(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrow_cache_handle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  auto* row_cache = reinterpret_cast<std::shared_ptr<rocksdb::Cache>*>(jrow_cache_handle);
+  opt->row_cache = *row_cache;
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setFailIfOptionsFileError
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setFailIfOptionsFileError(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jfail_if_options_file_error) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->fail_if_options_file_error =
+      static_cast<bool>(jfail_if_options_file_error);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    failIfOptionsFileError
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_failIfOptionsFileError(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->fail_if_options_file_error);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setDumpMallocStats
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setDumpMallocStats(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jdump_malloc_stats) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->dump_malloc_stats = static_cast<bool>(jdump_malloc_stats);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    dumpMallocStats
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_dumpMallocStats(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->dump_malloc_stats);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setAvoidFlushDuringRecovery
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setAvoidFlushDuringRecovery(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean javoid_flush_during_recovery) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->avoid_flush_during_recovery = static_cast<bool>(javoid_flush_during_recovery);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    avoidFlushDuringRecovery
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_avoidFlushDuringRecovery(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->avoid_flush_during_recovery);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setAvoidFlushDuringShutdown
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_DBOptions_setAvoidFlushDuringShutdown(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean javoid_flush_during_shutdown) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  opt->avoid_flush_during_shutdown = static_cast<bool>(javoid_flush_during_shutdown);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    avoidFlushDuringShutdown
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_DBOptions_avoidFlushDuringShutdown(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::DBOptions*>(jhandle);
+  return static_cast<jboolean>(opt->avoid_flush_during_shutdown);
 }
 
 //////////////////////////////////////////////////////////////////////////////

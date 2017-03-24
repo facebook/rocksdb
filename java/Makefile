@@ -6,6 +6,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.BlockBasedTableConfig\
 	org.rocksdb.BloomFilter\
 	org.rocksdb.Checkpoint\
+	org.rocksdb.ClockCache\
 	org.rocksdb.ColumnFamilyHandle\
 	org.rocksdb.ColumnFamilyOptions\
 	org.rocksdb.CompactionOptionsFIFO\
@@ -24,6 +25,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
 	org.rocksdb.Logger\
+	org.rocksdb.LRUCache\
 	org.rocksdb.MergeOperator\
 	org.rocksdb.Options\
 	org.rocksdb.PlainTableConfig\
@@ -70,6 +72,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.BlockBasedTableConfigTest\
         org.rocksdb.util.BytewiseComparatorTest\
 	org.rocksdb.CheckPointTest\
+	org.rocksdb.ClockCacheTest\
 	org.rocksdb.ColumnFamilyOptionsTest\
 	org.rocksdb.ColumnFamilyTest\
 	org.rocksdb.CompactionOptionsFIFOTest\
@@ -91,6 +94,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.InfoLogLevelTest\
 	org.rocksdb.KeyMayExistTest\
         org.rocksdb.LoggerTest\
+    org.rocksdb.LRUCacheTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\
@@ -113,6 +117,7 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.TransactionLogIteratorTest\
 	org.rocksdb.TtlDBTest\
 	org.rocksdb.StatisticsCollectorTest\
+	org.rocksdb.WALRecoveryModeTest\
 	org.rocksdb.WriteBatchHandlerTest\
 	org.rocksdb.WriteBatchTest\
         org.rocksdb.WriteBatchThreadedTest\

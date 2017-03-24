@@ -2201,6 +2201,88 @@ class CompactionPriorityJni {
   }
 };
 
+// The portal class for org.rocksdb.AccessHint
+class AccessHintJni {
+ public:
+  // Returns the equivalent org.rocksdb.AccessHint for the provided
+  // C++ rocksdb::DBOptions::AccessHint enum
+  static jbyte toJavaAccessHint(
+      const rocksdb::DBOptions::AccessHint& access_hint) {
+    switch(access_hint) {
+      case rocksdb::DBOptions::AccessHint::NONE:
+        return 0x0;
+      case rocksdb::DBOptions::AccessHint::NORMAL:
+        return 0x1;
+      case rocksdb::DBOptions::AccessHint::SEQUENTIAL:
+        return 0x2;
+      case rocksdb::DBOptions::AccessHint::WILLNEED:
+        return 0x3;
+      default:
+        // undefined/default
+        return 0x1;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::DBOptions::AccessHint enum for the
+  // provided Java org.rocksdb.AccessHint
+  static rocksdb::DBOptions::AccessHint toCppAccessHint(jbyte jaccess_hint) {
+    switch(jaccess_hint) {
+      case 0x0:
+        return rocksdb::DBOptions::AccessHint::NONE;
+      case 0x1:
+        return rocksdb::DBOptions::AccessHint::NORMAL;
+      case 0x2:
+        return rocksdb::DBOptions::AccessHint::SEQUENTIAL;
+      case 0x3:
+        return rocksdb::DBOptions::AccessHint::WILLNEED;
+      default:
+        // undefined/default
+        return rocksdb::DBOptions::AccessHint::NORMAL;
+    }
+  }
+};
+
+// The portal class for org.rocksdb.WALRecoveryMode
+class WALRecoveryModeJni {
+ public:
+  // Returns the equivalent org.rocksdb.WALRecoveryMode for the provided
+  // C++ rocksdb::WALRecoveryMode enum
+  static jbyte toJavaWALRecoveryMode(
+      const rocksdb::WALRecoveryMode& wal_recovery_mode) {
+    switch(wal_recovery_mode) {
+      case rocksdb::WALRecoveryMode::kTolerateCorruptedTailRecords:
+        return 0x0;
+      case rocksdb::WALRecoveryMode::kAbsoluteConsistency:
+        return 0x1;
+      case rocksdb::WALRecoveryMode::kPointInTimeRecovery:
+        return 0x2;
+      case rocksdb::WALRecoveryMode::kSkipAnyCorruptedRecords:
+        return 0x3;
+      default:
+        // undefined/default
+        return 0x2;
+    }
+  }
+
+  // Returns the equivalent C++ rocksdb::WALRecoveryMode enum for the
+  // provided Java org.rocksdb.WALRecoveryMode
+  static rocksdb::WALRecoveryMode toCppWALRecoveryMode(jbyte jwal_recovery_mode) {
+    switch(jwal_recovery_mode) {
+      case 0x0:
+        return rocksdb::WALRecoveryMode::kTolerateCorruptedTailRecords;
+      case 0x1:
+        return rocksdb::WALRecoveryMode::kAbsoluteConsistency;
+      case 0x2:
+        return rocksdb::WALRecoveryMode::kPointInTimeRecovery;
+      case 0x3:
+        return rocksdb::WALRecoveryMode::kSkipAnyCorruptedRecords;
+      default:
+        // undefined/default
+        return rocksdb::WALRecoveryMode::kPointInTimeRecovery;
+    }
+  }
+};
+
 // various utility functions for working with RocksDB and JNI
 class JniUtil {
  public:

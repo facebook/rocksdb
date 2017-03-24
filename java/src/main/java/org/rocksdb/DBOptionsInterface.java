@@ -5,7 +5,18 @@
 
 package org.rocksdb;
 
+import java.util.Collection;
+import java.util.List;
+
 public interface DBOptionsInterface<T extends DBOptionsInterface> {
+
+  /**
+   * Use this if your DB is very small (like under 1GB) and you don't want to
+   * spend lots of memory for memtables.
+   *
+   * @return the instance of the current object.
+   */
+  T optimizeForSmallDb();
 
   /**
    * Use the specified object to interact with the environment,
@@ -201,6 +212,31 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   int maxOpenFiles();
 
   /**
+   * If {@link #maxOpenFiles()} is -1, DB will open all files on DB::Open(). You
+   * can use this option to increase the number of threads used to open the
+   * files.
+   *
+   * Default: 16
+   *
+   * @param maxFileOpeningThreads the maximum number of threads to use to
+   *     open files
+   *
+   * @return the reference to the current options.
+   */
+  T setMaxFileOpeningThreads(int maxFileOpeningThreads);
+
+  /**
+   * If {@link #maxOpenFiles()} is -1, DB will open all files on DB::Open(). You
+   * can use this option to increase the number of threads used to open the
+   * files.
+   *
+   * Default: 16
+   *
+   * @return the maximum number of threads to use to open files
+   */
+  int maxFileOpeningThreads();
+
+  /**
    * <p>Once write-ahead logs exceed this size, we will start forcing the
    * flush of column families whose memtables are backed by the oldest live
    * WAL file (i.e. the ones that are causing all the space amplification).
@@ -268,6 +304,70 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @return boolean value indicating if fsync is used.
    */
   boolean useFsync();
+
+  /**
+   * A list of paths where SST files can be put into, with its target size.
+   * Newer data is placed into paths specified earlier in the vector while
+   * older data gradually moves to paths specified later in the vector.
+   *
+   * For example, you have a flash device with 10GB allocated for the DB,
+   * as well as a hard drive of 2TB, you should config it to be:
+   *    [{"/flash_path", 10GB}, {"/hard_drive", 2TB}]
+   *
+   * The system will try to guarantee data under each path is close to but
+   * not larger than the target size. But current and future file sizes used
+   * by determining where to place a file are based on best-effort estimation,
+   * which means there is a chance that the actual size under the directory
+   * is slightly more than target size under some workloads. User should give
+   * some buffer room for those cases.
+   *
+   * If none of the paths has sufficient room to place a file, the file will
+   * be placed to the last path anyway, despite to the target size.
+   *
+   * Placing newer data to earlier paths is also best-efforts. User should
+   * expect user files to be placed in higher levels in some extreme cases.
+   *
+   * If left empty, only one path will be used, which is db_name passed when
+   * opening the DB.
+   *
+   * Default: empty
+   *
+   * @param dbPaths the paths and target sizes
+   *
+   * @return the reference to the current options
+   */
+  T setDbPaths(final Collection<DbPath> dbPaths);
+
+  /**
+   * A list of paths where SST files can be put into, with its target size.
+   * Newer data is placed into paths specified earlier in the vector while
+   * older data gradually moves to paths specified later in the vector.
+   *
+   * For example, you have a flash device with 10GB allocated for the DB,
+   * as well as a hard drive of 2TB, you should config it to be:
+   *    [{"/flash_path", 10GB}, {"/hard_drive", 2TB}]
+   *
+   * The system will try to guarantee data under each path is close to but
+   * not larger than the target size. But current and future file sizes used
+   * by determining where to place a file are based on best-effort estimation,
+   * which means there is a chance that the actual size under the directory
+   * is slightly more than target size under some workloads. User should give
+   * some buffer room for those cases.
+   *
+   * If none of the paths has sufficient room to place a file, the file will
+   * be placed to the last path anyway, despite to the target size.
+   *
+   * Placing newer data to earlier paths is also best-efforts. User should
+   * expect user files to be placed in higher levels in some extreme cases.
+   *
+   * If left empty, only one path will be used, which is db_name passed when
+   * opening the DB.
+   *
+   * Default: {@link java.util.Collections#emptyList()}
+   *
+   * @return dbPaths the paths and target sizes
+   */
+  List<DbPath> dbPaths();
 
   /**
    * This specifies the info LOG dir.
@@ -503,6 +603,44 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   long keepLogFileNum();
 
   /**
+   * Recycle log files.
+   *
+   * If non-zero, we will reuse previously written log files for new
+   * logs, overwriting the old data.  The value indicates how many
+   * such files we will keep around at any point in time for later
+   * use.
+   *
+   * This is more efficient because the blocks are already
+   * allocated and fdatasync does not need to update the inode after
+   * each write.
+   *
+   * Default: 0
+   *
+   * @param recycleLogFileNum the number of log files to keep for recycling
+   *
+   * @return the reference to the current options
+   */
+  T setRecycleLogFileNum(long recycleLogFileNum);
+
+  /**
+   * Recycle log files.
+   *
+   * If non-zero, we will reuse previously written log files for new
+   * logs, overwriting the old data.  The value indicates how many
+   * such files we will keep around at any point in time for later
+   * use.
+   *
+   * This is more efficient because the blocks are already
+   * allocated and fdatasync does not need to update the inode after
+   * each write.
+   *
+   * Default: 0
+   *
+   * @return the number of log files kept for recycling
+   */
+  long recycleLogFileNum();
+
+  /**
    * Manifest file is rolled over on reaching this limit.
    * The older manifest file be deleted.
    * The default value is MAX_INT so that roll-over does not take place.
@@ -683,6 +821,22 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   boolean useDirectWrites();
 
   /**
+   * Whether fallocate calls are allowed
+   *
+   * @param allowFAllocate false if fallocate() calls are bypassed
+   *
+   * @return the reference to the current options.
+   */
+  T setAllowFAllocate(boolean allowFAllocate);
+
+  /**
+   * Whether fallocate calls are allowed
+   *
+   * @return false if fallocate() calls are bypassed
+   */
+  boolean allowFAllocate();
+
+  /**
    * Allow the OS to mmap file for reading sst tables.
    * Default: false
    *
@@ -767,6 +921,200 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   boolean adviseRandomOnOpen();
 
   /**
+   * Amount of data to build up in memtables across all column
+   * families before writing to disk.
+   *
+   * This is distinct from {@link ColumnFamilyOptions#writeBufferSize()},
+   * which enforces a limit for a single memtable.
+   *
+   * This feature is disabled by default. Specify a non-zero value
+   * to enable it.
+   *
+   * Default: 0 (disabled)
+   *
+   * @param dbWriteBufferSize the size of the write buffer
+   *
+   * @return the reference to the current options.
+   */
+  T setDbWriteBufferSize(long dbWriteBufferSize);
+
+  /**
+   * Amount of data to build up in memtables across all column
+   * families before writing to disk.
+   *
+   * This is distinct from {@link ColumnFamilyOptions#writeBufferSize()},
+   * which enforces a limit for a single memtable.
+   *
+   * This feature is disabled by default. Specify a non-zero value
+   * to enable it.
+   *
+   * Default: 0 (disabled)
+   *
+   * @return the size of the write buffer
+   */
+  long dbWriteBufferSize();
+
+  /**
+   * Specify the file access pattern once a compaction is started.
+   * It will be applied to all input files of a compaction.
+   *
+   * Default: {@link AccessHint#NORMAL}
+   *
+   * @param accessHint The access hint
+   *
+   * @return the reference to the current options.
+   */
+  T setAccessHintOnCompactionStart(final AccessHint accessHint);
+
+  /**
+   * Specify the file access pattern once a compaction is started.
+   * It will be applied to all input files of a compaction.
+   *
+   * Default: {@link AccessHint#NORMAL}
+   *
+   * @return The access hint
+   */
+  AccessHint accessHintOnCompactionStart();
+
+  /**
+   * If true, always create a new file descriptor and new table reader
+   * for compaction inputs. Turn this parameter on may introduce extra
+   * memory usage in the table reader, if it allocates extra memory
+   * for indexes. This will allow file descriptor prefetch options
+   * to be set for compaction input files and not to impact file
+   * descriptors for the same file used by user queries.
+   * Suggest to enable {@link BlockBasedTableConfig#cacheIndexAndFilterBlocks()}
+   * for this mode if using block-based table.
+   *
+   * Default: false
+   *
+   * @param newTableReaderForCompactionInputs true if a new file descriptor and
+   *     table reader should be created for compaction inputs
+   *
+   * @return the reference to the current options.
+   */
+  T setNewTableReaderForCompactionInputs(
+      boolean newTableReaderForCompactionInputs);
+
+  /**
+   * If true, always create a new file descriptor and new table reader
+   * for compaction inputs. Turn this parameter on may introduce extra
+   * memory usage in the table reader, if it allocates extra memory
+   * for indexes. This will allow file descriptor prefetch options
+   * to be set for compaction input files and not to impact file
+   * descriptors for the same file used by user queries.
+   * Suggest to enable {@link BlockBasedTableConfig#cacheIndexAndFilterBlocks()}
+   * for this mode if using block-based table.
+   *
+   * Default: false
+   *
+   * @return true if a new file descriptor and table reader are created for
+   *     compaction inputs
+   */
+  boolean newTableReaderForCompactionInputs();
+
+  /**
+   * If non-zero, we perform bigger reads when doing compaction. If you're
+   * running RocksDB on spinning disks, you should set this to at least 2MB.
+   *
+   * That way RocksDB's compaction is doing sequential instead of random reads.
+   * When non-zero, we also force {@link #newTableReaderForCompactionInputs()}
+   * to true.
+   *
+   * Default: 0
+   *
+   * @param compactionReadaheadSize The compaction read-ahead size
+   *
+   * @return the reference to the current options.
+   */
+  T setCompactionReadaheadSize(final long compactionReadaheadSize);
+
+  /**
+   * If non-zero, we perform bigger reads when doing compaction. If you're
+   * running RocksDB on spinning disks, you should set this to at least 2MB.
+   *
+   * That way RocksDB's compaction is doing sequential instead of random reads.
+   * When non-zero, we also force {@link #newTableReaderForCompactionInputs()}
+   * to true.
+   *
+   * Default: 0
+   *
+   * @return The compaction read-ahead size
+   */
+  long compactionReadaheadSize();
+
+  /**
+   * This is a maximum buffer size that is used by WinMmapReadableFile in
+   * unbuffered disk I/O mode. We need to maintain an aligned buffer for
+   * reads. We allow the buffer to grow until the specified value and then
+   * for bigger requests allocate one shot buffers. In unbuffered mode we
+   * always bypass read-ahead buffer at ReadaheadRandomAccessFile
+   * When read-ahead is required we then make use of
+   * {@link #compactionReadaheadSize()} value and always try to read ahead.
+   * With read-ahead we always pre-allocate buffer to the size instead of
+   * growing it up to a limit.
+   *
+   * This option is currently honored only on Windows
+   *
+   * Default: 1 Mb
+   *
+   * Special value: 0 - means do not maintain per instance buffer. Allocate
+   *                per request buffer and avoid locking.
+   *
+   * @param randomAccessMaxBufferSize the maximum size of the random access
+   *     buffer
+   *
+   * @return the reference to the current options.
+   */
+  T setRandomAccessMaxBufferSize(long randomAccessMaxBufferSize);
+
+  /**
+   * This is a maximum buffer size that is used by WinMmapReadableFile in
+   * unbuffered disk I/O mode. We need to maintain an aligned buffer for
+   * reads. We allow the buffer to grow until the specified value and then
+   * for bigger requests allocate one shot buffers. In unbuffered mode we
+   * always bypass read-ahead buffer at ReadaheadRandomAccessFile
+   * When read-ahead is required we then make use of
+   * {@link #compactionReadaheadSize()} value and always try to read ahead.
+   * With read-ahead we always pre-allocate buffer to the size instead of
+   * growing it up to a limit.
+   *
+   * This option is currently honored only on Windows
+   *
+   * Default: 1 Mb
+   *
+   * Special value: 0 - means do not maintain per instance buffer. Allocate
+   *                per request buffer and avoid locking.
+   *
+   * @return the maximum size of the random access buffer
+   */
+  long randomAccessMaxBufferSize();
+
+  /**
+   * This is the maximum buffer size that is used by WritableFileWriter.
+   * On Windows, we need to maintain an aligned buffer for writes.
+   * We allow the buffer to grow until it's size hits the limit.
+   *
+   * Default: 1024 * 1024 (1 MB)
+   *
+   * @param writableFileMaxBufferSize the maximum buffer size
+   *
+   * @return the reference to the current options.
+   */
+  T setWritableFileMaxBufferSize(long writableFileMaxBufferSize);
+
+  /**
+   * This is the maximum buffer size that is used by WritableFileWriter.
+   * On Windows, we need to maintain an aligned buffer for writes.
+   * We allow the buffer to grow until it's size hits the limit.
+   *
+   * Default: 1024 * 1024 (1 MB)
+   *
+   * @return the maximum buffer size
+   */
+  long writableFileMaxBufferSize();
+
+  /**
    * Use adaptive mutex, which spins in the user space before resorting
    * to kernel. This could reduce context switch when the mutex is not
    * heavily contended. However, if the mutex is hot, we could end up
@@ -811,6 +1159,83 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
   long bytesPerSync();
 
   /**
+   * Same as {@link #setBytesPerSync(long)} , but applies to WAL files
+   *
+   * Default: 0, turned off
+   *
+   * @param walBytesPerSync size in bytes
+   * @return the instance of the current object.
+   */
+  T setWalBytesPerSync(long walBytesPerSync);
+
+  /**
+   * Same as {@link #bytesPerSync()} , but applies to WAL files
+   *
+   * Default: 0, turned off
+   *
+   * @return size in bytes
+   */
+  long walBytesPerSync();
+
+  /**
+   * If true, then the status of the threads involved in this DB will
+   * be tracked and available via GetThreadList() API.
+   *
+   * Default: false
+   *
+   * @param enableThreadTracking true to enable tracking
+   *
+   * @return the reference to the current options.
+   */
+  T setEnableThreadTracking(boolean enableThreadTracking);
+
+  /**
+   * If true, then the status of the threads involved in this DB will
+   * be tracked and available via GetThreadList() API.
+   *
+   * Default: false
+   *
+   * @return true if tracking is enabled
+   */
+  boolean enableThreadTracking();
+
+  /**
+   * The limited write rate to DB if
+   * {@link ColumnFamilyOptions#softPendingCompactionBytesLimit()} or
+   * {@link ColumnFamilyOptions#level0SlowdownWritesTrigger()} is triggered,
+   * or we are writing to the last mem table allowed and we allow more than 3
+   * mem tables. It is calculated using size of user write requests before
+   * compression. RocksDB may decide to slow down more if the compaction still
+   * gets behind further.
+   *
+   * Unit: bytes per second.
+   *
+   * Default: 16MB/s
+   *
+   * @param delayedWriteRate the rate in bytes per second
+   *
+   * @return the reference to the current options.
+   */
+  T setDelayedWriteRate(long delayedWriteRate);
+
+  /**
+   * The limited write rate to DB if
+   * {@link ColumnFamilyOptions#softPendingCompactionBytesLimit()} or
+   * {@link ColumnFamilyOptions#level0SlowdownWritesTrigger()} is triggered,
+   * or we are writing to the last mem table allowed and we allow more than 3
+   * mem tables. It is calculated using size of user write requests before
+   * compression. RocksDB may decide to slow down more if the compaction still
+   * gets behind further.
+   *
+   * Unit: bytes per second.
+   *
+   * Default: 16MB/s
+   *
+   * @return the rate in bytes per second
+   */
+  long delayedWriteRate();
+
+  /**
    * If true, allow multi-writers to update mem tables in parallel.
    * Only some memtable factorys support concurrent writes; currently it
    * is implemented only for SkipListFactory.  Concurrent memtable writes
@@ -822,8 +1247,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *
    * @param allowConcurrentMemtableWrite true to enable concurrent writes
    *     for the memtable
+   *
+   * @return the reference to the current options.
    */
-  void setAllowConcurrentMemtableWrite(boolean allowConcurrentMemtableWrite);
+  T setAllowConcurrentMemtableWrite(boolean allowConcurrentMemtableWrite);
 
   /**
    * If true, allow multi-writers to update mem tables in parallel.
@@ -848,8 +1275,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    *
    * @param enableWriteThreadAdaptiveYield true to enable adaptive yield for the
    *     write threads
+   *
+   * @return the reference to the current options.
    */
-  void setEnableWriteThreadAdaptiveYield(
+  T setEnableWriteThreadAdaptiveYield(
       boolean enableWriteThreadAdaptiveYield);
 
   /**
@@ -873,8 +1302,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * Default: 100
    *
    * @param writeThreadMaxYieldUsec maximum number of microseconds
+   *
+   * @return the reference to the current options.
    */
-  void setWriteThreadMaxYieldUsec(long writeThreadMaxYieldUsec);
+  T setWriteThreadMaxYieldUsec(long writeThreadMaxYieldUsec);
 
   /**
    * The maximum number of microseconds that a write operation will use
@@ -898,8 +1329,10 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * Default: 3
    *
    * @param writeThreadSlowYieldUsec the latency in microseconds
+   *
+   * @return the reference to the current options.
    */
-  void setWriteThreadSlowYieldUsec(long writeThreadSlowYieldUsec);
+  T setWriteThreadSlowYieldUsec(long writeThreadSlowYieldUsec);
 
   /**
    * The latency in microseconds after which a std::this_thread::yield
@@ -913,4 +1346,202 @@ public interface DBOptionsInterface<T extends DBOptionsInterface> {
    * @return writeThreadSlowYieldUsec the latency in microseconds
    */
   long writeThreadSlowYieldUsec();
+
+  /**
+   * If true, then DB::Open() will not update the statistics used to optimize
+   * compaction decision by loading table properties from many files.
+   * Turning off this feature will improve DBOpen time especially in
+   * disk environment.
+   *
+   * Default: false
+   *
+   * @param skipStatsUpdateOnDbOpen true if updating stats will be skipped
+   *
+   * @return the reference to the current options.
+   */
+  T setSkipStatsUpdateOnDbOpen(boolean skipStatsUpdateOnDbOpen);
+
+  /**
+   * If true, then DB::Open() will not update the statistics used to optimize
+   * compaction decision by loading table properties from many files.
+   * Turning off this feature will improve DBOpen time especially in
+   * disk environment.
+   *
+   * Default: false
+   *
+   * @return true if updating stats will be skipped
+   */
+  boolean skipStatsUpdateOnDbOpen();
+
+  /**
+   * Recovery mode to control the consistency while replaying WAL
+   *
+   * Default: {@link WALRecoveryMode#PointInTimeRecovery}
+   *
+   * @param walRecoveryMode The WAL recover mode
+   *
+   * @return the reference to the current options.
+   */
+  T setWalRecoveryMode(WALRecoveryMode walRecoveryMode);
+
+  /**
+   * Recovery mode to control the consistency while replaying WAL
+   *
+   * Default: {@link WALRecoveryMode#PointInTimeRecovery}
+   *
+   * @return The WAL recover mode
+   */
+  WALRecoveryMode walRecoveryMode();
+
+  /**
+   * if set to false then recovery will fail when a prepared
+   * transaction is encountered in the WAL
+   *
+   * Default: false
+   *
+   * @param allow2pc true if two-phase-commit is enabled
+   *
+   * @return the reference to the current options.
+   */
+  T setAllow2pc(boolean allow2pc);
+
+  /**
+   * if set to false then recovery will fail when a prepared
+   * transaction is encountered in the WAL
+   *
+   * Default: false
+   *
+   * @return true if two-phase-commit is enabled
+   */
+  boolean allow2pc();
+
+  /**
+   * A global cache for table-level rows.
+   *
+   * Default: null (disabled)
+   *
+   * @param rowCache The global row cache
+   *
+   * @return the reference to the current options.
+   */
+  T setRowCache(final Cache rowCache);
+
+  /**
+   * A global cache for table-level rows.
+   *
+   * Default: null (disabled)
+   *
+   * @return The global row cache
+   */
+  Cache rowCache();
+
+  /**
+   * If true, then DB::Open / CreateColumnFamily / DropColumnFamily
+   * / SetOptions will fail if options file is not detected or properly
+   * persisted.
+   *
+   * DEFAULT: false
+   *
+   * @param failIfOptionsFileError true if we should fail if there is an error
+   *     in the options file
+   *
+   * @return the reference to the current options.
+   */
+  T setFailIfOptionsFileError(boolean failIfOptionsFileError);
+
+  /**
+   * If true, then DB::Open / CreateColumnFamily / DropColumnFamily
+   * / SetOptions will fail if options file is not detected or properly
+   * persisted.
+   *
+   * DEFAULT: false
+   *
+   * @return true if we should fail if there is an error in the options file
+   */
+  boolean failIfOptionsFileError();
+
+  /**
+   * If true, then print malloc stats together with rocksdb.stats
+   * when printing to LOG.
+   *
+   * DEFAULT: false
+   *
+   * @param dumpMallocStats true if malloc stats should be printed to LOG
+   *
+   * @return the reference to the current options.
+   */
+  T setDumpMallocStats(boolean dumpMallocStats);
+
+  /**
+   * If true, then print malloc stats together with rocksdb.stats
+   * when printing to LOG.
+   *
+   * DEFAULT: false
+   *
+   * @return true if malloc stats should be printed to LOG
+   */
+  boolean dumpMallocStats();
+
+  /**
+   * By default RocksDB replay WAL logs and flush them on DB open, which may
+   * create very small SST files. If this option is enabled, RocksDB will try
+   * to avoid (but not guarantee not to) flush during recovery. Also, existing
+   * WAL logs will be kept, so that if crash happened before flush, we still
+   * have logs to recover from.
+   *
+   * DEFAULT: false
+   *
+   * @param avoidFlushDuringRecovery true to try to avoid (but not guarantee
+   *     not to) flush during recovery
+   *
+   * @return the reference to the current options.
+   */
+  T setAvoidFlushDuringRecovery(boolean avoidFlushDuringRecovery);
+
+  /**
+   * By default RocksDB replay WAL logs and flush them on DB open, which may
+   * create very small SST files. If this option is enabled, RocksDB will try
+   * to avoid (but not guarantee not to) flush during recovery. Also, existing
+   * WAL logs will be kept, so that if crash happened before flush, we still
+   * have logs to recover from.
+   *
+   * DEFAULT: false
+   *
+   * @return true to try to avoid (but not guarantee not to) flush during
+   *     recovery
+   */
+  boolean avoidFlushDuringRecovery();
+
+  /**
+   * By default RocksDB will flush all memtables on DB close if there are
+   * unpersisted data (i.e. with WAL disabled) The flush can be skip to speedup
+   * DB close. Unpersisted data WILL BE LOST.
+   *
+   * DEFAULT: false
+   *
+   * Dynamically changeable through
+   *     {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}
+   *     API.
+   *
+   * @param avoidFlushDuringShutdown true if we should avoid flush during
+   *     shutdown
+   *
+   * @return the reference to the current options.
+   */
+  T setAvoidFlushDuringShutdown(boolean avoidFlushDuringShutdown);
+
+  /**
+   * By default RocksDB will flush all memtables on DB close if there are
+   * unpersisted data (i.e. with WAL disabled) The flush can be skip to speedup
+   * DB close. Unpersisted data WILL BE LOST.
+   *
+   * DEFAULT: false
+   *
+   * Dynamically changeable through
+   *     {@link RocksDB#setOptions(ColumnFamilyHandle, MutableColumnFamilyOptions)}
+   *     API.
+   *
+   * @return true if we should avoid flush during shutdown
+   */
+  boolean avoidFlushDuringShutdown();
 }

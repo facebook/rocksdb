@@ -5,7 +5,10 @@
 
 package org.rocksdb;
 
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -21,6 +24,7 @@ public class Options extends RocksObject
   static {
     RocksDB.loadLibrary();
   }
+
   /**
    * Construct options for opening a RocksDB.
    *
@@ -246,6 +250,19 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMaxFileOpeningThreads(final int maxFileOpeningThreads) {
+    assert(isOwningHandle());
+    setMaxFileOpeningThreads(nativeHandle_, maxFileOpeningThreads);
+    return this;
+  }
+
+  @Override
+  public int maxFileOpeningThreads() {
+    assert(isOwningHandle());
+    return maxFileOpeningThreads(nativeHandle_);
+  }
+
+  @Override
   public Options setMaxTotalWalSize(final long maxTotalWalSize) {
     assert(isOwningHandle());
     setMaxTotalWalSize(nativeHandle_, maxTotalWalSize);
@@ -276,6 +293,43 @@ public class Options extends RocksObject
     assert(isOwningHandle());
     setUseFsync(nativeHandle_, useFsync);
     return this;
+  }
+
+  @Override
+  public Options setDbPaths(final Collection<DbPath> dbPaths) {
+    assert(isOwningHandle());
+
+    final int len = dbPaths.size();
+    final String paths[] = new String[len];
+    final long targetSizes[] = new long[len];
+
+    int i = 0;
+    for(final DbPath dbPath : dbPaths) {
+      paths[i] = dbPath.path.toString();
+      targetSizes[i] = dbPath.targetSize;
+      i++;
+    }
+    setDbPaths(nativeHandle_, paths, targetSizes);
+    return this;
+  }
+
+  @Override
+  public List<DbPath> dbPaths() {
+    final int len = (int)dbPathsLen(nativeHandle_);
+    if(len == 0) {
+      return Collections.emptyList();
+    } else {
+      final String paths[] = new String[len];
+      final long targetSizes[] = new long[len];
+
+      dbPaths(nativeHandle_, paths, targetSizes);
+
+      final List<DbPath> dbPaths = new ArrayList<>();
+      for(int i = 0; i < len; i++) {
+        dbPaths.add(new DbPath(Paths.get(paths[i]), targetSizes[i]));
+      }
+      return dbPaths;
+    }
   }
 
   @Override
@@ -430,6 +484,20 @@ public class Options extends RocksObject
     return this;
   }
 
+
+  @Override
+  public Options setRecycleLogFileNum(final long recycleLogFileNum) {
+    assert(isOwningHandle());
+    setRecycleLogFileNum(nativeHandle_, recycleLogFileNum);
+    return this;
+  }
+
+  @Override
+  public long recycleLogFileNum() {
+    assert(isOwningHandle());
+    return recycleLogFileNum(nativeHandle_);
+  }
+
   @Override
   public long maxManifestFileSize() {
     assert(isOwningHandle());
@@ -537,6 +605,18 @@ public class Options extends RocksObject
     return useDirectWrites(nativeHandle_);
   }
 
+  @Override
+  public Options setAllowFAllocate(final boolean allowFAllocate) {
+    assert(isOwningHandle());
+    setAllowFAllocate(nativeHandle_, allowFAllocate);
+    return this;
+  }
+
+  @Override
+  public boolean allowFAllocate() {
+    assert(isOwningHandle());
+    return allowFAllocate(nativeHandle_);
+  }
 
   @Override
   public boolean allowMmapReads() {
@@ -603,6 +683,86 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setDbWriteBufferSize(final long dbWriteBufferSize) {
+    assert(isOwningHandle());
+    setDbWriteBufferSize(nativeHandle_, dbWriteBufferSize);
+    return this;
+  }
+
+  @Override
+  public long dbWriteBufferSize() {
+    assert(isOwningHandle());
+    return dbWriteBufferSize(nativeHandle_);
+  }
+
+  @Override
+  public Options setAccessHintOnCompactionStart(final AccessHint accessHint) {
+    assert(isOwningHandle());
+    setAccessHintOnCompactionStart(nativeHandle_, accessHint.getValue());
+    return this;
+  }
+
+  @Override
+  public AccessHint accessHintOnCompactionStart() {
+    assert(isOwningHandle());
+    return AccessHint.getAccessHint(accessHintOnCompactionStart(nativeHandle_));
+  }
+
+  @Override
+  public Options setNewTableReaderForCompactionInputs(
+      final boolean newTableReaderForCompactionInputs) {
+    assert(isOwningHandle());
+    setNewTableReaderForCompactionInputs(nativeHandle_,
+        newTableReaderForCompactionInputs);
+    return this;
+  }
+
+  @Override
+  public boolean newTableReaderForCompactionInputs() {
+    assert(isOwningHandle());
+    return newTableReaderForCompactionInputs(nativeHandle_);
+  }
+
+  @Override
+  public Options setCompactionReadaheadSize(final long compactionReadaheadSize) {
+    assert(isOwningHandle());
+    setCompactionReadaheadSize(nativeHandle_, compactionReadaheadSize);
+    return this;
+  }
+
+  @Override
+  public long compactionReadaheadSize() {
+    assert(isOwningHandle());
+    return compactionReadaheadSize(nativeHandle_);
+  }
+
+  @Override
+  public Options setRandomAccessMaxBufferSize(final long randomAccessMaxBufferSize) {
+    assert(isOwningHandle());
+    setRandomAccessMaxBufferSize(nativeHandle_, randomAccessMaxBufferSize);
+    return this;
+  }
+
+  @Override
+  public long randomAccessMaxBufferSize() {
+    assert(isOwningHandle());
+    return randomAccessMaxBufferSize(nativeHandle_);
+  }
+
+  @Override
+  public Options setWritableFileMaxBufferSize(final long writableFileMaxBufferSize) {
+    assert(isOwningHandle());
+    setWritableFileMaxBufferSize(nativeHandle_, writableFileMaxBufferSize);
+    return this;
+  }
+
+  @Override
+  public long writableFileMaxBufferSize() {
+    assert(isOwningHandle());
+    return writableFileMaxBufferSize(nativeHandle_);
+  }
+
+  @Override
   public boolean useAdaptiveMutex() {
     assert(isOwningHandle());
     return useAdaptiveMutex(nativeHandle_);
@@ -628,10 +788,49 @@ public class Options extends RocksObject
   }
 
   @Override
-  public void setAllowConcurrentMemtableWrite(
+  public Options setWalBytesPerSync(final long walBytesPerSync) {
+    assert(isOwningHandle());
+    setWalBytesPerSync(nativeHandle_, walBytesPerSync);
+    return this;
+  }
+
+  @Override
+  public long walBytesPerSync() {
+    assert(isOwningHandle());
+    return walBytesPerSync(nativeHandle_);
+  }
+
+  @Override
+  public Options setEnableThreadTracking(final boolean enableThreadTracking) {
+    assert(isOwningHandle());
+    setEnableThreadTracking(nativeHandle_, enableThreadTracking);
+    return this;
+  }
+
+  @Override
+  public boolean enableThreadTracking() {
+    assert(isOwningHandle());
+    return enableThreadTracking(nativeHandle_);
+  }
+
+  @Override
+  public Options setDelayedWriteRate(final long delayedWriteRate) {
+    assert(isOwningHandle());
+    setDelayedWriteRate(nativeHandle_, delayedWriteRate);
+    return this;
+  }
+
+  @Override
+  public long delayedWriteRate(){
+    return delayedWriteRate(nativeHandle_);
+  }
+
+  @Override
+  public Options setAllowConcurrentMemtableWrite(
       final boolean allowConcurrentMemtableWrite) {
     setAllowConcurrentMemtableWrite(nativeHandle_,
         allowConcurrentMemtableWrite);
+    return this;
   }
 
   @Override
@@ -640,10 +839,11 @@ public class Options extends RocksObject
   }
 
   @Override
-  public void setEnableWriteThreadAdaptiveYield(
+  public Options setEnableWriteThreadAdaptiveYield(
       final boolean enableWriteThreadAdaptiveYield) {
     setEnableWriteThreadAdaptiveYield(nativeHandle_,
         enableWriteThreadAdaptiveYield);
+    return this;
   }
 
   @Override
@@ -652,8 +852,9 @@ public class Options extends RocksObject
   }
 
   @Override
-  public void setWriteThreadMaxYieldUsec(final long writeThreadMaxYieldUsec) {
+  public Options setWriteThreadMaxYieldUsec(final long writeThreadMaxYieldUsec) {
     setWriteThreadMaxYieldUsec(nativeHandle_, writeThreadMaxYieldUsec);
+    return this;
   }
 
   @Override
@@ -662,13 +863,119 @@ public class Options extends RocksObject
   }
 
   @Override
-  public void setWriteThreadSlowYieldUsec(final long writeThreadSlowYieldUsec) {
+  public Options setWriteThreadSlowYieldUsec(final long writeThreadSlowYieldUsec) {
     setWriteThreadSlowYieldUsec(nativeHandle_, writeThreadSlowYieldUsec);
+    return this;
   }
 
   @Override
   public long writeThreadSlowYieldUsec() {
     return writeThreadSlowYieldUsec(nativeHandle_);
+  }
+
+  @Override
+  public Options setSkipStatsUpdateOnDbOpen(final boolean skipStatsUpdateOnDbOpen) {
+    assert(isOwningHandle());
+    setSkipStatsUpdateOnDbOpen(nativeHandle_, skipStatsUpdateOnDbOpen);
+    return this;
+  }
+
+  @Override
+  public boolean skipStatsUpdateOnDbOpen() {
+    assert(isOwningHandle());
+    return skipStatsUpdateOnDbOpen(nativeHandle_);
+  }
+
+  @Override
+  public Options setWalRecoveryMode(final WALRecoveryMode walRecoveryMode) {
+    assert(isOwningHandle());
+    setWalRecoveryMode(nativeHandle_, walRecoveryMode.getValue());
+    return this;
+  }
+
+  @Override
+  public WALRecoveryMode walRecoveryMode() {
+    assert(isOwningHandle());
+    return WALRecoveryMode.getWALRecoveryMode(walRecoveryMode(nativeHandle_));
+  }
+
+  @Override
+  public Options setAllow2pc(final boolean allow2pc) {
+    assert(isOwningHandle());
+    setAllow2pc(nativeHandle_, allow2pc);
+    return this;
+  }
+
+  @Override
+  public boolean allow2pc() {
+    assert(isOwningHandle());
+    return allow2pc(nativeHandle_);
+  }
+
+  @Override
+  public Options setRowCache(final Cache rowCache) {
+    assert(isOwningHandle());
+    setRowCache(nativeHandle_, rowCache.nativeHandle_);
+    this.rowCache_ = rowCache;
+    return this;
+  }
+
+  @Override
+  public Cache rowCache() {
+    assert(isOwningHandle());
+    return this.rowCache_;
+  }
+
+  @Override
+  public Options setFailIfOptionsFileError(final boolean failIfOptionsFileError) {
+    assert(isOwningHandle());
+    setFailIfOptionsFileError(nativeHandle_, failIfOptionsFileError);
+    return this;
+  }
+
+  @Override
+  public boolean failIfOptionsFileError() {
+    assert(isOwningHandle());
+    return failIfOptionsFileError(nativeHandle_);
+  }
+
+  @Override
+  public Options setDumpMallocStats(final boolean dumpMallocStats) {
+    assert(isOwningHandle());
+    setDumpMallocStats(nativeHandle_, dumpMallocStats);
+    return this;
+  }
+
+  @Override
+  public boolean dumpMallocStats() {
+    assert(isOwningHandle());
+    return dumpMallocStats(nativeHandle_);
+  }
+
+  @Override
+  public Options setAvoidFlushDuringRecovery(final boolean avoidFlushDuringRecovery) {
+    assert(isOwningHandle());
+    setAvoidFlushDuringRecovery(nativeHandle_, avoidFlushDuringRecovery);
+    return this;
+  }
+
+  @Override
+  public boolean avoidFlushDuringRecovery() {
+    assert(isOwningHandle());
+    return avoidFlushDuringRecovery(nativeHandle_);
+  }
+
+  @Override
+  public Options setAvoidFlushDuringShutdown(final boolean avoidFlushDuringShutdown) {
+    assert(isOwningHandle());
+    setAvoidFlushDuringShutdown(nativeHandle_, avoidFlushDuringShutdown);
+    return this;
+  }
+
+  @Override
+  public boolean avoidFlushDuringShutdown() {
+    assert(isOwningHandle());
+    return avoidFlushDuringShutdown(nativeHandle_);
   }
 
   @Override
@@ -1254,11 +1561,19 @@ public class Options extends RocksObject
   private native int maxOpenFiles(long handle);
   private native void setMaxTotalWalSize(long handle,
       long maxTotalWalSize);
+  private native void setMaxFileOpeningThreads(final long handle,
+      final int maxFileOpeningThreads);
+  private native int maxFileOpeningThreads(final long handle);
   private native long maxTotalWalSize(long handle);
   private native void createStatistics(long optHandle);
   private native long statisticsPtr(long optHandle);
   private native boolean useFsync(long handle);
   private native void setUseFsync(long handle, boolean useFsync);
+  private native void setDbPaths(final long handle, final String[] paths,
+      final long[] targetSizes);
+  private native long dbPathsLen(final long handle);
+  private native void dbPaths(final long handle, final String[] paths,
+      final long[] targetSizes);
   private native void setDbLogDir(long handle, String dbLogDir);
   private native String dbLogDir(long handle);
   private native void setWalDir(long handle, String walDir);
@@ -1286,6 +1601,8 @@ public class Options extends RocksObject
   private native void setKeepLogFileNum(long handle, long keepLogFileNum)
       throws IllegalArgumentException;
   private native long keepLogFileNum(long handle);
+  private native void setRecycleLogFileNum(long handle, long recycleLogFileNum);
+  private native long recycleLogFileNum(long handle);
   private native void setMaxManifestFileSize(
       long handle, long maxManifestFileSize);
   private native long maxManifestFileSize(long handle);
@@ -1306,6 +1623,9 @@ public class Options extends RocksObject
   private native boolean useDirectReads(long handle);
   private native void setUseDirectWrites(long handle, boolean useDirectWrites);
   private native boolean useDirectWrites(long handle);
+  private native void setAllowFAllocate(final long handle,
+      final boolean allowFAllocate);
+  private native boolean allowFAllocate(final long handle);
   private native void setAllowMmapReads(
       long handle, boolean allowMmapReads);
   private native boolean allowMmapReads(long handle);
@@ -1321,12 +1641,37 @@ public class Options extends RocksObject
   private native void setAdviseRandomOnOpen(
       long handle, boolean adviseRandomOnOpen);
   private native boolean adviseRandomOnOpen(long handle);
+  private native void setDbWriteBufferSize(final long handle,
+      final long dbWriteBufferSize);
+  private native long dbWriteBufferSize(final long handle);
+  private native void setAccessHintOnCompactionStart(final long handle,
+      final byte accessHintOnCompactionStart);
+  private native byte accessHintOnCompactionStart(final long handle);
+  private native void setNewTableReaderForCompactionInputs(final long handle,
+      final boolean newTableReaderForCompactionInputs);
+  private native boolean newTableReaderForCompactionInputs(final long handle);
+  private native void setCompactionReadaheadSize(final long handle,
+      final long compactionReadaheadSize);
+  private native long compactionReadaheadSize(final long handle);
+  private native void setRandomAccessMaxBufferSize(final long handle,
+      final long randomAccessMaxBufferSize);
+  private native long randomAccessMaxBufferSize(final long handle);
+  private native void setWritableFileMaxBufferSize(final long handle,
+      final long writableFileMaxBufferSize);
+  private native long writableFileMaxBufferSize(final long handle);
   private native void setUseAdaptiveMutex(
       long handle, boolean useAdaptiveMutex);
   private native boolean useAdaptiveMutex(long handle);
   private native void setBytesPerSync(
       long handle, long bytesPerSync);
   private native long bytesPerSync(long handle);
+  private native void setWalBytesPerSync(long handle, long walBytesPerSync);
+  private native long walBytesPerSync(long handle);
+  private native void setEnableThreadTracking(long handle,
+      boolean enableThreadTracking);
+  private native boolean enableThreadTracking(long handle);
+  private native void setDelayedWriteRate(long handle, long delayedWriteRate);
+  private native long delayedWriteRate(long handle);
   private native void setAllowConcurrentMemtableWrite(long handle,
       boolean allowConcurrentMemtableWrite);
   private native boolean allowConcurrentMemtableWrite(long handle);
@@ -1339,6 +1684,30 @@ public class Options extends RocksObject
   private native void setWriteThreadSlowYieldUsec(long handle,
       long writeThreadSlowYieldUsec);
   private native long writeThreadSlowYieldUsec(long handle);
+  private native void setSkipStatsUpdateOnDbOpen(final long handle,
+      final boolean skipStatsUpdateOnDbOpen);
+  private native boolean skipStatsUpdateOnDbOpen(final long handle);
+  private native void setWalRecoveryMode(final long handle,
+      final byte walRecoveryMode);
+  private native byte walRecoveryMode(final long handle);
+  private native void setAllow2pc(final long handle,
+      final boolean allow2pc);
+  private native boolean allow2pc(final long handle);
+  private native void setRowCache(final long handle,
+      final long row_cache_handle);
+  private native void setFailIfOptionsFileError(final long handle,
+      final boolean failIfOptionsFileError);
+  private native boolean failIfOptionsFileError(final long handle);
+  private native void setDumpMallocStats(final long handle,
+      final boolean dumpMallocStats);
+  private native boolean dumpMallocStats(final long handle);
+  private native void setAvoidFlushDuringRecovery(final long handle,
+      final boolean avoidFlushDuringRecovery);
+  private native boolean avoidFlushDuringRecovery(final long handle);
+  private native void setAvoidFlushDuringShutdown(final long handle,
+      final boolean avoidFlushDuringShutdown);
+  private native boolean avoidFlushDuringShutdown(final long handle);
+
   // CF native handles
   private native void optimizeForSmallDb(final long handle);
   private native void optimizeForPointLookup(long handle,
@@ -1491,4 +1860,5 @@ public class Options extends RocksObject
   private CompactionOptionsUniversal compactionOptionsUniversal_;
   private CompactionOptionsFIFO compactionOptionsFIFO_;
   private CompressionOptions compressionOptions_;
+  private Cache rowCache_;
 }
