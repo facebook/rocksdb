@@ -3587,6 +3587,9 @@ class Benchmark {
           break;
         }
       }
+      // TODO(shuzhang1989): Investigate why CompactFiles not working
+      // auto compactionOptions = CompactionOptions();
+      // db->CompactFiles(compactionOptions, file_names, 0);
       auto compactionOptions = CompactRangeOptions();
       db->CompactRange(compactionOptions, nullptr, nullptr);
     } else {
