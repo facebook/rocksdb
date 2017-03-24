@@ -500,7 +500,7 @@ TEST_F(DBBasicTest, Snapshot) {
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
     ASSERT_EQ(1U, GetNumSnapshots());
-    ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
+    ASSERT_LE(time_snap1, GetTimeOldestSnapshots());
 
     db_->ReleaseSnapshot(s2);
     ASSERT_EQ(0U, GetNumSnapshots());

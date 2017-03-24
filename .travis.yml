@@ -1,60 +1,81 @@
-sudo: false
+sudo: required
 dist: trusty
 language: cpp
 os:
   - linux
-  - osx
 compiler:
-  - clang
   - gcc
-jdk:
-  - oraclejdk7
 cache:
   - ccache
   - apt
 
 addons:
-   apt:
-      sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
-      packages: ['clang-3.6' , 'g++-6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl', 'libgflags-dev']
-env:
-  - TEST_GROUP=platform_dependent1
-  - TEST_GROUP=platform_dependent2
-  - TEST_GROUP=platform_dependent3
-  - TEST_GROUP=1
-  - TEST_GROUP=2
-  # Run java tests
-  - JOB_NAME=java_test
-  # Build ROCKSDB_LITE
-  - JOB_NAME=lite_build
+  apt:
+    sources:
+    - llvm-toolchain-precise-3.6
+    - ubuntu-toolchain-r-test
+    packages:
+    - clang-3.6
+    - cmake
+    - curl
+    - g++-6
+    - libbz2-dev
+    - libcurl4-openssl-dev
+    - libgflags-dev
+    - libsnappy-dev
+    - zlib1g-dev
 
-matrix:
-  exclude:
-  - os: osx
-    compiler: gcc
-  - os: osx
-    env: TEST_GROUP=1
-  - os: osx
-    env: TEST_GROUP=2
+env:
+  # Run dbtest tests without AWS env
+  - JOB_NAME=unittests BUILD_DIR=travis-build ROCKSDBTESTS_START=db_test ROCKSDBTESTS_END=db_block_cache_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=one ROCKSDBTESTS_START=db_cloud_test ROCKSDBTESTS_END=db_block_cache_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=two ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=db_dynamic_level_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=thr ROCKSDBTESTS_START=db_dynamic_level_test ROCKSDBTESTS_END=db_sst_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=for ROCKSDBTESTS_START=db_sst_test ROCKSDBTESTS_END=db_universal_compaction_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=fiv ROCKSDBTESTS_START=db_universal_compaction_test ROCKSDBTESTS_END=comparator_db_test
+  - JOB_NAME=unittests USE_AWS=1 BUILD_DIR=travis-build J=1 ROCKSDB_CLOUD_TEST_BUCKET_NAME=six ROCKSDBTESTS_START=comparator_db_test
+
+branches:
+  only:
+  - master
+  - staging
+
+cache:
+  directories:
+  - $BUILD_DIR/aws
+
+before_install:
+  - mkdir $BUILD_DIR || true
+
+install:
+  # install AWWS CPP SDK
+  - mkdir $BUILD_DIR/aws || true
+  - pushd $BUILD_DIR/aws
+  - git clone https://github.com/aws/aws-sdk-cpp.git || true
+  - pushd aws-sdk-cpp/ && git checkout tags/1.0.69 && popd
+  - cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_ONLY="s3;kinesis" aws-sdk-cpp/
+  - make -j 8
+  - sudo make install
+  - sudo ldconfig
+  - popd
 
 before_script:
-  - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'clang++' ]]; then CXX=clang++-3.6; fi
-  # test one linux g++ build with g++-6
-  - if [[ "${TRAVIS_OS_NAME}" == 'linux' && "${CXX}" == 'g++' && "${JOB_NAME}" == 'unittests' ]]; then CXX=g++-6; fi
   # Limit the maximum number of open file descriptors to 8192
   - ulimit -n 8192 || true
 
 script:
   - ${CXX} --version
-  - if [[ "${TEST_GROUP}" == 'platform_dependent1' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_END=external_sst_file_basic_test make -j4 check_some; fi
-  - if [[ "${TEST_GROUP}" == 'platform_dependent2' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=external_sst_file_basic_test ROCKSDBTESTS_END=checkpoint_test make -j4 check_some; fi
-  - if [[ "${TEST_GROUP}" == 'platform_dependent3' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=checkpoint_test ROCKSDBTESTS_END=db_block_cache_test make -j4 check_some; fi
-  - if [[ "${TEST_GROUP}" == '1' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=db_block_cache_test ROCKSDBTESTS_END=comparator_db_test make -j4 check_some; fi
-  - if [[ "${TEST_GROUP}" == '2' ]]; then OPT=-DTRAVIS V=1 ROCKSDBTESTS_START=comparator_db_test make -j4 check_some; fi
-  - if [[ "${JOB_NAME}" == 'java_test' ]]; then OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest; fi
-  - if [[ "${JOB_NAME}" == 'lite_build' ]]; then OPT="-DTRAVIS -DROCKSDB_LITE" V=1 make -j4 static_lib; fi
+  - OPT=-DTRAVIS J=200% V=1 make -j 8 check_some
+
+after_failure:
+  - export ALL_LOG_FILES=$(find /tmp/rocks* -name LOG)
+  - export RECENT_LOG_FILES=$(ls -1rt $ALL_LOG_FILES | tail -4)
+  - grep -e '[[:print:]*]' $RECENT_LOG_FILES
+
 notifications:
-    email:
-      - leveldb@fb.com
-    webhooks:
-      - https://buildtimetrend.herokuapp.com/travis
+  slack:
+    rooms:
+      secure: p6EX9WiIlPAdfdjJdluiOr41rXE2egjaRQQKPrBIMKUmwLs8iPWl0bkUJrlozvcuF5k2ed4pJ8vyAFpYwezMp+g691tZdHirrlzR/6HY4ZpsLKBlDbV6alREgFVr7ptA2+C9KnILIDaqJyiCxhPrnzKbXjuf78m95VNZnH5o7XlY/yfphHFBlsRltu9iFWRixCI1kx5Ch8eIIhYs7n22S1mJlcBrjsaCIVugnXiztaUlgdmwDBiT1LWfWbHwfUegaZWkygoPRiVmz3Xd61oJlssyKoEic74MPUXysLm4dovj+yg+YHEZr4JVlATUs1/FlJIhKDL53WnefXvYlA7hiPnUxzaJKbqSopqKMGY9c4YgyHaOzMb7EkzD8t8F2LidUC/I0dXah02wS+UDe/NSAOJ5ExPfEILsneMeZAWEHi6z4rXK0GNEZntUZrhmFLYVIB+eK98DGNOQDnVRZX7dI+70D+P4EAGbzDfy2/VIKrwgn7Ui2m0fofmpgp23KTATAdG8zKT8rvl487QNBIzxaIUAcVXGRSeNMrF3d2BynsNEGsHzxoWRcm5UDWwvPr/nu/KAAGur3r61Zc45OcsP+pGndDmEva41sg+Xg39dwWwl5PVAfRXp5ZsPlFNCtP6VWjb+wVKQa+aZAadl/n4BDN4+PonBqgd3zRZcgcs6kXw=
+    on_success: always
+    on_failure: always
+
