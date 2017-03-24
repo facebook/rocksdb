@@ -53,6 +53,8 @@ class BlockBasedTableFactory : public TableFactory {
 
   void* GetOptions() override { return &table_options_; }
 
+  bool IsDeleteRangeSupported() const override { return true; }
+
  private:
   BlockBasedTableOptions table_options_;
 };

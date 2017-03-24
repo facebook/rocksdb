@@ -475,6 +475,9 @@ class TableFactory {
   // Developers should use DB::SetOption() instead to dynamically change
   // options while the DB is open.
   virtual void* GetOptions() { return nullptr; }
+
+  // Retuan is delete range supported
+  virtual bool IsDeleteRangeSupported() const { return false; }
 };
 
 #ifndef ROCKSDB_LITE
