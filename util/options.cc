@@ -60,7 +60,6 @@ AdvancedColumnFamilyOptions::AdvancedColumnFamilyOptions(const Options& options)
       num_levels(options.num_levels),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
       level0_stop_writes_trigger(options.level0_stop_writes_trigger),
-      max_level0_burst_file_size(options.max_level0_burst_file_size),
       target_file_size_base(options.target_file_size_base),
       target_file_size_multiplier(options.target_file_size_multiplier),
       level_compaction_dynamic_level_bytes(
@@ -260,8 +259,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
                      level0_slowdown_writes_trigger);
     ROCKS_LOG_HEADER(log, "             Options.level0_stop_writes_trigger: %d",
                      level0_stop_writes_trigger);
-    ROCKS_LOG_HEADER(log, "             Options.max_level0_burst_file_size: %d",
-                     max_level0_burst_file_size);
     ROCKS_LOG_HEADER(
         log, "                  Options.target_file_size_base: %" PRIu64,
         target_file_size_base);

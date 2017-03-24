@@ -414,7 +414,6 @@ TEST_F(OptionsSettableTest, ColumnFamilyOptionsAllFieldsSettable) {
       "num_levels=99;"
       "level0_slowdown_writes_trigger=22;"
       "level0_file_num_compaction_trigger=14;"
-      "max_level0_burst_file_size=1729;"
       "compaction_filter=urxcqstuwnCompactionFilter;"
       "soft_rate_limit=530.615385;"
       "soft_pending_compaction_bytes_limit=0;"

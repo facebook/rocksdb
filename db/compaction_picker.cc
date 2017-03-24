@@ -1085,10 +1085,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
           // In these cases, to reduce L0 file count and thus reduce likelihood
           // of write stalls, we can attempt compacting a span of files within
           // L0.
-          if (PickIntraL0Compaction(
-                  vstorage, static_cast<size_t>(
-                                mutable_cf_options.max_level0_burst_file_size),
-                  &inputs)) {
+          if (PickIntraL0Compaction(vstorage, &inputs)) {
             output_level = 0;
             compaction_reason = CompactionReason::kLevelL0FilesNum;
             break;
@@ -1298,43 +1295,33 @@ bool LevelCompactionPicker::PickCompactionBySize(VersionStorageInfo* vstorage,
 }
 
 bool LevelCompactionPicker::PickIntraL0Compaction(
-    VersionStorageInfo* vstorage, size_t max_level0_burst_file_size,
-    CompactionInputFiles* inputs) {
+    VersionStorageInfo* vstorage, CompactionInputFiles* inputs) {
   inputs->clear();
   const std::vector<FileMetaData*>& level_files =
       vstorage->LevelFiles(0 /* level */);
-
-  size_t max_span_base_idx = 0, max_span_len = 0, curr_span_base_idx = 0,
-         curr_span_size = 0;
-  for (size_t i = 0; i <= level_files.size(); ++i) {
-    curr_span_size +=
-        i == level_files.size() ? 0 : level_files[i]->fd.file_size;
-    if (i == level_files.size() || level_files[i]->being_compacted ||
-        curr_span_size > max_level0_burst_file_size) {
-      // span covering [curr_span_base_idx, i) ended
-      if (i - curr_span_base_idx > max_span_len) {
-        max_span_base_idx = curr_span_base_idx;
-        max_span_len = i - curr_span_base_idx;
-      }
-      if (i == level_files.size() || level_files[i]->being_compacted) {
-        // i is ineligible for inclusion in any span, reset
-        curr_span_base_idx = i + 1;
-        curr_span_size = 0;
-      } else {
-        // shift the start of span one rightwards. maybe it still exceeds size
-        // limit, in which case subsequent iterations will keep shifting. No
-        // need to shift start of span multiple times in same iteration since we
-        // only care about finding larger spans.
-        curr_span_size -= level_files[curr_span_base_idx]->fd.file_size;
-        ++curr_span_base_idx;
-      }
-    }
+  if (level_files.size() == 0 || level_files[0]->being_compacted) {
+    return false;
   }
 
-  if (max_span_len > 1) {
+  size_t compact_bytes = level_files[0]->fd.file_size;
+  size_t compact_bytes_per_del_file = port::kMaxSizet;
+  // compaction range will be [0, span_len).
+  size_t span_len;
+  // pull in files until the amount of compaction work per deleted file begins
+  // increasing.
+  for (span_len = 1; span_len < level_files.size(); ++span_len) {
+    compact_bytes += level_files[span_len]->fd.file_size;
+    size_t new_compact_bytes_per_del_file = compact_bytes / span_len;
+    if (level_files[span_len]->being_compacted ||
+        new_compact_bytes_per_del_file > compact_bytes_per_del_file) {
+      break;
+    }
+    compact_bytes_per_del_file = new_compact_bytes_per_del_file;
+  }
+
+  if (span_len >= kMinFilesForIntraL0Compaction) {
     inputs->level = 0;
-    for (size_t i = max_span_base_idx; i < max_span_base_idx + max_span_len;
-         ++i) {
+    for (size_t i = 0; i < span_len; ++i) {
       inputs->files.push_back(level_files[i]);
     }
     return true;

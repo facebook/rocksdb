@@ -233,14 +233,15 @@ class LevelCompactionPicker : public CompactionPicker {
                             int* parent_index, int* base_index);
 
   // For L0->L0, picks the longest span of files that aren't currently
-  // undergoing compaction. Intra-L0 compaction is independent of all other
-  // files, so it can be performed even when L0->base_level compactions are
-  // blocked.
+  // undergoing compaction for which work-per-deleted-file decreases. The span
+  // always starts from the newest L0 file.
+  //
+  // Intra-L0 compaction is independent of all other files, so it can be
+  // performed even when L0->base_level compactions are blocked.
   //
   // Returns true if `inputs` is populated with a span of files to be compacted;
   // otherwise, returns false.
   bool PickIntraL0Compaction(VersionStorageInfo* vstorage,
-                             size_t max_level0_burst_file_size,
                              CompactionInputFiles* inputs);
 
   // If there is any file marked for compaction, put put it into inputs.
@@ -250,6 +251,8 @@ class LevelCompactionPicker : public CompactionPicker {
                                                 VersionStorageInfo* vstorage,
                                                 CompactionInputFiles* inputs,
                                                 int* level, int* output_level);
+
+  static const int kMinFilesForIntraL0Compaction = 4;
 };
 
 #ifndef ROCKSDB_LITE

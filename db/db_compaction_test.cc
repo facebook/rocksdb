@@ -2495,9 +2495,9 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
 TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   Options options = CurrentOptions();
   options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = 5;
   options.max_background_compactions = 2;
   options.max_subcompactions = max_subcompactions_;
-  options.max_level0_burst_file_size = 1 << 22;  // 4MB
   DestroyAndReopen(options);
 
   const size_t kValueSize = 1 << 20;
@@ -2509,20 +2509,21 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
         "CompactionJob::Run():Start"}});
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  // index:   0   1   2   3   4   5   6   7
-  // size:  1MB 1MB 1MB 1MB 1MB 1MB 1MB 2MB
+  // index:   0   1   2   3   4   5   6   7   8   9
+  // size:  1MB 1MB 1MB 1MB 1MB 2MB 1MB 1MB 1MB 1MB
+  // score:                     1.5 1.3 1.5 2.0 inf
   //
-  // Files 0-3 will be included in an L0->L1 compaction.
+  // Files 0-4 will be included in an L0->L1 compaction.
   //
   // L0->L0 will be triggered since the sync points guarantee compaction to base
-  // level is still blocked when files 4-7 trigger another compaction.
+  // level is still blocked when files 5-9 trigger another compaction.
   //
-  // Files 4-6 are the longest span of available files producing an output under
-  // 4MB so will be chosen for the L0->L0 compaction.
-  for (int i = 0; i < 8; ++i) {
+  // Files 6-9 are the longest span of available files for which
+  // work-per-deleted-file decreases (see "score" row above).
+  for (int i = 0; i < 10; ++i) {
     for (int j = 0; j < 2; ++j) {
       ASSERT_OK(Put(Key(0), ""));  // prevents trivial move
-      if (i == 7) {
+      if (i == 5) {
         ASSERT_OK(Put(Key(i + 1), value + value));
       } else {
         ASSERT_OK(Put(Key(i + 1), value));
@@ -2537,7 +2538,7 @@ TEST_P(DBCompactionTestWithParam, IntraL0Compaction) {
   dbfull()->TEST_GetFilesMetaData(dbfull()->DefaultColumnFamily(),
                                   &level_to_files);
   ASSERT_GE(level_to_files.size(), 2);  // at least L0 and L1
-  // L0 has the 2MB file (not compacted) and 3MB file (output of L0->L0)
+  // L0 has the 2MB file (not compacted) and 4MB file (output of L0->L0)
   ASSERT_EQ(2, level_to_files[0].size());
   ASSERT_GT(level_to_files[1].size(), 0);
   for (int i = 0; i < 2; ++i) {
