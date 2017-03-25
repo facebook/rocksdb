@@ -5645,6 +5645,51 @@ jboolean Java_org_rocksdb_WriteOptions_disableWAL(
   return reinterpret_cast<rocksdb::WriteOptions*>(jhandle)->disableWAL;
 }
 
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    setIgnoreMissingColumnFamilies
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_WriteOptions_setIgnoreMissingColumnFamilies(
+    JNIEnv* env, jobject jwrite_options, jlong jhandle,
+    jboolean jignore_missing_column_families) {
+  reinterpret_cast<rocksdb::WriteOptions*>(jhandle)->
+      ignore_missing_column_families =
+          static_cast<bool>(jignore_missing_column_families);
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    ignoreMissingColumnFamilies
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteOptions_ignoreMissingColumnFamilies(
+    JNIEnv* env, jobject jwrite_options, jlong jhandle) {
+  return reinterpret_cast<rocksdb::WriteOptions*>(jhandle)->
+      ignore_missing_column_families;
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    setNoSlowdown
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_WriteOptions_setNoSlowdown(
+    JNIEnv* env, jobject jwrite_options, jlong jhandle, jboolean jno_slowdown) {
+  reinterpret_cast<rocksdb::WriteOptions*>(jhandle)->no_slowdown =
+      static_cast<bool>(jno_slowdown);
+}
+
+/*
+ * Class:     org_rocksdb_WriteOptions
+ * Method:    noSlowdown
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WriteOptions_noSlowdown(
+    JNIEnv* env, jobject jwrite_options, jlong jhandle) {
+  return reinterpret_cast<rocksdb::WriteOptions*>(jhandle)->no_slowdown;
+}
+
 /////////////////////////////////////////////////////////////////////
 // rocksdb::ReadOptions
 
