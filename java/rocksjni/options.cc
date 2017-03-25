@@ -5822,6 +5822,75 @@ void Java_org_rocksdb_ReadOptions_setPinData(
 
 /*
  * Class:     org_rocksdb_ReadOptions
+ * Method:    backgroundPurgeOnIteratorCleanup
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_backgroundPurgeOnIteratorCleanup(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  return static_cast<jboolean>(opt->background_purge_on_iterator_cleanup);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setBackgroundPurgeOnIteratorCleanup
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setBackgroundPurgeOnIteratorCleanup(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jbackground_purge_on_iterator_cleanup) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  opt->background_purge_on_iterator_cleanup =
+      static_cast<bool>(jbackground_purge_on_iterator_cleanup);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    readaheadSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ReadOptions_readaheadSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  return static_cast<jlong>(opt->readahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setReadaheadSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ReadOptions_setReadaheadSize(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jreadahead_size) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  opt->readahead_size = static_cast<size_t>(jreadahead_size);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    ignoreRangeDeletions
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ReadOptions_ignoreRangeDeletions(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  return static_cast<jboolean>(opt->ignore_range_deletions);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setIgnoreRangeDeletions
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ReadOptions_setIgnoreRangeDeletions(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jignore_range_deletions) {
+  auto* opt = reinterpret_cast<rocksdb::ReadOptions*>(jhandle);
+  opt->ignore_range_deletions = static_cast<bool>(jignore_range_deletions);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
  * Method:    setSnapshot
  * Signature: (JJ)V
  */
