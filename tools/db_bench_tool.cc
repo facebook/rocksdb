@@ -331,7 +331,7 @@ DEFINE_int32(max_background_flushes,
 
 static rocksdb::CompactionStyle FLAGS_compaction_style_e;
 DEFINE_int32(compaction_style, (int32_t) rocksdb::Options().compaction_style,
-             "style of compaction: level-based vs universal");
+             "style of compaction: level-based, universal and fifo");
 
 static rocksdb::CompactionPri FLAGS_compaction_pri_e;
 DEFINE_int32(compaction_pri, (int32_t)rocksdb::Options().compaction_pri,
@@ -609,6 +609,9 @@ DEFINE_string(
     "\t--enable_io_prio\n"
     "\t--dump_malloc_stats\n"
     "\t--num_multi_db\n");
+
+DEFINE_uint64(fifo_compaction_max_table_files_size_mb, 0,
+              "The limit of total table file sizes to trigger FIFO compaction");
 #endif  // ROCKSDB_LITE
 
 DEFINE_bool(report_bg_io_stats, false,
@@ -2773,6 +2776,8 @@ class Benchmark {
     options.allow_mmap_writes = FLAGS_mmap_write;
     options.use_direct_reads = FLAGS_use_direct_reads;
     options.use_direct_writes = FLAGS_use_direct_writes;
+    options.compaction_options_fifo = CompactionOptionsFIFO(
+       FLAGS_fifo_compaction_max_table_files_size_mb * 1024 * 1024);
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
@@ -3430,9 +3435,13 @@ class Benchmark {
     std::vector<Options> options_list;
     for (auto db : db_list) {
       options_list.push_back(db->GetOptions());
-      db->SetOptions({{"disable_auto_compactions", "1"},
-                      {"level0_slowdown_writes_trigger", "400000000"},
-                      {"level0_stop_writes_trigger", "400000000"}});
+      if (compaction_style != kCompactionStyleFIFO) {
+        db->SetOptions({{"disable_auto_compactions", "1"},
+                        {"level0_slowdown_writes_trigger", "400000000"},
+                        {"level0_stop_writes_trigger", "400000000"}});
+      } else {
+        db->SetOptions({{"disable_auto_compactions", "1"}});
+      }
     }
 
     assert(!db_list.empty());
@@ -3441,7 +3450,6 @@ class Benchmark {
     size_t output_level = open_options_.num_levels - 1;
     std::vector<std::vector<std::vector<SstFileMetaData>>> sorted_runs(num_db);
     std::vector<size_t> num_files_at_level0(num_db, 0);
-
     if (compaction_style == kCompactionStyleLevel) {
       if (num_levels == 0) {
         return Status::InvalidArgument("num_levels should be larger than 1");
@@ -3553,7 +3561,37 @@ class Benchmark {
         }
       }
     } else if (compaction_style == kCompactionStyleFIFO) {
-      return Status::InvalidArgument("FIFO compaction is not supported");
+      if (num_levels != 1) {
+        return Status::InvalidArgument(
+          "num_levels should be 1 for FIFO compaction");
+      }
+      if (FLAGS_num_multi_db != 0) {
+        return Status::InvalidArgument("Doesn't support multiDB");
+      }
+      auto db = db_list[0];
+      std::vector<std::string> file_names;
+      while (true) {
+        if (sorted_runs[0].empty()) {
+          DoWrite(thread, write_mode);
+        } else {
+          DoWrite(thread, UNIQUE_RANDOM);
+        }
+        db->Flush(FlushOptions());
+        db->GetColumnFamilyMetaData(&meta);
+        auto total_size = meta.levels[0].size;
+        if (total_size >=
+          db->GetOptions().compaction_options_fifo.max_table_files_size) {
+          for (auto file_meta : meta.levels[0].files) {
+            file_names.emplace_back(file_meta.name);
+          }
+          break;
+        }
+      }
+      // TODO(shuzhang1989): Investigate why CompactFiles not working
+      // auto compactionOptions = CompactionOptions();
+      // db->CompactFiles(compactionOptions, file_names, 0);
+      auto compactionOptions = CompactRangeOptions();
+      db->CompactRange(compactionOptions, nullptr, nullptr);
     } else {
       fprintf(stdout,
               "%-12s : skipped (-compaction_stype=kCompactionStyleNone)\n",
@@ -3576,6 +3614,11 @@ class Benchmark {
                sorted_runs[k].size());
       } else if (compaction_style == kCompactionStyleFIFO) {
         // TODO(gzh): FIFO compaction
+        db->GetColumnFamilyMetaData(&meta);
+        auto total_size = meta.levels[0].size;
+        assert(total_size <=
+          db->GetOptions().compaction_options_fifo.max_table_files_size);
+          break;
       }
 
       // verify smallest/largest seqno and key range of each sorted run
@@ -4940,7 +4983,6 @@ int db_bench_tool(int argc, char** argv) {
     initialized = true;
   }
   ParseCommandLineFlags(&argc, &argv, true);
-
   FLAGS_compaction_style_e = (rocksdb::CompactionStyle) FLAGS_compaction_style;
 #ifndef ROCKSDB_LITE
   if (FLAGS_statistics && !FLAGS_statistics_string.empty()) {

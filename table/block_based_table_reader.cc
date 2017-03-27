@@ -732,7 +732,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
         if (rep->table_options.pin_l0_filter_and_index_blocks_in_cache &&
             level == 0) {
           rep->filter_entry = filter_entry;
-          rep->filter_entry.value->SetLevel(level);
+          if (rep->filter_entry.value != nullptr) {
+            rep->filter_entry.value->SetLevel(level);
+          }
         } else {
           filter_entry.Release(table_options.block_cache.get());
         }
