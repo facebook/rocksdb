@@ -242,6 +242,7 @@ class LevelCompactionPicker : public CompactionPicker {
   // Returns true if `inputs` is populated with a span of files to be compacted;
   // otherwise, returns false.
   bool PickIntraL0Compaction(VersionStorageInfo* vstorage,
+                             const MutableCFOptions& mutable_cf_options,
                              CompactionInputFiles* inputs);
 
   // If there is any file marked for compaction, put put it into inputs.

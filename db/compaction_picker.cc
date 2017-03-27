@@ -1085,7 +1085,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
           // In these cases, to reduce L0 file count and thus reduce likelihood
           // of write stalls, we can attempt compacting a span of files within
           // L0.
-          if (PickIntraL0Compaction(vstorage, &inputs)) {
+          if (PickIntraL0Compaction(vstorage, mutable_cf_options, &inputs)) {
             output_level = 0;
             compaction_reason = CompactionReason::kLevelL0FilesNum;
             break;
@@ -1295,11 +1295,17 @@ bool LevelCompactionPicker::PickCompactionBySize(VersionStorageInfo* vstorage,
 }
 
 bool LevelCompactionPicker::PickIntraL0Compaction(
-    VersionStorageInfo* vstorage, CompactionInputFiles* inputs) {
+    VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
+    CompactionInputFiles* inputs) {
   inputs->clear();
   const std::vector<FileMetaData*>& level_files =
       vstorage->LevelFiles(0 /* level */);
-  if (level_files.size() == 0 || level_files[0]->being_compacted) {
+  if (level_files.size() <
+          static_cast<size_t>(
+              mutable_cf_options.level0_file_num_compaction_trigger + 2) ||
+      level_files[0]->being_compacted) {
+    // If L0 isn't accumulating much files beyond the regular trigger, don't
+    // resort to L0->L0 compaction yet.
     return false;
   }
 
