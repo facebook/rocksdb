@@ -1380,7 +1380,12 @@ ifeq ($(PLATFORM), OS_SOLARIS)
 else
 	ARCH := $(shell getconf LONG_BIT)
 endif
-ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+
+ifeq (,$(findstring ppc,$(MACHINE)))
+        ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+else
+        ROCKSDBJNILIB = librocksdbjni-linux-$(MACHINE).so
+endif
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadoc.jar
