@@ -751,6 +751,9 @@ Status PosixWritableFile::Close() {
     // but it will be nice to log these errors.
     int dummy __attribute__((unused));
     dummy = ftruncate(fd_, filesize_);
+    // NOTE(gzh): remove fallocate(FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE)
+    // because a kernel bug on XFS make it change file size
+    // https://github.com/facebook/rocksdb/pull/2038
   }
 
   if (close(fd_) < 0) {
