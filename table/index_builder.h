@@ -134,6 +134,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
     index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
   }
 
+  using IndexBuilder::Finish;
   virtual Status Finish(
       IndexBlocks* index_blocks,
       const BlockHandle& last_partition_block_handle) override {
@@ -322,7 +323,7 @@ class PartitionedIndexBuilder : public IndexBuilder {
   ShortenedIndexBuilder* sub_index_builder_;
   // the last key in the active partition index builder
   std::string sub_index_last_key_;
-  std::unique_ptr<FlushBlockPolicy> flush_policy;
+  std::unique_ptr<FlushBlockPolicy> flush_policy_;
   // true if Finish is called once but not complete yet.
   bool finishing_indexes = false;
   const BlockBasedTableOptions& table_opt_;

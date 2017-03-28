@@ -72,7 +72,7 @@ void PartitionedIndexBuilder::MakeNewSubIndexBuilder() {
   assert(sub_index_builder_ == nullptr);
   sub_index_builder_ = new ShortenedIndexBuilder(
       comparator_, table_opt_.index_block_restart_interval);
-  flush_policy.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
+  flush_policy_.reset(FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
       table_opt_.metadata_block_size, table_opt_.block_size_deviation,
       sub_index_builder_->index_block_builder_));
 }
@@ -100,7 +100,7 @@ void PartitionedIndexBuilder::AddIndexEntry(
       std::string handle_encoding;
       block_handle.EncodeTo(&handle_encoding);
       bool do_flush =
-          flush_policy->Update(*last_key_in_current_block, handle_encoding);
+          flush_policy_->Update(*last_key_in_current_block, handle_encoding);
       if (do_flush) {
         entries_.push_back(
             {sub_index_last_key_,
@@ -138,7 +138,7 @@ Status PartitionedIndexBuilder::Finish(
     // Finish the next partition index in line and Incomplete() to indicate we
     // expect more calls to Finish
     Entry& entry = entries_.front();
-    auto s = entry.value->IndexBuilder::Finish(index_blocks);
+    auto s = entry.value->Finish(index_blocks);
     finishing_indexes = true;
     return s.ok() ? Status::Incomplete() : s;
   }
