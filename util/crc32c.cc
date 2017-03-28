@@ -342,6 +342,8 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
 #ifdef __AVX2__
   *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
   *p += 8;
+#else
+  Slow_CRC32(l, p);
 #endif
 #else
   Slow_CRC32(l, p);
