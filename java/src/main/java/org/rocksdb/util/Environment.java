@@ -42,7 +42,7 @@ public class Environment {
     if (isUnix()) {
       final String arch = is64Bit() ? "64" : "32";
       if(isPowerPC()) {
-        return String.format("%sjni-linux-ppc%s", name, arch);
+        return String.format("%sjni-linux-%s", name, ARCH);
       } else {
         return String.format("%sjni-linux%s", name, arch);
       }
