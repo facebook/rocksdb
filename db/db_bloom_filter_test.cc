@@ -50,7 +50,7 @@ TEST_P(DBBloomFilterTestWithParam, KeyMayExist) {
     options_override.filter_policy.reset(
         NewBloomFilterPolicy(20, use_block_based_filter_));
     options_override.partition_filters = partition_filters_;
-    options_override.index_per_partition = 2;
+    options_override.metadata_block_size = 32;
     Options options = CurrentOptions(options_override);
     if (partition_filters_ &&
         static_cast<BlockBasedTableOptions*>(
@@ -334,7 +334,7 @@ TEST_P(DBBloomFilterTestWithParam, BloomFilter) {
       table_options.index_type =
           BlockBasedTableOptions::IndexType::kTwoLevelIndexSearch;
     }
-    table_options.index_per_partition = 2;
+    table_options.metadata_block_size = 32;
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     CreateAndReopenWithCF({"pikachu"}, options);
