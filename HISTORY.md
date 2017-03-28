@@ -9,6 +9,9 @@
 ### New Features
 * Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.
 
+### Bug Fixes
+* Remove calling fallocate with FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE flag to circumvent a kernel bug that changes file size after this call on XFS
+
 ## 5.2.0 (02/08/2017)
 ### Public API Change
 * NewLRUCache() will determine number of shard bits automatically based on capacity, if the user doesn't pass one. This also impacts the default block cache when the user doesn't explict provide one.
