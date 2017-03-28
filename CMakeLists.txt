@@ -310,6 +310,7 @@ set(SOURCES
         db/version_edit.cc
         db/version_set.cc
         db/wal_manager.cc
+        db/writer.cc
         db/write_batch.cc
         db/write_batch_base.cc
         db/write_controller.cc

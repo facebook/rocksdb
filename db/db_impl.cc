@@ -2445,7 +2445,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
   MutableCFOptions new_options;
   Status s;
   Status persist_options_status;
-  WriteThread::Writer w;
+  Writer w;
   {
     InstrumentedMutexLock l(&mutex_);
     s = cfd->SetOptions(options_map);
@@ -2512,7 +2512,7 @@ Status DBImpl::SetDBOptions(
   MutableDBOptions new_options;
   Status s;
   Status persist_options_status;
-  WriteThread::Writer w;
+  Writer w;
   WriteContext write_context;
   {
     InstrumentedMutexLock l(&mutex_);
@@ -2936,7 +2936,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       return Status::OK();
     }
 
-    WriteThread::Writer w;
+    Writer w;
     if (!writes_stopped) {
       write_thread_.EnterUnbatched(&w, &mutex_);
     }
@@ -4239,7 +4239,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
     // LogAndApply will both write the creation in MANIFEST and create
     // ColumnFamilyData object
     {  // write thread
-      WriteThread::Writer w;
+      Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
       // LogAndApply will both write the creation in MANIFEST and create
       // ColumnFamilyData object
@@ -4318,7 +4318,7 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     }
     if (s.ok()) {
       // we drop column family from a single write thread
-      WriteThread::Writer w;
+      Writer w;
       write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                  &edit, &mutex_);
@@ -4655,8 +4655,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   Status status;
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  WriteThread::Writer w(write_options, my_batch, callback, log_ref,
-                        disable_memtable);
+  Writer w(write_options, my_batch, callback, log_ref, disable_memtable);
 
   if (!write_options.disableWAL) {
     RecordTick(stats_, WRITE_WITH_WAL);
@@ -4665,7 +4664,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(env_, immutable_db_options_.statistics.get(), DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
-  if (w.state == WriteThread::STATE_PARALLEL_FOLLOWER) {
+  if (w.state == Writer::STATE_PARALLEL_FOLLOWER) {
     // we are a non-leader in a parallel group
     PERF_TIMER_GUARD(write_memtable_time);
 
@@ -4685,12 +4684,12 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       versions_->SetLastSequence(last_sequence);
       write_thread_.EarlyExitParallelGroup(&w);
     }
-    assert(w.state == WriteThread::STATE_COMPLETED);
+    assert(w.state == Writer::STATE_COMPLETED);
     // STATE_COMPLETED conditional below handles exit
 
     status = w.FinalStatus();
   }
-  if (w.state == WriteThread::STATE_COMPLETED) {
+  if (w.state == Writer::STATE_COMPLETED) {
     if (log_used != nullptr) {
       *log_used = w.log_used;
     }
@@ -4698,15 +4697,15 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return w.FinalStatus();
   }
   // else we are the leader of the write batch group
-  assert(w.state == WriteThread::STATE_GROUP_LEADER);
+  assert(w.state == Writer::STATE_GROUP_LEADER);
 
   // Once reaches this point, the current writer "w" will try to do its write
   // job.  It may also pick up some of the remaining writers in the "writers_"
   // when it finds suitable, and finish them in the same write batch.
   // This is how a write job could be done by the other writer.
   WriteContext write_context;
-  WriteThread::Writer* last_writer = &w;
-  autovector<WriteThread::Writer*> write_group;
+  Writer* last_writer = &w;
+  autovector<Writer*> write_group;
   bool logs_getting_synced = false;
 
   mutex_.Lock();
@@ -4815,7 +4814,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         }
 
       } else {
-        WriteThread::ParallelGroup pg;
+        ParallelGroup pg;
         pg.leader = &w;
         pg.last_writer = last_writer;
         pg.last_sequence = last_sequence;
@@ -4942,7 +4941,7 @@ Status DBImpl::PreprocessWrite(const WriteOptions& write_options,
   return status;
 }
 
-Status DBImpl::WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+Status DBImpl::WriteToWAL(const autovector<Writer*>& write_group,
                           log::Writer* log_writer, bool need_log_sync,
                           bool need_log_dir_sync, SequenceNumber sequence) {
   Status status;
@@ -6587,7 +6586,7 @@ Status DBImpl::IngestExternalFile(
     TEST_SYNC_POINT("DBImpl::AddFile:MutexLock");
 
     // Stop writes to the DB
-    WriteThread::Writer w;
+    Writer w;
     write_thread_.EnterUnbatched(&w, &mutex_);
 
     num_running_ingest_file_++;

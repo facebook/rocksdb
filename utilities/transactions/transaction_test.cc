@@ -1014,7 +1014,7 @@ TEST_P(TransactionTest, TwoPhaseMultiThreadTest) {
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "WriteThread::JoinBatchGroup:Wait", [&](void* arg) {
-        auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+        auto* writer = reinterpret_cast<Writer*>(arg);
 
         if (writer->ShouldWriteToWAL()) {
           t_wait_on_prepare.fetch_add(1);

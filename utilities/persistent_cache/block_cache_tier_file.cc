@@ -522,7 +522,7 @@ void WriteableCacheFile::ClearBuffers() {
 //
 ThreadedWriter::ThreadedWriter(PersistentCacheTier* const cache,
                                const size_t qdepth, const size_t io_size)
-    : Writer(cache), io_size_(io_size) {
+    : FileWriter(cache), io_size_(io_size) {
   for (size_t i = 0; i < qdepth; ++i) {
     port::Thread th(&ThreadedWriter::ThreadMain, this);
     threads_.push_back(std::move(th));

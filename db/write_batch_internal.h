@@ -9,11 +9,11 @@
 
 #pragma once
 #include <vector>
-#include "db/write_thread.h"
-#include "rocksdb/types.h"
-#include "rocksdb/write_batch.h"
+#include "db/writer.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
+#include "rocksdb/types.h"
+#include "rocksdb/write_batch.h"
 #include "util/autovector.h"
 
 namespace rocksdb {
@@ -151,7 +151,7 @@ class WriteBatchInternal {
   //
   // Under concurrent use, the caller is responsible for making sure that
   // the memtables object itself is thread-local.
-  static Status InsertInto(const autovector<WriteThread::Writer*>& batches,
+  static Status InsertInto(const autovector<Writer*>& batches,
                            SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
@@ -170,8 +170,7 @@ class WriteBatchInternal {
                            SequenceNumber* last_seq_used = nullptr,
                            bool* has_valid_writes = nullptr);
 
-  static Status InsertInto(WriteThread::Writer* writer,
-                           ColumnFamilyMemTables* memtables,
+  static Status InsertInto(Writer* writer, ColumnFamilyMemTables* memtables,
                            FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
