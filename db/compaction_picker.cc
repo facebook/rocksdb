@@ -960,6 +960,7 @@ void CompactionPicker::RegisterCompaction(Compaction* c) {
     return;
   }
   assert(ioptions_.compaction_style != kCompactionStyleLevel ||
+         c->output_level() == 0 ||
          !FilesRangeOverlapWithCompaction(*c->inputs(), c->output_level()));
   if (c->start_level() == 0 ||
       ioptions_.compaction_style == kCompactionStyleUniversal) {
