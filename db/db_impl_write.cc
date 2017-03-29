@@ -66,6 +66,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     return Status::Corruption("Batch is nullptr!");
   }
 
+  if (immutable_db_options_.enable_pipelined_write) {
+    return PipelineWriteImpl(write_options, my_batch, callback, log_used,
+                             log_ref, disable_memtable);
+  }
+
   Status status;
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
@@ -279,6 +284,13 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   return status;
+}
+
+Status DBImpl::PipelineWriteImpl(const WriteOptions& write_options,
+                                 WriteBatch* my_batch, WriteCallback* callback,
+                                 uint64_t* log_used, uint64_t log_ref,
+                                 bool disable_memtable) {
+  return Status::NotSupported("Pipeline write is not supported yet.");
 }
 
 void DBImpl::UpdateBackgroundError(const Status& memtable_insert_status) {
