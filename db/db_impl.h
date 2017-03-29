@@ -465,6 +465,8 @@ class DBImpl : public DB {
     return num_running_compactions_;
   }
 
+  const WriteController& write_controller() { return write_controller_; }
+
   // hollow transactions shell used for recovery.
   // these will then be passed to TransactionDB so that
   // locks can be reacquired before writing can resume.

@@ -80,7 +80,6 @@ class WriteController {
  private:
   uint64_t NowMicrosMonotonic(Env* env);
 
- private:
   friend class WriteControllerToken;
   friend class StopWriteToken;
   friend class DelayWriteToken;

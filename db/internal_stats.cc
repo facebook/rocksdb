@@ -232,6 +232,9 @@ static const std::string aggregated_table_properties_at_level =
     aggregated_table_properties + "-at-level";
 static const std::string num_running_compactions = "num-running-compactions";
 static const std::string num_running_flushes = "num-running-flushes";
+static const std::string actual_delayed_write_rate =
+    "actual-delayed-write-rate";
+static const std::string is_write_stopped = "is-write-stopped";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -297,6 +300,10 @@ const std::string DB::Properties::kAggregatedTableProperties =
     rocksdb_prefix + aggregated_table_properties;
 const std::string DB::Properties::kAggregatedTablePropertiesAtLevel =
     rocksdb_prefix + aggregated_table_properties_at_level;
+const std::string DB::Properties::kActualDelayedWriteRate =
+    rocksdb_prefix + actual_delayed_write_rate;
+const std::string DB::Properties::kIsWriteStopped =
+    rocksdb_prefix + is_write_stopped;
 
 const std::unordered_map<std::string, DBPropertyInfo>
     InternalStats::ppt_name_to_info = {
@@ -385,6 +392,11 @@ const std::unordered_map<std::string, DBPropertyInfo>
         {DB::Properties::kNumRunningCompactions,
          {false, nullptr, &InternalStats::HandleNumRunningCompactions,
           nullptr}},
+        {DB::Properties::kActualDelayedWriteRate,
+         {false, nullptr, &InternalStats::HandleActualDelayedWriteRate,
+          nullptr}},
+        {DB::Properties::kIsWriteStopped,
+         {false, nullptr, &InternalStats::HandleIsWriteStopped, nullptr}},
 };
 
 const DBPropertyInfo* GetPropertyInfo(const Slice& property) {
@@ -713,6 +725,23 @@ bool InternalStats::HandleEstimateLiveDataSize(uint64_t* value, DBImpl* db,
 bool InternalStats::HandleMinLogNumberToKeep(uint64_t* value, DBImpl* db,
                                              Version* version) {
   *value = db->MinLogNumberToKeep();
+  return true;
+}
+
+bool InternalStats::HandleActualDelayedWriteRate(uint64_t* value, DBImpl* db,
+                                                 Version* version) {
+  const WriteController& wc = db->write_controller();
+  if (!wc.NeedsDelay()) {
+    *value = 0;
+  } else {
+    *value = wc.delayed_write_rate();
+  }
+  return true;
+}
+
+bool InternalStats::HandleIsWriteStopped(uint64_t* value, DBImpl* db,
+                                         Version* version) {
+  *value = db->write_controller().IsStopped() ? 1 : 0;
   return true;
 }
 
