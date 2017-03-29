@@ -539,6 +539,13 @@ class DB {
     //      one but only returns the aggregated table properties of the
     //      specified level "N" at the target column family.
     static const std::string kAggregatedTablePropertiesAtLevel;
+
+    //  "rocksdb.actual-delayed-write-rate" - returns the current actual delayed
+    //      write rate. 0 means no delay.
+    static const std::string kActualDelayedWriteRate;
+
+    //  "rocksdb.is-write-stopped" - Return 1 if write has been stopped.
+    static const std::string kIsWriteStopped;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -587,6 +594,8 @@ class DB {
   //  "rocksdb.estimate-pending-compaction-bytes"
   //  "rocksdb.num-running-compactions"
   //  "rocksdb.num-running-flushes"
+  //  "rocksdb.actual-delayed-write-rate"
+  //  "rocksdb.is-write-stopped"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
