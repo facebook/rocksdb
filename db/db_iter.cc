@@ -226,7 +226,7 @@ class DBIter: public Iterator {
   void FindNextUserEntryInternal(bool skipping, bool prefix_check);
   bool ParseKey(ParsedInternalKey* key);
   void MergeValuesNewToOld();
-  bool TooManyInternalKeysSkipped();
+  bool TooManyInternalKeysSkipped(bool increment = true);
 
   // Temporarily pin the blocks that we encounter until ReleaseTempPinnedData()
   // is called
@@ -402,8 +402,6 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 
     if (TooManyInternalKeysSkipped()) {
       return;
-    } else {
-      num_internal_keys_skipped_++;
     }
 
     if (ikey.sequence <= sequence_) {
@@ -693,7 +691,7 @@ void DBIter::PrevInternal() {
       return;
     }
 
-    if (TooManyInternalKeysSkipped()) {
+    if (TooManyInternalKeysSkipped(false)) {
       return;
     }
 
@@ -734,8 +732,6 @@ bool DBIter::FindValueForCurrentKey() {
          user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
     if (TooManyInternalKeysSkipped()) {
       return false;
-    } else {
-      num_internal_keys_skipped_++;
     }
 
     // We iterate too much: let's use Seek() to avoid too much key comparisons
@@ -939,8 +935,6 @@ void DBIter::FindPrevUserKey() {
                             (cmp > 0 && ikey.sequence > sequence_))) {
     if (TooManyInternalKeysSkipped()) {
       return;
-    } else {
-      num_internal_keys_skipped_++;
     }
 
     if (cmp == 0) {
@@ -965,12 +959,14 @@ void DBIter::FindPrevUserKey() {
   }
 }
 
-bool DBIter::TooManyInternalKeysSkipped() {
+bool DBIter::TooManyInternalKeysSkipped(bool increment) {
   if ((max_skippable_internal_keys_ > 0) &&
       (num_internal_keys_skipped_ > max_skippable_internal_keys_)) {
     valid_ = false;
     status_ = Status::Incomplete("Too many internal keys skipped.");
     return true;
+  } else if (increment) {
+    num_internal_keys_skipped_++;
   }
   return false;
 }

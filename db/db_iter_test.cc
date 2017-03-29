@@ -1172,7 +1172,6 @@ TEST_F(DBIteratorTest, DBIteratorSkipInternalKeys) {
           internal_iter, 2 * i + 1, options.max_sequential_skip_in_iterations,
           0, nullptr, false, false, false, ro.max_skippable_internal_keys));
 
-      std::cout << "in iter: " << i << std::endl;
       db_iter->SeekToFirst();
       ASSERT_TRUE(db_iter->Valid());
       ASSERT_EQ(db_iter->key().ToString(), "a");
