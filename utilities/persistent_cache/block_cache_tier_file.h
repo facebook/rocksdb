@@ -66,14 +66,15 @@ struct LogicalBlockAddress {
 
 typedef LogicalBlockAddress LBA;
 
-// class Writer
+// class FileWriter
 //
-// Writer is the abstraction used for writing data to file. The component can be
+// FileWriter is the abstraction used for writing data to file. The component
+// can be
 // multithreaded. It is the last step of write pipeline
-class Writer {
+class FileWriter {
  public:
-  explicit Writer(PersistentCacheTier* const cache) : cache_(cache) {}
-  virtual ~Writer() {}
+  explicit FileWriter(PersistentCacheTier* const cache) : cache_(cache) {}
+  virtual ~FileWriter() {}
 
   // write buffer to file at the given offset
   virtual void Write(WritableFile* const file, CacheWriteBuffer* buf,
@@ -175,7 +176,7 @@ class RandomAccessCacheFile : public BlockCacheFile {
 class WriteableCacheFile : public RandomAccessCacheFile {
  public:
   explicit WriteableCacheFile(Env* const env, CacheWriteBufferAllocator* alloc,
-                              Writer* writer, const std::string& dir,
+                              FileWriter* writer, const std::string& dir,
                               const uint32_t cache_id, const uint32_t max_size,
                               const std::shared_ptr<Logger>& log)
       : RandomAccessCacheFile(env, dir, cache_id, log),
@@ -233,7 +234,7 @@ class WriteableCacheFile : public RandomAccessCacheFile {
   //  The buffers are flushed to disk serially for a given file
 
   CacheWriteBufferAllocator* const alloc_ = nullptr;  // Buffer provider
-  Writer* const writer_ = nullptr;                    // File writer thread
+  FileWriter* const writer_ = nullptr;                // File writer thread
   std::unique_ptr<WritableFile> file_;   // RocksDB Env file abstraction
   std::vector<CacheWriteBuffer*> bufs_;  // Written buffers
   uint32_t size_ = 0;                    // Size of the file
@@ -250,7 +251,7 @@ class WriteableCacheFile : public RandomAccessCacheFile {
 //
 // Abstraction to do writing to device. It is part of pipelined architecture.
 //
-class ThreadedWriter : public Writer {
+class ThreadedWriter : public FileWriter {
  public:
   // Representation of IO to device
   struct IO {

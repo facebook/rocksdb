@@ -18,172 +18,8 @@ WriteThread::WriteThread(uint64_t max_yield_usec, uint64_t slow_yield_usec)
       slow_yield_usec_(slow_yield_usec),
       newest_writer_(nullptr) {}
 
-uint8_t WriteThread::BlockingAwaitState(Writer* w, uint8_t goal_mask) {
-  // We're going to block.  Lazily create the mutex.  We guarantee
-  // propagation of this construction to the waker via the
-  // STATE_LOCKED_WAITING state.  The waker won't try to touch the mutex
-  // or the condvar unless they CAS away the STATE_LOCKED_WAITING that
-  // we install below.
-  w->CreateMutex();
-
-  auto state = w->state.load(std::memory_order_acquire);
-  assert(state != STATE_LOCKED_WAITING);
-  if ((state & goal_mask) == 0 &&
-      w->state.compare_exchange_strong(state, STATE_LOCKED_WAITING)) {
-    // we have permission (and an obligation) to use StateMutex
-    std::unique_lock<std::mutex> guard(w->StateMutex());
-    w->StateCV().wait(guard, [w] {
-      return w->state.load(std::memory_order_relaxed) != STATE_LOCKED_WAITING;
-    });
-    state = w->state.load(std::memory_order_relaxed);
-  }
-  // else tricky.  Goal is met or CAS failed.  In the latter case the waker
-  // must have changed the state, and compare_exchange_strong has updated
-  // our local variable with the new one.  At the moment WriteThread never
-  // waits for a transition across intermediate states, so we know that
-  // since a state change has occurred the goal must have been met.
-  assert((state & goal_mask) != 0);
-  return state;
-}
-
-uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
-                                AdaptationContext* ctx) {
-  uint8_t state;
-
-  // On a modern Xeon each loop takes about 7 nanoseconds (most of which
-  // is the effect of the pause instruction), so 200 iterations is a bit
-  // more than a microsecond.  This is long enough that waits longer than
-  // this can amortize the cost of accessing the clock and yielding.
-  for (uint32_t tries = 0; tries < 200; ++tries) {
-    state = w->state.load(std::memory_order_acquire);
-    if ((state & goal_mask) != 0) {
-      return state;
-    }
-    port::AsmVolatilePause();
-  }
-
-  // If we're only going to end up waiting a short period of time,
-  // it can be a lot more efficient to call std::this_thread::yield()
-  // in a loop than to block in StateMutex().  For reference, on my 4.0
-  // SELinux test server with support for syscall auditing enabled, the
-  // minimum latency between FUTEX_WAKE to returning from FUTEX_WAIT is
-  // 2.7 usec, and the average is more like 10 usec.  That can be a big
-  // drag on RockDB's single-writer design.  Of course, spinning is a
-  // bad idea if other threads are waiting to run or if we're going to
-  // wait for a long time.  How do we decide?
-  //
-  // We break waiting into 3 categories: short-uncontended,
-  // short-contended, and long.  If we had an oracle, then we would always
-  // spin for short-uncontended, always block for long, and our choice for
-  // short-contended might depend on whether we were trying to optimize
-  // RocksDB throughput or avoid being greedy with system resources.
-  //
-  // Bucketing into short or long is easy by measuring elapsed time.
-  // Differentiating short-uncontended from short-contended is a bit
-  // trickier, but not too bad.  We could look for involuntary context
-  // switches using getrusage(RUSAGE_THREAD, ..), but it's less work
-  // (portability code and CPU) to just look for yield calls that take
-  // longer than we expect.  sched_yield() doesn't actually result in any
-  // context switch overhead if there are no other runnable processes
-  // on the current core, in which case it usually takes less than
-  // a microsecond.
-  //
-  // There are two primary tunables here: the threshold between "short"
-  // and "long" waits, and the threshold at which we suspect that a yield
-  // is slow enough to indicate we should probably block.  If these
-  // thresholds are chosen well then CPU-bound workloads that don't
-  // have more threads than cores will experience few context switches
-  // (voluntary or involuntary), and the total number of context switches
-  // (voluntary and involuntary) will not be dramatically larger (maybe
-  // 2x) than the number of voluntary context switches that occur when
-  // --max_yield_wait_micros=0.
-  //
-  // There's another constant, which is the number of slow yields we will
-  // tolerate before reversing our previous decision.  Solitary slow
-  // yields are pretty common (low-priority small jobs ready to run),
-  // so this should be at least 2.  We set this conservatively to 3 so
-  // that we can also immediately schedule a ctx adaptation, rather than
-  // waiting for the next update_ctx.
-
-  const size_t kMaxSlowYieldsWhileSpinning = 3;
-
-  bool update_ctx = false;
-  bool would_spin_again = false;
-
-  if (max_yield_usec_ > 0) {
-    update_ctx = Random::GetTLSInstance()->OneIn(256);
-
-    if (update_ctx || ctx->value.load(std::memory_order_relaxed) >= 0) {
-      // we're updating the adaptation statistics, or spinning has >
-      // 50% chance of being shorter than max_yield_usec_ and causing no
-      // involuntary context switches
-      auto spin_begin = std::chrono::steady_clock::now();
-
-      // this variable doesn't include the final yield (if any) that
-      // causes the goal to be met
-      size_t slow_yield_count = 0;
-
-      auto iter_begin = spin_begin;
-      while ((iter_begin - spin_begin) <=
-             std::chrono::microseconds(max_yield_usec_)) {
-        std::this_thread::yield();
-
-        state = w->state.load(std::memory_order_acquire);
-        if ((state & goal_mask) != 0) {
-          // success
-          would_spin_again = true;
-          break;
-        }
-
-        auto now = std::chrono::steady_clock::now();
-        if (now == iter_begin ||
-            now - iter_begin >= std::chrono::microseconds(slow_yield_usec_)) {
-          // conservatively count it as a slow yield if our clock isn't
-          // accurate enough to measure the yield duration
-          ++slow_yield_count;
-          if (slow_yield_count >= kMaxSlowYieldsWhileSpinning) {
-            // Not just one ivcsw, but several.  Immediately update ctx
-            // and fall back to blocking
-            update_ctx = true;
-            break;
-          }
-        }
-        iter_begin = now;
-      }
-    }
-  }
-
-  if ((state & goal_mask) == 0) {
-    state = BlockingAwaitState(w, goal_mask);
-  }
-
-  if (update_ctx) {
-    auto v = ctx->value.load(std::memory_order_relaxed);
-    // fixed point exponential decay with decay constant 1/1024, with +1
-    // and -1 scaled to avoid overflow for int32_t
-    v = v + (v / 1024) + (would_spin_again ? 1 : -1) * 16384;
-    ctx->value.store(v, std::memory_order_relaxed);
-  }
-
-  assert((state & goal_mask) != 0);
-  return state;
-}
-
-void WriteThread::SetState(Writer* w, uint8_t new_state) {
-  auto state = w->state.load(std::memory_order_acquire);
-  if (state == STATE_LOCKED_WAITING ||
-      !w->state.compare_exchange_strong(state, new_state)) {
-    assert(state == STATE_LOCKED_WAITING);
-
-    std::lock_guard<std::mutex> guard(w->StateMutex());
-    assert(w->state.load(std::memory_order_relaxed) != new_state);
-    w->state.store(new_state, std::memory_order_relaxed);
-    w->StateCV().notify_one();
-  }
-}
-
 void WriteThread::LinkOne(Writer* w, bool* linked_as_leader) {
-  assert(w->state == STATE_INIT);
+  assert(w->state == Writer::STATE_INIT);
 
   while (true) {
     Writer* writers = newest_writer_.load(std::memory_order_relaxed);
@@ -192,7 +28,7 @@ void WriteThread::LinkOne(Writer* w, bool* linked_as_leader) {
       if (writers == nullptr) {
         // this isn't part of the WriteThread machinery, but helps with
         // debugging and is checked by an assert in WriteImpl
-        w->state.store(STATE_GROUP_LEADER, std::memory_order_relaxed);
+        w->state.store(Writer::STATE_GROUP_LEADER, std::memory_order_relaxed);
       }
       *linked_as_leader = (writers == nullptr);
       return;
@@ -222,16 +58,16 @@ void WriteThread::JoinBatchGroup(Writer* w) {
   TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:Wait", w);
 
   if (!linked_as_leader) {
-    AwaitState(w,
-               STATE_GROUP_LEADER | STATE_PARALLEL_FOLLOWER | STATE_COMPLETED,
+    AwaitState(w, Writer::STATE_GROUP_LEADER | Writer::STATE_PARALLEL_FOLLOWER |
+                      Writer::STATE_COMPLETED,
                &ctx);
     TEST_SYNC_POINT_CALLBACK("WriteThread::JoinBatchGroup:DoneWaiting", w);
   }
 }
 
 size_t WriteThread::EnterAsBatchGroupLeader(
-    Writer* leader, WriteThread::Writer** last_writer,
-    autovector<WriteThread::Writer*>* write_batch_group) {
+    Writer* leader, Writer** last_writer,
+    autovector<Writer*>* write_batch_group) {
   assert(leader->link_older == nullptr);
   assert(leader->batch != nullptr);
 
@@ -324,7 +160,7 @@ void WriteThread::LaunchParallelFollowers(ParallelGroup* pg,
 
     w->sequence = sequence;
     w->parallel_group = pg;
-    SetState(w, STATE_PARALLEL_FOLLOWER);
+    w->SetState(Writer::STATE_PARALLEL_FOLLOWER);
   }
 }
 
@@ -342,7 +178,7 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
 
   if (pg->running.load(std::memory_order_acquire) > 1 && pg->running-- > 1) {
     // we're not the last one
-    AwaitState(w, STATE_COMPLETED, &ctx);
+    AwaitState(w, Writer::STATE_COMPLETED, &ctx);
 
     // Caller only needs to perform exit duties if early exit doesn't
     // apply and this is the leader.  Can't touch pg here.  Whoever set
@@ -358,9 +194,9 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
   } else {
     // We're the last parallel follower but early commit is not
     // applicable.  Wake up the leader and then wait for it to exit.
-    assert(w->state == STATE_PARALLEL_FOLLOWER);
-    SetState(leader, STATE_COMPLETED);
-    AwaitState(w, STATE_COMPLETED, &ctx);
+    assert(w->state == Writer::STATE_PARALLEL_FOLLOWER);
+    leader->SetState(Writer::STATE_COMPLETED);
+    AwaitState(w, Writer::STATE_COMPLETED, &ctx);
     return false;
   }
 }
@@ -368,12 +204,12 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
 void WriteThread::EarlyExitParallelGroup(Writer* w) {
   auto* pg = w->parallel_group;
 
-  assert(w->state == STATE_PARALLEL_FOLLOWER);
+  assert(w->state == Writer::STATE_PARALLEL_FOLLOWER);
   assert(pg->status.ok());
   ExitAsBatchGroupLeader(pg->leader, pg->last_writer, pg->status);
   assert(w->status.ok());
-  assert(w->state == STATE_COMPLETED);
-  SetState(pg->leader, STATE_COMPLETED);
+  assert(w->state == Writer::STATE_COMPLETED);
+  pg->leader->SetState(Writer::STATE_COMPLETED);
 }
 
 void WriteThread::ExitAsBatchGroupLeader(Writer* leader, Writer* last_writer,
@@ -407,7 +243,7 @@ void WriteThread::ExitAsBatchGroupLeader(Writer* leader, Writer* last_writer,
     // nullptr when they enqueued (we were definitely enqueued before them
     // and are still in the list).  That means leader handoff occurs when
     // we call MarkJoined
-    SetState(last_writer->link_newer, STATE_GROUP_LEADER);
+    last_writer->link_newer->SetState(Writer::STATE_GROUP_LEADER);
   }
   // else nobody else was waiting, although there might already be a new
   // leader now
@@ -418,10 +254,15 @@ void WriteThread::ExitAsBatchGroupLeader(Writer* leader, Writer* last_writer,
     // as it is marked committed the other thread's Await may return and
     // deallocate the Writer.
     auto next = last_writer->link_older;
-    SetState(last_writer, STATE_COMPLETED);
+    last_writer->SetState(Writer::STATE_COMPLETED);
 
     last_writer = next;
   }
+}
+
+uint8_t WriteThread::AwaitState(Writer* w, uint8_t goal_mask,
+                                AdaptationContext* ctx) {
+  return w->AwaitState(goal_mask, ctx, max_yield_usec_, slow_yield_usec_);
 }
 
 void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
@@ -433,7 +274,7 @@ void WriteThread::EnterUnbatched(Writer* w, InstrumentedMutex* mu) {
   if (!linked_as_leader) {
     mu->Unlock();
     TEST_SYNC_POINT("WriteThread::EnterUnbatched:Wait");
-    AwaitState(w, STATE_GROUP_LEADER, &ctx);
+    AwaitState(w, Writer::STATE_GROUP_LEADER, &ctx);
     mu->Lock();
   }
 }

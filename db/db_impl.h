@@ -33,6 +33,7 @@
 #include "db/wal_manager.h"
 #include "db/write_controller.h"
 #include "db/write_thread.h"
+#include "db/writer.h"
 #include "memtable_list.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -544,12 +545,12 @@ class DBImpl : public DB {
                                         RangeDelAggregator* range_del_agg);
 
   // Except in DB::Open(), WriteOptionsFile can only be called when:
-  // 1. WriteThread::Writer::EnterUnbatched() is used.
+  // 1. WriteThread::EnterUnbatched() is used.
   // 2. db_mutex is held
   Status WriteOptionsFile();
 
   // The following two functions can only be called when:
-  // 1. WriteThread::Writer::EnterUnbatched() is used.
+  // 1. WriteThread::EnterUnbatched() is used.
   // 2. db_mutex is NOT held
   Status RenameTempFileToOptionsFile(const std::string& file_name);
   Status DeleteObsoleteOptionsFiles();
@@ -697,7 +698,7 @@ class DBImpl : public DB {
   Status PreprocessWrite(const WriteOptions& write_options, bool need_log_sync,
                          bool* logs_getting_syned, WriteContext* write_context);
 
-  Status WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+  Status WriteToWAL(const autovector<Writer*>& write_group,
                     log::Writer* log_writer, bool need_log_sync,
                     bool need_log_dir_sync, SequenceNumber sequence);
 

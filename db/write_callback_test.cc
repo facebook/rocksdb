@@ -150,13 +150,12 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
                     cur_threads_waiting, cur_threads_waiting + 1));
 
                 // check my state
-                auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+                auto* writer = reinterpret_cast<Writer*>(arg);
 
                 if (is_leader) {
-                  ASSERT_TRUE(writer->state ==
-                              WriteThread::State::STATE_GROUP_LEADER);
+                  ASSERT_TRUE(writer->state == Writer::STATE_GROUP_LEADER);
                 } else {
-                  ASSERT_TRUE(writer->state == WriteThread::State::STATE_INIT);
+                  ASSERT_TRUE(writer->state == Writer::STATE_INIT);
                 }
 
                 // (meta test) the first WriteOP should indeed be the first
@@ -178,15 +177,13 @@ TEST_F(WriteCallbackTest, WriteWithCallbackTest) {
           rocksdb::SyncPoint::GetInstance()->SetCallBack(
               "WriteThread::JoinBatchGroup:DoneWaiting", [&](void* arg) {
                 // check my state
-                auto* writer = reinterpret_cast<WriteThread::Writer*>(arg);
+                auto* writer = reinterpret_cast<Writer*>(arg);
 
                 if (!allow_batching) {
                   // no batching so everyone should be a leader
-                  ASSERT_TRUE(writer->state ==
-                              WriteThread::State::STATE_GROUP_LEADER);
+                  ASSERT_TRUE(writer->state == Writer::STATE_GROUP_LEADER);
                 } else if (!allow_parallel) {
-                  ASSERT_TRUE(writer->state ==
-                              WriteThread::State::STATE_COMPLETED);
+                  ASSERT_TRUE(writer->state == Writer::STATE_COMPLETED);
                 }
               });
 
