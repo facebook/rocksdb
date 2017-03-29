@@ -751,6 +751,8 @@ struct DBOptions {
   // Default: 16MB/s
   uint64_t delayed_write_rate = 16 * 1024U * 1024U;
 
+  bool enable_pipeline_write = false;
+
   // If true, allow multi-writers to update mem tables in parallel.
   // Only some memtable_factory-s support concurrent writes; currently it
   // is implemented only for SkipListFactory.  Concurrent memtable writes
