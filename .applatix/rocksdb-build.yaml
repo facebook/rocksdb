@@ -55,6 +55,10 @@ steps:
         checkout_artifact: "%%steps.checkout.code%%"
         build_env_tests: $$[-e ROCKSDBTESTS_END=db_block_cache_test, -e ROCKSDBTESTS_START=db_block_cache_test -e ROCKSDBTESTS_END=comparator_db_test, -e ROCKSDBTESTS_START=comparator_db_test]$$
 
+termination_policy:
+  time_seconds: 7200
+  spending_cents: 100
+
 ---
 type: policy
 name: Rocksdb Build Policy
