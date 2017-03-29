@@ -647,6 +647,11 @@ Status BackupEngineImpl::Initialize() {
   // background
   for (int t = 0; t < options_.max_background_operations; t++) {
     threads_.emplace_back([this]() {
+#if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
+#if __GLIBC_PREREQ(2, 12)
+      pthread_setname_np(pthread_self(), "backup_engine");
+#endif
+#endif
       CopyOrCreateWorkItem work_item;
       while (files_to_copy_or_create_.read(work_item)) {
         CopyOrCreateResult result;
@@ -659,7 +664,6 @@ Status BackupEngineImpl::Initialize() {
       }
     });
   }
-
   ROCKS_LOG_INFO(options_.info_log, "Initialized BackupEngine");
 
   return Status::OK();
