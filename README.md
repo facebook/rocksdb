@@ -12,10 +12,10 @@ storage services (based on RAM, NvMe, SSD, Disk Cold Storage, etc) that are offe
 most cloud providers. RocksDB-Cloud is developed and maintained by the engineering
 team at Rockset Inc. Start with https://github.com/rockset/rocksdb-cloud/tree/master/cloud.
 
-Rocksdb-Cloud provides three main advantages for AWS environments:
+RocksDB-Cloud provides three main advantages for AWS environments:
 
 1. A rocksdb instance is durable. Continuous and automatic replication of db data and metadata to S3. In the event that the rocksdb machine dies, another process on any other EC2 machine can reopen the same rocksdb database (by configuring it with the S3 bucketname where the entire db state was stored).
-2. A rocksdb instance is cloneable. Rocksdb-Cloud support a primitive called zero-copy-clone() that allows a slave instance of rocksdb on another machine to clone an existing db. Both master and slave rocksdb instance can run in parallel and they share some set of common database files.
+2. A rocksdb instance is cloneable. RocksDB-Cloud support a primitive called zero-copy-clone() that allows a slave instance of rocksdb on another machine to clone an existing db. Both master and slave rocksdb instance can run in parallel and they share some set of common database files.
 3. A rocksdb instance can leverage hierarchical storage. The entire rocksdb storage footprint need not be resident on local storage. S3 contains the entire database and the local storage contains only the files that are in the working set.
 
 ### Inherits from RocksDB: 
