@@ -42,7 +42,7 @@ inputs:
     build_env_job_name:
       default: 'unittests'
     build_env_use_aws:
-      default: '1'
+      default: '0'
     build_env_travis_build_dir:
       default: '/src'
 
