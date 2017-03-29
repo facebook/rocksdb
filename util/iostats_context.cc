@@ -10,7 +10,7 @@
 namespace rocksdb {
 
 #ifndef IOS_CROSS_COMPILE
-# ifdef _WIN32
+# ifdef _MSC_VER
 __declspec(thread) IOStatsContext iostats_context;
 # else
 __thread IOStatsContext iostats_context;

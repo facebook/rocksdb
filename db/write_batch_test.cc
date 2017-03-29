@@ -478,7 +478,7 @@ TEST_F(WriteBatchTest, DISABLED_LargeKeyValue) {
   // Insert key and value of 3GB and push total batch size to 12GB.
   static const size_t kKeyValueSize = 3221225472u;
   std::string raw(kKeyValueSize, 'A');
-  WriteBatch batch(12884901888u + 1024u);
+  WriteBatch batch(size_t(12884901888ull + 1024u));
   for (char i = 0; i < 2; i++) {
     raw[0] = 'A' + i;
     raw[raw.length() - 1] = 'A' - i;

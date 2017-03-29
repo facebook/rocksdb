@@ -26,7 +26,7 @@
 namespace rocksdb {
 
 // MSVC complains that it is already defined since it is static in the header.
-#ifndef OS_WIN
+#ifndef _MSC_VER
 const size_t Arena::kInlineSize;
 #endif
 

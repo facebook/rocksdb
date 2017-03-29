@@ -11,7 +11,7 @@ namespace rocksdb {
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
   PerfContext perf_context;
-#elif _WIN32
+#elif defined(_MSC_VER)
   __declspec(thread) PerfContext perf_context;
 #else
   __thread PerfContext perf_context;
