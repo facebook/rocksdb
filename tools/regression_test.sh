@@ -127,8 +127,10 @@ function main {
       tmp=$DB_PATH
       DB_PATH=$ORIGIN_PATH
       if [ ! -e $DB_PATH ]; then
+          echo "Building DB..."
           run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
-      elif [[ ! -d $DB_PATH ]] || [[ `find $DB_PATH -mtime +7d` ]]; then
+      elif [[ ! -d $DB_PATH ]] || [[ "$(( $(date +"%s") - $(stat -c "%Y" $DB_PATH) ))" -gt "604800"  ]]; then
+          echo "Rebuilding DB..."
           rm $DB_PATH
           run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
       fi
