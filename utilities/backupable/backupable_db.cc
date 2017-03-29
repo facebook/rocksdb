@@ -659,7 +659,7 @@ Status BackupEngineImpl::Initialize() {
       }
     });
   }
-
+  pthread_setname_np(pthread_self(), "backup_engine");
   ROCKS_LOG_INFO(options_.info_log, "Initialized BackupEngine");
 
   return Status::OK();
