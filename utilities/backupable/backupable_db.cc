@@ -647,7 +647,9 @@ Status BackupEngineImpl::Initialize() {
   // background
   for (int t = 0; t < options_.max_background_operations; t++) {
     threads_.emplace_back([this]() {
+#ifdef OS_LINUX
       pthread_setname_np(pthread_self(), "backup_engine");
+#endif
       CopyOrCreateWorkItem work_item;
       while (files_to_copy_or_create_.read(work_item)) {
         CopyOrCreateResult result;
