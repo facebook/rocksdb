@@ -235,19 +235,11 @@ function run_db_bench {
       --num_multi_db=$NUM_MULTI_DB \
       --max_background_compactions=$MAX_BACKGROUND_COMPACTIONS \
       --seed=$SEED 2>&1"
-  kill_db_bench_cmd="pkill db_bench"
   ps_cmd="ps aux"
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
     echo "Running benchmark remotely on $REMOTE_USER_AT_HOST"
-    kill_db_bench_cmd="$SSH $REMOTE_USER_AT_HOST $kill_db_bench_cmd"
     db_bench_cmd="$SSH $REMOTE_USER_AT_HOST $db_bench_cmd"
     ps_cmd="$SSH $REMOTE_USER_AT_HOST $ps_cmd"
-  fi
-
-  ## kill existing db_bench processes
-  eval "$kill_db_bench_cmd"
-  if [ $? -eq 0 ]; then
-    echo "Killed all currently running db_bench"
   fi
 
   ## make sure no db_bench is running
@@ -263,7 +255,7 @@ function run_db_bench {
   if [ "$grep_output" != "" ]; then
     echo "Stopped regression_test.sh as there're still db_bench processes running:"
     echo $grep_output
-    exit 1
+    exit 2
   fi
 
   ## run the db_bench
