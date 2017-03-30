@@ -180,7 +180,7 @@ pthread_key_t thread_local_key = -1;
 void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
   // We decided to punt on PROCESS_EXIT
   if (DLL_THREAD_DETACH == reason) {
-    if (thread_local_key != -1 && thread_local_inclass_routine != nullptr) {
+    if (thread_local_key != pthread_key_t(-1) && thread_local_inclass_routine != nullptr) {
       void* tls = pthread_getspecific(thread_local_key);
       if (tls != nullptr) {
         thread_local_inclass_routine(tls);
@@ -191,22 +191,11 @@ void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
 
 }  // wintlscleanup
 
-#ifdef _WIN64
-
-#pragma comment(linker, "/include:_tls_used")
-#pragma comment(linker, "/include:p_thread_callback_on_exit")
-
-#else  // _WIN64
-
-#pragma comment(linker, "/INCLUDE:__tls_used")
-#pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
-
-#endif  // _WIN64
-
 // extern "C" suppresses C++ name mangling so we know the symbol name for the
 // linker /INCLUDE:symbol pragma above.
 extern "C" {
 
+#ifdef _MSC_VER
 // The linker must not discard thread_callback_on_exit.  (We force a reference
 // to this variable with a linker /include:symbol pragma to ensure that.) If
 // this variable is discarded, the OnThreadExit function will never be called.
@@ -222,6 +211,9 @@ const PIMAGE_TLS_CALLBACK p_thread_callback_on_exit =
 // Reset the default section.
 #pragma const_seg()
 
+#pragma comment(linker, "/include:_tls_used")
+#pragma comment(linker, "/include:p_thread_callback_on_exit")
+
 #else  // _WIN64
 
 #pragma data_seg(".CRT$XLB")
@@ -229,8 +221,19 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 // Reset the default section.
 #pragma data_seg()
 
+#pragma comment(linker, "/INCLUDE:__tls_used")
+#pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
+
 #endif  // _WIN64
 
+#else
+// https://github.com/couchbase/gperftools/blob/master/src/windows/port.cc
+BOOL WINAPI DllMain(HINSTANCE h, DWORD dwReason, PVOID pv) {
+  if (dwReason == DLL_THREAD_DETACH)
+    wintlscleanup::WinOnThreadExit(h, dwReason, pv);
+  return TRUE;
+}
+#endif
 }  // extern "C"
 
 #endif  // OS_WIN

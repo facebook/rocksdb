@@ -142,7 +142,7 @@ DIR* opendir(const char* name) {
     return nullptr;
   }
 
-  strncpy_s(dir->entry_.d_name, dir->data_.name, strlen(dir->data_.name));
+  strcpy_s(dir->entry_.d_name, sizeof(dir->entry_.d_name), dir->data_.name);
 
   return dir.release();
 }
@@ -164,7 +164,7 @@ struct dirent* readdir(DIR* dirp) {
     return nullptr;
   }
 
-  strncpy_s(dirp->entry_.d_name, dirp->data_.name, strlen(dirp->data_.name));
+  strcpy_s(dirp->entry_.d_name, sizeof(dirp->entry_.d_name), dirp->data_.name);
 
   return &dirp->entry_;
 }
