@@ -42,6 +42,11 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
 if(WIN32)
+  if (DEFINED AVX2)
+    set(USE_AVX2 ${AVX2})
+  else ()
+    set(USE_AVX2 1)
+  endif ()
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
   option(WITH_JEMALLOC "build with JeMalloc" OFF)
@@ -111,7 +116,11 @@ add_library(build_version OBJECT ${BUILD_VERSION_CC})
 target_include_directories(build_version PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/util)
 if(WIN32)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
+  if (${USE_AVX2} EQUAL 1)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /arch:AVX2 /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
+  else ()
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
+  endif ()
 
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /wd4127 /wd4800 /wd4996 /wd4351")
 else()
@@ -378,7 +387,7 @@ set(SOURCES
         util/histogram_windowing.cc
         util/instrumented_mutex.cc
         util/iostats_context.cc
-        
+
         util/lru_cache.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc

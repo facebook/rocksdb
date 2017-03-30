@@ -16,6 +16,11 @@
 #ifdef __SSE4_2__
 #include <nmmintrin.h>
 #endif
+#if defined(_WIN64)
+#ifdef __AVX2__
+#include <nmmintrin.h>
+#endif
+#endif
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -299,6 +304,13 @@ static inline uint64_t LE_LOAD64(const uint8_t *p) {
 #endif
 #endif
 
+#if defined(_WIN64)
+#ifdef __AVX2__
+static inline uint64_t LE_LOAD64(const uint8_t *p) {
+  return DecodeFixed64(reinterpret_cast<const char*>(p));
+}
+#endif
+#endif
 static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
   uint32_t c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
   *p += 4;
@@ -325,6 +337,13 @@ static inline void Fast_CRC32(uint64_t* l, uint8_t const **p) {
   *p += 4;
   *l = _mm_crc32_u32(static_cast<unsigned int>(*l), LE_LOAD32(*p));
   *p += 4;
+#endif
+#elif defined(_WIN64)
+#ifdef __AVX2__
+  *l = _mm_crc32_u64(*l, LE_LOAD64(*p));
+  *p += 8;
+#else
+  Slow_CRC32(l, p);
 #endif
 #else
   Slow_CRC32(l, p);
@@ -381,6 +400,10 @@ static bool isSSE42() {
   uint32_t d_;
   __asm__("cpuid" : "=c"(c_), "=d"(d_) : "a"(1) : "ebx");
   return c_ & (1U << 20);  // copied from CpuId.h in Folly.
+#elif defined(_WIN64)
+  int info[4];
+  __cpuidex(info, 0x00000001, 0);
+  return (info[2] & ((int)1 << 20)) != 0;
 #else
   return false;
 #endif
@@ -394,6 +417,8 @@ static inline Function Choose_Extend() {
 
 bool IsFastCrc32Supported() {
 #ifdef __SSE4_2__
+  return isSSE42();
+#elif defined(_WIN64)
   return isSSE42();
 #else
   return false;
