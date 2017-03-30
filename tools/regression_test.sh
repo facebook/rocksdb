@@ -39,6 +39,10 @@
 #   DEBUG: If true, then the script will not checkout master and build db_bench
 #       if db_bench already exists
 #       Default: 0
+#   TEST_MODE: If 1, run fillseqdeterminstic and benchmarks both
+#       if 0, only run fillseqdeterministc
+#       if 2, only run benchmarks
+#       Default: 1
 #   TEST_PATH: the root directory of the regression test.
 #       Default: "/tmp/rocksdb/regression_test"
 #   RESULT_PATH: the directory where the regression results will be generated.
@@ -113,22 +117,35 @@ function main {
 
   if [ $DEBUG -eq 0 ]; then
       checkout_rocksdb $commit
-      build_db_bench
-  elif [ ! -f db_bench ]; then
-      build_db_bench
+      build_db_bench_and_ldb
+  elif [[ ! -f db_bench ]] || [[ ! -f ldb ]]; then
+      build_db_bench_and_ldb
   fi
 
   setup_test_directory
-  # an additional dot indicates we share same env variables
-  run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
-  run_db_bench "readrandom"
-  run_db_bench "readwhilewriting"
-  run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
-  run_db_bench "seekrandom"
-  run_db_bench "seekrandomwhilewriting"
+  if [ $TEST_MODE -le 1 ]; then
+      tmp=$DB_PATH
+      DB_PATH=$ORIGIN_PATH
+      if [ ! -e $DB_PATH ]; then
+          echo "Building DB..."
+          run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
+      elif [[ ! -d $DB_PATH ]] || [[ "$(( $(date +"%s") - $(stat -c "%Y" $DB_PATH) ))" -gt "604800"  ]]; then
+          echo "Rebuilding DB..."
+          rm $DB_PATH
+          run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
+      fi
+      DB_PATH=$tmp
+  fi
+  if [ $TEST_MODE -ge 1 ]; then
+      build_checkpoint
+      run_db_bench "readrandom"
+      run_db_bench "readwhilewriting"
+      run_db_bench "deleterandom" $((NUM_KEYS / 10 / $NUM_THREADS))
+      run_db_bench "seekrandom"
+      run_db_bench "seekrandomwhilewriting"
+  fi
 
   cleanup_test_directory $test_root_dir
-
   echo ""
   echo "Benchmark completed!  Results are available in $RESULT_PATH"
 }
@@ -145,6 +162,7 @@ function init_arguments {
   SUMMARY_FILE="$RESULT_PATH/SUMMARY.csv"
 
   DB_PATH=${3:-"$1/db"}
+  ORIGIN_PATH=${ORIGIN_PATH:-"$(dirname $(dirname $DB_PATH))/db"}
   WAL_PATH=${4:-""}
   if [ -z "$REMOTE_USER_AT_HOST" ]; then
     DB_BENCH_DIR=${5:-"."}
@@ -153,6 +171,7 @@ function init_arguments {
   fi
 
   DEBUG=${DEBUG:-0}
+  TEST_MODE=${TEST_MODE:-1}
   SCP=${SCP:-"scp"}
   SSH=${SSH:-"ssh"}
   NUM_THREADS=${NUM_THREADS:-16}
@@ -257,6 +276,20 @@ function run_db_bench {
   update_report "$1" "$RESULT_PATH/$1" $ops $threads
 }
 
+function build_checkpoint {
+    cmd_prefix=""
+    if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
+        cmd_prefix="$SSH $REMOTE_USER_AT_HOST "
+    fi
+    dirs=$($cmd_prefix find $ORIGIN_PATH -type d -links 2)
+    for dir in $dirs; do
+        db_index=$(basename $dir)
+        echo "Building checkpoint: $ORIGIN_PATH/$db_index -> $DB_PATH/$db_index ..."
+        $cmd_prefix $DB_BENCH_DIR/ldb checkpoint --checkpoint_dir=$DB_PATH/$db_index \
+                      --db=$ORIGIN_PATH/$db_index 2>&1
+    done
+}
+
 function multiply {
   echo "$1 * $2" | bc
 }
@@ -321,13 +354,13 @@ function checkout_rocksdb {
   exit_on_error $?
 }
 
-function build_db_bench {
-  echo "Building db_bench ..."
+function build_db_bench_and_ldb {
+  echo "Building db_bench & ldb ..."
 
   make clean
   exit_on_error $?
 
-  DEBUG_LEVEL=0 make db_bench -j32
+  DEBUG_LEVEL=0 make db_bench ldb -j32
   exit_on_error $?
 }
 
@@ -378,7 +411,8 @@ function setup_test_directory {
   run_remote "ls -l $DB_BENCH_DIR"
 
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-    run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
+      run_local "$SCP ./db_bench $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/db_bench"
+      run_local "$SCP ./ldb $REMOTE_USER_AT_HOST:$DB_BENCH_DIR/ldb"
   fi
 
   run_local "mkdir -p $RESULT_PATH"
