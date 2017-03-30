@@ -582,12 +582,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.level0_slowdown_writes_trigger));
     options.setLevelZeroFileNumCompactionTrigger(
         (Integer)flags_.get(Flag.level0_file_num_compaction_trigger));
-    options.setSoftRateLimit(
-        (Double)flags_.get(Flag.soft_rate_limit));
-    options.setHardRateLimit(
-        (Double)flags_.get(Flag.hard_rate_limit));
-    options.setRateLimitDelayMaxMilliseconds(
-        (Integer)flags_.get(Flag.rate_limit_delay_max_milliseconds));
     options.setMaxCompactionBytes(
         (Long) flags_.get(Flag.max_compaction_bytes));
     options.setDisableAutoCompactions(

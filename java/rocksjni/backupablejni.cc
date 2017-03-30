@@ -50,6 +50,18 @@ jstring Java_org_rocksdb_BackupableDBOptions_backupDir(
 
 /*
  * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setBackupEnv
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setBackupEnv(
+    JNIEnv* env, jobject jopt, jlong jhandle, jlong jrocks_env_handle) {
+  auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jrocks_env_handle);
+  bopt->backup_env = rocks_env;
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
  * Method:    setShareTableFiles
  * Signature: (JZ)V
  */
@@ -68,6 +80,19 @@ jboolean Java_org_rocksdb_BackupableDBOptions_shareTableFiles(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
   return bopt->share_table_files;
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setInfoLog
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setInfoLog(
+  JNIEnv* env, jobject jobj, jlong jhandle, jlong jlogger_handle) {
+  auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  auto* sptr_logger =
+      reinterpret_cast<std::shared_ptr<rocksdb::LoggerJniCallback> *>(jhandle);
+  bopt->info_log = sptr_logger->get();
 }
 
 /*
@@ -160,6 +185,19 @@ jlong Java_org_rocksdb_BackupableDBOptions_backupRateLimit(
 
 /*
  * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setBackupRateLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setBackupRateLimiter(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
+  auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  auto* sptr_rate_limiter =
+      reinterpret_cast<std::shared_ptr<rocksdb::RateLimiter> *>(jrate_limiter_handle);
+  bopt->backup_rate_limiter = *sptr_rate_limiter;
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
  * Method:    setRestoreRateLimit
  * Signature: (JJ)V
  */
@@ -182,6 +220,19 @@ jlong Java_org_rocksdb_BackupableDBOptions_restoreRateLimit(
 
 /*
  * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setRestoreRateLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setRestoreRateLimiter(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
+  auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  auto* sptr_rate_limiter =
+      reinterpret_cast<std::shared_ptr<rocksdb::RateLimiter> *>(jrate_limiter_handle);
+  bopt->restore_rate_limiter = *sptr_rate_limiter;
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
  * Method:    setShareFilesWithChecksum
  * Signature: (JZ)V
  */
@@ -200,6 +251,53 @@ jboolean Java_org_rocksdb_BackupableDBOptions_shareFilesWithChecksum(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
   return bopt->share_files_with_checksum;
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setMaxBackgroundOperations
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setMaxBackgroundOperations(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint max_background_operations) {
+  auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  bopt->max_background_operations =
+      static_cast<int>(max_background_operations);
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    maxBackgroundOperations
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_BackupableDBOptions_maxBackgroundOperations(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  return static_cast<jint>(bopt->max_background_operations);
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setCallbackTriggerIntervalSize
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setCallbackTriggerIntervalSize(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jlong jcallback_trigger_interval_size) {
+  auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  bopt->callback_trigger_interval_size =
+      static_cast<uint64_t>(jcallback_trigger_interval_size);
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    callbackTriggerIntervalSize
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_BackupableDBOptions_callbackTriggerIntervalSize(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  return static_cast<jlong>(bopt->callback_trigger_interval_size);
 }
 
 /*

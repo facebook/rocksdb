@@ -39,6 +39,21 @@ public class BackupableDBOptionsTest {
   }
 
   @Test
+  public void env() {
+    try (final BackupableDBOptions backupableDBOptions =
+             new BackupableDBOptions(ARBITRARY_PATH)) {
+      assertThat(backupableDBOptions.backupEnv()).
+          isNull();
+
+      try(final Env env = new RocksMemEnv()) {
+        backupableDBOptions.setBackupEnv(env);
+        assertThat(backupableDBOptions.backupEnv())
+            .isEqualTo(env);
+      }
+    }
+  }
+
+  @Test
   public void shareTableFiles() {
     try (final BackupableDBOptions backupableDBOptions =
              new BackupableDBOptions(ARBITRARY_PATH)) {
@@ -46,6 +61,27 @@ public class BackupableDBOptionsTest {
       backupableDBOptions.setShareTableFiles(value);
       assertThat(backupableDBOptions.shareTableFiles()).
           isEqualTo(value);
+    }
+  }
+
+  @Test
+  public void infoLog() {
+    try (final BackupableDBOptions backupableDBOptions =
+             new BackupableDBOptions(ARBITRARY_PATH)) {
+      assertThat(backupableDBOptions.infoLog()).
+          isNull();
+
+      try(final Options options = new Options();
+          final Logger logger = new Logger(options){
+            @Override
+            protected void log(InfoLogLevel infoLogLevel, String logMsg) {
+
+            }
+          }) {
+        backupableDBOptions.setInfoLog(logger);
+        assertThat(backupableDBOptions.infoLog())
+            .isEqualTo(logger);
+      }
     }
   }
 
@@ -97,6 +133,22 @@ public class BackupableDBOptionsTest {
   }
 
   @Test
+  public void backupRateLimiter() {
+    try (final BackupableDBOptions backupableDBOptions =
+             new BackupableDBOptions(ARBITRARY_PATH)) {
+      assertThat(backupableDBOptions.backupEnv()).
+          isNull();
+
+      try(final RateLimiter backupRateLimiter =
+              new RateLimiter(999)) {
+        backupableDBOptions.setBackupRateLimiter(backupRateLimiter);
+        assertThat(backupableDBOptions.backupRateLimiter())
+            .isEqualTo(backupRateLimiter);
+      }
+    }
+  }
+
+  @Test
   public void restoreRateLimit() {
     try (final BackupableDBOptions backupableDBOptions =
              new BackupableDBOptions(ARBITRARY_PATH)) {
@@ -112,12 +164,50 @@ public class BackupableDBOptionsTest {
   }
 
   @Test
+  public void restoreRateLimiter() {
+    try (final BackupableDBOptions backupableDBOptions =
+             new BackupableDBOptions(ARBITRARY_PATH)) {
+      assertThat(backupableDBOptions.backupEnv()).
+          isNull();
+
+      try(final RateLimiter restoreRateLimiter =
+              new RateLimiter(911)) {
+        backupableDBOptions.setRestoreRateLimiter(restoreRateLimiter);
+        assertThat(backupableDBOptions.restoreRateLimiter())
+            .isEqualTo(restoreRateLimiter);
+      }
+    }
+  }
+
+  @Test
   public void shareFilesWithChecksum() {
     try (final BackupableDBOptions backupableDBOptions =
              new BackupableDBOptions(ARBITRARY_PATH)) {
       boolean value = rand.nextBoolean();
       backupableDBOptions.setShareFilesWithChecksum(value);
       assertThat(backupableDBOptions.shareFilesWithChecksum()).
+          isEqualTo(value);
+    }
+  }
+
+  @Test
+  public void maxBackgroundOperations() {
+    try (final BackupableDBOptions backupableDBOptions =
+             new BackupableDBOptions(ARBITRARY_PATH)) {
+      final int value = rand.nextInt();
+      backupableDBOptions.setMaxBackgroundOperations(value);
+      assertThat(backupableDBOptions.maxBackgroundOperations()).
+          isEqualTo(value);
+    }
+  }
+
+  @Test
+  public void callbackTriggerIntervalSize() {
+    try (final BackupableDBOptions backupableDBOptions =
+             new BackupableDBOptions(ARBITRARY_PATH)) {
+      final long value = rand.nextLong();
+      backupableDBOptions.setCallbackTriggerIntervalSize(value);
+      assertThat(backupableDBOptions.callbackTriggerIntervalSize()).
           isEqualTo(value);
     }
   }

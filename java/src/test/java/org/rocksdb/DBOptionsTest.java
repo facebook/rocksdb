@@ -8,8 +8,8 @@ package org.rocksdb;
 import org.junit.ClassRule;
 import org.junit.Test;
 
-import java.util.Properties;
-import java.util.Random;
+import java.nio.file.Paths;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -60,6 +60,22 @@ public class DBOptionsTest {
     try(final DBOptions opt = DBOptions.getDBOptionsFromProps(
         new Properties())) {
       //no-op
+    }
+  }
+
+  @Test
+  public void linkageOfPrepMethods() {
+    try (final DBOptions opt = new DBOptions()) {
+      opt.optimizeForSmallDb();
+    }
+  }
+
+  @Test
+  public void env() {
+    try (final DBOptions opt = new DBOptions();
+         final Env env = Env.getDefault()) {
+      opt.setEnv(env);
+      assertThat(opt.getEnv()).isSameAs(env);
     }
   }
 
@@ -126,11 +142,36 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void maxFileOpeningThreads() {
+    try(final DBOptions opt = new DBOptions()) {
+      final int intValue = rand.nextInt();
+      opt.setMaxFileOpeningThreads(intValue);
+      assertThat(opt.maxFileOpeningThreads()).isEqualTo(intValue);
+    }
+  }
+
+  @Test
   public void useFsync() {
     try(final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();
       opt.setUseFsync(boolValue);
       assertThat(opt.useFsync()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void dbPaths() {
+    final List<DbPath> dbPaths = new ArrayList<>();
+    dbPaths.add(new DbPath(Paths.get("/a"), 10));
+    dbPaths.add(new DbPath(Paths.get("/b"), 100));
+    dbPaths.add(new DbPath(Paths.get("/c"), 1000));
+
+    try(final DBOptions opt = new DBOptions()) {
+      assertThat(opt.dbPaths()).isEqualTo(Collections.emptyList());
+
+      opt.setDbPaths(dbPaths);
+
+      assertThat(opt.dbPaths()).isEqualTo(dbPaths);
     }
   }
 
@@ -227,6 +268,15 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void recycleLogFileNum() throws RocksDBException {
+    try(final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setRecycleLogFileNum(longValue);
+      assertThat(opt.recycleLogFileNum()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void maxManifestFileSize() {
     try(final DBOptions opt = new DBOptions()) {
       final long longValue = rand.nextLong();
@@ -290,6 +340,15 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void allowFAllocate() {
+    try(final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllowFAllocate(boolValue);
+      assertThat(opt.allowFAllocate()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
   public void allowMmapReads() {
     try(final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();
@@ -335,6 +394,60 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void dbWriteBufferSize() {
+    try(final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setDbWriteBufferSize(longValue);
+      assertThat(opt.dbWriteBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void accessHintOnCompactionStart() {
+    try(final DBOptions opt = new DBOptions()) {
+      final AccessHint accessHint = AccessHint.SEQUENTIAL;
+      opt.setAccessHintOnCompactionStart(accessHint);
+      assertThat(opt.accessHintOnCompactionStart()).isEqualTo(accessHint);
+    }
+  }
+
+  @Test
+  public void newTableReaderForCompactionInputs() {
+    try(final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setNewTableReaderForCompactionInputs(boolValue);
+      assertThat(opt.newTableReaderForCompactionInputs()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void compactionReadaheadSize() {
+    try(final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setCompactionReadaheadSize(longValue);
+      assertThat(opt.compactionReadaheadSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void randomAccessMaxBufferSize() {
+    try(final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setRandomAccessMaxBufferSize(longValue);
+      assertThat(opt.randomAccessMaxBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void writableFileMaxBufferSize() {
+    try(final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setWritableFileMaxBufferSize(longValue);
+      assertThat(opt.writableFileMaxBufferSize()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
   public void useAdaptiveMutex() {
     try(final DBOptions opt = new DBOptions()) {
       final boolean boolValue = rand.nextBoolean();
@@ -349,6 +462,33 @@ public class DBOptionsTest {
       final long longValue = rand.nextLong();
       opt.setBytesPerSync(longValue);
       assertThat(opt.bytesPerSync()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void walBytesPerSync() {
+    try(final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setWalBytesPerSync(longValue);
+      assertThat(opt.walBytesPerSync()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void enableThreadTracking() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setEnableThreadTracking(boolValue);
+      assertThat(opt.enableThreadTracking()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void delayedWriteRate() {
+    try(final DBOptions opt = new DBOptions()) {
+      final long longValue = rand.nextLong();
+      opt.setDelayedWriteRate(longValue);
+      assertThat(opt.delayedWriteRate()).isEqualTo(longValue);
     }
   }
 
@@ -385,6 +525,87 @@ public class DBOptionsTest {
       final long longValue = rand.nextLong();
       opt.setWriteThreadSlowYieldUsec(longValue);
       assertThat(opt.writeThreadSlowYieldUsec()).isEqualTo(longValue);
+    }
+  }
+
+  @Test
+  public void skipStatsUpdateOnDbOpen() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setSkipStatsUpdateOnDbOpen(boolValue);
+      assertThat(opt.skipStatsUpdateOnDbOpen()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void walRecoveryMode() {
+    try (final DBOptions opt = new DBOptions()) {
+      for (final WALRecoveryMode walRecoveryMode : WALRecoveryMode.values()) {
+        opt.setWalRecoveryMode(walRecoveryMode);
+        assertThat(opt.walRecoveryMode()).isEqualTo(walRecoveryMode);
+      }
+    }
+  }
+
+  @Test
+  public void allow2pc() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAllow2pc(boolValue);
+      assertThat(opt.allow2pc()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void rowCache() {
+    try (final DBOptions opt = new DBOptions()) {
+      assertThat(opt.rowCache()).isNull();
+
+      try(final Cache lruCache = new LRUCache(1000)) {
+        opt.setRowCache(lruCache);
+        assertThat(opt.rowCache()).isEqualTo(lruCache);
+      }
+
+      try(final Cache clockCache = new ClockCache(1000)) {
+        opt.setRowCache(clockCache);
+        assertThat(opt.rowCache()).isEqualTo(clockCache);
+      }
+    }
+  }
+
+  @Test
+  public void failIfOptionsFileError() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setFailIfOptionsFileError(boolValue);
+      assertThat(opt.failIfOptionsFileError()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void dumpMallocStats() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setDumpMallocStats(boolValue);
+      assertThat(opt.dumpMallocStats()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void avoidFlushDuringRecovery() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAvoidFlushDuringRecovery(boolValue);
+      assertThat(opt.avoidFlushDuringRecovery()).isEqualTo(boolValue);
+    }
+  }
+
+  @Test
+  public void avoidFlushDuringShutdown() {
+    try (final DBOptions opt = new DBOptions()) {
+      final boolean boolValue = rand.nextBoolean();
+      opt.setAvoidFlushDuringShutdown(boolValue);
+      assertThat(opt.avoidFlushDuringShutdown()).isEqualTo(boolValue);
     }
   }
 

@@ -332,16 +332,21 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
+  java/rocksjni/clock_cache.cc                                \
   java/rocksjni/columnfamilyhandle.cc                         \
   java/rocksjni/compaction_filter.cc                          \
+  java/rocksjni/compaction_options_fifo.cc                    \
+  java/rocksjni/compaction_options_universal.cc               \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
+  java/rocksjni/compression_options.cc                        \
   java/rocksjni/env.cc                                        \
   java/rocksjni/env_options.cc                                \
   java/rocksjni/external_sst_file_info.cc                     \
   java/rocksjni/filter.cc                                     \
   java/rocksjni/iterator.cc                                   \
   java/rocksjni/loggerjnicallback.cc                          \
+  java/rocksjni/lru_cache.cc                                  \
   java/rocksjni/memtablejni.cc                                \
   java/rocksjni/merge_operator.cc                             \
   java/rocksjni/options.cc                                    \
