@@ -423,7 +423,7 @@ TEST_F(DeleteSchedulerTest, MoveToTrashError) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DeleteSchedulerTest, DynamicRateLimiting1) {
+TEST_F(DeleteSchedulerTest, DISABLED_DynamicRateLimiting1) {
   std::vector<uint64_t> penalties;
   int bg_delete_file = 0;
   int fg_delete_file = 0;
