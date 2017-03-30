@@ -144,10 +144,11 @@ void ThreadStatusUtil::EraseColumnFamilyInfo(
 }
 
 void ThreadStatusUtil::EraseDatabaseInfo(const DB* db) {
-  if (thread_updater_local_cache_ == nullptr) {
+  ThreadStatusUpdater* thread_updater = db->GetEnv()->GetThreadStatusUpdater();
+  if (thread_updater == nullptr) {
     return;
   }
-  thread_updater_local_cache_->EraseDatabaseInfo(db);
+  thread_updater->EraseDatabaseInfo(db);
 }
 
 bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* env) {
