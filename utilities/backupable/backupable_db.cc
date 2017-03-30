@@ -1458,7 +1458,12 @@ Status BackupEngineImpl::GarbageCollect() {
     // delete obsolete shared files
     std::vector<std::string> shared_children;
     {
-      auto shared_path = GetAbsolutePath(GetSharedFileRel());
+      std::string shared_path;
+      if (options_.share_files_with_checksum) {
+        shared_path = GetAbsolutePath(GetSharedFileWithChecksumRel());
+      } else {
+        shared_path = GetAbsolutePath(GetSharedFileRel());
+      }
       auto s = backup_env_->FileExists(shared_path);
       if (s.ok()) {
         s = backup_env_->GetChildren(shared_path, &shared_children);
@@ -1470,7 +1475,12 @@ Status BackupEngineImpl::GarbageCollect() {
       }
     }
     for (auto& child : shared_children) {
-      std::string rel_fname = GetSharedFileRel(child);
+      std::string rel_fname;
+      if (options_.share_files_with_checksum) {
+        rel_fname = GetSharedFileWithChecksumRel(child);
+      } else {
+        rel_fname = GetSharedFileRel(child);
+      }
       auto child_itr = backuped_file_infos_.find(rel_fname);
       // if it's not refcounted, delete it
       if (child_itr == backuped_file_infos_.end() ||
