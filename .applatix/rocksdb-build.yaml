@@ -73,6 +73,7 @@ notifications:
     whom:
       - committer
       - author
+      - c1v6r2o8a5v7u6g4@rockset-io.slack.com
 when:
   -
     event: on_push
