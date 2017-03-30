@@ -27,7 +27,7 @@ function postURL($diffID, $url) {
       (int)$diffID,
     'link' => $url
   );
-  $cmd = 'echo ' . escapeshellarg(fb_json_encode($cmd_args))
+  $cmd = 'echo ' . escapeshellarg(json_encode($cmd_args))
          . ' | arc call-conduit differential.updateunitresults';
   shell_exec($cmd);
 }
@@ -42,7 +42,7 @@ function buildUpdateTestStatusCmd($diffID, $test, $status) {
     'name' => $test,
     'result' => $status
   );
-  $cmd = 'echo ' . escapeshellarg(fb_json_encode($cmd_args))
+  $cmd = 'echo ' . escapeshellarg(json_encode($cmd_args))
          . ' | arc call-conduit differential.updateunitresults';
   return $cmd;
 }
