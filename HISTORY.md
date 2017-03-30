@@ -2,6 +2,7 @@
 ## Unreleased
 ### Public API Change
 * Support dynamically change `stats_dump_period_sec` option via SetDBOptions().
+* Added ReadOptions::max_skippable_internal_keys to set a threshold to fail a request as incomplete when too many keys are being skipped when using iterators.
 
 ### New Features
 * Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.
