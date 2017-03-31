@@ -131,7 +131,7 @@ function main {
           run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
       elif [[ ! -d $DB_PATH ]] || [[ "$(( $(date +"%s") - $(stat -c "%Y" $DB_PATH) ))" -gt "604800"  ]]; then
           echo "Rebuilding DB..."
-          rm $DB_PATH
+          rm -rf $DB_PATH
           run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
       fi
       DB_PATH=$tmp
