@@ -1037,6 +1037,7 @@ class DocumentDBImpl : public DocumentDB {
   }
 
   // RocksDB functions
+  using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      PinnableSlice* value) override {
