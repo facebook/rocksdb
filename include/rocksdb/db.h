@@ -280,9 +280,9 @@ class DB {
   // a status for which Status::IsNotFound() returns true.
   //
   // May return some other Status on an error.
-  inline Status Get(const ReadOptions& options,
-                    ColumnFamilyHandle* column_family, const Slice& key,
-                    std::string* value) {
+  virtual inline Status Get(const ReadOptions& options,
+                            ColumnFamilyHandle* column_family, const Slice& key,
+                            std::string* value) {
     assert(value != nullptr);
     PinnableSlice pinnable_val(value);
     assert(!pinnable_val.IsPinned());
@@ -607,7 +607,7 @@ class DB {
   virtual bool GetAggregatedIntProperty(const Slice& property,
                                         uint64_t* value) = 0;
 
-  // Flags for DB::GetSizeApproximation that specify whether memtable 
+  // Flags for DB::GetSizeApproximation that specify whether memtable
   // stats should be included, or file stats approximation or both
   enum SizeApproximationFlags : uint8_t {
     NONE = 0,
