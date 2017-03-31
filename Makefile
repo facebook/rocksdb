@@ -426,6 +426,7 @@ TESTS = \
 	lru_cache_test \
 	object_registry_test \
 	repair_test \
+	env_timed_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
@@ -1092,6 +1093,9 @@ spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNE
 	$(AM_LINK)
 
 env_mirror_test: utilities/env_mirror_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+env_timed_test: utilities/env_timed_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 ifdef ROCKSDB_USE_LIBRADOS
