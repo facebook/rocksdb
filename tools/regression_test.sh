@@ -128,7 +128,7 @@ function main {
       DB_PATH=$ORIGIN_PATH
       test_remote "test -d $DB_PATH"
       if [[ $? -ne 0 ]] || [[ $(test_remote 'echo $(( $(date +"%s") - $(stat -c "%Y" '"$DB_PATH"') ))') -gt "604800" ]]; then
-          rm -rf "$DB_PATH"
+          run_remote "rm -rf $DB_PATH"
           echo "Building DB..."
           run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
       fi
