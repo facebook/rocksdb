@@ -607,7 +607,7 @@ static void GetJemallocStatus(void* mstat_arg, const char* status) {
 static void DumpMallocStats(std::string* stats) {
 #ifdef ROCKSDB_JEMALLOC
   MallocStatus mstat;
-  const uint kMallocStatusLen = 1000000;
+  const unsigned int kMallocStatusLen = 1000000;
   std::unique_ptr<char[]> buf{new char[kMallocStatusLen + 1]};
   mstat.cur = buf.get();
   mstat.end = buf.get() + kMallocStatusLen;
