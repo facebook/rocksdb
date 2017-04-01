@@ -126,8 +126,8 @@ function main {
   if [ $TEST_MODE -le 1 ]; then
       tmp=$DB_PATH
       DB_PATH=$ORIGIN_PATH
-      run_remote "test -d $DB_PATH"
-      if [[ $? -ne 0 ]] || [[ $(run_remote 'echo $(( $(date +"%s") - $(stat -c "%Y" '"$a"') ))') -gt "604800" ]]; then
+      test_remote "test -d $DB_PATH"
+      if [[ $? -ne 0 ]] || [[ $(test_remote 'echo $(( $(date +"%s") - $(stat -c "%Y" '"$DB_PATH"') ))') -gt "604800" ]]; then
           rm -rf "$DB_PATH"
           echo "Building DB..."
           run_db_bench "fillseqdeterministic" $NUM_KEYS 1 0
@@ -363,6 +363,15 @@ function run_remote {
 
   eval "$cmd"
   exit_on_error $? "$cmd"
+}
+
+function test_remote {
+  if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
+      cmd="$SSH $REMOTE_USER_AT_HOST $1"
+  else
+      cmd="$1"
+  fi
+  eval "$cmd"
 }
 
 function run_local {
