@@ -356,7 +356,7 @@ function build_db_bench_and_ldb {
 
 function run_remote {
   test_remote "$1"
-  exit_on_error $? "$cmd"
+  exit_on_error $? "$1"
 }
 
 function test_remote {
