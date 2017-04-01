@@ -924,6 +924,9 @@ void InternalStats::DumpCFMapStats(
   int total_files = 0;
   int total_files_being_compacted = 0;
   double total_file_size = 0;
+  uint64_t flush_ingest = cf_stats_value_[BYTES_FLUSHED];
+  uint64_t add_file_ingest = cf_stats_value_[BYTES_INGESTED_ADD_FILE];
+  uint64_t curr_ingest = flush_ingest + add_file_ingest;
   for (int level = 0; level < number_levels_; level++) {
     int files = vstorage->NumLevelFiles(level);
     total_files += files;
@@ -931,11 +934,17 @@ void InternalStats::DumpCFMapStats(
     if (comp_stats_[level].micros > 0 || files > 0) {
       compaction_stats_sum->Add(comp_stats_[level]);
       total_file_size += vstorage->NumLevelBytes(level);
+      uint64_t input_bytes;
+      if (level == 0) {
+        input_bytes = curr_ingest;
+      } else {
+        input_bytes = comp_stats_[level].bytes_read_non_output_levels;
+      }
       double w_amp =
-          (comp_stats_[level].bytes_read_non_output_levels == 0)
+          (input_bytes == 0)
               ? 0.0
               : static_cast<double>(comp_stats_[level].bytes_written) /
-                    comp_stats_[level].bytes_read_non_output_levels;
+                    input_bytes;
       std::map<LevelStatType, double> level_stats;
       PrepareLevelStats(&level_stats, files, files_being_compacted[level],
                         static_cast<double>(vstorage->NumLevelBytes(level)),
@@ -943,9 +952,6 @@ void InternalStats::DumpCFMapStats(
       (*levels_stats)[level] = level_stats;
     }
   }
-  uint64_t flush_ingest = cf_stats_value_[BYTES_FLUSHED];
-  uint64_t add_file_ingest = cf_stats_value_[BYTES_INGESTED_ADD_FILE];
-  uint64_t curr_ingest = flush_ingest + add_file_ingest;
   // Cumulative summary
   double w_amp = compaction_stats_sum->bytes_written /
                  static_cast<double>(curr_ingest + 1);
