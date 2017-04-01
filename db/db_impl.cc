@@ -5950,6 +5950,13 @@ Status DB::SingleDelete(const WriteOptions& opt,
 }
 
 Status DB::DeleteRange(const WriteOptions& opt,
+                       const Slice& begin_key, const Slice& end_key) {
+  WriteBatch batch;
+  batch.DeleteRange(begin_key, end_key);
+  return Write(opt, &batch);
+}
+
+Status DB::DeleteRange(const WriteOptions& opt,
                        ColumnFamilyHandle* column_family,
                        const Slice& begin_key, const Slice& end_key) {
   WriteBatch batch;
