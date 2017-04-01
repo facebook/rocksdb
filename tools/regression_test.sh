@@ -355,13 +355,7 @@ function build_db_bench_and_ldb {
 }
 
 function run_remote {
-  if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-    cmd="$SSH $REMOTE_USER_AT_HOST $1"
-  else
-    cmd="$1"
-  fi
-
-  eval "$cmd"
+  test_remote "$1"
   exit_on_error $? "$cmd"
 }
 
