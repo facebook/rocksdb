@@ -42,11 +42,6 @@ endif()
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules/")
 
 if(WIN32)
-  if (DEFINED AVX2)
-    set(USE_AVX2 ${AVX2})
-  else ()
-    set(USE_AVX2 1)
-  endif ()
   include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 else()
   option(WITH_JEMALLOC "build with JeMalloc" OFF)
@@ -83,7 +78,7 @@ endif()
 
 find_package(Git)
 
-if (GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
+if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.git")
   if(WIN32)
     execute_process(COMMAND $ENV{COMSPEC} /C ${GIT_EXECUTABLE} -C ${CMAKE_CURRENT_SOURCE_DIR} rev-parse HEAD OUTPUT_VARIABLE GIT_SHA)
   else()
@@ -95,7 +90,7 @@ endif()
 
 string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA "${GIT_SHA}")
 
-if (NOT WIN32)
+if(NOT WIN32)
   execute_process(COMMAND
       "./build_tools/version.sh" "full"
       WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
@@ -110,18 +105,24 @@ if (NOT WIN32)
   string(STRIP "${ROCKSDB_VERSION_MAJOR}" ROCKSDB_VERSION_MAJOR)
 endif()
 
+if(WIN32)
+  option(WITH_AVX2 "build with AVX2" ON)
+  if(WITH_AVX2)
+    if(MSVC)
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+    else()
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+    endif()
+  endif()
+endif()
+
 set(BUILD_VERSION_CC ${CMAKE_BINARY_DIR}/build_version.cc)
 configure_file(util/build_version.cc.in ${BUILD_VERSION_CC} @ONLY)
 add_library(build_version OBJECT ${BUILD_VERSION_CC})
 target_include_directories(build_version PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/util)
 if(MSVC)
-  if (${USE_AVX2} EQUAL 1)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /arch:AVX2 /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
-  else ()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo  /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
-  endif ()
-
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /EHsc /GS /Gd /GR /GF /fp:precise /Zc:wchar_t /Zc:forScope /errorReport:queue")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /W3 /wd4127 /wd4800 /wd4996 /wd4351")
 else()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -W -Wextra -Wall")
@@ -746,7 +747,7 @@ endforeach(sourcefile ${C_TEST_EXES})
 add_subdirectory(tools)
 
 # Installation and packaging for Linux
-if (NOT WIN32)
+if(NOT WIN32)
 install(TARGETS ${ROCKSDB_STATIC_LIB} COMPONENT devel ARCHIVE DESTINATION lib64)
 install(TARGETS ${ROCKSDB_SHARED_LIB} COMPONENT runtime DESTINATION lib64)
 install(DIRECTORY "${PROJECT_SOURCE_DIR}/include/rocksdb/"
