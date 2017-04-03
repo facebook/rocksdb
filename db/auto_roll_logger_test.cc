@@ -67,7 +67,7 @@ class AutoRollLoggerTest : public testing::Test {
   static const std::string kSampleMessage;
   static const std::string kTestDir;
   static const std::string kLogFile;
-  static Env* env;
+  static Env* default_env;
 };
 
 const std::string AutoRollLoggerTest::kSampleMessage(
@@ -75,7 +75,7 @@ const std::string AutoRollLoggerTest::kSampleMessage(
 const std::string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
 const std::string AutoRollLoggerTest::kLogFile(test::TmpDir() +
                                                "/db_log_test/LOG");
-Env* AutoRollLoggerTest::env = Env::Default();
+Env* AutoRollLoggerTest::default_env = Env::Default();
 
 // In this test we only want to Log some simple log message with
 // no format. LogMessage() provides such a simple interface and
@@ -118,22 +118,21 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
   ASSERT_TRUE(message_size == logger->GetLogFileSize());
 }
 
-void AutoRollLoggerTest::RollLogFileByTimeTest(Env* _env,
-                                               AutoRollLogger* logger,
+void AutoRollLoggerTest::RollLogFileByTimeTest(Env* env, AutoRollLogger* logger,
                                                size_t time,
                                                const std::string& log_message) {
   uint64_t expected_ctime;
   uint64_t actual_ctime;
 
   uint64_t total_log_size;
-  EXPECT_OK(_env->GetFileSize(kLogFile, &total_log_size));
+  EXPECT_OK(env->GetFileSize(kLogFile, &total_log_size));
   expected_ctime = logger->TEST_ctime();
   logger->SetCallNowMicrosEveryNRecords(0);
 
   // -- Write to the log for several times, which is supposed
   // to be finished before time.
   for (int i = 0; i < 10; ++i) {
-    _env->SleepForMicroseconds(50000);
+    env->SleepForMicroseconds(50000);
     LogMessage(logger, log_message.c_str());
     EXPECT_OK(logger->GetStatus());
     // Make sure we always write to the same log file (by
@@ -148,7 +147,7 @@ void AutoRollLoggerTest::RollLogFileByTimeTest(Env* _env,
   }
 
   // -- Make the log file expire
-  _env->SleepForMicroseconds(static_cast<int>(time * 1000000));
+  env->SleepForMicroseconds(static_cast<int>(time * 1000000));
   LogMessage(logger, log_message.c_str());
 
   // At this time, the new log file should be created.
@@ -175,9 +174,9 @@ TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
 
   InitTestDb();
   // -- Test the existence of file during the server restart.
-  ASSERT_EQ(Status::NotFound(), env->FileExists(kLogFile));
+  ASSERT_EQ(Status::NotFound(), default_env->FileExists(kLogFile));
   AutoRollLogger logger(&nse, kTestDir, "", log_size, time);
-  ASSERT_OK(env->FileExists(kLogFile));
+  ASSERT_OK(default_env->FileExists(kLogFile));
 
   RollLogFileByTimeTest(&nse, &logger, time,
                         kSampleMessage + ":RollLogFileByTime");
@@ -469,7 +468,7 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
   options.max_log_file_size = 100 * 1024 * 1024;
   options.create_if_missing = true;
   ASSERT_OK(rocksdb::DB::Open(options, kTestDir, &db));
-  ASSERT_OK(env->FileExists(kLogFile));
+  ASSERT_OK(default_env->FileExists(kLogFile));
   delete db;
 }
 
