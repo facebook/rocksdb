@@ -584,10 +584,15 @@ struct DBOptions {
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_reads = false;
 
-  // Use O_DIRECT for writing file
+  // Use O_DIRECT for writing non-WAL files
   // Default: false
   // Not supported in ROCKSDB_LITE mode!
   bool use_direct_writes = false;
+
+  // Use O_DIRECT for writing WAL files
+  // Default: false
+  // Not supported in ROCKSDB_LITE mode!
+  bool use_direct_wal_writes = false;
 
   // If false, fallocate() calls are bypassed
   bool allow_fallocate = true;
