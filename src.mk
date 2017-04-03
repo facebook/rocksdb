@@ -59,7 +59,7 @@ LIB_SOURCES =                                                   \
   env/env_hdfs.cc                                               \
   env/env_posix.cc                                              \
   env/io_posix.cc                                               \
-  env/memenv.cc                                                 \
+  env/mock_env.cc                                              \
   memtable/hash_cuckoo_rep.cc                                   \
   memtable/hash_linklist_rep.cc                                 \
   memtable/hash_skiplist_rep.cc                                 \
