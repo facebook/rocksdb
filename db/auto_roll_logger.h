@@ -91,6 +91,8 @@ class AutoRollLogger : public Logger {
     return log_fname_;
   }
 
+  uint64_t TEST_ctime() const { return ctime_; }
+
  private:
   bool LogExpired();
   Status ResetLogger();

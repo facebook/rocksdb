@@ -17,6 +17,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "db/db_test_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "util/logging.h"
@@ -24,6 +25,22 @@
 #include "util/testharness.h"
 
 namespace rocksdb {
+namespace {
+class NoSleepEnv : public EnvWrapper {
+ public:
+  NoSleepEnv(Env* base) : EnvWrapper(base) {}
+  virtual void SleepForMicroseconds(int micros) override {
+    fake_time_ += static_cast<uint64_t>(micros);
+  }
+
+  virtual uint64_t NowNanos() override { return fake_time_ * 1000; }
+
+  virtual uint64_t NowMicros() override { return fake_time_; }
+
+ private:
+  uint64_t fake_time_ = 6666666666;
+};
+}  // namespace
 
 class AutoRollLoggerTest : public testing::Test {
  public:
@@ -44,13 +61,13 @@ class AutoRollLoggerTest : public testing::Test {
 
   void RollLogFileBySizeTest(AutoRollLogger* logger, size_t log_max_size,
                              const std::string& log_message);
-  uint64_t RollLogFileByTimeTest(AutoRollLogger* logger, size_t time,
-                                 const std::string& log_message);
+  void RollLogFileByTimeTest(Env*, AutoRollLogger* logger, size_t time,
+                             const std::string& log_message);
 
   static const std::string kSampleMessage;
   static const std::string kTestDir;
   static const std::string kLogFile;
-  static Env* env;
+  static Env* default_env;
 };
 
 const std::string AutoRollLoggerTest::kSampleMessage(
@@ -58,7 +75,7 @@ const std::string AutoRollLoggerTest::kSampleMessage(
 const std::string AutoRollLoggerTest::kTestDir(test::TmpDir() + "/db_log_test");
 const std::string AutoRollLoggerTest::kLogFile(test::TmpDir() +
                                                "/db_log_test/LOG");
-Env* AutoRollLoggerTest::env = Env::Default();
+Env* AutoRollLoggerTest::default_env = Env::Default();
 
 // In this test we only want to Log some simple log message with
 // no format. LogMessage() provides such a simple interface and
@@ -72,16 +89,6 @@ void LogMessage(Logger* logger, const char* message) {
 void LogMessage(const InfoLogLevel log_level, Logger* logger,
                 const char* message) {
   Log(log_level, logger, "%s", message);
-}
-}  // namespace
-
-namespace {
-void GetFileCreateTime(const std::string& fname, uint64_t* file_ctime) {
-  struct stat s;
-  if (stat(fname.c_str(), &s) != 0) {
-    *file_ctime = (uint64_t)0;
-  }
-  *file_ctime = static_cast<uint64_t>(s.st_ctime);
 }
 }  // namespace
 
@@ -111,45 +118,42 @@ void AutoRollLoggerTest::RollLogFileBySizeTest(AutoRollLogger* logger,
   ASSERT_TRUE(message_size == logger->GetLogFileSize());
 }
 
-uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
-    AutoRollLogger* logger, size_t time, const std::string& log_message) {
-  uint64_t expected_create_time;
-  uint64_t actual_create_time;
+void AutoRollLoggerTest::RollLogFileByTimeTest(Env* env, AutoRollLogger* logger,
+                                               size_t time,
+                                               const std::string& log_message) {
+  uint64_t expected_ctime;
+  uint64_t actual_ctime;
+
   uint64_t total_log_size;
   EXPECT_OK(env->GetFileSize(kLogFile, &total_log_size));
-  GetFileCreateTime(kLogFile, &expected_create_time);
+  expected_ctime = logger->TEST_ctime();
   logger->SetCallNowMicrosEveryNRecords(0);
 
   // -- Write to the log for several times, which is supposed
   // to be finished before time.
   for (int i = 0; i < 10; ++i) {
-     LogMessage(logger, log_message.c_str());
-     EXPECT_OK(logger->GetStatus());
-     // Make sure we always write to the same log file (by
-     // checking the create time);
-     GetFileCreateTime(kLogFile, &actual_create_time);
+    env->SleepForMicroseconds(50000);
+    LogMessage(logger, log_message.c_str());
+    EXPECT_OK(logger->GetStatus());
+    // Make sure we always write to the same log file (by
+    // checking the create time);
 
-     // Also make sure the log size is increasing.
-     EXPECT_EQ(expected_create_time, actual_create_time);
-     EXPECT_GT(logger->GetLogFileSize(), total_log_size);
-     total_log_size = logger->GetLogFileSize();
+    actual_ctime = logger->TEST_ctime();
+
+    // Also make sure the log size is increasing.
+    EXPECT_EQ(expected_ctime, actual_ctime);
+    EXPECT_GT(logger->GetLogFileSize(), total_log_size);
+    total_log_size = logger->GetLogFileSize();
   }
 
   // -- Make the log file expire
-#ifdef OS_WIN
-  Sleep(static_cast<unsigned int>(time) * 1000);
-#else
-  sleep(static_cast<unsigned int>(time));
-#endif
+  env->SleepForMicroseconds(static_cast<int>(time * 1000000));
   LogMessage(logger, log_message.c_str());
 
   // At this time, the new log file should be created.
-  GetFileCreateTime(kLogFile, &actual_create_time);
-  EXPECT_GT(actual_create_time, expected_create_time);
+  actual_ctime = logger->TEST_ctime();
+  EXPECT_LT(expected_ctime, actual_ctime);
   EXPECT_LT(logger->GetLogFileSize(), total_log_size);
-  expected_create_time = actual_create_time;
-
-  return expected_create_time;
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
@@ -163,16 +167,19 @@ TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
 }
 
 TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
-    size_t time = 2;
-    size_t log_size = 1024 * 5;
+  NoSleepEnv nse(Env::Default());
 
-    InitTestDb();
-    // -- Test the existence of file during the server restart.
-    ASSERT_EQ(Status::NotFound(), env->FileExists(kLogFile));
-    AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, time);
-    ASSERT_OK(env->FileExists(kLogFile));
+  size_t time = 2;
+  size_t log_size = 1024 * 5;
 
-    RollLogFileByTimeTest(&logger, time, kSampleMessage + ":RollLogFileByTime");
+  InitTestDb();
+  // -- Test the existence of file during the server restart.
+  ASSERT_EQ(Status::NotFound(), default_env->FileExists(kLogFile));
+  AutoRollLogger logger(&nse, kTestDir, "", log_size, time);
+  ASSERT_OK(default_env->FileExists(kLogFile));
+
+  RollLogFileByTimeTest(&nse, &logger, time,
+                        kSampleMessage + ":RollLogFileByTime");
 }
 
 TEST_F(AutoRollLoggerTest, OpenLogFilesMultipleTimesWithOptionLog_max_size) {
@@ -205,16 +212,16 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 
   InitTestDb();
 
-  AutoRollLogger logger(Env::Default(), kTestDir, "", log_max_size, time);
+  NoSleepEnv nse(Env::Default());
+  AutoRollLogger logger(&nse, kTestDir, "", log_max_size, time);
 
   // Test the ability to roll by size
-  RollLogFileBySizeTest(
-      &logger, log_max_size,
-      kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
+  RollLogFileBySizeTest(&logger, log_max_size,
+                        kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
 
   // Test the ability to roll by Time
-  RollLogFileByTimeTest( &logger, time,
-      kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
+  RollLogFileByTimeTest(&nse, &logger, time,
+                        kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
 }
 
 #ifndef OS_WIN
@@ -222,6 +229,7 @@ TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 // port
 TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
+  NoSleepEnv nse(Env::Default());
   shared_ptr<Logger> logger;
 
   // Normal logger
@@ -240,15 +248,15 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
       kSampleMessage + ":CreateLoggerFromOptions - size");
 
   // Only roll by Time
+  options.env = &nse;
   InitTestDb();
   options.max_log_file_size = 0;
   options.log_file_time_to_roll = 2;
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
   auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
-  RollLogFileByTimeTest(
-      auto_roll_logger, options.log_file_time_to_roll,
-      kSampleMessage + ":CreateLoggerFromOptions - time");
+  RollLogFileByTimeTest(&nse, auto_roll_logger, options.log_file_time_to_roll,
+                        kSampleMessage + ":CreateLoggerFromOptions - time");
 
   // roll by both Time and size
   InitTestDb();
@@ -257,12 +265,10 @@ TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   ASSERT_OK(CreateLoggerFromOptions(kTestDir, options, &logger));
   auto_roll_logger =
     dynamic_cast<AutoRollLogger*>(logger.get());
-  RollLogFileBySizeTest(
-      auto_roll_logger, options.max_log_file_size,
-      kSampleMessage + ":CreateLoggerFromOptions - both");
-  RollLogFileByTimeTest(
-      auto_roll_logger, options.log_file_time_to_roll,
-      kSampleMessage + ":CreateLoggerFromOptions - both");
+  RollLogFileBySizeTest(auto_roll_logger, options.max_log_file_size,
+                        kSampleMessage + ":CreateLoggerFromOptions - both");
+  RollLogFileByTimeTest(&nse, auto_roll_logger, options.log_file_time_to_roll,
+                        kSampleMessage + ":CreateLoggerFromOptions - both");
 }
 
 TEST_F(AutoRollLoggerTest, LogFlushWhileRolling) {
@@ -462,7 +468,7 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
   options.max_log_file_size = 100 * 1024 * 1024;
   options.create_if_missing = true;
   ASSERT_OK(rocksdb::DB::Open(options, kTestDir, &db));
-  ASSERT_OK(env->FileExists(kLogFile));
+  ASSERT_OK(default_env->FileExists(kLogFile));
   delete db;
 }
 
