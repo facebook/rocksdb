@@ -361,7 +361,7 @@ function run_remote {
 
 function test_remote {
   if ! [ -z "$REMOTE_USER_AT_HOST" ]; then
-      cmd="$SSH $REMOTE_USER_AT_HOST $1"
+      cmd="$SSH $REMOTE_USER_AT_HOST '$1'"
   else
       cmd="$1"
   fi
