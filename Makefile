@@ -1285,7 +1285,7 @@ manual_compaction_test: db/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-auto_roll_logger_test: db/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)

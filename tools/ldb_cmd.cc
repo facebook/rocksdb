@@ -14,7 +14,6 @@
 
 #include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/write_batch_internal.h"
 #include "port/dirent.h"
@@ -29,6 +28,7 @@
 #include "tools/ldb_cmd_impl.h"
 #include "tools/sst_dump_tool_imp.h"
 #include "util/coding.h"
+#include "util/filename.h"
 #include "util/stderr_logger.h"
 #include "util/string_util.h"
 #include "utilities/ttl/db_ttl_impl.h"

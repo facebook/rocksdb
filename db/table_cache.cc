@@ -10,8 +10,8 @@
 #include "db/table_cache.h"
 
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/version_edit.h"
+#include "util/filename.h"
 
 #include "rocksdb/statistics.h"
 #include "table/internal_iterator.h"

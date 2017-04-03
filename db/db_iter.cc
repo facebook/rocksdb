@@ -14,7 +14,6 @@
 #include <limits>
 
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/pinned_iterators_manager.h"
@@ -25,6 +24,7 @@
 #include "rocksdb/options.h"
 #include "table/internal_iterator.h"
 #include "util/arena.h"
+#include "util/filename.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"

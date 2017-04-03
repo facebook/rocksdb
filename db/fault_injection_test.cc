@@ -12,7 +12,6 @@
 // file data (or entire files) not protected by a "sync".
 
 #include "db/db_impl.h"
-#include "db/filename.h"
 #include "db/log_format.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
@@ -21,6 +20,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
 #include "util/fault_injection_test_env.h"
+#include "util/filename.h"
 #include "util/logging.h"
 #include "util/mock_env.h"
 #include "util/mutexlock.h"

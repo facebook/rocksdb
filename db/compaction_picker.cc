@@ -19,7 +19,7 @@
 #include <string>
 #include <utility>
 #include "db/column_family.h"
-#include "db/filename.h"
+#include "util/filename.h"
 #include "util/log_buffer.h"
 #include "util/random.h"
 #include "util/statistics.h"

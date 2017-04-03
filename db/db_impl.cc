@@ -32,7 +32,6 @@
 #include <utility>
 #include <vector>
 
-#include "db/auto_roll_logger.h"
 #include "db/builder.h"
 #include "db/compaction_job.h"
 #include "db/db_info_dumper.h"
@@ -40,7 +39,6 @@
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/external_sst_file_ingestion_job.h"
-#include "db/filename.h"
 #include "db/flush_job.h"
 #include "db/forward_iterator.h"
 #include "db/job_context.h"
@@ -78,6 +76,7 @@
 #include "table/merging_iterator.h"
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
+#include "util/auto_roll_logger.h"
 #include "util/autovector.h"
 #include "util/build_version.h"
 #include "util/cf_options.h"
@@ -86,6 +85,7 @@
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/file_util.h"
+#include "util/filename.h"
 #include "util/iostats_context_imp.h"
 #include "util/log_buffer.h"
 #include "util/logging.h"

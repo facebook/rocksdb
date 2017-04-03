@@ -10,13 +10,12 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
-#include "db/filename.h"
+#include "util/filename.h"
 #include <inttypes.h>
 
 #include <ctype.h>
 #include <stdio.h>
 #include <vector>
-#include "db/dbformat.h"
 #include "rocksdb/env.h"
 #include "util/file_reader_writer.h"
 #include "util/logging.h"

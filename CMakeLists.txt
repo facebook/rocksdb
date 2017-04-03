@@ -281,7 +281,6 @@ add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
 # Main library source code
 
 set(SOURCES
-        db/auto_roll_logger.cc
         db/builder.cc
         db/c.cc
         db/column_family.cc
@@ -302,7 +301,6 @@ set(SOURCES
         db/event_helpers.cc
         db/external_sst_file_ingestion_job.cc
         db/experimental.cc
-        db/filename.cc
         db/file_indexer.cc
         db/flush_job.cc
         db/flush_scheduler.cc
@@ -387,6 +385,7 @@ set(SOURCES
         util/event_logger.cc
         util/file_util.cc
         util/file_reader_writer.cc
+        util/filename.cc
         util/sst_file_manager_impl.cc
         util/filter_policy.cc
         util/hash.cc
@@ -398,6 +397,7 @@ set(SOURCES
         util/lru_cache.cc
         tools/ldb_cmd.cc
         tools/ldb_tool.cc
+        util/auto_roll_logger.cc
         util/logging.cc
         util/log_buffer.cc
         util/memenv.cc
@@ -544,7 +544,6 @@ else()
 endif()
 
 set(TESTS
-        db/auto_roll_logger_test.cc
         db/column_family_test.cc
         db/compact_files_test.cc
         db/compaction_iterator_test.cc
@@ -618,6 +617,7 @@ set(TESTS
         tools/reduce_levels_test.cc
         tools/sst_dump_test.cc
         util/arena_test.cc
+        util/auto_roll_logger_test.cc
         util/autovector_test.cc
         util/bloom_test.cc
         util/cache_test.cc

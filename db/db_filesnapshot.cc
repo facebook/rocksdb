@@ -18,13 +18,13 @@
 #include <algorithm>
 #include <string>
 #include "db/db_impl.h"
-#include "db/filename.h"
 #include "db/job_context.h"
 #include "db/version_set.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/file_util.h"
+#include "util/filename.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
 
