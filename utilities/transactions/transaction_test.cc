@@ -1518,6 +1518,87 @@ TEST_P(TransactionTest, TwoPhaseOutOfOrderDelete) {
   ASSERT_EQ(value, "dogs4");
 }
 
+TEST_P(TransactionTest, InvalidPrepareFromLogGap) {
+  DBImpl* db_impl = reinterpret_cast<DBImpl*>(db->GetRootDB());
+  WriteOptions wal_on, wal_off;
+  wal_on.sync = true;
+  wal_on.disableWAL = false;
+  wal_off.disableWAL = true;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+
+  std::string value;
+  Status s;
+
+  Transaction* txn1 = db->BeginTransaction(wal_on, txn_options);
+  Transaction* txn2 = db->BeginTransaction(wal_on, txn_options);
+
+  s = txn1->SetName("txn1");
+  ASSERT_OK(s);
+  s = txn2->SetName("txn2");
+  ASSERT_OK(s);
+
+  // operations on first log
+  s = txn1->Put(Slice("cats"), Slice("dogs1"));
+  ASSERT_OK(s);
+  s = txn1->Prepare();
+  ASSERT_OK(s);
+
+  s = db->Put(wal_on, "dummy", "dummy");
+  ASSERT_OK(s);
+
+  env->SetIgnoreDeletes(true);
+  s = db_impl->TEST_FlushMemTable(true);
+  env->SetIgnoreDeletes(false);
+  ASSERT_OK(s);
+
+  // operations on second log
+  s = db->Put(wal_on, "dummy", "dummy");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  // second 2pc trans just to grab file number
+  // for deleteion
+  s = txn2->Prepare();
+  ASSERT_OK(s);
+  auto missing_log_num = txn2->GetLogNumber();
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  // on to log 3...
+  env->SetIgnoreDeletes(true);
+  s = db_impl->TEST_FlushMemTable(true);
+  env->SetIgnoreDeletes(false);
+  ASSERT_OK(s);
+
+  s = db->Put(wal_on, "dummy", "dummy2");
+  ASSERT_OK(s);
+
+  s = env->DeleteFile(LogFileName(dbname, missing_log_num));
+  ASSERT_OK(s);
+
+  // kill and reopen
+  env->SetFilesystemActive(false);
+  ReOpenNoDelete();
+
+  // this guy shouldn't exist even though we deleted his
+  // commit but not his prepare
+  ASSERT_TRUE(db->GetTransactionByName("txn1") == nullptr);
+
+  s = db->Get(read_options, "dummy", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "dummy2");
+
+  s = db->Get(read_options, "cats", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "dogs1");
+
+  delete txn1;
+  delete txn2;
+}
+
 TEST_P(TransactionTest, FirstWriteTest) {
   WriteOptions write_options;
 

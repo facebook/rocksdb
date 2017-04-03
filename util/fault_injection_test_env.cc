@@ -198,6 +198,9 @@ Status FaultInjectionTestEnv::NewWritableFile(const std::string& fname,
 }
 
 Status FaultInjectionTestEnv::DeleteFile(const std::string& f) {
+  if (ignore_deletes_) {
+    return Status::OK();
+  }
   if (!IsFilesystemActive()) {
     return Status::Corruption("Not Active");
   }
