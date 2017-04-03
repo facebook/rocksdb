@@ -59,8 +59,8 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
     * Install gflags:
 
               git clone https://github.com/gflags/gflags.git
-              git checkout v2.0
               cd gflags
+              git checkout v2.0
               ./configure && make && sudo make install
 
     * Install snappy:
@@ -83,7 +83,7 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
     * Install zstandard:
 
              wget https://github.com/facebook/zstd/archive/v1.1.3.tar.gz
-             mv v1.1.3.tar.gz zstandard-1.1.3.tar.gz
+             mv v1.1.3.tar.gz zstd-1.1.3.tar.gz
              tar zxvf zstd-1.1.3.tar.gz
              cd zstd-1.1.3
              make && sudo make install
