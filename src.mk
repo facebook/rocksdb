@@ -1,6 +1,5 @@
 # These are the sources from which librocksdb.a is built:
 LIB_SOURCES =                                                   \
-  db/auto_roll_logger.cc                                        \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
@@ -23,7 +22,6 @@ LIB_SOURCES =                                                   \
   db/experimental.cc                                            \
   db/event_helpers.cc                                           \
   db/file_indexer.cc                                            \
-  db/filename.cc                                                \
   db/flush_job.cc                                               \
   db/flush_scheduler.cc                                         \
   db/forward_iterator.cc                                        \
@@ -88,6 +86,7 @@ LIB_SOURCES =                                                   \
   table/two_level_iterator.cc                                   \
   tools/dump/db_dump_tool.cc                                    \
   util/arena.cc                                                 \
+  util/auto_roll_logger.cc                                      \
   util/bloom.cc                                                 \
   util/build_version.cc                                         \
   util/cf_options.cc                                            \
@@ -107,6 +106,7 @@ LIB_SOURCES =                                                   \
   util/event_logger.cc                                          \
   util/file_util.cc                                             \
   util/file_reader_writer.cc                                    \
+  util/filename.cc                                              \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/histogram.cc                                             \
@@ -211,7 +211,6 @@ TEST_LIB_SOURCES = \
 
 MAIN_SOURCES =                                                    \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
-  db/auto_roll_logger_test.cc                                           \
   db/column_family_test.cc                                              \
   db/compaction_job_test.cc                                             \
   db/compaction_job_stats_test.cc                                       \
@@ -283,6 +282,7 @@ MAIN_SOURCES =                                                    \
   tools/reduce_levels_test.cc                                           \
   tools/sst_dump_test.cc                                                \
   util/arena_test.cc                                                    \
+  util/auto_roll_logger_test.cc                                         \
   util/autovector_test.cc                                               \
   util/bloom_test.cc                                                    \
   util/cache_bench.cc                                                   \

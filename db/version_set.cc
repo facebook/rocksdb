@@ -16,14 +16,13 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <algorithm>
+#include <climits>
 #include <map>
 #include <set>
-#include <climits>
+#include <string>
 #include <unordered_map>
 #include <vector>
-#include <string>
 #include "db/compaction.h"
-#include "db/filename.h"
 #include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -46,6 +45,7 @@
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
+#include "util/filename.h"
 #include "util/logging.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"

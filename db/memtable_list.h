@@ -12,7 +12,6 @@
 #include <deque>
 
 #include "db/dbformat.h"
-#include "db/filename.h"
 #include "db/memtable.h"
 #include "db/range_del_aggregator.h"
 #include "db/skiplist.h"
@@ -21,6 +20,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "util/autovector.h"
+#include "util/filename.h"
 #include "util/instrumented_mutex.h"
 #include "util/log_buffer.h"
 

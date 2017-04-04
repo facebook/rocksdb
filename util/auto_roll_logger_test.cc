@@ -6,7 +6,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "db/auto_roll_logger.h"
+#include "util/auto_roll_logger.h"
 #include <errno.h>
 #include <sys/stat.h>
 #include <algorithm>
@@ -17,7 +17,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "db/db_test_util.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "util/logging.h"
