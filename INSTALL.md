@@ -63,6 +63,10 @@ makes use of SSE4, add 'USE_SSE=1' before your make commands, like this: `USE_SS
               git checkout v2.0
               ./configure && make && sudo make install
 
+      **Notice**: Once installed, please add the include path for gflags to your CPATH env var and the
+      lib path to LIBRARY_PATH. If installed with default settings, the lib will be /usr/local/lib
+      and the include path will be /usr/local/include.
+
     * Install snappy:
 
               wget https://github.com/google/snappy/releases/download/1.1.4/snappy-1.1.4.tar.gz
