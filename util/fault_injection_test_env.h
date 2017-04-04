@@ -24,6 +24,7 @@
 #include "rocksdb/env.h"
 #include "util/filename.h"
 #include "util/mutexlock.h"
+#include "util/random.h"
 
 namespace rocksdb {
 

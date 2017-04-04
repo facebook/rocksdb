@@ -16,10 +16,9 @@
 #include <unordered_map>
 #include <vector>
 #include "db/dbformat.h"
-#include "db/memtable_allocator.h"
 #include "db/range_del_aggregator.h"
-#include "db/skiplist.h"
 #include "db/version_edit.h"
+#include "memtable/memtable_allocator.h"
 #include "monitoring/instrumented_mutex.h"
 #include "options/cf_options.h"
 #include "rocksdb/db.h"

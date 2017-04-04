@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <atomic>
 #include "db/memtable.h"
-#include "db/skiplist.h"
+#include "memtable/skiplist.h"
 #include "monitoring/histogram.h"
 #include "port/port.h"
 #include "rocksdb/memtablerep.h"
