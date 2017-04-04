@@ -70,7 +70,7 @@ ImmutableDBOptions::ImmutableDBOptions(const DBOptions& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
-      enable_pipeline_write(options.enable_pipeline_write),
+      enable_pipelined_write(options.enable_pipelined_write),
       allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
       enable_write_thread_adaptive_yield(
           options.enable_write_thread_adaptive_yield),
@@ -189,8 +189,8 @@ void ImmutableDBOptions::Dump(Logger* log) const {
                    wal_recovery_mode);
   ROCKS_LOG_HEADER(log, "                 Options.enable_thread_tracking: %d",
                    enable_thread_tracking);
-  ROCKS_LOG_HEADER(log, "                  Options.enable_pipeline_write: %d",
-                   enable_pipeline_write);
+  ROCKS_LOG_HEADER(log, "                 Options.enable_pipelined_write: %d",
+                   enable_pipelined_write);
   ROCKS_LOG_HEADER(log, "        Options.allow_concurrent_memtable_write: %d",
                    allow_concurrent_memtable_write);
   ROCKS_LOG_HEADER(log, "     Options.enable_write_thread_adaptive_yield: %d",
