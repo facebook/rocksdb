@@ -13,6 +13,7 @@
 * Add debugging function `GetAllKeyVersions` to see internal versions of a range of keys.
 * Support file ingestion with universal compaction style
 * Support file ingestion behind with option `allow_ingest_behind`
+* New option enable_pipelined_write which may improve write throughput in case writing from multiple threads and WAL enabled .
 
 ## 5.4.0 (04/11/2017)
 ### Public API Change

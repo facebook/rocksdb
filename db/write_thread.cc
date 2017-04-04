@@ -344,7 +344,7 @@ void WriteThreadImpl::LaunchParallelFollowers(ParallelGroup* pg,
 }
 
 // This method is called by both the leader and parallel followers
-bool WriteThread::CompleteParallelWorker(Writer* w) {
+bool WriteThreadImpl::CompleteParallelWorker(Writer* w) {
   static AdaptationContext ctx("CompleteParallelWorker");
 
   auto* pg = w->parallel_group;
@@ -363,7 +363,7 @@ bool WriteThread::CompleteParallelWorker(Writer* w) {
   return true;
 }
 
-void WriteThread::ExitAsBatchGroupFollower(Writer* w) {
+void WriteThreadImpl::ExitAsBatchGroupFollower(Writer* w) {
   auto* pg = w->parallel_group;
 
   assert(w->state == STATE_PARALLEL_FOLLOWER);
