@@ -11,8 +11,8 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/options_helper.h"
-#include "util/options_sanity_check.h"
+#include "options/options_helper.h"
+#include "options/options_sanity_check.h"
 #include "table/block_based_table_factory.h"
 
 namespace rocksdb {

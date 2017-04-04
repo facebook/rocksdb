@@ -18,7 +18,7 @@
 #include "util/coding.h"
 #include "util/filename.h"
 #include "util/instrumented_mutex.h"
-#include "util/options_helper.h"
+#include "options/options_helper.h"
 #include "util/string_util.h"
 
 namespace rocksdb {

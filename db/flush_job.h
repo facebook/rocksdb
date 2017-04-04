@@ -34,7 +34,7 @@
 #include "rocksdb/transaction_log.h"
 #include "table/scoped_arena_iterator.h"
 #include "util/autovector.h"
-#include "util/db_options.h"
+#include "options/db_options.h"
 #include "util/event_logger.h"
 #include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"

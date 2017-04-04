@@ -12,7 +12,7 @@
 #include "table/block.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_builder.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 #include "util/crc32c.h"
 #include "util/file_reader_writer.h"
 #include "util/filename.h"

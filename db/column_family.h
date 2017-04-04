@@ -23,7 +23,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 #include "util/thread_local.h"
 
 namespace rocksdb {

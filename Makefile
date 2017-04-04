@@ -1256,10 +1256,10 @@ thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+options_test: options/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-options_settable_test: util/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
+options_settable_test: options/options_settable_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_util_test: utilities/options/options_util_test.o $(LIBOBJECTS) $(TESTHARNESS)

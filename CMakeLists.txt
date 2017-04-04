@@ -333,6 +333,12 @@ set(SOURCES
         memtable/hash_skiplist_rep.cc
         memtable/skiplistrep.cc
         memtable/vectorrep.cc
+        options/cf_options.cc
+        options/db_options.cc
+        options/options.cc
+        options/options_helper.cc
+        options/options_parser.cc
+        options/options_sanity_check.cc
         port/stack_trace.cc
         table/adaptive_table_factory.cc
         table/block.cc
@@ -369,14 +375,12 @@ set(SOURCES
         tools/dump/db_dump_tool.cc
         util/arena.cc
         util/bloom.cc
-        util/cf_options.cc
         util/clock_cache.cc
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
         util/concurrent_arena.cc
         util/crc32c.cc
-        util/db_options.cc
         util/delete_scheduler.cc
         util/dynamic_bloom.cc
         util/env.cc
@@ -402,10 +406,6 @@ set(SOURCES
         util/log_buffer.cc
         util/memenv.cc
         util/murmurhash.cc
-        util/options.cc
-        util/options_helper.cc
-        util/options_parser.cc
-        util/options_sanity_check.cc
         util/perf_context.cc
         util/perf_level.cc
         util/random.cc
@@ -607,6 +607,8 @@ set(TESTS
         db/write_callback_test.cc
         db/write_controller_test.cc
         db/db_io_failure_test.cc
+        options/options_settable_test.cc
+        options/options_test.cc
         table/block_based_filter_block_test.cc
         table/block_test.cc
         table/cuckoo_table_builder_test.cc
@@ -636,8 +638,6 @@ set(TESTS
         util/iostats_context_test.cc
         util/lru_cache_test.cc
         util/mock_env_test.cc
-        util/options_settable_test.cc
-        util/options_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
         util/statistics_test.cc

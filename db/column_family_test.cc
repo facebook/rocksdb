@@ -21,7 +21,7 @@
 #include "rocksdb/iterator.h"
 #include "util/coding.h"
 #include "util/fault_injection_test_env.h"
-#include "util/options_parser.h"
+#include "options/options_parser.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"

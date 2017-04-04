@@ -13,8 +13,8 @@
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
-#include "util/cf_options.h"
-#include "util/db_options.h"
+#include "options/cf_options.h"
+#include "options/db_options.h"
 
 namespace rocksdb {
 

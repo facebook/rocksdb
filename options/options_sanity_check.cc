@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "util/options_sanity_check.h"
+#include "options/options_sanity_check.h"
 
 namespace rocksdb {
 

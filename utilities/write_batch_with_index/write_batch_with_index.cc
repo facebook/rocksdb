@@ -18,7 +18,7 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
-#include "util/db_options.h"
+#include "options/db_options.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {

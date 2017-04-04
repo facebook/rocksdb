@@ -16,7 +16,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
-#include "util/db_options.h"
+#include "options/db_options.h"
 
 namespace rocksdb {
 

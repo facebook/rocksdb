@@ -23,7 +23,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
-#include "util/cf_options.h"
+#include "options/cf_options.h"
 #include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/hash.h"

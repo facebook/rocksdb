@@ -5,7 +5,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "util/options_parser.h"
+#include "options/options_parser.h"
 
 #include <cmath>
 #include <map>
@@ -15,7 +15,7 @@
 
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
-#include "util/options_helper.h"
+#include "options/options_helper.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 

@@ -30,8 +30,8 @@
 #include "rocksdb/wal_filter.h"
 #include "table/block_based_table_factory.h"
 #include "util/compression.h"
-#include "util/db_options.h"
-#include "util/options_helper.h"
+#include "options/db_options.h"
+#include "options/options_helper.h"
 #include "util/statistics.h"
 
 namespace rocksdb {

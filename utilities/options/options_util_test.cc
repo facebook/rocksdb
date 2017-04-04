@@ -16,7 +16,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/options_util.h"
-#include "util/options_parser.h"
+#include "options/options_parser.h"
 #include "util/random.h"
 #include "util/testharness.h"
 #include "util/testutil.h"

@@ -9,7 +9,7 @@ package org.rocksdb;
  * Advanced Column Family Options which are mutable
  *
  * Taken from include/rocksdb/advanced_options.h
- * and MutableCFOptions in util/cf_options.h
+ * and MutableCFOptions in options/cf_options.h
  */
 public interface AdvancedMutableColumnFamilyOptionsInterface
     <T extends AdvancedMutableColumnFamilyOptionsInterface> {
