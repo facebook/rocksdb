@@ -70,4 +70,4 @@ db_logs/
 tp2/
 fbcode/
 fbcode
-buckifier/
+buckifier/*.pyc
