@@ -5033,6 +5033,10 @@ Status DBImpl::HandleWALFull(WriteContext* write_context) {
   assert(write_context != nullptr);
   Status status;
 
+  if (alive_log_files_.begin()->getting_flushed) {
+    return status;
+  }
+
   auto oldest_alive_log = alive_log_files_.begin()->number;
   auto oldest_log_with_uncommited_prep = FindMinLogContainingOutstandingPrep();
 
