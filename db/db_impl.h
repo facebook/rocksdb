@@ -314,7 +314,7 @@ class DBImpl : public DB {
                            ColumnFamilyHandle* column_family = nullptr,
                            bool disallow_trivial_move = false);
 
-  void TEST_MaybeFlushColumnFamilies();
+  void TEST_HandleWALFull();
 
   bool TEST_UnableToFlushOldestLog() {
     return unable_to_flush_oldest_log_;
@@ -600,7 +600,19 @@ class DBImpl : public DB {
 #endif
   struct CompactionState;
 
-  struct WriteContext;
+  struct WriteContext {
+    autovector<SuperVersion*> superversions_to_free_;
+    autovector<MemTable*> memtables_to_free_;
+
+    ~WriteContext() {
+      for (auto& sv : superversions_to_free_) {
+        delete sv;
+      }
+      for (auto& m : memtables_to_free_) {
+        delete m;
+      }
+    }
+  };
 
   struct PurgeFileInfo;
 
@@ -677,6 +689,20 @@ class DBImpl : public DB {
   // Wait for memtable flushed
   Status WaitForFlushMemTable(ColumnFamilyData* cfd);
 
+  // REQUIRES: mutex locked
+  Status HandleWALFull(WriteContext* write_context);
+
+  // REQUIRES: mutex locked
+  Status HandleWriteBufferFull(WriteContext* write_context);
+
+  // REQUIRES: mutex locked
+  Status PreprocessWrite(const WriteOptions& write_options, bool need_log_sync,
+                         bool* logs_getting_syned, WriteContext* write_context);
+
+  Status WriteToWAL(const autovector<WriteThread::Writer*>& write_group,
+                    log::Writer* log_writer, bool need_log_sync,
+                    bool need_log_dir_sync, SequenceNumber sequence);
+
 #ifndef ROCKSDB_LITE
 
   Status CompactFilesImpl(const CompactionOptions& compact_options,
@@ -739,12 +765,6 @@ class DBImpl : public DB {
   void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
 
   const Snapshot* GetSnapshotImpl(bool is_write_conflict_boundary);
-
-  // Persist RocksDB options under the single write thread
-  // REQUIRES: mutex locked
-  Status PersistOptions();
-
-  void MaybeFlushColumnFamilies();
 
   uint64_t GetMaxTotalWalSize() const;
 
