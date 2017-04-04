@@ -170,7 +170,7 @@ TEST_F(FormatTest, IterKeyOperation) {
   k.TrimAppend(27, p, 26);
   ASSERT_EQ(std::string(k.GetUserKey().data(), k.GetUserKey().size()),
             std::string("abcdefghijklmnopqrstuvwxyz0"
-              "abcdefghijklmnopqrstuvwxyz"));
+                        "abcdefghijklmnopqrstuvwxyz"));
 }
 
 TEST_F(FormatTest, UpdateInternalKey) {

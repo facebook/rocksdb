@@ -449,8 +449,8 @@ void ForwardIterator::Next() {
     if (is_prev_set_ && prefix_extractor_) {
       // advance prev_key_ to current_ only if they share the same prefix
       update_prev_key =
-        prefix_extractor_->Transform(prev_key_.GetUserKey()).compare(
-          prefix_extractor_->Transform(current_->key())) == 0;
+          prefix_extractor_->Transform(prev_key_.GetUserKey())
+              .compare(prefix_extractor_->Transform(current_->key())) == 0;
     } else {
       update_prev_key = true;
     }

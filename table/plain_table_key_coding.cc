@@ -131,7 +131,8 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key,
                        static_cast<uint32_t>(pre_prefix_.GetUserKey().size()),
                        size_bytes + size_bytes_pos);
       }
-      uint32_t prefix_len = static_cast<uint32_t>(pre_prefix_.GetUserKey().size());
+      uint32_t prefix_len =
+          static_cast<uint32_t>(pre_prefix_.GetUserKey().size());
       size_bytes_pos += EncodeSize(kKeySuffix, user_key_size - prefix_len,
                                    size_bytes + size_bytes_pos);
       Status s = file->Append(Slice(size_bytes, size_bytes_pos));
@@ -315,7 +316,8 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(uint32_t start_offset,
   }
   if (!file_reader_.file_info()->is_mmap_mode) {
     cur_key_.SetInternalKey(*parsed_key);
-    parsed_key->user_key = Slice(cur_key_.GetInternalKey().data(), user_key_size);
+    parsed_key->user_key =
+        Slice(cur_key_.GetInternalKey().data(), user_key_size);
     if (internal_key != nullptr) {
       *internal_key = cur_key_.GetInternalKey();
     }
@@ -371,7 +373,8 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           cur_key_.SetInternalKey(*parsed_key);
           saved_user_key_ = cur_key_.GetUserKey();
           if (!file_reader_.file_info()->is_mmap_mode) {
-            parsed_key->user_key = Slice(cur_key_.GetInternalKey().data(), size);
+            parsed_key->user_key =
+                Slice(cur_key_.GetInternalKey().data(), size);
           }
           if (internal_key != nullptr) {
             *internal_key = cur_key_.GetInternalKey();

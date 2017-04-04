@@ -303,7 +303,11 @@ inline LookupKey::~LookupKey() {
 class IterKey {
  public:
   IterKey()
-      : buf_(space_), buf_size_(sizeof(space_)), key_(buf_), key_size_(0), is_user_key_(true) {}
+      : buf_(space_),
+        buf_size_(sizeof(space_)),
+        key_(buf_),
+        key_size_(0),
+        is_user_key_(true) {}
 
   ~IterKey() { ResetBuffer(); }
 
@@ -443,9 +447,7 @@ class IterKey {
     is_user_key_ = true;
   }
 
-  bool IsUserKey() const {
-    return is_user_key_;
-  }
+  bool IsUserKey() const { return is_user_key_; }
 
  private:
   char* buf_;
