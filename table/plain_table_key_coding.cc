@@ -431,7 +431,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           cur_key_.SetInternalKey(Slice(saved_user_key_.data(), prefix_len_),
                                   *parsed_key);
         }
-        parsed_key->user_key = ExtractUserKey(cur_key_.GetInternalKey());
+        parsed_key->user_key = cur_key_.GetUserKey();
         if (internal_key != nullptr) {
           *internal_key = cur_key_.GetInternalKey();
         }

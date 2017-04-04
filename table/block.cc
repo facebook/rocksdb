@@ -238,7 +238,7 @@ bool BlockIter::ParseNextKey() {
       key_pinned_ = true;
     } else {
       // This key share `shared` bytes with prev key, we need to decode it
-      key_.TrimAppend(shared, p, non_shared, false /* is_user_key */);
+      key_.TrimAppend(shared, p, non_shared);
       key_pinned_ = false;
     }
 
