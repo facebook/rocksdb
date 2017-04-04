@@ -376,7 +376,7 @@ void GetKeys(uint64_t num, std::vector<std::string>* keys) {
   keys->clear();
   IterKey k;
   k.SetInternalKey("", 0, kTypeValue);
-  std::string internal_key_suffix = k.GetKey().ToString();
+  std::string internal_key_suffix = k.GetInternalKey().ToString();
   ASSERT_EQ(static_cast<size_t>(8), internal_key_suffix.size());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     uint64_t value = 2 * key_idx;

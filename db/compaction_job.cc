@@ -733,7 +733,7 @@ void CompactionJob::ProcessKeyValueCompaction(SubcompactionState* sub_compact) {
   if (start != nullptr) {
     IterKey start_iter;
     start_iter.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
-    input->Seek(start_iter.GetKey());
+    input->Seek(start_iter.GetInternalKey());
   } else {
     input->SeekToFirst();
   }

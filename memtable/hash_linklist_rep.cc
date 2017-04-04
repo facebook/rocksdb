@@ -433,7 +433,7 @@ class HashLinkListRep : public MemTableRep {
         } else {
           IterKey encoded_key;
           encoded_key.EncodeLengthPrefixedKey(k);
-          skip_list_iter_->Seek(encoded_key.GetKey().data());
+          skip_list_iter_->Seek(encoded_key.GetUserKey().data());
         }
       } else {
         // The bucket is organized as a linked list
