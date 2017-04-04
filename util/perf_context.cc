@@ -62,6 +62,27 @@ void PerfContext::Reset() {
   bloom_memtable_miss_count = 0;
   bloom_sst_hit_count = 0;
   bloom_sst_miss_count = 0;
+
+  env_new_sequential_file_nanos = 0;
+  env_new_random_access_file_nanos = 0;
+  env_new_writable_file_nanos = 0;
+  env_reuse_writable_file_nanos = 0;
+  env_new_random_rw_file_nanos = 0;
+  env_new_directory_nanos = 0;
+  env_file_exists_nanos = 0;
+  env_get_children_nanos = 0;
+  env_get_children_file_attributes_nanos = 0;
+  env_delete_file_nanos = 0;
+  env_create_dir_nanos = 0;
+  env_create_dir_if_missing_nanos = 0;
+  env_delete_dir_nanos = 0;
+  env_get_file_size_nanos = 0;
+  env_get_file_modification_time_nanos = 0;
+  env_rename_file_nanos = 0;
+  env_link_file_nanos = 0;
+  env_lock_file_nanos = 0;
+  env_unlock_file_nanos = 0;
+  env_new_logger_nanos = 0;
 #endif
 }
 
@@ -117,6 +138,26 @@ std::string PerfContext::ToString(bool exclude_zero_counters) const {
   PERF_CONTEXT_OUTPUT(bloom_memtable_miss_count);
   PERF_CONTEXT_OUTPUT(bloom_sst_hit_count);
   PERF_CONTEXT_OUTPUT(bloom_sst_miss_count);
+  PERF_CONTEXT_OUTPUT(env_new_sequential_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_new_random_access_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_new_writable_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_reuse_writable_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_new_random_rw_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_new_directory_nanos);
+  PERF_CONTEXT_OUTPUT(env_file_exists_nanos);
+  PERF_CONTEXT_OUTPUT(env_get_children_nanos);
+  PERF_CONTEXT_OUTPUT(env_get_children_file_attributes_nanos);
+  PERF_CONTEXT_OUTPUT(env_delete_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_create_dir_nanos);
+  PERF_CONTEXT_OUTPUT(env_create_dir_if_missing_nanos);
+  PERF_CONTEXT_OUTPUT(env_delete_dir_nanos);
+  PERF_CONTEXT_OUTPUT(env_get_file_size_nanos);
+  PERF_CONTEXT_OUTPUT(env_get_file_modification_time_nanos);
+  PERF_CONTEXT_OUTPUT(env_rename_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_link_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_lock_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_unlock_file_nanos);
+  PERF_CONTEXT_OUTPUT(env_new_logger_nanos);
   return ss.str();
 #endif
 }

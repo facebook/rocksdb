@@ -125,6 +125,29 @@ struct PerfContext {
   uint64_t bloom_sst_hit_count;
   // total number of SST table bloom misses
   uint64_t bloom_sst_miss_count;
+
+  // Total time spent in Env filesystem operations. These are only populated
+  // when TimedEnv is used.
+  uint64_t env_new_sequential_file_nanos;
+  uint64_t env_new_random_access_file_nanos;
+  uint64_t env_new_writable_file_nanos;
+  uint64_t env_reuse_writable_file_nanos;
+  uint64_t env_new_random_rw_file_nanos;
+  uint64_t env_new_directory_nanos;
+  uint64_t env_file_exists_nanos;
+  uint64_t env_get_children_nanos;
+  uint64_t env_get_children_file_attributes_nanos;
+  uint64_t env_delete_file_nanos;
+  uint64_t env_create_dir_nanos;
+  uint64_t env_create_dir_if_missing_nanos;
+  uint64_t env_delete_dir_nanos;
+  uint64_t env_get_file_size_nanos;
+  uint64_t env_get_file_modification_time_nanos;
+  uint64_t env_rename_file_nanos;
+  uint64_t env_link_file_nanos;
+  uint64_t env_lock_file_nanos;
+  uint64_t env_unlock_file_nanos;
+  uint64_t env_new_logger_nanos;
 };
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
