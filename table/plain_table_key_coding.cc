@@ -369,7 +369,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           // users, because after reading value for the key, the key might
           // be invalid.
           cur_key_.SetInternalKey(*parsed_key);
-          saved_user_key_ = cur_key_.GetInternalKey();
+          saved_user_key_ = cur_key_.GetUserKey();
           if (!file_reader_.file_info()->is_mmap_mode) {
             parsed_key->user_key = Slice(cur_key_.GetInternalKey().data(), size);
           }
@@ -422,7 +422,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           cur_key_.SetInternalKey(tmp, *parsed_key);
           parsed_key->user_key =
               Slice(cur_key_.GetInternalKey().data(), prefix_len_ + size);
-          saved_user_key_ = cur_key_.GetInternalKey();
+          saved_user_key_ = cur_key_.GetUserKey();
         } else {
           cur_key_.Reserve(prefix_len_ + size);
           cur_key_.SetInternalKey(Slice(saved_user_key_.data(), prefix_len_),
