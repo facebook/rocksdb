@@ -105,7 +105,7 @@ void CompactionIterator::Next() {
       assert(valid_key);
       // Keep current_key_ in sync.
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-      key_ = current_key_.GetKey();
+      key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
       valid_ = true;
     } else {
@@ -151,7 +151,7 @@ void CompactionIterator::NextFromInput() {
         status_ = Status::Corruption("Corrupted internal key not expected.");
         break;
       }
-      key_ = current_key_.SetKey(key_);
+      key_ = current_key_.SetInternalKey(key_);
       has_current_user_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;
       current_user_key_snapshot_ = 0;
@@ -181,7 +181,7 @@ void CompactionIterator::NextFromInput() {
         !cmp_->Equal(ikey_.user_key, current_user_key_)) {
       // First occurrence of this user key
       // Copy key for output
-      key_ = current_key_.SetKey(key_, &ikey_);
+      key_ = current_key_.SetInternalKey(key_, &ikey_);
       current_user_key_ = ikey_.user_key;
       has_current_user_key_ = true;
       has_outputted_key_ = false;
@@ -241,7 +241,7 @@ void CompactionIterator::NextFromInput() {
       // Need to have the compaction filter process multiple versions
       // if we have versions on both sides of a snapshot
       current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-      key_ = current_key_.GetKey();
+      key_ = current_key_.GetInternalKey();
       ikey_.user_key = current_key_.GetUserKey();
     }
 
@@ -453,7 +453,7 @@ void CompactionIterator::NextFromInput() {
         assert(valid_key);
         // Keep current_key_ in sync.
         current_key_.UpdateInternalKey(ikey_.sequence, ikey_.type);
-        key_ = current_key_.GetKey();
+        key_ = current_key_.GetInternalKey();
         ikey_.user_key = current_key_.GetUserKey();
         valid_ = true;
       } else {

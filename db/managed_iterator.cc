@@ -196,12 +196,12 @@ void ManagedIterator::Next() {
 
 Slice ManagedIterator::key() const {
   assert(valid_);
-  return cached_key_.GetKey();
+  return cached_key_.GetUserKey();
 }
 
 Slice ManagedIterator::value() const {
   assert(valid_);
-  return cached_value_.GetKey();
+  return cached_value_.GetUserKey();
 }
 
 Status ManagedIterator::status() const { return status_; }
@@ -221,8 +221,8 @@ void ManagedIterator::UpdateCurrent() {
   }
 
   status_ = Status::OK();
-  cached_key_.SetKey(mutable_iter_->key());
-  cached_value_.SetKey(mutable_iter_->value());
+  cached_key_.SetUserKey(mutable_iter_->key());
+  cached_value_.SetUserKey(mutable_iter_->value());
 }
 
 void ManagedIterator::ReleaseIter(bool only_old) {

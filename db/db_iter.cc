@@ -162,7 +162,7 @@ class DBIter: public Iterator {
   virtual bool Valid() const override { return valid_; }
   virtual Slice key() const override {
     assert(valid_);
-    return saved_key_.GetKey();
+    return saved_key_.GetUserKey();
   }
   virtual Slice value() const override {
     assert(valid_);
@@ -406,7 +406,8 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 
     if (ikey.sequence <= sequence_) {
       if (skipping &&
-          user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0) {
+          user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) <=
+              0) {
         num_skipped++;  // skip this entry
         PERF_COUNTER_ADD(internal_key_skipped_count, 1);
       } else {
@@ -416,14 +417,14 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
           case kTypeSingleDeletion:
             // Arrange to skip all upcoming entries for this key since
             // they are hidden by this deletion.
-            saved_key_.SetKey(
+            saved_key_.SetUserKey(
                 ikey.user_key,
                 !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
             skipping = true;
             PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
             break;
           case kTypeValue:
-            saved_key_.SetKey(
+            saved_key_.SetUserKey(
                 ikey.user_key,
                 !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
             if (range_del_agg_.ShouldDelete(
@@ -440,7 +441,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
             }
             break;
           case kTypeMerge:
-            saved_key_.SetKey(
+            saved_key_.SetUserKey(
                 ikey.user_key,
                 !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
             if (range_del_agg_.ShouldDelete(
@@ -471,12 +472,13 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
 
       // Here saved_key_ may contain some old key, or the default empty key, or
       // key assigned by some random other method. We don't care.
-      if (user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0) {
+      if (user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) <=
+          0) {
         num_skipped++;
       } else {
-        saved_key_.SetKey(
-                ikey.user_key,
-                !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
+        saved_key_.SetUserKey(
+            ikey.user_key,
+            !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
         skipping = false;
         num_skipped = 0;
       }
@@ -491,8 +493,8 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
         // We're looking for the next user-key but all we see are the same
         // user-key with decreasing sequence numbers. Fast forward to
         // sequence number 0 and type deletion (the smallest type).
-        AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetKey(), 0,
-                                                       kTypeDeletion));
+        AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
+                                                       0, kTypeDeletion));
         // Don't set skipping = false because we may still see more user-keys
         // equal to saved_key_.
       } else {
@@ -502,7 +504,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping, bool prefix_check) {
         // many times since our snapshot was taken, not the case when a lot of
         // different keys were inserted after our snapshot was taken.
         AppendInternalKey(&last_key,
-                          ParsedInternalKey(saved_key_.GetKey(), sequence_,
+                          ParsedInternalKey(saved_key_.GetUserKey(), sequence_,
                                             kValueTypeForSeek));
       }
       iter_->Seek(last_key);
@@ -543,7 +545,7 @@ void DBIter::MergeValuesNewToOld() {
       continue;
     }
 
-    if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
+    if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
       // hit the next user key, stop right here
       break;
     } else if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type ||
@@ -583,9 +585,10 @@ void DBIter::MergeValuesNewToOld() {
   // a deletion marker.
   // feed null as the existing value to the merge operator, such that
   // client can differentiate this scenario and do things accordingly.
-  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), nullptr,
-                                  merge_context_.GetOperands(), &saved_value_,
-                                  logger_, statistics_, env_, &pinned_value_);
+  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetUserKey(),
+                                  nullptr, merge_context_.GetOperands(),
+                                  &saved_value_, logger_, statistics_, env_,
+                                  &pinned_value_);
   if (!s.ok()) {
     status_ = s;
   }
@@ -612,8 +615,8 @@ void DBIter::ReverseToForward() {
   if (prefix_extractor_ != nullptr && !total_order_seek_) {
     IterKey last_key;
     last_key.SetInternalKey(ParsedInternalKey(
-        saved_key_.GetKey(), kMaxSequenceNumber, kValueTypeForSeek));
-    iter_->Seek(last_key.GetKey());
+        saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
+    iter_->Seek(last_key.GetInternalKey());
   }
   FindNextUserKey();
   direction_ = kForward;
@@ -626,9 +629,9 @@ void DBIter::ReverseToForward() {
 void DBIter::ReverseToBackward() {
   if (prefix_extractor_ != nullptr && !total_order_seek_) {
     IterKey last_key;
-    last_key.SetInternalKey(
-        ParsedInternalKey(saved_key_.GetKey(), 0, kValueTypeForSeekForPrev));
-    iter_->SeekForPrev(last_key.GetKey());
+    last_key.SetInternalKey(ParsedInternalKey(saved_key_.GetUserKey(), 0,
+                                              kValueTypeForSeekForPrev));
+    iter_->SeekForPrev(last_key.GetInternalKey());
   }
   if (current_entry_is_merged_) {
     // Not placed in the same key. Need to call Prev() until finding the
@@ -640,7 +643,8 @@ void DBIter::ReverseToBackward() {
     ParsedInternalKey ikey;
     FindParseableKey(&ikey, kReverse);
     while (iter_->Valid() &&
-           user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) > 0) {
+           user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) >
+               0) {
       if (ikey.sequence > sequence_) {
         PERF_COUNTER_ADD(internal_recent_skipped_count, 1);
       } else {
@@ -654,7 +658,8 @@ void DBIter::ReverseToBackward() {
   if (iter_->Valid()) {
     ParsedInternalKey ikey;
     assert(ParseKey(&ikey));
-    assert(user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0);
+    assert(user_comparator_->Compare(ikey.user_key, saved_key_.GetUserKey()) <=
+           0);
   }
 #endif
 
@@ -671,8 +676,9 @@ void DBIter::PrevInternal() {
   ParsedInternalKey ikey;
 
   while (iter_->Valid()) {
-    saved_key_.SetKey(ExtractUserKey(iter_->key()),
-                      !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
+    saved_key_.SetUserKey(
+        ExtractUserKey(iter_->key()),
+        !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
 
     if (FindValueForCurrentKey()) {
       valid_ = true;
@@ -680,11 +686,11 @@ void DBIter::PrevInternal() {
         return;
       }
       FindParseableKey(&ikey, kReverse);
-      if (user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
+      if (user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
         FindPrevUserKey();
       }
       if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
-          prefix_extractor_->Transform(saved_key_.GetKey())
+          prefix_extractor_->Transform(saved_key_.GetUserKey())
                   .compare(prefix_start_key_) != 0) {
         valid_ = false;
       }
@@ -699,7 +705,7 @@ void DBIter::PrevInternal() {
       break;
     }
     FindParseableKey(&ikey, kReverse);
-    if (user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
+    if (user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
       FindPrevUserKey();
     }
   }
@@ -729,7 +735,7 @@ bool DBIter::FindValueForCurrentKey() {
   TempPinData();
   size_t num_skipped = 0;
   while (iter_->Valid() && ikey.sequence <= sequence_ &&
-         user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
+         user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
     if (TooManyInternalKeysSkipped()) {
       return false;
     }
@@ -780,7 +786,7 @@ bool DBIter::FindValueForCurrentKey() {
     }
 
     PERF_COUNTER_ADD(internal_key_skipped_count, 1);
-    assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()));
+    assert(user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()));
     iter_->Prev();
     ++num_skipped;
     FindParseableKey(&ikey, kReverse);
@@ -798,14 +804,14 @@ bool DBIter::FindValueForCurrentKey() {
       if (last_not_merge_type == kTypeDeletion ||
           last_not_merge_type == kTypeSingleDeletion ||
           last_not_merge_type == kTypeRangeDeletion) {
-        s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
-                                        nullptr, merge_context_.GetOperands(),
-                                        &saved_value_, logger_, statistics_,
-                                        env_, &pinned_value_);
+        s = MergeHelper::TimedFullMerge(
+            merge_operator_, saved_key_.GetUserKey(), nullptr,
+            merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
+            env_, &pinned_value_);
       } else {
         assert(last_not_merge_type == kTypeValue);
         s = MergeHelper::TimedFullMerge(
-            merge_operator_, saved_key_.GetKey(), &pinned_value_,
+            merge_operator_, saved_key_.GetUserKey(), &pinned_value_,
             merge_context_.GetOperands(), &saved_value_, logger_, statistics_,
             env_, &pinned_value_);
       }
@@ -831,8 +837,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   // FindValueForCurrentKeyUsingSeek()
   assert(pinned_iters_mgr_.PinningEnabled());
   std::string last_key;
-  AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetKey(), sequence_,
-                                                 kValueTypeForSeek));
+  AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetUserKey(),
+                                                 sequence_, kValueTypeForSeek));
   iter_->Seek(last_key);
   RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
 
@@ -859,7 +865,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   merge_context_.Clear();
   while (
       iter_->Valid() &&
-      user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) &&
+      user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()) &&
       ikey.type == kTypeMerge &&
       !range_del_agg_.ShouldDelete(
           ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
@@ -872,17 +878,17 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   Status s;
   if (!iter_->Valid() ||
-      !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) ||
+      !user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey()) ||
       ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion ||
       range_del_agg_.ShouldDelete(
           ikey, RangeDelAggregator::RangePositioningMode::kBackwardTraversal)) {
-    s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(),
+    s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetUserKey(),
                                     nullptr, merge_context_.GetOperands(),
                                     &saved_value_, logger_, statistics_, env_,
                                     &pinned_value_);
     // Make iter_ valid and point to saved_key_
     if (!iter_->Valid() ||
-        !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
+        !user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
       iter_->Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     }
@@ -894,9 +900,10 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   }
 
   const Slice& val = iter_->value();
-  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetKey(), &val,
-                                  merge_context_.GetOperands(), &saved_value_,
-                                  logger_, statistics_, env_, &pinned_value_);
+  s = MergeHelper::TimedFullMerge(merge_operator_, saved_key_.GetUserKey(),
+                                  &val, merge_context_.GetOperands(),
+                                  &saved_value_, logger_, statistics_, env_,
+                                  &pinned_value_);
   valid_ = true;
   if (!s.ok()) {
     status_ = s;
@@ -915,7 +922,7 @@ void DBIter::FindNextUserKey() {
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kForward);
   while (iter_->Valid() &&
-         !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
+         !user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
     iter_->Next();
     FindParseableKey(&ikey, kForward);
   }
@@ -930,9 +937,10 @@ void DBIter::FindPrevUserKey() {
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kReverse);
   int cmp;
-  while (iter_->Valid() && ((cmp = user_comparator_->Compare(
-                                 ikey.user_key, saved_key_.GetKey())) == 0 ||
-                            (cmp > 0 && ikey.sequence > sequence_))) {
+  while (iter_->Valid() &&
+         ((cmp = user_comparator_->Compare(ikey.user_key,
+                                           saved_key_.GetUserKey())) == 0 ||
+          (cmp > 0 && ikey.sequence > sequence_))) {
     if (TooManyInternalKeysSkipped()) {
       return;
     }
@@ -942,8 +950,8 @@ void DBIter::FindPrevUserKey() {
         num_skipped = 0;
         IterKey last_key;
         last_key.SetInternalKey(ParsedInternalKey(
-            saved_key_.GetKey(), kMaxSequenceNumber, kValueTypeForSeek));
-        iter_->Seek(last_key.GetKey());
+            saved_key_.GetUserKey(), kMaxSequenceNumber, kValueTypeForSeek));
+        iter_->Seek(last_key.GetInternalKey());
         RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
       } else {
         ++num_skipped;
@@ -991,7 +999,7 @@ void DBIter::Seek(const Slice& target) {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_->Seek(saved_key_.GetKey());
+    iter_->Seek(saved_key_.GetInternalKey());
     range_del_agg_.InvalidateTombstoneMapPositions();
   }
   RecordTick(statistics_, NUMBER_DB_SEEK);
@@ -1001,9 +1009,6 @@ void DBIter::Seek(const Slice& target) {
     }
     direction_ = kForward;
     ClearSavedValue();
-    // convert the InternalKey to UserKey in saved_key_ before
-    // passed to FindNextUserEntry
-    saved_key_.Reserve(saved_key_.Size() - 8);
     FindNextUserEntry(false /* not skipping */, prefix_same_as_start_);
     if (!valid_) {
       prefix_start_key_.clear();
@@ -1019,8 +1024,8 @@ void DBIter::Seek(const Slice& target) {
   }
 
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_buf_.SetKey(prefix_start_key_);
-    prefix_start_key_ = prefix_start_buf_.GetKey();
+    prefix_start_buf_.SetUserKey(prefix_start_key_);
+    prefix_start_key_ = prefix_start_buf_.GetUserKey();
   }
 }
 
@@ -1035,7 +1040,7 @@ void DBIter::SeekForPrev(const Slice& target) {
 
   {
     PERF_TIMER_GUARD(seek_internal_seek_time);
-    iter_->SeekForPrev(saved_key_.GetKey());
+    iter_->SeekForPrev(saved_key_.GetInternalKey());
     range_del_agg_.InvalidateTombstoneMapPositions();
   }
 
@@ -1060,8 +1065,8 @@ void DBIter::SeekForPrev(const Slice& target) {
     valid_ = false;
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_buf_.SetKey(prefix_start_key_);
-    prefix_start_key_ = prefix_start_buf_.GetKey();
+    prefix_start_buf_.SetUserKey(prefix_start_key_);
+    prefix_start_key_ = prefix_start_buf_.GetUserKey();
   }
 }
 
@@ -1084,8 +1089,9 @@ void DBIter::SeekToFirst() {
 
   RecordTick(statistics_, NUMBER_DB_SEEK);
   if (iter_->Valid()) {
-    saved_key_.SetKey(ExtractUserKey(iter_->key()),
-                      !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
+    saved_key_.SetUserKey(
+        ExtractUserKey(iter_->key()),
+        !iter_->IsKeyPinned() || !pin_thru_lifetime_ /* copy */);
     FindNextUserEntry(false /* not skipping */, false /* no prefix check */);
     if (statistics_ != nullptr) {
       if (valid_) {
@@ -1097,8 +1103,9 @@ void DBIter::SeekToFirst() {
     valid_ = false;
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_buf_.SetKey(prefix_extractor_->Transform(saved_key_.GetKey()));
-    prefix_start_key_ = prefix_start_buf_.GetKey();
+    prefix_start_buf_.SetUserKey(
+        prefix_extractor_->Transform(saved_key_.GetUserKey()));
+    prefix_start_key_ = prefix_start_buf_.GetUserKey();
   }
 }
 
@@ -1140,8 +1147,9 @@ void DBIter::SeekToLast() {
     }
   }
   if (valid_ && prefix_extractor_ && prefix_same_as_start_) {
-    prefix_start_buf_.SetKey(prefix_extractor_->Transform(saved_key_.GetKey()));
-    prefix_start_key_ = prefix_start_buf_.GetKey();
+    prefix_start_buf_.SetUserKey(
+        prefix_extractor_->Transform(saved_key_.GetUserKey()));
+    prefix_start_key_ = prefix_start_buf_.GetUserKey();
   }
 }
 

@@ -264,7 +264,7 @@ class BlockIter : public InternalIterator {
   virtual Status status() const override { return status_; }
   virtual Slice key() const override {
     assert(Valid());
-    return key_.GetKey();
+    return key_.GetInternalKey();
   }
   virtual Slice value() const override {
     assert(Valid());
