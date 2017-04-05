@@ -24,7 +24,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
 #include "util/filename.h"
-#include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 

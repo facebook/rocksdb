@@ -12,7 +12,7 @@
 #include "rocksdb/filter_policy.h"
 #include "util/coding.h"
 #include "util/hash.h"
-#include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
