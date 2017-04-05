@@ -380,7 +380,7 @@ set(SOURCES
         env/env.cc
         env/env_chroot.cc
         env/env_hdfs.cc
-        env/memenv.cc
+        env/mock_env.cc
         memtable/hash_cuckoo_rep.cc
         memtable/hash_linklist_rep.cc
         memtable/hash_skiplist_rep.cc
