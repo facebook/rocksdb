@@ -618,7 +618,6 @@ set(TESTS
         monitoring/histogram_test.cc
         monitoring/iostats_context_test.cc
         monitoring/statistics_test.cc
-        monitoring/thread_list_test.cc
         options/options_settable_test.cc
         options/options_test.cc
         table/block_based_filter_block_test.cc
@@ -645,6 +644,7 @@ set(TESTS
         util/heap_test.cc
         util/rate_limiter_test.cc
         util/slice_transform_test.cc
+        util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc
         utilities/blob_db/blob_db_test.cc
@@ -677,7 +677,7 @@ endif()
 set(BENCHMARKS
   tools/db_bench.cc
   table/table_reader_bench.cc
-  util/cache_bench.cc
+  cache/cache_bench.cc
   db/memtablerep_bench.cc
   utilities/column_aware_encoding_exp.cc
   utilities/persistent_cache/hash_table_bench.cc)
@@ -693,8 +693,8 @@ endforeach(sourcefile ${BENCHMARKS})
 # and linked to tests. Add test only code that is not #ifdefed for Release here.
 set(TESTUTIL_SOURCE
     db/db_test_util.cc
+    env/mock_env.cc
     table/mock_table.cc
-    util/mock_env.cc
     util/fault_injection_test_env.cc
     util/thread_status_updater_debug.cc
 )
