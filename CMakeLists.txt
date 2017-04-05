@@ -293,6 +293,10 @@ set(SOURCES
         db/dbformat.cc
         db/db_filesnapshot.cc
         db/db_impl.cc
+        db/db_impl_write.cc
+        db/db_impl_compaction_flush.cc
+        db/db_impl_files.cc
+        db/db_impl_open.cc
         db/db_impl_debug.cc
         db/db_impl_experimental.cc
         db/db_impl_readonly.cc
