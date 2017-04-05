@@ -10,6 +10,7 @@
 ### New Features
 * Memtable flush can be avoided during checkpoint creation if total log file size is smaller than a threshold specified by the user.
 * Introduce level-based L0->L0 compactions to reduce file count, so write delays are incurred less often.
+* (Experimental) Partitioning filters which creates an index on the partitions. The feature can be enabled by setting partition_filters when using kFullFilter. Currently the feature also requires two-level indexing to be enabled. Number of partitions is the same as the number of partitions for indexes, which is controlled by metadata_block_size.
 
 ## 5.3.0 (03/08/2017)
 ### Public API Change
