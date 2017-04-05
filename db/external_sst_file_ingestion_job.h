@@ -12,11 +12,11 @@
 #include "db/dbformat.h"
 #include "db/internal_stats.h"
 #include "db/snapshot_impl.h"
+#include "options/db_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/sst_file_writer.h"
 #include "util/autovector.h"
-#include "util/db_options.h"
 
 namespace rocksdb {
 

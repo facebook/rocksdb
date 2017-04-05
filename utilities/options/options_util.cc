@@ -7,9 +7,9 @@
 
 #include "rocksdb/utilities/options_util.h"
 
+#include "options/options_parser.h"
 #include "rocksdb/options.h"
 #include "util/filename.h"
-#include "util/options_parser.h"
 
 namespace rocksdb {
 Status LoadOptionsFromFile(const std::string& file_name, Env* env,

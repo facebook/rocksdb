@@ -17,10 +17,10 @@
 
 #include "db/compaction.h"
 #include "db/version_set.h"
+#include "options/cf_options.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/status.h"
-#include "util/cf_options.h"
 
 namespace rocksdb {
 

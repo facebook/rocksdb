@@ -27,11 +27,11 @@
 #include "utilities/persistent_cache/persistent_cache_util.h"
 
 #include "db/skiplist.h"
+#include "monitoring/histogram.h"
 #include "port/port.h"
 #include "util/arena.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/histogram.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {

@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include "db/pinned_iterators_manager.h"
+#include "monitoring/perf_context_imp.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -20,7 +21,6 @@
 #include "util/arena.h"
 #include "util/autovector.h"
 #include "util/heap.h"
-#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 

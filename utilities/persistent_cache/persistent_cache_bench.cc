@@ -17,9 +17,9 @@
 #include "utilities/persistent_cache/persistent_cache_tier.h"
 #include "utilities/persistent_cache/volatile_tier_impl.h"
 
+#include "monitoring/histogram.h"
 #include "port/port.h"
 #include "table/block_builder.h"
-#include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "util/stop_watch.h"
 

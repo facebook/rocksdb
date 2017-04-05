@@ -13,6 +13,7 @@
 #include <string>
 #include "db/memtable.h"
 #include "db/version_set.h"
+#include "monitoring/thread_status_util.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -20,7 +21,6 @@
 #include "util/coding.h"
 #include "util/log_buffer.h"
 #include "util/sync_point.h"
-#include "util/thread_status_util.h"
 
 namespace rocksdb {
 

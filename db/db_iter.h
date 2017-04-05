@@ -12,11 +12,11 @@
 #include <string>
 #include "db/dbformat.h"
 #include "db/range_del_aggregator.h"
+#include "options/cf_options.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "util/arena.h"
 #include "util/autovector.h"
-#include "util/cf_options.h"
 
 namespace rocksdb {
 

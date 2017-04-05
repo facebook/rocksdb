@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "options/cf_options.h"
 #include "rocksdb/options.h"
 #include "rocksdb/persistent_cache.h"
 #include "rocksdb/statistics.h"
@@ -27,7 +28,6 @@
 #include "table/table_properties_internal.h"
 #include "table/table_reader.h"
 #include "table/two_level_iterator.h"
-#include "util/cf_options.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 

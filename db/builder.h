@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 #include "db/table_properties_collector.h"
+#include "options/cf_options.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/listener.h"
@@ -18,7 +19,6 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/types.h"
 #include "table/scoped_arena_iterator.h"
-#include "util/cf_options.h"
 #include "util/event_logger.h"
 
 namespace rocksdb {
