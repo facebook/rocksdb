@@ -73,14 +73,12 @@ class PosixLogger : public Logger {
     // We try twice: the first time with a fixed-size stack allocated buffer,
     // and the second time with a much larger dynamically allocated buffer.
     char buffer[500];
+    size_t bufsize = sizeof(buffer);
     for (int iter = 0; iter < 2; iter++) {
       char* base;
-      int bufsize;
       if (iter == 0) {
-        bufsize = sizeof(buffer);
         base = buffer;
       } else {
-        bufsize = 65536;
         base = new char[bufsize];
       }
       char* p = base;
@@ -103,20 +101,15 @@ class PosixLogger : public Logger {
                     static_cast<long long unsigned int>(thread_id));
 
       // Print the message
-      if (p < limit) {
-        va_list backup_ap;
-        va_copy(backup_ap, ap);
-        p += vsnprintf(p, limit - p, format, backup_ap);
-        va_end(backup_ap);
-      }
+      va_list backup_ap;
+      va_copy(backup_ap, ap);
+      p += vsnprintf(p, (p < limit) ? (limit - p) : 0, format, backup_ap);
+      va_end(backup_ap);
 
-      // Truncate to available space if necessary
       if (p >= limit) {
-        if (iter == 0) {
-          continue;       // Try again with larger buffer
-        } else {
-          p = limit - 1;
-        }
+        assert(iter == 0);
+        bufsize = p + 1 - base;
+        continue;       // Try again with larger buffer
       }
 
       // Add newline if necessary
