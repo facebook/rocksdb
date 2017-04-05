@@ -18,6 +18,7 @@
 #include <cmath>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
@@ -255,6 +256,8 @@ std::string trim(const std::string& str) {
   return std::string();
 }
 
+#ifndef ROCKSDB_LITE
+
 bool ParseBoolean(const std::string& type, const std::string& value) {
   if (value == "true" || value == "1") {
     return true;
@@ -264,28 +267,16 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
   throw std::invalid_argument(type);
 }
 
-int ParseInt(const std::string& value) {
-  size_t endchar;
-#ifndef CYGWIN
-  int num = std::stoi(value.c_str(), &endchar);
-#else
-  char* endptr;
-  int num = std::strtoul(value.c_str(), &endptr, 0);
-  endchar = endptr - value.c_str();
-#endif
-
-  if (endchar < value.length()) {
-    char c = value[endchar];
-    if (c == 'k' || c == 'K')
-      num <<= 10;
-    else if (c == 'm' || c == 'M')
-      num <<= 20;
-    else if (c == 'g' || c == 'G')
-      num <<= 30;
+uint32_t ParseUint32(const std::string& value) {
+  uint64_t num = ParseUint64(value);
+  if ((num >> 32LL) == 0) {
+    return static_cast<uint32_t>(num);
+  } else {
+    throw std::out_of_range(value);
   }
-
-  return num;
 }
+
+#endif
 
 uint64_t ParseUint64(const std::string& value) {
   size_t endchar;
@@ -312,13 +303,27 @@ uint64_t ParseUint64(const std::string& value) {
   return num;
 }
 
-uint32_t ParseUint32(const std::string& value) {
-  uint64_t num = ParseUint64(value);
-  if ((num >> 32LL) == 0) {
-    return static_cast<uint32_t>(num);
-  } else {
-    throw std::out_of_range(value);
+int ParseInt(const std::string& value) {
+  size_t endchar;
+#ifndef CYGWIN
+  int num = std::stoi(value.c_str(), &endchar);
+#else
+  char* endptr;
+  int num = std::strtoul(value.c_str(), &endptr, 0);
+  endchar = endptr - value.c_str();
+#endif
+
+  if (endchar < value.length()) {
+    char c = value[endchar];
+    if (c == 'k' || c == 'K')
+      num <<= 10;
+    else if (c == 'm' || c == 'M')
+      num <<= 20;
+    else if (c == 'g' || c == 'G')
+      num <<= 30;
   }
+
+  return num;
 }
 
 double ParseDouble(const std::string& value) {
